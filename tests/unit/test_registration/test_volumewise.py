@@ -27,14 +27,14 @@ class TestRegisterVolumewise:
     @pytest.mark.parametrize(
         ("data_fixture", "dims"),
         [
-            ("sample_2dt_dataarray", ("time", "y", "x")),
-            ("sample_3dt_dataarray", ("time", "z", "y", "x")),
+            ("sample_2d_dataarray", ("time", "y", "x")),
+            ("sample_3d_dataarray", ("time", "z", "y", "x")),
         ],
     )
     def test_identical_frames_unchanged(self, data_fixture, dims, request):
         """Identical frames remain unchanged after registration (2D and 3D)."""
         data = request.getfixturevalue(data_fixture)
-        result = register_volumewise(data, n_jobs=1, allow_rotation=False)
+        result = register_volumewise(data, n_jobs=1, transform="translation")
 
         assert result.dims == dims
         assert result.shape == data.shape
@@ -62,7 +62,7 @@ class TestRegisterVolumewise:
         )
 
         result = register_volumewise(
-            data, reference_time=0, n_jobs=1, allow_rotation=False
+            data, reference_time=0, n_jobs=1, transform="translation"
         )
 
         # Check motion parameters recovered the shift.
@@ -71,50 +71,50 @@ class TestRegisterVolumewise:
         assert abs(motion_df.loc[motion_df.index[1], "trans_x"]) < shift_x + 1
         assert abs(motion_df.loc[motion_df.index[1], "trans_y"]) < shift_y + 1
 
-    def test_output_has_registration_attributes(self, sample_2dt_dataarray):
+    def test_output_has_registration_attributes(self, sample_2d_dataarray):
         """Output has registration metadata attributes."""
-        result = register_volumewise(sample_2dt_dataarray, reference_time=2, n_jobs=1)
+        result = register_volumewise(sample_2d_dataarray, reference_time=2, n_jobs=1)
 
         assert result.attrs["registration"] == "volumewise"
         assert result.attrs["reference_time"] == 2
         assert "motion_params" in result.attrs
 
-    def test_preserves_input_attributes(self, sample_2dt_dataarray):
+    def test_preserves_input_attributes(self, sample_2d_dataarray):
         """Input attributes are preserved in output."""
-        sample_2dt_dataarray.attrs["custom_attr"] = "test_value"
+        sample_2d_dataarray.attrs["custom_attr"] = "test_value"
 
-        result = register_volumewise(sample_2dt_dataarray, n_jobs=1)
+        result = register_volumewise(sample_2d_dataarray, n_jobs=1)
 
         assert result.attrs["custom_attr"] == "test_value"
 
-    def test_preserves_coordinates(self, sample_2dt_dataarray):
+    def test_preserves_coordinates(self, sample_2d_dataarray):
         """Coordinates are preserved in output."""
-        result = register_volumewise(sample_2dt_dataarray, n_jobs=1)
+        result = register_volumewise(sample_2d_dataarray, n_jobs=1)
 
         assert_allclose(
-            result.coords["time"].values, sample_2dt_dataarray.coords["time"].values
+            result.coords["time"].values, sample_2d_dataarray.coords["time"].values
         )
         assert_allclose(
-            result.coords["y"].values, sample_2dt_dataarray.coords["y"].values
+            result.coords["y"].values, sample_2d_dataarray.coords["y"].values
         )
         assert_allclose(
-            result.coords["x"].values, sample_2dt_dataarray.coords["x"].values
+            result.coords["x"].values, sample_2d_dataarray.coords["x"].values
         )
 
-    def test_different_reference_time(self, sample_2dt_dataarray):
+    def test_different_reference_time(self, sample_2d_dataarray):
         """Can use different reference time indices."""
-        result = register_volumewise(sample_2dt_dataarray, reference_time=2, n_jobs=1)
+        result = register_volumewise(sample_2d_dataarray, reference_time=2, n_jobs=1)
 
         assert result.attrs["reference_time"] == 2
 
-    def test_allow_rotation_option(self, sample_2dt_dataarray):
-        """allow_rotation parameter changes registration behavior."""
+    def test_transform_option(self, sample_2d_dataarray):
+        """transform parameter changes registration behavior."""
         # Both should work without error.
         result_no_rot = register_volumewise(
-            sample_2dt_dataarray, n_jobs=1, allow_rotation=False
+            sample_2d_dataarray, n_jobs=1, transform="translation"
         )
         result_with_rot = register_volumewise(
-            sample_2dt_dataarray, n_jobs=1, allow_rotation=True
+            sample_2d_dataarray, n_jobs=1, transform="rigid"
         )
 
         # Motion params should have rotation column in both cases.
@@ -124,12 +124,15 @@ class TestRegisterVolumewise:
     def test_singleton_dimension_handling(self, sample_2d_image):
         """Singleton spatial dimensions are handled correctly."""
         # Create data with a singleton z dimension (2D slice in 3D array).
+        # The voxdim attribute provides spacing for the singleton z coordinate so
+        # that no "spacing is undefined" warning is raised.
+        z_coord = xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2})
         data = xr.DataArray(
             sample_2d_image[np.newaxis, np.newaxis, :, :].repeat(3, axis=0),
             dims=("time", "z", "y", "x"),
             coords={
                 "time": np.arange(3) * 0.1,
-                "z": [0.0],  # Singleton.
+                "z": z_coord,
                 "y": np.arange(32) * 0.1,
                 "x": np.arange(32) * 0.1,
             },
@@ -158,3 +161,13 @@ class TestRegisterVolumewise:
         result = register_volumewise(data, n_jobs=1)
 
         assert result.dims == ("y", "x", "time")
+
+    def test_multi_resolution_does_not_crash(self, sample_3d_dataarray):
+        """Multi-resolution pyramid completes without error."""
+        result = register_volumewise(
+            sample_3d_dataarray,
+            n_jobs=1,
+            transform="translation",
+            use_multi_resolution=True,
+        )
+        assert result.shape == sample_3d_dataarray.shape

@@ -74,9 +74,9 @@ def plot_napari(
 
     For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
     spacing cannot be inferred from coordinates. In that case, the function looks for a
-    ``voxdim`` attribute on the coordinate variable (``data.coords[dim].attrs["voxdim"]``)
-    and uses it as the spacing. If no such attribute is found, unit spacing is assumed
-    and a warning is emitted.
+    ``voxdim`` attribute on the coordinate variable
+    (``data.coords[dim].attrs["voxdim"]``) and uses it as the spacing. If no such
+    attribute is found, unit spacing is assumed and a warning is emitted.
 
     The first coordinate value of each spatial dimension is used as the ``translate``
     parameter so that the image is positioned at its correct physical origin. For

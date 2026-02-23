@@ -97,4 +97,9 @@ addopts = [
 filterwarnings = [
     "ignore::DeprecationWarning:copy",
     "ignore:builtin type.*[Ss]wig.*:DeprecationWarning",
+    # Under the Agg backend used in tests, RegistrationProgressPlotter correctly
+    # warns that no interactive window will appear. Suppress both our own warning
+    # and matplotlib's follow-up about FigureCanvasAgg being non-interactive.
+    "ignore:The active matplotlib backend.*is non-interactive:UserWarning",
+    "ignore:FigureCanvasAgg is non-interactive:UserWarning",
 ]

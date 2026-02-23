@@ -1,9 +1,19 @@
 """Affine matrix decomposition and composition utilities."""
 
 import math
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    import SimpleITK as sitk
+
+__all__ = [
+    "compose_affine",
+    "decompose_affine",
+    "sitk_transform_to_affine",
+]
 
 
 def _striu2mat(
@@ -162,3 +172,89 @@ def decompose_affine(
         sx *= -1
         Rmat[:, 0] *= -1
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
+
+
+def sitk_transform_to_affine(
+    transform: "sitk.Transform",
+) -> npt.NDArray[np.float64] | None:
+    """Convert a SimpleITK linear transform to a homogeneous affine matrix.
+
+    Handles ``TranslationTransform``, ``Euler2DTransform``, ``Euler3DTransform``,
+    ``AffineTransform``, ``VersorRigid3DTransform``, and ``CompositeTransform``
+    (by composing each sub-transform in order). Returns ``None`` for non-linear
+    transforms such as ``BSplineTransform``, which cannot be represented as a
+    finite affine matrix.
+
+    Parameters
+    ----------
+    transform : SimpleITK.Transform
+        Estimated registration transform returned by SimpleITK.
+
+    Returns
+    -------
+    (N+1, N+1) numpy.ndarray or None
+        Homogeneous affine matrix in physical space mapping fixed-space points
+        to moving-space points (pull/inverse convention used by SimpleITK's
+        ``Resample``), or ``None`` if the transform is non-linear (e.g. B-spline).
+
+    Notes
+    -----
+    SimpleITK uses a pull (inverse-mapping) convention: ``Resample`` iterates
+    over fixed-grid points and applies the transform to look up the
+    corresponding moving-image location. For linear transforms, the stored
+    parameters encode::
+
+        p_moving = A @ (p_fixed - center) + center + translation
+
+    where ``A`` is the ``(N, N)`` matrix returned by ``GetMatrix()`` and
+    ``center`` is the rotation centre. This is equivalent to the homogeneous
+    form::
+
+        A_full[:N, :N] = A
+        A_full[:N,  N] = -A @ center + center + translation
+    """
+    ndim = transform.GetDimension()
+
+    name = transform.GetName()
+
+    # Non-linear transforms cannot be represented as affine matrices.
+    if "BSpline" in name or "DisplacementField" in name:
+        return None
+
+    if name == "CompositeTransform":
+        # Compose sub-transforms in order (first applied last in matrix product). Type
+        # stubs declare composite-specific methods only on CompositeTransform, so use
+        # getattr to avoid type-checker errors.
+        A = np.eye(ndim + 1)
+        n_sub = getattr(transform, "GetNumberOfTransforms")()
+        for i in range(n_sub):
+            sub = getattr(transform, "GetNthTransform")(i)
+            sub_affine = sitk_transform_to_affine(sub)
+            if sub_affine is None:
+                return None
+            A = sub_affine @ A
+        return A
+
+    if name == "IdentityTransform":
+        return np.eye(ndim + 1)
+
+    if "Translation" in name:
+        # TranslationTransform has no matrix, only an offset vector.
+        A = np.eye(ndim + 1)
+        A[:ndim, ndim] = np.array(transform.GetParameters())
+        return A
+
+    # All remaining linear transforms (Euler2D, Euler3D, Affine, Similarity, Versor…)
+    # expose GetMatrix(), GetCenter(), and GetTranslation() directly. The type stubs
+    # only declare these on concrete subclasses, so we use getattr to satisfy the
+    # type checker without a runtime cast.
+    mat = np.array(getattr(transform, "GetMatrix")()).reshape(ndim, ndim)
+    center = np.array(getattr(transform, "GetCenter")())
+    translation = np.array(getattr(transform, "GetTranslation")())
+
+    A = np.eye(ndim + 1)
+    A[:ndim, :ndim] = mat
+    # Combine rotation-centre offset with translation:
+    # t_full = -mat @ center + center + translation
+    A[:ndim, ndim] = -mat @ center + center + translation
+    return A

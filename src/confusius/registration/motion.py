@@ -1,34 +1,35 @@
 """Motion parameter estimation and framewise displacement computation."""
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
+from confusius.registration.affines import decompose_affine
+
 if TYPE_CHECKING:
     import pandas as pd
-    import SimpleITK as sitk
-
-__all__ = [
-    "extract_motion_parameters",
-    "compute_framewise_displacement",
-    "create_motion_dataframe",
-]
+    import xarray as xr
 
 
 def extract_motion_parameters(
-    transforms: "list[sitk.Transform]",
+    affines: Sequence[NDArray[np.float64] | None],
 ) -> NDArray[np.floating]:
-    """Extract motion parameters from SimpleITK transforms.
+    """Extract motion parameters from affine matrices.
 
-    For 2D rigid transforms, extracts: ``[rotation, translation_x, translation_y]``.
-    For 3D rigid transforms, extracts:
+    Decomposes each ``(N+1, N+1)`` homogeneous affine into translation and
+    rotation parameters.
+
+    For 2D transforms, extracts: ``[rotation, translation_x, translation_y]``.
+    For 3D transforms, extracts:
     ``[rot_x, rot_y, rot_z, trans_x, trans_y, trans_z]``.
 
     Parameters
     ----------
-    transforms : list[SimpleITK.Transform]
-        List of rigid transforms from registration.
+    affines : list[numpy.ndarray | None]
+        List of affine matrices from registration. ``None`` entries (e.g. from
+        B-spline transforms) are treated as identity transforms.
 
     Returns
     -------
@@ -37,82 +38,163 @@ def extract_motion_parameters(
 
         - For 2D: ``n_params = 3 (rotation, tx, ty)``.
         - For 3D: ``n_params = 6 (rot_x, rot_y, rot_z, trans_x, trans_y, trans_z)``.
+
+    Raises
+    ------
+    ValueError
+        If any affine does not have shape ``(3, 3)`` (2D) or ``(4, 4)`` (3D).
     """
-    import SimpleITK as sitk
+    import math
 
     params_list = []
 
-    for transform in transforms:
-        if transform.GetName() == "CompositeTransform":
-            # We need to cast the transform to access composite-specific methods.
-            composite = sitk.CompositeTransform(transform)
-            if composite.GetNumberOfTransforms() > 0:
-                # Get the first (and usually only) transform.
-                actual_transform = composite.GetNthTransform(0)
-                params = list(actual_transform.GetParameters())
-            else:
-                params = []
-        else:
-            params = list(transform.GetParameters())
+    for affine in affines:
+        if affine is None:
+            # Non-linear (e.g. B-spline): treat as identity (zero motion). Dimension is
+            # unknown; append a placeholder and fix after loop.
+            params_list.append(None)
+            continue
 
-        if len(params) == 0 or transform.GetName() == "IdentityTransform":
-            dimension = transform.GetDimension()
-            if dimension == 2:
-                params = [0.0, 0.0, 0.0]  # [rotation, tx, ty]
-            else:  # dimension == 3
-                params = [
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                ]  # [rot_x, rot_y, rot_z, tx, ty, tz]
-        elif len(params) == 2:
-            # 2D TranslationTransform: [tx, ty] -> add rotation=0.
-            params = [0.0, float(params[0]), float(params[1])]
-        elif len(params) == 3 and transform.GetDimension() == 2:
-            # 2D Euler2DTransform: [rotation, tx, ty] - already correct.
-            params = [float(p) for p in params]
-        elif len(params) == 3 and transform.GetDimension() == 3:
-            # 3D TranslationTransform: [tx, ty, tz] -> add rotations=0.
-            params = [
-                0.0,
-                0.0,
-                0.0,
-                float(params[0]),
-                float(params[1]),
-                float(params[2]),
-            ]
-        elif len(params) == 6:
-            # 3D Euler3DTransform: [rot_x, rot_y, rot_z, tx, ty, tz] - already correct.
-            params = [float(p) for p in params]
-        else:
-            msg = f"Unexpected parameter count {len(params)} for {transform.GetName()}"
+        ndim = affine.shape[0] - 1
+        if ndim not in (2, 3):
+            msg = f"Expected 2D or 3D affine, got shape {affine.shape}"
             raise ValueError(msg)
 
-        params_list.append(params)
+        T, R, _Z, _S = (
+            decompose_affine(affine) if ndim == 3 else _decompose_affine_2d(affine)
+        )
 
-    return np.array(params_list)
+        if ndim == 2:
+            # Rotation angle from the 2D rotation matrix.
+            rotation = math.atan2(R[1, 0], R[0, 0])
+            params_list.append([rotation, float(T[0]), float(T[1])])
+        else:
+            # Decompose the 3D rotation matrix into Euler angles (XYZ convention).
+            rot_x, rot_y, rot_z = _rotation_matrix_to_euler_xyz(R)
+            params_list.append(
+                [rot_x, rot_y, rot_z, float(T[0]), float(T[1]), float(T[2])]
+            )
+
+    # Resolve None placeholders: infer dimensionality from the first non-None entry.
+    ndim_inferred: int | None = None
+    for p in params_list:
+        if p is not None:
+            # 3 params → 2D, 6 params → 3D.
+            ndim_inferred = 2 if len(p) == 3 else 3
+            break
+
+    if ndim_inferred is None:
+        # All transforms are None; default to 3D identity.
+        ndim_inferred = 3
+
+    zero_2d = [0.0, 0.0, 0.0]
+    zero_3d = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # ndim_inferred is spatial dimensionality (2 or 3), not n_params.
+    n_params = 3 if ndim_inferred == 2 else 6
+    resolved = [
+        p if p is not None else (zero_2d if n_params == 3 else zero_3d)
+        for p in params_list
+    ]
+
+    return np.array(resolved)
 
 
-def compute_framewise_displacement(
-    transforms: "list[sitk.Transform]",
-    reference_image: "sitk.Image",
-    mask: NDArray[np.bool_] | None = None,
-) -> dict[str, NDArray[np.floating]]:
-    """Compute framewise displacement from transforms.
-
-    Framewise displacement measures how much voxels move between consecutive
-    frames after registration. For each voxel, we compute the Euclidean distance
-    between its position at frame t and frame t+1 after applying transforms.
+def _decompose_affine_2d(
+    A33: NDArray[np.float64],
+) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    NDArray[np.float64],
+]:
+    """Decompose a (3, 3) 2D homogeneous affine into T, R, Z, S.
 
     Parameters
     ----------
-    transforms : list[SimpleITK.Transform]
-        List of transforms, one per frame.
-    reference_image : SimpleITK.Image
-        Reference image defining the physical space.
+    A33 : (3, 3) numpy.ndarray
+        2D homogeneous affine.
+
+    Returns
+    -------
+    T : (2,) numpy.ndarray
+    R : (2, 2) numpy.ndarray
+    Z : (2,) numpy.ndarray
+    S : (1,) numpy.ndarray
+    """
+    import math
+
+    T = A33[:2, 2].copy()
+    RZS = A33[:2, :2]
+    c0 = RZS[:, 0].copy()
+    sx = math.sqrt(float(np.dot(c0, c0)))
+    c0 /= sx
+    sxy_sx = float(np.dot(c0, RZS[:, 1]))
+    c1 = RZS[:, 1] - sxy_sx * c0
+    sy = math.sqrt(float(np.dot(c1, c1)))
+    c1 /= sy
+    sxy = sxy_sx / sx
+    R = np.array([[c0[0], c1[0]], [c0[1], c1[1]]])
+    if np.linalg.det(R) < 0:
+        sx *= -1
+        R[:, 0] *= -1
+    return T, R, np.array([sx, sy]), np.array([sxy])
+
+
+def _rotation_matrix_to_euler_xyz(
+    R: NDArray[np.float64],
+) -> tuple[float, float, float]:
+    """Extract XYZ Euler angles from a (3, 3) rotation matrix.
+
+    Parameters
+    ----------
+    R : (3, 3) numpy.ndarray
+        Rotation matrix.
+
+    Returns
+    -------
+    rot_x, rot_y, rot_z : float
+        Rotation angles around X, Y, Z axes (radians).
+    """
+    import math
+
+    # XYZ convention: R = Rz @ Ry @ Rx
+    # R[2,0] = -sin(rot_y)
+    sy = -R[2, 0]
+    sy = max(-1.0, min(1.0, sy))
+    rot_y = math.asin(sy)
+
+    cos_y = math.cos(rot_y)
+    if abs(cos_y) > 1e-6:
+        rot_x = math.atan2(R[2, 1], R[2, 2])
+        rot_z = math.atan2(R[1, 0], R[0, 0])
+    else:
+        # Gimbal lock: set rot_x = 0 and compute rot_z.
+        rot_x = 0.0
+        rot_z = math.atan2(-R[0, 1], R[1, 1])
+
+    return rot_x, rot_y, rot_z
+
+
+def compute_framewise_displacement(
+    affines: Sequence[NDArray[np.float64] | None],
+    reference: "xr.DataArray",
+    mask: NDArray[np.bool_] | None = None,
+) -> dict[str, NDArray[np.floating]]:
+    """Compute framewise displacement from affine transforms.
+
+    Framewise displacement measures how much voxels move between consecutive
+    frames after registration. For each voxel, we compute the Euclidean distance
+    between its position at frame t and frame t+1 after applying the affine
+    transforms.
+
+    Parameters
+    ----------
+    affines : list[numpy.ndarray | None]
+        List of affine matrices, one per frame. ``None`` entries are treated as identity
+        transforms.
+    reference : xarray.DataArray
+        Spatial DataArray defining the physical grid (spacing and origin derived from
+        its coordinates).
     mask : numpy.ndarray, optional
         Boolean mask indicating which voxels to include. If not provided, uses all
         voxels.
@@ -126,42 +208,42 @@ def compute_framewise_displacement(
         - ``"max_fd"``: Maximum framewise displacement per frame.
         - ``"rms_fd"``: RMS framewise displacement per frame.
     """
-    n_frames = len(transforms)
-    spacing = reference_image.GetSpacing()
-    size = reference_image.GetSize()
+    from confusius._utils import _compute_origin, _compute_spacing
 
-    if len(size) == 2:
-        x_coords = np.arange(size[0]) * spacing[0]
-        y_coords = np.arange(size[1]) * spacing[1]
-        xx, yy = np.meshgrid(x_coords, y_coords, indexing="ij")
-        points = np.stack([xx.ravel(), yy.ravel()], axis=1)
-    elif len(size) == 3:
-        x_coords = np.arange(size[0]) * spacing[0]
-        y_coords = np.arange(size[1]) * spacing[1]
-        z_coords = np.arange(size[2]) * spacing[2]
-        xx, yy, zz = np.meshgrid(x_coords, y_coords, z_coords, indexing="ij")
-        points = np.stack([xx.ravel(), yy.ravel(), zz.ravel()], axis=1)
-    else:
-        raise ValueError(f"Only 2D and 3D images supported, got {len(size)}D")
+    n_frames = len(affines)
+    ndim = reference.ndim
+
+    spacing_dict = _compute_spacing(reference)
+    origin_dict = _compute_origin(reference)
+
+    coords_1d = []
+    for dim in (str(d) for d in reference.dims):
+        sp = spacing_dict.get(dim) or 1.0
+        orig = origin_dict.get(dim, 0.0)
+        n = reference.sizes[dim]
+        coords_1d.append(orig + np.arange(n) * sp)
+
+    grids = np.meshgrid(*coords_1d, indexing="ij")
+    points = np.stack([g.ravel() for g in grids], axis=1)  # (n_voxels, ndim)
 
     if mask is not None:
         mask_flat = mask.ravel()
         points = points[mask_flat]
+
+    eye = np.eye(ndim + 1)
+    transformed = []
+    for affine in affines:
+        A = affine if affine is not None else eye
+        # Apply affine: p_out = A[:ndim, :ndim] @ p.T + A[:ndim, ndim]
+        pts_out = (A[:ndim, :ndim] @ points.T).T + A[:ndim, ndim]
+        transformed.append(pts_out)
 
     mean_fd = np.zeros(n_frames)
     max_fd = np.zeros(n_frames)
     rms_fd = np.zeros(n_frames)
 
     for t in range(n_frames - 1):
-        points_t = np.array([transforms[t].TransformPoint(tuple(p)) for p in points])
-        points_t1 = np.array(
-            [transforms[t + 1].TransformPoint(tuple(p)) for p in points]
-        )
-
-        # Displacements are computed using the Euclidean distance between points at t
-        # and t+1.
-        displacements = np.linalg.norm(points_t1 - points_t, axis=1)
-
+        displacements = np.linalg.norm(transformed[t + 1] - transformed[t], axis=1)
         mean_fd[t] = np.mean(displacements)
         max_fd[t] = np.max(displacements)
         rms_fd[t] = np.sqrt(np.mean(displacements**2))
@@ -179,8 +261,8 @@ def compute_framewise_displacement(
 
 
 def create_motion_dataframe(
-    transforms: "list[sitk.Transform]",
-    reference_image: "sitk.Image",
+    affines: Sequence[NDArray[np.float64] | None],
+    reference: "xr.DataArray",
     mask: NDArray[np.bool_] | None = None,
     time_coords: NDArray[np.floating] | None = None,
 ) -> "pd.DataFrame":
@@ -188,10 +270,12 @@ def create_motion_dataframe(
 
     Parameters
     ----------
-    transforms : list[SimpleITK.Transform]
-        List of transforms from registration.
-    reference_image : SimpleITK.Image
-        Reference image defining physical space.
+    affines : list[numpy.ndarray | None]
+        List of affine matrices from registration. ``None`` entries (e.g. from B-spline
+        transforms) are treated as identity.
+    reference : xarray.DataArray
+        Spatial DataArray defining the physical grid for framewise displacement
+        computation.
     mask : numpy.ndarray, optional
         Boolean mask for FD computation.
     time_coords : numpy.ndarray, optional
@@ -220,9 +304,9 @@ def create_motion_dataframe(
     """
     import pandas as pd
 
-    params = extract_motion_parameters(transforms)
+    params = extract_motion_parameters(affines)
 
-    fd_dict = compute_framewise_displacement(transforms, reference_image, mask)
+    fd_dict = compute_framewise_displacement(affines, reference, mask)
 
     if params.shape[1] == 3:
         df = pd.DataFrame(

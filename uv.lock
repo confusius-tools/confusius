@@ -578,7 +578,7 @@ wheels = [
 
 [[package]]
 name = "confusius"
-version = "0.0.1a4"
+version = "0.0.1a5"
 source = { editable = "." }
 dependencies = [
     { name = "dask", extra = ["complete"] },
