@@ -270,10 +270,22 @@ class RegistrationProgressPlotter:
 
     @property
     def metric_values(self) -> list[float]:
-        """Optimizer metric value recorded at each iteration."""
+        """Optimizer metric value recorded at each iteration.
+
+        Returns
+        -------
+        list of float
+            Copy of the internal metric value buffer.
+        """
         return list(self._metric_values)
 
     @property
     def figure(self) -> "Figure":
-        """The matplotlib figure used for plotting."""
+        """The matplotlib figure used for plotting.
+
+        Returns
+        -------
+        matplotlib.figure.Figure
+            The figure instance owned by this monitor.
+        """
         return self._fig

@@ -207,7 +207,7 @@ def _expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
 
 
 @overload
-def register_volume(
+def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
@@ -229,11 +229,13 @@ def register_volume(
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]": ...
+) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
+    """Overload for linear transforms (translation/rigid/affine)."""
+    ...
 
 
 @overload
-def register_volume(
+def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
@@ -255,11 +257,13 @@ def register_volume(
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-) -> "tuple[xr.DataArray, None]": ...
+) -> "tuple[xr.DataArray, None]":
+    """Overload for bspline transform (returns None affine)."""
+    ...
 
 
 @overload
-def register_volume(
+def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
@@ -280,7 +284,9 @@ def register_volume(
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]": ...
+) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
+    """Overload for default transform (rigid, returns affine)."""
+    ...
 
 
 def register_volume(
@@ -339,10 +345,10 @@ def register_volume(
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6
         Value used for convergence checking in conjunction with the energy profile of
-        the similarity metric that is estimated in the given window size
+        the similarity metric that is estimated in the given window size.
     convergence_window_size : int, default: 10
         Number of values of the similarity metric which are used to estimate the energy
-        profile of the similarity metric
+        profile of the similarity metric.
     initialization : {"geometry", "moments", "none"}, default: "geometry"
         Transform initializer applied before optimization. ``"geometry"`` aligns the
         image centers (safe default, no assumptions about content). ``"moments"`` aligns
