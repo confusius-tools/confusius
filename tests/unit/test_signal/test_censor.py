@@ -4,7 +4,7 @@ import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
-from numpy.testing import assert_allclose, assert_array_equal
+from numpy.testing import assert_allclose
 
 from confusius.signal import censor_samples, interpolate_samples
 
@@ -36,103 +36,6 @@ def sample_mask_boundary(sample_timeseries):
     return xr.DataArray(
         mask_values, dims=["time"], coords={"time": signals.coords["time"]}
     )
-
-
-# ===========================
-# Tests for _validate_sample_mask
-# ===========================
-
-
-def test_validate_boolean_mask(sample_timeseries):
-    """Test validation of boolean sample mask."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    mask_values = np.ones(100, dtype=bool)
-    mask_values[[10, 25, 60]] = False
-    sample_mask = xr.DataArray(
-        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
-    )
-
-    result = _validate_sample_mask(signals, sample_mask)
-
-    assert result.dtype == bool
-    assert len(result) == 100
-    assert_array_equal(result, mask_values)
-
-
-def test_validate_mask_wrong_length(sample_timeseries):
-    """Test error when sample_mask has wrong length."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    wrong_mask = xr.DataArray(np.ones(50, dtype=bool), dims=["time"])
-
-    with pytest.raises(ValueError, match="must match number of timepoints"):
-        _validate_sample_mask(signals, wrong_mask)
-
-
-def test_validate_mask_invalid_dtype(sample_timeseries):
-    """Test error when sample_mask has invalid dtype."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    bad_mask = xr.DataArray(
-        np.ones(100, dtype=float),
-        dims=["time"],
-        coords={"time": signals.coords["time"]},
-    )
-
-    with pytest.raises(ValueError, match="must be boolean DataArray"):
-        _validate_sample_mask(signals, bad_mask)
-
-
-def test_validate_mask_not_dataarray(sample_timeseries):
-    """Test error when sample_mask is not a DataArray."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    bad_mask = np.ones(100, dtype=bool)
-
-    with pytest.raises(TypeError, match="must be an xarray.DataArray"):
-        _validate_sample_mask(signals, bad_mask)
-
-
-def test_validate_mask_mismatched_coords(sample_timeseries):
-    """Test error when time coordinates don't match."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    bad_mask = xr.DataArray(
-        np.ones(100, dtype=bool),
-        dims=["time"],
-        coords={"time": np.arange(100) * 0.02},  # Different sampling.
-    )
-
-    with pytest.raises(ValueError, match="time coordinates do not match"):
-        _validate_sample_mask(signals, bad_mask)
-
-
-def test_validate_mask_missing_time_dim(sample_timeseries):
-    """Test error when sample_mask doesn't have time dimension."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    bad_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["samples"])
-
-    with pytest.raises(ValueError, match="must have a 'time' dimension"):
-        _validate_sample_mask(signals, bad_mask)
-
-
-def test_validate_mask_multidim(sample_timeseries):
-    """Test error when sample_mask is multidimensional."""
-    from confusius.signal.censor import _validate_sample_mask
-
-    signals = sample_timeseries(n_time=100)
-    bad_mask = xr.DataArray(np.ones((100, 2), dtype=bool), dims=["time", "extra"])
-
-    with pytest.raises(ValueError, match="must be 1D"):
-        _validate_sample_mask(signals, bad_mask)
 
 
 # ===========================

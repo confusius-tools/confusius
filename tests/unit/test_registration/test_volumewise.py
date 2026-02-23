@@ -144,6 +144,8 @@ class TestRegisterVolumewise:
         assert result.dims == data.dims
         assert result.shape == data.shape
         assert result.sizes["z"] == 1
+        # Identical frames should produce nearly identical output.
+        assert_allclose(result.values, data.values, atol=1e-3)
 
     def test_output_dimension_order_matches_input(self, sample_2d_image):
         """Output dimension order matches input regardless of internal transposition."""
@@ -161,6 +163,8 @@ class TestRegisterVolumewise:
         result = register_volumewise(data, n_jobs=1)
 
         assert result.dims == ("y", "x", "time")
+        # Identical frames should produce nearly identical output.
+        assert_allclose(result.values, data.values, atol=1e-3)
 
     def test_multi_resolution_does_not_crash(self, sample_3d_dataarray):
         """Multi-resolution pyramid completes without error."""
@@ -171,3 +175,5 @@ class TestRegisterVolumewise:
             use_multi_resolution=True,
         )
         assert result.shape == sample_3d_dataarray.shape
+        # Identical frames should produce nearly identical output.
+        assert_allclose(result.values, sample_3d_dataarray.values, atol=1e-3)

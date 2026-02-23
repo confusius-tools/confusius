@@ -15,7 +15,7 @@ def sample_2d_image():
 
 
 @pytest.fixture
-def sample_3d_volume():
+def sample_3d_array():
     """3D NumPy array with a bright cube in the centre (16x16x16)."""
     vol = np.zeros((16, 16, 16), dtype=np.float32)
     vol[6:10, 6:10, 6:10] = 100.0
@@ -33,10 +33,10 @@ def sample_2d_dataarray_spatial(sample_2d_image):
 
 
 @pytest.fixture
-def sample_3d_dataarray_spatial(sample_3d_volume):
-    """Spatial (z, y, x) DataArray wrapping sample_3d_volume with unit spacing."""
+def sample_3d_dataarray_spatial(sample_3d_array):
+    """Spatial (z, y, x) DataArray wrapping sample_3d_array with unit spacing."""
     return xr.DataArray(
-        sample_3d_volume,
+        sample_3d_array,
         dims=("z", "y", "x"),
         coords={
             "z": np.arange(16) * 1.0,
@@ -63,10 +63,10 @@ def sample_2d_dataarray(sample_2d_image):
 
 
 @pytest.fixture
-def sample_3d_dataarray(sample_3d_volume):
+def sample_3d_dataarray(sample_3d_array):
     """3D+time DataArray (3 frames) for volumewise registration tests."""
     n_frames = 3
-    data = np.stack([sample_3d_volume] * n_frames, axis=0)
+    data = np.stack([sample_3d_array] * n_frames, axis=0)
     return xr.DataArray(
         data,
         dims=("time", "z", "y", "x"),

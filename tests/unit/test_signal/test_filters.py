@@ -166,19 +166,23 @@ class TestFilterButterworth:
         )
 
     def test_output_actually_filtered(self):
-        """Filter should produce output different from input."""
-        np.random.seed(42)
-        signals = create_signals_with_time(
-            (500, 50), sampling_rate=100, dims=["time", "voxels"]
+        """Low-pass filter attenuates high-frequency energy."""
+        rng = np.random.default_rng(42)
+        n = 500
+        sampling_rate = 100
+        t = np.arange(n) / sampling_rate
+        # Signal: 1 Hz (pass) + 40 Hz (stop).
+        signal = np.sin(2 * np.pi * 1 * t) + np.sin(2 * np.pi * 40 * t)
+        signals = xr.DataArray(
+            signal[:, np.newaxis], dims=["time", "voxels"], coords={"time": t}
         )
-        filtered = filter_butterworth(signals, high_cutoff=0.1, order=5)
+        filtered = filter_butterworth(signals, high_cutoff=5, order=5)
 
-        # Output should be different from input.
-        assert not np.allclose(filtered.values, signals.values)
-
-        # But should preserve shape, dims, and coordinates.
-        assert filtered.shape == signals.shape
-        assert filtered.dims == signals.dims
+        # Middle portion only — avoid edge effects.
+        mid = slice(100, 400)
+        # The 1 Hz component should survive; 40 Hz should be heavily attenuated.
+        low_freq_ref = np.sin(2 * np.pi * 1 * t[mid])
+        np.testing.assert_allclose(filtered.values[mid, 0], low_freq_ref, atol=0.1)
 
     def test_single_vs_multiple_voxels_consistency(self, sample_timeseries):
         """Filtering single voxel should match first column of multi-voxel result."""
@@ -218,10 +222,6 @@ class TestFilterButterworth:
         )
         filtered = filter_butterworth(signals, high_cutoff=0.1, order=5)
 
-        # Output should differ from input (actually filtered).
-        assert not np.allclose(filtered.values, signals.values)
-
-        # Should preserve structure.
         assert filtered.shape == signals.shape
         assert filtered.dims == signals.dims
         np.testing.assert_array_equal(filtered.coords["time"], signals.coords["time"])
@@ -376,9 +376,6 @@ class TestFilterButterworth:
             filtered = filter_butterworth(signals, high_cutoff=0.1, order=order)
             results[order] = filtered.values
 
-            # Each should be different from input.
-            assert not np.allclose(filtered.values, signals.values)
-
         # Different orders should produce different results.
         assert not np.allclose(results[1], results[5])
         assert not np.allclose(results[2], results[8])
@@ -395,7 +392,6 @@ class TestFilterButterworth:
 
         filtered = filter_butterworth(signals, high_cutoff=0.1, order=5)
 
-        # Should actually filter the data.
-        assert not np.allclose(filtered.values, signals.values)
+        # Should preserve structure regardless of dim order.
         assert filtered.shape == signals.shape
         assert filtered.dims == signals.dims

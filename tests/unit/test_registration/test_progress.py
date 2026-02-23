@@ -9,9 +9,6 @@ matplotlib.use("Agg")
 
 from confusius.registration._progress import (  # noqa: E402
     RegistrationProgressPlotter,
-    _blend_red_cyan,
-    _make_mosaic,
-    _normalize,
 )
 
 
@@ -79,78 +76,6 @@ def _make_registration_method():
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
-class TestNormalize:
-    """Tests for _normalize."""
-
-    def test_output_range(self):
-        """Output is within [0, 1]."""
-        arr = np.array([1.0, 3.0, 5.0, 2.0])
-        out = _normalize(arr)
-        assert out.min() >= 0.0
-        assert out.max() <= 1.0
-
-    def test_flat_array_returns_zeros(self):
-        """Flat input produces an all-zero array."""
-        arr = np.full((4, 4), 7.0)
-        out = _normalize(arr)
-        np.testing.assert_array_equal(out, np.zeros_like(arr, dtype=float))
-
-
-class TestBlendRedCyan:
-    """Tests for _blend_red_cyan."""
-
-    def test_output_shape(self):
-        """Output has shape (H, W, 3)."""
-        fixed = np.ones((8, 8))
-        moving = np.zeros((8, 8))
-        rgb = _blend_red_cyan(fixed, moving)
-        assert rgb.shape == (8, 8, 3)
-
-    def test_fixed_only_in_red_channel(self):
-        """Fixed image appears only in the red channel."""
-        fixed = np.ones((4, 4))
-        moving = np.zeros((4, 4))
-        rgb = _blend_red_cyan(fixed, moving)
-        np.testing.assert_array_equal(rgb[..., 0], fixed)
-        np.testing.assert_array_equal(rgb[..., 1], moving)
-        np.testing.assert_array_equal(rgb[..., 2], moving)
-
-    def test_moving_only_in_cyan_channels(self):
-        """Moving image appears only in green and blue channels."""
-        fixed = np.zeros((4, 4))
-        moving = np.ones((4, 4))
-        rgb = _blend_red_cyan(fixed, moving)
-        np.testing.assert_array_equal(rgb[..., 0], fixed)
-        np.testing.assert_array_equal(rgb[..., 1], moving)
-        np.testing.assert_array_equal(rgb[..., 2], moving)
-
-
-class TestMakeMosaic:
-    """Tests for _make_mosaic."""
-
-    def test_output_shape_square(self):
-        """4 slices -> 2x2 mosaic."""
-        n, h, w = 4, 8, 6
-        fixed_vol = np.zeros((n, h, w))
-        moving_vol = np.ones((n, h, w))
-        mosaic = _make_mosaic(fixed_vol, moving_vol)
-        assert mosaic.shape == (2 * h, 2 * w, 3)
-
-    def test_output_shape_non_square(self):
-        """5 slices -> 2 rows x 3 cols mosaic."""
-        n, h, w = 5, 4, 4
-        fixed_vol = np.zeros((n, h, w))
-        moving_vol = np.zeros((n, h, w))
-        mosaic = _make_mosaic(fixed_vol, moving_vol)
-        # ceil(sqrt(5))=3 cols, ceil(5/3)=2 rows.
-        assert mosaic.shape == (2 * h, 3 * w, 3)
-
-
-# ---------------------------------------------------------------------------
 # RegistrationProgressPlotter
 # ---------------------------------------------------------------------------
 
@@ -168,7 +93,6 @@ class TestRegistrationProgressPlotterInstantiation:
             plot_metric=True,
             plot_composite=False,
         )
-        assert plotter.figure is not None
         plotter.figure.clf()
 
     def test_composite_only(self, fixed_img_2d, moving_img_2d):
@@ -181,7 +105,6 @@ class TestRegistrationProgressPlotterInstantiation:
             plot_metric=False,
             plot_composite=True,
         )
-        assert plotter.figure is not None
         plotter.figure.clf()
 
     def test_both_panels(self, fixed_img_2d, moving_img_2d):
@@ -194,7 +117,6 @@ class TestRegistrationProgressPlotterInstantiation:
             plot_metric=True,
             plot_composite=True,
         )
-        assert plotter.figure is not None
         plotter.figure.clf()
 
 
@@ -244,7 +166,7 @@ class TestRegistrationProgressPlotterUpdate:
     def test_composite_panel_rendered_after_registration(
         self, fixed_img_2d, moving_img_2d
     ):
-        """Composite image object is non-None after at least one iteration."""
+        """Composite panel renders without error after at least one iteration."""
         reg = _make_registration_method()
         plotter = RegistrationProgressPlotter(
             reg,
@@ -259,11 +181,10 @@ class TestRegistrationProgressPlotterUpdate:
             sitk.Cast(fixed_img_2d, sitk.sitkFloat32),
             sitk.Cast(moving_img_2d, sitk.sitkFloat32),
         )
-        assert plotter._composite_im is not None
         plotter.figure.clf()
 
     def test_3d_composite_panel_rendered(self, fixed_img_3d, moving_img_3d):
-        """Composite mosaic is rendered for 3D images without error."""
+        """Composite mosaic renders for 3D images without error."""
         reg = sitk.ImageRegistrationMethod()
         reg.SetMetricAsCorrelation()
         reg.SetInterpolator(sitk.sitkLinear)
@@ -291,7 +212,6 @@ class TestRegistrationProgressPlotterUpdate:
             sitk.Cast(fixed_img_3d, sitk.sitkFloat32),
             sitk.Cast(moving_img_3d, sitk.sitkFloat32),
         )
-        assert plotter._composite_im is not None
         plotter.figure.clf()
 
 

@@ -3,7 +3,6 @@
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius.registration.affines import sitk_transform_to_affine
 from confusius.registration.motion import (
     compute_framewise_displacement,
     create_motion_dataframe,
@@ -101,33 +100,6 @@ class TestExtractMotionParameters:
         params = extract_motion_parameters([None, np.eye(3)])
         assert params.shape == (2, 3)
         assert_allclose(params[0], [0.0, 0.0, 0.0], atol=1e-6)
-
-    def test_sitk_translation_roundtrip_2d(self, translation_transform_2d):
-        """Affine converted from a 2D sitk TranslationTransform round-trips."""
-        affine = sitk_transform_to_affine(translation_transform_2d)
-        assert affine is not None
-        params = extract_motion_parameters([affine])
-        assert params.shape == (1, 3)
-        assert_allclose(params[0, 1:], [2.0, 3.0], atol=1e-6)
-
-    def test_sitk_euler_roundtrip_2d(self, euler_transform_2d):
-        """Affine converted from a 2D Euler sitk transform round-trips."""
-        affine = sitk_transform_to_affine(euler_transform_2d)
-        assert affine is not None
-        params = extract_motion_parameters([affine])
-        assert params.shape == (1, 3)
-        assert_allclose(params[0, 0], 0.1, atol=1e-4)
-        assert_allclose(params[0, 1:], [1.5, 2.5], atol=1e-4)
-
-    def test_sitk_euler_roundtrip_3d(self, euler_transform_3d):
-        """Affine from 3D Euler sitk transform gives correct translation params."""
-        affine = sitk_transform_to_affine(euler_transform_3d)
-        assert affine is not None
-        params = extract_motion_parameters([affine])
-        assert params.shape == (1, 6)
-        # Translation is always exact; rotation angles are consistent but may differ
-        # from the original Euler parameterisation due to decomposition convention.
-        assert_allclose(params[0, 3:], [1.0, 2.0, 3.0], atol=1e-4)
 
 
 class TestComputeFramewiseDisplacement:

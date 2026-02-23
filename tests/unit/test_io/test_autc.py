@@ -15,6 +15,7 @@ def _create_autc_dat_file(
     n_z: int = 6,
     n_frames: int = 3,
     start_index: int = 1,
+    known_pattern: bool = False,
 ) -> None:
     """Create a synthetic AUTC DAT file for testing.
 
@@ -32,6 +33,9 @@ def _create_autc_dat_file(
         Number of frames per block.
     start_index : int, default: 1
         Starting acquisition block index (1-based in file).
+    known_pattern : bool, default: False
+        If True, fill each block with a constant complex value equal to
+        ``complex(block_idx + 1, 1)`` for deterministic value checks.
     """
     header_dtype = np.dtype(
         [
@@ -73,6 +77,12 @@ def _create_autc_dat_file(
             )
 
             data = np.random.randn(n_x, n_z, n_frames).astype(np.complex64) * (1 + 1j)
+            if known_pattern:
+                data = np.full(
+                    (n_x, n_z, n_frames),
+                    complex(block_idx + 1.0, 1.0),
+                    dtype=np.complex64,
+                )
 
             f.write(header.tobytes())
             f.write(data.tobytes())
@@ -83,6 +93,22 @@ def single_autc_dat_file(tmp_path):
     """Create a single synthetic AUTC DAT file."""
     dat_path = tmp_path / "bf0part000.dat"
     _create_autc_dat_file(dat_path, n_blocks=2, n_x=4, n_z=6, n_frames=3, start_index=1)
+    return dat_path
+
+
+@pytest.fixture
+def single_autc_dat_file_known(tmp_path):
+    """Create a single synthetic AUTC DAT file with a known pattern."""
+    dat_path = tmp_path / "bf0part000.dat"
+    _create_autc_dat_file(
+        dat_path,
+        n_blocks=2,
+        n_x=4,
+        n_z=6,
+        n_frames=3,
+        start_index=1,
+        known_pattern=True,
+    )
     return dat_path
 
 
@@ -174,6 +200,17 @@ class TestAUTCDAT:
 
         with pytest.raises(ValueError):
             AUTCDAT(non_existent)
+
+    def test_autcdat_indexing_values_known_pattern(self, single_autc_dat_file_known):
+        """`AUTCDAT` indexing returns correct values for a known pattern."""
+        autc = AUTCDAT(single_autc_dat_file_known)
+
+        # Block 0 was filled with complex(1, 1), block 1 with complex(2, 1).
+        block0 = autc[0]
+        block1 = autc[1]
+
+        assert block0[0, 0, 0] == complex(1.0, 1.0), "Block 0 value corrupted"
+        assert block1[0, 0, 0] == complex(2.0, 1.0), "Block 1 value corrupted"
 
 
 class TestAUTCDATsLoader:

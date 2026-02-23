@@ -150,12 +150,11 @@ def test_detrend_constant(signals_with_linear_trend):
 
 
 def test_detrend_polynomial_order1(signals_with_linear_trend):
-    """Test polynomial order 1 is equivalent to linear."""
-    result_poly = detrend(signals_with_linear_trend, order=1)
-    result_linear = detrend(signals_with_linear_trend, order=1)
+    """Test polynomial order 1 matches scipy linear detrend."""
+    result = detrend(signals_with_linear_trend, order=1)
 
-    # Should be equivalent (within numerical precision).
-    assert_allclose(result_poly.values, result_linear.values, rtol=1e-8)
+    scipy_result = scipy.signal.detrend(signals_with_linear_trend.values, axis=0)
+    assert_allclose(result.values, scipy_result, rtol=1e-8)
 
 
 def test_detrend_polynomial_order2(signals_with_quadratic_trend):

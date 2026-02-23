@@ -190,6 +190,10 @@ class TestLoadEchoFrameDat:
         assert data.shape == (2, 3, 4, 1, 6)  # (n_blocks, n_volumes, n_x, 1, n_z)
         assert data.dtype == np.complex64
 
+        # Verify values match the known pattern (block_idx+1, 1).
+        assert data[0, 0, 0, 0, 0] == complex(1.0, 1.0), "Block 0 value corrupted"
+        assert data[1, 0, 0, 0, 0] == complex(2.0, 1.0), "Block 1 value corrupted"
+
     def test_loads_file_with_padding(self, echoframe_dat_with_padding):
         """`load_echoframe_dat` loads files with padding correctly."""
         dat_path, meta_path = echoframe_dat_with_padding
@@ -236,17 +240,17 @@ class TestLoadEchoFrameDat:
             load_echoframe_dat(dat_path, non_existent)
 
     def test_data_accessible(self, echoframe_dat_no_padding):
-        """`load_echoframe_dat` returns accessible memmap."""
+        """`load_echoframe_dat` returns accessible memmap with correct values."""
         dat_path, meta_path = echoframe_dat_no_padding
 
         data = load_echoframe_dat(dat_path, meta_path)
 
+        # Block 0 is filled with complex(1, 1) in the known pattern.
         sample = data[0, 0, 0, 0, 0]
-        assert np.isfinite(sample.real)
-        assert np.isfinite(sample.imag)
+        assert sample == complex(1.0, 1.0)
 
     def test_different_blocks_accessible(self, echoframe_dat_no_padding):
-        """`load_echoframe_dat` allows accessing different blocks."""
+        """`load_echoframe_dat` allows accessing different blocks with correct values."""
         dat_path, meta_path = echoframe_dat_no_padding
 
         data = load_echoframe_dat(dat_path, meta_path)
@@ -256,3 +260,6 @@ class TestLoadEchoFrameDat:
 
         assert first_block.shape == (3, 4, 1, 6)
         assert last_block.shape == (3, 4, 1, 6)
+        # Known pattern: block 0 → complex(1, 1), block 1 → complex(2, 1).
+        assert first_block[0, 0, 0, 0] == complex(1.0, 1.0)
+        assert last_block[0, 0, 0, 0] == complex(2.0, 1.0)
