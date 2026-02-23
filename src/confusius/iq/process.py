@@ -1,7 +1,5 @@
 """Utilities for processing beamformed IQ data."""
 
-from __future__ import annotations
-
 import warnings
 from typing import TYPE_CHECKING, Any, Callable, Concatenate, Literal, cast
 
@@ -20,7 +18,6 @@ from confusius.validation import validate_iq, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
-    from dask.array import Array
 
 
 def compute_processed_volume_times(

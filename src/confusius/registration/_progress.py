@@ -1,18 +1,16 @@
 """Registration progress visualization."""
 
-from __future__ import annotations
-
 import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import NDArray
 
 from confusius._utils import find_stack_level
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
     from matplotlib.figure import Figure
-    from numpy.typing import NDArray
 
 
 def _normalize(arr: NDArray[np.floating]) -> NDArray[np.floating]:

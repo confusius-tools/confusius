@@ -39,8 +39,9 @@ def register_volumewise(
     reference_time : int, default: 0
         Index of the time point to use as registration target.
     n_jobs : int, default: -1
-        Number of parallel jobs. -1 uses all available CPUs. Use 1 for serial
-        processing.
+        Number of parallel jobs. Negative values resolve to ``max(1, os.cpu_count() + 1
+        + n_jobs)``, so ``-1`` means all CPUs, ``-2`` means all minus one, and so on.
+        Use ``1`` for serial processing.
     transform : {"translation", "rigid", "affine"}, default: "rigid"
         Transform model to use during registration. ``"translation"`` allows
         only shifts. ``"rigid"`` adds rotation. ``"affine"`` adds scaling and
@@ -141,6 +142,9 @@ def register_volumewise(
                     smoothing_sigmas=smoothing_sigmas,
                     resample=True,
                     resample_interpolation=resample_interpolation,
+                    # Restrict SimpleITK to 1 thread per worker to avoid
+                    # over-subscribing the CPU when joblib spawns many workers.
+                    sitk_threads=1,
                     show_progress=False,
                 )
                 for volume in data_moved

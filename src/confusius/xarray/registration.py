@@ -51,7 +51,7 @@ class FUSIRegistrationAccessor:
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
-    ) -> "tuple[xr.DataArray, npt.NDArray[np.float64] | None]":
+    ) -> "tuple[xr.DataArray, npt.NDArray[np.float64] | xr.DataArray | None]":
         """Register this volume to a fixed reference volume.
 
         Parameters
@@ -114,9 +114,10 @@ class FUSIRegistrationAccessor:
             Registered volume. When ``resample=True``, resampled onto the
             fixed grid; otherwise the original moving volume with registration
             metadata added.
-        affine : (N+1, N+1) numpy.ndarray or None
-            Estimated registration transform as a homogeneous affine matrix.
-            ``None`` for non-linear transforms (``transform="bspline"``).
+        affine : (N+1, N+1) numpy.ndarray or xarray.DataArray or None
+            Estimated registration transform.  For linear transforms, a
+            homogeneous affine matrix.  For ``transform="bspline"``, an
+            :class:`xarray.DataArray` encoding the B-spline control-point grid.
 
         Examples
         --------

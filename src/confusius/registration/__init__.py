@@ -4,7 +4,6 @@ from confusius.registration._progress import RegistrationProgressPlotter
 from confusius.registration.affines import (
     compose_affine,
     decompose_affine,
-    sitk_transform_to_affine,
 )
 from confusius.registration.motion import (
     compute_framewise_displacement,
@@ -22,7 +21,6 @@ __all__ = [
     "RegistrationProgressPlotter",
     "compose_affine",
     "decompose_affine",
-    "sitk_transform_to_affine",
     "register_volume",
     "resample_volume",
     "resample_like",

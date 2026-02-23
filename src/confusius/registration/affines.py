@@ -9,12 +9,6 @@ import numpy.typing as npt
 if TYPE_CHECKING:
     import SimpleITK as sitk
 
-__all__ = [
-    "compose_affine",
-    "decompose_affine",
-    "sitk_transform_to_affine",
-]
-
 
 def _striu2mat(
     striu: npt.NDArray[np.float64],
@@ -174,16 +168,16 @@ def decompose_affine(
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
 
 
-def sitk_transform_to_affine(
+def _sitk_linear_transform_to_affine(
     transform: "sitk.Transform",
-) -> npt.NDArray[np.float64] | None:
+) -> npt.NDArray[np.float64]:
     """Convert a SimpleITK linear transform to a homogeneous affine matrix.
 
     Handles ``TranslationTransform``, ``Euler2DTransform``, ``Euler3DTransform``,
     ``AffineTransform``, ``VersorRigid3DTransform``, and ``CompositeTransform``
-    (by composing each sub-transform in order). Returns ``None`` for non-linear
-    transforms such as ``BSplineTransform``, which cannot be represented as a
-    finite affine matrix.
+    (by composing each sub-transform in order). Non-linear transforms
+    (``BSplineTransform``, ``DisplacementField``) are not supported; callers are
+    responsible for never passing them here.
 
     Parameters
     ----------
@@ -192,10 +186,17 @@ def sitk_transform_to_affine(
 
     Returns
     -------
-    (N+1, N+1) numpy.ndarray or None
+    (N+1, N+1) numpy.ndarray
         Homogeneous affine matrix in physical space mapping fixed-space points
         to moving-space points (pull/inverse convention used by SimpleITK's
-        ``Resample``), or ``None`` if the transform is non-linear (e.g. B-spline).
+        ``Resample``).
+
+    Raises
+    ------
+    AssertionError
+        If called with a non-linear transform (``BSplineTransform``,
+        ``DisplacementField``). This indicates a programming error; callers
+        must not pass non-linear transforms to this function.
 
     Notes
     -----
@@ -217,9 +218,12 @@ def sitk_transform_to_affine(
 
     name = transform.GetName()
 
-    # Non-linear transforms cannot be represented as affine matrices.
-    if "BSpline" in name or "DisplacementField" in name:
-        return None
+    # Non-linear transforms cannot be represented as affine matrices. This
+    # branch is unreachable from the current codebase: volume.py only calls
+    # this function on the non-bspline path.
+    assert "BSpline" not in name and "DisplacementField" not in name, (
+        f"_sitk_linear_transform_to_affine called with non-linear transform '{name}'"
+    )
 
     if name == "CompositeTransform":
         # Compose sub-transforms in order (first applied last in matrix product). Type
@@ -229,10 +233,7 @@ def sitk_transform_to_affine(
         n_sub = getattr(transform, "GetNumberOfTransforms")()
         for i in range(n_sub):
             sub = getattr(transform, "GetNthTransform")(i)
-            sub_affine = sitk_transform_to_affine(sub)
-            if sub_affine is None:
-                return None
-            A = sub_affine @ A
+            A = _sitk_linear_transform_to_affine(sub) @ A
         return A
 
     if name == "IdentityTransform":
