@@ -59,10 +59,10 @@ def _create_echoframe_mat_metadata(
         recon_spec["z_axis"] = np.linspace(0, z * 0.05, z)
         recon_spec["c0"] = np.array([1540.0])
         recon_spec["method"] = np.array([ord(c) for c in "DAS"], dtype=np.uint8)
-        probe_spec["Fc"] = np.array([5000000.0])
+        probe_spec["Fc"] = np.array([15.625e6])
         probe_spec["nElementsX"] = np.array([128])
         probe_spec["pitchX"] = np.array([0.0003])
-        transmit_spec["steerX"] = np.array([0.0])
+        transmit_spec["steerX"] = np.array([-10.0, -5.0, 0.0, 5.0, 10.0])
 
 
 def _create_echoframe_dat_file(

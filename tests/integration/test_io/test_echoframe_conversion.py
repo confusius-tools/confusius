@@ -71,11 +71,11 @@ class TestEchoFrameConversion:
             assert ds["z"].attrs["voxdim"] == pytest.approx(0.4)
             assert ds["y"].attrs["voxdim"] == pytest.approx(0.06)
             assert ds["x"].attrs["voxdim"] == pytest.approx(0.13333333333333333)
-            assert ds["iq"].attrs["transmit_frequency"] == 5000000.0
+            assert ds["iq"].attrs["transmit_frequency"] == 15.625e6
             assert ds["iq"].attrs["probe_n_elements"] == 128
             assert ds["iq"].attrs["probe_pitch"] == 0.0003
             assert ds["iq"].attrs["sound_velocity"] == 1540.0
-            assert ds["iq"].attrs["plane_wave_angles"] == [0.0]
+            assert ds["iq"].attrs["plane_wave_angles"] == [-10.0, -5.0, 0.0, 5.0, 10.0]
             assert ds["iq"].attrs["compound_sampling_frequency"] == 1000.0
             assert ds["iq"].attrs["beamforming_method"] == "DAS"
 

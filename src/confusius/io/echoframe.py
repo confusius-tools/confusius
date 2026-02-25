@@ -80,7 +80,7 @@ def load_echoframe_dat(
         else:
             z = int(recon_spec["nz"][0, 0])
             x = int(recon_spec["nx"][0, 0])
-        n_volumes_per_block = np.array(receive_spec["nRepeats"][()]).item(0)
+        n_volumes_per_block = np.array(receive_spec["nRepeats"][:]).item(0)
 
     header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
     _, header_size, n_blocks, data_size, padding_bytes = header
@@ -235,9 +235,7 @@ def convert_echoframe_dat_to_zarr(
 
         # Cropping information.
         crop = (
-            bool(np.array(recon_spec["cropBF"][()]))
-            if "cropBF" in recon_spec
-            else False
+            bool(np.array(recon_spec["cropBF"][:])) if "cropBF" in recon_spec else False
         )
 
         # Spatial coordinates from EchoFrame metadata.
@@ -258,21 +256,21 @@ def convert_echoframe_dat_to_zarr(
             axial_coords = z_axis_full
 
         # Probe parameters.
-        transmit_frequency = float(np.array(probe_spec["Fc"][()]).item())
-        probe_n_elements = int(np.array(probe_spec["nElementsX"][()]).item())
-        probe_pitch = float(np.array(probe_spec["pitchX"][()]).item())
+        transmit_frequency = float(np.array(probe_spec["Fc"][:]).item())
+        probe_n_elements = int(np.array(probe_spec["nElementsX"][:]).item())
+        probe_pitch = float(np.array(probe_spec["pitchX"][:]).item())
 
         # Sequence parameters.
-        speed_of_sound = float(np.array(recon_spec["c0"][()]).item())
+        speed_of_sound = float(np.array(recon_spec["c0"][:]).item())
 
         # Plane wave angles.
         steer_x = np.array(transmit_spec["steerX"][:]).flatten()
 
         # Sampling frequencies.
-        compound_sampling_frequency = float(
-            np.array(receive_spec["dopplerSamplingFrequency"][()]).item()
+        pulse_repetition_frequency = float(
+            1 / (receive_spec["transmitReceiveTimeMus"][:].item() * 1e-6)
         )
-        pulse_repetition_frequency = compound_sampling_frequency * steer_x.size
+        compound_sampling_frequency = pulse_repetition_frequency / steer_x.size
 
         # Beamforming method.
         beamforming_method_bytes = np.array(recon_spec["method"][:]).flatten()
