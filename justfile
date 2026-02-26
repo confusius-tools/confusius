@@ -18,12 +18,16 @@ clean-docs:
 
 # Run all tests.
 test:
-    uv run pytest tests/
+    uv run pytest tests/ --mpl
 
 # Run tests with verbose output.
 test-verbose:
-    uv run pytest tests/ -v
+    uv run pytest tests/ -v --mpl
 
+# Generate baseline images for visual regression tests.
+generate-baselines:
+    rm -f tests/unit/test_plotting/baseline/*.png
+    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression
 
 # Run all pre-commit hooks.
 pre-commit:

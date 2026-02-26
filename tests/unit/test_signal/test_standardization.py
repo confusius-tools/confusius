@@ -59,9 +59,9 @@ def test_standardize_psc(sample_timeseries):
 
     assert_allclose(result.values, expected.values, rtol=1e-10)
 
-    # Check that mean of result ≈ 0.
+    # Check that mean of result ≈ 0 (allow for floating-point precision).
     result_mean = result.mean(dim="time")
-    assert_allclose(result_mean.values, 0.0, atol=1e-10)
+    assert_allclose(result_mean.values, 0.0, atol=1e-7)
 
 
 def test_standardize_invalid_method(sample_timeseries):

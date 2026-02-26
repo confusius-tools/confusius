@@ -1,5 +1,10 @@
 """Plotting module for fUSI data."""
 
-__all__ = ["plot_carpet", "plot_napari"]
+__all__ = ["plot_carpet", "plot_napari", "plot_volume", "VolumePlotter"]
 
-from confusius.plotting.image import plot_carpet, plot_napari
+from confusius.plotting.image import (
+    VolumePlotter,
+    plot_carpet,
+    plot_napari,
+    plot_volume,
+)
