@@ -40,7 +40,7 @@ Alpha release checklist for ConfUSIus.
 - [ ] [`plotting` module](api/plotting.md): visualize fUSI volumes and time series.
     - [x] [`plot_napari`][confusius.plotting.plot_napari]: interactive 3D/4D viewer with physical-space scaling.
     - [x] [`plot_carpet`][confusius.plotting.plot_carpet]: carpet plot (voxel × time raster) for quality control.
-    - [ ] `plot_volume`: display 2D slices of a volume using `matplotlib.pyplot.pcolormesh`.
+    - [x] `plot_volume`: display 2D slices of a volume using `matplotlib.pyplot.pcolormesh`.
     - [ ] `plot_roi`: overlay ROI contours on imaging slices.
 
 ## ✅ Registration
