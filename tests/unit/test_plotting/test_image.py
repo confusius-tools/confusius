@@ -223,13 +223,32 @@ class TestPlotVolume:
         assert plotter.axes is not None
 
     def test_4d_with_unitary_dim_squeezed(self, sample_3d_volume, matplotlib_pyplot):
-        """plot_volume squeezes a unitary dimension before plotting."""
+        """plot_volume squeezes unitary dimensions except slice_mode."""
+        # Add unitary time dimension that should be squeezed
         data_4d = sample_3d_volume.expand_dims("time")
         z_coord = sample_3d_volume.coords["z"].values[0]
         plotter = plot_volume(
             data_4d, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
         )
         assert plotter.axes is not None
+
+    def test_unitary_slice_mode_preserved(self, matplotlib_pyplot):
+        """plot_volume preserves slice_mode dimension even when unitary."""
+        # 3D data with unitary z dimension
+        data = xr.DataArray(
+            np.random.rand(1, 10, 12),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.5],
+                "y": np.linspace(0, 1, 10),
+                "x": np.linspace(0, 1.2, 12),
+            },
+        )
+        # Should plot single slice without error
+        plotter = plot_volume(data, slice_mode="z", show_colorbar=False)
+        assert plotter.axes.shape == (1, 1)
+        # Verify the slice was plotted
+        assert len(plotter.axes[0, 0].collections) == 1
 
 
 class TestCentersToEdges:

@@ -263,7 +263,8 @@ class VolumePlotter:
         Parameters
         ----------
         data : xarray.DataArray
-            3D volume data. Unitary dimensions are squeezed before processing.
+            3D volume data. Unitary dimensions (except `slice_mode`) are squeezed
+            before processing.
         slice_coords : list[float], optional
             Specific coordinates to plot. If None, uses all coordinates from data.
         match_coordinates : bool, default: True
@@ -321,7 +322,12 @@ class VolumePlotter:
         if np.iscomplexobj(data):
             data = xr.ufuncs.abs(data)
 
-        data = data.squeeze()
+        # Squeeze unitary dimensions except slice_mode to preserve 3D structure.
+        squeeze_dims = [
+            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
+        ]
+        if squeeze_dims:
+            data = data.squeeze(dim=squeeze_dims)
 
         if self.slice_mode not in data.dims:
             raise ValueError(
