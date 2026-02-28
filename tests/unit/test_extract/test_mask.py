@@ -1,4 +1,4 @@
-"""Tests for the signal extraction module."""
+"""Tests for extract.extract_with_mask and extract.unmask."""
 
 import numpy as np
 import pytest

@@ -5,6 +5,82 @@ import numpy.typing as npt
 import xarray as xr
 
 
+def _validate_spatial_coords(
+    spatial_da: xr.DataArray,
+    data: xr.DataArray,
+    name: str,
+    rtol: float,
+    atol: float,
+) -> None:
+    """Validate spatial dimensions and coordinates of `spatial_da` against `data`.
+
+    Parameters
+    ----------
+    spatial_da : xarray.DataArray
+        Spatial DataArray to validate (mask or labels).
+    data : xarray.DataArray
+        Reference data array.
+    name : str
+        Name used in error messages.
+    rtol : float
+        Relative tolerance for coordinate comparison.
+    atol : float
+        Absolute tolerance for coordinate comparison.
+
+    Raises
+    ------
+    ValueError
+        If dimensions don't match or coordinates differ.
+    """
+    spatial_dims = list(spatial_da.dims)
+
+    if not set(spatial_dims).issubset(set(data.dims)):
+        missing_dims = set(spatial_dims) - set(data.dims)
+        raise ValueError(
+            f"Data is missing spatial dimensions from {name}: {missing_dims}. "
+            f"Data dims: {data.dims}, {name} dims: {spatial_dims}."
+        )
+
+    non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
+    if non_spatial_dims:
+        sel_dict = {d: 0 for d in non_spatial_dims}
+        template = data.isel(sel_dict)
+    else:
+        template = data
+
+    for dim in spatial_dims:
+        data_has_coord = dim in template.coords
+        da_has_coord = dim in spatial_da.coords
+
+        if data_has_coord and not da_has_coord:
+            raise ValueError(
+                f"{name} is missing coordinate '{dim}' that exists in data."
+            )
+
+        if da_has_coord and not data_has_coord:
+            raise ValueError(f"{name} has coordinate '{dim}' but data does not.")
+
+        if data_has_coord and da_has_coord:
+            da_coord_vals = spatial_da.coords[dim].values
+            data_coord_vals = template.coords[dim].values
+
+            if da_coord_vals.shape != data_coord_vals.shape:
+                raise ValueError(
+                    f"{name} coordinates for dimension '{dim}' do not match "
+                    f"data coordinates (different shapes).\n"
+                    f"  Data {dim} shape: {data_coord_vals.shape}\n"
+                    f"  {name} {dim} shape: {da_coord_vals.shape}"
+                )
+
+            if not np.allclose(da_coord_vals, data_coord_vals, rtol=rtol, atol=atol):
+                raise ValueError(
+                    f"{name} coordinates for dimension '{dim}' do not match "
+                    f"data coordinates (within rtol={rtol}, atol={atol}).\n"
+                    f"  Data {dim}: {data_coord_vals}\n"
+                    f"  {name} {dim}: {da_coord_vals}"
+                )
+
+
 def validate_mask(
     mask: xr.DataArray,
     data: xr.DataArray,
@@ -52,52 +128,59 @@ def validate_mask(
     if mask.dtype != bool:
         raise TypeError(f"{mask_name} must be boolean dtype, got {mask.dtype}.")
 
-    spatial_dims = list(mask.dims)
-
-    if not set(spatial_dims).issubset(set(data.dims)):
-        missing_dims = set(spatial_dims) - set(data.dims)
-        raise ValueError(
-            f"Data is missing spatial dimensions from {mask_name}: {missing_dims}. "
-            f"Data dims: {data.dims}, {mask_name} dims: {spatial_dims}."
-        )
-
-    non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
-    if non_spatial_dims:
-        sel_dict = {d: 0 for d in non_spatial_dims}
-        template = data.isel(sel_dict)
-    else:
-        template = data
-
-    for dim in spatial_dims:
-        data_has_coord = dim in template.coords
-        mask_has_coord = dim in mask.coords
-
-        if data_has_coord and not mask_has_coord:
-            raise ValueError(
-                f"{mask_name} is missing coordinate '{dim}' that exists in data."
-            )
-
-        if mask_has_coord and not data_has_coord:
-            raise ValueError(f"{mask_name} has coordinate '{dim}' but data does not.")
-
-        if data_has_coord and mask_has_coord:
-            mask_coord_vals = mask.coords[dim].values
-            data_coord_vals = template.coords[dim].values
-
-            if mask_coord_vals.shape != data_coord_vals.shape:
-                raise ValueError(
-                    f"{mask_name} coordinates for dimension '{dim}' do not match "
-                    f"data coordinates (different shapes).\n"
-                    f"  Data {dim} shape: {data_coord_vals.shape}\n"
-                    f"  {mask_name} {dim} shape: {mask_coord_vals.shape}"
-                )
-
-            if not np.allclose(mask_coord_vals, data_coord_vals, rtol=rtol, atol=atol):
-                raise ValueError(
-                    f"{mask_name} coordinates for dimension '{dim}' do not match "
-                    f"data coordinates (within rtol={rtol}, atol={atol}).\n"
-                    f"  Data {dim}: {data_coord_vals}\n"
-                    f"  {mask_name} {dim}: {mask_coord_vals}"
-                )
+    _validate_spatial_coords(mask, data, mask_name, rtol, atol)
 
     return mask.values
+
+
+def validate_labels(
+    labels: xr.DataArray,
+    data: xr.DataArray,
+    labels_name: str = "labels",
+    rtol: float = 1e-5,
+    atol: float = 1e-8,
+) -> npt.NDArray:
+    """Validate that a label map matches data spatial dimensions and coordinates.
+
+    Parameters
+    ----------
+    labels : xarray.DataArray
+        Label map to validate. Must have integer dtype and coordinates must match data.
+        Each unique non-zero integer value identifies a distinct region.
+    data : xarray.DataArray
+        Data array to validate labels against.
+    labels_name : str, default: "labels"
+        Name of the labels parameter (used in error messages).
+    rtol : float, default: 1e-5
+        Relative tolerance for coordinate comparison.
+    atol : float, default: 1e-8
+        Absolute tolerance for coordinate comparison.
+
+    Returns
+    -------
+    numpy.ndarray
+        Validated labels as numpy array.
+
+    Raises
+    ------
+    TypeError
+        If labels is not an integer dtype DataArray.
+    ValueError
+        If labels dimensions don't match data or if coordinates don't match.
+
+    Notes
+    -----
+    Uses `np.allclose` (with rtol/atol) for coordinate comparison, which is more
+    appropriate for floating-point coordinates than exact equality.
+    """
+    if not isinstance(labels, xr.DataArray):
+        raise TypeError(
+            f"{labels_name} must be an xarray.DataArray, got {type(labels).__name__}."
+        )
+
+    if not np.issubdtype(labels.dtype, np.integer):
+        raise TypeError(f"{labels_name} must be integer dtype, got {labels.dtype}.")
+
+    _validate_spatial_coords(labels, data, labels_name, rtol, atol)
+
+    return labels.values

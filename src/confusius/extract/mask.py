@@ -1,4 +1,4 @@
-"""Extraction of signals using binary masks."""
+"""Extraction of signals using boolean masks."""
 
 import xarray as xr
 
@@ -93,11 +93,7 @@ def extract_with_mask(
 
     mask_aligned = mask.reindex_like(template)
 
-    data_flat = data.stack(space=spatial_dims)
+    data_flat = data.stack(voxels=spatial_dims)
 
     mask_flat = mask_aligned.values.flatten()
-    signals = data_flat.isel(space=mask_flat)
-
-    signals = signals.rename({"space": "voxels"})
-
-    return signals
+    return data_flat.isel(voxels=mask_flat)

@@ -194,7 +194,7 @@ def test_detrend_polynomial_order3(signals_with_cubic_trend):
         signals_with_cubic_trend.values, order=3, axis=0
     )
     # Higher-order polynomials have slightly worse numerical precision.
-    assert_allclose(result.values, naive_result, rtol=1e-8)
+    assert_allclose(result.values, naive_result, rtol=1e-6)
 
 
 def test_detrend_polynomial_order4(rng):

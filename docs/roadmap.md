@@ -18,11 +18,11 @@ Alpha release checklist for ConfUSIus.
     - [x] [`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler]: compute power Doppler volumes from IQ blocks.
     - [x] [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity]: estimate axial blood velocity from IQ blocks.
 
-## 🚧 Signal Extraction
+## ✅ Signal Extraction
 
 - [x] [`extract` module](api/extract.md): extract voxel time series from spatial imaging data.
     - [x] [`with_mask`][confusius.extract.extract_with_mask]: flatten spatial dimensions into a voxel array using a boolean mask.
-    - [ ] `with_labels`: extract region-averaged signals using an integer label map.
+    - [x] [`with_labels`][confusius.extract.extract_with_labels]: extract region-averaged signals using an integer label map.
     - [x] [`unmask`][confusius.extract.unmask]: reconstruct a full spatial volume from a flat voxel array.
 
 ## ✅ Signal Preprocessing
