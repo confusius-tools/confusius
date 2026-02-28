@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.plotting import VolumePlotter, plot_volume
+from confusius.plotting import VolumePlotter, plot_contours, plot_volume
 
 
 class TestPlotVolume:
@@ -356,6 +356,84 @@ class TestVolumePlotterUtilities:
         assert plotter.figure is None
 
 
+class TestPlotContours:
+    """Tests for the plot_contours function."""
+
+    def test_invalid_slice_mode_raises(self):
+        """plot_contours raises ValueError when slice_mode is not in mask dims."""
+        mask = xr.DataArray(np.zeros((2, 4, 4), dtype=int), dims=["z", "y", "x"])
+        with pytest.raises(ValueError, match="slice_mode"):
+            plot_contours(mask, slice_mode="t")
+
+    def test_non_3d_mask_raises(self):
+        """plot_contours raises ValueError for non-3D mask."""
+        mask = xr.DataArray(np.zeros((4, 6), dtype=int), dims=["y", "x"])
+        with pytest.raises(ValueError, match="3D"):
+            plot_contours(mask, slice_mode="y")
+
+    def test_all_zero_mask_returns_without_figure(self, matplotlib_pyplot):
+        """plot_contours returns early without creating a figure for all-zero mask."""
+        mask = xr.DataArray(
+            np.zeros((2, 4, 4), dtype=int),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [0.0, 0.5, 1.0, 1.5],
+                "x": [0.0, 0.5, 1.0, 1.5],
+            },
+        )
+        plotter = plot_contours(mask, slice_mode="z")
+        assert plotter.figure is None
+
+
+class TestVolumePlotterAddContours:
+    """Tests for VolumePlotter.add_contours method."""
+
+    def _make_mask(self, sample_3d_volume, z_indices):
+        """Create a mask with label 1 in a small region for the given z indices."""
+        mask_data = np.zeros(
+            (len(z_indices), sample_3d_volume.sizes["y"], sample_3d_volume.sizes["x"]),
+            dtype=int,
+        )
+        mask_data[:, 1:3, 1:3] = 1
+        return xr.DataArray(
+            mask_data,
+            dims=["z", "y", "x"],
+            coords={
+                "z": sample_3d_volume.coords["z"].values[z_indices],
+                "y": sample_3d_volume.coords["y"].values,
+                "x": sample_3d_volume.coords["x"].values,
+            },
+        )
+
+    def test_contours_only_on_matching_axes(self, sample_3d_volume, matplotlib_pyplot):
+        """add_contours draws lines only on axes whose z coord matches the mask."""
+        plotter = plot_volume(sample_3d_volume, slice_mode="z", show_colorbar=False)
+        mask = self._make_mask(sample_3d_volume, [0, 1])
+        plotter.add_contours(mask, colors="red")
+
+        axes_flat = plotter.axes.ravel()
+        assert len(axes_flat[0].lines) > 0
+        assert len(axes_flat[1].lines) > 0
+        assert len(axes_flat[2].lines) == 0
+        assert len(axes_flat[3].lines) == 0
+
+    def test_add_contours_warns_on_missing_coords(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """add_contours warns when mask slice coordinates don't match any axes."""
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=[sample_3d_volume.coords["z"].values[2]],
+            show_colorbar=False,
+        )
+        # Mask with z coords that don't match the single plotted slice
+        mask = self._make_mask(sample_3d_volume, [0, 1])
+        with pytest.warns(UserWarning, match="Could not find matching axes"):
+            plotter.add_contours(mask, colors="red")
+
+
 # Image comparison tests with pytest-mpl
 # These generate baseline images for visual regression testing
 
@@ -491,4 +569,70 @@ class TestPlotVolumeVisualRegression:
         """Baseline test without colorbar."""
         volume = _create_deterministic_volume()
         plotter = plot_volume(volume, slice_mode="z", show_colorbar=False)
+        return plotter.figure
+
+
+class TestPlotContoursVisualRegression:
+    """Visual regression tests for plot_contours using pytest-mpl."""
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_contours_basic(self, matplotlib_pyplot):
+        """Baseline test for basic plot_contours."""
+        # Create a simple mask with two regions
+        mask = xr.DataArray(
+            np.array(
+                [
+                    [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
+                    [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
+                ]
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [0.0, 0.5, 1.0, 1.5],
+                "x": [0.0, 0.5, 1.0, 1.5],
+            },
+        )
+        plotter = plot_contours(mask, slice_mode="z", colors={1: "red", 2: "blue"})
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_contours_overlay_on_volume(self, matplotlib_pyplot):
+        """Baseline test for add_contours overlay on volume."""
+        # Create volume data
+        rng = np.random.default_rng(42)
+        volume = xr.DataArray(
+            rng.random((2, 4, 4)),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [0.0, 0.5, 1.0, 1.5],
+                "x": [0.0, 0.5, 1.0, 1.5],
+            },
+        )
+        # Create matching mask
+        mask = xr.DataArray(
+            np.array(
+                [
+                    [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
+                    [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
+                ]
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [0.0, 0.5, 1.0, 1.5],
+                "x": [0.0, 0.5, 1.0, 1.5],
+            },
+        )
+        plotter = plot_volume(volume, slice_mode="z", show_colorbar=False)
+        plotter.add_contours(mask, colors={1: "red", 2: "blue"})
         return plotter.figure

@@ -115,7 +115,8 @@ inventories = [
     "https://napari.org/stable/objects.inv",
     "https://nilearn.github.io/stable/objects.inv",
     "https://pandas.pydata.org/pandas-docs/stable/objects.inv",
-    "https://nipype.readthedocs.io/en/latest/objects.inv"
+    "https://nipype.readthedocs.io/en/latest/objects.inv",
+    "https://scikit-image.org/objects.inv",
 ]
 paths = ["src"]
 

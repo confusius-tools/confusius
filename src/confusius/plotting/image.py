@@ -33,20 +33,18 @@ subplot_size * nrows)`` and then constrained to a maximum size.
 def _compute_grid_dims(
     n_slices: int, nrows: int | None, ncols: int | None
 ) -> tuple[int, int]:
-    """Return (nrows, ncols) for a grid of ``n_slices`` panels."""
+    """Compute grid dimensions for a grid of `n_slices` panels."""
     if nrows is None and ncols is None:
-        _ncols = int(np.ceil(np.sqrt(n_slices)))
-        _nrows = int(np.ceil(n_slices / _ncols))
+        ncols = int(np.ceil(np.sqrt(n_slices)))
+        nrows = int(np.ceil(n_slices / ncols))
     elif ncols is None:
         assert nrows is not None
-        _nrows = nrows
-        _ncols = int(np.ceil(n_slices / _nrows))
+        nrows = nrows
+        ncols = int(np.ceil(n_slices / nrows))
     elif nrows is None:
-        _ncols = ncols
-        _nrows = int(np.ceil(n_slices / _ncols))
-    else:
-        _nrows, _ncols = nrows, ncols
-    return _nrows, _ncols
+        ncols = ncols
+        nrows = int(np.ceil(n_slices / ncols))
+    return nrows, ncols
 
 
 def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
@@ -83,19 +81,14 @@ def _build_threshold_cmap(
     if value_range <= 0:
         return base_cmap
 
-    grey_start = 0.0
-    grey_end = 0.0
-    grey_start_low = 0.0
-    grey_end_low = 0.0
-    grey_start_high = 1.0
-    grey_end_high = 1.0
-
     if threshold_mode == "lower":
         grey_start = max(0.0, (max(vmin, -threshold) - vmin) / value_range)
         grey_end = min(1.0, (min(vmax, threshold) - vmin) / value_range)
     else:
+        grey_start_low = 0.0
         grey_end_low = min(1.0, (min(vmax, -threshold) - vmin) / value_range)
         grey_start_high = max(0.0, (max(vmin, threshold) - vmin) / value_range)
+        grey_end_high = 1.0
 
     n_colors = 256
     cmap_colors = [
@@ -140,6 +133,48 @@ def _build_threshold_cmap(
     )
 
 
+def _build_axis_label(da: xr.DataArray, dim: str) -> str:
+    """Return axis label for `dim`, including units when available."""
+    label = dim
+    if dim in da.coords:
+        units = da.coords[dim].attrs.get("units")
+        if units:
+            label = f"{dim} ({units})"
+    return label
+
+
+def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
+    """Generate `n_colors` visually distinct colors."""
+    from matplotlib import cm
+
+    cmap = cm.get_cmap("tab10" if n_colors <= 10 else "tab20")
+    return [tuple(cmap(i % cmap.N)[:3]) for i in range(n_colors)]
+
+
+def _extract_slices(
+    data: xr.DataArray,
+    slice_mode: str,
+    slice_coords: Sequence[float],
+) -> tuple[list[xr.DataArray], list[float]]:
+    """Extract 2D slices from ``data`` along ``slice_mode``.
+
+    Returns the slices and their actual snapped coordinate values.
+    """
+    slices: list[xr.DataArray] = []
+    actual_coords: list[float] = []
+    for coord in slice_coords:
+        if slice_mode in data.coords:
+            slice_da = data.sel({slice_mode: coord}, method="nearest")
+            actual_coord = float(slice_da.coords[slice_mode].values)
+        else:
+            idx = int(round(coord))
+            slice_da = data.isel({slice_mode: idx})
+            actual_coord = float(coord)
+        slices.append(slice_da)
+        actual_coords.append(actual_coord)
+    return slices, actual_coords
+
+
 class VolumePlotter:
     """Manager for volume slice plots with coordinate-based overlay support.
 
@@ -153,15 +188,17 @@ class VolumePlotter:
         The dimension along which slices are taken (e.g., ``"z"``).
     figure : matplotlib.figure.Figure, optional
         The figure containing the axes. If not provided, a new figure will be created
-        on the first call to add_volume.
+        on the first call to
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume].
     axes : numpy.ndarray, optional
-        2D array of matplotlib.axes.Axes objects. If not provided, axes will be created
-        on the first call to add_volume.
+        2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes]. If not provided,
+        axes will be created on the first call to
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume].
     black_bg : bool, default: True
         Whether to set the figure background to black.
     yincrease : bool, default: False
-        Whether the y-axis increases upward. When False, y coordinates decrease
-        upward (standard for medical imaging).
+        Whether the y-axis increases upward. When ``False``, y coordinates decrease
+        upward.
     xincrease : bool, default: True
         Whether the x-axis increases to the right.
     """
@@ -177,8 +214,12 @@ class VolumePlotter:
         xincrease: bool = True,
     ):
         self.slice_mode = slice_mode
-        self.figure = figure
         self.axes = axes
+        self._user_provided_axes = axes is not None
+        if figure is None and axes is not None:
+            self.figure = axes.flat[0].figure
+        else:
+            self.figure = figure
         self._black_bg = black_bg
         self._yincrease = yincrease
         self._xincrease = xincrease
@@ -237,7 +278,17 @@ class VolumePlotter:
         Uses the coordinate-to-axis mapping stored when the figure was first created,
         avoiding any dependency on axis titles.
 
-        Returns a list of (axis_flat_idx, slice_idx) tuples for matched coordinates.
+        Parameters
+        ----------
+        actual_coords : list[float]
+            The actual coordinate values of the slices being plotted.
+        tolerance : float, default: 1e-6
+            Tolerance for matching coordinates, accounting for floating-point precision.
+
+        Returns
+        -------
+        list[tuple[int, int]]
+            List of `(axis_flat_idx, slice_idx)` tuples for matched coordinates.
         """
         matched = []
         for slice_idx, target_coord in enumerate(actual_coords):
@@ -260,10 +311,10 @@ class VolumePlotter:
         alpha: float = 1.0,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
-        display_titles: bool = True,
-        display_axis_labels: bool = True,
-        display_axis_ticks: bool = True,
-        axis_off: bool = False,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = False,
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
@@ -290,19 +341,20 @@ class VolumePlotter:
         threshold_mode : {"lower", "upper"}, default: "lower"
             Whether to mask values below or above threshold.
         alpha : float, default: 1.0
-            Opacity of the overlay (0-1).
+            Opacity of the image.
         show_colorbar : bool, default: True
             Whether to add a colorbar.
         cbar_label : str, optional
             Label for the colorbar.
-        display_titles : bool, default: True
+        show_titles : bool, default: True
             Whether to display subplot titles.
-        display_axis_labels : bool, default: True
+        show_axis_labels : bool, default: True
             Whether to display axis labels.
-        display_axis_ticks : bool, default: True
+        show_axis_ticks : bool, default: True
             Whether to display axis tick labels.
-        axis_off : bool, default: False
-            Whether to turn off all axis decorations.
+        show_axes : bool, default: True
+            Whether to show all axis decorations (spines, ticks, labels). When ``False``,
+            overrides `show_axis_labels` and `show_axis_ticks`.
         nrows : int, optional
             Number of rows in the subplot grid when creating a new figure.
             If not provided, computed automatically.
@@ -327,7 +379,6 @@ class VolumePlotter:
         if np.iscomplexobj(data):
             data = xr.ufuncs.abs(data)
 
-        # Squeeze unitary dimensions except slice_mode to preserve 3D structure.
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
@@ -357,32 +408,23 @@ class VolumePlotter:
             else:
                 slice_coords = list(range(data.sizes[self.slice_mode]))
 
-        slices = []
-        actual_coords = []
-        for coord in slice_coords:
-            if has_coords:
-                s = data.sel({self.slice_mode: coord}, method="nearest")
-                actual_coords.append(float(s.coords[self.slice_mode].values))
-            else:
-                idx = int(round(float(coord)))
-                idx = max(0, min(idx, data.sizes[self.slice_mode] - 1))
-                s = data.isel({self.slice_mode: idx})
-                actual_coords.append(float(idx))
-            slices.append(s)
+        slices, actual_coords = _extract_slices(data, self.slice_mode, slice_coords)
 
         n_slices = len(slices)
 
-        if vmin is None or vmax is None:
-            all_vals = np.concatenate([s.values.ravel() for s in slices])
-            if len(all_vals) > 0:
-                if vmin is None:
-                    vmin = float(np.percentile(all_vals, 2))
-                if vmax is None:
-                    vmax = float(np.percentile(all_vals, 98))
-            else:
-                vmin = vmin if vmin is not None else 0.0
-                vmax = vmax if vmax is not None else 1.0
+        # Compute vmin/vmax from data before thresholding for consistent colormap
+        all_vals = np.concatenate([s.values.ravel() for s in slices])
+        all_vals = all_vals[np.isfinite(all_vals)]
+        if len(all_vals) > 0:
+            if vmin is None:
+                vmin = float(np.percentile(all_vals, 2))
+            if vmax is None:
+                vmax = float(np.percentile(all_vals, 98))
+        else:
+            vmin = vmin if vmin is not None else 0.0
+            vmax = vmax if vmax is not None else 1.0
 
+        # Apply threshold by setting masked values to NaN.
         if threshold is not None:
             slice_arrays = []
             for s in slices:
@@ -399,8 +441,8 @@ class VolumePlotter:
 
         if threshold is not None:
             base_cmap = plt.get_cmap(cmap) if isinstance(cmap, str) else cmap
-            # Build colormap with grey inserted where values are thresholded. This
-            # visually indicates which regions were masked.
+            # Build colormap with grey inserted where values are thresholded.
+            # This visually indicates which regions were masked.
             cmap = _build_threshold_cmap(
                 base_cmap, vmin, vmax, threshold, threshold_mode
             )
@@ -431,42 +473,16 @@ class VolumePlotter:
                     stacklevel=find_stack_level(),
                 )
 
-            if not matched_indices:
-                return self
-
-            sorted_matched = sorted(matched_indices, key=lambda x: x[1])
-            slices = [slices[orig_idx] for _, orig_idx in sorted_matched]
-            slice_arrays = [slice_arrays[orig_idx] for _, orig_idx in sorted_matched]
-            actual_coords = [actual_coords[orig_idx] for _, orig_idx in sorted_matched]
-            plot_indices = [
-                (axis_idx, new_idx)
-                for new_idx, (axis_idx, _) in enumerate(sorted_matched)
-            ]
-            n_slices = len(slices)
+            plot_indices = matched_indices
         else:
-            if self.axes is not None:
-                if self.figure is None:
-                    self.figure = self.axes.ravel()[0].figure
-                if n_slices != self.axes.size:
-                    raise ValueError(
-                        f"Number of slices ({n_slices}) must match number of axes "
-                        f"({self.axes.size}) when match_coordinates=False."
-                    )
-            else:
-                x_range, y_range = None, None
-                if (
-                    slices
-                    and dim_col in slices[0].coords
-                    and dim_row in slices[0].coords
-                ):
-                    x_range = float(
-                        np.max(slices[0].coords[dim_col].values)
-                        - np.min(slices[0].coords[dim_col].values)
-                    )
-                    y_range = float(
-                        np.max(slices[0].coords[dim_row].values)
-                        - np.min(slices[0].coords[dim_row].values)
-                    )
+            if self.axes is None:
+                x_range = None
+                y_range = None
+                if dim_col in data.coords and dim_row in data.coords:
+                    x_coords = data.coords[dim_col].values.astype(float)
+                    y_coords = data.coords[dim_row].values.astype(float)
+                    x_range = float(np.max(x_coords) - np.min(x_coords))
+                    y_range = float(np.max(y_coords) - np.min(y_coords))
                 self._ensure_figure(
                     n_slices,
                     nrows=nrows,
@@ -475,6 +491,15 @@ class VolumePlotter:
                     x_range=x_range,
                     y_range=y_range,
                 )
+
+            if self._user_provided_axes:
+                assert self.axes is not None
+                if n_slices != self.axes.size:
+                    raise ValueError(
+                        f"Number of slices ({n_slices}) must match number of axes "
+                        f"({self.axes.size}). Got {n_slices} slice_coords but axes has "
+                        f"shape {self.axes.shape}."
+                    )
 
             if not self._coord_to_axis:
                 self._coord_to_axis = {
@@ -488,14 +513,6 @@ class VolumePlotter:
         im = None
 
         axes_flat = self.axes.ravel()
-
-        def _build_axis_label(dim: str) -> str:
-            label = dim
-            if dim in data.coords:
-                units = data.coords[dim].attrs.get("units")
-                if units:
-                    label = f"{dim} ({units})"
-            return label
 
         for axis_idx, slice_idx in plot_indices:
             ax = axes_flat[axis_idx]
@@ -547,24 +564,26 @@ class VolumePlotter:
             title = f"{self.slice_mode} = {coord:.3g}"
             if slice_units:
                 title += f" {slice_units}"
-            ax.set_title(title if display_titles else "", color=text_color)
+            ax.set_title(title if show_titles else "", color=text_color)
 
-            if display_axis_labels:
-                ax.set_xlabel(_build_axis_label(dim_col), color=text_color)
-                ax.set_ylabel(_build_axis_label(dim_row), color=text_color)
+            if show_axis_labels:
+                ax.set_xlabel(_build_axis_label(data, dim_col), color=text_color)
+                ax.set_ylabel(_build_axis_label(data, dim_row), color=text_color)
 
-            if not display_axis_ticks:
+            if not show_axis_ticks:
                 ax.set_xticklabels([])
                 ax.set_yticklabels([])
 
-            if axis_off:
+            if show_axes:
                 ax.axis("off")
 
-            # When overlaying volumes with different spatial extents, we need to expand
-            # the axis limits to encompass all data, not just the first volume.
+            # Track data extent across overlays to ensure all data is visible.
+            # When overlaying volumes with different spatial extents, we need to
+            # expand the axis limits to encompass all data, not just the first volume.
             current_xlim = (float(x_vals.min()), float(x_vals.max()))
             current_ylim = (float(y_vals.min()), float(y_vals.max()))
 
+            # Expand limits if this axis already has data from a previous overlay
             if axis_idx in self._axis_xlims:
                 prev_xlim = self._axis_xlims[axis_idx]
                 current_xlim = (
@@ -572,7 +591,6 @@ class VolumePlotter:
                     max(prev_xlim[1], current_xlim[1]),
                 )
             self._axis_xlims[axis_idx] = current_xlim
-            ax.set_xlim(current_xlim)
 
             if axis_idx in self._axis_ylims:
                 prev_ylim = self._axis_ylims[axis_idx]
@@ -633,45 +651,571 @@ class VolumePlotter:
             Path to save the figure. Extension determines format (e.g., ``.png``,
             ``.pdf```).
         **kwargs
-            Additional keyword arguments passed to
-            [`matplotlib.figure.Figure.savefig`][matplotlib.figure.Figure.savefig].
+            Additional arguments passed to `matplotlib.figure.Figure.savefig`.
+
+        Raises
+        ------
+        RuntimeError
+            If called before any data has been plotted.
         """
         if self.figure is None:
-            raise RuntimeError("Figure not initialized.")
+            raise RuntimeError(
+                "No figure to save. Call add_volume() or plot_volume() first."
+            )
         self.figure.savefig(fname, **kwargs)
 
     def show(self) -> None:
         """Display the figure.
 
-        This calls [`matplotlib.pyplot.show`][matplotlib.pyplot.show] to display the
-        figure in an interactive window.
+        Raises
+        ------
+        RuntimeError
+            If called before any data has been plotted.
         """
+        if self.figure is None:
+            raise RuntimeError(
+                "No figure to show. Call add_volume() or plot_volume() first."
+            )
         import matplotlib.pyplot as plt
 
         plt.show()
 
     def close(self) -> None:
-        """Close the figure window.
-
-        This closes the matplotlib figure window associated with this plotter. After
-        closing, the figure cannot be displayed or saved.
-        """
+        """Close the figure and release resources."""
         import matplotlib.pyplot as plt
 
         if self.figure is not None:
             plt.close(self.figure)
             self.figure = None
             self.axes = None
-            self._coord_to_axis = {}
-            self._black_bg = True
-            self._axis_xlims = {}
-            self._axis_ylims = {}
+            self._coord_to_axis.clear()
+            self._axis_xlims.clear()
+            self._axis_ylims.clear()
+
+    def add_contours(
+        self,
+        mask: xr.DataArray,
+        *,
+        colors: dict[int, str] | str | None = None,
+        linewidths: float = 1.5,
+        linestyles: str = "solid",
+        match_coordinates: bool = True,
+        slice_coords: list[float] | None = None,
+        **kwargs,
+    ) -> "VolumePlotter":
+        """Add mask contours to existing axes.
+
+        Parameters
+        ----------
+        mask : xarray.DataArray
+            Integer-labeled mask where 0 is background and each positive integer
+            labels a distinct region. Must be 3D with ``slice_mode`` as one dimension.
+        colors : dict[int, str] or str, optional
+            Color specification for contour lines. A ``dict`` maps each label to a
+            color (e.g. ``{1: "red", 2: "blue"}``); a ``str`` applies one color to
+            all regions. If not provided, distinct colors are drawn from the
+            ``tab10``/``tab20`` colormap.
+        linewidths : float, default: 1.5
+            Width of contour lines in points.
+        linestyles : str, default: "solid"
+            Line style for contour lines (e.g. ``"solid"``, ``"dashed"``).
+        match_coordinates : bool, default: True
+            If ``True``, overlay contours on axes whose slice coordinate matches the
+            mask. If ``False``, plot sequentially on all axes (used internally by
+            :func:`plot_contours`).
+        slice_coords : list[float], optional
+            Coordinate values along the plotter's ``slice_mode`` at which to draw
+            contours. Slices are selected by nearest-neighbour lookup. If not
+            provided, all coordinate values along ``slice_mode`` are used.
+        **kwargs
+            Additional keyword arguments passed to ``matplotlib.axes.Axes.plot``.
+
+        Returns
+        -------
+        VolumePlotter
+            Returns ``self`` for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If the plotter's ``slice_mode`` is not a dimension of ``mask``.
+        ValueError
+            If ``mask`` is not 3D.
+        """
+        from skimage.measure import find_contours
+
+        if self.slice_mode not in mask.dims:
+            raise ValueError(f"slice_mode '{self.slice_mode}' not in mask dimensions")
+
+        if mask.ndim != 3:
+            raise ValueError(f"mask must be 3D, got shape {mask.shape}")
+
+        unique_labels = sorted(
+            [label for label in np.unique(mask.values) if label != 0]
+        )
+        if not unique_labels:
+            return self
+
+        if colors is None:
+            distinct_colors = _get_distinct_colors(len(unique_labels))
+            color_map = {
+                label: color for label, color in zip(unique_labels, distinct_colors)
+            }
+        elif isinstance(colors, str):
+            color_map = {label: colors for label in unique_labels}
+        else:
+            color_map = colors
+
+        display_dims = [str(d) for d in mask.dims if d != self.slice_mode]
+        dim_row, dim_col = display_dims[0], display_dims[1]
+
+        if slice_coords is None:
+            if self.slice_mode in mask.coords:
+                slice_coords = list(mask.coords[self.slice_mode].values)
+            else:
+                slice_coords = list(range(mask.sizes[self.slice_mode]))
+
+        slices, actual_coords = _extract_slices(mask, self.slice_mode, slice_coords)
+        n_slices = len(slices)
+
+        if match_coordinates:
+            matched_indices = self._find_matching_axes(actual_coords)
+
+            matched_slice_indices = {idx for _, idx in matched_indices}
+            unmatched_slices = [
+                (idx, actual_coords[idx])
+                for idx in range(n_slices)
+                if idx not in matched_slice_indices
+            ]
+            if unmatched_slices:
+                unmatched_str = ", ".join(
+                    f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
+                )
+                available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
+                warnings.warn(
+                    f"Could not find matching axes for slices: {unmatched_str}. "
+                    f"These slices will not be plotted. "
+                    f"Available coordinates: {available_coords}",
+                    stacklevel=find_stack_level(),
+                )
+            plot_indices = matched_indices
+        else:
+            x_range = None
+            y_range = None
+            if dim_col in mask.coords and dim_row in mask.coords:
+                x_vals_all = mask.coords[dim_col].values.astype(float)
+                y_vals_all = mask.coords[dim_row].values.astype(float)
+                x_range = float(np.max(x_vals_all) - np.min(x_vals_all))
+                y_range = float(np.max(y_vals_all) - np.min(y_vals_all))
+            self._ensure_figure(n_slices, x_range=x_range, y_range=y_range)
+            if not self._coord_to_axis:
+                self._coord_to_axis = {
+                    coord: idx for idx, coord in enumerate(actual_coords)
+                }
+            plot_indices = [(idx, idx) for idx in range(n_slices)]
+
+        if self.axes is None:
+            raise RuntimeError("No axes available")
+
+        axes_flat = self.axes.ravel()
+
+        for axis_idx, slice_idx in plot_indices:
+            ax = axes_flat[axis_idx]
+            slice_da = slices[slice_idx]
+            slice_data = slice_da.values
+
+            if dim_col in slice_da.coords:
+                x_coords = slice_da.coords[dim_col].values.astype(float)
+            else:
+                x_coords = np.arange(slice_da.sizes[dim_col])
+            if dim_row in slice_da.coords:
+                y_coords = slice_da.coords[dim_row].values.astype(float)
+            else:
+                y_coords = np.arange(slice_da.sizes[dim_row])
+
+            for label in unique_labels:
+                binary_mask = (slice_data == label).astype(np.uint8)
+                if not binary_mask.any():
+                    continue
+
+                padded = np.pad(binary_mask, 1, mode="constant")
+                contours = find_contours(padded, level=0.5)
+                contours = [c - 1 for c in contours]
+
+                color = color_map.get(label, "white")
+
+                for contour in contours:
+                    if len(contour) < 2:
+                        continue
+
+                    # Map pixel indices to physical coordinates.
+                    # Contours are at pixel boundaries, so we need to interpolate
+                    # between coordinate centers to get edge positions.
+                    # contour[:, 0] is row (y) index, contour[:, 1] is col (x) index
+                    x_idx = contour[:, 1]
+                    y_idx = contour[:, 0]
+                    x_physical = np.interp(
+                        x_idx,
+                        np.arange(len(x_coords)),
+                        x_coords,
+                    )
+                    y_physical = np.interp(
+                        y_idx,
+                        np.arange(len(y_coords)),
+                        y_coords,
+                    )
+                    ax.plot(
+                        x_physical,
+                        y_physical,
+                        color=color,
+                        linewidth=linewidths,
+                        linestyle=linestyles,
+                        **kwargs,
+                    )
+
+            if not match_coordinates:
+                ax.set_aspect("equal")
+
+                # Compute limits from physical coordinates, not from auto-scaled
+                # matplotlib limits, which may include padding.
+                x_edges = _centers_to_edges(x_coords)
+                y_edges = _centers_to_edges(y_coords)
+                xlim = (float(x_edges.min()), float(x_edges.max()))
+                ylim = (float(y_edges.min()), float(y_edges.max()))
+
+                if self._yincrease:
+                    ax.set_ylim(ylim)
+                else:
+                    ax.set_ylim(ylim[1], ylim[0])
+
+                if self._xincrease:
+                    ax.set_xlim(xlim)
+                else:
+                    ax.set_xlim(xlim[1], xlim[0])
+
+                text_color = "white" if self._black_bg else "black"
+                if self._black_bg:
+                    ax.set_facecolor("black")
+                    for spine in ax.spines.values():
+                        spine.set_edgecolor("white")
+                    ax.tick_params(colors="white", which="both")
+                else:
+                    ax.set_facecolor("white")
+                    for spine in ax.spines.values():
+                        spine.set_edgecolor("black")
+                    ax.tick_params(colors="black", which="both")
+
+                ax.set_xlabel(_build_axis_label(mask, dim_col), color=text_color)
+                ax.set_ylabel(_build_axis_label(mask, dim_row), color=text_color)
+
+                slice_units = (
+                    mask.coords[self.slice_mode].attrs.get("units")
+                    if self.slice_mode in mask.coords
+                    else None
+                )
+                title = f"{self.slice_mode} = {actual_coords[slice_idx]:.3g}"
+                if slice_units:
+                    title += f" {slice_units}"
+                ax.set_title(title, color=text_color)
+
+        return self
+
+
+def plot_contours(
+    mask: xr.DataArray,
+    *,
+    colors: dict[int, str] | str | None = None,
+    linewidths: float = 1.5,
+    linestyles: str = "solid",
+    slice_mode: str = "z",
+    slice_coords: list[float] | None = None,
+    yincrease: bool = False,
+    xincrease: bool = True,
+    black_bg: bool = True,
+    figure: "Figure | None" = None,
+    axes: "npt.NDArray[Any] | None" = None,
+    **kwargs,
+) -> VolumePlotter:
+    """Plot mask contours as a grid of 2D slice panels.
+
+    Displays contour lines for each labeled region in `mask` across a grid of subplots.
+    Each panel shows the contours for one slice along `slice_mode`, drawn in physical
+    coordinates when available.
+
+    Parameters
+    ----------
+    mask : xarray.DataArray
+        Integer-labeled mask where 0 is background and each positive integer labels a
+        distinct region. Must be 3D with `slice_mode` as one dimension.
+    colors : dict[int, str] or str, optional
+        Color specification for contour lines. A ``dict`` maps each label to a color
+        (e.g. ``{1: "red", 2: "blue"}``); a ``str`` applies one color to all regions. If
+        not provided, distinct colors are drawn from the ``tab10``/``tab20`` colormap.
+    linewidths : float, default: 1.5
+        Width of contour lines in points.
+    linestyles : str, default: "solid"
+        Line style for contour lines (e.g. ``"solid"``, ``"dashed"``).
+    slice_mode : str, default: "z"
+        Dimension along which to slice (e.g. ``"x"``, ``"y"``, ``"z"``). After
+        slicing, each panel must be 2D.
+    slice_coords : list[float], optional
+        Coordinate values along `slice_mode` at which to extract slices. Slices are
+        selected by nearest-neighbour lookup. If not provided, all coordinate values
+        along `slice_mode` are used.
+    yincrease : bool, default: False
+        Whether the y-axis increases upward (``True``) or downward (``False``).
+    xincrease : bool, default: True
+        Whether the x-axis increases to the right (``True``) or left (``False``).
+    black_bg : bool, default: True
+        Whether to set the figure background to black.
+    figure : matplotlib.figure.Figure, optional
+        Existing figure to draw into. If not provided, a new figure is created.
+    axes : numpy.ndarray, optional
+        Existing 2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes] to draw
+        into. If not provided, new axes are created inside `figure`.
+    **kwargs
+        Additional keyword arguments passed to
+        [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
+
+    Returns
+    -------
+    VolumePlotter
+        Object managing the figure, axes, and coordinate mapping for overlays.
+
+    Raises
+    ------
+    ValueError
+        If `slice_mode` is not a dimension of `mask`.
+    ValueError
+        If `mask` is not 3D.
+
+    Notes
+    -----
+    Contours are computed with `skimage.measure.find_contours` on a binary mask for each
+    label, then mapped to physical coordinates via linear interpolation between
+    coordinate centers. Each panel has ``aspect="equal"`` so that 1 unit in x matches 1
+    unit in y.
+
+    The returned [`VolumePlotter`][confusius.plotting.VolumePlotter] stores the
+    coordinate-to-axis mapping, so you can overlay a volume afterwards with
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume].
+
+    Examples
+    --------
+    >>> import xarray as xr
+    >>> from confusius.plotting import plot_contours
+    >>> mask = xr.open_zarr("output.zarr")["roi_mask"]
+    >>> plotter = plot_contours(mask, slice_mode="z")
+
+    >>> # Custom colors per label.
+    >>> plotter = plot_contours(mask, slice_mode="z", colors={1: "red", 2: "cyan"})
+
+    >>> # Overlay contours on an existing volume plot.
+    >>> from confusius.plotting import plot_volume
+    >>> volume = xr.open_zarr("output.zarr")["power_doppler"]
+    >>> plotter = plot_volume(volume, slice_mode="z")
+    >>> plotter.add_contours(mask, colors="yellow")
+    """
+    plotter = VolumePlotter(
+        slice_mode=slice_mode,
+        figure=figure,
+        axes=axes,
+        black_bg=black_bg,
+        yincrease=yincrease,
+        xincrease=xincrease,
+    )
+
+    return plotter.add_contours(
+        mask,
+        colors=colors,
+        linewidths=linewidths,
+        linestyles=linestyles,
+        match_coordinates=False,
+        slice_coords=slice_coords,
+        **kwargs,
+    )
+
+
+def plot_volume(
+    data: xr.DataArray,
+    *,
+    slice_coords: list[float] | None = None,
+    slice_mode: str = "z",
+    cmap: "str | Colormap" = "gray",
+    vmin: float | None = None,
+    vmax: float | None = None,
+    threshold: float | None = None,
+    threshold_mode: Literal["lower", "upper"] = "lower",
+    alpha: float = 1.0,
+    show_colorbar: bool = True,
+    cbar_label: str | None = None,
+    show_titles: bool = True,
+    show_axis_labels: bool = True,
+    show_axis_ticks: bool = True,
+    show_axes: bool = False,
+    yincrease: bool = False,
+    xincrease: bool = True,
+    black_bg: bool = True,
+    figure: "Figure | None" = None,
+    axes: "npt.NDArray[Any] | None" = None,
+    nrows: int | None = None,
+    ncols: int | None = None,
+    dpi: int | None = None,
+) -> VolumePlotter:
+    """Plot 2D slices of a volume using matplotlib.
+
+    Displays a series of 2D slices extracted along ``slice_mode`` as a grid of subplots.
+    Each slice is rendered using physical coordinates for axis ticks when available.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input data array. Unitary dimensions are squeezed before processing. After
+        squeezing, data must be 3D. Complex-valued data is converted to magnitude
+        before display.
+    slice_coords : list[float], optional
+        Coordinate values along `slice_mode` at which to extract slices. Slices are
+        selected by nearest-neighbour lookup. If not provided, all coordinate values
+        along `slice_mode` are used.
+    slice_mode : str, default: "z"
+        Dimension along which to slice (e.g., ``"x"``, ``"y"``, ``"z"``,
+        ``"time"``). After slicing, each panel must be 2D.
+    cmap : str, default: "gray"
+        Matplotlib colormap name.
+    vmin : float, optional
+        Lower bound of the colormap. Defaults to the 2nd percentile.
+    vmax : float, optional
+        Upper bound of the colormap. Defaults to the 98th percentile.
+    threshold : float, optional
+        Threshold applied to ``|data|``. See ``threshold_mode`` for the masking
+        direction. If not provided, no thresholding is applied.
+    threshold_mode : {"lower", "upper"}, default: "lower"
+        Controls how ``threshold`` is applied:
+
+        - ``"lower"``: set pixels where ``|data| < threshold`` to NaN.
+        - ``"upper"``: set pixels where ``|data| > threshold`` to NaN.
+
+    alpha : float, default: 1.0
+        Opacity of the image.
+    show_colorbar : bool, default: True
+        Whether to add a shared colorbar to the figure.
+    cbar_label : str, optional
+        Label for the colorbar.
+    show_titles : bool, default: True
+        Whether to display subplot titles showing the slice coordinate.
+    show_axis_labels : bool, default: True
+        Whether to display axis labels (with units when available).
+    show_axis_ticks : bool, default: True
+        Whether to display axis tick labels.
+    show_axes : bool, default: True
+        Whether to show all axis decorations (spines, ticks, labels). When ``False``,
+        overrides `show_axis_labels` and `show_axis_ticks`.
+    yincrease : bool, default: False
+        Whether the y-axis increases upward (``True``) or downward (``False``).
+    xincrease : bool, default: True
+        Whether the x-axis increases to the right (``True``) or left (``False``).
+    black_bg : bool, default: True
+        Whether to set the figure background to black.
+    figure : matplotlib.figure.Figure, optional
+        Existing figure to draw into. If not provided, a new figure is created.
+    axes : numpy.ndarray, optional
+        Existing 2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes] to draw
+        into. Must contain at least as many elements as there are slices. If not
+        provided, new axes are created inside `figure`.
+    nrows : int, optional
+        Number of rows in the subplot grid. If not provided, computed automatically.
+    ncols : int, optional
+        Number of columns in the subplot grid. If not provided, computed automatically.
+    dpi : int, optional
+        Figure resolution in dots per inch. Ignored when `figure` is provided.
+
+    Returns
+    -------
+    VolumePlotter
+        Object managing the figure, axes, and coordinate mapping for overlays.
+
+    Raises
+    ------
+    ValueError
+        If `slice_mode` is not a dimension of `data`.
+    ValueError
+        If `data` is not 3D after squeezing unitary dimensions.
+    ValueError
+        If `axes` is provided but does not contain enough elements for all slices.
+
+    Notes
+    -----
+    Rendering is done with [`pcolormesh`][matplotlib.pyplot.pcolormesh], which accepts
+    coordinate arrays directly and therefore handles non-uniform coordinate spacing
+    correctly. Because each panel is drawn in physical coordinate space, multiple calls
+    with different `axes` elements will overlay correctly as long as the displayed
+    dimensions are the same.
+
+    The two dimensions that remain after slicing define the panel axes: the
+    first remaining dimension maps to the vertical axis and the second to the
+    horizontal axis. Coordinates are used directly as axis tick values; each
+    axis has ``aspect="equal"`` so that 1 unit in x matches 1 unit in y.
+
+    NaN and Inf values (including those introduced by `threshold`) are rendered
+    transparently via a masked array.
+
+    When the figure is created internally, ``layout="constrained"`` is used so
+    that subplot titles, axis labels, tick labels, and the colorbar are spaced
+    automatically without overlapping. When an external `figure` or `axes`
+    is provided, layout management is left to the caller.
+
+    Examples
+    --------
+    >>> import xarray as xr
+    >>> from confusius.plotting import plot_volume
+    >>> data = xr.open_zarr("output.zarr")["power_doppler"]
+    >>> plotter = plot_volume(data, slice_mode="z")
+
+    >>> # Select specific z slices.
+    >>> plotter = plot_volume(data, slice_coords=[0.0, 1.5, 3.0], slice_mode="z")
+
+    >>> # Threshold noise and label the colorbar.
+    >>> plotter = plot_volume(
+    ...     data,
+    ...     slice_mode="z",
+    ...     threshold=0.5,
+    ...     threshold_mode="lower",
+    ...     cbar_label="Power (dB)",
+    ... )
+    """
+    plotter = VolumePlotter(
+        slice_mode=slice_mode,
+        figure=figure,
+        axes=axes,
+        black_bg=black_bg,
+        yincrease=yincrease,
+        xincrease=xincrease,
+    )
+
+    return plotter.add_volume(
+        data=data,
+        slice_coords=slice_coords,
+        match_coordinates=False,
+        cmap=cmap,
+        vmin=vmin,
+        vmax=vmax,
+        threshold=threshold,
+        threshold_mode=threshold_mode,
+        alpha=alpha,
+        show_colorbar=show_colorbar,
+        cbar_label=cbar_label,
+        show_titles=show_titles,
+        show_axis_labels=show_axis_labels,
+        show_axis_ticks=show_axis_ticks,
+        show_axes=show_axes,
+        nrows=nrows,
+        ncols=ncols,
+        dpi=dpi,
+    )
 
 
 def plot_napari(
     data: xr.DataArray,
-    scale_method: Literal["db", "log", "power"] | None = None,
-    scale_kwargs: dict[str, Any] | None = None,
     show_colorbar: bool = True,
     show_scale_bar: bool = True,
     dim_order: tuple[str, ...] | None = None,
@@ -686,13 +1230,6 @@ def plot_napari(
         Input data array to visualize. Expected dimensions are (time, z, y, x) where
         z is the elevation/stacking axis, y is depth, and x is lateral. Use
         ``dim_order`` to specify a different dimension ordering.
-    scale_method : {"db", "log", "power"}, optional
-        Scaling method to apply before display. Use ``"db"`` for decibel scaling,
-        ``"log"`` for natural log, ``"power"`` for power scaling. If not provided,
-        no scaling is applied.
-    scale_kwargs : dict, optional
-        Keyword arguments to pass to the scaling method. For example, ``{"factor": 20}``
-        for db scaling or ``{"exponent": 0.5}`` for power scaling.
     show_colorbar : bool, default: True
         Whether to show the colorbar.
     show_scale_bar : bool, default: True
@@ -743,14 +1280,6 @@ def plot_napari(
     >>> # Custom contrast limits
     >>> viewer, layer = plot_napari(data, contrast_limits=(0, 100))
 
-    >>> # Amplitude scaling (factor=20)
-    >>> viewer, layer = plot_napari(
-    ...     data, scale_method="db", scale_kwargs={"factor": 20}
-    ... )
-
-    >>> # Decibel scaling
-    >>> viewer, layer = plot_napari(data, scale_method="db")
-
     >>> # Different dimension ordering (e.g., depth, elevation, lateral)
     >>> viewer, layer = plot_napari(data, dim_order=("y", "z", "x"))
 
@@ -758,22 +1287,6 @@ def plot_napari(
     >>> viewer, layer1 = plot_napari(data1)
     >>> viewer, layer2 = plot_napari(data2, viewer=viewer)
     """
-    if scale_method is not None:
-        if scale_kwargs is None:
-            scale_kwargs = {}
-
-        if scale_method == "db":
-            data = data.fusi.scale.db(**scale_kwargs)
-        elif scale_method == "log":
-            data = data.fusi.scale.log(**scale_kwargs)
-        elif scale_method == "power":
-            data = data.fusi.scale.power(**scale_kwargs)
-        else:
-            raise ValueError(
-                f"Unknown scale_method: {scale_method}. "
-                "Use 'db', 'log', 'power', or None."
-            )
-
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
@@ -992,188 +1505,3 @@ def plot_carpet(
     ax.spines["left"].set_position(("outward", 10))
 
     return figure, ax
-
-
-def plot_volume(
-    data: xr.DataArray,
-    slice_coords: Sequence[float] | None = None,
-    slice_mode: str = "z",
-    nrows: int | None = None,
-    ncols: int | None = None,
-    threshold: float | None = None,
-    threshold_mode: Literal["lower", "upper"] = "lower",
-    cmap: "str | Colormap" = "gray",
-    vmin: float | None = None,
-    vmax: float | None = None,
-    alpha: float = 1.0,
-    black_bg: bool = True,
-    figure: "Figure | None" = None,
-    axes: "npt.NDArray[Any] | None" = None,
-    show_colorbar: bool = True,
-    cbar_label: str | None = None,
-    dpi: int | None = None,
-    yincrease: bool = False,
-    xincrease: bool = True,
-    display_titles: bool = True,
-    display_axis_labels: bool = True,
-    display_axis_ticks: bool = True,
-    axis_off: bool = False,
-) -> "VolumePlotter":
-    """Plot 2D slices of a volume using matplotlib.
-
-    Displays a series of 2D slices extracted along ``slice_mode`` as a grid of subplots.
-    Each slice is rendered using physical coordinates for axis ticks when available.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Input data array. Unitary dimensions are squeezed before processing. After
-        squeezing, data must be 3D. Complex-valued data is converted to magnitude
-        before display.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
-    slice_mode : str, default: "z"
-        Dimension along which to slice (e.g. ``"x"``, ``"y"``, ``"z"``, ``"time"``).
-        After slicing, each panel must be 2D.
-    nrows : int, optional
-        Number of rows in the subplot grid. If not provided, computed automatically
-        together with `ncols` to produce a near-square layout.
-    ncols : int, optional
-        Number of columns in the subplot grid. If not provided, computed automatically
-        together with `nrows` to produce a near-square layout.
-    threshold : float, optional
-        Threshold applied to ``|data|``. See `threshold_mode` for the masking
-        direction. If not provided, no thresholding is applied.
-    threshold_mode : {"lower", "upper"}, default: "lower"
-        Controls how `threshold` is applied:
-
-        - ``"lower"``: set pixels where ``|data| < threshold`` to NaN
-          (suppresses values below a minimum signal level).
-        - ``"upper"``: set pixels where ``|data| > threshold`` to NaN
-          (suppresses large absolute values, e.g. e.g. useful when thresholding
-          decibel-scaled data).
-
-    cmap : str or matplotlib.colors.Colormap, default: "gray"
-        Matplotlib colormap name or colormap object.
-    vmin : float, optional
-        Lower bound of the colormap. Defaults to the 2nd percentile of the displayed
-        data.
-    vmax : float, optional
-        Upper bound of the colormap. Defaults to the 98th percentile of the displayed
-        data.
-    alpha : float, default: 1.0
-        Opacity of the image (0 transparent, 1 opaque).
-    black_bg : bool, default: True
-        Whether to set the figure and axes backgrounds to black and render all text and
-        spines in white.
-    figure : matplotlib.figure.Figure, optional
-        Existing figure to draw into. If not provided, a new figure is created.
-    axes : numpy.ndarray, optional
-        Existing 2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes] to draw
-        into. Must contain at least as many elements as there are slices. If not
-        provided, new axes are created inside `figure`.
-    show_colorbar : bool, default: True
-        Whether to add a shared colorbar to the figure.
-    cbar_label : str, optional
-        Label for the colorbar.
-    dpi : int, optional
-        Figure resolution in dots per inch. Ignored when `figure` is provided.
-    yincrease : bool, default: False
-        Whether the y-axis increases upward (True) or downward (False).
-    xincrease : bool, default: True
-        Whether the x-axis increases to the right (True) or left (False).
-    display_titles : bool, default: True
-        Whether to display subplot titles showing the slice coordinate.
-    display_axis_labels : bool, default: True
-        Whether to display axis labels (with units when available).
-    display_axis_ticks : bool, default: True
-        Whether to display axis tick labels.
-    axis_off : bool, default: False
-        Whether to turn off all axis decorations (spines, ticks, labels).
-        When True, overrides display_axis_labels and display_axis_ticks.
-
-    Returns
-    -------
-    VolumePlotter
-        Object managing the figure, axes, and coordinate mapping for overlays.
-
-    Raises
-    ------
-    ValueError
-        If `slice_mode` is not a dimension of `data`.
-    ValueError
-        If `data` is not 3D after squeezing unitary dimensions.
-    ValueError
-        If `axes` is provided but does not contain enough elements for all slices.
-
-    Notes
-    -----
-    Rendering is done with [`pcolormesh`][matplotlib.pyplot.pcolormesh], which accepts
-    coordinate arrays directly and therefore handles non-uniform coordinate spacing
-    correctly. Because each panel is drawn in physical coordinate space, multiple calls
-    with different `axes` elements will overlay correctly as long as the displayed
-    dimensions are the same.
-
-    The two dimensions that remain after slicing define the panel axes: the
-    first remaining dimension maps to the vertical axis and the second to the
-    horizontal axis. Coordinates are used directly as axis tick values; each
-    axis has ``aspect="equal"`` so that 1 unit in x matches 1 unit in y.
-
-    NaN and Inf values (including those introduced by `threshold`) are rendered
-    transparently via a masked array.
-
-    When the figure is created internally, ``layout="constrained"`` is used so
-    that subplot titles, axis labels, tick labels, and the colorbar are spaced
-    automatically without overlapping. When an external `figure` or `axes`
-    is provided, layout management is left to the caller.
-
-    Examples
-    --------
-    >>> import xarray as xr
-    >>> from confusius.plotting import plot_volume
-    >>> data = xr.open_zarr("output.zarr")["power_doppler"]
-    >>> plotter = plot_volume(data, slice_mode="z")
-
-    >>> # Select specific z slices.
-    >>> plotter = plot_volume(data, slice_coords=[0.0, 1.5, 3.0], slice_mode="z")
-
-    >>> # Threshold noise and label the colorbar.
-    >>> plotter = plot_volume(
-    ...     data,
-    ...     slice_mode="z",
-    ...     threshold=0.5,
-    ...     threshold_mode="lower",
-    ...     cbar_label="Power (dB)",
-    ... )
-    """
-    plotter = VolumePlotter(
-        slice_mode=slice_mode,
-        figure=figure,
-        axes=axes,
-        black_bg=black_bg,
-        yincrease=yincrease,
-        xincrease=xincrease,
-    )
-
-    return plotter.add_volume(
-        data=data,
-        slice_coords=slice_coords,
-        match_coordinates=False,
-        cmap=cmap,
-        vmin=vmin,
-        vmax=vmax,
-        threshold=threshold,
-        threshold_mode=threshold_mode,
-        alpha=alpha,
-        show_colorbar=show_colorbar,
-        cbar_label=cbar_label,
-        display_titles=display_titles,
-        display_axis_labels=display_axis_labels,
-        display_axis_ticks=display_axis_ticks,
-        axis_off=axis_off,
-        nrows=nrows,
-        ncols=ncols,
-        dpi=dpi,
-    )

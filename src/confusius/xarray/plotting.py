@@ -4,7 +4,13 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import xarray as xr
 
-from confusius.plotting import VolumePlotter, plot_carpet, plot_napari, plot_volume
+from confusius.plotting import (
+    VolumePlotter,
+    plot_carpet,
+    plot_contours,
+    plot_napari,
+    plot_volume,
+)
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -48,8 +54,6 @@ class FUSIPlotAccessor:
 
     def napari(
         self,
-        scale_method: Literal["db", "log", "power"] | None = None,
-        scale_kwargs: dict[str, Any] | None = None,
         show_colorbar: bool = True,
         show_scale_bar: bool = True,
         dim_order: tuple[str, ...] | None = None,
@@ -60,13 +64,6 @@ class FUSIPlotAccessor:
 
         Parameters
         ----------
-        scale_method : {"db", "log", "power"}, optional
-            Scaling method to apply before display. Use ``"db"`` for decibel scaling,
-            ``"log"`` for natural log, ``"power"`` for power scaling. If not provided,
-            no scaling is applied.
-        scale_kwargs : dict, optional
-            Keyword arguments to pass to the scaling method. For example, ``{"factor":
-            20}`` for db scaling or ``{"exponent": 0.5}`` for power scaling.
         show_colorbar : bool, default: True
             Whether to show the colorbar.
         show_scale_bar : bool, default: True
@@ -111,14 +108,6 @@ class FUSIPlotAccessor:
         >>> # Custom contrast limits
         >>> viewer, layer = data.fusi.plot.napari(contrast_limits=(0, 100))
 
-        >>> # Amplitude scaling (factor=20)
-        >>> viewer, layer = data.fusi.plot.napari(
-        ...     scale_method="db", scale_kwargs={"factor": 20}
-        ... )
-
-        >>> # Decibel scaling
-        >>> viewer, layer = data.fusi.plot.napari(scale_method="db")
-
         >>> # Different dimension ordering (e.g., depth, elevation, lateral)
         >>> viewer, layer = data.fusi.plot.napari(dim_order=("y", "z", "x"))
 
@@ -128,8 +117,6 @@ class FUSIPlotAccessor:
         """
         return plot_napari(
             self._obj,
-            scale_method=scale_method,
-            scale_kwargs=scale_kwargs,
             show_colorbar=show_colorbar,
             show_scale_bar=show_scale_bar,
             dim_order=dim_order,
@@ -249,16 +236,23 @@ class FUSIPlotAccessor:
         vmin: float | None = None,
         vmax: float | None = None,
         alpha: float = 1.0,
+        show_colorbar: bool = True,
+        cbar_label: str | None = None,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = False,
         yincrease: bool = False,
         xincrease: bool = True,
         black_bg: bool = True,
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | None" = None,
-        show_colorbar: bool = True,
-        cbar_label: str | None = None,
         dpi: int | None = None,
     ) -> "VolumePlotter":
         """Plot 2D slices of a volume as a matplotlib subplot grid.
+
+        See [`confusius.plotting.plot_volume`][confusius.plotting.plot_volume] for full
+        details.
 
         Parameters
         ----------
@@ -271,8 +265,7 @@ class FUSIPlotAccessor:
             ``"time"``). After slicing, each panel must be 2D.
         nrows : int, optional
             Number of rows in the subplot grid. If not provided, computed
-            automatically together with ``ncols`` to produce a near-square
-            layout.
+            automatically together with ``ncols`` to produce a near-square layout.
         ncols : int, optional
             Number of columns in the subplot grid. If not provided, computed
             automatically together with ``nrows``.
@@ -292,28 +285,51 @@ class FUSIPlotAccessor:
         vmax : float, optional
             Upper bound of the colormap. Defaults to the 98th percentile.
         alpha : float, default: 1.0
-            Opacity of the image (0 transparent, 1 opaque).
-        yincrease : bool, default: False
-            Whether the y-axis increases upward (True) or downward (False).
-        xincrease : bool, default: True
-            Whether the x-axis increases to the right (True) or left (False).
-        black_bg : bool, default: True
-            If ``True``, set backgrounds to black and text/spines to white.
-        figure : matplotlib.figure.Figure, optional
-            Existing figure to draw into.
-        axes : numpy.ndarray, optional
-            Existing 2D array of ``matplotlib.axes.Axes`` to draw into.
+            Opacity of the image.
         show_colorbar : bool, default: True
-            Whether to add a shared colorbar.
+            Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
             Label for the colorbar.
+        show_titles : bool, default: True
+            Whether to display subplot titles showing the slice coordinate.
+        show_axis_labels : bool, default: True
+            Whether to display axis labels (with units when available).
+        show_axis_ticks : bool, default: True
+            Whether to display axis tick labels.
+        show_axes : bool, default: True
+            Whether to show all axis decorations (spines, ticks, labels). When
+            ``False``, overrides ``show_axis_labels`` and ``show_axis_ticks``.
+        yincrease : bool, default: False
+            Whether the y-axis increases upward (``True``) or downward (``False``).
+        xincrease : bool, default: True
+            Whether the x-axis increases to the right (``True``) or left
+            (``False``).
+        black_bg : bool, default: True
+            Whether to set the figure background to black.
+        figure : matplotlib.figure.Figure, optional
+            Existing figure to draw into. If not provided, a new figure is
+            created.
+        axes : numpy.ndarray, optional
+            Existing 2D array of ``matplotlib.axes.Axes`` to draw into. If not
+            provided, new axes are created inside ``figure``.
         dpi : int, optional
-            Figure resolution in dots per inch.
+            Figure resolution in dots per inch. Ignored when ``figure`` is
+            provided.
 
         Returns
         -------
         VolumePlotter
             Object managing the figure, axes, and coordinate mapping for overlays.
+
+        Raises
+        ------
+        ValueError
+            If ``slice_mode`` is not a dimension of the data.
+        ValueError
+            If the data is not 3D after squeezing unitary dimensions.
+        ValueError
+            If ``axes`` is provided but does not contain enough elements for all
+            slices.
 
         Examples
         --------
@@ -343,12 +359,102 @@ class FUSIPlotAccessor:
             vmin=vmin,
             vmax=vmax,
             alpha=alpha,
+            show_colorbar=show_colorbar,
+            cbar_label=cbar_label,
+            show_titles=show_titles,
+            show_axis_labels=show_axis_labels,
+            show_axis_ticks=show_axis_ticks,
+            show_axes=show_axes,
             yincrease=yincrease,
             xincrease=xincrease,
             black_bg=black_bg,
             figure=figure,
             axes=axes,
-            show_colorbar=show_colorbar,
-            cbar_label=cbar_label,
             dpi=dpi,
+        )
+
+    def contours(
+        self,
+        colors: dict[int, str] | str | None = None,
+        linewidths: float = 1.5,
+        linestyles: str = "solid",
+        slice_mode: str = "z",
+        slice_coords: list[float] | None = None,
+        yincrease: bool = False,
+        xincrease: bool = True,
+        black_bg: bool = True,
+        figure: "Figure | None" = None,
+        axes: "npt.NDArray[Any] | None" = None,
+        **kwargs,
+    ) -> "VolumePlotter":
+        """Plot mask contours as a grid of 2D slice panels.
+
+        Displays contour lines for each labeled region across a grid of subplots. See
+        [`confusius.plotting.plot_contours`][confusius.plotting.plot_contours] for full
+        details.
+
+        Parameters
+        ----------
+        colors : dict[int, str] or str, optional
+            Color specification for contour lines. A ``dict`` maps each label to a
+            color (e.g. ``{1: "red", 2: "blue"}``); a ``str`` applies one color to
+            all regions. If not provided, distinct colors are drawn from the
+            ``tab10``/``tab20`` colormap.
+        linewidths : float, default: 1.5
+            Width of contour lines in points.
+        linestyles : str, default: "solid"
+            Line style for contour lines (e.g. ``"solid"``, ``"dashed"``).
+        slice_mode : str, default: "z"
+            Dimension along which to slice (e.g. ``"x"``, ``"y"``, ``"z"``).
+            After slicing, each panel must be 2D.
+        slice_coords : list[float], optional
+            Coordinate values along `slice_mode` at which to extract slices.
+            Slices are selected by nearest-neighbour lookup. If not provided, all
+            coordinate values along `slice_mode` are used.
+        yincrease : bool, default: False
+            Whether the y-axis increases upward (``True``) or downward (``False``).
+        xincrease : bool, default: True
+            Whether the x-axis increases to the right (``True``) or left (``False``).
+        black_bg : bool, default: True
+            Whether to set the figure background to black.
+        figure : matplotlib.figure.Figure, optional
+            Existing figure to draw into. If not provided, a new figure is created.
+        axes : numpy.ndarray, optional
+            Existing 2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes] to draw
+            into. If not provided, new axes are created inside `figure`.
+        **kwargs
+            Additional keyword arguments passed to
+            [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
+
+        Returns
+        -------
+        VolumePlotter
+            Object managing the figure, axes, and coordinate mapping for overlays.
+
+        Examples
+        --------
+        >>> import xarray as xr
+        >>> import confusius  # Register accessor.
+        >>> mask = xr.open_zarr("output.zarr")["roi_mask"]
+        >>> plotter = mask.fusi.plot.contours(colors={1: "red", 2: "blue"})
+
+        >>> # Overlay contours on an existing volume plot.
+        >>> volume = xr.open_zarr("output.zarr")["power_doppler"]
+        >>> plotter = volume.fusi.plot.volume(slice_mode="z")
+        >>> plotter.add_contours(mask, colors="yellow")
+        """
+
+        return plot_contours(
+            self._obj,
+            colors=colors,
+            linewidths=linewidths,
+            linestyles=linestyles,
+            slice_mode=slice_mode,
+            slice_coords=slice_coords,
+            yincrease=yincrease,
+            xincrease=xincrease,
+            black_bg=black_bg,
+            figure=figure,
+            axes=axes,
+            **kwargs,
         )

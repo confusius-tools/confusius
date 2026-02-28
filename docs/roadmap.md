@@ -35,13 +35,15 @@ Alpha release checklist for ConfUSIus.
     - [x] [`standardize`][confusius.signal.standardize]: scale signals to unit variance or percent signal change.
     - [x] [`detrend`][confusius.signal.detrend]: remove linear or polynomial trends from time series.
 
-## 🚧 Visualization
+## ✅ Visualization
 
-- [ ] [`plotting` module](api/plotting.md): visualize fUSI volumes and time series.
+- [x] [`plotting` module](api/plotting.md): visualize fUSI volumes and time series.
     - [x] [`plot_napari`][confusius.plotting.plot_napari]: interactive 3D/4D viewer with physical-space scaling.
     - [x] [`plot_carpet`][confusius.plotting.plot_carpet]: carpet plot (voxel × time raster) for quality control.
-    - [x] `plot_volume`: display 2D slices of a volume using `matplotlib.pyplot.pcolormesh`.
-    - [ ] `plot_roi`: overlay ROI contours on imaging slices.
+    - [x] [`plot_volume`][confusius.plotting.plot_volume]: display 2D slices of a volume
+          using `matplotlib.pyplot.pcolormesh`.
+    - [x] [`plot_contours`][confusius.plotting.plot_contours]: overlay region contours
+          on imaging slices.
 
 ## ✅ Registration
 

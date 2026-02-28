@@ -27,7 +27,7 @@ test-verbose:
 # Generate baseline images for visual regression tests.
 generate-baselines:
     rm -f tests/unit/test_plotting/baseline/*.png
-    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression
+    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression
 
 # Run all pre-commit hooks.
 pre-commit:
