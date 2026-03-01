@@ -55,7 +55,7 @@ Alpha release checklist for ConfUSIus.
 
 ## ✅ Atlas
 
-- [x] `atlas` module: fetch and resample standard brain atlases.
+- [x] [`atlas` module](api/atlas.md): fetch and resample standard brain atlases.
     - [x] [BrainGlobe Atlas
       API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html) wrapper
       for loading brain parcellations, returned as Xarray Datasets.

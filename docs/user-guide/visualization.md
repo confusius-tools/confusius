@@ -84,17 +84,21 @@ viewer = cf.plotting.plot_napari(
 ### Overlaying an Atlas as a Labels Layer
 
 Napari's **labels** layer renders integer-labeled masks as filled or contoured regions,
-ideal for visualizing an atlas alongside your power Doppler data. Here, we use
-[BrainGlobe Atlas API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html)
-to look up the official Allen atlas colors, then add the labels layer directly on the
-existing viewer:
+ideal for visualizing an atlas alongside your power Doppler data.
+[`Atlas.from_brainglobe`][confusius.atlas.Atlas.from_brainglobe] embeds the official
+Allen colors in `annotation.attrs["rgb_lookup"]`, so per-region coloring is applied
+automatically:
+
+!!! question "Registering your data to an atlas"
+    This example assumes your fUSI data has already been registered to the Allen Mouse
+    Brain atlas. See the [Atlases](atlas.md) guide for loading and working with brain
+    atlases, and the [Registration](registration.md) guide for how to obtain the `transform`
+    used in `atlas.resample_like`.
 
 ```python
-from brainglobe_atlasapi import BrainGlobeAtlas
-from napari.utils.colormaps import DirectLabelColormap
 import confusius as cf
-import numpy as np
 import xarray as xr
+from confusius.atlas import Atlas
 
 # Load power Doppler mean volume and open viewer.
 mean_vol = pwd.mean("time").compute()
@@ -103,24 +107,16 @@ viewer = cf.plotting.plot_napari(
     contrast_limits=(-15, 0),
 )
 
-# Build RGBA colormap from the Allen atlas.
-atlas = BrainGlobeAtlas("allen_mouse_25um")
-allen_colors = {
-    s["id"]: tuple(c / 255 for c in s["rgb_triplet"])
-    for s in atlas.structures_list
-}
-label_colormap = DirectLabelColormap(color_dict={
-    0: np.zeros(4),       # Transparent background.
-    None: np.zeros(4),    # Transparent default for unlisted labels.
-    **{lbl: list(rgb) + [0.7] for lbl, rgb in allen_colors.items()},
-})
+# Load Atlas and resample to fUSI space (see Atlas and Registration guides).
+atlas = Atlas.from_brainglobe("allen_mouse_100um")
+atlas_fusi = atlas.resample_like(mean_vol, transform)
 
-# Load atlas mask and add as a labels layer on the existing viewer.
-atlas_mask = xr.open_zarr("allen_atlas_mask.zarr")["atlas"]
-viewer = atlas_mask.fusi.plot.napari(
+# Add as a labels layer — Allen colors are applied automatically from
+# atlas_fusi.annotation.attrs["rgb_lookup"].
+viewer = cf.plotting.plot_napari(
+    atlas_fusi.annotation,
     viewer=viewer,
     layer_type="labels",
-    colormap=label_colormap,
     name="Allen atlas",
     opacity=0.6,
 )
@@ -280,21 +276,26 @@ The most common use case is to draw atlas outlines on top of a fUSI volume.
 [`VolumePlotter`][confusius.plotting.VolumePlotter] that remembers the
 coordinate-to-axis mapping; calling
 [`add_contours`][confusius.plotting.VolumePlotter.add_contours] on it draws outlines
-on the matching panels. Here, we use [BrainGlobe Atlas
-API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html) to color each
-region with its official Allen atlas color:
+on the matching panels. Masks produced by
+[`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] carry Allen colors in their
+`attrs["rgb_lookup"]`, so no explicit color argument is needed:
+
+!!! question "Registering your data to an atlas"
+    This example assumes your fUSI data has already been registered to the Allen Mouse
+    Brain atlas. See the [Atlases](atlas.md) guide for loading and working with brain
+    atlases, and the [Registration](registration.md) guide for how to obtain the `transform`
+    used in `atlas.resample_like`.
 
 ```python
-from brainglobe_atlasapi import BrainGlobeAtlas
+from confusius.atlas import Atlas
 
-atlas = BrainGlobeAtlas("allen_mouse_25um")
-allen_colors = {
-    s["id"]: tuple(c / 255 for c in s["rgb_triplet"])
-    for s in atlas.structures_list
-}
+# Load Atlas and resample to fUSI space (see Registration guide).
+atlas = Atlas.from_brainglobe("allen_mouse_100um")
+atlas_fusi = atlas.resample_like(mean_vol, transform)
 
 # Step 1: display an average power Doppler volume.
-plotter = pwd.fusi.scale.db().fusi.plot.volume(
+plotter = cf.plotting.plot_volume(
+    pwd.fusi.scale.db(),
     slice_mode="z",
     cmap="gray",
     vmin=-15,
@@ -302,8 +303,9 @@ plotter = pwd.fusi.scale.db().fusi.plot.volume(
     cbar_label="Power Doppler (dB)",
 )
 
-# Step 2: overlay atlas contours with Allen colors.
-plotter.add_contours(atlas_mask, colors=allen_colors)
+# Step 2: overlay contours. Allen colors are read from atlas_mask.attrs["rgb_lookup"]
+# automatically.
+plotter.add_contours(atlas_fusi.annotation)
 ```
 
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-light.png#only-light)
