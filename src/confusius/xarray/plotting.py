@@ -15,7 +15,7 @@ from confusius.plotting import (
 if TYPE_CHECKING:
     import numpy.typing as npt
     from matplotlib.axes import Axes
-    from matplotlib.colors import Colormap
+    from matplotlib.colors import Colormap, Normalize
     from matplotlib.figure import Figure, SubFigure
     from napari import Viewer
 
@@ -117,7 +117,7 @@ class FUSIPlotAccessor:
 
         >>> # Display ROI labels (e.g., segmentation mask)
         >>> roi_mask = xr.open_zarr("output.zarr")["roi_mask"]
-        >>> viewer = data.fusi.plot.napari(roi_mask, layer_type="labels")
+        >>> viewer = roi_mask.fusi.plot.napari(layer_type="labels")
 
         >>> # Overlay labels on existing image
         >>> viewer = data.fusi.plot.napari()
@@ -246,7 +246,8 @@ class FUSIPlotAccessor:
         ncols: int | None = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
-        cmap: "str | Colormap" = "gray",
+        cmap: "str | Colormap | None" = None,
+        norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
         alpha: float = 1.0,
@@ -255,7 +256,7 @@ class FUSIPlotAccessor:
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
-        show_axes: bool = False,
+        show_axes: bool = True,
         yincrease: bool = False,
         xincrease: bool = True,
         black_bg: bool = True,
@@ -292,12 +293,19 @@ class FUSIPlotAccessor:
             - `"lower"`: set pixels where `|data| < threshold` to NaN.
             - `"upper"`: set pixels where `|data| > threshold` to NaN.
 
-        cmap : str, default: "gray"
-            Matplotlib colormap name.
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap. When not provided, falls back to ``data.attrs["cmap"]``
+            if present, otherwise ``"gray"``.
+        norm : matplotlib.colors.Normalize, optional
+            Normalization instance (e.g. ``BoundaryNorm`` for integer label
+            maps). When not provided, falls back to ``data.attrs["norm"]`` if
+            present. When a norm is active, ``vmin`` and ``vmax`` are ignored.
         vmin : float, optional
             Lower bound of the colormap. Defaults to the 2nd percentile.
+            Ignored when a norm is active.
         vmax : float, optional
             Upper bound of the colormap. Defaults to the 98th percentile.
+            Ignored when a norm is active.
         alpha : float, default: 1.0
             Opacity of the image.
         show_colorbar : bool, default: True
@@ -370,6 +378,7 @@ class FUSIPlotAccessor:
             threshold=threshold,
             threshold_mode=threshold_mode,
             cmap=cmap,
+            norm=norm,
             vmin=vmin,
             vmax=vmax,
             alpha=alpha,
@@ -389,7 +398,7 @@ class FUSIPlotAccessor:
 
     def contours(
         self,
-        colors: dict[int, str] | str | None = None,
+        colors: dict[int | str, str] | str | None = None,
         linewidths: float = 1.5,
         linestyles: str = "solid",
         slice_mode: str = "z",
@@ -409,11 +418,12 @@ class FUSIPlotAccessor:
 
         Parameters
         ----------
-        colors : dict[int, str] or str, optional
-            Color specification for contour lines. A `dict` maps each label to a
-            color (e.g. `{1: "red", 2: "blue"}`); a `str` applies one color to
-            all regions. If not provided, distinct colors are drawn from the
-            `tab10`/`tab20` colormap.
+        colors : dict[int | str, str] or str, optional
+            Color specification for contour lines. A ``dict`` maps each label
+            (integer index or region acronym string) to a color; a ``str`` applies
+            one color to all regions. If not provided, colors are derived from
+            ``attrs["cmap"]`` and ``attrs["norm"]`` when present, otherwise
+            from the ``tab10``/``tab20`` colormap.
         linewidths : float, default: 1.5
             Width of contour lines in points.
         linestyles : str, default: "solid"

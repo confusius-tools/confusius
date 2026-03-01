@@ -13,7 +13,7 @@ from confusius.signal import clean
 if TYPE_CHECKING:
     import numpy.typing as npt
     from matplotlib.axes import Axes
-    from matplotlib.colors import Colormap
+    from matplotlib.colors import Colormap, Normalize
     from matplotlib.figure import Figure, SubFigure
     from napari import Viewer
 
@@ -24,8 +24,8 @@ import napari  # noqa: F401
 _BASE_SIZE = 4.0
 """Base subplot size for VolumePlotter when creating new figures.
 
-Actual figure size is computed as ``(subplot_size * ncols + 1 inch for colorbar,
-subplot_size * nrows)`` and then constrained to a maximum size.
+Actual figure size is computed as `(subplot_size * ncols + 1 inch for colorbar,
+subplot_size * nrows)` and then constrained to a maximum size.
 """
 
 
@@ -300,9 +300,11 @@ class VolumePlotter:
     def add_volume(
         self,
         data: xr.DataArray,
+        *,
         slice_coords: Sequence[float] | None = None,
         match_coordinates: bool = True,
-        cmap: "str | Colormap" = "gray",
+        cmap: "str | Colormap | None" = None,
+        norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
         threshold: float | None = None,
@@ -313,7 +315,7 @@ class VolumePlotter:
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
-        show_axes: bool = False,
+        show_axes: bool = True,
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
@@ -331,10 +333,19 @@ class VolumePlotter:
             If True, match slice coordinates to the stored coordinate mapping (for
             overlays). If False, plot sequentially on all axes (requires exact axis
             count match).
-        cmap : str, default: "gray"
-            Matplotlib colormap name.
-        vmin, vmax : float, optional
-            Color scale limits. Auto-computed from data if not provided.
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap. When not provided, falls back to `data.attrs["cmap"]` if
+            present, otherwise `"gray"`.
+        norm : matplotlib.colors.Normalize, optional
+            Normalization instance (e.g. `BoundaryNorm` for integer label maps). When
+            not provided, falls back to `data.attrs["norm"]` if present. When a norm
+            is active, `vmin` and `vmax` are ignored.
+        vmin : float, optional
+            Lower bound of the colormap. Defaults to the 2nd percentile. Ignored
+            when `norm` is provided.
+        vmax : float, optional
+            Upper bound of the colormap. Defaults to the 98th percentile. Ignored
+            when `norm` is provided.
         threshold : float, optional
             Threshold value for masking.
         threshold_mode : {"lower", "upper"}, default: "lower"
@@ -396,6 +407,13 @@ class VolumePlotter:
                 f"{list(data.dims)}."
             )
 
+        resolved_cmap: str | Colormap = (
+            cmap if cmap is not None else data.attrs.get("cmap", "gray")
+        )
+        resolved_norm: Normalize | None = (
+            norm if norm is not None else data.attrs.get("norm")
+        )
+
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
 
@@ -411,19 +429,19 @@ class VolumePlotter:
 
         n_slices = len(slices)
 
-        # Compute vmin/vmax from data before thresholding for consistent colormap
-        all_vals = np.concatenate([s.values.ravel() for s in slices])
-        all_vals = all_vals[np.isfinite(all_vals)]
-        if len(all_vals) > 0:
-            if vmin is None:
-                vmin = float(np.percentile(all_vals, 2))
-            if vmax is None:
-                vmax = float(np.percentile(all_vals, 98))
-        else:
-            vmin = vmin if vmin is not None else 0.0
-            vmax = vmax if vmax is not None else 1.0
+        # Compute vmin/vmax from data before thresholding for consistent colormap.
+        if resolved_norm is None:
+            all_vals = np.concatenate([s.values.ravel() for s in slices])
+            all_vals = all_vals[np.isfinite(all_vals)]
+            if len(all_vals) > 0:
+                if vmin is None:
+                    vmin = float(np.percentile(all_vals, 2))
+                if vmax is None:
+                    vmax = float(np.percentile(all_vals, 98))
+            else:
+                vmin = vmin if vmin is not None else 0.0
+                vmax = vmax if vmax is not None else 1.0
 
-        # Apply threshold by setting masked values to NaN.
         if threshold is not None:
             slice_arrays = []
             for s in slices:
@@ -438,13 +456,22 @@ class VolumePlotter:
         else:
             slice_arrays = [s.values for s in slices]
 
-        if threshold is not None:
-            base_cmap = plt.get_cmap(cmap) if isinstance(cmap, str) else cmap
-            # Build colormap with grey inserted where values are thresholded.
-            # This visually indicates which regions were masked.
-            cmap = _build_threshold_cmap(
+        if threshold is not None and resolved_norm is None:
+            assert vmin is not None and vmax is not None
+            base_cmap = (
+                plt.get_cmap(resolved_cmap)
+                if isinstance(resolved_cmap, str)
+                else resolved_cmap
+            )
+            # Grey values visually indicate which regions were masked.
+            resolved_cmap = _build_threshold_cmap(
                 base_cmap, vmin, vmax, threshold, threshold_mode
             )
+
+        if resolved_norm is None:
+            from matplotlib.colors import Normalize
+
+            resolved_norm = Normalize(vmin=vmin, vmax=vmax)
 
         if match_coordinates:
             if self.axes is None:
@@ -537,9 +564,8 @@ class VolumePlotter:
                 x_vals,
                 y_vals,
                 np.ma.masked_invalid(arr),
-                cmap=cmap,
-                vmin=vmin,
-                vmax=vmax,
+                cmap=resolved_cmap,
+                norm=resolved_norm,
                 alpha=alpha,
             )
             ax.set_aspect("equal")
@@ -573,16 +599,14 @@ class VolumePlotter:
                 ax.set_xticklabels([])
                 ax.set_yticklabels([])
 
-            if show_axes:
+            if not show_axes:
                 ax.axis("off")
 
-            # Track data extent across overlays to ensure all data is visible.
-            # When overlaying volumes with different spatial extents, we need to
-            # expand the axis limits to encompass all data, not just the first volume.
+            # overlaying volumes with different spatial extents, we need to expand the
+            # axis limits to encompass all data, not just the first volume.
             current_xlim = (float(x_vals.min()), float(x_vals.max()))
             current_ylim = (float(y_vals.min()), float(y_vals.max()))
 
-            # Expand limits if this axis already has data from a previous overlay
             if axis_idx in self._axis_xlims:
                 prev_xlim = self._axis_xlims[axis_idx]
                 current_xlim = (
@@ -647,10 +671,10 @@ class VolumePlotter:
         Parameters
         ----------
         fname : str
-            Path to save the figure. Extension determines format (e.g., `.png`,
-            `.pdf``).
+            Path to save the figure. Extension determines format (e.g., `.png`, `.pdf`).
         **kwargs
-            Additional arguments passed to `matplotlib.figure.Figure.savefig`.
+            Additional arguments passed to
+            [`matplotlib.figure.Figure.savefig`][matplotlib.figure.Figure.savefig].
 
         Raises
         ------
@@ -695,7 +719,7 @@ class VolumePlotter:
         self,
         mask: xr.DataArray,
         *,
-        colors: dict[int, str] | str | None = None,
+        colors: dict[int | str, str] | str | None = None,
         linewidths: float = 1.5,
         linestyles: str = "solid",
         match_coordinates: bool = True,
@@ -707,13 +731,26 @@ class VolumePlotter:
         Parameters
         ----------
         mask : xarray.DataArray
-            Integer-labeled mask where 0 is background and each positive integer
-            labels a distinct region. Must be 3D with `slice_mode` as one dimension.
-        colors : dict[int, str] or str, optional
-            Color specification for contour lines. A `dict` maps each label to a
-            color (e.g. `{1: "red", 2: "blue"}`); a `str` applies one color to
-            all regions. If not provided, distinct colors are drawn from the
-            `tab10`/`tab20` colormap.
+            Integer label map in one of two formats:
+
+            - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+              labeled `0`; each unique non-zero integer identifies a distinct,
+              non-overlapping region. The `regions` coordinate of the output holds the
+              integer label values.
+            - **Stacked mask format**: Has a leading `masks` dimension followed by
+              spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
+              region_id}` and regions may overlap. The `regions` coordinate of the
+              output holds the `masks` coordinate values (e.g., region label).
+
+        colors : dict[int | str, str] or str, optional
+            Color specification for contour lines.
+
+            - `dict`: maps each label (integer index) or region acronym (string)
+              to a color string.
+            - `str`: applies one color to all regions.
+            - `None`: colors are derived from `attrs["cmap"]` and
+              `attrs["norm"]` when present, otherwise from the
+              `tab10`/`tab20` colormap.
         linewidths : float, default: 1.5
             Width of contour lines in points.
         linestyles : str, default: "solid"
@@ -739,9 +776,47 @@ class VolumePlotter:
         ValueError
             If the plotter's `slice_mode` is not a dimension of `mask`.
         ValueError
-            If `mask` is not 3D.
+            If `mask` is not 3D or 4D with a leading `masks` dimension.
         """
+        import matplotlib.colors as mcolors
         from skimage.measure import find_contours
+
+        # Stacked mask format: (masks, z, y, x) — one layer per region.
+        if "masks" in mask.dims:
+            cmap_attr = mask.attrs.get("cmap")
+            norm_attr = mask.attrs.get("norm")
+            acronyms = mask.coords["masks"].values
+
+            for i in range(mask.sizes["masks"]):
+                layer = mask.isel(masks=i)
+                acronym = str(acronyms[i])
+
+                unique_nonzero = [v for v in np.unique(layer.values) if v != 0]
+                if not unique_nonzero:
+                    continue
+                label = int(unique_nonzero[0])
+
+                if isinstance(colors, str):
+                    layer_color: str = colors
+                elif isinstance(colors, dict):
+                    # Accept both acronym-keyed and id-keyed dicts.
+                    layer_color = colors.get(acronym, colors.get(label, "white"))
+                elif cmap_attr is not None and norm_attr is not None:
+                    layer_color = mcolors.to_hex(cmap_attr(norm_attr(label)))
+                else:
+                    layer_color = _get_distinct_colors(mask.sizes["masks"])[i]
+
+                per_layer_colors: dict[int | str, Any] = {label: layer_color}
+                self.add_contours(
+                    layer,
+                    colors=per_layer_colors,
+                    linewidths=linewidths,
+                    linestyles=linestyles,
+                    match_coordinates=match_coordinates,
+                    slice_coords=slice_coords,
+                    **kwargs,
+                )
+            return self
 
         if self.slice_mode not in mask.dims:
             raise ValueError(f"slice_mode '{self.slice_mode}' not in mask dimensions")
@@ -756,10 +831,18 @@ class VolumePlotter:
             return self
 
         if colors is None:
-            distinct_colors = _get_distinct_colors(len(unique_labels))
-            color_map = {
-                label: color for label, color in zip(unique_labels, distinct_colors)
-            }
+            cmap_attr = mask.attrs.get("cmap")
+            norm_attr = mask.attrs.get("norm")
+            if cmap_attr is not None and norm_attr is not None:
+                color_map = {
+                    label: mcolors.to_hex(cmap_attr(norm_attr(label)))
+                    for label in unique_labels
+                }
+            else:
+                distinct_colors = _get_distinct_colors(len(unique_labels))
+                color_map = {
+                    label: color for label, color in zip(unique_labels, distinct_colors)
+                }
         elif isinstance(colors, str):
             color_map = {label: colors for label in unique_labels}
         else:
@@ -923,7 +1006,7 @@ class VolumePlotter:
 def plot_contours(
     mask: xr.DataArray,
     *,
-    colors: dict[int, str] | str | None = None,
+    colors: dict[int | str, str] | str | None = None,
     linewidths: float = 1.5,
     linestyles: str = "solid",
     slice_mode: str = "z",
@@ -944,12 +1027,22 @@ def plot_contours(
     Parameters
     ----------
     mask : xarray.DataArray
-        Integer-labeled mask where 0 is background and each positive integer labels a
-        distinct region. Must be 3D with `slice_mode` as one dimension.
-    colors : dict[int, str] or str, optional
-        Color specification for contour lines. A `dict` maps each label to a color
-        (e.g. `{1: "red", 2: "blue"}`); a `str` applies one color to all regions. If
-        not provided, distinct colors are drawn from the `tab10`/`tab20` colormap.
+        Integer label map in one of two formats:
+
+        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+          labeled `0`; each unique non-zero integer identifies a distinct,
+          non-overlapping region. The `regions` coordinate of the output holds the
+          integer label values.
+        - **Stacked mask format**: Has a leading `masks` dimension followed by
+          spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
+          region_id}` and regions may overlap. The `regions` coordinate of the
+          output holds the `masks` coordinate values (e.g., region label).
+
+    colors : dict[int | str, str] or str, optional
+        Color specification for contour lines. A `dict` maps each label (integer index
+        or region acronym string) to a color; a `str` applies one color to all regions.
+        If not provided, colors are derived from `attrs["cmap"]` and `attrs["norm"]`
+        when present, otherwise from the `tab10`/`tab20` colormap.
     linewidths : float, default: 1.5
         Width of contour lines in points.
     linestyles : str, default: "solid"
@@ -1040,7 +1133,8 @@ def plot_volume(
     *,
     slice_coords: list[float] | None = None,
     slice_mode: str = "z",
-    cmap: "str | Colormap" = "gray",
+    cmap: "str | Colormap | None" = None,
+    norm: "Normalize | None" = None,
     vmin: float | None = None,
     vmax: float | None = None,
     threshold: float | None = None,
@@ -1051,7 +1145,7 @@ def plot_volume(
     show_titles: bool = True,
     show_axis_labels: bool = True,
     show_axis_ticks: bool = True,
-    show_axes: bool = False,
+    show_axes: bool = True,
     yincrease: bool = False,
     xincrease: bool = True,
     black_bg: bool = True,
@@ -1079,12 +1173,20 @@ def plot_volume(
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
         `"time"`). After slicing, each panel must be 2D.
-    cmap : str, default: "gray"
-        Matplotlib colormap name.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap. When not provided, falls back to `data.attrs["cmap"]` if
+        present, otherwise `"gray"`.
+    norm : matplotlib.colors.Normalize, optional
+        Normalization instance (e.g. `BoundaryNorm` for integer label maps such
+        as atlas annotations). When not provided, falls back to
+        `data.attrs["norm"]` if present. When a norm is active, `vmin` and
+        `vmax` are ignored.
     vmin : float, optional
-        Lower bound of the colormap. Defaults to the 2nd percentile.
+        Lower bound of the colormap. Defaults to the 2nd percentile. Ignored
+        when a norm is active.
     vmax : float, optional
-        Upper bound of the colormap. Defaults to the 98th percentile.
+        Upper bound of the colormap. Defaults to the 98th percentile. Ignored
+        when a norm is active.
     threshold : float, optional
         Threshold applied to `|data|`. See `threshold_mode` for the masking
         direction. If not provided, no thresholding is applied.
@@ -1196,6 +1298,7 @@ def plot_volume(
         slice_coords=slice_coords,
         match_coordinates=False,
         cmap=cmap,
+        norm=norm,
         vmin=vmin,
         vmax=vmax,
         threshold=threshold,
@@ -1247,6 +1350,9 @@ def plot_napari(
     **layer_kwargs
         Additional keyword arguments passed to the layer creation method
         (`napari.imshow` for images or `viewer.add_labels` for labels).
+        For labels layers, if `data.attrs` contains `"cmap"` and `"norm"`
+        (as set by atlas functions) and `"color"` is not in `layer_kwargs`,
+        a per-label color dict is built automatically from those attributes.
 
     Returns
     -------
@@ -1356,6 +1462,34 @@ def plot_napari(
         values = data.values
         if not np.issubdtype(values.dtype, np.integer):
             values = values.astype(np.int32)
+
+        # Build a DirectLabelColormap from attrs when the caller has not already
+        # supplied one.  This lets atlas annotations and masks carry their colormap
+        # automatically into the viewer.
+        cmap_attr = data.attrs.get("cmap")
+        norm_attr = data.attrs.get("norm")
+        if (
+            cmap_attr is not None
+            and norm_attr is not None
+            and "colormap" not in layer_kwargs
+        ):
+            from collections import defaultdict
+
+            from napari.utils.colormaps import DirectLabelColormap
+
+            color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
+                lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent
+            )
+            for label in np.unique(values):
+                if label == 0:
+                    continue  # background_value=0 is always transparent
+                color_dict[int(label)] = np.array(
+                    cmap_attr(norm_attr(int(label))), dtype=np.float32
+                )
+            layer_kwargs["colormap"] = DirectLabelColormap(
+                color_dict=color_dict, background_value=0
+            )
+
         viewer.add_labels(
             values,
             scale=scale,
@@ -1533,7 +1667,7 @@ def plot_carpet(
         cbar.ax.yaxis.set_tick_params(color=text_color)
         plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
         cbar.ax.yaxis.label.set_color(text_color)
-        cbar.outline.set_edgecolor(text_color)  # type: ignore[union-attr]
+        cbar.outline.set_edgecolor(text_color)
         cbar.ax.set_facecolor(bg_color)
 
     ax.grid(False)
