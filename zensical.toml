@@ -24,6 +24,8 @@ nav = [
         { "Working with Xarray" = "user-guide/xarray.md" },
         { "Spatial Conventions" = "user-guide/spatial-conventions.md" },
         { "Beamformed IQ" = "user-guide/beamformed-iq.md" },
+        { "Visualization" = "user-guide/visualization.md" },
+        { "Registration" = "user-guide/registration.md" },
     ]},
     { "API Reference" = [
         { "Overview" = "api/index.md" },

@@ -316,6 +316,40 @@ wheels = [
 ]
 
 [[package]]
+name = "brainglobe-atlasapi"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "brainglobe-space" },
+    { name = "click" },
+    { name = "meshio" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "tifffile" },
+    { name = "treelib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2f/d7/3d37e59dcb67e15438dee62d8382214400a0dc94364808a70e8ae269d308/brainglobe_atlasapi-2.3.0.tar.gz", hash = "sha256:569cd38959bbaf4bd5d2ff68195afddfc1131c4b4c05c8630768c859185e376b", size = 112377, upload-time = "2025-08-06T09:19:09.239Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/90/9e/e99d0e33cb5ea06987158f834a1843dee9d64494b47d28157a86ec444691/brainglobe_atlasapi-2.3.0-py3-none-any.whl", hash = "sha256:f260f52a1fb0eb423a3c57a0a49893f88ebf3287164721beafaa2bf26edec90d", size = 152975, upload-time = "2025-08-06T09:19:07.928Z" },
+]
+
+[[package]]
+name = "brainglobe-space"
+version = "1.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "scipy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/22/35/46d51a35be83761fd4bd9282d6d6120189c59001f92a2995a687370dad69/brainglobe_space-1.0.3.tar.gz", hash = "sha256:7c182957291d27234f1bbd62f5de9b3c32d9e8842b71943795ea62e35d19a54f", size = 15332, upload-time = "2025-02-19T17:24:58.063Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ff/9b/cedf8eea8e9d6c94855ae5a3e373bcda09eb50040886a66c2bf578375cfe/brainglobe_space-1.0.3-py3-none-any.whl", hash = "sha256:74a10dbe257cd3e71a6b0a9aaee65eb597f724b830229cb0ca9a5707fb005011", size = 11268, upload-time = "2025-02-19T17:24:57.025Z" },
+]
+
+[[package]]
 name = "build"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -578,9 +612,10 @@ wheels = [
 
 [[package]]
 name = "confusius"
-version = "0.0.1a6"
+version = "0.0.1a7"
 source = { editable = "." }
 dependencies = [
+    { name = "brainglobe-atlasapi" },
     { name = "dask", extra = ["complete"] },
     { name = "h5py" },
     { name = "ipython" },
@@ -606,6 +641,7 @@ dev = [
     { name = "prek" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pytest-mpl" },
     { name = "ruff" },
     { name = "ty" },
     { name = "zensical" },
@@ -613,6 +649,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "brainglobe-atlasapi", specifier = ">=2.3.0" },
     { name = "dask", extras = ["complete"], specifier = ">=2025.9.0" },
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "ipython", specifier = ">=9.6.0" },
@@ -638,6 +675,7 @@ dev = [
     { name = "prek", specifier = ">=0.2.0,<0.3.0" },
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "pytest-mpl", specifier = ">=0.16.0" },
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.10,<0.1.0" },
     { name = "zensical", specifier = ">=0.0.21" },
@@ -1821,6 +1859,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3a/41/580bb4006e3ed0361b8151a01d324fb03f420815446c7def45d02f74c270/mergedeep-1.3.4.tar.gz", hash = "sha256:0096d52e9dad9939c3d975a774666af186eda617e6ca84df4c94dec30004f2a8", size = 4661, upload-time = "2021-02-05T18:55:30.623Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/19/04f9b178c2d8a15b076c8b5140708fa6ffc5601fb6f1e975537072df5b2a/mergedeep-1.3.4-py3-none-any.whl", hash = "sha256:70775750742b25c0d8f36c55aed03d24c3384d17c951b3175d898bd778ef0307", size = 6354, upload-time = "2021-02-05T18:55:29.583Z" },
+]
+
+[[package]]
+name = "meshio"
+version = "5.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "rich" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/20/1e/caa4f15c020de3e3486b4133ca689236bd3863a3d6dd0f58e97ce86a296a/meshio-5.3.5.tar.gz", hash = "sha256:f21f01abd9f29ba06ea119304b3d39e610421cfe93b9dd23362834919f87586d", size = 490922, upload-time = "2024-01-31T15:09:41.731Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/5f/39cbadc320cd78f4834b0a9f7a2fa3c980dca942bf193f315837eacb8870/meshio-5.3.5-py3-none-any.whl", hash = "sha256:0736c6e34ecc768f62f2cde5d8233a3529512a9399b25c68ea2ca0d5900cdc10", size = 166162, upload-time = "2024-01-31T15:09:36.691Z" },
 ]
 
 [[package]]
@@ -3146,6 +3197,22 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-mpl"
+version = "0.18.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jinja2" },
+    { name = "matplotlib" },
+    { name = "packaging" },
+    { name = "pillow" },
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/40/ba3caed7a54a6a5fe035ecc62dbb473f6f41ecade2ea3e0474f7e8e65c5c/pytest_mpl-0.18.0.tar.gz", hash = "sha256:04c949ea1278a38ca3d8d675871f6c5a0958bfedfaf4fd8bfd4e25e5861759a7", size = 880354, upload-time = "2025-11-15T13:54:52.69Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/eb/01/f9128b75808840fc070042c57168c800da57d2d80b97071dc6f07c793d58/pytest_mpl-0.18.0-py3-none-any.whl", hash = "sha256:e474b7676957c521104dbe351df937da5e582231cd34daeb43b9d1ecc048e5c0", size = 28063, upload-time = "2025-11-15T13:54:51.147Z" },
+]
+
+[[package]]
 name = "python-dateutil"
 version = "2.9.0.post0"
 source = { registry = "https://pypi.org/simple" }
@@ -4026,6 +4093,18 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/eb/79/72064e6a701c2183016abbbfedaba506d81e30e232a68c9f0d6f6fcd1574/traitlets-5.14.3.tar.gz", hash = "sha256:9ed0579d3502c94b4b3732ac120375cda96f923114522847de4b3bb98b96b6b7", size = 161621, upload-time = "2024-04-19T11:11:49.746Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl", hash = "sha256:b74e89e397b1ed28cc831db7aea759ba6640cb3de13090ca145426688ff1ac4f", size = 85359, upload-time = "2024-04-19T11:11:46.763Z" },
+]
+
+[[package]]
+name = "treelib"
+version = "1.8.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7a/31/145bdbee73d7ee4ac4e879c37faa196a32208b288ca4f308c1ad8db3f010/treelib-1.8.0.tar.gz", hash = "sha256:e1be2c6b66ffbfae85079fc4c76fb4909946d01d915ee29ff6795de53aed5d55", size = 28607, upload-time = "2025-06-29T15:06:49.293Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/24/32361f5d0e2eff7ff1881ac6833b6b090cfe34515b1ee9082636cbe69442/treelib-1.8.0-py3-none-any.whl", hash = "sha256:5235d1ebf988c5026f26ce6e5e0cd470007f16d4978185f5c9b3eee8a25aef81", size = 30728, upload-time = "2025-06-29T15:06:48.248Z" },
 ]
 
 [[package]]

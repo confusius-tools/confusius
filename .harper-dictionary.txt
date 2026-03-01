@@ -19,9 +19,12 @@ SimpleITK
 Xarray
 Zarr
 analyses
+angiography
 beamformed
 beamforming
+colormap
 denoising
+detrending
 fUSI
 hemodynamic
 netCDF
