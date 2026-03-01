@@ -92,7 +92,10 @@ def validate_mask(
     Parameters
     ----------
     mask : xarray.DataArray
-        Mask to validate. Must have boolean dtype and coordinates must match data.
+        Mask to validate. Must have boolean dtype, or integer dtype with exactly one
+        non-zero value (0 = background, one region id = foreground). The latter format
+        is produced by [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks]. Coordinates
+        must match data.
     data : xarray.DataArray
         Data array to validate mask against.
     mask_name : str, default: "mask"
@@ -105,22 +108,31 @@ def validate_mask(
     Raises
     ------
     TypeError
-        If mask is not boolean dtype or not a DataArray.
+        If `mask` is not a boolean or single-label integer DataArray.
     ValueError
-        If mask dimensions don't match data or if coordinates don't match.
-
-    Notes
-    -----
-    Uses `np.allclose` (with rtol/atol) for coordinate comparison, which is more
-    appropriate for floating-point coordinates than exact equality.
+        If `mask` dimensions don't match `data` or if coordinates don't match.
     """
     if not isinstance(mask, xr.DataArray):
         raise TypeError(
             f"{mask_name} must be an xarray.DataArray, got {type(mask).__name__}."
         )
 
-    if mask.dtype != bool:
-        raise TypeError(f"{mask_name} must be boolean dtype, got {mask.dtype}.")
+    if mask.dtype == bool:
+        pass
+    elif np.issubdtype(mask.dtype, np.integer):
+        non_zero = np.unique(mask.values[mask.values != 0])
+        if len(non_zero) > 1:
+            raise TypeError(
+                f"{mask_name} has integer dtype with {len(non_zero)} distinct non-zero "
+                f"values. A mask must be boolean or have exactly one non-zero label "
+                f"(0 = background, one region id = foreground). "
+                f"For multi-region extraction use extract_with_labels instead."
+            )
+    else:
+        raise TypeError(
+            f"{mask_name} must be boolean dtype or a single-label integer dtype, "
+            f"got {mask.dtype}."
+        )
 
     _validate_spatial_coords(mask, data, mask_name, rtol, atol)
 

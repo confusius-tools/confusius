@@ -109,14 +109,17 @@ class FUSIExtractAccessor:
         return extract_with_labels(self._obj, labels, reduction=reduction)
 
     def with_mask(self, mask: xr.DataArray) -> xr.DataArray:
-        """Extract signals using a boolean mask.
+        """Extract signals using a boolean or single-label integer mask.
 
         Parameters
         ----------
         mask : xarray.DataArray
-            Boolean mask defining which voxels to extract. Its dimensions define the
-            spatial dimensions that will be flattened. Must have identical coordinates
-            to the data's spatial dimensions.
+            Mask defining which voxels to extract. Its dimensions define the spatial
+            dimensions that will be flattened. Must have boolean dtype, or integer dtype
+            with exactly one non-zero value (0 = background, one region id =
+            foreground). The latter format is produced by
+            [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks]. Coordinates must match
+            data.
 
         Returns
         -------

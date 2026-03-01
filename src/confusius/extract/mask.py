@@ -9,7 +9,7 @@ def extract_with_mask(
     data: xr.DataArray,
     mask: xr.DataArray,
 ) -> xr.DataArray:
-    """Extract signals from fUSI data using a boolean mask.
+    """Extract signals from fUSI data using a binary mask.
 
     This function flattens the spatial dimensions specified by the mask into a
     single `voxels` dimension, while preserving all other dimensions (e.g., time,
@@ -22,9 +22,12 @@ def extract_with_mask(
         of non-spatial dimensions (e.g., `time`, `pose`). The spatial dimensions
         must match those in the mask.
     mask : xarray.DataArray
-        Boolean mask defining which voxels to extract. Its dimensions define the
-        spatial dimensions that will be flattened. Must have identical coordinates
-        to the data's spatial dimensions.
+        Mask defining which voxels to extract. Its dimensions define the spatial
+        dimensions that will be flattened. Must have boolean dtype, or integer dtype
+        with exactly one non-zero value (0 = background, one region id =
+        foreground). The latter format is produced by
+        [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks]. Coordinates must match
+        data.
 
     Returns
     -------
@@ -95,5 +98,6 @@ def extract_with_mask(
 
     data_flat = data.stack(voxels=spatial_dims)
 
-    mask_flat = mask_aligned.values.flatten()
+    # Integer masks (0 = background, non-zero = selected) are treated as boolean.
+    mask_flat = mask_aligned.values.flatten().astype(bool)
     return data_flat.isel(voxels=mask_flat)

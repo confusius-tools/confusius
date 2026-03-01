@@ -10,15 +10,47 @@ from confusius import extract
 class TestWithMask:
     """Tests for extract.extract_with_mask function."""
 
-    def test_mask_validation(self, sample_4d_volume):
-        """Test that non-boolean mask raises error."""
+    def test_float_mask_rejected(self, sample_4d_volume):
+        """Test that float mask raises TypeError."""
         mask = xr.DataArray(
             np.random.rand(*sample_4d_volume.shape[1:]),
             dims=["z", "y", "x"],
         )
 
-        with pytest.raises(TypeError, match="boolean dtype"):
+        with pytest.raises(TypeError, match="single-label integer dtype"):
             extract.extract_with_mask(sample_4d_volume, mask)
+
+    def test_multi_label_integer_mask_rejected(self, sample_4d_volume):
+        """Test that integer mask with more than one non-zero value raises TypeError."""
+        mask_data = np.zeros(sample_4d_volume.shape[1:], dtype=np.int32)
+        mask_data[0, 0, 0] = 1
+        mask_data[0, 0, 1] = 2
+        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
+
+        with pytest.raises(TypeError, match="2 distinct non-zero"):
+            extract.extract_with_mask(sample_4d_volume, mask)
+
+    def test_integer_mask_selects_nonzero_voxels(self):
+        """Test that an integer mask (0 / region_id) selects the same voxels as the
+        equivalent boolean mask."""
+        data = xr.DataArray(
+            np.arange(60).reshape(3, 4, 5),
+            dims=["z", "y", "x"],
+        )
+        bool_mask_data = np.zeros((3, 4, 5), dtype=bool)
+        bool_mask_data[0, 1, 2] = True
+        bool_mask_data[1, 2, 3] = True
+        bool_mask_data[2, 3, 4] = True
+
+        bool_mask = xr.DataArray(bool_mask_data, dims=["z", "y", "x"])
+        int_mask = xr.DataArray(
+            bool_mask_data.astype(np.int32) * 385, dims=["z", "y", "x"]
+        )
+
+        result_bool = extract.extract_with_mask(data, bool_mask)
+        result_int = extract.extract_with_mask(data, int_mask)
+
+        np.testing.assert_array_equal(result_bool.values, result_int.values)
 
     def test_insufficient_spatial_dims(self):
         """Test that mask with dimension not in data raises error."""
