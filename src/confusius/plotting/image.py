@@ -38,10 +38,8 @@ def _compute_grid_dims(
         nrows = int(np.ceil(n_slices / ncols))
     elif ncols is None:
         assert nrows is not None
-        nrows = nrows
         ncols = int(np.ceil(n_slices / nrows))
     elif nrows is None:
-        ncols = ncols
         nrows = int(np.ceil(n_slices / ncols))
     return nrows, ncols
 
@@ -144,9 +142,9 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
 
 def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
     """Generate `n_colors` visually distinct colors."""
-    from matplotlib import cm
+    import matplotlib
 
-    cmap = cm.get_cmap("tab10" if n_colors <= 10 else "tab20")
+    cmap = matplotlib.colormaps["tab10" if n_colors <= 10 else "tab20"]
     return [tuple(cmap(i % cmap.N)[:3]) for i in range(n_colors)]
 
 
@@ -296,6 +294,77 @@ class VolumePlotter:
                     matched.append((axis_idx, slice_idx))
                     break
         return matched
+
+    @property
+    def _text_color(self) -> str:
+        """White for dark backgrounds, black for light ones."""
+        return "white" if self._black_bg else "black"
+
+    def _style_ax(self, ax: "Axes") -> None:
+        """Apply background and spine/tick styling to an axes."""
+        color = self._text_color
+        ax.set_facecolor("black" if self._black_bg else "white")
+        for spine in ax.spines.values():
+            spine.set_edgecolor(color)
+        ax.tick_params(colors=color, which="both")
+
+    def _set_ax_lims(
+        self,
+        ax: "Axes",
+        xlim: tuple[float, float],
+        ylim: tuple[float, float],
+    ) -> None:
+        """Set axis limits respecting the x/y increase direction."""
+        ax.set_ylim(ylim if self._yincrease else (ylim[1], ylim[0]))
+        ax.set_xlim(xlim if self._xincrease else (xlim[1], xlim[0]))
+
+    def _update_stored_lim(
+        self,
+        store: dict[int, tuple[float, float]],
+        axis_idx: int,
+        new_lim: tuple[float, float],
+    ) -> tuple[float, float]:
+        """Expand the stored limit for `axis_idx` to encompass `new_lim`."""
+        if axis_idx in store:
+            prev = store[axis_idx]
+            new_lim = (min(prev[0], new_lim[0]), max(prev[1], new_lim[1]))
+        store[axis_idx] = new_lim
+        return new_lim
+
+    def _warn_unmatched(self, unmatched_slices: list[tuple[int, float]]) -> None:
+        """Warn about slice coordinates that could not be matched to axes."""
+        unmatched_str = ", ".join(
+            f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
+        )
+        available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
+        warnings.warn(
+            f"Could not find matching axes for slices: {unmatched_str}. "
+            f"These slices will not be plotted. "
+            f"Available coordinates: {available_coords}",
+            stacklevel=find_stack_level(),
+        )
+
+    def _build_slice_title(self, data: xr.DataArray, coord: float) -> str:
+        """Build a slice title such as ``z = 0.001 mm``."""
+        units = (
+            data.coords[self.slice_mode].attrs.get("units")
+            if self.slice_mode in data.coords
+            else None
+        )
+        title = f"{self.slice_mode} = {coord:.3g}"
+        if units:
+            title += f" {units}"
+        return title
+
+    def _init_sequential_layout(
+        self, actual_coords: list[float]
+    ) -> list[tuple[int, int]]:
+        """Initialise the coordinate-to-axis map and return sequential plot indices."""
+        if not self._coord_to_axis:
+            self._coord_to_axis = {
+                coord: idx for idx, coord in enumerate(actual_coords)
+            }
+        return [(idx, idx) for idx in range(len(actual_coords))]
 
     def add_volume(
         self,
@@ -488,16 +557,7 @@ class VolumePlotter:
                 if idx not in matched_slice_indices
             ]
             if unmatched_slices:
-                unmatched_str = ", ".join(
-                    f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
-                )
-                available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
-                warnings.warn(
-                    f"Could not find matching axes for slices: {unmatched_str}. "
-                    f"These slices will not be plotted. "
-                    f"Available coordinates: {available_coords}",
-                    stacklevel=find_stack_level(),
-                )
+                self._warn_unmatched(unmatched_slices)
 
             plot_indices = matched_indices
         else:
@@ -527,15 +587,11 @@ class VolumePlotter:
                         f"shape {self.axes.shape}."
                     )
 
-            if not self._coord_to_axis:
-                self._coord_to_axis = {
-                    coord: idx for idx, coord in enumerate(actual_coords)
-                }
-            plot_indices = [(idx, idx) for idx in range(n_slices)]
+            plot_indices = self._init_sequential_layout(actual_coords)
 
         assert (self.axes is not None) and (self.figure is not None)
 
-        text_color = "white" if self._black_bg else "black"
+        text_color = self._text_color
         im = None
 
         axes_flat = self.axes.ravel()
@@ -569,69 +625,30 @@ class VolumePlotter:
                 alpha=alpha,
             )
             ax.set_aspect("equal")
-
-            if self._black_bg:
-                ax.set_facecolor("black")
-                for spine in ax.spines.values():
-                    spine.set_edgecolor("white")
-                ax.tick_params(colors="white", which="both")
-            else:
-                ax.set_facecolor("white")
-                for spine in ax.spines.values():
-                    spine.set_edgecolor("black")
-                ax.tick_params(colors="black", which="both")
-
-            slice_units = (
-                data.coords[self.slice_mode].attrs.get("units")
-                if self.slice_mode in data.coords
-                else None
+            self._style_ax(ax)
+            ax.set_title(
+                self._build_slice_title(data, coord) if show_titles else "",
+                color=text_color,
             )
-            title = f"{self.slice_mode} = {coord:.3g}"
-            if slice_units:
-                title += f" {slice_units}"
-            ax.set_title(title if show_titles else "", color=text_color)
 
-            if show_axis_labels:
-                ax.set_xlabel(_build_axis_label(data, dim_col), color=text_color)
-                ax.set_ylabel(_build_axis_label(data, dim_row), color=text_color)
-
-            if not show_axis_ticks:
-                ax.set_xticklabels([])
-                ax.set_yticklabels([])
-
-            if not show_axes:
+            if show_axes:
+                if show_axis_labels:
+                    ax.set_xlabel(_build_axis_label(data, dim_col), color=text_color)
+                    ax.set_ylabel(_build_axis_label(data, dim_row), color=text_color)
+                if not show_axis_ticks:
+                    ax.set_xticklabels([])
+                    ax.set_yticklabels([])
+            else:
                 ax.axis("off")
 
-            # overlaying volumes with different spatial extents, we need to expand the
-            # axis limits to encompass all data, not just the first volume.
-            current_xlim = (float(x_vals.min()), float(x_vals.max()))
-            current_ylim = (float(y_vals.min()), float(y_vals.max()))
-
-            if axis_idx in self._axis_xlims:
-                prev_xlim = self._axis_xlims[axis_idx]
-                current_xlim = (
-                    min(prev_xlim[0], current_xlim[0]),
-                    max(prev_xlim[1], current_xlim[1]),
-                )
-            self._axis_xlims[axis_idx] = current_xlim
-
-            if axis_idx in self._axis_ylims:
-                prev_ylim = self._axis_ylims[axis_idx]
-                current_ylim = (
-                    min(prev_ylim[0], current_ylim[0]),
-                    max(prev_ylim[1], current_ylim[1]),
-                )
-            self._axis_ylims[axis_idx] = current_ylim
-
-            if self._yincrease:
-                ax.set_ylim(current_ylim)
-            else:
-                ax.set_ylim(current_ylim[1], current_ylim[0])
-
-            if self._xincrease:
-                ax.set_xlim(current_xlim)
-            else:
-                ax.set_xlim(current_xlim[1], current_xlim[0])
+            # Expand stored limits to encompass overlaid volumes with different extents.
+            current_xlim = self._update_stored_lim(
+                self._axis_xlims, axis_idx, (float(x_vals.min()), float(x_vals.max()))
+            )
+            current_ylim = self._update_stored_lim(
+                self._axis_ylims, axis_idx, (float(y_vals.min()), float(y_vals.max()))
+            )
+            self._set_ax_lims(ax, current_xlim, current_ylim)
 
         if not match_coordinates:
             for ax in axes_flat[n_slices:]:
@@ -654,14 +671,9 @@ class VolumePlotter:
             if cbar_label is not None:
                 cbar.set_label(cbar_label, color=text_color)
 
-            if self._black_bg:
-                cbar.ax.yaxis.set_tick_params(color="white")
-                plt.setp(cbar.ax.yaxis.get_ticklabels(), color="white")
-                cbar.outline.set_edgecolor("white")  # type: ignore[union-attr]
-            else:
-                cbar.ax.yaxis.set_tick_params(color="black")
-                plt.setp(cbar.ax.yaxis.get_ticklabels(), color="black")
-                cbar.outline.set_edgecolor("black")  # type: ignore[union-attr]
+            cbar.ax.yaxis.set_tick_params(color=text_color)
+            plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
+            cbar.outline.set_edgecolor(text_color)  # type: ignore[union-attr]
 
         return self
 
@@ -870,16 +882,7 @@ class VolumePlotter:
                 if idx not in matched_slice_indices
             ]
             if unmatched_slices:
-                unmatched_str = ", ".join(
-                    f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
-                )
-                available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
-                warnings.warn(
-                    f"Could not find matching axes for slices: {unmatched_str}. "
-                    f"These slices will not be plotted. "
-                    f"Available coordinates: {available_coords}",
-                    stacklevel=find_stack_level(),
-                )
+                self._warn_unmatched(unmatched_slices)
             plot_indices = matched_indices
         else:
             x_range = None
@@ -890,11 +893,7 @@ class VolumePlotter:
                 x_range = float(np.max(x_vals_all) - np.min(x_vals_all))
                 y_range = float(np.max(y_vals_all) - np.min(y_vals_all))
             self._ensure_figure(n_slices, x_range=x_range, y_range=y_range)
-            if not self._coord_to_axis:
-                self._coord_to_axis = {
-                    coord: idx for idx, coord in enumerate(actual_coords)
-                }
-            plot_indices = [(idx, idx) for idx in range(n_slices)]
+            plot_indices = self._init_sequential_layout(actual_coords)
 
         if self.axes is None:
             raise RuntimeError("No axes available")
@@ -964,41 +963,14 @@ class VolumePlotter:
                 y_edges = _centers_to_edges(y_coords)
                 xlim = (float(x_edges.min()), float(x_edges.max()))
                 ylim = (float(y_edges.min()), float(y_edges.max()))
-
-                if self._yincrease:
-                    ax.set_ylim(ylim)
-                else:
-                    ax.set_ylim(ylim[1], ylim[0])
-
-                if self._xincrease:
-                    ax.set_xlim(xlim)
-                else:
-                    ax.set_xlim(xlim[1], xlim[0])
-
-                text_color = "white" if self._black_bg else "black"
-                if self._black_bg:
-                    ax.set_facecolor("black")
-                    for spine in ax.spines.values():
-                        spine.set_edgecolor("white")
-                    ax.tick_params(colors="white", which="both")
-                else:
-                    ax.set_facecolor("white")
-                    for spine in ax.spines.values():
-                        spine.set_edgecolor("black")
-                    ax.tick_params(colors="black", which="both")
-
-                ax.set_xlabel(_build_axis_label(mask, dim_col), color=text_color)
-                ax.set_ylabel(_build_axis_label(mask, dim_row), color=text_color)
-
-                slice_units = (
-                    mask.coords[self.slice_mode].attrs.get("units")
-                    if self.slice_mode in mask.coords
-                    else None
+                self._set_ax_lims(ax, xlim, ylim)
+                self._style_ax(ax)
+                ax.set_xlabel(_build_axis_label(mask, dim_col), color=self._text_color)
+                ax.set_ylabel(_build_axis_label(mask, dim_row), color=self._text_color)
+                ax.set_title(
+                    self._build_slice_title(mask, actual_coords[slice_idx]),
+                    color=self._text_color,
                 )
-                title = f"{self.slice_mode} = {actual_coords[slice_idx]:.3g}"
-                if slice_units:
-                    title += f" {slice_units}"
-                ax.set_title(title, color=text_color)
 
         return self
 

@@ -39,6 +39,7 @@ nav = [
         { "Plotting" = "api/plotting.md" },
         { "Quality Control" = "api/qc.md" },
         { "Registration" = "api/registration.md" },
+        { "Atlases" = "api/atlas.md" },
         { "Signal Extraction" = "api/extract.md" },
         { "Signal Processing" = "api/signal.md" },
         { "Xarray Integration" = "api/xarray.md" },
@@ -123,6 +124,8 @@ inventories = [
     "https://pandas.pydata.org/pandas-docs/stable/objects.inv",
     "https://nipype.readthedocs.io/en/latest/objects.inv",
     "https://scikit-image.org/objects.inv",
+    "https://brainglobe.info/objects.inv",
+    "https://treelib.readthedocs.io/en/latest/objects.inv",
 ]
 paths = ["src"]
 

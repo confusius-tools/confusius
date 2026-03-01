@@ -53,12 +53,14 @@ Alpha release checklist for ConfUSIus.
     - [x] [`register_volume`][confusius.registration.register_volume]: rigid/affine/deformable registration of a single 3D volume.
     - [x] [`resample_volume`][confusius.registration.resample_volume]: resample a volume to a target affine and shape.
 
-## ❌ Atlas
+## ✅ Atlas
 
-- [ ] `atlas` module: fetch and resample standard brain atlases.
-    - [ ] [BrainGlobe Atlas API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html) wrapper for loading brain parcellations, returned as Xarray Datasets.
+- [x] `atlas` module: fetch and resample standard brain atlases.
+    - [x] [BrainGlobe Atlas
+      API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html) wrapper
+      for loading brain parcellations, returned as Xarray Datasets.
 
-## ❌ Statistical Analysis
+## 🚧 Statistical Analysis
 
 - [ ] `connectivity` module: compute functional connectivity from preprocessed fUSI time series (pairwise correlations, network metrics).
 - [ ] `glm` module: general linear model for stimulus-evoked and task-based fUSI analysis.
