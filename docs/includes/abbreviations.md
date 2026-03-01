@@ -8,6 +8,7 @@
 *[ICA]: Independent Component Analysis
 *[GLM]: General Linear Model
 *[ROI]: Region of Interest
+*[ROIs]: Regions of Interest
 *[HRF]: Hemodynamic Response Function
 *[FIR]: Finite Impulse Response
 *[FDR]: False Discovery Rate

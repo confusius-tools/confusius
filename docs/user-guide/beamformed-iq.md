@@ -662,10 +662,10 @@ Velocity values are returned in **meters per second** with sign indicating direc
 Now that you've processed your beamformed IQ data into power Doppler or velocity
 volumes, you're ready to:
 
-1. **[Quality Control](qc.md)**: assess data quality and identify artifacts *(coming
+1. **[Visualization](visualization.md)**: explore your data interactively with Napari
+   and generate static figures with Matplotlib.
+2. **[Quality Control](qc.md)**: assess data quality and identify artifacts *(coming
    soon)*
-2. **[Visualization](visualization.md)**: explore your data interactively with Napari
-   *(coming soon)*
 3. **[Registration](registration.md)**: correct for motion and align to anatomical
    templates *(coming soon)*
 4. **[Signal Processing](signal.md)**: extract regional signals and apply denoising

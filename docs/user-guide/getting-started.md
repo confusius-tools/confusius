@@ -7,13 +7,6 @@ icon: lucide/rocket
 Welcome to ConfUSIus! This guide introduces the package and helps you understand how it
 fits into a typical fUSI data analysis workflow.
 
-## What is ConfUSIus?
-
-ConfUSIus is a Python package for handling, processing, and analyzing functional
-ultrasound imaging (fUSI) data. It provides tools for the entire fUSI analysis
-pipeline, from converting raw beamformed IQ data to processing hemodynamic signals and
-performing statistical analyses.
-
 ## What is fUSI?
 
 Functional ultrasound imaging (fUSI) is a neuroimaging technique that measures brain
@@ -38,6 +31,13 @@ fUSI data typically consists of large 3D+t datasets (time × z × y × x) acquir
 fUSI systems (for example, [Iconeus](https://iconeus.com/),
 [AUTC](https://fusi-functional-ultrasound-imaging.com/), EchoFrame, or in-house setups
 based on ultrasound research platforms such as [Verasonics](https://verasonics.com/)).
+
+## What is ConfUSIus?
+
+ConfUSIus is a Python package for handling, processing, and analyzing functional
+ultrasound imaging (fUSI) data. It provides tools for the entire fUSI analysis
+pipeline, from converting raw beamformed IQ data to processing hemodynamic signals and
+performing statistical analyses.
 
 ## Key Features
 
