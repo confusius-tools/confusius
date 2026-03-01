@@ -150,7 +150,17 @@ def validate_labels(
     ----------
     labels : xarray.DataArray
         Label map to validate. Must have integer dtype and coordinates must match data.
-        Each unique non-zero integer value identifies a distinct region.
+        Accepts two formats:
+
+        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+          labeled `0`; each unique non-zero integer identifies a distinct,
+          non-overlapping region. The `regions` coordinate of the output holds the
+          integer label values.
+        - **Stacked mask format**: Has a leading `masks` dimension followed by
+          spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
+          region_id}` and regions may overlap. The `regions` coordinate of the
+          output holds the `masks` coordinate values (e.g., region label).
+
     data : xarray.DataArray
         Data array to validate labels against.
     labels_name : str, default: "labels"
@@ -163,14 +173,9 @@ def validate_labels(
     Raises
     ------
     TypeError
-        If labels is not an integer dtype DataArray.
+        If `labels` is not an integer dtype DataArray.
     ValueError
-        If labels dimensions don't match data or if coordinates don't match.
-
-    Notes
-    -----
-    Uses `np.allclose` (with rtol/atol) for coordinate comparison, which is more
-    appropriate for floating-point coordinates than exact equality.
+        If `labels` dimensions don't match `data` or if coordinates don't match.
     """
     if not isinstance(labels, xr.DataArray):
         raise TypeError(
@@ -180,4 +185,8 @@ def validate_labels(
     if not np.issubdtype(labels.dtype, np.integer):
         raise TypeError(f"{labels_name} must be integer dtype, got {labels.dtype}.")
 
-    _validate_spatial_coords(labels, data, labels_name, rtol, atol)
+    # For stacked format, validate spatial dims only (drop the masks axis).
+    spatial_labels = (
+        labels.isel(masks=0, drop=True) if "masks" in labels.dims else labels
+    )
+    _validate_spatial_coords(spatial_labels, data, labels_name, rtol, atol)

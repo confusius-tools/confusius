@@ -45,93 +45,31 @@ def _reduce_by_label(data_nd, *, labels_1d, unique_labels, np_func):
     )
 
 
-def extract_with_labels(
+def _extract_with_flat_labels(
     data: xr.DataArray,
     labels: xr.DataArray,
-    reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"] = "mean",
+    reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"],
+    region_coords: "np.ndarray | None" = None,
 ) -> xr.DataArray:
-    """Extract region-aggregated signals from fUSI data using an integer label map.
-
-    For each unique non-zero label in `labels`, applies `reduction` across all voxels
-    belonging to that region. The spatial dimensions are collapsed into a single
-    `regions` dimension whose coordinates are the label integers.
+    """Core extraction logic for a flat (spatial-only) integer label map.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Input array with spatial dimensions matching `labels`. Can have any number of
-        non-spatial dimensions (e.g., `time`, `pose`). The spatial dimensions must match
-        those in `labels`.
+        Input data.
     labels : xarray.DataArray
-        Integer label map defining the regions. Background voxels must be labeled `0`.
-        Each unique non-zero integer identifies a distinct region. Its dimensions define
-        the spatial dimensions that will be reduced over. Must have identical
-        coordinates to the data's spatial dimensions.
-    reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, default: "mean"
-        Aggregation function applied across voxels in each region:
-
-        - `"mean"`: arithmetic mean.
-        - `"sum"`: sum of values.
-        - `"median"`: median value.
-        - `"min"`: minimum value.
-        - `"max"`: maximum value.
-        - `"var"`: variance.
-        - `"std"`: standard deviation.
+        Flat integer label map, spatial dimensions only.
+    reduction : str
+        Aggregation function name.
+    region_coords : numpy.ndarray or None
+        Coordinate values for the output `regions` dimension. When `None`,
+        the unique non-zero labels are used as integer coordinates.
 
     Returns
     -------
     xarray.DataArray
-        Array with spatial dimensions replaced by a `regions` dimension. The `regions`
-        dimension has integer coordinates corresponding to each unique non-zero label
-        in `labels`. All non-spatial dimensions are preserved.
-
-        For example:
-
-        - `(time, z, y, x)` → `(time, regions)`
-        - `(time, pose, z, y, x)` → `(time, pose, regions)`
-        - `(z, y, x)` → `(regions,)`
-
-    Raises
-    ------
-    ValueError
-        If `labels` dimensions don't match `data`'s spatial dimensions, if
-        coordinates don't match, or if `reduction` is not a valid option.
-    TypeError
-        If `labels` is not integer dtype.
-
-    Examples
-    --------
-    >>> import xarray as xr
-    >>> import numpy as np
-    >>> from confusius.extract import extract_with_labels
-    >>>
-    >>> # 3D+t data: (time, z, y, x)
-    >>> data = xr.DataArray(
-    ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "z", "y", "x"],
-    ... )
-    >>> labels = xr.DataArray(
-    ...     np.zeros((10, 20, 30), dtype=int),
-    ...     dims=["z", "y", "x"],
-    ... )
-    >>> labels[0, :, :] = 1  # Region 1: first z-slice.
-    >>> labels[1, :, :] = 2  # Region 2: second z-slice.
-    >>> signals = extract_with_labels(data, labels)
-    >>> signals.dims
-    ('time', 'regions')
-    >>> signals.coords["regions"].values
-    array([1, 2])
-    >>>
-    >>> # Sum instead of mean.
-    >>> sums = extract_with_labels(data, labels, reduction="sum")
+        Array with spatial dimensions replaced by a `regions` dimension.
     """
-    if reduction not in _VALID_REDUCTIONS:
-        raise ValueError(
-            f"Invalid reduction '{reduction}'. Must be one of: {list(_VALID_REDUCTIONS)}."
-        )
-
-    validate_labels(labels, data, "labels")
-
     spatial_dims = list(labels.dims)
     non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
 
@@ -171,4 +109,106 @@ def extract_with_labels(
         keep_attrs=True,
     )
 
-    return result.assign_coords(regions=unique_labels)
+    coords = region_coords if region_coords is not None else unique_labels
+    return result.assign_coords(regions=coords)
+
+
+def extract_with_labels(
+    data: xr.DataArray,
+    labels: xr.DataArray,
+    reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"] = "mean",
+) -> xr.DataArray:
+    """Extract region-aggregated signals from fUSI data using an integer label map.
+
+    For each unique non-zero label in `labels`, applies `reduction` across all voxels
+    belonging to that region. The spatial dimensions are collapsed into a single
+    `regions` dimension.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input array with spatial dimensions matching `labels`. Can have any number of
+        non-spatial dimensions (e.g., `time`, `pose`). The spatial dimensions must match
+        those in `labels`.
+    labels : xarray.DataArray
+        Integer label map in one of two formats:
+
+        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+          labeled `0`; each unique non-zero integer identifies a distinct,
+          non-overlapping region. The `regions` coordinate of the output holds the
+          integer label values.
+        - **Stacked mask format**: Has a leading `masks` dimension followed by spatial
+          dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0, region_id}`
+          and regions may overlap. The `regions` coordinate of the output holds the
+          `masks` coordinate values (e.g., region label).
+
+    reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, default: "mean"
+        Aggregation function applied across voxels in each region.
+
+    Returns
+    -------
+    xarray.DataArray
+        Array with spatial dimensions replaced by a `regions` dimension. All
+        non-spatial dimensions are preserved.
+
+        For example (flat label map):
+
+        - `(time, z, y, x)` → `(time, regions)`
+        - `(time, pose, z, y, x)` → `(time, pose, regions)`
+        - `(z, y, x)` → `(regions,)`
+
+    Raises
+    ------
+    ValueError
+        If `labels` dimensions don't match `data`'s spatial dimensions, if
+        coordinates don't match, or if `reduction` is not a valid option.
+    TypeError
+        If `labels` is not integer dtype.
+
+    Examples
+    --------
+    >>> import xarray as xr
+    >>> import numpy as np
+    >>> from confusius.extract import extract_with_labels
+    >>>
+    >>> # 3D+t data: (time, z, y, x)
+    >>> data = xr.DataArray(
+    ...     np.random.randn(100, 10, 20, 30),
+    ...     dims=["time", "z", "y", "x"],
+    ... )
+    >>> labels = xr.DataArray(
+    ...     np.zeros((10, 20, 30), dtype=int),
+    ...     dims=["z", "y", "x"],
+    ... )
+    >>> labels[0, :, :] = 1  # Region 1: first z-slice.
+    >>> labels[1, :, :] = 2  # Region 2: second z-slice.
+    >>> signals = extract_with_labels(data, labels)
+    >>> signals.dims
+    ('time', 'regions')
+    >>> signals.coords["regions"].values
+    array([1, 2])
+    >>>
+    >>> # Stacked mask format from Atlas.get_masks.
+    >>> masks = atlas_fusi.get_masks(["VISp", "AUDp"])
+    >>> signals = extract_with_labels(data, masks)
+    >>> signals.coords["regions"].values
+    array(['VISp', 'AUDp'], dtype=object)
+    """
+    validate_labels(labels, data, "labels")
+
+    if reduction not in _VALID_REDUCTIONS:
+        raise ValueError(
+            f"Invalid reduction '{reduction}'. Must be one of: {list(_VALID_REDUCTIONS)}."
+        )
+
+    if "masks" in labels.dims:
+        region_results = []
+        for i in range(labels.sizes["masks"]):
+            layer = labels.isel(masks=i)
+            region_result = _extract_with_flat_labels(data, layer, reduction)
+            region_results.append(region_result.isel(regions=0))
+
+        result = xr.concat(region_results, dim="regions")
+        return result.assign_coords(regions=labels.coords["masks"].values)
+    else:
+        return _extract_with_flat_labels(data, labels, reduction)

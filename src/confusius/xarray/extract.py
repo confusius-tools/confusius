@@ -57,10 +57,17 @@ class FUSIExtractAccessor:
         Parameters
         ----------
         labels : xarray.DataArray
-            Integer label map defining the regions. Background voxels must be labeled
-            `0`. Each unique non-zero integer identifies a distinct region. Its
-            dimensions define the spatial dimensions that will be reduced over. Must
-            have identical coordinates to the data's spatial dimensions.
+            Integer label map in one of two formats:
+
+            - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+              labeled `0`; each unique non-zero integer identifies a distinct,
+              non-overlapping region. The `regions` coordinate of the output holds the
+              integer label values.
+            - **Stacked mask format**: Has a leading `masks` dimension followed by
+              spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
+              region_id}` and regions may overlap. The `regions` coordinate of the
+              output holds the `masks` coordinate values (e.g., region label).
+
         reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, default: "mean"
             Aggregation function applied across voxels in each region:
 
