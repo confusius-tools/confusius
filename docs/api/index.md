@@ -20,21 +20,21 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Validation of fUSI data compatibility with expected formats in ConfUSIus.
 
-- **[:lucide-audio-waveform: Beamformed IQ Signals](iq.md)**
+- **[:lucide-audio-waveform: Beamformed IQ](iq.md)**
 
     ---
 
     Processing of beamformed IQ signals, clutter filtering, and computation of derived
     measures such as power Doppler and axial velocity.
 
-- **[:lucide-chart-area: Visualization](plotting.md)**
+- **[:lucide-chart-area: Plotting](plotting.md)**
 
     ---
 
     Rich visualization utilities for fUSI data including static plots and interactive
     napari viewers.
 
-- **[:lucide-gauge: Quality Control](qc.md)**
+- **[:lucide-clipboard-check: Quality Control](qc.md)**
 
     ---
 
@@ -46,6 +46,12 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Motion correction and spatial alignment tools for aligning fUSI data across time
     points or with anatomical references.
+
+- **[:lucide-brain: Atlases](atlas.md)**
+
+    ---
+
+    Brain atlas integration for anatomical labeling and region-of-interest extraction.
 
 - **[:lucide-funnel: Signal Extraction](extract.md)**
 
