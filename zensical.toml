@@ -65,6 +65,10 @@ icon = "fontawesome/brands/discord"
 link = "https://discord.gg/mZd87tgmy2"
 name = "Functional Ultrasound Imaging on Discord"
 
+[project.extra.analytics]
+provider = "google"
+property = "G-6ES5WY0S10"
+
 [project.theme]
 variant = "modern"
 language = "en"
