@@ -79,6 +79,8 @@ class FUSIPlotAccessor:
             ROI masks, segmentations, or other label data.
         **layer_kwargs
             Additional keyword arguments passed to the layer creation method.
+            For image layers, if `data.attrs` contains `"cmap"` and `"colormap"`
+            is not in `layer_kwargs`, the attribute is used as the colormap.
 
         Returns
         -------

@@ -827,6 +827,7 @@ def process_iq_to_power_doppler(
     output_attrs = {
         "units": "a.u.",
         "long_name": "Power Doppler intensity",
+        "cmap": "gray",
         "clutter_filter_method": filter_method,
         "clutter_window_width": clutter_window_width,
         "clutter_window_stride": clutter_window_stride,
@@ -1051,9 +1052,11 @@ def process_iq_to_axial_velocity(
         attrs=iq.coords["time"].attrs,
     )
 
+    velocity_cmap = "viridis" if absolute_velocity else "coolwarm"
     output_attrs = {
         "units": "m/s",
         "long_name": "Axial velocity",
+        "cmap": velocity_cmap,
         "clutter_filter_method": filter_method,
         "clutter_window_width": clutter_window_width,
         "clutter_window_stride": clutter_window_stride,

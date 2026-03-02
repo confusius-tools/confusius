@@ -30,7 +30,9 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
     -------
     xarray.DataArray
         Spatial map of tSNR values with the `time` dimension reduced. Voxels with zero
-        temporal standard deviation (constant signals) yield `inf`.
+        temporal standard deviation (constant signals) yield `inf`. The returned array
+        has `long_name="Temporal signal-to-noise ratio"`, `units="a.u."`, and
+        `cmap="viridis"` in its `attrs`.
 
     Raises
     ------
@@ -86,7 +88,15 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
         signals, operation_name="compute_tsnr", check_time_chunks=False
     )
 
-    return signals.mean("time") / signals.std("time")
+    tsnr = signals.mean("time") / signals.std("time")
+    tsnr.attrs.update(
+        {
+            "long_name": "Temporal signal-to-noise ratio",
+            "units": "a.u.",
+            "cmap": "viridis",
+        }
+    )
+    return tsnr
 
 
 def compute_cv(signals: xr.DataArray) -> xr.DataArray:
@@ -106,7 +116,9 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     -------
     xarray.DataArray
         Spatial map of CV values with the `time` dimension reduced. Voxels with zero
-        temporal mean yield `inf` (or `NaN` if the standard deviation is also zero).
+        temporal mean yield `inf` (or `NaN` if the standard deviation is also zero). The
+        returned array has `long_name="Coefficient of variation"`, `units="a.u."`,
+        and `cmap="viridis"` in its `attrs`.
 
     Raises
     ------
@@ -142,4 +154,12 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     """
     validate_time_series(signals, operation_name="compute_cv", check_time_chunks=False)
 
-    return signals.std("time") / signals.mean("time")
+    cv = signals.std("time") / signals.mean("time")
+    cv.attrs.update(
+        {
+            "long_name": "Coefficient of variation",
+            "units": "a.u.",
+            "cmap": "viridis",
+        }
+    )
+    return cv

@@ -1,10 +1,13 @@
 """Image visualization utilities for fUSI data."""
 
 import warnings
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Literal, Sequence
 
+import napari
 import numpy as np
 import xarray as xr
+from napari.utils.colormaps import DirectLabelColormap
 
 from confusius._utils import find_stack_level
 from confusius.extract import extract_with_mask
@@ -16,10 +19,6 @@ if TYPE_CHECKING:
     from matplotlib.colors import Colormap, Normalize
     from matplotlib.figure import Figure, SubFigure
     from napari import Viewer
-
-# Import napari at module level for backward compatibility and test mocking.
-# This is a lightweight import (~111ms) compared to matplotlib/scipy.
-import napari  # noqa: F401
 
 _BASE_SIZE = 4.0
 """Base subplot size for VolumePlotter when creating new figures.
@@ -694,9 +693,7 @@ class VolumePlotter:
             If called before any data has been plotted.
         """
         if self.figure is None:
-            raise RuntimeError(
-                "No figure to save. Call add_volume() or plot_volume() first."
-            )
+            raise RuntimeError("No figure to save.")
         self.figure.savefig(fname, **kwargs)
 
     def show(self) -> None:
@@ -708,12 +705,8 @@ class VolumePlotter:
             If called before any data has been plotted.
         """
         if self.figure is None:
-            raise RuntimeError(
-                "No figure to show. Call add_volume() or plot_volume() first."
-            )
-        import matplotlib.pyplot as plt
-
-        plt.show()
+            raise RuntimeError("No figure to show.")
+        self.figure.show()
 
     def close(self) -> None:
         """Close the figure and release resources."""
@@ -1322,8 +1315,10 @@ def plot_napari(
     **layer_kwargs
         Additional keyword arguments passed to the layer creation method
         (`napari.imshow` for images or `viewer.add_labels` for labels).
+        For image layers, if `data.attrs` contains `"cmap"` and `"colormap"`
+        is not in `layer_kwargs`, the attribute is used as the colormap.
         For labels layers, if `data.attrs` contains `"cmap"` and `"norm"`
-        (as set by atlas functions) and `"color"` is not in `layer_kwargs`,
+        (as set by atlas functions) and `"colormap"` is not in `layer_kwargs`,
         a per-label color dict is built automatically from those attributes.
 
     Returns
@@ -1417,6 +1412,10 @@ def plot_napari(
 
         layer_kwargs.setdefault("axis_labels", all_dims)
         layer_kwargs.setdefault("translate", coord_translates)
+        if "colormap" not in layer_kwargs:
+            cmap_attr = data.attrs.get("cmap")
+            if cmap_attr is not None:
+                layer_kwargs["colormap"] = cmap_attr
         viewer, layer = napari.imshow(
             data,
             scale=scale,
@@ -1445,16 +1444,12 @@ def plot_napari(
             and norm_attr is not None
             and "colormap" not in layer_kwargs
         ):
-            from collections import defaultdict
-
-            from napari.utils.colormaps import DirectLabelColormap
-
             color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
-                lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent
+                lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
             )
             for label in np.unique(values):
                 if label == 0:
-                    continue  # background_value=0 is always transparent
+                    continue  # background_value=0 is always transparent.
                 color_dict[int(label)] = np.array(
                     cmap_attr(norm_attr(int(label))), dtype=np.float32
                 )
