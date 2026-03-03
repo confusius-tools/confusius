@@ -234,6 +234,21 @@ class TestPlotVolume:
         )
         assert plotter.axes is not None
 
+    def test_bool_dtype_does_not_raise(self, sample_3d_volume, matplotlib_pyplot):
+        """plot_volume handles boolean dtype data without raising TypeError.
+
+        np.percentile on bool arrays fails with a TypeError because numpy does
+        not support subtraction on bool dtype during linear interpolation.
+        Casting to float before computing percentiles fixes this.
+        """
+        bool_data = sample_3d_volume > sample_3d_volume.mean()
+        z_coord = sample_3d_volume.coords["z"].values[0]
+        # Should not raise TypeError: numpy boolean subtract.
+        plotter = plot_volume(
+            bool_data, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
+        )
+        assert plotter.axes is not None
+
     def test_unitary_slice_mode_preserved(self, matplotlib_pyplot):
         """plot_volume preserves slice_mode dimension even when unitary."""
         # 3D data with unitary z dimension

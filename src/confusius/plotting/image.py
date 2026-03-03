@@ -499,7 +499,7 @@ class VolumePlotter:
 
         # Compute vmin/vmax from data before thresholding for consistent colormap.
         if resolved_norm is None:
-            all_vals = np.concatenate([s.values.ravel() for s in slices])
+            all_vals = np.concatenate([s.values.ravel().astype(float) for s in slices])
             all_vals = all_vals[np.isfinite(all_vals)]
             if len(all_vals) > 0:
                 if vmin is None:
