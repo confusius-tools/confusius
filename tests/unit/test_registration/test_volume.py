@@ -267,21 +267,40 @@ class TestResampleVolume:
             dims=list(da.dims),
         )
 
-    def test_time_dimension_moving_raises(
+    def test_time_dimension_moving_works(
         self, sample_2d_image, sample_2d_dataarray, sample_2d_dataarray_spatial
     ):
-        """moving with a time dimension raises ValueError."""
-        with pytest.raises(ValueError, match="time"):
-            resample_volume(
-                sample_2d_dataarray,
-                np.eye(3),
-                **self._grid_from_da(sample_2d_dataarray_spatial),
-            )
+        """moving with a time dimension resamples each frame with the same transform."""
+        result = resample_volume(
+            sample_2d_dataarray,
+            np.eye(3),
+            **self._grid_from_da(sample_2d_dataarray_spatial),
+        )
+        assert "time" in result.dims
+        assert result.shape == sample_2d_dataarray.shape
+        assert_allclose(
+            result.coords["time"].values, sample_2d_dataarray.coords["time"].values
+        )
+
+    def test_3d_time_dimension_moving_works(
+        self, sample_3d_dataarray, sample_3d_dataarray_spatial
+    ):
+        """3D moving with time dimension resamples each frame with the same transform."""
+        result = resample_volume(
+            sample_3d_dataarray,
+            np.eye(4),
+            **self._grid_from_da(sample_3d_dataarray_spatial),
+        )
+        assert "time" in result.dims
+        assert result.shape == sample_3d_dataarray.shape
+        assert_allclose(
+            result.coords["time"].values, sample_3d_dataarray.coords["time"].values
+        )
 
     def test_wrong_ndim_raises(self):
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="2D or 3D"):
+        with pytest.raises(ValueError, match="2 or 3 spatial"):
             resample_volume(
                 da, np.eye(2), shape=[10], spacing=[1.0], origin=[0.0], dims=["x"]
             )
@@ -445,12 +464,18 @@ class TestResampleVolumeWithBspline:
 class TestResampleLike:
     """Unit tests for resample_like."""
 
-    def test_time_dimension_moving_raises(
+    def test_time_dimension_moving_works(
         self, sample_2d_dataarray, sample_2d_dataarray_spatial
     ):
-        """moving with a time dimension raises ValueError."""
-        with pytest.raises(ValueError, match="time"):
-            resample_like(sample_2d_dataarray, sample_2d_dataarray_spatial, np.eye(3))
+        """moving with a time dimension resamples each frame with the same transform."""
+        result = resample_like(
+            sample_2d_dataarray, sample_2d_dataarray_spatial, np.eye(3)
+        )
+        assert "time" in result.dims
+        assert result.shape == sample_2d_dataarray.shape
+        assert_allclose(
+            result.coords["time"].values, sample_2d_dataarray.coords["time"].values
+        )
 
     def test_time_dimension_reference_raises(
         self, sample_2d_dataarray, sample_2d_dataarray_spatial
