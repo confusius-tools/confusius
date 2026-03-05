@@ -276,6 +276,109 @@ The [`validate_iq`][confusius.validation.validate_iq] function checks that your 
     - `sound_velocity`: Typically 1540 m/s for brain tissues, but may vary with
       temperature and tissue type.
 
+### Loading Iconeus SCAN Files
+
+Use [`load_scan`][confusius.io.load_scan] to load Iconeus `.scan` files (HDF5 files
+produced by IcoScan) as lazy Xarray DataArrays. Three acquisition modes are supported,
+each yielding a DataArray with different dimensions:
+
+| Mode | Dimensions | Description |
+|------|------------|-------------|
+| `2Dscan` | `(time, z, y, x)` | 2D+t fUSI |
+| `3Dscan` | `(pose, z, y, x)` | Multi-pose anatomical volume |
+| `4Dscan` | `(time, pose, z, y, x)` | Multi-pose time-series (3D+t fUSI) |
+
+All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
+
+=== "2Dscan"
+
+    ```python
+    from confusius.io import load_scan
+
+    da = load_scan("sub-01_task-awake_pwd.source.scan")
+
+    print(da.dims)
+    # Output: ('time', 'z', 'y', 'x')
+    ```
+
+=== "3Dscan"
+
+    ```python
+    from confusius.io import load_scan
+
+    da = load_scan("sub-01_acq-anat_pwd.source.scan")
+
+    print(da.dims)
+    # Output: ('pose', 'z', 'y', 'x')
+    ```
+
+    The `pose` dimension indexes each probe position in the multi-pose acquisition.
+    Each pose has its own `physical_to_lab` affine (shape `(npose, 4, 4)`) stored in
+    `da.attrs["affines"]["physical_to_lab"]`.
+
+=== "4Dscan"
+
+    ```python
+    from confusius.io import load_scan
+
+    da = load_scan("sub-01_task-awake_pwd.source.scan")
+
+    print(da.dims)
+    # Output: ('time', 'pose', 'z', 'y', 'x')
+    ```
+
+    In addition to the `time` coordinate (earliest timestamp per block), a
+    `pose_time` non-dimension coordinate of shape `(time, pose)` stores the exact
+    per-pose acquisition timestamps.
+
+The DataArray is loaded **lazily**: data remains on disk until explicitly computed.
+SCAN files stay open while the Dask graph is un-computed, so keep the DataArray in
+scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
+
+Provenance metadata from the file is stored in `da.attrs`: `scan_mode`, `subject`,
+`session`, `scan`, `project`, `date`, `neuroscan_version`, and `machine_sn`.
+
+#### Converting SCAN Data to NIfTI
+
+Since [`load_scan`][confusius.io.load_scan] returns a standard Xarray DataArray with
+ConfUSIus-compatible dimensions and coordinates, you can save it directly to NIfTI using
+[`save_nifti`][confusius.io.save_nifti] or the Xarray accessor.
+
+For **2Dscan** data, save it directly:
+
+```python
+from confusius.io import load_scan, save_nifti
+
+da = load_scan("sub-01_task-awake_pwd2d.scan")
+save_nifti(da, "sub-01_task-awake_pwd.nii.gz")
+# Or equivalently:
+da.fusi.io.to_nifti("sub-01_task-awake_pwd.nii.gz")
+```
+
+For **3Dscan** and **4Dscan** data, consolidate the poses into a single volume before
+saving, or save each pose separately if you want to retain the multi-pose structure:
+
+=== "Consolidation"
+
+    ```python
+    import confusius as cf
+
+    anat = cf.io.load_scan("sub-01_acq-anat_pwd.scan")
+    volume = cf.multipose.consolidate_poses(anat)
+    volume.fusi.io.to_nifti("sub-01_acq-anat_pwd.nii.gz")
+    ```
+
+=== "Separate pose files"
+
+    ```python
+    import confusius as cf
+
+    anat = cf.io.load_scan("sub-01_acq-anat_pwd.scan")
+    for pose in anat.pose:
+        pose_da = anat.sel(pose=pose)
+        pose_da.fusi.io.to_nifti(f"sub-01_acq-anat_pose-{pose.values}.nii.gz")
+    ```
+
 ### Loading NIfTI Files
 
 Use [`load_nifti`][confusius.io.load_nifti] to load NIfTI files as lazy Xarray
@@ -339,6 +442,7 @@ Quick reference for converting between formats:
 |------|-----|----------|
 | AUTC DATs | Zarr | [`convert_autc_dats_to_zarr`][confusius.io.convert_autc_dats_to_zarr] |
 | EchoFrame DAT | Zarr | [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr] |
+| Iconeus SCAN | Xarray DataArray | [`load_scan`][confusius.io.load_scan] |
 | NIfTI | Xarray DataArray | [`load_nifti`][confusius.io.load_nifti] |
 | Xarray DataArray | NIfTI | [`save_nifti`][confusius.io.save_nifti] or [`.fusi.io.to_nifti`][confusius.xarray.FUSIIOAccessor.to_nifti] |
 

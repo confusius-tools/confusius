@@ -2,14 +2,14 @@
 
 Alpha release checklist for ConfUSIus.
 
-## 🚧 Data I/O
+## ✅ Data I/O
 
-- [ ] [`io` module](api/io.md): load and save fUSI data in common formats.
+- [x] [`io` module](api/io.md): load and save fUSI data in common formats.
     - [x] AUTC beamformed IQ.
     - [x] EchoFrame beamformed IQ.
     - [x] NIfTI.
     - [x] Zarr.
-    - [ ] Iconeus SCAN (HDF5; see <https://github.com/XunMa1214/fUS-toolbox>).
+    - [x] Iconeus SCAN (HDF5; see <https://github.com/XunMa1214/fUS-toolbox>).
 
 ## ✅ IQ Processing
 
