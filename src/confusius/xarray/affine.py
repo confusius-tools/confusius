@@ -65,7 +65,7 @@ def affine_to(
 def apply_affine(
     da: xr.DataArray,
     affine: "npt.NDArray[np.float64]",
-    inplace: bool = True,
+    inplace: bool = False,
 ) -> xr.DataArray:
     """Apply a rigid affine to a DataArray's spatial coordinates.
 
@@ -88,8 +88,8 @@ def apply_affine(
     affine : numpy.ndarray, shape (4, 4)
         Homogeneous affine matrix to apply.  The rotation block `affine[:3, :3]` must be
         diagonal.
-    inplace : bool, default: True
-        If True, modify `da` in-place and return it. If False, return a copy.
+    inplace : bool, default: False
+        Whether to modify the DataArray in-place.
 
     Returns
     -------
@@ -124,7 +124,6 @@ def apply_affine(
     if affine.shape != (4, 4):
         raise ValueError(f"affine must have shape (4, 4), got {affine.shape}.")
 
-    # Validate that the rotation block is diagonal (axis-aligned only).
     rotation = affine[:3, :3]
     off_diag_mask = ~np.eye(3, dtype=bool)
     if np.any(np.abs(rotation[off_diag_mask]) > 1e-9):
@@ -173,18 +172,18 @@ def apply_affine(
             # Shape (npose, 4, 4): broadcast over poses.
             new_affines[key] = arr @ inv_affine
         else:
-            # Unexpected shape — pass through unchanged.
+            # Unexpected shape: pass through unchanged.
             new_affines[key] = arr
 
+    new_attrs = {**da.attrs, "affines": new_affines}
+    result = da.assign_coords(new_coords).assign_attrs(new_attrs)
     if inplace:
-        # Update coords in-place.
-        for dim, coord in new_coords.items():
-            da.coords[dim] = coord
-        da.attrs["affines"] = new_affines
+        # xarray DataArrays are not truly mutable; update the underlying variable
+        # in-place so callers holding a reference see the change.
+        da.coords.update(result.coords)
+        da.attrs.update(new_attrs)
         return da
-    else:
-        new_attrs = {**da.attrs, "affines": new_affines}
-        return da.assign_coords(new_coords).assign_attrs(new_attrs)
+    return result
 
 
 class FUSIAffineAccessor:
@@ -243,7 +242,7 @@ class FUSIAffineAccessor:
         return affine_to(self._obj, other, via)
 
     def apply(
-        self, affine: "npt.NDArray[np.float64]", inplace: bool = True
+        self, affine: "npt.NDArray[np.float64]", inplace: bool = False
     ) -> xr.DataArray:
         """Apply an axis-aligned affine to the scan's spatial coordinates.
 
@@ -256,8 +255,8 @@ class FUSIAffineAccessor:
         affine : numpy.ndarray, shape (4, 4)
             Homogeneous affine matrix.  The rotation block must be diagonal
             (axis-aligned transforms only).
-        inplace : bool, default: True
-            If True, modify the DataArray in-place. If False, return a copy.
+        inplace : bool, default: False
+            Whether to modify the DataArray in-place.
 
         Returns
         -------
