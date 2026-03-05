@@ -1397,10 +1397,7 @@ def plot_napari(
 
     # Build translate from the first coordinate value per spatial dim (physical origin).
     # Falls back to 0.0 for dimensions without coordinates.
-    coord_translates = [
-        float(data.coords[dim].values[0]) if dim in data.coords else 0.0
-        for dim in spatial_dims
-    ]
+    coord_translates = [data.fusi.origin[dim] for dim in spatial_dims]
 
     coord_units = [
         data.coords[dim].attrs.get("units") if dim in data.coords else None
@@ -1435,11 +1432,13 @@ def plot_napari(
             layer_kwargs["order"] = tuple(order)
 
         layer_kwargs.setdefault("axis_labels", all_dims)
-        layer_kwargs.setdefault("translate", coord_translates)
+
         if "colormap" not in layer_kwargs:
             cmap_attr = data.attrs.get("cmap")
             if cmap_attr is not None:
                 layer_kwargs["colormap"] = cmap_attr
+
+        layer_kwargs.setdefault("translate", coord_translates)
         viewer, layer = napari.imshow(
             data,
             scale=scale,
