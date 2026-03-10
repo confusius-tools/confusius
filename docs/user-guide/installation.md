@@ -6,7 +6,7 @@ icon: lucide/download
 
 ConfUSIus is compatible with Python 3.13 and above. We recommend using
 [uv](https://docs.astral.sh/uv/) for fast and efficient package management, but you can
-also install ConfUSIus the Python package manager of your choice.
+also install ConfUSIus using the Python package manager of your choice.
 
 ## Install with uv (recommended)
 
