@@ -55,6 +55,8 @@ def _compute_spacing(
       if present, otherwise `None` with a warning.
     - If the coordinate is missing or has non-uniform spacing, returns `None` with a
       warning.
+    - If the coordinate doesn't have int or float dtype, returns `None` without a
+      warning.
 
     Uniformity is assessed as `(max_diff - min_diff) / median_diff`, i.e. the
     relative range of consecutive differences.
@@ -84,7 +86,14 @@ def _compute_spacing(
             )
             result[dim] = None
             continue
+
         coord = data.coords[dim]
+        if not np.issubdtype(coord.dtype, int) and not np.issubdtype(
+            coord.dtype, float
+        ):
+            result[dim] = None
+            continue
+
         if len(coord) < 2:
             if "voxdim" in coord.attrs:
                 result[dim] = float(coord.attrs["voxdim"])
@@ -97,6 +106,7 @@ def _compute_spacing(
                 )
                 result[dim] = None
             continue
+
         diffs = np.diff(coord.values)
         median_diff = np.median(diffs)
         if (np.max(diffs) - np.min(diffs)) / median_diff > uniformity_tolerance:
