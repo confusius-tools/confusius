@@ -3,6 +3,7 @@
 __all__ = [
     "FUSIAccessor",
     "FUSIAffineAccessor",
+    "FUSIConnectivityAccessor",
     "FUSIIOAccessor",
     "FUSIIQAccessor",
     "FUSIPlotAccessor",
@@ -16,6 +17,7 @@ __all__ = [
 
 from confusius.xarray.accessors import FUSIAccessor
 from confusius.xarray.affine import FUSIAffineAccessor
+from confusius.xarray.connectivity import FUSIConnectivityAccessor
 from confusius.xarray.extract import FUSIExtractAccessor
 from confusius.xarray.io import FUSIIOAccessor
 from confusius.xarray.iq import FUSIIQAccessor

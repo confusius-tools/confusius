@@ -4,6 +4,7 @@ import xarray as xr
 
 from confusius._utils import _compute_origin, _compute_spacing
 from confusius.xarray.affine import FUSIAffineAccessor
+from confusius.xarray.connectivity import FUSIConnectivityAccessor
 from confusius.xarray.extract import FUSIExtractAccessor
 from confusius.xarray.io import FUSIIOAccessor
 from confusius.xarray.iq import FUSIIQAccessor
@@ -38,6 +39,26 @@ class FUSIAccessor:
 
     def __init__(self, xarray_obj: xr.DataArray) -> None:
         self._obj = xarray_obj
+
+    @property
+    def connectivity(self) -> FUSIConnectivityAccessor:
+        """Access connectivity analysis operations.
+
+        Returns
+        -------
+        FUSIConnectivityAccessor
+            Accessor for seed-based functional connectivity maps.
+
+        Examples
+        --------
+        >>> import xarray as xr
+        >>> import numpy as np
+        >>> import confusius  # noqa: F401
+        >>> data = xr.open_zarr("recording.zarr")["power_doppler"]
+        >>> seed_masks = xr.open_zarr("seed_masks.zarr")["masks"]
+        >>> mapper = data.fusi.connectivity.seed_map(seed_masks=seed_masks)
+        """
+        return FUSIConnectivityAccessor(self._obj)
 
     @property
     def scale(self) -> FUSIScaleAccessor:
@@ -86,7 +107,7 @@ class FUSIAccessor:
         Examples
         --------
         >>> import xarray as xr
-        >>> data = xr.open_zarr("output.zarr")["pwd"]
+        >>> data = xr.open_zarr("output.zarr")["power_doppler"]
         >>> registered = data.fusi.register.volumewise(reference_time=0)
         """
         return FUSIRegistrationAccessor(self._obj)
@@ -103,7 +124,7 @@ class FUSIAccessor:
         Examples
         --------
         >>> import xarray as xr
-        >>> data = xr.open_zarr("output.zarr")["pwd"]
+        >>> data = xr.open_zarr("output.zarr")["power_doppler"]
         >>> data.fusi.io.to_nii("recording.nii.gz")
         """
         return FUSIIOAccessor(self._obj)
@@ -140,7 +161,7 @@ class FUSIAccessor:
         Examples
         --------
         >>> import xarray as xr
-        >>> data = xr.open_zarr("output.zarr")["pwd"]
+        >>> data = xr.open_zarr("output.zarr")["power_doppler"]
         >>> mask = xr.open_zarr("brain_mask.zarr")["mask"]
         >>> signals = data.fusi.extract.with_mask(mask)
         >>> # ... process signals ...

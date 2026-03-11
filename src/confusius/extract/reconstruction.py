@@ -64,7 +64,7 @@ def unmask(
     >>> from sklearn.decomposition import PCA
     >>>
     >>> # Load data and mask
-    >>> data = xr.open_zarr("recording.zarr")["pwd"]
+    >>> data = xr.open_zarr("recording.zarr")["power_doppler"]
     >>> mask = xr.open_zarr("brain_mask.zarr")["mask"]
     >>>
     >>> # Extract signals

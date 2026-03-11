@@ -22,7 +22,7 @@ class FUSIRegistrationAccessor:
     Examples
     --------
     >>> import xarray as xr
-    >>> data = xr.open_zarr("output.zarr")["pwd"]
+    >>> data = xr.open_zarr("output.zarr")["power_doppler"]
     >>> registered = data.fusi.register.volumewise(reference_time=0)
     """
 

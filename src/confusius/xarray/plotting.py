@@ -458,7 +458,7 @@ class FUSIPlotAccessor:
         --------
         >>> import xarray as xr
         >>> import confusius  # Register accessor.
-        >>> data = xr.open_zarr("output.zarr")["pwd"]
+        >>> data = xr.open_zarr("output.zarr")["power_doppler"]
         >>> plotter = data.fusi.plot.volume(slice_mode="z")
 
         >>> # dB-scale data with upper threshold to suppress far-field noise.
