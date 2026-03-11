@@ -152,3 +152,23 @@ class TestWithLabels:
         data_eager = xr.DataArray(data_vals, dims=["time", "z", "y", "x"])
         expected = extract.extract_with_labels(data_eager, labels)
         np.testing.assert_allclose(result.values, expected.values)
+
+    def test_dask_spatial_chunks(self):
+        """Test correctness when spatial dims are chunked in the Dask array."""
+        rng = np.random.default_rng(42)
+        data_vals = rng.random((10, 3, 4, 5))
+        labels_data = np.zeros((3, 4, 5), dtype=int)
+        labels_data[0, :, :] = 1
+        labels_data[1, :, :] = 2
+
+        data_dask = xr.DataArray(
+            da.from_array(data_vals, chunks=(5, 1, 2, 3)),
+            dims=["time", "z", "y", "x"],
+        )
+        labels = xr.DataArray(labels_data, dims=["z", "y", "x"])
+
+        result = extract.extract_with_labels(data_dask, labels)
+
+        data_eager = xr.DataArray(data_vals, dims=["time", "z", "y", "x"])
+        expected = extract.extract_with_labels(data_eager, labels)
+        np.testing.assert_allclose(result.values, expected.values)

@@ -630,6 +630,7 @@ source = { editable = "." }
 dependencies = [
     { name = "brainglobe-atlasapi" },
     { name = "dask", extra = ["complete"] },
+    { name = "flox" },
     { name = "h5py" },
     { name = "ipython" },
     { name = "joblib" },
@@ -665,6 +666,7 @@ dev = [
 requires-dist = [
     { name = "brainglobe-atlasapi", specifier = ">=2.3.0" },
     { name = "dask", extras = ["complete"], specifier = ">=2025.9.0" },
+    { name = "flox", specifier = ">=0.11.1" },
     { name = "h5py", specifier = ">=3.15.1" },
     { name = "ipython", specifier = ">=9.6.0" },
     { name = "joblib", specifier = ">=1.5.2" },

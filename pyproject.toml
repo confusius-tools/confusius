@@ -23,6 +23,7 @@ classifiers = [
 dependencies = [
     "brainglobe-atlasapi>=2.3.0",
     "dask[complete]>=2025.9.0",
+    "flox>=0.11.1",
     "h5py>=3.15.1",
     "ipython>=9.6.0",
     "joblib>=1.5.2",

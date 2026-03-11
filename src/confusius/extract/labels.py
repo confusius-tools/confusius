@@ -7,42 +7,8 @@ import xarray as xr
 
 from confusius.validation import validate_labels
 
-_VALID_REDUCTIONS = {
-    "mean": np.mean,
-    "sum": np.sum,
-    "median": np.median,
-    "min": np.min,
-    "max": np.max,
-    "var": np.var,
-    "std": np.std,
-}
-"""Valid reduction functions accepted by `extract_with_labels`."""
-
-
-def _reduce_by_label(data_nd, *, labels_1d, unique_labels, np_func):
-    """Apply np_func to each region's voxels along the last axis.
-
-    Parameters
-    ----------
-    data_nd : numpy.ndarray
-        Array with shape `(..., n_space)` where the last axis contains flattened
-        spatial voxels.
-    labels_1d : numpy.ndarray
-        1-D integer label array of length `n_space`. Zero is background.
-    unique_labels : numpy.ndarray
-        Sorted array of non-zero unique label values.
-    np_func : callable
-        NumPy reduction function accepting an `axis` keyword (e.g. `np.mean`).
-
-    Returns
-    -------
-    numpy.ndarray
-        Array with shape `(..., n_regions)`.
-    """
-    return np.stack(
-        [np_func(data_nd[..., labels_1d == label], axis=-1) for label in unique_labels],
-        axis=-1,
-    )
+_VALID_REDUCTIONS = frozenset({"mean", "sum", "median", "min", "max", "var", "std"})
+"""Valid reduction names accepted by `extract_with_labels`."""
 
 
 def _extract_with_flat_labels(
@@ -74,8 +40,7 @@ def _extract_with_flat_labels(
     non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
 
     if non_spatial_dims:
-        sel_dict = {d: 0 for d in non_spatial_dims}
-        template = data.isel(sel_dict)
+        template = data.isel({d: 0 for d in non_spatial_dims})
     else:
         template = data
 
@@ -92,30 +57,12 @@ def _extract_with_flat_labels(
             "extract_with_labels."
         )
 
-    np_func = _VALID_REDUCTIONS[reduction]
-    labels_np = labels_aligned.values.flatten()
-
-    # Stack spatial dims into a single "_space" axis, then use apply_ufunc to
-    # apply the numpy reduction per-region. apply_ufunc with dask="parallelized"
-    # keeps Dask arrays lazy; dask auto-rechunks the "_space" core dim to a
-    # single chunk (required so each block sees all voxels for a given region).
-    data_stacked = data.stack(_space=spatial_dims)
-
-    result = xr.apply_ufunc(
-        _reduce_by_label,
-        data_stacked,
-        kwargs={
-            "labels_1d": labels_np,
-            "unique_labels": unique_labels,
-            "np_func": np_func,
-        },
-        input_core_dims=[["_space"]],
-        output_core_dims=[["regions"]],
-        dask="parallelized",
-        output_dtypes=[float],
-        dask_gufunc_kwargs={"output_sizes": {"regions": len(unique_labels)}},
-        keep_attrs=True,
-    )
+    # We mask background (0) to NaN so groupby skips it. Naming the labels array
+    # "regions" makes the groupby output dimension adopt that name directly.
+    data_stacked = data.stack(space=spatial_dims)
+    labels_stacked = labels_aligned.stack(space=spatial_dims)
+    labels_no_bg = labels_stacked.where(labels_stacked != 0).rename("regions")
+    result = getattr(data_stacked.groupby(labels_no_bg), reduction)()
 
     coords = region_coords if region_coords is not None else unique_labels
     return result.assign_coords(regions=coords)
@@ -174,6 +121,13 @@ def extract_with_labels(
     TypeError
         If `labels` is not integer dtype.
 
+    Notes
+    -----
+    Uses [`xarray.DataArray.groupby`][xarray.DataArray.groupby] with
+    [flox](https://flox.readthedocs.io/en/latest/) for efficient, lazy groupby
+    reductions on Dask-backed arrays. Data can be chunked along any dimension without
+    restriction.
+
     Examples
     --------
     >>> import xarray as xr
@@ -207,7 +161,7 @@ def extract_with_labels(
 
     if reduction not in _VALID_REDUCTIONS:
         raise ValueError(
-            f"Invalid reduction '{reduction}'. Must be one of: {list(_VALID_REDUCTIONS)}."
+            f"Invalid reduction '{reduction}'. Must be one of: {sorted(_VALID_REDUCTIONS)}."
         )
 
     if "masks" in labels.dims:
@@ -217,7 +171,7 @@ def extract_with_labels(
             region_result = _extract_with_flat_labels(data, layer, reduction)
             region_results.append(region_result.isel(regions=0))
 
-        result = xr.concat(region_results, dim="regions")
+        result = xr.concat(region_results, dim="regions", coords="minimal")
         return result.assign_coords(regions=labels.coords["masks"].values)
     else:
         return _extract_with_flat_labels(data, labels, reduction)
