@@ -10,8 +10,9 @@ generation**:
 | Tool | Backend | Best for |
 |---|---|---|
 | [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | Napari | Interactive exploration of 3D+t datasets |
+| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] | Napari | Interactive manual ROI drawing |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
-| [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Atlas or mask contour overlays |
+| [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
 
 All functions accept DataArrays and use physical coordinates for axis scaling
@@ -154,6 +155,59 @@ can drag to orbit, scroll to zoom, and use the Napari controls to adjust the ren
 
 ![3D orbit of the angiography volume](../images/visualization/napari-3d-orbit.gif)
 
+## Manual ROI Drawing
+
+[`draw_napari_labels`][confusius.plotting.draw_napari_labels] opens a Napari viewer
+with your data as a background image and an empty **Labels** layer on top. You can then
+paint integer labels directly in the viewer using Napari's brush tool—each distinct
+integer becomes a separate region of interest (ROI).
+
+```python
+import xarray as xr
+import confusius as cf
+
+pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
+mean_vol = pwd.mean("time").compute()
+
+# Open viewer with an empty Labels layer ready for painting.
+viewer, labels_layer = cf.plotting.draw_napari_labels(
+    mean_vol.fusi.scale.db(),
+    contrast_limits=(-15, 0),
+    colormap="gray",
+)
+```
+
+The Labels layer is aligned to the same physical coordinate frame as the image layer, so
+the spatial scale and origin are consistent regardless of voxel size or data origin.
+
+![Napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
+
+Once you have finished painting, use
+[`labels_from_layer`][confusius.plotting.labels_from_layer] to convert the Labels layer
+into a stacked integer DataArray compatible with
+[`extract_with_labels`][confusius.extract.extract_with_labels],
+[`plot_contours`][confusius.plotting.plot_contours], and
+[`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours]:
+
+```python
+from confusius.plotting import labels_from_layer
+
+# Convert the painted layer to a stacked DataArray.
+# label_map has dims ("masks", "z", "y", "x"), one layer per painted label.
+label_map = labels_from_layer(labels_layer, mean_vol)
+
+# Each label's color as painted in Napari is stored in attrs["rgb_lookup"]
+# and will be reused automatically by plot_contours and add_contours.
+
+# Extract region-averaged signals.
+region_signals = pwd.fusi.extract.with_labels(label_map)
+# region_signals has dims (time, regions).
+
+# Overlay contours on a volume plot.
+plotter = mean_vol.fusi.scale.db().fusi.plot.volume(slice_mode="z", cmap="gray")
+plotter.add_contours(label_map)
+```
+
 ## Static Volume Plots
 
 [`plot_volume`][confusius.plotting.plot_volume] generates a static Matplotlib grid of 2D
@@ -264,12 +318,12 @@ Pass any keyword argument accepted by
 
 ## Overlaying Contours
 
-Atlas outlines or regions of interest (ROIs) boundaries can be drawn on top of a volume
+Atlas outlines or region of interest (ROI) boundaries can be drawn on top of a volume
 plot to provide anatomical context. ConfUSIus represents masks as **integer-labeled
 DataArrays** where 0 is background and each positive integer identifies a distinct
 region.
 
-### Overlaying Contours on a Volume
+### Contours on top of a Volume
 
 The most common use case is to draw atlas outlines on top of a fUSI volume.
 [`plot_volume`][confusius.plotting.plot_volume] returns a
@@ -315,6 +369,31 @@ Coordinate matching is done in physical units, matching contour coordinates with
 of the previously plotted volume. Slices present in the mask but absent from the volume
 are skipped with a warning.
 
+### Contours-only Grid
+
+[`plot_contours`][confusius.plotting.plot_contours] produces a contour grid without
+any background image—useful for quickly inspecting mask or atlas coverage across slices,
+or for drawing contours onto a set of pre-existing [`Axes`][matplotlib.axes.Axes]
+without the coordinate-matching of [`VolumePlotter`][confusius.plotting.VolumePlotter]:
+
+```python
+# Contours on a black background (default).
+plotter = cf.plotting.plot_contours(atlas_fusi.annotation, slice_mode="z")
+
+# Specific colors per region.
+plotter = cf.plotting.plot_contours(
+    atlas_fusi.annotation,
+    slice_mode="z",
+    colors={1: "cyan", 2: "magenta"},
+)
+```
+
+The `.fusi.plot.contours()` accessor provides the same function with a shorter syntax:
+
+```python
+plotter = atlas_fusi.annotation.fusi.plot.contours(slice_mode="z")
+```
+
 ## Carpet Plots
 
 A **carpet plot** (also called a grayplot or Power plot[^power2017]) displays every
@@ -323,7 +402,7 @@ default, it makes motion artifacts, global signal transients, and outlier volume
 immediately visible as vertical stripes or abrupt intensity changes.
 
 Carpet plots are primarily used for quality control—for a deeper discussion of QC
-metrics, see the [Quality Control](qc.md) guide.
+metrics, see the [Quality Control](quality-control.md) guide.
 
 ### Basic Usage
 
@@ -362,7 +441,7 @@ Now that you can visualize your data, you're ready for:
 
 1. **[Registration](registration.md)**: Correct for motion and align acquisitions to an
    anatomical template.
-2. **[Quality Control](qc.md)**: Assess data quality and identify artifacts.
+2. **[Quality Control](quality-control.md)**: Assess data quality and identify artifacts.
 3. **[Signal Processing](signal.md)**: Extract regional signals and apply denoising.
 
 ## API Reference

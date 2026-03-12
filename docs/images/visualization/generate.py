@@ -386,7 +386,60 @@ for black_bg, suffix in [(False, "light"), (True, "dark")]:
 print("  Saved volume-with-contours-light.png and volume-with-contours-dark.png")
 
 # --------------------------------------------------------------------------- #
-# 8. Carpet plot (matplotlib)                                                   #
+# 8. draw_napari_labels — interactive ROI drawing                               #
+# --------------------------------------------------------------------------- #
+
+print("\n── draw_napari_labels ────────────────────────────────────────────────")
+print("Generating napari-draw-labels.png …")
+
+try:
+    viewer_draw, labels_layer = cf.plotting.draw_napari_labels(
+        mean_vol.fusi.scale.db(),
+        contrast_limits=(-15, 0),
+        colormap="gray",
+    )
+
+    # Simulate two painted ROIs by scattering overlapping discs around each
+    # centre — this mimics what a napari brush stroke looks like (irregular
+    # blob rather than a perfect rectangle).
+    ny, nx = labels_layer.data.shape[-2], labels_layer.data.shape[-1]
+    y_idx, x_idx = np.ogrid[:ny, :nx]
+
+    def _paint_blob(
+        data: np.ndarray,
+        cy: int,
+        cx: int,
+        radius: int,
+        label: int,
+        rng: np.random.Generator,
+    ) -> None:
+        """Paint an irregular blob by scattering overlapping discs."""
+        n_strokes = 18
+        for _ in range(n_strokes):
+            dy = int(rng.integers(-radius // 2, radius // 2 + 1))
+            dx = int(rng.integers(-radius // 2, radius // 2 + 1))
+            r = int(rng.integers(radius // 3, radius // 2 + 1))
+            cy_ = int(np.clip(cy + dy, 0, data.shape[-2] - 1))
+            cx_ = int(np.clip(cx + dx, 0, data.shape[-1] - 1))
+            mask = (y_idx - cy_) ** 2 + (x_idx - cx_) ** 2 <= r**2
+            data[..., mask] = label
+
+    rng = np.random.default_rng(0)
+    # ROI 1 (label=1): left hemisphere, mid-depth region.
+    _paint_blob(labels_layer.data, ny // 3, nx // 4, ny // 16, 1, rng)
+    # ROI 2 (label=2): right hemisphere, similar depth.
+    _paint_blob(labels_layer.data, ny // 3, 3 * nx // 4, ny // 16, 2, rng)
+
+    labels_layer.refresh()
+
+    _napari_screenshot(viewer_draw, str(HERE / "napari-draw-labels.png"))
+    viewer_draw.close()
+    print("  Saved napari-draw-labels.png")
+except Exception as exc:
+    print(f"  draw_napari_labels screenshot failed: {exc}")
+
+# --------------------------------------------------------------------------- #
+# 9. Carpet plot (matplotlib)                                                   #
 # --------------------------------------------------------------------------- #
 
 print("Generating carpet-plot-light/dark.png …")
