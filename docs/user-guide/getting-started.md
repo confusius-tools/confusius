@@ -252,6 +252,11 @@ ConfUSIus.
 - [SimpleITK](https://simpleitk.org/): SimpleITK offers a simple wrapper API over ITK,
   the widely used image segmentation and image registration library. ConfUSIus builds on
   SimpleITK for image registration.
+- [BrainGlobe](https://brainglobe.info/): BrainGlobe is a suite of Python-based software
+  tools for computational neuroanatomy. Of particular interest is the [BrainGlobe Atlas
+  API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html), which
+  provides a common interface to download and process brain atlases from multiple sources.
+  ConfUSIus builds on the BrainGlobe Atlas API for atlas integration.
 - [Matplotlib](https://matplotlib.org/stable/): The obvious choice for creating static
   figures in Python.
 - [PyVista](https://pyvista.org/): While ConfUSIus uses Napari for 3D rendering, PyVista
