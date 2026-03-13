@@ -33,7 +33,7 @@ def test_regress_confounds_basic(sample_timeseries):
 
     # After regression, the linear trend should be removed
     # (signals should be uncorrelated with confound)
-    for i in range(signals.sizes["voxels"]):
+    for i in range(signals.sizes["space"]):
         corr = np.corrcoef(cleaned.values[:, i], confound.values)[0, 1]
         assert abs(corr) < 0.1  # Should be close to 0
 
@@ -64,7 +64,7 @@ def test_regress_confounds_multiple_confounds(sample_timeseries):
     cleaned = regress_confounds(signals_with_confounds, confounds)
 
     # Check cleaned signals have no remaining linear dependence on confounds
-    for j in range(signals.sizes["voxels"]):
+    for j in range(signals.sizes["space"]):
         coeffs = np.linalg.lstsq(confounds.values, cleaned.values[:, j], rcond=None)[0]
         assert_allclose(coeffs, 0.0, atol=1e-10)
 
@@ -86,7 +86,7 @@ def test_regress_confounds_orthogonalization():
 
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(n_time) * 0.1},
     )
 
@@ -121,7 +121,7 @@ def test_regress_confounds_normalization_preserves_constant():
 
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(n_time) * 0.1},
     )
 
@@ -153,7 +153,7 @@ def test_regress_confounds_rank_deficient():
 
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(n_time) * 0.1},
     )
 
@@ -170,7 +170,7 @@ def test_regress_confounds_invalid_time_dimension(sample_timeseries):
     """Test error when signals have no time dimension."""
     signals = xr.DataArray(
         np.random.randn(50, 10),
-        dims=["voxels", "samples"],
+        dims=["space", "sample"],
     )
     confounds = xr.DataArray(
         np.random.randn(50, 3),
@@ -340,7 +340,7 @@ def test_regress_confounds_single_timepoint():
     """Test error raised for single timepoint."""
     signals = xr.DataArray(
         np.random.randn(1, 10),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": [0.0]},
     )
     confounds = xr.DataArray(
@@ -372,7 +372,7 @@ def test_regress_confounds_orthogonal_to_confound():
 
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(n_time) * 0.1},
     )
 
@@ -407,7 +407,7 @@ def test_regress_confounds_zero_variance_confounds():
 
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(n_time) * 0.1},
     )
 

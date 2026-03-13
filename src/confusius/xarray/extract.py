@@ -34,7 +34,7 @@ class FUSIExtractAccessor:
     >>> # Extract signals
     >>> signals = data.fusi.extract.with_mask(mask)
     >>> signals.dims
-    ("time", "voxels")
+    ("time", "space")
     >>>
     >>> # Reconstruct full spatial volume from signals
     >>> reconstructed = signals.fusi.extract.unmask(mask)
@@ -63,10 +63,10 @@ class FUSIExtractAccessor:
               labeled `0`; each unique non-zero integer identifies a distinct,
               non-overlapping region. The `regions` coordinate of the output holds the
               integer label values.
-            - **Stacked mask format**: Has a leading `masks` dimension followed by
-              spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
-              region_id}` and regions may overlap. The `regions` coordinate of the
-              output holds the `masks` coordinate values (e.g., region label).
+            - **Stacked mask format**: Has a leading `mask` dimension followed by
+              spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+              region_id}` and regions may overlap. The `region` coordinate of the
+              output holds the `mask` coordinate values (e.g., region label).
 
         reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, default: "mean"
             Aggregation function applied across voxels in each region:
@@ -82,15 +82,15 @@ class FUSIExtractAccessor:
         Returns
         -------
         xarray.DataArray
-            Array with spatial dimensions replaced by a `regions` dimension. The
-            `regions` dimension has integer coordinates corresponding to each unique
+            Array with spatial dimensions replaced by a `region` dimension. The
+            `region` dimension has integer coordinates corresponding to each unique
             non-zero label in `labels`. All non-spatial dimensions are preserved.
 
             For example:
 
-            - `(time, z, y, x)` → `(time, regions)`
-            - `(time, pose, z, y, x)` → `(time, pose, regions)`
-            - `(z, y, x)` → `(regions,)`
+            - `(time, z, y, x)` → `(time, region)`
+            - `(time, pose, z, y, x)` → `(time, pose, region)`
+            - `(z, y, x)` → `(region,)`
 
         Raises
         ------
@@ -104,8 +104,8 @@ class FUSIExtractAccessor:
         --------
         >>> signals = data.fusi.extract.with_labels(labels)
         >>> signals.dims
-        ("time", "regions")
-        >>> signals.coords["regions"].values
+        ("time", "region")
+        >>> signals.coords["region"].values
         array([1, 2, 3])
         >>>
         >>> # Sum per region instead of mean.
@@ -131,11 +131,11 @@ class FUSIExtractAccessor:
         Returns
         -------
         xarray.DataArray
-            Array with spatial dimensions flattened into a `voxels` dimension.
-            All non-spatial dimensions are preserved. The `voxels` dimension has a
+            Array with spatial dimensions flattened into a `space` dimension.
+            All non-spatial dimensions are preserved. The `space` dimension has a
             MultiIndex storing spatial coordinates.
 
-            For simple round-trip reconstruction, use `.unstack("voxels")` which
+            For simple round-trip reconstruction, use `.unstack("space")` which
             re-creates the original DataArray using the smallest bounding box. For full
             mask shape reconstruction, use `.fusi.extract.unmask()`.
 
@@ -150,10 +150,10 @@ class FUSIExtractAccessor:
         --------
         >>> signals = data.fusi.extract.with_mask(mask)
         >>> signals.dims
-        ("time", "voxels")
+        ("time", "space")
         >>>
         >>> # Quick bounding box reconstruction
-        >>> bbox = signals.unstack("voxels")
+        >>> bbox = signals.unstack("space")
         >>>
         >>> # Full mask shape reconstruction
         >>> full = signals.fusi.extract.unmask(mask)
@@ -191,7 +191,7 @@ class FUSIExtractAccessor:
         --------
         >>> signals = data.fusi.extract.with_mask(mask)
         >>> signals.dims
-        ("time", "voxels")
+        ("time", "space")
         >>> reconstructed = signals.fusi.extract.unmask(mask)
         >>> reconstructed.dims
         ("time", "z", "y", "x")

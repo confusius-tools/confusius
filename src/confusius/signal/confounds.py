@@ -206,8 +206,8 @@ def regress_confounds(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to clean. Must have a `time` dimension. Can be any shape,
-        e.g., extracted signals `(time, voxels)`, full 3D+t imaging data
-        `(time, z, y, x)`, or regional signals `(time, regions)`.
+        e.g., extracted signals `(time, space)`, full 3D+t imaging data
+        `(time, z, y, x)`, or regional signals `(time, region)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -258,7 +258,7 @@ def regress_confounds(
     >>> # Create signals (100 timepoints, 50 voxels)
     >>> signals = xr.DataArray(
     ...     np.random.randn(100, 50),
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) * 0.1}
     ... )
     >>> # Create motion confounds (6 motion parameters)
@@ -308,7 +308,7 @@ def _extract_compcor_components(
 
     Parameters
     ----------
-    noise_signals : (time, voxels) xarray.DataArray
+    noise_signals : (time, space) xarray.DataArray
         Selected signals.
     n_components : int
         Number of components to extract.
@@ -330,7 +330,7 @@ def _extract_compcor_components(
 
     1. Removing zero-variance voxels.
     2. Detrending (if requested).
-    3. Standardizing (z-score) to give equal weight to each voxel.
+    3. Standardizing (z-score) to give equal weight to each space.
     4. Computing SVD.
     5. Extracting first n_components from U matrix.
     6. Computing explained variance from singular values.
@@ -392,7 +392,7 @@ def compute_compcor_confounds(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals from which to extract components. Must have a `time` dimension.
-        For extracted signals, shape is typically `(time, voxels)`. For full
+        For extracted signals, shape is typically `(time, space)`. For full
         imaging data, shape is typically `(time, z, y, x)`.
 
         !!! warning "Chunking along time is not supported"
@@ -473,12 +473,12 @@ def compute_compcor_confounds(
     >>> from confusius.signal import compute_compcor_confounds, regress_confounds
     >>> signals = xr.DataArray(
     ...     np.random.randn(100, 50),
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) * 0.1}
     ... )
     >>> wm_mask = xr.DataArray(
     ...     np.zeros(50, dtype=bool),
-    ...     dims=["voxels"]
+    ...     dims=["space"]
     ... )
     >>> wm_mask.values[:10] = True
     >>> a_compcor = compute_compcor_confounds(
@@ -523,15 +523,15 @@ def compute_compcor_confounds(
     if n_components <= 0:
         raise ValueError(f"'n_components' must be positive, got {n_components}.")
 
-    if signals.ndim == 2 and "voxels" in signals.dims:
+    if signals.ndim == 2 and "space" in signals.dims:
         signals_flat = signals
-        spatial_dims = ["voxels"]
+        spatial_dims = ["space"]
     else:
         time_dim = "time"
         spatial_dims = [d for d in signals.dims if d != time_dim]
-        signals_flat = signals.stack(voxels=spatial_dims)
+        signals_flat = signals.stack(space=spatial_dims)
 
-    n_voxels = signals_flat.sizes["voxels"]
+    n_voxels = signals_flat.sizes["space"]
 
     selected_voxels = np.ones(n_voxels, dtype=bool)
 
@@ -553,7 +553,7 @@ def compute_compcor_confounds(
                 f"'variance_threshold' must be in range (0, 1), got {variance_threshold}."
             )
 
-        masked_signals = signals_flat.isel(voxels=selected_voxels)
+        masked_signals = signals_flat.isel(space=selected_voxels)
         variances = masked_signals.var(dim="time")
 
         threshold_value = float(
@@ -576,7 +576,7 @@ def compute_compcor_confounds(
             f"n_components ({n_components}). Reduce n_components or adjust selection."
         )
 
-    signals_selected = signals_flat.isel(voxels=selected_voxels)
+    signals_selected = signals_flat.isel(space=selected_voxels)
 
     result = _extract_compcor_components(signals_selected, n_components, detrend)
 

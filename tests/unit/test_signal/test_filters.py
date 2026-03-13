@@ -126,7 +126,7 @@ class TestFilterButterworth:
         combined = low_freq_signal + high_freq_signal
 
         signals = xr.DataArray(
-            combined[:, np.newaxis], dims=["time", "voxels"], coords={"time": t}
+            combined[:, np.newaxis], dims=["time", "space"], coords={"time": t}
         )
 
         # Low-pass filter at 10 Hz (should keep 5 Hz, remove 100 Hz).
@@ -153,7 +153,7 @@ class TestFilterButterworth:
         combined = low_freq_signal + high_freq_signal
 
         signals = xr.DataArray(
-            combined[:, np.newaxis], dims=["time", "voxels"], coords={"time": t}
+            combined[:, np.newaxis], dims=["time", "space"], coords={"time": t}
         )
 
         # High-pass filter at 50 Hz (should remove 5 Hz, keep 100 Hz).
@@ -174,7 +174,7 @@ class TestFilterButterworth:
         # Signal: 1 Hz (pass) + 40 Hz (stop).
         signal = np.sin(2 * np.pi * 1 * t) + np.sin(2 * np.pi * 40 * t)
         signals = xr.DataArray(
-            signal[:, np.newaxis], dims=["time", "voxels"], coords={"time": t}
+            signal[:, np.newaxis], dims=["time", "space"], coords={"time": t}
         )
         filtered = filter_butterworth(signals, high_cutoff=5, order=5)
 
@@ -237,7 +237,7 @@ class TestFilterButterworth:
         )
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": np.arange(500) / sampling_rate},
         )
 
@@ -256,14 +256,14 @@ class TestFilterButterworth:
 
     def test_raises_when_no_time_dimension(self):
         """Should raise ValueError if no time dimension."""
-        signals = xr.DataArray(np.random.randn(50, 100), dims=["voxels", "samples"])
+        signals = xr.DataArray(np.random.randn(50, 100), dims=["space", "sample"])
         with pytest.raises(ValueError, match="must have a 'time' dimension"):
             filter_butterworth(signals, high_cutoff=0.1)
 
     def test_raises_when_no_cutoffs(self):
         """Should raise ValueError if both low_cutoff and high_cutoff are None."""
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=100, dims=["time", "voxels"]
+            (100, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(
             ValueError,
@@ -274,7 +274,7 @@ class TestFilterButterworth:
     def test_raises_when_negative_order(self):
         """Should raise ValueError if order is not positive."""
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=100, dims=["time", "voxels"]
+            (100, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(ValueError, match="'order' must be positive"):
             filter_butterworth(signals, high_cutoff=0.1, order=0)
@@ -282,7 +282,7 @@ class TestFilterButterworth:
     def test_raises_when_lowpass_negative(self):
         """Should raise ValueError if high_cutoff is negative."""
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=100, dims=["time", "voxels"]
+            (100, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(ValueError, match="'high_cutoff' must be positive"):
             filter_butterworth(signals, high_cutoff=-0.1)
@@ -290,7 +290,7 @@ class TestFilterButterworth:
     def test_raises_when_highpass_negative(self):
         """Should raise ValueError if low_cutoff is negative."""
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=100, dims=["time", "voxels"]
+            (100, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(ValueError, match="'low_cutoff' must be positive"):
             filter_butterworth(signals, low_cutoff=-0.1)
@@ -299,7 +299,7 @@ class TestFilterButterworth:
         """Should raise ValueError if high_cutoff >= Nyquist frequency."""
         sampling_rate = 100
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=sampling_rate, dims=["time", "voxels"]
+            (100, 50), sampling_rate=sampling_rate, dims=["time", "space"]
         )
         nyquist = sampling_rate / 2.0
 
@@ -310,7 +310,7 @@ class TestFilterButterworth:
         """Should raise ValueError if low_cutoff >= Nyquist frequency."""
         sampling_rate = 100
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=sampling_rate, dims=["time", "voxels"]
+            (100, 50), sampling_rate=sampling_rate, dims=["time", "space"]
         )
         nyquist = sampling_rate / 2.0
 
@@ -320,7 +320,7 @@ class TestFilterButterworth:
     def test_raises_when_high_cutoff_not_greater_than_low_cutoff(self):
         """Should raise ValueError if high_cutoff <= low_cutoff for band-pass."""
         signals = create_signals_with_time(
-            (100, 50), sampling_rate=100, dims=["time", "voxels"]
+            (100, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(
             ValueError, match="'high_cutoff' .* must be greater than 'low_cutoff'"
@@ -331,7 +331,7 @@ class TestFilterButterworth:
         """Should raise ValueError if too few timepoints for the filter order."""
         # With order=5, n_sections=3, min_samples = 3*(2*3+1)+1 = 22.
         signals = create_signals_with_time(
-            (20, 50), sampling_rate=100, dims=["time", "voxels"]
+            (20, 50), sampling_rate=100, dims=["time", "space"]
         )
         with pytest.raises(ValueError, match="requires at least .* timepoints"):
             filter_butterworth(signals, high_cutoff=0.1, order=5)
@@ -342,7 +342,7 @@ class TestFilterButterworth:
         time = np.concatenate([np.arange(50), np.arange(51, 101)]) / 100.0
         signals = xr.DataArray(
             np.random.randn(100, 10),
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": time},
         )
         with pytest.raises(ValueError, match="Non-uniform 'time' coordinates"):
@@ -357,7 +357,7 @@ class TestFilterButterworth:
         )
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": np.arange(500) / sampling_rate},
         )
 
@@ -368,7 +368,7 @@ class TestFilterButterworth:
         """Different filter orders should produce different filtered outputs."""
         np.random.seed(42)
         signals = create_signals_with_time(
-            (500, 50), sampling_rate=100, dims=["time", "voxels"]
+            (500, 50), sampling_rate=100, dims=["time", "space"]
         )
 
         results = {}
@@ -386,7 +386,7 @@ class TestFilterButterworth:
         sampling_rate = 100
         signals = xr.DataArray(
             np.random.randn(50, 500),
-            dims=["voxels", "time"],
+            dims=["space", "time"],
             coords={"time": np.arange(500) / sampling_rate},
         )
 

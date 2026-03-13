@@ -730,12 +730,12 @@ class VolumePlotter:
 
             - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
               labeled `0`; each unique non-zero integer identifies a distinct,
-              non-overlapping region. The `regions` coordinate of the output holds the
+              non-overlapping region. The `region` coordinate of the output holds the
               integer label values.
-            - **Stacked mask format**: Has a leading `masks` dimension followed by
-              spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
-              region_id}` and regions may overlap. The `regions` coordinate of the
-              output holds the `masks` coordinate values (e.g., region label).
+            - **Stacked mask format**: Has a leading `mask` dimension followed by
+              spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+              region_id}` and regions may overlap. The `region` coordinate of the
+              output holds the `mask` coordinate values (e.g., region label).
 
         colors : dict[int | str, str] or str, optional
             Color specification for contour lines.
@@ -771,13 +771,13 @@ class VolumePlotter:
         ValueError
             If the plotter's `slice_mode` is not a dimension of `mask`.
         ValueError
-            If `mask` is not 3D or 4D with a leading `masks` dimension.
+            If `mask` is not 3D or 4D with a leading `mask` dimension.
         """
         import matplotlib.colors as mcolors
         from skimage.measure import find_contours
 
-        # Stacked mask format: (masks, z, y, x) — one layer per region.
-        if "masks" in mask.dims:
+        # Stacked mask format: (mask, z, y, x) — one layer per region.
+        if "mask" in mask.dims:
             cmap_attr = mask.attrs.get("cmap")
             norm_attr = mask.attrs.get("norm")
             # cmap/norm are dropped on Zarr save; reconstruct from rgb_lookup when
@@ -786,10 +786,10 @@ class VolumePlotter:
                 cmap_attr, norm_attr = _build_atlas_cmap_and_norm(
                     mask.attrs["rgb_lookup"]
                 )
-            acronyms = mask.coords["masks"].values
+            acronyms = mask.coords["mask"].values
 
-            for i in range(mask.sizes["masks"]):
-                layer = mask.isel(masks=i)
+            for i in range(mask.sizes["mask"]):
+                layer = mask.isel(mask=i)
                 acronym = str(acronyms[i])
 
                 unique_nonzero = [v for v in np.unique(layer.values) if v != 0]
@@ -805,7 +805,7 @@ class VolumePlotter:
                 elif cmap_attr is not None and norm_attr is not None:
                     layer_color = mcolors.to_hex(cmap_attr(norm_attr(label)))
                 else:
-                    layer_color = _get_distinct_colors(mask.sizes["masks"])[i]
+                    layer_color = _get_distinct_colors(mask.sizes["mask"])[i]
 
                 per_layer_colors: dict[int | str, Any] = {label: layer_color}
                 self.add_contours(
@@ -1666,14 +1666,14 @@ def labels_from_layer(
     Returns
     -------
     xarray.DataArray
-        Stacked integer DataArray with dims `["masks", *spatial_dims]`, where the
-        `masks` coordinate holds each unique non-zero label integer. Each layer
-        `masks=k` has values `k` where the user painted label `k` and `0` elsewhere.
+        Stacked integer DataArray with dims `["mask", *spatial_dims]`, where the
+        `mask` coordinate holds each unique non-zero label integer. Each layer
+        `mask=k` has values `k` where the user painted label `k` and `0` elsewhere.
         This format is directly compatible with
         [`extract_with_labels`][confusius.extract.extract_with_labels],
         [`plot_contours`][confusius.plotting.plot_contours], and
         [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours],
-        and can be sliced by label (e.g. `label_map.sel(masks=2)`) for per-label
+        and can be sliced by label (e.g. `label_map.sel(mask=2)`) for per-label
         display. The `attrs` dict carries:
 
         - `"long_name"` — human-readable name.
@@ -1698,9 +1698,9 @@ def labels_from_layer(
     >>> # … paint labels in the viewer …
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     >>> label_map.dims
-    ('masks', 'z', 'y', 'x')
+    ('mask', 'z', 'y', 'x')
     >>> # Slice a single label for display alongside a seed map.
-    >>> label_map.sel(masks=2)
+    >>> label_map.sel(mask=2)
     >>> # Use the label map for region-based analysis.
     >>> from confusius.extract import extract_with_labels
     >>> signals = extract_with_labels(pwd, label_map)
@@ -1727,9 +1727,9 @@ def labels_from_layer(
             rgb_lookup[int(label)] = [int(round(c * 255)) for c in rgba[:3]]
 
     # Build one layer per label so the output matches the stacked mask format
-    # returned by Atlas.get_masks: dims=["masks", *spatial_dims] with the
-    # masks coordinate holding integer label IDs. This allows per-label slicing
-    # (e.g. label_map.sel(masks=2)) and is directly accepted by
+    # returned by Atlas.get_masks: dims=["mask", *spatial_dims] with the
+    # mask coordinate holding integer label IDs. This allows per-label slicing
+    # (e.g. label_map.sel(mask=2)) and is directly accepted by
     # extract_with_labels, plot_contours, and add_contours.
     layers = [np.where(label_array == k, k, 0).astype(np.int32) for k in unique_labels]
     stacked = (
@@ -1740,8 +1740,8 @@ def labels_from_layer(
 
     return xr.DataArray(
         stacked,
-        dims=["masks", *spatial_dims],
-        coords={"masks": unique_labels.astype(np.int32), **coords},
+        dims=["mask", *spatial_dims],
+        coords={"mask": unique_labels.astype(np.int32), **coords},
         attrs={
             "long_name": "Drawn label map",
             "labels_layer_name": labels_layer.name,
@@ -1867,7 +1867,7 @@ def plot_carpet(
     # fail; we need to drop the spatial coordinates.
     spatial_dims = [d for d in data.dims if d != "time"]
     signals = extract_with_mask(data, mask)
-    signals = signals.drop_vars(spatial_dims + ["voxels"])
+    signals = signals.drop_vars(spatial_dims + ["space"])
 
     signals = clean(
         signals,

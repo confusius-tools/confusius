@@ -156,10 +156,10 @@ def validate_labels(
           labeled `0`; each unique non-zero integer identifies a distinct,
           non-overlapping region. The `regions` coordinate of the output holds the
           integer label values.
-        - **Stacked mask format**: Has a leading `masks` dimension followed by
-          spatial dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0,
-          region_id}` and regions may overlap. The `regions` coordinate of the
-          output holds the `masks` coordinate values (e.g., region label).
+        - **Stacked mask format**: Has a leading `mask` dimension followed by
+          spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+          region_id}` and regions may overlap. The `region` coordinate of the
+          output holds the `mask` coordinate values (e.g., region label).
 
     data : xarray.DataArray
         Data array to validate labels against.
@@ -185,8 +185,6 @@ def validate_labels(
     if not np.issubdtype(labels.dtype, np.integer):
         raise TypeError(f"{labels_name} must be integer dtype, got {labels.dtype}.")
 
-    # For stacked format, validate spatial dims only (drop the masks axis).
-    spatial_labels = (
-        labels.isel(masks=0, drop=True) if "masks" in labels.dims else labels
-    )
+    # For stacked format, validate spatial dims only (drop the mask axis).
+    spatial_labels = labels.isel(mask=0, drop=True) if "mask" in labels.dims else labels
     _validate_spatial_coords(spatial_labels, data, labels_name, rtol, atol)

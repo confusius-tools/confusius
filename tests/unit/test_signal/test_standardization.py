@@ -15,10 +15,10 @@ def random_signals_dask(rng):
     data = rng.normal(loc=10, scale=2, size=(100, 50))
     return xr.DataArray(
         da.from_array(data, chunks=(50, 25)),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(100) * 0.002,
-            "voxels": np.arange(50),
+            "space": np.arange(50),
         },
     )
 
@@ -33,7 +33,7 @@ def test_standardize_zscore(sample_timeseries):
     assert result.shape == random_signals.shape
     assert_allclose(result.coords["time"].values, random_signals.coords["time"].values)
     assert_allclose(
-        result.coords["voxels"].values, random_signals.coords["voxels"].values
+        result.coords["space"].values, random_signals.coords["space"].values
     )
 
     # Check mean ≈ 0 and std ≈ 1 per voxel.
@@ -87,7 +87,7 @@ def test_standardize_psc_zero_mean():
     # Create signals with one voxel having zero mean.
     signals = xr.DataArray(
         np.array([[1.0, 1.0], [-1.0, 2.0], [0.0, 3.0]]),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
     )
     # Voxel 0 has mean = (1 + -1 + 0) / 3 = 0.
 
@@ -107,7 +107,7 @@ def test_standardize_psc_near_zero_mean():
     eps = np.finfo(np.float64).eps
     signals = xr.DataArray(
         np.array([[eps / 2, 1], [eps / 2, 2], [eps / 2, 3]]),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
     )
 
     result = standardize(signals, method="psc")
@@ -147,7 +147,7 @@ def test_standardize_single_timepoint():
     """Test error raised for single timepoint."""
     signals = xr.DataArray(
         np.array([[1.0, 2.0, 3.0]]),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
     )
 
     with pytest.raises(ValueError, match="more than 1 timepoint"):
@@ -159,7 +159,7 @@ def test_standardize_zscore_zero_variance():
     # Create signals where voxel 0 has zero variance.
     signals = xr.DataArray(
         np.array([[5.0, 1.0], [5.0, 2.0], [5.0, 3.0]]),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
     )
     # Voxel 0 is constant (zero variance).
 
@@ -181,7 +181,7 @@ def test_standardize_zscore_psc_correlation(sample_timeseries):
     psc = standardize(signals, method="psc")
 
     # For each voxel, correlation between zscore and psc should be 1.
-    for i in range(signals.sizes["voxels"]):
+    for i in range(signals.sizes["space"]):
         corr = np.corrcoef(z.values[:, i], psc.values[:, i])[0, 1]
         assert_allclose(corr, 1.0, rtol=1e-10)
 

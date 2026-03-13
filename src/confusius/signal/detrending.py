@@ -43,8 +43,8 @@ def detrend(signals: xr.DataArray, order: int = 1) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Array to detrend. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, voxels)`, full 3D+t imaging data `(time, z, y,
-        x)`, or regional signals `(time, regions)`.
+        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
+        x)`, or regional signals `(time, region)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -85,7 +85,7 @@ def detrend(signals: xr.DataArray, order: int = 1) -> xr.DataArray:
     >>> import numpy as np
     >>> signals = xr.DataArray(
     ...     np.random.randn(100, 50) + 10,  # Noise with offset.
-    ...     dims=["time", "voxels"]
+    ...     dims=["time", "space"]
     ... )
     >>> detrended = detrend(signals, order=0)  # Remove mean.
 
@@ -94,13 +94,13 @@ def detrend(signals: xr.DataArray, order: int = 1) -> xr.DataArray:
     >>> time = np.arange(100)
     >>> drift = time[:, None] * 0.5  # Linear drift.
     >>> noise = np.random.randn(100, 50)
-    >>> signals = xr.DataArray(drift + noise, dims=["time", "voxels"])
+    >>> signals = xr.DataArray(drift + noise, dims=["time", "space"])
     >>> detrended = detrend(signals)  # order=1 by default.
 
     Remove quadratic trend:
 
     >>> quadratic_drift = (time[:, None] ** 2) * 0.01
-    >>> signals_quad = xr.DataArray(quadratic_drift + noise, dims=["time", "voxels"])
+    >>> signals_quad = xr.DataArray(quadratic_drift + noise, dims=["time", "space"])
     >>> detrended_quad = detrend(signals_quad, order=2)
 
     Works on 3D+t data:

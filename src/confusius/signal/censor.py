@@ -148,7 +148,7 @@ def interpolate_samples(
     >>> # Create signals with time coordinates.
     >>> signals = xr.DataArray(
     ...     np.random.randn(100, 50),
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) / 500}  # 500 Hz.
     ... )
     >>> # Mark high-motion frames (e.g., frames 10, 25, 60 are bad).
@@ -217,7 +217,7 @@ def censor_samples(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to censor. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, voxels)`, full 3D+t imaging data `(time, z, y,
+        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
         x)`, or confounds `(time, n_confounds)`.
     sample_mask : (time,) xarray.DataArray
         Boolean sample mask indicating which timepoints to keep (`True`) vs. remove
@@ -258,7 +258,7 @@ def censor_samples(
     >>> # Create signals.
     >>> signals = xr.DataArray(
     ...     np.random.randn(100, 50),
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) / 500}
     ... )
     >>> # Mark frames to keep (False = remove).

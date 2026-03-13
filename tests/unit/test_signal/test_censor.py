@@ -8,7 +8,6 @@ from numpy.testing import assert_allclose
 
 from confusius.signal import censor_samples, interpolate_samples
 
-
 # ===========================
 # Fixtures
 # ===========================
@@ -162,7 +161,7 @@ def test_interpolate_4d_data(sample_4d_volume):
 def test_interpolate_dask(sample_timeseries, sample_mask_with_gaps):
     """Test interpolation works with Dask-backed arrays."""
     signals = sample_timeseries(n_time=100)
-    dask_signals = signals.chunk({"time": -1, "voxels": 10})
+    dask_signals = signals.chunk({"time": -1, "space": 10})
 
     result = interpolate_samples(dask_signals, sample_mask_with_gaps, method="linear")
 
@@ -188,7 +187,7 @@ def test_censor_removes_correct_samples(sample_timeseries, sample_mask_with_gaps
     mask_bool = sample_mask_with_gaps.values
     expected_n_kept = np.sum(mask_bool)
     assert result.sizes["time"] == expected_n_kept
-    assert result.sizes["voxels"] == signals.sizes["voxels"]
+    assert result.sizes["space"] == signals.sizes["space"]
 
     # Kept samples should match original.
     expected_data = signals.values[mask_bool, :]
@@ -255,7 +254,7 @@ def test_censor_all_kept_warning(sample_timeseries):
 def test_censor_dask(sample_timeseries, sample_mask_with_gaps):
     """Test censoring works with Dask-backed arrays."""
     signals = sample_timeseries(n_time=100)
-    dask_signals = signals.chunk({"time": 20, "voxels": 10})
+    dask_signals = signals.chunk({"time": 20, "space": 10})
 
     result = censor_samples(dask_signals, sample_mask_with_gaps)
 
@@ -301,7 +300,7 @@ def test_pre_scrubbing_workflow(sample_timeseries, sample_mask_with_gaps):
     # Result should have reduced time dimension.
     expected_n_kept = np.sum(sample_mask_with_gaps.values)
     assert cleaned.sizes["time"] == expected_n_kept
-    assert cleaned.sizes["voxels"] == signals.sizes["voxels"]
+    assert cleaned.sizes["space"] == signals.sizes["space"]
 
 
 def test_interpolate_and_censor_roundtrip(sample_timeseries, sample_mask_with_gaps):

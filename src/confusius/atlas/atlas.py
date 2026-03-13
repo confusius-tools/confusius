@@ -327,7 +327,7 @@ class Atlas:
     ) -> xr.DataArray:
         """Return integer region masks stacked along a `masks` dimension.
 
-        Each layer along `masks` has values in `{0, region_id}`; voxels
+        Each layer along `mask` has values in `{0, region_id}`; voxels
         belonging to the requested region (including all descendants in the
         hierarchy) carry the region's index, all others are zero.
 
@@ -342,8 +342,8 @@ class Atlas:
         Returns
         -------
         xarray.DataArray
-            Integer DataArray with dims `["masks", "z", "y", "x"]`. The
-            `masks` coordinate holds the region acronym for each layer.
+            Integer DataArray with dims `["mask", "z", "y", "x"]`. The
+            `mask` coordinate holds the region acronym for each layer.
 
         Raises
         ------
@@ -409,8 +409,8 @@ class Atlas:
         spatial_coords = {d: self.annotation.coords[d] for d in ["z", "y", "x"]}
         return xr.DataArray(
             stacked,
-            dims=["masks", "z", "y", "x"],
-            coords={"masks": acronyms, **spatial_coords},
+            dims=["mask", "z", "y", "x"],
+            coords={"mask": acronyms, **spatial_coords},
             attrs=self.annotation.attrs.copy(),
         )
 

@@ -55,10 +55,10 @@ def signals_with_linear_trend(rng):
 
     return xr.DataArray(
         trend + noise,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(n_time) * 0.002,
-            "voxels": np.arange(n_voxels),
+            "space": np.arange(n_voxels),
         },
     )
 
@@ -78,10 +78,10 @@ def signals_with_quadratic_trend(rng):
 
     return xr.DataArray(
         trend + noise,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(n_time) * 0.002,
-            "voxels": np.arange(n_voxels),
+            "space": np.arange(n_voxels),
         },
     )
 
@@ -101,10 +101,10 @@ def signals_with_cubic_trend(rng):
 
     return xr.DataArray(
         trend + noise,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(n_time) * 0.002,
-            "voxels": np.arange(n_voxels),
+            "space": np.arange(n_voxels),
         },
     )
 
@@ -211,10 +211,10 @@ def test_detrend_polynomial_order4(rng):
 
     signals = xr.DataArray(
         trend + noise,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(n_time) * 0.002,
-            "voxels": np.arange(n_voxels),
+            "space": np.arange(n_voxels),
         },
     )
 
@@ -255,7 +255,7 @@ def test_detrend_single_timepoint():
     """Test error raised for single timepoint."""
     signals = xr.DataArray(
         np.array([[1.0, 2.0, 3.0]]),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
     )
 
     with pytest.raises(ValueError, match="more than 1 timepoint"):
@@ -327,10 +327,10 @@ def test_detrend_dask_compatibility(rng):
     # Important: Don't chunk along time! Detrending needs full time series.
     signals_dask = xr.DataArray(
         da.from_array(data, chunks=(n_time, 25)),  # Full time, chunked voxels.
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(n_time) * 0.002,
-            "voxels": np.arange(n_voxels),
+            "space": np.arange(n_voxels),
         },
     )
 
@@ -355,10 +355,10 @@ def test_detrend_polynomial_dask_compatibility(rng):
     # Important: Don't chunk along time! Detrending needs full time series.
     signals_dask = xr.DataArray(
         da.from_array(data, chunks=(n_time, 25)),  # Full time, chunked voxels.
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={
             "time": np.arange(n_time) * 0.002,
-            "voxels": np.arange(n_voxels),
+            "space": np.arange(n_voxels),
         },
     )
 
@@ -380,7 +380,7 @@ def test_detrend_raises_on_time_chunking(rng):
     # Create Dask array chunked along time (WRONG!).
     signals_bad_chunks = xr.DataArray(
         da.from_array(data, chunks=(50, 25)),  # Time is chunked!
-        dims=["time", "voxels"],
+        dims=["time", "space"],
     )
 
     # Should raise ValueError.

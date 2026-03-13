@@ -155,8 +155,8 @@ def filter_butterworth(
     ----------
     signals : (time, ...) xarray.DataArray
         Array to filter. Must have a `time` dimension. Can be any shape, e.g.,
-        extracted signals `(time, voxels)`, full 3D+t imaging data `(time, z, y,
-        x)`, or regional signals `(time, regions)`.
+        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
+        x)`, or regional signals `(time, region)`.
 
         !!! warning "Chunking along time is not supported"
             The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
@@ -220,7 +220,7 @@ def filter_butterworth(
     >>> # Create signals with time coordinates (500 Hz sampling).
     >>> signals = xr.DataArray(
     ...     np.random.randn(1000, 50),
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(1000) / 500}
     ... )
     >>> # Keep frequencies below 0.1 Hz (sampling rate computed from time coords).

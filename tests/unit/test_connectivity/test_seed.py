@@ -73,9 +73,9 @@ def stacked_labels(data_2d):
     stacked = np.stack([layer1, layer2], axis=0)
     return xr.DataArray(
         stacked,
-        dims=["masks", "z", "x"],
+        dims=["mask", "z", "x"],
         coords={
-            "masks": ["roi_a", "roi_b"],
+            "mask": ["roi_a", "roi_b"],
             "z": data_2d.coords["z"],
             "x": data_2d.coords["x"],
         },
@@ -257,12 +257,12 @@ class TestCorrectness:
         mapper = SeedBasedMaps(seed_masks=stacked_labels).fit(data_2d)
 
         np.testing.assert_array_equal(
-            mapper.maps_.coords["regions"].values, ["roi_a", "roi_b"]
+            mapper.maps_.coords["region"].values, ["roi_a", "roi_b"]
         )
 
         for region in ["roi_a", "roi_b"]:
-            seed = mapper.seed_signals_.sel(regions=region).values
-            map_vals = mapper.maps_.sel(regions=region).values
+            seed = mapper.seed_signals_.sel(region=region).values
+            map_vals = mapper.maps_.sel(region=region).values
             for zi in range(data_2d.sizes["z"]):
                 for xi in range(data_2d.sizes["x"]):
                     voxel = data_2d.values[:, zi, xi]
@@ -301,7 +301,7 @@ class TestCorrectness:
 
         # Region 1 occupies z=0,1.  Those voxels are identical to the seed
         # mean, so r must be exactly 1.
-        seed_1_voxels = mapper.maps_.sel(regions=1).values[:2, :]  # (z, x) slice
+        seed_1_voxels = mapper.maps_.sel(region=1).values[:2, :]  # (z, x) slice
         np.testing.assert_array_less(0.99, seed_1_voxels)
 
     def test_constant_voxel_yields_zero_correlation(self, flat_labels):
@@ -340,7 +340,7 @@ class TestSeedSignals:
         mapper_mask = SeedBasedMaps(seed_masks=single_region_labels).fit(data_2d)
 
         # Use the extracted signal from the mask-based fit as the pre-computed signal.
-        signal_1d = mapper_mask.seed_signals_.squeeze("regions")
+        signal_1d = mapper_mask.seed_signals_.squeeze("region")
         mapper_sig = SeedBasedMaps(seed_signals=signal_1d).fit(data_2d)
 
         # Both should produce a squeezed (z, x) map.
@@ -364,7 +364,7 @@ class TestSeedSignals:
         rng = np.random.default_rng(7)
         signal = xr.DataArray(
             rng.standard_normal((data_2d.sizes["time"], 1)),
-            dims=["time", "regions"],
+            dims=["time", "region"],
             coords={"time": data_2d.coords["time"]},
         )
         mapper = SeedBasedMaps(seed_signals=signal).fit(data_2d)

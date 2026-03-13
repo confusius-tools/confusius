@@ -24,7 +24,7 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute tSNR from. Must have a `time` dimension. Additional
-        dimensions represent spatial locations (e.g., `voxels`, `z`/`y`/`x`).
+        dimensions represent spatial locations (e.g., `space`, `z`/`y`/`x`).
 
     Returns
     -------
@@ -77,7 +77,7 @@ def compute_tsnr(signals: xr.DataArray) -> xr.DataArray:
     >>> data = rng.standard_normal((100, 50)) + 10.0
     >>> signals = xr.DataArray(
     ...     data,
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) * 0.1},
     ... )
     >>> tsnr = compute_tsnr(signals)
@@ -110,7 +110,7 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute CV from. Must have a `time` dimension. Additional
-        dimensions represent spatial locations (e.g., `voxels`, `z`/`y`/`x`).
+        dimensions represent spatial locations (e.g., `space`, `z`/`y`/`x`).
 
     Returns
     -------
@@ -145,7 +145,7 @@ def compute_cv(signals: xr.DataArray) -> xr.DataArray:
     >>> data = rng.standard_normal((100, 50)) + 10.0
     >>> signals = xr.DataArray(
     ...     data,
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) * 0.1},
     ... )
     >>> cv = compute_cv(signals)

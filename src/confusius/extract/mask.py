@@ -12,7 +12,7 @@ def extract_with_mask(
     """Extract signals from fUSI data using a binary mask.
 
     This function flattens the spatial dimensions specified by the mask into a
-    single `voxels` dimension, while preserving all other dimensions (e.g., time,
+    single `space` dimension, while preserving all other dimensions (e.g., time,
     pose).
 
     Parameters
@@ -32,17 +32,17 @@ def extract_with_mask(
     Returns
     -------
     xarray.DataArray
-        Array with spatial dimensions flattened into a `voxels` dimension.
-        All non-spatial dimensions are preserved. The `voxels` dimension has a
+        Array with spatial dimensions flattened into a `space` dimension.
+        All non-spatial dimensions are preserved. The `space` dimension has a
         MultiIndex storing spatial coordinates.
 
         For example:
 
-        - `(time, z, y, x)` → `(time, voxels)`
-        - `(time, pose, z, y, x)` → `(time, pose, voxels)`
-        - `(z, y, x)` → `(voxels,)`
+        - `(time, z, y, x)` → `(time, space)`
+        - `(time, pose, z, y, x)` → `(time, pose, space)`
+        - `(z, y, x)` → `(space,)`
 
-        For simple round-trip reconstruction, use `.unstack("voxels")` which
+        For simple round-trip reconstruction, use `.unstack("space")` which
         re-creates the original DataArray using the smallest bounding box containing the
         masked voxels. For full mask shape reconstruction, use
         `confusius.extract.unmask`.
@@ -72,7 +72,7 @@ def extract_with_mask(
     ... )
     >>> signals = extract_with_mask(data, mask)
     >>> signals.dims
-    ("time", "voxels")
+    ("time", "space")
     >>>
     >>> # 3D+t data with extra dim: (time, pose, z, y, x)
     >>> pose_data = xr.DataArray(
@@ -81,7 +81,7 @@ def extract_with_mask(
     ... )
     >>> pose_signals = extract_with_mask(pose_data, mask)
     >>> pose_signals.dims
-    ("time", "pose", "voxels")
+    ("time", "pose", "space")
     """
     validate_mask(mask, data, "mask")
 
@@ -96,8 +96,8 @@ def extract_with_mask(
 
     mask_aligned = mask.reindex_like(template)
 
-    data_flat = data.stack(voxels=spatial_dims)
+    data_flat = data.stack(space=spatial_dims)
 
     # Integer masks (0 = background, non-zero = selected) are treated as boolean.
     mask_flat = mask_aligned.values.flatten().astype(bool)
-    return data_flat.isel(voxels=mask_flat)
+    return data_flat.isel(space=mask_flat)

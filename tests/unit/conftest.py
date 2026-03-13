@@ -147,10 +147,10 @@ def sample_timeseries(rng):
         data = rng.normal(size=(n_time, n_voxels))
         return xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={
                 "time": np.arange(n_time) / sampling_rate,
-                "voxels": np.arange(n_voxels),
+                "space": np.arange(n_voxels),
             },
         )
 

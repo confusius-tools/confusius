@@ -47,4 +47,4 @@ def remove_zero_variance_voxels(
             "variance_tolerance parameter."
         )
 
-    return signals.isel(voxels=nonzero_mask)
+    return signals.isel(space=nonzero_mask)

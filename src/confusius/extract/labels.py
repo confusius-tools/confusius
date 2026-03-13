@@ -28,13 +28,13 @@ def _extract_with_flat_labels(
     reduction : str
         Aggregation function name.
     region_coords : numpy.ndarray or None
-        Coordinate values for the output `regions` dimension. When `None`,
+        Coordinate values for the output `region` dimension. When `None`,
         the unique non-zero labels are used as integer coordinates.
 
     Returns
     -------
     xarray.DataArray
-        Array with spatial dimensions replaced by a `regions` dimension.
+        Array with spatial dimensions replaced by a `region` dimension.
     """
     spatial_dims = list(labels.dims)
     non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
@@ -58,14 +58,14 @@ def _extract_with_flat_labels(
         )
 
     # We mask background (0) to NaN so groupby skips it. Naming the labels array
-    # "regions" makes the groupby output dimension adopt that name directly.
+    # "region" makes the groupby output dimension adopt that name directly.
     data_stacked = data.stack(space=spatial_dims)
     labels_stacked = labels_aligned.stack(space=spatial_dims)
-    labels_no_bg = labels_stacked.where(labels_stacked != 0).rename("regions")
+    labels_no_bg = labels_stacked.where(labels_stacked != 0).rename("region")
     result = getattr(data_stacked.groupby(labels_no_bg), reduction)()
 
     coords = region_coords if region_coords is not None else unique_labels
-    return result.assign_coords(regions=coords)
+    return result.assign_coords(region=coords)
 
 
 def extract_with_labels(
@@ -90,12 +90,12 @@ def extract_with_labels(
 
         - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
-          non-overlapping region. The `regions` coordinate of the output holds the
+          non-overlapping region. The `region` coordinate of the output holds the
           integer label values.
-        - **Stacked mask format**: Has a leading `masks` dimension followed by spatial
-          dims, e.g. `(masks, z, y, x)`. Each layer has values in `{0, region_id}`
-          and regions may overlap. The `regions` coordinate of the output holds the
-          `masks` coordinate values (e.g., region label).
+        - **Stacked mask format**: Has a leading `mask` dimension followed by spatial
+          dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0, region_id}`
+          and regions may overlap. The `region` coordinate of the output holds the
+          `mask` coordinate values (e.g., region label).
 
     reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, default: "mean"
         Aggregation function applied across voxels in each region.
@@ -103,14 +103,14 @@ def extract_with_labels(
     Returns
     -------
     xarray.DataArray
-        Array with spatial dimensions replaced by a `regions` dimension. All
+        Array with spatial dimensions replaced by a `region` dimension. All
         non-spatial dimensions are preserved.
 
         For example (flat label map):
 
-        - `(time, z, y, x)` → `(time, regions)`
-        - `(time, pose, z, y, x)` → `(time, pose, regions)`
-        - `(z, y, x)` → `(regions,)`
+        - `(time, z, y, x)` → `(time, region)`
+        - `(time, pose, z, y, x)` → `(time, pose, region)`
+        - `(z, y, x)` → `(region,)`
 
     Raises
     ------
@@ -147,14 +147,14 @@ def extract_with_labels(
     >>> labels[1, :, :] = 2  # Region 2: second z-slice.
     >>> signals = extract_with_labels(data, labels)
     >>> signals.dims
-    ('time', 'regions')
-    >>> signals.coords["regions"].values
+    ('time', 'region')
+    >>> signals.coords["region"].values
     array([1, 2])
     >>>
     >>> # Stacked mask format from Atlas.get_masks.
-    >>> masks = atlas_fusi.get_masks(["VISp", "AUDp"])
-    >>> signals = extract_with_labels(data, masks)
-    >>> signals.coords["regions"].values
+    >>> mask = atlas_fusi.get_masks(["VISp", "AUDp"])
+    >>> signals = extract_with_labels(data, mask)
+    >>> signals.coords["region"].values
     array(['VISp', 'AUDp'], dtype=object)
     """
     validate_labels(labels, data, "labels")
@@ -164,16 +164,16 @@ def extract_with_labels(
             f"Invalid reduction '{reduction}'. Must be one of: {sorted(_VALID_REDUCTIONS)}."
         )
 
-    if "masks" in labels.dims:
+    if "mask" in labels.dims:
         region_results = []
-        for i in range(labels.sizes["masks"]):
-            # We drop the "masks" dimension here otherwise xr.concat would complain
+        for i in range(labels.sizes["mask"]):
+            # We drop the "mask" dimension here otherwise xr.concat would complain
             # about non-identical coordinates across regions.
-            layer = labels.isel(masks=i, drop=True)
+            layer = labels.isel(mask=i, drop=True)
             region_result = _extract_with_flat_labels(data, layer, reduction)
-            region_results.append(region_result.isel(regions=0))
+            region_results.append(region_result.isel(region=0))
 
-        result = xr.concat(region_results, dim="regions", coords="minimal")
-        return result.assign_coords(regions=labels.coords["masks"].values)
+        result = xr.concat(region_results, dim="region", coords="minimal")
+        return result.assign_coords(region=labels.coords["mask"].values)
     else:
         return _extract_with_flat_labels(data, labels, reduction)

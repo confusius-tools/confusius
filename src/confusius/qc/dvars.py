@@ -73,7 +73,7 @@ def compute_dvars(
     ----------
     signals : (time, ...) xarray.DataArray
         Signals to compute DVARS from. Must have a `time` dimension. Any additional
-        dimensions (e.g., `voxels`, `z`, `y`, `x`) are flattened to a single `voxels`
+        dimensions (e.g., `pose`, `z`, `y`, `x`) are flattened to a single `space`
         dimension before computation.
     standardize : bool, default: True
         Whether to computed the standardized DVARS. When `True`, the DVARS values are
@@ -159,7 +159,7 @@ def compute_dvars(
     ...     data[t] = 0.5 * data[t - 1] + 0.5 * data[t]
     >>> signals = xr.DataArray(
     ...     data,
-    ...     dims=["time", "voxels"],
+    ...     dims=["time", "space"],
     ...     coords={"time": np.arange(100) * 0.1},
     ... )
     >>> # Compute standardized DVARS (default)
@@ -181,7 +181,7 @@ def compute_dvars(
 
     if signals.ndim > 2:
         spatial_dims = [d for d in signals.dims if d != "time"]
-        signals = signals.stack(voxels=spatial_dims)
+        signals = signals.stack(space=spatial_dims)
 
     # We are using lower interpolation to match FSL's implementation.
     signals_sd = sp_stats.iqr(
@@ -195,7 +195,7 @@ def compute_dvars(
                 "All signals have variance below tolerance. Check input data or adjust "
                 "'variance_tol'."
             )
-        signals = signals.isel(voxels=nonzero_mask)
+        signals = signals.isel(space=nonzero_mask)
         signals_sd = signals_sd[nonzero_mask]
 
     if not standardize and normalization_factor is not None:

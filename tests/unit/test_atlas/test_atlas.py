@@ -205,20 +205,20 @@ class TestGetMasks:
 
     def test_multiple_regions_stacked_shape(self, atlas: Atlas) -> None:
         result = atlas.get_masks([10, 20])
-        assert result.dims == ("masks", "z", "y", "x")
-        assert result.sizes["masks"] == 2
+        assert result.dims == ("mask", "z", "y", "x")
+        assert result.sizes["mask"] == 2
 
     def test_multiple_regions_masks_coord_contains_acronyms(self, atlas: Atlas) -> None:
         result = atlas.get_masks([997, 10, 20])
         np.testing.assert_array_equal(
-            result.coords["masks"].values, ["root", "ch", "gc"]
+            result.coords["mask"].values, ["root", "ch", "gc"]
         )
 
     def test_per_region_sides(self, atlas: Atlas) -> None:
         """Per-element sides list must be applied independently per region."""
         result = atlas.get_masks([10, 10], sides=["left", "right"])
-        left = result.isel(masks=0).values
-        right = result.isel(masks=1).values
+        left = result.isel(mask=0).values
+        right = result.isel(mask=1).values
         both = atlas.get_masks(10).values[0]
 
         np.testing.assert_array_equal((left > 0) | (right > 0), both > 0)

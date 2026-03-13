@@ -60,8 +60,8 @@ class TestWithLabels:
 
         result = extract.extract_with_labels(sample_4d_volume, labels)
 
-        assert result.dims == ("time", "regions")
-        np.testing.assert_array_equal(result.coords["regions"].values, [1, 2])
+        assert result.dims == ("time", "region")
+        np.testing.assert_array_equal(result.coords["region"].values, [1, 2])
 
     def test_output_dims_3d(self):
         """Test that spatial dims are fully replaced for pure spatial data."""
@@ -74,8 +74,8 @@ class TestWithLabels:
 
         result = extract.extract_with_labels(data, labels)
 
-        assert result.dims == ("regions",)
-        np.testing.assert_array_equal(result.coords["regions"].values, [1, 2, 3])
+        assert result.dims == ("region",)
+        np.testing.assert_array_equal(result.coords["region"].values, [1, 2, 3])
 
     def test_background_excluded(self):
         """Test that label 0 (background) is not included in output."""
@@ -86,8 +86,8 @@ class TestWithLabels:
 
         result = extract.extract_with_labels(data, labels)
 
-        assert 0 not in result.coords["regions"].values
-        assert 1 in result.coords["regions"].values
+        assert 0 not in result.coords["region"].values
+        assert 1 in result.coords["region"].values
 
     @pytest.mark.parametrize(
         "reduction,np_func",
@@ -115,10 +115,10 @@ class TestWithLabels:
         result = extract.extract_with_labels(data, labels, reduction=reduction)
 
         np.testing.assert_allclose(
-            result.sel(regions=1).values, np_func(data_vals[0, :, :])
+            result.sel(region=1).values, np_func(data_vals[0, :, :])
         )
         np.testing.assert_allclose(
-            result.sel(regions=2).values, np_func(data_vals[1, :, :])
+            result.sel(region=2).values, np_func(data_vals[1, :, :])
         )
 
     def test_invalid_reduction(self):
@@ -163,9 +163,9 @@ class TestWithLabels:
         mask_data[1, 1, :, :] = 2  # Region "AUDp": second z-slice.
         labels = xr.DataArray(
             mask_data,
-            dims=["masks", "z", "y", "x"],
+            dims=["mask", "z", "y", "x"],
             coords={
-                "masks": ["VISp", "AUDp"],
+                "mask": ["VISp", "AUDp"],
                 "z": sample_4d_volume.coords["z"],
                 "y": sample_4d_volume.coords["y"],
                 "x": sample_4d_volume.coords["x"],
@@ -174,14 +174,14 @@ class TestWithLabels:
 
         result = extract.extract_with_labels(sample_4d_volume, labels)
 
-        assert set(result.dims) == {"time", "regions"}
-        np.testing.assert_array_equal(result.coords["regions"].values, ["VISp", "AUDp"])
+        assert set(result.dims) == {"time", "region"}
+        np.testing.assert_array_equal(result.coords["region"].values, ["VISp", "AUDp"])
         np.testing.assert_allclose(
-            result.sel(regions="VISp").values,
+            result.sel(region="VISp").values,
             sample_4d_volume.values[:, 0, :, :].mean(axis=(-2, -1)),
         )
         np.testing.assert_allclose(
-            result.sel(regions="AUDp").values,
+            result.sel(region="AUDp").values,
             sample_4d_volume.values[:, 1, :, :].mean(axis=(-2, -1)),
         )
 

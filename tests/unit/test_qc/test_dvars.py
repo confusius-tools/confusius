@@ -25,7 +25,7 @@ def generate_ar1_signals(
 
     return xr.DataArray(
         data,
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(n_samples) * 0.1},
     )
 
@@ -55,9 +55,7 @@ def naive_standardized_dvars(signals: xr.DataArray) -> np.ndarray:
     signals_np = signals_np[:, nonzero_mask]
     signals_sd = signals_sd[nonzero_mask]
 
-    dvars_nstd = naive_dvars_nstd(
-        xr.DataArray(signals_np, dims=["time", "voxels"])
-    )
+    dvars_nstd = naive_dvars_nstd(xr.DataArray(signals_np, dims=["time", "space"]))
     ar1 = np.array(
         [naive_ar1_yule_walker(signals_np[:, i]) for i in range(signals_np.shape[1])]
     )
@@ -159,7 +157,7 @@ class TestZeroVarianceHandling:
         )
         zero_variance_signals = xr.DataArray(
             zero_variance_data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": signals.coords["time"]},
         )
 
@@ -187,7 +185,7 @@ class TestZeroVarianceHandling:
         data = np.ones((50, 10)) * 1e-15
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": np.arange(50) * 0.1},
         )
 
@@ -201,7 +199,7 @@ class TestInputValidation:
     def test_no_time_dimension_raises(self):
         """Input without time dimension must raise ValueError."""
         data = np.random.standard_normal((50, 10))
-        signals = xr.DataArray(data, dims=["samples", "voxels"])
+        signals = xr.DataArray(data, dims=["sample", "space"])
 
         with pytest.raises(ValueError, match="must have a 'time' dimension"):
             compute_dvars(signals)
@@ -211,7 +209,7 @@ class TestInputValidation:
         data = np.random.standard_normal((1, 10))
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": [0.0]},
         )
 
@@ -225,6 +223,7 @@ class TestInputValidation:
 
         with pytest.raises(ValueError, match="must have a 'time' dimension"):
             compute_dvars(signals)
+
 
 class TestNDInput:
     """Tests for N-D (3D+t and beyond) input."""
@@ -249,7 +248,7 @@ class TestNDInput:
         )
 
         # Flatten to 2D
-        signals_2d = signals_4d.stack(voxels=["z", "y", "x"])
+        signals_2d = signals_4d.stack(space=["z", "y", "x"])
 
         # Compute DVARS on both
         dvars_nd = compute_dvars(

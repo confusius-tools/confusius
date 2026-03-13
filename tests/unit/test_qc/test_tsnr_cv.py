@@ -38,7 +38,7 @@ class TestEdgeCases:
         data = np.ones((50, 10)) * 5.0
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": np.arange(50) * 0.1},
         )
 
@@ -51,7 +51,7 @@ class TestEdgeCases:
         data = np.ones((50, 10)) * 5.0
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": np.arange(50) * 0.1},
         )
 
@@ -65,7 +65,7 @@ class TestEdgeCases:
         data = np.vstack([np.ones(10), -np.ones(10)])
         signals = xr.DataArray(
             data,
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": np.arange(2) * 0.1},
         )
 
@@ -82,7 +82,7 @@ class TestInputValidation:
         """Input without time dimension must raise ValueError."""
         signals = xr.DataArray(
             np.random.standard_normal((50, 10)),
-            dims=["samples", "voxels"],
+            dims=["sample", "space"],
         )
 
         with pytest.raises(ValueError, match="must have a 'time' dimension"):
@@ -93,7 +93,7 @@ class TestInputValidation:
         """Input with a single timepoint must raise ValueError."""
         signals = xr.DataArray(
             np.random.standard_normal((1, 10)),
-            dims=["time", "voxels"],
+            dims=["time", "space"],
             coords={"time": [0.0]},
         )
 

@@ -22,7 +22,7 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
     1. `seed_signals` has a `time` dimension and more than 1 timepoint (via
        [`validate_time_series`][confusius.validation.validate_time_series]).
     2. `seed_signals` has no unexpected dimensions — only `time` and an optional
-       `regions` dimension are allowed.
+       `region` dimension are allowed.
     3. The number of timepoints in `seed_signals` matches `data`.
     4. When both arrays carry a `time` coordinate, those coordinates are equal
        element-wise.
@@ -31,7 +31,7 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
     ----------
     seed_signals : xarray.DataArray
         Pre-computed seed region signal(s). Must be 1-D ``(time,)`` or 2-D
-        ``(time, regions)``.
+        ``(time, region)``.
     data : xarray.DataArray
         Reference fUSI data array that `seed_signals` will be correlated against.
 
@@ -42,13 +42,11 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
     """
     validate_time_series(seed_signals, operation_name="SeedBasedMaps.fit")
 
-    unexpected_dims = [
-        str(d) for d in seed_signals.dims if d not in ("time", "regions")
-    ]
+    unexpected_dims = [str(d) for d in seed_signals.dims if d not in ("time", "region")]
     if unexpected_dims:
         raise ValueError(
             f"seed_signals has unexpected dimensions {unexpected_dims}. "
-            f"Only 'time' and an optional 'regions' dimension are allowed."
+            f"Only 'time' and an optional 'region' dimension are allowed."
         )
 
     if seed_signals.sizes["time"] != data.sizes["time"]:
@@ -80,7 +78,7 @@ class SeedBasedMaps(BaseEstimator):
       via [`clean`][confusius.signal.clean] is applied to the full data array *before*
       seed extraction so that both the seed signal and the per-voxel signals are
       preprocessed consistently.
-    - **Signal-based** (`seed_signals`): pre-computed `(time, regions)` seed signals are
+    - **Signal-based** (`seed_signals`): pre-computed `(time, region)` seed signals are
       provided directly. In this case extraction is skipped entirely and the supplied
       signals are correlated against the (optionally cleaned) data.  This is useful when
       the seed signal has been computed externally or originates from a different
@@ -97,14 +95,14 @@ class SeedBasedMaps(BaseEstimator):
         - **Flat label map**: spatial dims only, e.g. `(z, y, x)`.
           Background voxels are `0`; each unique non-zero integer is a
           separate seed region.
-        - **Stacked mask format**: leading `masks` dim followed by spatial
-          dims, e.g. `(masks, z, y, x)`.  Each layer has values in `{0,
+        - **Stacked mask format**: leading `mask` dim followed by spatial
+          dims, e.g. `(mask, z, y, x)`.  Each layer has values in `{0,
           region_id}` and regions may overlap.
 
         A boolean mask can be used by converting it first: `mask.astype(int)`. Mutually
         exclusive with `seed_signals`.
     seed_signals : xarray.DataArray, optional
-        Pre-computed seed signals with a `time` dimension and an optional `regions`
+        Pre-computed seed signals with a `time` dimension and an optional `region`
         dimension.  When provided, seed extraction from the data is skipped and these
         signals are used directly to compute Pearson correlations. `clean_kwargs` is
         still applied to the *data* array before computing correlations, but the seed
@@ -126,17 +124,17 @@ class SeedBasedMaps(BaseEstimator):
 
     Attributes
     ----------
-    seed_signals_ : (time, regions) xarray.DataArray
+    seed_signals_ : (time, region) xarray.DataArray
         Extracted (and cleaned) seed region signals when `seed_masks` is used, or the
-        supplied signals (possibly transposed to `(time, regions)` order) when
+        supplied signals (possibly transposed to `(time, region)` order) when
         `seed_signals` is used. Set after
         [`fit`][confusius.connectivity.SeedBasedMaps.fit].
-    maps_ : (regions, ...) xarray.DataArray
+    maps_ : (region, ...) xarray.DataArray
         Voxel-wise Pearson r maps, one per seed region, set after
-        [`fit`][confusius.connectivity.SeedBasedMaps.fit]. `regions` is the leading
+        [`fit`][confusius.connectivity.SeedBasedMaps.fit]. `region` is the leading
         dimension; the remaining dimensions match the spatial dimensions of the data
         passed to [`fit`][confusius.connectivity.SeedBasedMaps.fit]. If a single region
-        is present the `regions` dimension is squeezed out. `attrs["cmap"]` is set to
+        is present the `region` dimension is squeezed out. `attrs["cmap"]` is set to
         `"coolwarm"`, `attrs["norm"]` to `Normalize(vmin=-1, vmax=1)`, and
         `attrs["long_name"]` to `"Pearson r"` so that plotting functions pick up
         sensible defaults automatically.
@@ -167,8 +165,8 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper.maps_.dims
-    ('regions', 'y', 'x')
-    >>> mapper.maps_.coords["regions"].values
+    ('region', 'y', 'x')
+    >>> mapper.maps_.coords["region"].values
     array([1, 2])
     >>>
     >>> # Single seed from a boolean mask converted to integer.
@@ -180,7 +178,7 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper_single = SeedBasedMaps(seed_masks=mask.astype(int))
     >>> mapper_single.fit(data)
     SeedBasedMaps(seed_masks=...)
-    >>> mapper_single.maps_.dims  # regions dim is squeezed for a single seed
+    >>> mapper_single.maps_.dims  # region dim is squeezed for a single seed
     ('y', 'x')
 
     Signal-based usage: provide seed signals directly.
@@ -193,7 +191,7 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper_sig = SeedBasedMaps(seed_signals=seed_signal)
     >>> mapper_sig.fit(data)
     SeedBasedMaps(seed_signals=...)
-    >>> mapper_sig.maps_.dims  # single signal, regions dim squeezed
+    >>> mapper_sig.maps_.dims  # single signal, region dim squeezed
     ('y', 'x')
     """
 
@@ -297,14 +295,14 @@ class SeedBasedMaps(BaseEstimator):
 
         # _compute_correlation_maps must always receive a 2-D input.
         if extracted.ndim == 1:
-            extracted = extracted.expand_dims("regions", axis=1)
+            extracted = extracted.expand_dims("region", axis=1)
 
         self.seed_signals_: xr.DataArray = extracted
 
         maps = _compute_correlation_maps(X_clean, extracted)
 
-        if maps.sizes.get("regions", 0) == 1:
-            maps = maps.isel(regions=0, drop=False)
+        if maps.sizes.get("region", 0) == 1:
+            maps = maps.isel(region=0, drop=False)
 
         # Annotate with display defaults so plotting functions pick them up without
         # requiring the caller to pass cmap/vmin/vmax explicitly.
@@ -337,24 +335,24 @@ def _compute_correlation_maps(
     ----------
     data : (time, ...) xarray.DataArray
         Clean fUSI data.
-    seed_signals : (time, regions) xarray.DataArray
+    seed_signals : (time, region) xarray.DataArray
         Extracted seed signals.
 
     Returns
     -------
-    (regions, ...) xarray.DataArray
-        Pearson r maps with `regions` as the leading dimension.
+    (region, ...) xarray.DataArray
+        Pearson r maps with `region` as the leading dimension.
     """
     spatial_dims = [str(d) for d in data.dims if d != "time"]
 
     data_c = data - data.mean("time")
     seeds_c = seed_signals - seed_signals.mean("time")
 
-    # Dot product over time gives (*spatial_dims, regions).
+    # Dot product over time gives (*spatial_dims, region).
     numerator = xr.dot(data_c, seeds_c, dim="time")
 
     data_norm = np.sqrt((data_c**2).sum("time"))  # (*spatial_dims,)
-    seeds_norm = np.sqrt((seeds_c**2).sum("time"))  # (regions,)
+    seeds_norm = np.sqrt((seeds_c**2).sum("time"))  # (region,)
 
     r = xr.where(
         data_norm * seeds_norm == 0,
@@ -362,4 +360,4 @@ def _compute_correlation_maps(
         numerator / (data_norm * seeds_norm),
     )
 
-    return r.transpose("regions", *spatial_dims)
+    return r.transpose("region", *spatial_dims)

@@ -13,8 +13,6 @@ def _create_mask_like(data, mask_values):
     return xr.DataArray(mask_values, dims=data.dims, coords=data.coords)
 
 
-
-
 def test_compute_compcor_detrending(sample_timeseries):
     """Test that detrending changes the extracted components."""
     n_time = 100
@@ -129,7 +127,7 @@ def test_compute_compcor_requires_mode():
     """Test error when neither noise_mask nor variance_threshold specified."""
     signals = xr.DataArray(
         np.random.randn(100, 50),
-        dims=["time", "voxels"],
+        dims=["time", "space"],
         coords={"time": np.arange(100) * 0.1},
     )
 
@@ -197,7 +195,7 @@ def test_compute_compcor_no_time_dimension():
     """Test error when signals lack time dimension."""
     signals = xr.DataArray(
         np.random.randn(50, 10),
-        dims=["voxels", "samples"],
+        dims=["space", "sample"],
     )
     noise_mask = np.ones(50, dtype=bool)
 
@@ -210,7 +208,7 @@ def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
     signals = sample_timeseries(n_voxels=50)
 
     noise_mask = xr.DataArray(
-        np.ones(30, dtype=bool), dims=["voxels"], coords={"voxels": np.arange(30)}
+        np.ones(30, dtype=bool), dims=["space"], coords={"space": np.arange(30)}
     )
 
     with pytest.raises(ValueError, match="do not match"):
@@ -407,8 +405,8 @@ def test_compute_compcor_single_timepoint():
     """Test error with single timepoint."""
     signals = xr.DataArray(
         np.random.randn(1, 50),
-        dims=["time", "voxels"],
-        coords={"time": [0.0], "voxels": np.arange(50)},
+        dims=["time", "space"],
+        coords={"time": [0.0], "space": np.arange(50)},
     )
     noise_mask = _create_mask_like(signals.isel(time=0), np.ones(50, dtype=bool))
 
@@ -423,8 +421,8 @@ def test_compute_compcor_time_chunked():
     signals_data = da.from_array(np.random.randn(100, 50), chunks=(50, 50))
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
-        coords={"time": np.arange(100) * 0.1, "voxels": np.arange(50)},
+        dims=["time", "space"],
+        coords={"time": np.arange(100) * 0.1, "space": np.arange(50)},
     )
 
     noise_mask = _create_mask_like(signals.isel(time=0), np.ones(50, dtype=bool))
@@ -461,8 +459,8 @@ def test_compute_compcor_explained_variance_ratio():
 
     signals = xr.DataArray(
         signals_data,
-        dims=["time", "voxels"],
-        coords={"time": np.arange(n_time) * 0.1, "voxels": np.arange(n_voxels)},
+        dims=["time", "space"],
+        coords={"time": np.arange(n_time) * 0.1, "space": np.arange(n_voxels)},
     )
 
     # Our function standardizes (z-score) before PCA, so we need to compute
@@ -477,8 +475,8 @@ def test_compute_compcor_explained_variance_ratio():
     # Test with all voxels
     mask = xr.DataArray(
         np.ones(n_voxels, dtype=bool),
-        dims=["voxels"],
-        coords={"voxels": np.arange(n_voxels)},
+        dims=["space"],
+        coords={"space": np.arange(n_voxels)},
     )
 
     components = compute_compcor_confounds(

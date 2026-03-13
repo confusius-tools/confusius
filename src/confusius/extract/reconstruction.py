@@ -17,10 +17,10 @@ def unmask(
     Parameters
     ----------
     signals : numpy.ndarray or xarray.DataArray
-        Array with shape `(..., voxels)` where `...` can be any number of
+        Array with shape `(..., space)` where `...` can be any number of
         dimensions. The last dimension must correspond to masked voxels.
 
-        - If `signals` is a DataArray, it must have a `voxels` dimension as the
+        - If `signals` is a DataArray, it must have a `space` dimension as the
           last dimension. All other dimensions and their coordinates are preserved.
         - If `signals` is a Numpy array, you can specify names and coordinates for
           the leading dimensions using `new_dims` and `new_dims_coords`. If not
@@ -84,7 +84,7 @@ def unmask(
     ("component", "z", "y", "x")
     >>>
     >>> # Unmask - 3D case with custom coords
-    >>> pose_data = np.random.randn(5, 3, n_voxels)  # (component, pose, voxels)
+    >>> pose_data = np.random.randn(5, 3, n_voxels)  # (component, pose, space)
     >>> spatial_pose = unmask(
     ...     pose_data,
     ...     mask,
@@ -115,7 +115,7 @@ def unmask(
         else:
             dim_names = [f"dim_{i}" for i in range(n_leading_dims)]
 
-        coords = {"voxels": np.arange(n_voxels_mask)}
+        coords = {"space": np.arange(n_voxels_mask)}
         if new_dims_coords is not None:
             for dim in dim_names:
                 if dim in new_dims_coords:
@@ -134,16 +134,16 @@ def unmask(
             for i, dim in enumerate(dim_names):
                 coords[dim] = np.arange(signals.shape[i])
 
-        all_dims = dim_names + ["voxels"]
+        all_dims = dim_names + ["space"]
         signals = xr.DataArray(signals, dims=all_dims, coords=coords)
     elif isinstance(signals, xr.DataArray):
-        if "voxels" not in signals.dims:
+        if "space" not in signals.dims:
             raise ValueError(
-                f"DataArray signals must have 'voxels' dimension, got {signals.dims}"
+                f"DataArray signals must have 'space' dimension, got {signals.dims}"
             )
-        if signals.dims[-1] != "voxels":
+        if signals.dims[-1] != "space":
             raise ValueError(
-                f"'voxels' must be the last dimension, got dims={signals.dims}"
+                f"'space' must be the last dimension, got dims={signals.dims}"
             )
     else:
         raise TypeError(
@@ -152,7 +152,7 @@ def unmask(
 
     spatial_dims = list(mask.dims)
     spatial_shape = tuple(mask.sizes[d] for d in spatial_dims)
-    extra_dims = [d for d in signals.dims if d != "voxels"]
+    extra_dims = [d for d in signals.dims if d != "space"]
 
     if extra_dims:
         output_shape = tuple(signals.sizes[d] for d in extra_dims) + spatial_shape
