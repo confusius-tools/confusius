@@ -153,6 +153,11 @@ class TestClutterFilterSvdFromEnergy:
         with pytest.raises(ValueError, match="non-negative"):
             clutter_filter_svd_from_energy(sample_iq_block_4d, low_cutoff=-1)
 
+    def test_negative_high_cutoff_raises(self, sample_iq_block_4d):
+        """Negative high_cutoff raises ValueError."""
+        with pytest.raises(ValueError, match="non-negative"):
+            clutter_filter_svd_from_energy(sample_iq_block_4d, high_cutoff=-1)
+
     def test_low_cutoff_greater_than_high_raises(self, sample_iq_block_4d):
         """low_cutoff >= high_cutoff raises ValueError."""
         with pytest.raises(ValueError, match="must be lower than"):
@@ -233,14 +238,16 @@ class TestClutterFilterSvdFromCumulativeEnergy:
 
         u, s, _ = np.linalg.svd(masked_signals, full_matrices=False)
 
-        # Set cutoffs based on actual singular values (energies are s**2 since we're
-        # using the SVD and not the eigendecomposition).
-        cumsum_energy = np.cumsum(s**2)
+        # SVD returns singular values in descending order; reverse to ascending so that
+        # cumsum accumulates from noise to tissue, matching the filter's convention.
+        s_asc = s[::-1]
+        u_asc = u[:, ::-1]
+        cumsum_energy = np.cumsum(s_asc**2)
 
         low_cutoff = cumsum_energy[-1] * 0.3
 
         clutter_mask = cumsum_energy < low_cutoff
-        clutter_vectors = u[:, clutter_mask]
+        clutter_vectors = u_asc[:, clutter_mask]
         filtered_signals = (
             signals - clutter_vectors @ clutter_vectors.conj().T @ signals
         )

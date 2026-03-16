@@ -824,7 +824,7 @@ def process_iq_to_power_doppler(
         attrs=iq.coords["time"].attrs,
     )
 
-    output_attrs = {
+    output_attrs: dict[str, str | int | float] = {
         "units": "a.u.",
         "long_name": "Power Doppler intensity",
         "cmap": "gray",

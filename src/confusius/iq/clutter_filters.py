@@ -89,14 +89,14 @@ def _validate_block_and_clutter_mask(
 
 def _compute_gram_eigendecomposition(
     signals: npt.NDArray,
+    ascending: bool = False,
 ) -> tuple[npt.NDArray, npt.NDArray]:
     """Compute eigendecomposition of the temporal Gram matrix.
 
     Computes the eigenvalues and eigenvectors of the Gram matrix formed from beamformed
-    IQ signals. Results are sorted in descending order of eigenvalues (highest energy
-    first).
+    IQ signals.
 
-    .. important::
+    !!! warning
 
         The computation of the Gram matrix can lead to numerical instability when using
         single-precision data types. It is recommended to cast `signals` to
@@ -106,13 +106,17 @@ def _compute_gram_eigendecomposition(
     ----------
     signals : (time, voxels) numpy.ndarray
         Beamformed IQ signals.
+    ascending : bool, default: False
+        Whether results should be sorted in ascending order of eigenvalues (lowest
+        energy first), which is convenient for energy-based filtering. In contrast,
+        index-based filtering typically expects descending order (highest energy first).
 
     Returns
     -------
     eigenvalues : (min(time, voxels),) numpy.ndarray
-        Eigenvalues of the Gram matrix, sorted in descending order.
+        Eigenvalues of the Gram matrix, sorted according to `ascending`.
     eigenvectors : (min(time, voxels), min(time, voxels)) numpy.ndarray
-        Eigenvectors of the Gram matrix, sorted in descending order of eigenvalues.
+        Eigenvectors of the Gram matrix, sorted according to `ascending`.
 
     Notes
     -----
@@ -133,12 +137,13 @@ def _compute_gram_eigendecomposition(
 
     gram_matrix = signals @ signals.conj().T
 
+    # eigh returns eigenvalues in ascending order.
     eigenvalues, eigenvectors = sp_linalg.eigh(gram_matrix)
 
-    # eigh returns eigenvalues in ascending order. We want them in descending order when
-    # selecting high-energy components for clutter filtering.
-    eigenvectors = eigenvectors[:, ::-1]
-    eigenvalues = eigenvalues[::-1]
+    if not ascending:
+        # Reverse to descending order for index-based filtering (highest energy first).
+        eigenvalues = eigenvalues[::-1]
+        eigenvectors = eigenvectors[:, ::-1]
 
     return eigenvalues, eigenvectors
 
@@ -201,16 +206,16 @@ def clutter_filter_svd_from_indices(
         Boolean mask. SVD is computed only from masked voxels. If not provided, all
         voxels are used.
     low_cutoff : int, optional
-        Lower bound for singular vector indices to retain (inclusive). Vectors with
-        indices less than `low_cutoff` are treated as clutter and removed.
-        `low_cutoff` must be positive. If not provided, defaults to `0` (no
+        Lower bound for singular vector indices to retain (inclusive), counted from the
+        highest-energy component (index 0). Vectors with indices less than `low_cutoff`
+        are treated as clutter and removed. If not provided, defaults to `0` (no
         high-energy removal).
     high_cutoff : int, optional
-        Upper bound for singular vector indices to retain (exclusive). Vectors with
-        indices greater than or equal to `high_cutoff` are treated as clutter and
-        removed. `high_cutoff` must be less than the maximum number of components, that
-        is, `min(time, mask.sum())`. If not provided, defaults to the maximum
-        number of components (no low-energy removal).
+        Upper bound for singular vector indices to retain (exclusive), counted from the
+        highest-energy component (index 0). Vectors with indices greater than or equal
+        to `high_cutoff` are treated as clutter and removed. `high_cutoff` must be at
+        most `min(time, mask.sum())`. If not provided, defaults to the maximum number
+        of components (no low-energy removal).
 
     Returns
     -------
@@ -231,20 +236,20 @@ def clutter_filter_svd_from_indices(
     References
     ----------
     [^1]:
-        Demene, Charlie, et al. “Spatiotemporal Clutter Filtering of Ultrafast
-        Ultrasound Data Highly Increases Doppler and fUltrasound Sensitivity.” IEEE
+        Demene, Charlie, et al. "Spatiotemporal Clutter Filtering of Ultrafast
+        Ultrasound Data Highly Increases Doppler and fUltrasound Sensitivity." IEEE
         Transactions on Medical Imaging, vol. 34, no. 11, Nov. 2015, pp. 2271–85.
         DOI.org (Crossref), <https://doi.org/10.1109/TMI.2015.2428634>.
 
     [^2]:
-        Baranger, Jerome, et al. “Adaptive Spatiotemporal SVD Clutter Filtering for
-        Ultrafast Doppler Imaging Using Similarity of Spatial Singular Vectors.” IEEE
+        Baranger, Jerome, et al. "Adaptive Spatiotemporal SVD Clutter Filtering for
+        Ultrafast Doppler Imaging Using Similarity of Spatial Singular Vectors." IEEE
         Transactions on Medical Imaging, vol. 37, no. 7, July 2018, pp. 1574–86. DOI.org
         (Crossref), <https://doi.org/10.1109/TMI.2018.2789499>.
 
     [^3]:
-        Le Meur-Diebolt, Samuel, et al. “Robust Functional Ultrasound Imaging in the
-        Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal.”
+        Le Meur-Diebolt, Samuel, et al. "Robust Functional Ultrasound Imaging in the
+        Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal."
         17 June 2025. Neuroscience, <https://doi.org/10.1101/2025.06.16.659882>.
     """
     signals, masked_signals = _validate_block_and_clutter_mask(block, mask)
@@ -387,20 +392,20 @@ def clutter_filter_svd_from_energy(
     References
     ----------
     [^1]:
-        Demene, Charlie, et al. “Spatiotemporal Clutter Filtering of Ultrafast
-        Ultrasound Data Highly Increases Doppler and fUltrasound Sensitivity.” IEEE
+        Demene, Charlie, et al. "Spatiotemporal Clutter Filtering of Ultrafast
+        Ultrasound Data Highly Increases Doppler and fUltrasound Sensitivity." IEEE
         Transactions on Medical Imaging, vol. 34, no. 11, Nov. 2015, pp. 2271–85.
         DOI.org (Crossref), <https://doi.org/10.1109/TMI.2015.2428634>.
 
     [^2]:
-        Baranger, Jerome, et al. “Adaptive Spatiotemporal SVD Clutter Filtering for
-        Ultrafast Doppler Imaging Using Similarity of Spatial Singular Vectors.” IEEE
+        Baranger, Jerome, et al. "Adaptive Spatiotemporal SVD Clutter Filtering for
+        Ultrafast Doppler Imaging Using Similarity of Spatial Singular Vectors." IEEE
         Transactions on Medical Imaging, vol. 37, no. 7, July 2018, pp. 1574–86. DOI.org
         (Crossref), <https://doi.org/10.1109/TMI.2018.2789499>.
 
     [^3]:
-        Le Meur-Diebolt, Samuel, et al. “Robust Functional Ultrasound Imaging in the
-        Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal.”
+        Le Meur-Diebolt, Samuel, et al. "Robust Functional Ultrasound Imaging in the
+        Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal."
         17 June 2025. Neuroscience, <https://doi.org/10.1101/2025.06.16.659882>.
     """
     signals, masked_signals = _validate_block_and_clutter_mask(block, mask)
@@ -491,20 +496,20 @@ def clutter_filter_svd_from_cumulative_energy(
     References
     ----------
     [^1]:
-        Demene, Charlie, et al. “Spatiotemporal Clutter Filtering of Ultrafast
-        Ultrasound Data Highly Increases Doppler and fUltrasound Sensitivity.” IEEE
+        Demene, Charlie, et al. "Spatiotemporal Clutter Filtering of Ultrafast
+        Ultrasound Data Highly Increases Doppler and fUltrasound Sensitivity." IEEE
         Transactions on Medical Imaging, vol. 34, no. 11, Nov. 2015, pp. 2271–85.
         DOI.org (Crossref), <https://doi.org/10.1109/TMI.2015.2428634>.
 
     [^2]:
-        Baranger, Jerome, et al. “Adaptive Spatiotemporal SVD Clutter Filtering for
-        Ultrafast Doppler Imaging Using Similarity of Spatial Singular Vectors.” IEEE
+        Baranger, Jerome, et al. "Adaptive Spatiotemporal SVD Clutter Filtering for
+        Ultrafast Doppler Imaging Using Similarity of Spatial Singular Vectors." IEEE
         Transactions on Medical Imaging, vol. 37, no. 7, July 2018, pp. 1574–86. DOI.org
         (Crossref), <https://doi.org/10.1109/TMI.2018.2789499>.
 
     [^3]:
-        Le Meur-Diebolt, Samuel, et al. “Robust Functional Ultrasound Imaging in the
-        Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal.”
+        Le Meur-Diebolt, Samuel, et al. "Robust Functional Ultrasound Imaging in the
+        Awake and Behaving Brain: A Systematic Framework for Motion Artifact Removal."
         17 June 2025. Neuroscience, <https://doi.org/10.1101/2025.06.16.659882>.
     """
     signals, masked_signals = _validate_block_and_clutter_mask(block, mask)
@@ -524,7 +529,12 @@ def clutter_filter_svd_from_cumulative_energy(
     # vectors.
     eigenvalues, eigenvectors = _compute_gram_eigendecomposition(
         # Casting to double-precision for stability.
-        masked_signals.astype(np.cdouble, copy=False)
+        masked_signals.astype(np.cdouble, copy=False),
+        # Computing the eigendecomposition in ascending order so that np.cumsum
+        # accumulates from the lowest-energy (noise/blood) component to the highest-energy
+        # (tissue/clutter) component, matching the semantics of low_cutoff and
+        # high_cutoff.
+        ascending=True,
     )
 
     cumsum_energy = np.cumsum(eigenvalues)
