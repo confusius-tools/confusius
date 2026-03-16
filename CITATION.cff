@@ -33,6 +33,6 @@ keywords:
   - Brain connectivity
   - Python
 license: BSD-3-Clause
-commit: bb0d19e1e91543d11dad949b3d8ef7653c9b58b6
-version: 0.0.1-a10
-date-released: '2026-03-12'
+commit: 9c6ee8b8da443080886254d706675954963aa90f
+version: 0.0.1-a11
+date-released: '2026-03-16'
