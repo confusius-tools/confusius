@@ -680,7 +680,7 @@ def save_nifti(
     import nibabel as nib
 
     path = Path(path)
-    if path.suffix != ".nii" and path.suffixes[-2:] != [".nii", ".gz"]:
+    if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")
 
     data = np.asarray(data_array)

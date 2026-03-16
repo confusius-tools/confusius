@@ -21,6 +21,15 @@ class TestLoadDispatch:
         mock.assert_called_once_with(path.resolve())
         assert result is mock_da
 
+    def test_compound_nii_gz_extension(self, tmp_path):
+        """.source.nii.gz compound extension calls load_nifti."""
+        path = tmp_path / "data.source.nii.gz"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
     def test_nii_dispatches_to_load_nifti(self, tmp_path):
         """.nii extension calls load_nifti."""
         path = tmp_path / "data.nii"
@@ -33,6 +42,15 @@ class TestLoadDispatch:
     def test_scan_dispatches_to_load_scan(self, tmp_path):
         """.scan extension calls load_scan."""
         path = tmp_path / "data.scan"
+        mock_da = MagicMock(spec=xr.DataArray)
+        with patch("confusius.io.scan.load_scan", return_value=mock_da) as mock:
+            result = load(path)
+        mock.assert_called_once_with(path.resolve())
+        assert result is mock_da
+
+    def test_compound_scan_extension(self, tmp_path):
+        """.source.scan compound extension calls load_scan."""
+        path = tmp_path / "data.source.scan"
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.scan.load_scan", return_value=mock_da) as mock:
             result = load(path)
@@ -65,6 +83,14 @@ class TestSaveDispatch:
             save(da, path)
         mock.assert_called_once_with(da, path.resolve())
 
+    def test_compound_nii_gz_save_extension(self, tmp_path):
+        """.source.nii.gz compound extension calls save_nifti."""
+        path = tmp_path / "data.source.nii.gz"
+        da = MagicMock(spec=xr.DataArray)
+        with patch("confusius.io.nifti.save_nifti") as mock:
+            save(da, path)
+        mock.assert_called_once_with(da, path.resolve())
+
     def test_nii_dispatches_to_save_nifti(self, tmp_path):
         """.nii extension calls save_nifti."""
         path = tmp_path / "data.nii"
@@ -77,7 +103,16 @@ class TestSaveDispatch:
         """.zarr extension calls DataArray.to_zarr."""
         path = tmp_path / "data.zarr"
         da = MagicMock(spec=xr.DataArray)
-        save(da, path)
+        with patch("confusius.io.nifti.save_nifti") as mock:
+            save(da, path)
+        da.to_zarr.assert_called_once_with(path.resolve())
+
+    def test_compound_zarr_extension(self, tmp_path):
+        """.source.zarr compound extension calls DataArray.to_zarr."""
+        path = tmp_path / "data.source.zarr"
+        da = MagicMock(spec=xr.DataArray)
+        with patch("confusius.io.nifti.save_nifti") as mock:
+            save(da, path)
         da.to_zarr.assert_called_once_with(path.resolve())
 
     def test_kwargs_forwarded_to_saver(self, tmp_path):

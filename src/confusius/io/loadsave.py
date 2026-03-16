@@ -42,13 +42,13 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         If the file extension is not supported.
     """
     path = check_path(path)
-    suffixes = tuple(path.suffixes)
+    name = path.name
 
-    if suffixes in {(".nii",), (".nii", ".gz")}:
+    if name.endswith(".nii") or name.endswith(".nii.gz"):
         return _nifti.load_nifti(path, **kwargs)
-    if suffixes == (".scan",):
+    if name.endswith(".scan"):
         return _scan.load_scan(path, **kwargs)
-    if suffixes == (".zarr",):
+    if name.endswith(".zarr"):
         ds = xr.open_zarr(path, **kwargs)
         if variable is not None:
             return ds[variable]
@@ -56,7 +56,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         return ds[first_var]
 
     raise ValueError(
-        f"Unsupported file extension: {''.join(suffixes)!r}. Supported"
+        f"Unsupported file extension in {name!r}. Supported"
         " extensions are: .nii, .nii.gz, .scan, .zarr."
     )
 
@@ -86,16 +86,16 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         If the file extension is not supported.
     """
     path = check_path(path)
-    suffixes = tuple(path.suffixes)
+    name = path.name
 
-    if suffixes in {(".nii",), (".nii", ".gz")}:
+    if name.endswith(".nii") or name.endswith(".nii.gz"):
         _nifti.save_nifti(data_array, path, **kwargs)
         return
-    if suffixes == (".zarr",):
+    if name.endswith(".zarr"):
         data_array.to_zarr(path, **kwargs)
         return
 
     raise ValueError(
-        f"Unsupported file extension: {''.join(suffixes)!r}. Supported"
+        f"Unsupported file extension in {name!r}. Supported"
         " extensions are: .nii, .nii.gz, .zarr."
     )
