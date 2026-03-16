@@ -13,5 +13,10 @@ icon: lucide/brain-circuit
     - [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]: Compute seed-based
       Pearson correlation maps from fUSI time series.
 
+    **Connectivity matrices:**
+
+    - [`ConnectivityMatrix`][confusius.connectivity.ConnectivityMatrix]: Compute
+      functional connectivity matrices from fUSI time series.
+
     Please refer to the [API Reference](../api/connectivity.md) and
     [Roadmap](../roadmap.md) for more information.

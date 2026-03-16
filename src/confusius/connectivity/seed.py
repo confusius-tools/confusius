@@ -65,7 +65,7 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
 
 
 class SeedBasedMaps(BaseEstimator):
-    """Seed-based functional connectivity maps for fUSI data.
+    """Seed-based functional connectivity maps from fUSI data.
 
     Computes voxel-wise Pearson correlation maps between one or more seed region signals
     and every voxel in a fUSI DataArray.

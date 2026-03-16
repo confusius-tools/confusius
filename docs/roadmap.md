@@ -60,14 +60,14 @@ Alpha release checklist for ConfUSIus.
       API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html) wrapper
       for loading brain parcellations, returned as Xarray Datasets.
 
-## 🚧 Functional Connectivity
+## ✅ Functional Connectivity
 
-- [ ] [`connectivity` module](api/connectivity.md): compute functional connectivity from
+- [x] [`connectivity` module](api/connectivity.md): compute functional connectivity from
   preprocessed fUSI time series (pairwise correlations, network metrics).
     - [x] [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]: compute voxelwise
       correlation maps for a given seed region.
-    - [ ] `ConnectivityMatrix`: compute pairwise connectivity matrices between regions of
-      interest.
+    - [x] [`ConnectivityMatrix`][confusius.connectivity.ConnectivityMatrix]: compute
+      pairwise connectivity matrices between regions of interest.
 
 ## 🚧 General Linear Models
 - [ ] `glm` module: general linear model for stimulus-evoked and task-based fUSI
