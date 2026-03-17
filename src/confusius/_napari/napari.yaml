@@ -1,0 +1,34 @@
+name: confusius
+display_name: ConfUSIus
+schema_version: "0.2.1"
+
+contributions:
+  commands:
+    - id: confusius.read_nifti
+      title: Read NIfTI file
+      python_name: confusius._napari._readers:read_nifti
+
+    - id: confusius.read_scan
+      title: Read SCAN file
+      python_name: confusius._napari._readers:read_scan
+
+    - id: confusius.read_zarr
+      title: Read Zarr store
+      python_name: confusius._napari._readers:read_zarr
+
+  readers:
+    - command: confusius.read_nifti
+      accepts_directories: false
+      filename_patterns:
+        - "*.nii"
+        - "*.nii.gz"
+
+    - command: confusius.read_scan
+      accepts_directories: false
+      filename_patterns:
+        - "*.scan"
+
+    - command: confusius.read_zarr
+      accepts_directories: true
+      filename_patterns:
+        - "*.zarr"

@@ -1,0 +1,1 @@
+"""ConfUSIus napari plugin."""
