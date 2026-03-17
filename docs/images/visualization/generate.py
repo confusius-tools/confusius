@@ -6,14 +6,12 @@ Usage
 
     - `ZARR_PATH`: 3D or 4D fUSI recording in Zarr format, with a variable containing
       the power Doppler data.
-    - `ATLAS_ZARR_PATH` and `ATLAS_VARIABLE`: Zarr store and variable name for a labelled
-      integer atlas mask aligned to the recording. Used for the napari Labels layer and
-      volume-with-contours overlay.
-    - `VOLUME_3D_PATH` and `VOLUME_3D_VARIABLE`: Zarr store and variable name for a true 3D
-      recording (z > 1) to use in the multi-slice volume example.
-    - `MASK_ZARR_PATH` and `MASK_VARIABLE`: Zarr store and variable name for a binary brain
-      mask (True/1 inside brain, False/0 outside) to use for voxel selection in the
-      carpet plot.
+    - `ATLAS_ZARR_PATH`: Zarr store for a labelled integer atlas mask aligned to the
+      recording. Used for the napari Labels layer and volume-with-contours overlay.
+    - `VOLUME_3D_PATH`: Zarr store for a true 3D recording (z > 1) to use in the
+      multi-slice volume example.
+    - `MASK_ZARR_PATH`: Zarr store for a binary brain mask (True/1 inside brain, False/0
+      outside) to use for voxel selection in the carpet plot.
 
 2. Run from the project root::
 
@@ -33,7 +31,6 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import napari
 import numpy as np
-import xarray as xr
 from brainglobe_atlasapi import BrainGlobeAtlas
 from napari.qt import get_qapp
 from napari.utils.colormaps import DirectLabelColormap
@@ -46,21 +43,17 @@ HERE = Path(__file__).parent
 # == Fill in before running ===================================================
 
 ZARR_PATH = "../../../data/sub-ALD030_ses-ChATChR2FibreMidThalamus_task-awake_acq-motor2dot2_proc-staticsvd50_pwd.zarr/"
-VARIABLE = "power_doppler"  # Variable name inside the Zarr store.
 
 # Labelled integer atlas mask (one positive integer per brain region).
 # Used for: napari Labels layer and volume-with-contours overlay.
 ATLAS_ZARR_PATH = "../../../data/regions.zarr"
-ATLAS_VARIABLE = "allen"
 
 # Path to a true 3D recording (z > 1) for the multi-slice volume example.
 VOLUME_3D_PATH = "../../../data/angio.zarr"
-VOLUME_3D_VARIABLE = "angio"
 
 # Binary brain mask (True/1 inside brain, 0 outside).
 # Used for: carpet plot voxel selection.
 MASK_ZARR_PATH = "../../../data/brain_mask.zarr/"
-MASK_VARIABLE = "brain_mask"
 
 # =============================================================================
 
@@ -81,7 +74,7 @@ VOLUME_3D_PATH = _resolve(VOLUME_3D_PATH)
 # --------------------------------------------------------------------------- #
 
 print("Loading power Doppler data …")
-pwd = xr.open_zarr(ZARR_PATH)[VARIABLE]
+pwd = cf.load(ZARR_PATH)
 print(f"  {pwd.dims}, shape {dict(pwd.sizes)}")
 
 print("Computing mean volume …")
@@ -92,7 +85,7 @@ mean_vol = pwd.mean("time").compute()
 # --------------------------------------------------------------------------- #
 
 print("Loading atlas mask …")
-atlas_mask = xr.open_zarr(ATLAS_ZARR_PATH)[ATLAS_VARIABLE].compute()
+atlas_mask = cf.load(ATLAS_ZARR_PATH).compute()
 n_atlas_regions = int(np.sum(np.unique(atlas_mask.values) != 0))
 print(f"  {atlas_mask.dims}, {n_atlas_regions} region(s)")
 
@@ -112,7 +105,7 @@ print(f"  Built Allen atlas colormap ({len(id_to_rgb)} entries).")
 # --------------------------------------------------------------------------- #
 
 print("Loading binary brain mask …")
-brain_mask = xr.open_zarr(MASK_ZARR_PATH)[MASK_VARIABLE].compute() > 0
+brain_mask = cf.load(MASK_ZARR_PATH).compute() > 0
 
 # --------------------------------------------------------------------------- #
 # 1 & 2. Napari images                                                          #
@@ -214,7 +207,7 @@ print("\n── Napari 3D orbit GIF ──────────────�
 try:
     print("Generating napari-3d-orbit.gif …")
 
-    vol_3d_orbit = xr.open_zarr(VOLUME_3D_PATH)[VOLUME_3D_VARIABLE]
+    vol_3d_orbit = cf.load(VOLUME_3D_PATH)
     if "time" in vol_3d_orbit.dims:
         vol_3d_orbit = vol_3d_orbit.mean("time").compute()
 
@@ -324,7 +317,7 @@ print("  Saved plot-volume-grid-light.png and plot-volume-grid-dark.png")
 # --------------------------------------------------------------------------- #
 
 print("Generating plot-volume-3d-light/dark.png …")
-vol_3d = xr.open_zarr(VOLUME_3D_PATH)[VOLUME_3D_VARIABLE]
+vol_3d = cf.load(VOLUME_3D_PATH)
 if "time" in vol_3d.dims:
     vol_3d = vol_3d.mean("time").compute()
 for black_bg, suffix in [(False, "light"), (True, "dark")]:
@@ -343,7 +336,7 @@ print("  Saved plot-volume-3d-light.png and plot-volume-3d-dark.png")
 # --------------------------------------------------------------------------- #
 
 print("Generating plot-sliced-volume-3d-light/dark.png …")
-vol_3d = xr.open_zarr(VOLUME_3D_PATH)[VOLUME_3D_VARIABLE]
+vol_3d = cf.load(VOLUME_3D_PATH)
 if "time" in vol_3d.dims:
     vol_3d = vol_3d.mean("time").compute()
 for black_bg, suffix in [(False, "light"), (True, "dark")]:

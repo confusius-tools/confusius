@@ -36,7 +36,7 @@ the controls and features.
     import xarray as xr
     import confusius
 
-    pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
+    pwd = cf.load("sub-01_task-awake_pwd.zarr")
     viewer, layer = pwd.fusi.plot.napari()
     ```
 
@@ -46,7 +46,7 @@ the controls and features.
     import xarray as xr
     import confusius as cf
 
-    pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
+    pwd = cf.load("sub-01_task-awake_pwd.zarr")
     viewer, layer = cf.plotting.plot_napari(pwd)
     ```
 
@@ -169,7 +169,7 @@ integer becomes a separate region of interest (ROI).
 import xarray as xr
 import confusius as cf
 
-pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
+pwd = cf.load("sub-01_task-awake_pwd.zarr")
 mean_vol = pwd.mean("time").compute()
 
 # Open viewer with an empty Labels layer ready for painting.
@@ -226,7 +226,7 @@ maps, or 3D angiography data.
     import xarray as xr
     import confusius
 
-    pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
+    pwd = cf.load("sub-01_task-awake_pwd.zarr")
 
     # All elevation slices in an auto-sized grid.
     plotter = pwd.fusi.plot.volume()
@@ -238,7 +238,7 @@ maps, or 3D angiography data.
     import xarray as xr
     import confusius as cf
 
-    pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
+    pwd = cf.load("sub-01_task-awake_pwd.zarr")
 
     # All elevation slices in an auto-sized grid.
     plotter = cf.plotting.plot_volume(pwd)
@@ -256,7 +256,7 @@ When the data has multiple slices along the sliced dimension, `plot_volume` lays
 out automatically in an approximately square grid:
 
 ```python
-angio = xr.open_zarr("sub-01_acq-angio_pwd.zarr")["angio"]
+angio = cf.load("sub-01_acq-angio_pwd.zarr")
 
 plotter = angio.fusi.plot.volume(slice_mode="z", show_colorbar=False)
 ```
@@ -415,7 +415,7 @@ metrics, see the [Quality Control](quality-control.md) guide.
     import xarray as xr
     import confusius
 
-    brain_mask = xr.open_zarr("brain_mask.zarr")["mask"]
+    brain_mask = cf.load("brain_mask.zarr")
 
     fig, ax = pwd.fusi.plot.carpet(mask=brain_mask)
     ```
@@ -426,7 +426,7 @@ metrics, see the [Quality Control](quality-control.md) guide.
     import xarray as xr
     import confusius as cf
 
-    brain_mask = xr.open_zarr("brain_mask.zarr")["mask"]
+    brain_mask = cf.load("brain_mask.zarr")
 
     fig, ax = cf.plotting.plot_carpet(pwd, mask=brain_mask)
     ```

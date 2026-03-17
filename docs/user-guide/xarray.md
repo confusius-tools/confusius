@@ -196,8 +196,7 @@ import xarray as xr
 
 import confusius  # Registers the .fusi accessor.
 
-ds = xr.open_zarr("iq.zarr")
-iq = ds["iq"]
+iq = cf.load("iq.zarr")
 
 # Power Doppler with SVD clutter filtering (default).
 pwd = iq.fusi.iq.process_to_power_doppler(
@@ -265,7 +264,7 @@ scikit-learn, pandas, or other tools that expect a 2D matrix of shape
 by a boolean (or single-label integer) mask into a `voxels` dimension:
 
 ```python
-mask = xr.open_zarr("brain_mask.zarr")["mask"]
+mask = cf.load("brain_mask.zarr")
 
 # signals has dims (time, voxels).
 signals = registered.fusi.extract.with_mask(mask)
@@ -310,7 +309,7 @@ brain region using an integer label map. It accepts two label formats:
 
 ```python
 # Using a flat label map (e.g., atlas annotations).
-label_map = xr.open_zarr("atlas_labels.zarr")["labels"]
+label_map = cf.load("atlas_labels.zarr")
 
 # region_signals has dims (time, regions).
 region_signals = registered.fusi.extract.with_labels(label_map)
@@ -357,8 +356,8 @@ from sklearn.decomposition import PCA
 from confusius.extract import unmask
 
 # 1. Load beamformed IQ data and corresponding brain mask.
-iq = xr.open_zarr("iq.zarr")["iq"]
-brain_mask = xr.open_zarr("brain_mask.zarr")["mask"]
+iq = cf.load("iq.zarr")
+brain_mask = cf.load("brain_mask.zarr")
 
 # 2. Process IQ into power Doppler.
 pwd = iq.fusi.iq.process_to_power_doppler(

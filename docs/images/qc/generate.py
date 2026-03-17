@@ -4,9 +4,9 @@ Usage
 -----
 1. Fill in the constant variables below with paths to example datasets on your machine:
 
-    - ``ZARR_PATH`` / ``ZARR_VARIABLE``: 4D fUSI recording in Zarr format.
+    - ``ZARR_PATH``: 4D fUSI recording in Zarr format.
       Used for the DVARS line plot and the carpet plot.
-    - ``MASK_ZARR_PATH`` / ``MASK_VARIABLE``: binary brain mask Zarr store.
+    - ``MASK_ZARR_PATH``: binary brain mask Zarr store.
     - ``SCAN_PATH``: 2Dscan SCAN file.
       Used for the CV and tSNR spatial maps and the mean power Doppler reference image.
 
@@ -20,10 +20,8 @@ All images are saved to docs/images/qc/.
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
-import xarray as xr
 
-import confusius as cf  # noqa: F401  # Register xarray accessors.
+import confusius as cf
 from confusius.plotting import plot_carpet
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
@@ -32,10 +30,8 @@ HERE = Path(__file__).parent
 # == Fill in before running ===================================================
 
 ZARR_PATH = "../../../data/sub-ALD030_ses-ChATChR2FibreMidThalamus_task-awake_acq-motor2dot2_proc-staticsvd50_pwd.zarr/"
-ZARR_VARIABLE = "power_doppler"
 
 MASK_ZARR_PATH = "../../../data/brain_mask.zarr/"
-MASK_VARIABLE = "brain_mask"
 
 SCAN_PATH = "../../../data/sub-tatooine_ses-20221205_task-anesthetized_pd2dt.scan"
 
@@ -58,11 +54,11 @@ _SAVEFIG_KWARGS = {"dpi": 150, "bbox_inches": "tight", "transparent": True}
 # --------------------------------------------------------------------------- #
 
 print("Loading Zarr power Doppler data (for DVARS and carpet plot) …")
-pwd_zarr = xr.open_zarr(ZARR_PATH)[ZARR_VARIABLE]
+pwd_zarr = cf.load(ZARR_PATH)
 print(f"  {pwd_zarr.dims}, shape {dict(pwd_zarr.sizes)}")
 
 print("Loading brain mask …")
-brain_mask = xr.open_zarr(MASK_ZARR_PATH)[MASK_VARIABLE].compute() > 0
+brain_mask = cf.load(MASK_ZARR_PATH).compute() > 0
 
 print("Extracting brain signals …")
 signals = pwd_zarr.fusi.extract.with_mask(brain_mask).compute()

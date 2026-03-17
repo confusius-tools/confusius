@@ -39,8 +39,8 @@ import xarray as xr
 import confusius as cf
 from confusius.qc import compute_dvars
 
-pwd = xr.open_zarr("sub-01_task-awake_pwd.zarr")["power_doppler"]
-brain_mask = xr.open_zarr("brain_mask.zarr")["mask"]
+pwd = cf.load("sub-01_task-awake_pwd.zarr")
+brain_mask = cf.load("brain_mask.zarr")
 
 # Extract brain voxel time-series first.
 signals = pwd.fusi.extract.with_mask(brain_mask)
