@@ -39,32 +39,33 @@ class FUSIConnectivityAccessor:
     ) -> "confusius.connectivity.SeedBasedMaps":  # type: ignore[name-defined]  # noqa: F821
         """Fit a seed-based correlation map.
 
-        Convenience wrapper around :class:`confusius.connectivity.SeedBasedMaps`
-        that constructs the estimator, calls :meth:`~SeedBasedMaps.fit` on the
-        wrapped DataArray, and returns the fitted estimator.
+        Convenience wrapper around
+        [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] that constructs the
+        estimator, calls [`SeedBasedMaps.fit`][confusius.connectivity.SeedBasedMaps.fit]
+        on the wrapped DataArray, and returns the fitted estimator.
 
         Parameters
         ----------
         seed_masks : xarray.DataArray, optional
             Integer label map defining the seed region(s). See
-            :class:`confusius.connectivity.SeedBasedMaps` for accepted formats.
-            Mutually exclusive with ``seed_signals``.
+            [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] for accepted
+            formats. Mutually exclusive with `seed_signals`.
         seed_signals : xarray.DataArray, optional
-            Pre-computed ``(time, ...)`` seed signals used directly for correlation.
+            Pre-computed `(time, ...)` seed signals used directly for correlation.
             When provided, seed extraction from the data is skipped.
-            Mutually exclusive with ``seed_masks``.
+            Mutually exclusive with `seed_masks`.
         labels_reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, \
                 default: "mean"
             Aggregation function applied across voxels within each seed region.
-            Ignored when ``seed_signals`` is provided.
+            Ignored when `seed_signals` is provided.
         clean_kwargs : dict or None, default: None
-            Keyword arguments forwarded to :func:`confusius.signal.clean`.
-            If ``None``, no cleaning is applied.
+            Keyword arguments forwarded to [`clean`][confusius.signal.clean]. If not
+            provided, no cleaning is applied.
 
         Returns
         -------
         confusius.connectivity.SeedBasedMaps
-            Fitted estimator.  Access ``maps_`` and ``seed_signals_`` on the
+            Fitted estimator.  Access `maps_` and `seed_signals_` on the
             returned object.
 
         Examples

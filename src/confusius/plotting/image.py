@@ -1762,8 +1762,8 @@ def _prepare_carpet_data(
 ) -> dict:
     """Prepare carpet plot data, separating expensive computation from drawing.
 
-    Intended to run in a background thread; the result is passed to
-    :func:`plot_carpet` via its `_precomputed` keyword.
+    Intended to run in a background thread; the result is passed to `plot_carpet` via
+    its `_precomputed` keyword.
 
     Parameters
     ----------
@@ -1772,7 +1772,7 @@ def _prepare_carpet_data(
     mask : xarray.DataArray, optional
         Boolean mask to select voxels. Defaults to all non-zero voxels.
     detrend_order : int, optional
-        Polynomial order for detrending. See :func:`plot_carpet`.
+        Polynomial order for detrending. See `plot_carpet`.
     standardize : bool, default: True
         Whether to z-score each voxel time series.
     vmin : float, optional
@@ -1845,14 +1845,13 @@ def _draw_carpet(
 ) -> tuple["Figure | SubFigure", "Axes"]:
     """Draw a carpet plot from pre-computed data.
 
-    Low-level drawing counterpart of :func:`_prepare_carpet_data`.  Intended
-    to run on the main thread after the expensive data preparation has been
-    done in a background thread.
+    Low-level drawing counterpart of `_prepare_carpet_data`. Intended to run on the main
+    thread after the expensive data preparation has been done in a background thread.
 
     Parameters
     ----------
     prep : dict
-        Pre-computed dict returned by :func:`_prepare_carpet_data`.
+        Pre-computed dict returned by `_prepare_carpet_data`.
     cmap : str, default: `"gray"`
         Matplotlib colormap name.
     figsize : tuple[float, float], default: (10, 5)

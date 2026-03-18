@@ -30,8 +30,8 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
     Parameters
     ----------
     seed_signals : xarray.DataArray
-        Pre-computed seed region signal(s). Must be 1-D ``(time,)`` or 2-D
-        ``(time, region)``.
+        Pre-computed seed region signal(s). Must be 1-D `(time,)` or 2-D
+        `(time, region)`.
     data : xarray.DataArray
         Reference fUSI data array that `seed_signals` will be correlated against.
 

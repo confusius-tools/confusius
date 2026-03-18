@@ -42,7 +42,7 @@ class EchoFrameMetadata(TypedDict):
     pulse_repetition_frequency : float
         Single plane wave pulse repetition frequency in hertz.
     beamforming_method : str
-        Beamforming method used (e.g. ``"DAS"``).
+        Beamforming method used (e.g. `"DAS"`).
     """
 
     lateral_coords: npt.NDArray[np.float64]
