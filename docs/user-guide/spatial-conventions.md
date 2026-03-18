@@ -75,7 +75,7 @@ This ordering is motivated by several considerations.
   `(antero-posterior, superior-inferior, left-right)`, sharing the first two axes with
   [BrainGlobe](https://brainglobe.info) atlases (e.g. Allen CCFv3). The physical →
   world affine captures any remaining orientation difference (e.g. a lateral mirror).
-- **Visualization:** Most visualization tools (e.g. Napari) expect the last two axes to
+- **Visualization:** Most visualization tools (e.g. napari) expect the last two axes to
   be the display axes of a 2D image. `data.sel(time=t, z=z)` yields a `(y, x)` array
   that plots correctly without transposing.
 

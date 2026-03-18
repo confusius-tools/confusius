@@ -742,7 +742,7 @@ corresponding Xarray accessor method.
 Now that you've processed your beamformed IQ data into power Doppler or velocity
 volumes, you're ready to:
 
-1. **[Visualization](visualization.md)**: explore your data interactively with Napari
+1. **[Visualization](visualization.md)**: explore your data interactively with napari
    and generate static figures with Matplotlib.
 2. **[Quality Control](quality-control.md)**: assess data quality and identify artifacts *(coming
    soon)*

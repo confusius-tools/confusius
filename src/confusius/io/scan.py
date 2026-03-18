@@ -162,7 +162,7 @@ def _build_physical_to_lab(
 
     where `P = _PHYSICAL_TO_PROBE_PERMUTATION`. This produces a ConfUSIus-ordered affine
     whose rotation block is identity for a non-rotated probe, making it directly usable
-    in Napari and other tools that expect `(z, y, x)` axis order.
+    in napari and other tools that expect `(z, y, x)` axis order.
 
     Parameters
     ----------

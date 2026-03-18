@@ -89,6 +89,6 @@ data = cf.load("path/to/data.nii.gz")
 # Perform motion correction.
 corrected_data = data.fusi.register.volumewise()
 
-# Visualize with Napari.
+# Visualize with napari.
 corrected_data.fusi.plot()
 ```

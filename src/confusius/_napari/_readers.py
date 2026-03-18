@@ -1,6 +1,6 @@
 """File readers for ConfUSIus data formats (npe2).
 
-These are called by Napari when files are opened via File → Open, drag-and-drop,
+These are called by napari when files are opened via File → Open, drag-and-drop,
 or the CLI.
 
 Each public function is a `get_reader` command: it receives the path, does a
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 def _da_to_layer_data(da: xr.DataArray, name: str) -> FullLayerData:
-    """Convert a ConfUSIus DataArray to a Napari FullLayerData tuple.
+    """Convert a ConfUSIus DataArray to a napari FullLayerData tuple.
 
     Mirrors the logic of [`plot_napari`][confusius.plotting.plot_napari]
 
@@ -73,13 +73,13 @@ def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData
 
     The returned function loads the file via [`confusius.load`][confusius.load] (which
     dispatches on extension) and converts the result to a `FullLayerData` tuple. This
-    function may raise; Napari will surface any exception to the user.
+    function may raise; napari will surface any exception to the user.
     """
     from confusius.io import load
 
     def _read(_path: PathOrPaths) -> list[FullLayerData]:
         # Use the pre-validated `path` captured from the outer scope rather
-        # than `_path`, which may be a list when Napari replays the reader.
+        # than `_path`, which may be a list when napari replays the reader.
         da = load(path)
         name = Path(path).name
         return [_da_to_layer_data(da, name)]
@@ -95,13 +95,13 @@ def read_nifti(
     Parameters
     ----------
     path : PathOrPaths
-        Path passed by Napari.
+        Path passed by napari.
 
     Returns
     -------
     Callable or None
         Reader function, or `None` if the path is a list or the file does
-        not exist (Napari will fall back to other plugins).
+        not exist (napari will fall back to other plugins).
     """
     if isinstance(path, list) or not isinstance(path, (str, Path)):
         return None
@@ -116,13 +116,13 @@ def read_scan(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
     Parameters
     ----------
     path : PathOrPaths
-        Path passed by Napari.
+        Path passed by napari.
 
     Returns
     -------
     Callable or None
         Reader function, or `None` if the path is a list or the file does
-        not exist (Napari will fall back to other plugins).
+        not exist (napari will fall back to other plugins).
     """
     if isinstance(path, list) or not isinstance(path, (str, Path)):
         return None
@@ -140,13 +140,13 @@ def read_zarr(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
     Parameters
     ----------
     path : PathOrPaths
-        Path passed by Napari.
+        Path passed by napari.
 
     Returns
     -------
     Callable or None
         Reader function, or `None` if the path is a list, not a directory,
-        or contains no Zarr metadata files (Napari will fall back to other
+        or contains no Zarr metadata files (napari will fall back to other
         plugins).
     """
     if isinstance(path, list) or not isinstance(path, (str, Path)):

@@ -9,8 +9,8 @@ generation**:
 
 | Tool | Backend | Best for |
 |---|---|---|
-| [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | Napari | Interactive exploration of 3D+t datasets |
-| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] | Napari | Interactive manual ROI drawing |
+| [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | napari | Interactive exploration of 3D+t datasets |
+| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] | napari | Interactive manual ROI drawing |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
@@ -19,12 +19,12 @@ All functions accept DataArrays and use physical coordinates for axis scaling
 automatically. The [Xarray accessor](xarray.md) variants (`.fusi.plot.*`) offer a more
 concise syntax; both call the same underlying functions.
 
-## Interactive Exploration with Napari
+## Interactive Exploration with napari
 
-ConfUSIus relies on [Napari](https://napari.org) for interactive visualization of 3D+t
+ConfUSIus relies on [napari](https://napari.org) for interactive visualization of 3D+t
 fUSI data. Napari handles large datasets efficiently through lazy loading, allowing you
 to explore even beamformed IQ data without running out of memory. You may find it
-helpful to read through the [tour of the Napari
+helpful to read through the [tour of the napari
 viewer](https://napari.org/dev/getting_started/viewer.html) to familiarize yourself with
 the controls and features.
 
@@ -50,13 +50,13 @@ the controls and features.
     viewer, layer = cf.plotting.plot_napari(pwd)
     ```
 
-This opens a Napari viewer with a scale bar, colorbar, and correct physical scaling
+This opens a napari viewer with a scale bar, colorbar, and correct physical scaling
 across axes. The viewer is fully interactive: you can zoom, pan, and scroll through time
 and elevation slices with the sliders or mouse wheel.
 
-![Napari viewer with a 2D+t power Doppler dataset](../images/visualization/napari-overview.png)
+![napari viewer with a 2D+t power Doppler dataset](../images/visualization/napari-overview.png)
 
-!!! tip "Using Napari's annotation tools and plugins"
+!!! tip "Using napari's annotation tools and plugins"
     Napari's annotation tools let you [draw regions of
     interest](https://napari.org/dev/howtos/layers/labels.html) and [place
     markers](https://napari.org/dev/howtos/layers/points.html) on your fUSI volumes.
@@ -64,13 +64,13 @@ and elevation slices with the sliders or mouse wheel.
     [`draw_napari_labels`][confusius.plotting.draw_napari_labels] to open a viewer with
     an empty Labels layer ready for painting (see the [Manual ROI
     Drawing](#manual-roi-drawing) section below). These annotations can be saved and
-    loaded for later analysis. Additionally, the [Napari Hub](https://napari-hub.org/)
+    loaded for later analysis. Additionally, the [napari Hub](https://napari-hub.org/)
     hosts hundreds of plugins that extend functionality—from segmentation algorithms to
     integration with other imaging modalities like microscopy or MRI.
 
 ### Napari's Parameters
 
-By default Napari auto-scales contrast to the data range. For power Doppler, working
+By default napari auto-scales contrast to the data range. For power Doppler, working
 in decibel scale with explicit limits is often more informative:
 
 ```python
@@ -126,7 +126,7 @@ viewer, labels_layer = cf.plotting.plot_napari(
 )
 ```
 
-![Napari viewer with Allen atlas Labels layer overlaid](../images/visualization/napari-labels.png)
+![napari viewer with Allen atlas Labels layer overlaid](../images/visualization/napari-labels.png)
 
 !!! tip "Adding Multiple Image Layers"
     The `viewer` argument works for any `plot_napari` call, letting you load two image
@@ -140,7 +140,7 @@ viewer, labels_layer = cf.plotting.plot_napari(
 
 ### Slicing Across Different Spatial Dimensions
 
-By default, Napari shows the last two spatial dimensions as a 2D plane and the remaining
+By default, napari shows the last two spatial dimensions as a 2D plane and the remaining
 dimensions (e.g., `time`, `z`) as sliders. If you prefer a different default slicing
 axis—for example slicing along `y` (depth) instead of `z` (elevation)—use
 `dim_order` to reorder the spatial axes:
@@ -152,17 +152,17 @@ viewer, layer = pwd_3d.fusi.plot.napari(dim_order=("y", "z", "x"))
 
 ### 3D Rendering
 
-For volumetric datasets, Napari can render the data in full 3D using volume rendering
+For volumetric datasets, napari can render the data in full 3D using volume rendering
 (accessible by clicking the second icon in the bottom-left controls). In the 3D view you
-can drag to orbit, scroll to zoom, and use the Napari controls to adjust the rendering.
+can drag to orbit, scroll to zoom, and use the napari controls to adjust the rendering.
 
 ![3D orbit of the angiography volume](../images/visualization/napari-3d-orbit.gif)
 
 ## Manual ROI Drawing
 
-[`draw_napari_labels`][confusius.plotting.draw_napari_labels] opens a Napari viewer
+[`draw_napari_labels`][confusius.plotting.draw_napari_labels] opens a napari viewer
 with your data as a background image and an empty **Labels** layer on top. You can then
-paint integer labels directly in the viewer using Napari's brush tool—each distinct
+paint integer labels directly in the viewer using napari's brush tool—each distinct
 integer becomes a separate region of interest (ROI).
 
 ```python
@@ -183,7 +183,7 @@ viewer, labels_layer = cf.plotting.draw_napari_labels(
 The Labels layer is aligned to the same physical coordinate frame as the image layer, so
 the spatial scale and origin are consistent regardless of voxel size or data origin.
 
-![Napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
+![napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
 
 Once you have finished painting, use
 [`labels_from_layer`][confusius.plotting.labels_from_layer] to convert the Labels layer
@@ -199,7 +199,7 @@ from confusius.plotting import labels_from_layer
 # label_map has dims ("masks", "z", "y", "x"), one layer per painted label.
 label_map = labels_from_layer(labels_layer, mean_vol)
 
-# Each label's color as painted in Napari is stored in attrs["rgb_lookup"]
+# Each label's color as painted in napari is stored in attrs["rgb_lookup"]
 # and will be reused automatically by plot_contours and add_contours.
 
 # Extract region-averaged signals.

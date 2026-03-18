@@ -75,7 +75,7 @@ class FUSIPlotAccessor:
             Dimension ordering for the spatial axes (last three dimensions). If not
             provided, the ordering of the last three dimensions in `data` is used.
         viewer : napari.Viewer, optional
-            Existing Napari viewer to add the layer to. If not provided, a new
+            Existing napari viewer to add the layer to. If not provided, a new
             viewer is created.
         layer_type : {"image", "labels"}, default: "image"
             Type of layer to create. Use "image" for fUSI data and "labels" for
@@ -88,14 +88,14 @@ class FUSIPlotAccessor:
         Returns
         -------
         viewer : napari.Viewer
-            The Napari viewer instance with the layer added.
+            The napari viewer instance with the layer added.
         layer : napari.layers.Image or napari.layers.Labels
             The layer added to the viewer.
 
         Notes
         -----
         If all spatial dimensions have coordinates, their spacing is used as the scale
-        parameter for Napari to ensure correct physical scaling. If any spatial dimension
+        parameter for napari to ensure correct physical scaling. If any spatial dimension
         is missing coordinates, no scaling is applied. The spacing is computed as the
         median difference between consecutive coordinate values.
 
@@ -160,7 +160,7 @@ class FUSIPlotAccessor:
         labels_layer_name : str, default: "labels"
             Name assigned to the Labels layer added to the viewer.
         viewer : napari.Viewer, optional
-            Existing Napari viewer to add layers to. If not provided, a new
+            Existing napari viewer to add layers to. If not provided, a new
             viewer is created.
         **plot_kwargs
             Additional keyword arguments forwarded to
@@ -170,7 +170,7 @@ class FUSIPlotAccessor:
         Returns
         -------
         viewer : napari.Viewer
-            The Napari viewer instance with the image and Labels layers.
+            The napari viewer instance with the image and Labels layers.
         labels_layer : napari.layers.Labels
             The empty Labels layer initialised to zeros. After painting labels
             in the viewer, pass it to

@@ -1342,7 +1342,7 @@ def plot_napari(
     layer_type: Literal["image", "labels"] = "image",
     **layer_kwargs,
 ) -> "tuple[Viewer, Image | Labels]":
-    """Display fUSI data using the Napari viewer.
+    """Display fUSI data using the napari viewer.
 
     Parameters
     ----------
@@ -1359,7 +1359,7 @@ def plot_napari(
         Dimension ordering for the spatial axes (last three dimensions). If not
         provided, the ordering of the last three dimensions in `data` is used.
     viewer : napari.Viewer, optional
-        Existing Napari viewer to add the layer to. If not provided, a new viewer
+        Existing napari viewer to add the layer to. If not provided, a new viewer
         is created.
     layer_type : {"image", "labels"}, default: "image"
         Type of layer to create. Use "image" for fUSI data and "labels" for
@@ -1376,19 +1376,19 @@ def plot_napari(
     Returns
     -------
     viewer : napari.Viewer
-        The Napari viewer instance with the layer added.
+        The napari viewer instance with the layer added.
     layer : napari.layers.Image or napari.layers.Labels
         The layer added to the viewer.
 
     Notes
     -----
     If all spatial dimensions have coordinates, their spacing is used as the scale
-    parameter for Napari to ensure correct physical scaling. If any spatial dimension is
+    parameter for napari to ensure correct physical scaling. If any spatial dimension is
     missing coordinates, no scaling is applied. The spacing is computed as the median
     difference between consecutive coordinate values.
 
     When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list
-    is forwarded to Napari as the `units` layer parameter, which populates the status
+    is forwarded to napari as the `units` layer parameter, which populates the status
     bar with physical coordinates. The scale bar is also updated to reflect the first
     found unit; it falls back to `"mm"` when no units are present on the coordinates.
 
@@ -1451,7 +1451,7 @@ def plot_napari(
     origin = data.fusi.origin
     coord_translates = [origin[dim] for dim in all_dims]
 
-    # Napari requires units to cover ALL dims. Build in all_dims order so each
+    # napari requires units to cover ALL dims. Build in all_dims order so each
     # unit aligns with the correct dimension; passing None is accepted for
     # unlabelled axes.
     all_units: list[str | None] = [
@@ -1574,7 +1574,7 @@ def draw_napari_labels(
     labels_layer_name : str, default: "labels"
         Name assigned to the Labels layer added to the viewer.
     viewer : napari.Viewer, optional
-        Existing Napari viewer to add layers to. If not provided, a new viewer
+        Existing napari viewer to add layers to. If not provided, a new viewer
         is created via [`plot_napari`][confusius.plotting.plot_napari].
     **kwargs
         Additional keyword arguments forwarded to
@@ -1584,7 +1584,7 @@ def draw_napari_labels(
     Returns
     -------
     viewer : napari.Viewer
-        The Napari viewer instance with the image and Labels layers.
+        The napari viewer instance with the image and Labels layers.
     labels_layer : napari.layers.Labels
         The empty Labels layer initialised to zeros. After the user paints
         labels in the viewer, pass this layer to

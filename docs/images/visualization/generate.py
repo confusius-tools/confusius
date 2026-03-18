@@ -21,8 +21,8 @@ All images are saved to docs/images/visualization/.
 
 Notes
 -----
-- Napari screenshots are taken programmatically. Review them after the script
-  finishes and retake manually (File > Save Screenshot in Napari) if the canvas
+- napari screenshots are taken programmatically. Review them after the script
+  finishes and retake manually (File > Save Screenshot in napari) if the canvas
   renders poorly (e.g., all-black).
 """
 
@@ -108,10 +108,10 @@ print("Loading binary brain mask …")
 brain_mask = cf.load(MASK_ZARR_PATH).compute() > 0
 
 # --------------------------------------------------------------------------- #
-# 1 & 2. Napari images                                                          #
+# 1 & 2. napari images                                                          #
 # --------------------------------------------------------------------------- #
 
-print("\n── Napari images ─────────────────────────────────────────────────────")
+print("\n── napari images ─────────────────────────────────────────────────────")
 
 try:
     import napari
@@ -189,20 +189,20 @@ try:
     print("  Saved napari-labels.png")
 
 except Exception as exc:
-    print(f"  Napari screenshot failed: {exc}")
+    print(f"  napari screenshot failed: {exc}")
     print(
-        "  → Take Napari screenshots manually:\n"
+        "  → Take napari screenshots manually:\n"
         "      mean_vol.fusi.scale.db().fusi.plot.napari(\n"
         "          contrast_limits=(-15, 0), colormap='gray'\n"
         "      )\n"
-        "  Then use File > Save Screenshot in the Napari menu."
+        "  Then use File > Save Screenshot in the napari menu."
     )
 
 # --------------------------------------------------------------------------- #
-# 3. Napari 3D orbit GIF                                                        #
+# 3. napari 3D orbit GIF                                                        #
 # --------------------------------------------------------------------------- #
 
-print("\n── Napari 3D orbit GIF ────────────────────────────────────────────────")
+print("\n── napari 3D orbit GIF ────────────────────────────────────────────────")
 
 try:
     print("Generating napari-3d-orbit.gif …")
@@ -272,7 +272,7 @@ try:
     )
     print("  Saved napari-3d-orbit.gif")
 except Exception as exc:
-    print(f"  Napari 3D orbit GIF failed: {exc}")
+    print(f"  napari 3D orbit GIF failed: {exc}")
 
 
 # --------------------------------------------------------------------------- #

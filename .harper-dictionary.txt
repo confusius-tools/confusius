@@ -12,6 +12,7 @@ HDF5
 MINC
 NIfTI
 Napari
+napari
 Nilearn
 RF
 Reindex

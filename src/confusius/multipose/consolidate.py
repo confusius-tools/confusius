@@ -171,7 +171,7 @@ def consolidate_poses(
     # Replace the SVD-derived projections with a regular arithmetic grid anchored at
     # proj_sorted[0]. The regularity check above ensures this is within rtol of the
     # actual positions; using a perfect grid avoids floating-point accumulation errors
-    # that would otherwise cause Napari (which renders voxel k at origin + k * scale)
+    # that would otherwise cause napari (which renders voxel k at origin + k * scale)
     # and resample_like (which reconstructs coords as origin + k * spacing) to disagree
     # with the coordinate array values.
     n_consolidated = len(proj_sorted)

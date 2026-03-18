@@ -39,7 +39,7 @@ def _compute_qc_metrics(
     """Compute QC metrics in a background thread.
 
     All expensive numpy/xarray operations run here so the napari event loop stays
-    responsive and the progress bar can animate. Matplotlib drawing and Napari layer
+    responsive and the progress bar can animate. Matplotlib drawing and napari layer
     additions happen in the main-thread callback.
     """
     results: dict = {}

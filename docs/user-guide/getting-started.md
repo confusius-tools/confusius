@@ -61,7 +61,7 @@ ConfUSIus provides a comprehensive toolkit designed specifically for fUSI data:
     - Registration between acquisitions.
 
 === "Visualization"
-    - Interactive exploration of 3D+t datasets using Napari.
+    - Interactive exploration of 3D+t datasets using napari.
     - Static figure generation using Matplotlib.
 
 === "Signal Processing"
@@ -114,7 +114,7 @@ ConfUSIus supports the complete fUSI analysis pipeline, from raw data acquisitio
     end
 
     subgraph visualization["Visualization"]
-        plotting[Napari, Matplotlib]
+        plotting[napari, Matplotlib]
     end
 
     subgraph registration["Registration"]
@@ -149,7 +149,7 @@ ConfUSIus supports the complete fUSI analysis pipeline, from raw data acquisitio
 
     - Monitor data quality using metrics like global signal, DVARS, or axial tissue
       velocity.
-    - Explore data interactively with Napari or create static figures with Matplotlib.
+    - Explore data interactively with napari or create static figures with Matplotlib.
     - Perform motion correction or align acquisitions to a template.
 
 5. **Signal Processing**: Extract signals from specific brain regions and apply
@@ -259,7 +259,7 @@ ConfUSIus.
   ConfUSIus builds on the BrainGlobe Atlas API for atlas integration.
 - [Matplotlib](https://matplotlib.org/stable/): The obvious choice for creating static
   figures in Python.
-- [PyVista](https://pyvista.org/): While ConfUSIus uses Napari for 3D rendering, PyVista
+- [PyVista](https://pyvista.org/): While ConfUSIus uses napari for 3D rendering, PyVista
   also offers a simple API to make custom 3D visualizations.
 
 [^mace2011]:

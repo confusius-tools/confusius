@@ -291,13 +291,13 @@ class ConfUSIusWidget(QWidget):
         title = f"ConfUSIus v{ver}"
 
         try:
-            # Napari stores all dock widgets in _wrapped_dock_widgets (on viewer.window,
+            # napari stores all dock widgets in _wrapped_dock_widgets (on viewer.window,
             # NOT on viewer.window._qt_window).
             for dock in self.viewer.window._wrapped_dock_widgets.values():
                 if not dock.isAncestorOf(self):
                     continue
                 dock.setWindowTitle(title)
-                # Napari's QtCustomTitleBar stores the visible text in a `title`
+                # napari's QtCustomTitleBar stores the visible text in a `title`
                 # attribute (a QLabel).
                 tb = dock.titleBarWidget()
                 if tb is not None and hasattr(tb, "title"):

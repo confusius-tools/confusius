@@ -144,7 +144,7 @@ properties:
 | [`.fusi.scale`][confusius.xarray.FUSIScaleAccessor] | Scaling transformations: decibel, log, and power scaling. |
 | [`.fusi.register`][confusius.xarray.FUSIRegistrationAccessor] | Motion correction via volumewise image registration. |
 | [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] | Extract and reconstruct signals using spatial masks. |
-| [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] | Visualization with Napari and carpet plots. |
+| [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] | Visualization with napari and carpet plots. |
 | [`.fusi.save`][confusius.xarray.FUSIAccessor.save] | Save data to file (NIfTI or Zarr), dispatching by extension. |
 
 The sub-accessors offer the same functions as the module-level API, but with an
@@ -323,7 +323,7 @@ region_signals = registered.fusi.extract.with_labels(label_map, reduction="sum")
 The [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] accessor provides easy access to
 visualization functions for quick data inspection and quality control.
 
-Display data in [Napari](https://napari.org/) (decibel-scaled by default):
+Display data in [napari](https://napari.org/) (decibel-scaled by default):
 
 ```python
 viewer, layer = registered.fusi.plot.napari(contrast_limits=(-20, 0))
@@ -367,7 +367,7 @@ pwd = iq.fusi.iq.process_to_power_doppler(
     low_cutoff=40,
 )
 
-# 3. Inspect in Napari (decibel-scaled by default).
+# 3. Inspect in napari (decibel-scaled by default).
 viewer, layer = pwd.fusi.plot.napari(contrast_limits=(-20, 0))
 
 # 4. Motion correction.
