@@ -20,6 +20,12 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Validation of fUSI data compatibility with expected formats in ConfUSIus.
 
+- **[:lucide-waypoints: Multi-Pose](multipose.md)**
+
+    ---
+
+    Multi-pose consolidation tools for combining fUSI data across acquisition poses.
+
 - **[:lucide-audio-waveform: Beamformed IQ](iq.md)**
 
     ---
@@ -71,5 +77,11 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
     ---
 
     Xarray integration providing DataArray accessors for fUSI data.
+
+- **[:lucide-brain-circuit: Functional Connectivity](connectivity.md)**
+
+    ---
+
+    Functional connectivity analysis for fUSI data.
 
 </div>
