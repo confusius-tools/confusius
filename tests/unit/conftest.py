@@ -23,17 +23,17 @@ def sample_3d_volume(rng):
         dims=["z", "y", "x"],
         coords={
             "z": xr.DataArray(
-                np.arange(4) * 0.1,
+                1.0 + np.arange(4) * 0.2,
                 dims=["z"],
                 attrs={"units": "mm"},
             ),
             "y": xr.DataArray(
-                np.arange(6) * 0.05,
+                2.0 + np.arange(6) * 0.1,
                 dims=["y"],
                 attrs={"units": "mm"},
             ),
             "x": xr.DataArray(
-                np.arange(8) * 0.05,
+                3.0 + np.arange(8) * 0.05,
                 dims=["x"],
                 attrs={"units": "mm"},
             ),
@@ -62,22 +62,22 @@ def sample_4d_volume(rng):
         dims=["time", "z", "y", "x"],
         coords={
             "time": xr.DataArray(
-                np.arange(10) * 0.1,
+                10.0 + np.arange(10) * 0.5,
                 dims=["time"],
                 attrs={"units": "s"},
             ),
             "z": xr.DataArray(
-                np.arange(4) * 0.1,
+                1.0 + np.arange(4) * 0.2,
                 dims=["z"],
                 attrs={"units": "mm"},
             ),
             "y": xr.DataArray(
-                np.arange(6) * 0.05,
+                2.0 + np.arange(6) * 0.1,
                 dims=["y"],
                 attrs={"units": "mm"},
             ),
             "x": xr.DataArray(
-                np.arange(8) * 0.05,
+                3.0 + np.arange(8) * 0.05,
                 dims=["x"],
                 attrs={"units": "mm"},
             ),

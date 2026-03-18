@@ -52,9 +52,9 @@ class TestWithLabels:
             labels_data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 0.1,
-                "y": np.arange(6) * 0.05,
-                "x": np.arange(8) * 0.05,
+                "z": sample_4d_volume.coords["z"],
+                "y": sample_4d_volume.coords["y"],
+                "x": sample_4d_volume.coords["x"],
             },
         )
 
