@@ -64,7 +64,7 @@ print("Extracting brain signals …")
 signals = pwd_zarr.fusi.extract.with_mask(brain_mask).compute()
 
 print("Loading SCAN power Doppler data (for CV and tSNR) …")
-pwd_scan = cf.io.load_scan(SCAN_PATH).compute()
+pwd_scan = cf.load(SCAN_PATH).compute()
 pwd_scan.attrs.update(
     {
         "long_name": "Power Doppler intensity",

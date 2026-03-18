@@ -155,7 +155,7 @@ steps:
     ```python
     import confusius as cf
 
-    anat = cf.io.load_scan("sub-01_acq-anat_pwd.scan")
+    anat = cf.load("sub-01_acq-anat_pwd.scan")
     volume = cf.multipose.consolidate_poses(anat)
     print(volume)
     ```
@@ -181,7 +181,7 @@ steps:
     ```python
     import confusius as cf
 
-    fus = cf.io.load_scan("sub-01_task-awake_pwd.scan")
+    fus = cf.load("sub-01_task-awake_pwd.scan")
     volume = cf.multipose.consolidate_poses(fus)
     print(volume)
     ```
@@ -245,7 +245,7 @@ saved to any format:
 ```python
 import confusius as cf
 
-anat = cf.io.load_scan("sub-01_acq-anat_pwd.scan")
+anat = cf.load("sub-01_acq-anat_pwd.scan")
 volume = cf.multipose.consolidate_poses(anat)
 
 # Save to NIfTI (creates .nii.gz and a JSON sidecar).

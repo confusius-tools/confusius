@@ -84,7 +84,7 @@ See the [Installation Guide](installation.md) for detailed instructions.
 import confusius as cf
 
 # Load fUSI data.
-data = cf.io.load_nifti("path/to/data.nii.gz")
+data = cf.load("path/to/data.nii.gz")
 
 # Perform motion correction.
 corrected_data = data.fusi.register.volumewise()
