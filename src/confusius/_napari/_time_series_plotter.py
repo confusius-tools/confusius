@@ -410,7 +410,13 @@ class TimeSeriesPlotter(QWidget):
         return data[tuple(ind)]
 
     def closeEvent(self, a0) -> None:
-        """Clean up when widget is closed."""
+        """Clean up when widget is closed.
+
+        Parameters
+        ----------
+        a0 : QCloseEvent
+            The close event (unused; accepted unconditionally).
+        """
         if self._on_mouse_move in self._viewer.mouse_move_callbacks:
             self._viewer.mouse_move_callbacks.remove(self._on_mouse_move)
         a0.accept()

@@ -59,6 +59,13 @@ class QCPlotsWidget(QWidget):
         self._setup_ui()
 
     def sizeHint(self) -> QSize:
+        """Return the preferred initial size of the widget.
+
+        Returns
+        -------
+        QSize
+            Preferred size of 800 × 320 pixels.
+        """
         return QSize(800, 320)
 
     def _setup_ui(self) -> None:
@@ -143,7 +150,13 @@ class QCPlotsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def update_dvars(self, dvars_da: xr.DataArray) -> None:
-        """Redraw the DVARS timeseries using the current napari theme."""
+        """Redraw the DVARS timeseries using the current napari theme.
+
+        Parameters
+        ----------
+        dvars_da : xarray.DataArray
+            1-D DVARS timeseries, optionally with a `"time"` coordinate.
+        """
         import numpy as np
 
         self._dvars_da = dvars_da
@@ -249,6 +262,11 @@ class QCPlotsWidget(QWidget):
         The blit is deferred to a ~60 fps timer so that rapid step events from the
         napari time slider do not block the main thread waiting for the docked canvas to
         repaint.
+
+        Parameters
+        ----------
+        time_val : float
+            Physical time value (or frame index) to position the cursor at.
         """
         self._current_time_val = time_val
         if not self._cursor_timer.isActive():
