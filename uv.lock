@@ -657,6 +657,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "pytest-mpl" },
+    { name = "pytest-qt" },
     { name = "ruff" },
     { name = "ty" },
     { name = "zensical" },
@@ -692,6 +693,7 @@ dev = [
     { name = "pytest", specifier = ">=8.4.2" },
     { name = "pytest-cov", specifier = ">=6.0.0" },
     { name = "pytest-mpl", specifier = ">=0.16.0" },
+    { name = "pytest-qt", specifier = ">=4.5.0" },
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.10,<0.1.0" },
     { name = "zensical", specifier = ">=0.0.21" },
@@ -3386,6 +3388,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9c/40/ba3caed7a54a6a5fe035ecc62dbb473f6f41ecade2ea3e0474f7e8e65c5c/pytest_mpl-0.18.0.tar.gz", hash = "sha256:04c949ea1278a38ca3d8d675871f6c5a0958bfedfaf4fd8bfd4e25e5861759a7", size = 880354, upload-time = "2025-11-15T13:54:52.69Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/eb/01/f9128b75808840fc070042c57168c800da57d2d80b97071dc6f07c793d58/pytest_mpl-0.18.0-py3-none-any.whl", hash = "sha256:e474b7676957c521104dbe351df937da5e582231cd34daeb43b9d1ecc048e5c0", size = 28063, upload-time = "2025-11-15T13:54:51.147Z" },
+]
+
+[[package]]
+name = "pytest-qt"
+version = "4.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pluggy" },
+    { name = "pytest" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d3/61/8bdec02663c18bf5016709b909411dce04a868710477dc9b9844ffcf8dd2/pytest_qt-4.5.0.tar.gz", hash = "sha256:51620e01c488f065d2036425cbc1cbcf8a6972295105fd285321eb47e66a319f", size = 128702, upload-time = "2025-07-01T17:24:39.889Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/d0/8339b888ad64a3d4e508fed8245a402b503846e1972c10ad60955883dcbb/pytest_qt-4.5.0-py3-none-any.whl", hash = "sha256:ed21ea9b861247f7d18090a26bfbda8fb51d7a8a7b6f776157426ff2ccf26eff", size = 37214, upload-time = "2025-07-01T17:24:38.226Z" },
 ]
 
 [[package]]

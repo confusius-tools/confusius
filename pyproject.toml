@@ -60,6 +60,7 @@ dev = [
     "ty>=0.0.10,<0.1.0",
     "zensical>=0.0.21",
     "mkdocstrings[python]>=1.0.3",
+    "pytest-qt>=4.5.0",
 ]
 
 [tool.numpydoc_validation]
@@ -75,6 +76,12 @@ checks = [
     "EX01",
 ]
 numpydoc_validation_checks = ["all", "GL01", "ES01", "SA01", "EX01"]
+
+[tool.coverage.run]
+# The _napari package is a Qt/napari UI layer. Widget setup, dock management,
+# event wiring, and theme callbacks all require a running Qt session that goes
+# well beyond what unit tests cover. Exclude it to keep coverage numbers meaningful.
+omit = ["*/confusius/_napari/*"]
 
 [tool.ruff]
 exclude = ["benchmark/*"]

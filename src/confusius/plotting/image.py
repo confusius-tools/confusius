@@ -1751,6 +1751,174 @@ def labels_from_layer(
     )
 
 
+def _prepare_carpet_data(
+    data: xr.DataArray,
+    mask: xr.DataArray | None = None,
+    detrend_order: int | None = None,
+    standardize: bool = True,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    decimation_threshold: int | None = 800,
+) -> dict:
+    """Prepare carpet plot data, separating expensive computation from drawing.
+
+    Intended to run in a background thread; the result is passed to
+    :func:`plot_carpet` via its `_precomputed` keyword.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input data array with a `"time"` dimension and coordinate.
+    mask : xarray.DataArray, optional
+        Boolean mask to select voxels. Defaults to all non-zero voxels.
+    detrend_order : int, optional
+        Polynomial order for detrending. See :func:`plot_carpet`.
+    standardize : bool, default: True
+        Whether to z-score each voxel time series.
+    vmin : float, optional
+        Lower colormap bound. Computed from data when `None`.
+    vmax : float, optional
+        Upper colormap bound. Computed from data when `None`.
+    decimation_threshold : int or None, default: 800
+        Downsample time axis when the number of frames exceeds this value.
+
+    Returns
+    -------
+    dict
+        Keys: `signals` (DataArray, voxels × time), `vmin` (float),
+        `vmax` (float), `xlabel` (str), `time_coord` (DataArray | None).
+    """
+    if np.iscomplexobj(data):
+        data = xr.ufuncs.abs(data)
+
+    if "time" not in data.dims or "time" not in data.coords:
+        raise ValueError("Data must have 'time' dimension and coordinates.")
+
+    n_timepoints = data.sizes["time"]
+
+    non_zero_voxels = (data != 0).any(dim="time")
+    if mask is None:
+        mask = non_zero_voxels
+    else:
+        mask = mask & non_zero_voxels
+
+    spatial_dims = [d for d in data.dims if d != "time"]
+    signals = extract_with_mask(data, mask)
+    signals = signals.drop_vars(spatial_dims + ["space"])
+
+    signals = clean(
+        signals,
+        detrend_order=detrend_order,
+        standardize_method="zscore" if standardize else None,
+    )
+
+    if vmin is None or vmax is None:
+        std_val = float(signals.std(axis=0).mean().values)
+        default_vmin = float(signals.mean().values - (2 * std_val))
+        default_vmax = float(signals.mean().values + (2 * std_val))
+        vmin = vmin or default_vmin
+        vmax = vmax or default_vmax
+
+    if decimation_threshold is not None and n_timepoints > decimation_threshold:
+        n_decimations = int(
+            np.ceil(np.log2(np.ceil(n_timepoints / decimation_threshold)))
+        )
+        decimation_factor = 2**n_decimations
+        signals = signals[::decimation_factor, :]
+
+    return {
+        "signals": signals,
+        "vmin": float(vmin),
+        "vmax": float(vmax),
+        "xlabel": _build_axis_label(data, "time").capitalize(),
+        "time_coord": data.coords.get("time"),
+    }
+
+
+def _draw_carpet(
+    prep: dict,
+    cmap: "str | Colormap" = "gray",
+    figsize: tuple[float, float] = (10, 5),
+    title: str | None = None,
+    black_bg: bool = False,
+    ax: "Axes | None" = None,
+) -> tuple["Figure | SubFigure", "Axes"]:
+    """Draw a carpet plot from pre-computed data.
+
+    Low-level drawing counterpart of :func:`_prepare_carpet_data`.  Intended
+    to run on the main thread after the expensive data preparation has been
+    done in a background thread.
+
+    Parameters
+    ----------
+    prep : dict
+        Pre-computed dict returned by :func:`_prepare_carpet_data`.
+    cmap : str, default: `"gray"`
+        Matplotlib colormap name.
+    figsize : tuple[float, float], default: (10, 5)
+        Figure size in inches, used only when *ax* is `None`.
+    title : str, optional
+        Plot title.
+    black_bg : bool, default: False
+        Whether to use a black background with white foreground elements.
+    ax : matplotlib.axes.Axes, optional
+        Axes to draw on. A new figure is created when `None`.
+
+    Returns
+    -------
+    figure : matplotlib.figure.Figure or matplotlib.figure.SubFigure
+        Figure containing the carpet plot.
+    axes : matplotlib.axes.Axes
+        Axes with the carpet plot.
+    """
+    import matplotlib.pyplot as plt
+
+    signals = prep["signals"]
+    vmin = prep["vmin"]
+    vmax = prep["vmax"]
+    xlabel = prep["xlabel"]
+
+    text_color = "white" if black_bg else "black"
+    bg_color = "black" if black_bg else "white"
+
+    if ax is None:
+        figure, ax = plt.subplots(figsize=figsize)
+        figure.patch.set_facecolor(bg_color)
+    else:
+        figure = ax.figure
+
+    ax.set_facecolor(bg_color)
+
+    quad = signals.T.plot(cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, yincrease=False)
+
+    if quad.colorbar is not None:
+        cbar = quad.colorbar
+        cbar.ax.yaxis.set_tick_params(color=text_color)
+        plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
+        cbar.ax.yaxis.label.set_color(text_color)
+        cbar.outline.set_edgecolor(text_color)
+        cbar.ax.set_facecolor(bg_color)
+
+    ax.grid(False)
+    ax.set_yticks([])
+    ax.set_ylabel("Voxels", color=text_color)
+    ax.set_xlabel(xlabel, color=text_color)
+    ax.tick_params(colors=text_color)
+
+    if title:
+        ax.set_title(title, color=text_color)
+
+    for side in ["top", "right"]:
+        ax.spines[side].set_visible(False)
+
+    ax.spines["bottom"].set_position(("outward", 10))
+    ax.spines["left"].set_position(("outward", 10))
+    ax.spines["bottom"].set_edgecolor(text_color)
+    ax.spines["left"].set_edgecolor(text_color)
+
+    return figure, ax
+
+
 def plot_carpet(
     data: xr.DataArray,
     mask: xr.DataArray | None = None,
@@ -1848,86 +2016,9 @@ def plot_carpet(
     ... )
     >>> fig, ax = plot_carpet(data, mask=mask)
     """
-    import matplotlib.pyplot as plt
-
-    if np.iscomplexobj(data):
-        data = xr.ufuncs.abs(data)
-
-    if "time" not in data.dims or "time" not in data.coords:
-        raise ValueError("Data must have 'time' dimension and coordinates.")
-
-    n_timepoints = data.sizes["time"]
-
-    non_zero_voxels = (data != 0).any(dim="time")
-    if mask is None:
-        mask = non_zero_voxels
-    else:
-        mask = mask & non_zero_voxels
-
-    # extract_with_mask creates a MultiIndex on voxels that makes xarray plotting
-    # fail; we need to drop the spatial coordinates.
-    spatial_dims = [d for d in data.dims if d != "time"]
-    signals = extract_with_mask(data, mask)
-    signals = signals.drop_vars(spatial_dims + ["space"])
-
-    signals = clean(
-        signals,
-        detrend_order=detrend_order,
-        standardize_method="zscore" if standardize else None,
+    prep = _prepare_carpet_data(
+        data, mask, detrend_order, standardize, vmin, vmax, decimation_threshold
     )
-
-    if vmin is None or vmax is None:
-        std_val = float(signals.std(axis=0).mean().values)
-        default_vmin = float(signals.mean().values - (2 * std_val))
-        default_vmax = float(signals.mean().values + (2 * std_val))
-        vmin = vmin or default_vmin
-        vmax = vmax or default_vmax
-
-    if decimation_threshold is not None and n_timepoints > decimation_threshold:
-        # For decimation, we get the smallest power of 2 greater than the number of
-        # volumes divided by the threshold.
-        n_decimations = int(
-            np.ceil(np.log2(np.ceil(n_timepoints / decimation_threshold)))
-        )
-        decimation_factor = 2**n_decimations
-        signals = signals[::decimation_factor, :]
-
-    text_color = "white" if black_bg else "black"
-    bg_color = "black" if black_bg else "white"
-
-    if ax is None:
-        figure, ax = plt.subplots(figsize=figsize)
-        figure.patch.set_facecolor(bg_color)
-    else:
-        figure = ax.figure
-
-    ax.set_facecolor(bg_color)
-
-    quad = signals.T.plot(cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, yincrease=False)  # type: ignore[call-arg]
-
-    if quad.colorbar is not None:
-        cbar = quad.colorbar
-        cbar.ax.yaxis.set_tick_params(color=text_color)
-        plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
-        cbar.ax.yaxis.label.set_color(text_color)
-        cbar.outline.set_edgecolor(text_color)
-        cbar.ax.set_facecolor(bg_color)
-
-    ax.grid(False)
-    ax.set_yticks([])
-    ax.set_ylabel("Voxels", color=text_color)
-    ax.set_xlabel(_build_axis_label(data, "time").capitalize(), color=text_color)
-    ax.tick_params(colors=text_color)
-
-    if title:
-        ax.set_title(title, color=text_color)
-
-    for side in ["top", "right"]:
-        ax.spines[side].set_visible(False)
-
-    ax.spines["bottom"].set_position(("outward", 10))
-    ax.spines["left"].set_position(("outward", 10))
-    ax.spines["bottom"].set_edgecolor(text_color)
-    ax.spines["left"].set_edgecolor(text_color)
-
-    return figure, ax
+    return _draw_carpet(
+        prep, cmap=cmap, figsize=figsize, title=title, black_bg=black_bg, ax=ax
+    )

@@ -4,6 +4,10 @@ schema_version: "0.2.1"
 
 contributions:
   commands:
+    - id: confusius.open_widget
+      title: Open ConfUSIus
+      python_name: confusius._napari._widget:ConfUSIusWidget
+
     - id: confusius.read_nifti
       title: Read NIfTI file
       python_name: confusius._napari._readers:read_nifti
@@ -15,6 +19,11 @@ contributions:
     - id: confusius.read_zarr
       title: Read Zarr store
       python_name: confusius._napari._readers:read_zarr
+
+  widgets:
+    - command: confusius.open_widget
+      display_name: ConfUSIus
+      autogenerate: false
 
   readers:
     - command: confusius.read_nifti
