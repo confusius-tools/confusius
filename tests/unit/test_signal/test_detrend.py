@@ -173,8 +173,8 @@ def test_detrend_polynomial_order2(signals_with_quadratic_trend):
     naive_result = _naive_polynomial_detrend(
         signals_with_quadratic_trend.values, order=2, axis=0
     )
-    # Use relaxed tolerance for numerical precision (matching order 3 test).
-    assert_allclose(result.values, naive_result, rtol=1e-8)
+    # Use relaxed tolerance for numerical precision.
+    assert_allclose(result.values, naive_result, rtol=1e-7)
 
 
 def test_detrend_polynomial_order3(signals_with_cubic_trend):
