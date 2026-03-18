@@ -41,6 +41,9 @@ dependencies = [
     "zarr>=3.1.3",
 ]
 
+[project.scripts]
+confusius = "confusius._cli:main"
+
 [project.entry-points."napari.manifest"]
 confusius = "confusius._napari:napari.yaml"
 
@@ -81,7 +84,7 @@ numpydoc_validation_checks = ["all", "GL01", "ES01", "SA01", "EX01"]
 # The _napari package is a Qt/napari UI layer. Widget setup, dock management,
 # event wiring, and theme callbacks all require a running Qt session that goes
 # well beyond what unit tests cover. Exclude it to keep coverage numbers meaningful.
-omit = ["*/confusius/_napari/*"]
+omit = ["*/confusius/_napari/*", "*/confusius/_cli.py"]
 
 [tool.ruff]
 exclude = ["benchmark/*"]
