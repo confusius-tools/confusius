@@ -34,5 +34,5 @@ keywords:
   - Python
 license: BSD-3-Clause
 commit: 9c6ee8b8da443080886254d706675954963aa90f
-version: 0.0.1-a12
-date-released: '2026-03-16'
+version: 0.0.1-a13
+date-released: '2026-03-18'
