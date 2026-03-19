@@ -49,7 +49,7 @@ statistical analysis of functional ultrasound imaging (fUSI) data.
     their experimental needs.
 
 - **I/O Operations**: Load and save fUSI data in various formats (AUTC, EchoFrame,
-  NIfTI, Zarr, etc.)
+  Iconeus SCAN, NIfTI, Zarr, etc.)
 - **Beamformed IQ Processing**: Process raw beamformed IQ signals into power Doppler,
   velocity, and other derived metrics.
 - **Quality Control**: Compute quality metrics (DVARS, tSNR, CV) to assess data quality.
