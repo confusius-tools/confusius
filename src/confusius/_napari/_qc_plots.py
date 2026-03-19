@@ -40,7 +40,9 @@ class QCPlotsWidget(QWidget):
         self.setMinimumHeight(150)
         # Cached data for theme-change redraws.
         self._dvars_da: xr.DataArray | None = None
+        self._dvars_layer_name: str = ""
         self._data_da: dict | None = None  # pre-computed carpet dict
+        self._carpet_layer_name: str = ""
         # Blitting state per plot.
         self._dvars_ax = None
         self._dvars_vline = None
@@ -149,17 +151,20 @@ class QCPlotsWidget(QWidget):
     # Update helpers
     # ------------------------------------------------------------------
 
-    def update_dvars(self, dvars_da: xr.DataArray) -> None:
+    def update_dvars(self, dvars_da: xr.DataArray, layer_name: str = "") -> None:
         """Redraw the DVARS timeseries using the current napari theme.
 
         Parameters
         ----------
         dvars_da : xarray.DataArray
             1-D DVARS timeseries, optionally with a `"time"` coordinate.
+        layer_name : str, optional
+            Name of the source layer, shown as the plot title.
         """
         import numpy as np
 
         self._dvars_da = dvars_da
+        self._dvars_layer_name = layer_name
         # Invalidate blitting state before clearing the figure.
         self._dvars_ax = None
         self._dvars_vline = None
@@ -184,6 +189,8 @@ class QCPlotsWidget(QWidget):
         ax.plot(x, dvars_da.values, color=colors["accent"], linewidth=1.2)
         ax.set_xlabel(xlabel, color=colors["fg"], fontsize=9)
         ax.set_ylabel("DVARS", color=colors["fg"], fontsize=9)
+        if self._dvars_layer_name:
+            ax.set_title(self._dvars_layer_name, color=colors["fg"], fontsize=10)
         ax.tick_params(colors=colors["fg"], labelsize=8)
         ax.set_xlim(x[0], x[-1])
         for spine in ax.spines.values():
@@ -211,7 +218,7 @@ class QCPlotsWidget(QWidget):
         self._dvars_canvas.draw()  # → triggers _on_dvars_draw
         self._tabs.setCurrentWidget(self._dvars_tab)
 
-    def update_carpet(self, carpet_data: dict) -> None:
+    def update_carpet(self, carpet_data: dict, layer_name: str = "") -> None:
         """Redraw the carpet plot from pre-computed data.
 
         Parameters
@@ -219,10 +226,13 @@ class QCPlotsWidget(QWidget):
         carpet_data : dict
             Pre-computed dict returned by `_precompute_carpet`, with keys `signals`,
             `vmin`, `vmax`, `xlabel`, and `time_coord`.
+        layer_name : str, optional
+            Name of the source layer, shown as the plot title.
         """
         from confusius.plotting.image import _draw_carpet
 
         self._data_da = carpet_data
+        self._carpet_layer_name = layer_name
         self._carpet_ax = None
         self._carpet_vline = None
         self._carpet_bg = None
@@ -238,6 +248,9 @@ class QCPlotsWidget(QWidget):
 
         ax = self._carpet_fig.add_subplot(111)
         _draw_carpet(carpet_data, ax=ax, black_bg=colors["is_dark"])
+
+        if self._carpet_layer_name:
+            ax.set_title(self._carpet_layer_name, color=colors["fg"], fontsize=10)
 
         time_coord = carpet_data["time_coord"]
         t0 = self._current_time_val

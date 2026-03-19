@@ -195,6 +195,11 @@ QPushButton#primary_btn {{
 QPushButton#primary_btn:hover {{
     background: {accent_hover};
 }}
+QPushButton#primary_btn:disabled {{
+    background: {btn_bg};
+    color: {placeholder_fg};
+    font-weight: normal;
+}}
 
 /* ---- Group boxes ---- */
 QGroupBox {{

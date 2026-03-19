@@ -134,11 +134,11 @@ class QCPanel(QWidget):
         self._compute_btn.clicked.connect(self._compute)
         layout.addWidget(self._compute_btn)
 
-        # "Show plots" is only useful once something has been computed.
+        # "Show plots" is hidden until at least one compute has finished.
         self._show_btn = QPushButton("Show QC plots")
-        self._show_btn.setEnabled(False)
         self._show_btn.setToolTip("Show the QC plots dock.")
         self._show_btn.clicked.connect(self._show_plots)
+        self._show_btn.hide()
         layout.addWidget(self._show_btn)
 
         # Thin indeterminate progress bar; animates while the thread runs.
@@ -344,10 +344,10 @@ class QCPanel(QWidget):
                 qc_widget = self._ensure_qc_plots()
 
                 if "dvars" in results:
-                    qc_widget.update_dvars(results["dvars"])
+                    qc_widget.update_dvars(results["dvars"], layer_name=layer_name)
 
                 if "carpet" in results:
-                    qc_widget.update_carpet(results["carpet"])
+                    qc_widget.update_carpet(results["carpet"], layer_name=layer_name)
 
                 # Sync cursor to the current slider position so it does not start at t=0
                 # when plots are first drawn.
@@ -355,7 +355,7 @@ class QCPanel(QWidget):
                 if time_val is not None:
                     qc_widget.set_time_cursor(time_val)
 
-                self._show_btn.setEnabled(True)
+                self._show_btn.show()
 
             if "tsnr" in results or "cv" in results:
                 from confusius.plotting.image import plot_napari

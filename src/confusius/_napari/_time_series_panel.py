@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import napari
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QCheckBox,
     QDoubleSpinBox,
@@ -51,16 +52,34 @@ class TimeSeriesPanel(QWidget):
         limits_layout = QVBoxLayout(limits_group)
         limits_layout.setSpacing(4)
 
+        # Autoscale checkbox. QCheckBox does not support rich text, so we pair a
+        # text-less checkbox with a clickable QLabel to get the italic "y".
+        autoscale_row = QHBoxLayout()
+        self._autoscale_check = QCheckBox()
+        self._autoscale_check.setChecked(True)
+        self._autoscale_check.toggled.connect(self._on_autoscale_changed)
+        autoscale_label = QLabel("Autoscale <i>y</i>-axis")
+        autoscale_label.setTextFormat(Qt.TextFormat.RichText)
+        autoscale_label.mousePressEvent = lambda _e: self._autoscale_check.toggle()  # type: ignore[method-assign]
+        autoscale_row.addWidget(self._autoscale_check)
+        autoscale_row.addWidget(autoscale_label)
+        autoscale_row.addStretch()
+        limits_layout.addLayout(autoscale_row)
+
         # Y-axis limits
         y_layout = QHBoxLayout()
-        y_layout.addWidget(QLabel("Y min:"))
+        ymin_label = QLabel("<i>y</i> min:")
+        ymin_label.setTextFormat(Qt.TextFormat.RichText)
+        y_layout.addWidget(ymin_label)
         self._ymin_spin = QDoubleSpinBox()
         self._ymin_spin.setRange(-1e9, 1e9)
         self._ymin_spin.setSpecialValueText("Auto")
         self._ymin_spin.setValue(0)  # 0 = Auto (special value)
         self._ymin_spin.valueChanged.connect(self._apply_settings)
         y_layout.addWidget(self._ymin_spin)
-        y_layout.addWidget(QLabel("Y max:"))
+        ymax_label = QLabel("<i>y</i> max:")
+        ymax_label.setTextFormat(Qt.TextFormat.RichText)
+        y_layout.addWidget(ymax_label)
         self._ymax_spin = QDoubleSpinBox()
         self._ymax_spin.setRange(-1e9, 1e9)
         self._ymax_spin.setSpecialValueText("Auto")
@@ -69,11 +88,8 @@ class TimeSeriesPanel(QWidget):
         y_layout.addWidget(self._ymax_spin)
         limits_layout.addLayout(y_layout)
 
-        # Autoscale checkbox
-        self._autoscale_check = QCheckBox("Autoscale Y-axis")
-        self._autoscale_check.setChecked(True)
-        self._autoscale_check.toggled.connect(self._on_autoscale_changed)
-        limits_layout.addWidget(self._autoscale_check)
+        # Apply initial autoscale state so spinboxes start disabled.
+        self._on_autoscale_changed(True)
 
         layout.addWidget(limits_group)
 
@@ -103,7 +119,7 @@ class TimeSeriesPanel(QWidget):
 
         layout.addWidget(display_group)
 
-        # Show plot button
+        # Show plot button — disabled while the dock is visible.
         self._show_btn = QPushButton("Show Time Series Plot")
         self._show_btn.setObjectName("primary_btn")
         self._show_btn.clicked.connect(self._show_plot)
@@ -120,21 +136,30 @@ class TimeSeriesPanel(QWidget):
     def _ensure_plotter(self) -> TimeSeriesPlotter:
         """Return the bottom-dock TimeSeriesPlotter.
 
-        Creates the dock widget if it doesn't exist or was closed.
+        Creates and docks the widget on first call. If the dock was closed (the
+        plotter's parent becomes None after napari removes it), re-docks it.
+        When the plotter is already in a live dock this is a no-op.
         """
         from confusius._napari._time_series_plotter import TimeSeriesPlotter
 
         if self._plotter is None:
             self._plotter = TimeSeriesPlotter(self._viewer)
 
-        # (Re-)dock the widget; napari is idempotent when the widget is already docked.
-        dock = self._viewer.window.add_dock_widget(
-            self._plotter, name="Time Series Plot", area="bottom"
-        )
-        dock.setFloating(False)
+        if self._plotter.parent() is None:
+            # Widget is not docked — create (or re-create) the dock.
+            dock = self._viewer.window.add_dock_widget(
+                self._plotter, name="Time Series Plot", area="bottom"
+            )
+            dock.setFloating(False)
 
-        # Always sync panel settings to the plotter (covers the case where settings like
-        # the time cursor were configured before the plotter was first created).
+            # Disable the button while the dock is visible; re-enable on hide/close.
+            self._show_btn.setEnabled(False)
+            dock.visibilityChanged.connect(
+                lambda visible: self._show_btn.setEnabled(not visible)
+            )
+
+        # Always sync panel settings to the plotter (covers the case where settings
+        # like the time cursor were configured before the plotter was first created).
         self._apply_settings()
         if self._cursor_check.isChecked():
             self._plotter.set_time_cursor(self._current_frame())
@@ -143,6 +168,13 @@ class TimeSeriesPanel(QWidget):
 
     def _show_plot(self) -> None:
         """Show or re-dock the time series plot widget."""
+        # If the plotter is already in a live dock, just raise it.
+        if self._plotter is not None and self._plotter.parent() is not None:
+            parent = self._plotter.parent()
+            if isinstance(parent, QWidget):
+                parent.show()
+                parent.raise_()
+            return
         self._ensure_plotter()
 
     def _apply_settings(self) -> None:
