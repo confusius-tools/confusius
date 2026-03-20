@@ -8,97 +8,79 @@ import xarray as xr
 from confusius.spatial import smooth_volume
 
 
-def make_volume(shape, spacing, dims=None, time=False):
-    """Create a DataArray with uniform spatial coordinates."""
-    if dims is None:
-        spatial_dims = ["z", "y", "x"][: len(shape) - (1 if time else 0)]
-        dims = (["time"] + spatial_dims) if time else spatial_dims
-
-    coords = {}
-    spatial_idx = 0
-    for i, dim in enumerate(dims):
-        sz = shape[i]
-        if dim == "time":
-            coords[dim] = np.arange(sz) * 0.2
-        else:
-            coords[dim] = np.arange(sz) * spacing[spatial_idx]
-            spatial_idx += 1
-
-    return xr.DataArray(np.random.default_rng(0).random(shape), dims=dims, coords=coords)
+def _spacing(da, dim):
+    """Return the uniform voxel spacing (mm) for a dimension."""
+    return float(np.diff(da.coords[dim].values)[0])
 
 
 class TestSmoothVolume:
     """Tests for smooth_volume."""
 
-    def test_matches_scipy_3d(self):
+    def test_matches_scipy_3d(self, sample_3d_volume):
         """smooth_volume should match scipy.ndimage.gaussian_filter on a 3D volume."""
-        spacing = (0.2, 0.1, 0.1)
-        vol = make_volume((8, 10, 12), spacing)
+        vol = sample_3d_volume
         fwhm = 0.4
 
         smoothed = smooth_volume(vol, fwhm=fwhm)
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-        expected_sigmas = [fwhm * fwhm_to_sigma / s for s in spacing]
+        expected_sigmas = [
+            fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
+        ]
         expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
-    def test_matches_scipy_4d_skips_time(self):
+    def test_matches_scipy_4d_skips_time(self, sample_4d_volume):
         """Time dimension should not be smoothed (sigma=0)."""
-        spacing = (0.2, 0.1, 0.1)
-        vol = make_volume((5, 8, 10, 12), spacing, time=True)
+        vol = sample_4d_volume
         fwhm = 0.4
 
         smoothed = smooth_volume(vol, fwhm=fwhm)
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
-        expected_sigmas = [0.0] + [fwhm * fwhm_to_sigma / s for s in spacing]
+        expected_sigmas = [0.0] + [
+            fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
+        ]
         expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
-    def test_anisotropic_fwhm_dict(self):
+    def test_anisotropic_fwhm_dict(self, sample_3d_volume):
         """Per-dimension FWHM dict should produce the correct per-dim sigmas."""
-        spacing = (0.2, 0.1, 0.1)
-        vol = make_volume((8, 10, 12), spacing)
+        vol = sample_3d_volume
         fwhm_dict = {"z": 0.6, "y": 0.2, "x": 0.4}
 
         smoothed = smooth_volume(vol, fwhm=fwhm_dict)
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            fwhm_dict["z"] * fwhm_to_sigma / spacing[0],
-            fwhm_dict["y"] * fwhm_to_sigma / spacing[1],
-            fwhm_dict["x"] * fwhm_to_sigma / spacing[2],
+            fwhm_dict[d] * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
         expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
-    def test_selected_dims_only(self):
+    def test_selected_dims_only(self, sample_3d_volume):
         """Smoothing only selected dims should leave the rest unchanged."""
-        spacing = (0.2, 0.1, 0.1)
-        vol = make_volume((8, 10, 12), spacing)
+        vol = sample_3d_volume
         fwhm = 0.4
 
         smoothed = smooth_volume(vol, fwhm=fwhm, dims=["z", "x"])
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            fwhm * fwhm_to_sigma / spacing[0],
+            fwhm * fwhm_to_sigma / _spacing(vol, "z"),
             0.0,  # y not smoothed.
-            fwhm * fwhm_to_sigma / spacing[2],
+            fwhm * fwhm_to_sigma / _spacing(vol, "x"),
         ]
         expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
-    def test_preserves_coords_and_attrs(self):
+    def test_preserves_coords_and_attrs(self, sample_3d_volume):
         """Output should have identical coordinates and attributes."""
-        vol = make_volume((8, 10, 12), (0.2, 0.1, 0.1))
-        vol.attrs["units"] = "a.u."
-
+        vol = sample_3d_volume
         smoothed = smooth_volume(vol, fwhm=0.3)
 
         assert smoothed.dims == vol.dims
@@ -107,9 +89,9 @@ class TestSmoothVolume:
         for dim in vol.dims:
             np.testing.assert_array_equal(smoothed.coords[dim], vol.coords[dim])
 
-    def test_zero_fwhm_is_identity(self):
+    def test_zero_fwhm_is_identity(self, sample_3d_volume):
         """FWHM=0 should return a result numerically identical to the input."""
-        vol = make_volume((8, 10, 12), (0.2, 0.1, 0.1))
+        vol = sample_3d_volume
         smoothed = smooth_volume(vol, fwhm=0.0)
         np.testing.assert_allclose(smoothed.values, vol.values, rtol=1e-10)
 
@@ -145,31 +127,28 @@ class TestSmoothVolume:
             proj = above_half_max.any(axis=tuple(i for i in range(3) if i != axis))
             assert proj.sum() == expected_voxels
 
-    def test_nans_propagate_by_default(self):
+    def test_nans_propagate_by_default(self, sample_3d_volume):
         """NaNs propagate to neighbouring voxels when ensure_finite=False (default)."""
-        vol = make_volume((10, 10, 10), (0.1, 0.1, 0.1))
-        vol_with_nan = vol.copy()
-        vol_with_nan.values[5, 5, 5] = np.nan
+        vol = sample_3d_volume.copy()
+        vol.values[2, 3, 4] = np.nan
 
-        smoothed = smooth_volume(vol_with_nan, fwhm=0.3)
+        smoothed = smooth_volume(vol, fwhm=0.3)
 
         assert np.isnan(smoothed.values).any()
 
-    def test_ensure_finite_suppresses_nan_propagation(self):
+    def test_ensure_finite_suppresses_nan_propagation(self, sample_3d_volume):
         """ensure_finite=True should replace non-finite values so they don't spread."""
-        vol = make_volume((10, 10, 10), (0.1, 0.1, 0.1))
-        vol_with_nan = vol.copy()
-        vol_with_nan.values[5, 5, 5] = np.nan
+        vol = sample_3d_volume.copy()
+        vol.values[2, 3, 4] = np.nan
 
-        smoothed = smooth_volume(vol_with_nan, fwhm=0.3, ensure_finite=True)
+        smoothed = smooth_volume(vol, fwhm=0.3, ensure_finite=True)
 
         assert not np.isnan(smoothed.values).any()
 
-    def test_dask_chunked_time_ok(self):
+    def test_dask_chunked_time_ok(self, sample_4d_volume):
         """Dask arrays chunked along time (not spatial dims) should work."""
-        dask = pytest.importorskip("dask.array")
-        spacing = (0.2, 0.1, 0.1)
-        vol = make_volume((10, 8, 10, 12), spacing, time=True)
+        pytest.importorskip("dask.array")
+        vol = sample_4d_volume
         vol_dask = vol.chunk({"time": 5})  # Only time is chunked.
 
         smoothed = smooth_volume(vol_dask, fwhm=0.3)
@@ -179,11 +158,10 @@ class TestSmoothVolume:
             smoothed.compute().values, smoothed_eager.values, rtol=1e-10
         )
 
-    def test_raises_invalid_dim(self):
+    def test_raises_invalid_dim(self, sample_3d_volume):
         """Should raise ValueError for dimensions not in the DataArray."""
-        vol = make_volume((8, 10, 12), (0.2, 0.1, 0.1))
         with pytest.raises(ValueError, match="not present in the DataArray"):
-            smooth_volume(vol, fwhm=0.3, dims=["z", "nonexistent"])
+            smooth_volume(sample_3d_volume, fwhm=0.3, dims=["z", "nonexistent"])
 
     def test_raises_nonuniform_spacing(self):
         """Should raise ValueError if a smoothed dim has non-uniform spacing."""
@@ -202,16 +180,14 @@ class TestSmoothVolume:
         with pytest.raises(ValueError, match="non-uniform or undefined coordinate spacing"):
             smooth_volume(vol, fwhm=0.3)
 
-    def test_raises_unknown_fwhm_key(self):
+    def test_raises_unknown_fwhm_key(self, sample_3d_volume):
         """Should raise ValueError if fwhm dict contains unknown dim names."""
-        vol = make_volume((8, 10, 12), (0.2, 0.1, 0.1))
         with pytest.raises(ValueError, match="not in the set of smoothed dimensions"):
-            smooth_volume(vol, fwhm={"z": 0.3, "w": 0.2})
+            smooth_volume(sample_3d_volume, fwhm={"z": 0.3, "w": 0.2})
 
-    def test_raises_chunked_spatial_dim(self):
+    def test_raises_chunked_spatial_dim(self, sample_3d_volume):
         """Should raise ValueError if a smoothed spatial dim is Dask-chunked."""
-        dask = pytest.importorskip("dask.array")
-        vol = make_volume((8, 10, 12), (0.2, 0.1, 0.1))
-        vol_dask = vol.chunk({"z": 4})  # Spatial dim chunked.
+        pytest.importorskip("dask.array")
+        vol_dask = sample_3d_volume.chunk({"z": 2})  # Spatial dim chunked.
         with pytest.raises(ValueError, match="is chunked"):
             smooth_volume(vol_dask, fwhm=0.3)
