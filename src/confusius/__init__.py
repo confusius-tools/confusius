@@ -13,6 +13,7 @@ __all__ = [
     "plotting",
     "registration",
     "signal",
+    "spatial",
     "validation",
     "xarray",
     "__version__",
@@ -33,6 +34,7 @@ from confusius import (
     qc,
     registration,
     signal,
+    spatial,
     validation,
     xarray,
 )

@@ -59,6 +59,12 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Brain atlas integration for anatomical labeling and region-of-interest extraction.
 
+- **[:lucide-cuboid: Spatial Processing](spatial.md)**
+
+    ---
+
+    Spatial processing tools for fUSI volumetric data, including Gaussian smoothing.
+
 - **[:lucide-funnel: Signal Extraction](extract.md)**
 
     ---
