@@ -126,6 +126,11 @@ class DataPanel(QWidget):
         self._progress.hide()
         layout.addWidget(self._progress)
 
+        self._load_btn = QPushButton("Load")
+        self._load_btn.setObjectName("primary_btn")
+        self._load_btn.clicked.connect(self._load)
+        layout.addWidget(self._load_btn)
+
         layout.addStretch()
 
     # ------------------------------------------------------------------
@@ -135,12 +140,16 @@ class DataPanel(QWidget):
     def _begin_work(self) -> None:
         self._browse_btn.setEnabled(False)
         self._path_edit.setEnabled(False)
+        self._load_btn.setEnabled(False)
+        self._load_btn.setText("Loading…")
         self._progress.show()
         QApplication.processEvents()
 
     def _end_work(self) -> None:
         self._browse_btn.setEnabled(True)
         self._path_edit.setEnabled(True)
+        self._load_btn.setEnabled(True)
+        self._load_btn.setText("Load")
         self._progress.hide()
 
     # ------------------------------------------------------------------

@@ -427,6 +427,7 @@ class ConfUSIusWidget(QWidget):
         """
         from confusius._napari._data_panel import DataPanel
         from confusius._napari._qc_panel import QCPanel
+        from confusius._napari._save_panel import SavePanel
         from confusius._napari._time_series_panel import TimeSeriesPanel
 
         container = QWidget()
@@ -436,14 +437,23 @@ class ConfUSIusWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
+        # Combined loading + saving panel.
+        data_panel = QWidget()
+        data_layout = QVBoxLayout(data_panel)
+        data_layout.setContentsMargins(0, 0, 0, 0)
+        data_layout.setSpacing(0)
+        data_layout.addWidget(DataPanel(self.viewer))
+        data_layout.addWidget(SavePanel(self.viewer))
+        data_layout.addStretch()
+
         accent = "#ffd33d" if self._is_dark() else "#c49a0a"
         tab_entries = [
-            ("Data Loading", "file-input"),
+            ("Data I/O", "file-input"),
             ("Time Series", "chart-line"),
             ("Quality Control", "clipboard-check"),
         ]
         panels = [
-            DataPanel(self.viewer),
+            data_panel,
             TimeSeriesPanel(self.viewer),
             QCPanel(self.viewer),
         ]
