@@ -41,6 +41,5 @@ def main() -> None:
         if not args.lazy:
             da = da.compute()
         _viewer, layer = plot_napari(da, viewer=viewer)
-        layer.metadata["xarray"] = da
 
     napari.run()

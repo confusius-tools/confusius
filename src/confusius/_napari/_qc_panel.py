@@ -70,8 +70,8 @@ class QCPanel(QWidget):
     DVARS and spatial computations run in a background thread via
     `napari.qt.threading.thread_worker` so the UI remains responsive.
 
-    The DataArray is read from `layer.metadata["xarray"]`, populated by both the Data
-    panel and the npe2 file readers.
+    The DataArray is read from `layer.metadata["xarray"]`, populated by
+    [`plot_napari`][confusius.plotting.plot_napari] and the npe2 file readers.
 
     Parameters
     ----------

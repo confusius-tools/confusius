@@ -1486,8 +1486,8 @@ def plot_napari(
 
         # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
         # rendering loop adds overhead on every frame when given an xarray DataArray,
-        # making time scrubbing noticeably slow for lazy (Dask-backed) data. The
-        # DataArray is preserved in layer.metadata by the caller when needed.
+        # making time scrubbing noticeably slow for lazy (Dask-backed) data. The full
+        # DataArray is preserved in layer.metadata["xarray"] below.
         viewer, layer = napari.imshow(
             data.data,
             scale=scale,
@@ -1566,6 +1566,8 @@ def plot_napari(
             "mm",
         )
         viewer.scale_bar.unit = scale_bar_unit
+
+    layer.metadata["xarray"] = data
 
     return viewer, layer
 

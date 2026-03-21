@@ -190,7 +190,6 @@ class DataPanel(QWidget):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 _viewer, layer = plot_napari(da, viewer=self.viewer)
-                layer.metadata["xarray"] = da
             for w in caught:
                 if issubclass(w.category, UserWarning):
                     show_warning(str(w.message))
