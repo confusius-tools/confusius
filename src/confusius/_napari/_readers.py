@@ -46,10 +46,8 @@ def _da_to_layer_data(da: xr.DataArray, name: str) -> FullLayerData:
     spacing, non_uniform = _compute_spacing_best_effort(da)
     for dim in non_uniform:
         show_warning(
-            f"Coordinate '{dim}' has non-uniform spacing. Napari requires a "
-            f"uniform grid; using median spacing {spacing[dim]:.4g} as an "
-            "approximation. Physical positions along this axis may appear "
-            "inaccurate."
+            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
+            "(positions along this axis may be approximate)."
         )
     origin = da.fusi.origin
 

@@ -1442,10 +1442,8 @@ def plot_napari(
     spacing, non_uniform = _compute_spacing_best_effort(data)
     for dim in non_uniform:
         warnings.warn(
-            f"Coordinate '{dim}' has non-uniform spacing. Napari requires a "
-            f"uniform grid; using median spacing {spacing[dim]:.4g} as an "
-            "approximation. Physical positions along this axis may appear "
-            "inaccurate.",
+            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
+            "(positions along this axis may be approximate).",
             stacklevel=find_stack_level(),
         )
     scale = [spacing[str(dim)] for dim in all_dims]
