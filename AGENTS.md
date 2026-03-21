@@ -4,6 +4,13 @@
 
 This is a **pre-alpha package** under rapid iteration. Backward compatibility is not a concern - feel free to make breaking API changes when they improve the design.
 
+## Release Process
+
+Use the `/release NEW_VERSION` skill (`.claude/skills/release/SKILL.md`) to perform a
+full release. It handles version bumps across all files, lock file sync, pre-commit
+checks, commit + tag creation (with annotated tag message), a gated push step, and
+generation of the GitHub release message and Discord announcement.
+
 ## Build/Lint/Test Commands
 
 This project uses [uv](https://docs.astral.sh/uv/) for dependency management and [just](https://github.com/casey/just) as a command runner.
@@ -33,6 +40,7 @@ Pre-commit hooks include:
 ### Testing
 - `just test` (or `just t`) - Run all tests with coverage
 - `just test-verbose` (or `just tv`) - Run all tests with verbose output
+- `just generate-baselines` - Regenerate visual regression test baselines (pytest-mpl)
 - `uv run pytest path/to/test_file.py` - Run a single test file
 - `uv run pytest path/to/test_file.py::TestClass::test_method` - Run a single test
 - `uv run pytest -m "not slow"` - Skip slow tests
@@ -130,8 +138,12 @@ This project follows the [Commitizen](https://commitizen.github.io/cz-cli/) conv
 ### Scopes
 Use a scope that describes the affected component:
 - `io`, `nifti`, `autc`, `zarr` - for I/O modules
-- `xarray`, `io-accessor`, `plotting`, `registration` - for xarray extensions
-- `iq`, `reduce`, `clutter` - for IQ processing
+- `signal`, `spatial`, `iq`, `reduce`, `clutter` - for signal/IQ processing
+- `extract`, `validation` - for signal extraction and input validation
+- `atlas`, `registration` - for atlas integration and volume registration
+- `connectivity`, `multipose` - for connectivity and multi-pose analysis
+- `qc` - for quality control
+- `xarray`, `io-accessor`, `plotting`, `napari` - for UI and xarray extensions
 - `docs`, `mkdocs`, `api` - for documentation
 - `tests` - for test infrastructure
 
@@ -174,3 +186,8 @@ refactor(iq): simplify power reduction algorithm
 - Use `pytest.warns` for expected warnings.
 - Keep tests fast by using small array sizes.
 - Use seeded random number generators for reproducibility.
+
+### Visual Regression Tests
+- Use `@pytest.mark.mpl_image_compare` for plot output tests.
+- Run `just generate-baselines` to regenerate baseline images after intentional plot changes.
+- Run tests with `uv run pytest --mpl` to enable image comparison checks.

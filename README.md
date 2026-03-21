@@ -9,8 +9,8 @@
 > ConfUSIus is currently in pre-alpha and under active development. The API is subject
 > to change, and features may be incomplete or unstable.
 
-ConfUSIus is a Python package for handling, visualization, preprocessing, and
-statistical analysis of functional ultrasound imaging (fUSI) data.
+ConfUSIus is a Python package and napari plugin for handling, visualization,
+preprocessing, and statistical analysis of functional ultrasound imaging (fUSI) data.
 
 ## Features
 
@@ -33,6 +33,8 @@ statistical analysis of functional ultrasound imaging (fUSI) data.
 - **Signal Extraction**: Extract signals from regions of interest using spatial masks
 - **Signal Processing**: Denoising, filtering, detrending, and confound regression
 - **Visualization**: Rich plotting utilities for fUSI data exploration
+- **napari Plugin**: Interactive data loading, live time-series inspection, and quality
+  control directly in the napari viewer — no scripting required
 - **Xarray Integration**: Seamless integration with Xarray for labeled multi-dimensional
   arrays
 
