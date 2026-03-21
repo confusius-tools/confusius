@@ -5,7 +5,7 @@ single volumes by merging the pose dimension into a spatial dimension.
 """
 
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -234,7 +234,9 @@ def consolidate_poses(
     # Build a full-array index with slice(None) for every axis, then replace the pose
     # and sweep axes with fancy indices. Broadcasting pose_idx and sweep_idx against
     # each other gives the consolidated axis of length npose*n_sweep.
-    idx: list[Any] = [slice(None)] * da.values.ndim
+    idx: list[slice | npt.NDArray] = cast(
+        list[slice | npt.NDArray], [slice(None)] * da.values.ndim
+    )
     idx[pose_axis] = pose_idx
     idx[sweep_dim_axis] = sweep_idx
 
