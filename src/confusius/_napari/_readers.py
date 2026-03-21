@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from napari.types import FullLayerData, PathOrPaths
 
 
-def _da_to_layer_data(da: xr.DataArray, name: str) -> FullLayerData:
+def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerData:
     """Convert a ConfUSIus DataArray to a napari FullLayerData tuple.
 
     Mirrors the logic of [`plot_napari`][confusius.plotting.plot_napari]
@@ -92,7 +92,7 @@ def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData
         # `_path`, which may be a list when napari replays the reader.
         da = load(path)
         name = Path(path).name
-        return [_da_to_layer_data(da, name)]
+        return [_convert_dataarray_to_layer_data(da, name)]
 
     return _read
 

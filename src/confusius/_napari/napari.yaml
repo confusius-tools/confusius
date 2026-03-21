@@ -20,6 +20,22 @@ contributions:
       title: Read Zarr store
       python_name: confusius._napari._readers:read_zarr
 
+    - id: confusius.write_nifti
+      title: Write NIfTI file
+      python_name: confusius._napari._writers:write_nifti
+
+    - id: confusius.write_nifti_labels
+      title: Write labels to NIfTI file
+      python_name: confusius._napari._writers:write_nifti
+
+    - id: confusius.write_zarr
+      title: Write Zarr store
+      python_name: confusius._napari._writers:write_zarr
+
+    - id: confusius.write_zarr_labels
+      title: Write labels to Zarr store
+      python_name: confusius._napari._writers:write_zarr
+
   widgets:
     - command: confusius.open_widget
       display_name: ConfUSIus
@@ -41,3 +57,30 @@ contributions:
       accepts_directories: true
       filename_patterns:
         - "*.zarr"
+
+  writers:
+    - command: confusius.write_nifti
+      layer_types:
+        - image
+      filename_extensions:
+        - .nii
+        - .nii.gz
+
+    - command: confusius.write_nifti_labels
+      layer_types:
+        - labels
+      filename_extensions:
+        - .nii
+        - .nii.gz
+
+    - command: confusius.write_zarr
+      layer_types:
+        - image
+      filename_extensions:
+        - .zarr
+
+    - command: confusius.write_zarr_labels
+      layer_types:
+        - labels
+      filename_extensions:
+        - .zarr

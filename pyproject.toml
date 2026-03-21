@@ -117,4 +117,7 @@ filterwarnings = [
     # and matplotlib's follow-up about FigureCanvasAgg being non-interactive.
     "ignore:The active matplotlib backend.*is non-interactive:UserWarning",
     "ignore:FigureCanvasAgg is non-interactive:UserWarning",
+    # Zarr format 3 consolidated metadata is not yet in the spec but is the
+    # correct format to use; suppress the informational warning.
+    "ignore:Consolidated metadata is currently not part:zarr.errors.ZarrUserWarning",
 ]
