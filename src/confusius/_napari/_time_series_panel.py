@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 
 import napari
 from qtpy.QtCore import Qt, QTimer
@@ -22,8 +21,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-if TYPE_CHECKING:
-    from confusius._napari._time_series_plotter import TimeSeriesPlotter
+from confusius._napari._time_series_plotter import TimeSeriesPlotter
 
 
 class TimeSeriesPanel(QWidget):
@@ -214,8 +212,6 @@ class TimeSeriesPanel(QWidget):
         plotter's parent becomes None after napari removes it), re-docks it. When the
         plotter is already in a live dock this is a no-op.
         """
-        from confusius._napari._time_series_plotter import TimeSeriesPlotter
-
         if self._plotter is None:
             self._plotter = TimeSeriesPlotter(self._viewer)
 
@@ -252,18 +248,26 @@ class TimeSeriesPanel(QWidget):
                 from qtpy.QtCore import QSize
 
                 central = main_win.centralWidget()
-                if central is not None:
-                    central.setMinimumSize(QSize(0, 0))
-                    for w in central.findChildren(QWidget):
-                        w.setMinimumSize(QSize(0, 0))
+                if central is None:
+                    return
+                central.setMinimumSize(QSize(0, 0))
+                for w in central.findChildren(QWidget):
+                    w.setMinimumSize(QSize(0, 0))
                 for side_dock in main_win.findChildren(QDockWidget):
                     if side_dock is not dock:
                         side_dock.setMinimumHeight(0)
                         if side_dock.widget() is not None:
                             side_dock.widget().setMinimumSize(QSize(0, 0))
-                main_win.resizeDocks([dock], [200], Qt.Orientation.Vertical)
 
-            QTimer.singleShot(500, _settle_layout)
+                # Ensure the window is tall enough that the initial dock height leaves
+                # room for the user to resize upward.
+                current = main_win.size()
+                if current.height() < 800:
+                    main_win.resize(current.width(), 800)
+
+                main_win.resizeDocks([dock], [300], Qt.Orientation.Vertical)
+
+            QTimer.singleShot(200, _settle_layout)
 
         # Always sync panel settings to the plotter (covers the case where settings like
         # the time cursor were configured before the plotter was first created).

@@ -9,7 +9,7 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
-from qtpy.QtCore import QTimer
+from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from confusius._napari._utils import napari_colors, recolor_toolbar_icons
@@ -90,6 +90,16 @@ class TimeSeriesPlotter(QWidget):
         self._setup_ui()
         self._setup_callbacks()
         self._apply_theme()
+
+    def sizeHint(self) -> QSize:
+        """Return the preferred initial size of the widget.
+
+        Returns
+        -------
+        QSize
+            Preferred size of 800 x 320 pixels.
+        """
+        return QSize(800, 320)
 
     def _setup_ui(self) -> None:
         """Set up the widget UI with matplotlib canvas."""
