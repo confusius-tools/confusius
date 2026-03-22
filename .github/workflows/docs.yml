@@ -1,10 +1,11 @@
-name: Build and deploy documentation
+name: Docs
 
 on:
-  workflow_run:
-    workflows: ["Lint", "Tests"]
-    types: [completed]
+  push:
     branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,25 +13,33 @@ permissions:
   id-token: write
 
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Build documentation
+        run: uv run zensical build --clean
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
   deploy:
-    # Only deploy if both lint and tests passed.
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
-      - uses: actions/configure-pages@v5
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
-        with:
-          python-version: "3.13"
-      - run: uv sync
-      - run: uv run zensical build --clean
-      - name: Check build output
-        run: ls -la site/
-      - uses: actions/upload-pages-artifact@v4
-        with:
-          path: site
       - uses: actions/deploy-pages@v4
         id: deployment
