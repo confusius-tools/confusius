@@ -150,6 +150,7 @@ QPushButton#accordion_header:checked {{
     background: {tab_selected_bg};
     color: {accent};
     border-left: 3px solid {accent};
+    padding-left: 9px;
 }}
 
 /* ---- Placeholder labels ---- */
