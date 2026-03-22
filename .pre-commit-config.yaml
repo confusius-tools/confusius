@@ -7,7 +7,7 @@ files: |
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.14
+    rev: v0.15.7
     hooks:
       # Run the linter.
       - id: ruff-check
@@ -26,14 +26,14 @@ repos:
       language: python
 
   - repo: https://github.com/codespell-project/codespell
-    rev: v2.4.1
+    rev: v2.4.2
     hooks:
     - id: codespell
       additional_dependencies:
       - tomli
 
   - repo: https://github.com/numpy/numpydoc
-    rev: v1.9.0
+    rev: v1.10.0
     hooks:
     - id: numpydoc-validation
       files: ^src/(?!.*tests).+$
