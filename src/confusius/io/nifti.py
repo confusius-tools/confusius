@@ -15,7 +15,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils import find_stack_level
+from confusius._utils import _representative_step, _spacing_for_dim, find_stack_level
 from confusius.bids import from_bids, to_bids
 from confusius.bids.validation import validate_metadata
 from confusius.io.utils import check_path
@@ -640,6 +640,52 @@ def _infer_repetition_time(
     return None, delay
 
 
+def _infer_frame_acquisition_duration(
+    data_array: xr.DataArray,
+    time_values: npt.NDArray[np.float64] | None = None,
+) -> float | None:
+    """Infer `FrameAcquisitionDuration` from DataArray metadata when possible.
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        DataArray being serialized to NIfTI.
+    time_values : numpy.ndarray, optional
+        Time values in seconds. When explicit metadata and processing attributes are not
+        available, the median spacing is used as a best-effort approximation.
+
+    Returns
+    -------
+    float or None
+        Frame acquisition duration in seconds, or `None` when it cannot be inferred.
+    """
+    if "frame_acquisition_duration" in data_array.attrs:
+        return float(data_array.attrs["frame_acquisition_duration"])
+
+    for attr_name in (
+        "power_doppler_integration_duration",
+        "axial_velocity_integration_duration",
+        "bmode_integration_duration",
+    ):
+        duration = data_array.attrs.get(attr_name)
+        if isinstance(duration, int | float) and duration > 0:
+            return float(duration)
+
+    if time_values is not None and len(time_values) >= 2:
+        time_step, non_uniform = _representative_step(time_values)
+        if time_step is not None:
+            if non_uniform:
+                warnings.warn(
+                    "FrameAcquisitionDuration is missing. Approximating it from the median "
+                    "time spacing; this may differ from the true per-volume acquisition "
+                    "duration, especially for overlapping windows.",
+                    stacklevel=find_stack_level(),
+                )
+            return time_step
+
+    return None
+
+
 def _build_nifti_affine(
     transform: npt.NDArray[np.float64] | None,
     T: npt.NDArray[np.float64],
@@ -778,13 +824,28 @@ def save_nifti(
         if dim not in current_dims:
             data = np.expand_dims(data, axis=insert_pos)
 
-    # .fusi.spacing handles voxdim fallback and warns on non-uniform/undefined dims.
-    # NIfTI requires a concrete float; fall back to 1.0 for undefined spacing.
-    spacing = data_array.fusi.spacing
-    spatial_zooms = [
-        abs(s) if (s := spacing.get(dim)) is not None else 1.0
-        for dim in ("x", "y", "z")
-    ]
+    spatial_zooms: list[float] = []
+    for dim in ("x", "y", "z"):
+        spacing = _spacing_for_dim(dim, data_array, uniformity_tolerance=1e-2)
+        if spacing.value is not None:
+            spatial_zooms.append(abs(spacing.value))
+        elif spacing.median is not None:
+            spatial_zooms.append(abs(spacing.median))
+            warnings.warn(
+                f"Coordinate '{dim}' has non-uniform spacing. NIfTI stores one "
+                f"constant spacing per axis, so using the median step "
+                f"{abs(spacing.median):.4g} for the header and affine; positions "
+                "along this axis may be approximate.",
+                stacklevel=find_stack_level(),
+            )
+        else:
+            spatial_zooms.append(1.0)
+            if spacing.warn_msg is not None:
+                warnings.warn(
+                    f"{spacing.warn_msg} Falling back to unit spacing for NIfTI "
+                    f"axis '{dim}'.",
+                    stacklevel=find_stack_level(),
+                )
 
     tr_pixdim: float | None = None
     time_sidecar: dict[str, Any] = {}
@@ -792,7 +853,6 @@ def save_nifti(
         time_values_raw = data_array.coords["time"].values
         time_unit = data_array.coords["time"].attrs.get("units")
 
-        # Convert to seconds for BIDS compliance.
         time_values = _convert_time_to_seconds(
             np.asarray(time_values_raw, dtype=np.float64), time_unit
         )
@@ -805,7 +865,19 @@ def save_nifti(
                 time_sidecar["DelayAfterTrigger"] = delay
         else:
             tr_pixdim = 0.0
+            if len(time_values) >= 2:
+                warnings.warn(
+                    "Coordinate 'time' has non-uniform sampling. Exact timings are "
+                    "saved in the JSON sidecar as VolumeTiming because the NIfTI "
+                    "header cannot represent irregular acquisition times.",
+                    stacklevel=find_stack_level(),
+                )
             time_sidecar["VolumeTiming"] = time_values.tolist()
+            frame_acquisition_duration = _infer_frame_acquisition_duration(
+                data_array, time_values
+            )
+            if frame_acquisition_duration is not None:
+                time_sidecar["FrameAcquisitionDuration"] = frame_acquisition_duration
 
     zooms = spatial_zooms
     if "time" in current_dims:
@@ -905,8 +977,6 @@ def save_nifti(
     sidecar_attrs = {
         k: v
         for k, v in data_array.attrs.items()
-        # Exclude fields stored directly in the NIfTI header or derived from it.
-        # "affines" is handled separately below.
         if k not in ("sform_code", "qform_code", "affines")
     }
 

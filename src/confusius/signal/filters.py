@@ -19,9 +19,9 @@ def _validate_cutoff_frequencies(
     Parameters
     ----------
     low_cutoff : float or None
-        Low cutoff frequency in Hz.
+        Low cutoff frequency in hertz.
     high_cutoff : float or None
-        High cutoff frequency in Hz.
+        High cutoff frequency in hertz.
     nyquist : float
         Nyquist frequency (`sampling_rate / 2`).
 
@@ -163,10 +163,10 @@ def filter_butterworth(
             `data.chunk({'time': -1})`.
 
     low_cutoff : float, optional
-        Low cutoff frequency in Hz. Frequencies below this are attenuated (acts as
+        Low cutoff frequency in hertz. Frequencies below this are attenuated (acts as
         high-pass filter). If not provided, no high-pass filtering is applied.
     high_cutoff : float, optional
-        High cutoff frequency in Hz. Frequencies above this are attenuated (acts as
+        High cutoff frequency in hertz. Frequencies above this are attenuated (acts as
         low-pass filter). If not provided, no low-pass filtering is applied.
     order : int, default: 5
         Filter order. Higher orders give steeper roll-off but may be less stable.

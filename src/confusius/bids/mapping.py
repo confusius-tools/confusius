@@ -13,44 +13,6 @@ from typing import Final
 
 from confusius.bids.validation import FUSI_BIDS_FIELDS
 
-EXPLICIT_BIDS_FIELD_MAPPINGS: Final[dict[str, str]] = {
-    "transmit_frequency": "UltrasoundTransmitFrequency",
-    "pulse_repetition_frequency": "UltrasoundPulseRepetitionFrequency",
-}
-"""Explicit mappings for standard BIDS fields with non-automatic names.
-
-Maps ConfUSIus internal names to fUSI-BIDS field names.
-"""
-
-_REVERSE_EXPLICIT_BIDS_FIELD_MAPPINGS: Final[dict[str, str]] = {
-    v: k for k, v in EXPLICIT_BIDS_FIELD_MAPPINGS.items()
-}
-"""Reverse explicit mappings for loading standard BIDS fields."""
-
-CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
-    {
-        "sform_code",
-        "qform_code",
-        "affines",
-        "units",
-        "voxdim",
-    }
-)
-"""ConfUSIus-only fields that should be prefixed with `ConfUSIus` in BIDS.
-
-These are stored with ConfUSIus prefix in PascalCase in the sidecar.
-"""
-
-_CONFUSIUS_INTERNAL_TO_BIDS: Final[dict[str, str]] = {
-    key: f"ConfUSIus{key.replace('_', '').title()}" for key in CONFUSIUS_INTERNAL_FIELDS
-}
-"""Mappings from ConfUSIus-only internal fields to prefixed BIDS keys."""
-
-_BIDS_TO_CONFUSIUS_INTERNAL: Final[dict[str, str]] = {
-    value: key for key, value in _CONFUSIUS_INTERNAL_TO_BIDS.items()
-}
-"""Reverse mappings from prefixed BIDS keys to ConfUSIus-only internal fields."""
-
 
 def _snake_to_pascal(name: str) -> str:
     """Convert snake_case to PascalCase.
@@ -69,8 +31,8 @@ def _snake_to_pascal(name: str) -> str:
     --------
     >>> _snake_to_pascal("repetition_time")
     'RepetitionTime'
-    >>> _snake_to_pascal("probe_serial_numbers")
-    'ProbeSerialNumbers'
+    >>> _snake_to_pascal("probe_serial_number")
+    'ProbeSerialNumber'
     """
     return "".join(part.capitalize() for part in name.split("_"))
 
@@ -104,6 +66,55 @@ def _pascal_to_snake(name: str) -> str:
     # letter.
     name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", name)
     return name.lower()
+
+
+EXPLICIT_BIDS_FIELD_MAPPINGS: Final[dict[str, str]] = {
+    "transmit_frequency": "UltrasoundTransmitFrequency",
+    "pulse_repetition_frequency": "UltrasoundPulseRepetitionFrequency",
+}
+"""Explicit mappings for standard BIDS fields with non-automatic names.
+
+Maps ConfUSIus internal names to fUSI-BIDS field names.
+"""
+
+_REVERSE_EXPLICIT_BIDS_FIELD_MAPPINGS: Final[dict[str, str]] = {
+    v: k for k, v in EXPLICIT_BIDS_FIELD_MAPPINGS.items()
+}
+"""Reverse explicit mappings for loading standard BIDS fields."""
+
+CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
+    {
+        "sform_code",
+        "qform_code",
+        "affines",
+        "units",
+        "voxdim",
+        "long_name",
+        "cmap",
+        "axial_velocity_integration_duration",
+        "axial_velocity_integration_stride",
+        "axial_velocity_lag",
+        "axial_velocity_absolute",
+        "axial_velocity_spatial_kernel",
+        "axial_velocity_estimation_method",
+        "bmode_integration_duration",
+        "bmode_integration_stride",
+    }
+)
+"""ConfUSIus-only fields that should be prefixed with `ConfUSIus` in BIDS.
+
+These are stored with ConfUSIus prefix in PascalCase in the sidecar.
+"""
+
+_CONFUSIUS_INTERNAL_TO_BIDS: Final[dict[str, str]] = {
+    key: f"ConfUSIus{_snake_to_pascal(key)}" for key in CONFUSIUS_INTERNAL_FIELDS
+}
+"""Mappings from ConfUSIus-only internal fields to prefixed BIDS keys."""
+
+_BIDS_TO_CONFUSIUS_INTERNAL: Final[dict[str, str]] = {
+    value: key for key, value in _CONFUSIUS_INTERNAL_TO_BIDS.items()
+}
+"""Reverse mappings from prefixed BIDS keys to ConfUSIus-only internal fields."""
 
 
 def to_bids(attrs: Mapping[str, object]) -> dict[str, object]:

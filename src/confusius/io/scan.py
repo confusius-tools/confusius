@@ -237,7 +237,7 @@ def load_scan(
     `isel`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
-    (`device_serial_numbers`, `software_versions`) and Iconeus-specific fields
+    (`device_serial_number`, `software_version`) and Iconeus-specific fields
     (`iconeus_scan_mode`, `iconeus_subject`, `iconeus_session`, `iconeus_scan`,
     `iconeus_project`, `iconeus_date`).
     """
@@ -268,8 +268,8 @@ def load_scan(
 
         attrs: dict[str, Any] = {
             "affines": {"physical_to_lab": physical_to_lab},
-            "device_serial_numbers": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
-            "software_versions": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
+            "device_serial_number": _read_scan_str(h5, "/scanMetaData/Machine_SN"),
+            "software_version": _read_scan_str(h5, "/scanMetaData/Neuroscan_version"),
             "iconeus_scan_mode": mode,
             "iconeus_subject": _read_scan_str(h5, "/scanMetaData/Subject_tag"),
             "iconeus_session": _read_scan_str(h5, "/scanMetaData/Session_tag"),

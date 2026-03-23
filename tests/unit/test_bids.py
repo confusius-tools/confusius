@@ -78,8 +78,8 @@ class TestCaseConversion:
         result = bids.to_bids(attrs)
 
         assert result["RepetitionTime"] == 1.5
-        assert result["ConfUSIusSformcode"] == 1
-        assert result["ConfUSIusQformcode"] == 2
+        assert result["ConfUSIusSformCode"] == 1
+        assert result["ConfUSIusQformCode"] == 2
         assert result["ConfUSIusAffines"] == {"some": "value"}
 
     def test_explicit_field_mappings(self):
@@ -101,8 +101,8 @@ class TestCaseConversion:
     def test_from_bids_restores_internal_attributes(self):
         """Test that ConfUSIus-prefixed internal fields restore their original names."""
         bids_attrs = {
-            "ConfUSIusSformcode": 1,
-            "ConfUSIusQformcode": 2,
+            "ConfUSIusSformCode": 1,
+            "ConfUSIusQformCode": 2,
             "ConfUSIusAffines": {"some": "value"},
         }
 

@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils import find_stack_level
+from confusius._utils import _representative_time_step_seconds, find_stack_level
 from confusius.iq.clutter_filters import (
     clutter_filter_butterworth,
     clutter_filter_svd_from_cumulative_energy,
@@ -18,6 +18,93 @@ from confusius.validation import validate_iq, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
+
+
+def _window_timing_attrs(
+    iq: xr.DataArray,
+    *,
+    duration_key: str,
+    duration_width: int,
+    stride_key: str,
+    stride_width: int,
+) -> dict[str, float]:
+    """Convert window widths and strides in volumes to seconds.
+
+    Parameters
+    ----------
+    iq : xarray.DataArray
+        Input IQ data containing the `time` coordinate.
+    duration_key : str
+        Attribute name used for the output duration field.
+    duration_width : int
+        Window width in volumes.
+    stride_key : str
+        Attribute name used for the output stride field.
+    stride_width : int
+        Window stride in volumes.
+
+    Returns
+    -------
+    dict[str, float]
+        Mapping from output attribute names to durations in seconds. Returns an empty
+        dictionary when the input time step cannot be inferred.
+    """
+    time_step, non_uniform = _representative_time_step_seconds(iq)
+    if time_step is None:
+        return {}
+
+    if non_uniform:
+        warnings.warn(
+            "Coordinate 'time' has non-uniform sampling. Approximating processing "
+            "metadata durations from the median time step.",
+            stacklevel=find_stack_level(),
+        )
+
+    return {
+        duration_key: duration_width * time_step,
+        stride_key: stride_width * time_step,
+    }
+
+
+def _format_clutter_filter_spec(
+    filter_method: Literal[
+        "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
+    ],
+    low_cutoff: int | float | None,
+    high_cutoff: int | float | None,
+) -> str:
+    """Format a human-readable BIDS clutter filter specification.
+
+    Parameters
+    ----------
+    filter_method : {"svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"}
+        Clutter filter family.
+    low_cutoff : int or float or None
+        Lower filter cutoff, when applicable.
+    high_cutoff : int or float or None
+        Upper filter cutoff, when applicable.
+
+    Returns
+    -------
+    str
+        Human-readable clutter filter specification suitable for the fUSI-BIDS
+        `ClutterFilters` field.
+    """
+    labels = {
+        "svd_indices": "Index-based SVD",
+        "svd_energy": "Energy-based SVD",
+        "svd_cumulative_energy": "Cumulative energy SVD",
+        "butterworth": "Butterworth",
+    }
+    label = labels[filter_method]
+
+    if low_cutoff is None and high_cutoff is None:
+        return label
+
+    low = "-inf" if low_cutoff is None else f"{low_cutoff:g}"
+    high = "+inf" if high_cutoff is None else f"{high_cutoff:g}"
+    closing = "[" if filter_method == "svd_indices" else "]"
+    return f"{label} [{low}, {high}{closing}"
 
 
 def compute_processed_volume_times(
@@ -202,7 +289,7 @@ def _process_block_with_clutter_filter(
             The `"butterworth"` clutter filter uses a Butterworth low-pass, high-pass,
             or band-pass filter.
     fs : float, optional
-        When using the Butterworth clutter filter, the sampling frequency, in Hertz.
+        When using the Butterworth clutter filter, the sampling frequency, in hertz.
     butterworth_order : int, default: 4
         When using the Butterworth clutter filter, the order of the filter.
     kwargs
@@ -324,7 +411,7 @@ def compute_power_doppler_volume(
         High cutoff of the clutter filter. See `filter_method` for details. If not
         provided, the upper bound of the range is used.
     fs : float, optional
-        When using the Butterworth clutter filter, sampling frequency in Hertz.
+        When using the Butterworth clutter filter, sampling frequency in hertz.
     butterworth_order : int, default: 4
         Order of Butterworth filter. Effective order is doubled due to forward-backward
         filtering.
@@ -414,7 +501,7 @@ def compute_axial_velocity_volume(
     lag: int = 1,
     absolute_velocity: bool = False,
     spatial_kernel: int = 1,
-    ultrasound_frequency: float = 15.625e6,
+    transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
     estimation_method: Literal["average_angle", "angle_average"] = "average_angle",
 ) -> npt.NDArray:
@@ -431,7 +518,7 @@ def compute_axial_velocity_volume(
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(z, y, x)` are spatial dimensions.
     fs : float
-        Volume sampling frequency in Hertz.
+        Volume sampling frequency in hertz.
     filter_method : {"svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"}, \
             default: "svd_indices"
         Clutter filtering method to apply before velocity computation.
@@ -468,8 +555,8 @@ def compute_axial_velocity_volume(
     spatial_kernel : int, default: 1
         Size of the median filter kernel applied spatially to denoise. Must be
         positive and odd. If `1`, no spatial filtering is applied.
-    ultrasound_frequency : float, default: 15.625e6
-        Probe central frequency in Hertz.
+    transmit_frequency : float, default: 15.625e6
+        Ultrasound transmit frequency in hertz.
     beamforming_sound_velocity : float, default: 1540
         Speed of sound assumed during beamforming, in meters per second.
     estimation_method : {"average_angle", "angle_average"}, default: "average_angle"
@@ -499,7 +586,7 @@ def compute_axial_velocity_volume(
         lag: int,
         absolute_velocity: bool,
         fs: float,
-        ultrasound_frequency: float,
+        transmit_frequency: float,
         beamforming_sound_velocity: float,
         estimation_method: Literal["average_angle", "angle_average"],
         **_,
@@ -519,9 +606,9 @@ def compute_axial_velocity_volume(
             If `True`, compute absolute velocity values. If `False`, preserve sign
             information.
         fs : float
-            Volume sampling frequency in Hertz.
-        ultrasound_frequency : float
-            Probe central frequency in Hertz.
+            Volume sampling frequency in hertz.
+        transmit_frequency : float
+            Ultrasound transmit frequency in hertz.
         beamforming_sound_velocity : float
             Speed of sound in the imaged medium, in meters per second.
         estimation_method : {"average_angle", "angle_average"}
@@ -567,7 +654,7 @@ def compute_axial_velocity_volume(
             average_autocorrelation_phase
             * fs
             * beamforming_sound_velocity
-            / (4 * np.pi * ultrasound_frequency)
+            / (4 * np.pi * transmit_frequency)
         )
 
     return _process_block_with_clutter_filter(
@@ -581,7 +668,7 @@ def compute_axial_velocity_volume(
         filter_method=filter_method,
         butterworth_order=butterworth_order,
         fs=fs,
-        ultrasound_frequency=ultrasound_frequency,
+        transmit_frequency=transmit_frequency,
         spatial_kernel=spatial_kernel,
         lag=lag,
         absolute_velocity=absolute_velocity,
@@ -854,17 +941,28 @@ def process_iq_to_power_doppler(
         "units": "a.u.",
         "long_name": "Power Doppler intensity",
         "cmap": "gray",
-        "clutter_filter_method": filter_method,
-        "clutter_window_width": clutter_window_width,
-        "clutter_window_stride": clutter_window_stride,
-        "doppler_window_width": doppler_window_width,
-        "doppler_window_stride": doppler_window_stride,
+        "clutter_filters": _format_clutter_filter_spec(
+            filter_method, low_cutoff, high_cutoff
+        ),
     }
-    if low_cutoff is not None:
-        output_attrs["clutter_low_cutoff"] = low_cutoff
-    if high_cutoff is not None:
-        output_attrs["clutter_high_cutoff"] = high_cutoff
-
+    output_attrs.update(
+        _window_timing_attrs(
+            iq,
+            duration_key="clutter_filter_window_duration",
+            duration_width=clutter_window_width,
+            stride_key="clutter_filter_window_stride",
+            stride_width=clutter_window_stride,
+        )
+    )
+    output_attrs.update(
+        _window_timing_attrs(
+            iq,
+            duration_key="power_doppler_integration_duration",
+            duration_width=doppler_window_width,
+            stride_key="power_doppler_integration_stride",
+            stride_width=doppler_window_stride,
+        )
+    )
     return xr.DataArray(
         result,
         name="power_doppler",
@@ -948,9 +1046,16 @@ def process_iq_to_bmode(
         "units": "a.u.",
         "long_name": "B-mode intensity",
         "cmap": "gray",
-        "bmode_window_width": bmode_window_width,
-        "bmode_window_stride": bmode_window_stride,
     }
+    output_attrs.update(
+        _window_timing_attrs(
+            iq,
+            duration_key="bmode_integration_duration",
+            duration_width=bmode_window_width,
+            stride_key="bmode_integration_stride",
+            stride_width=bmode_window_stride,
+        )
+    )
 
     return xr.DataArray(
         result,
@@ -1000,8 +1105,8 @@ def process_iq_to_axial_velocity(
         `(z, y, x)` are spatial dimensions. The DataArray must have the
         following attributes:
 
-        - `compound_sampling_frequency`: Volume acquisition rate in Hz.
-        - `transmit_frequency`: Ultrasound probe central frequency in Hz.
+        - `compound_sampling_frequency`: Volume acquisition rate in hertz.
+        - `transmit_frequency`: Ultrasound transmit frequency in hertz.
         - `beamforming_sound_velocity`: Speed of sound assumed during beamforming in
           meters per second.
     clutter_window_width : int, optional
@@ -1128,7 +1233,7 @@ def process_iq_to_axial_velocity(
 
     # Validation ensures these attributes are present and of the correct type.
     fs = iq.attrs["compound_sampling_frequency"]
-    ultrasound_frequency = iq.attrs["transmit_frequency"]
+    transmit_frequency = iq.attrs["transmit_frequency"]
     beamforming_sound_velocity = iq.attrs["beamforming_sound_velocity"]
 
     result = process_iq_blocks(
@@ -1147,7 +1252,7 @@ def process_iq_to_axial_velocity(
         lag=lag,
         absolute_velocity=absolute_velocity,
         spatial_kernel=spatial_kernel,
-        ultrasound_frequency=ultrasound_frequency,
+        transmit_frequency=transmit_frequency,
         beamforming_sound_velocity=beamforming_sound_velocity,
         estimation_method=estimation_method,
     )
@@ -1171,23 +1276,34 @@ def process_iq_to_axial_velocity(
         "units": "m/s",
         "long_name": "Axial velocity",
         "cmap": velocity_cmap,
-        "clutter_filter_method": filter_method,
-        "clutter_window_width": clutter_window_width,
-        "clutter_window_stride": clutter_window_stride,
-        "velocity_window_width": velocity_window_width,
-        "velocity_window_stride": velocity_window_stride,
-        "lag": lag,
-        "absolute_velocity": absolute_velocity,
-        "spatial_kernel": spatial_kernel,
-        "ultrasound_frequency": ultrasound_frequency,
+        "clutter_filters": _format_clutter_filter_spec(
+            filter_method, low_cutoff, high_cutoff
+        ),
+        "axial_velocity_lag": lag,
+        "axial_velocity_absolute": absolute_velocity,
+        "axial_velocity_spatial_kernel": spatial_kernel,
+        "transmit_frequency": transmit_frequency,
         "beamforming_sound_velocity": beamforming_sound_velocity,
-        "estimation_method": estimation_method,
+        "axial_velocity_estimation_method": estimation_method,
     }
-    if low_cutoff is not None:
-        output_attrs["clutter_low_cutoff"] = low_cutoff
-    if high_cutoff is not None:
-        output_attrs["clutter_high_cutoff"] = high_cutoff
-
+    output_attrs.update(
+        _window_timing_attrs(
+            iq,
+            duration_key="clutter_filter_window_duration",
+            duration_width=clutter_window_width,
+            stride_key="clutter_filter_window_stride",
+            stride_width=clutter_window_stride,
+        )
+    )
+    output_attrs.update(
+        _window_timing_attrs(
+            iq,
+            duration_key="axial_velocity_integration_duration",
+            duration_width=velocity_window_width,
+            stride_key="axial_velocity_integration_stride",
+            stride_width=velocity_window_stride,
+        )
+    )
     return xr.DataArray(
         result,
         name="axial_velocity",

@@ -21,9 +21,9 @@ def _check_frequency(freq: float, nyquist: float) -> float:
     Parameters
     ----------
     freq : float
-        Frequency value to validate, in Hertz.
+        Frequency value to validate, in hertz.
     nyquist : float
-        Nyquist frequency (half of sampling frequency), in Hertz.
+        Nyquist frequency (half of sampling frequency), in hertz.
 
     Returns
     -------
@@ -612,12 +612,12 @@ def clutter_filter_butterworth(
         Complex beamformed IQ data, where `time` is the temporal dimension and
         `(z, y, x)` are spatial dimensions.
     fs : float
-        Sampling frequency in Hertz.
+        Sampling frequency in hertz.
     low_cutoff : float, optional
-        Low cutoff frequency in Hertz, in range `(0, fs/2)`. If provided, applies
+        Low cutoff frequency in hertz, in range `(0, fs/2)`. If provided, applies
         high-pass filtering above this frequency.
     high_cutoff : float, optional
-        High cutoff frequency in Hertz, in range `(0, fs/2)`. If provided, applies
+        High cutoff frequency in hertz, in range `(0, fs/2)`. If provided, applies
         low-pass filtering below this frequency.
     order : int, default: 4
         Filter order. Due to forward-backward filtering, the effective order is

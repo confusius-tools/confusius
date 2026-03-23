@@ -163,7 +163,7 @@ class TestComputeAxialVelocityVolume:
     def test_matches_reference_kasai_estimator(self, sample_iq_block_4d):
         """Result matches reference Kasai estimator implementation."""
         fs = 100.0
-        ultrasound_frequency = 15.625e6
+        transmit_frequency = 15.625e6
         beamforming_sound_velocity = 1540.0
         lag = 1
 
@@ -175,13 +175,16 @@ class TestComputeAxialVelocityVolume:
         autocorrelation_phase = np.angle(autocorrelation)
         average_phase = autocorrelation_phase.mean(0)
         expected = (
-            average_phase * fs * beamforming_sound_velocity / (4 * np.pi * ultrasound_frequency)
+            average_phase
+            * fs
+            * beamforming_sound_velocity
+            / (4 * np.pi * transmit_frequency)
         )
 
         result = compute_axial_velocity_volume(
             sample_iq_block_4d,
             fs=fs,
-            ultrasound_frequency=ultrasound_frequency,
+            transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
             estimation_method="average_angle",
@@ -192,7 +195,7 @@ class TestComputeAxialVelocityVolume:
     def test_angle_average_method(self, sample_iq_block_4d):
         """Angle_average method computes angle of average autocorrelation."""
         fs = 100.0
-        ultrasound_frequency = 15.625e6
+        transmit_frequency = 15.625e6
         beamforming_sound_velocity = 1540.0
         lag = 1
 
@@ -203,13 +206,16 @@ class TestComputeAxialVelocityVolume:
         autocorrelation = autocorrelation[lag:]
         average_phase = np.angle(autocorrelation.mean(0))
         expected = (
-            average_phase * fs * beamforming_sound_velocity / (4 * np.pi * ultrasound_frequency)
+            average_phase
+            * fs
+            * beamforming_sound_velocity
+            / (4 * np.pi * transmit_frequency)
         )
 
         result = compute_axial_velocity_volume(
             sample_iq_block_4d,
             fs=fs,
-            ultrasound_frequency=ultrasound_frequency,
+            transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
             estimation_method="angle_average",
@@ -229,6 +235,17 @@ class TestComputeAxialVelocityVolume:
 
 class TestProcessIqBlocks:
     """Tests for process_iq_blocks function."""
+
+    def test_defaults_window_width_and_stride_to_chunk_size(self, sample_iq_dataset):
+        """Missing window params default to the time chunk size."""
+        iq = da.from_array(sample_iq_dataset["iq"].values, chunks=(5, 4, 6, 8))
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        result = process_iq_blocks(iq, process_func=process_func)
+
+        assert result.shape == (4, 4, 6, 8)
 
     def test_stride_greater_than_width_raises(self, sample_iq_dataset):
         """window_stride > window_width raises ValueError."""
@@ -304,10 +321,11 @@ class TestProcessIqToPowerDoppler:
 
         assert result.name == "power_doppler"
         assert result.attrs["units"] == "a.u."
-        assert result.attrs["clutter_filter_method"] == "svd_indices"
-        assert result.attrs["clutter_window_width"] == 10
-        assert result.attrs["clutter_low_cutoff"] == 1
-        assert result.attrs["clutter_high_cutoff"] == 8
+        assert result.attrs["clutter_filters"] == "Index-based SVD [1, 8["
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(1.0)
+        assert result.attrs["clutter_filter_window_stride"] == pytest.approx(1.0)
+        assert result.attrs["power_doppler_integration_duration"] == pytest.approx(1.0)
+        assert result.attrs["power_doppler_integration_stride"] == pytest.approx(1.0)
 
     def test_uses_compound_sampling_frequency_from_attrs(self, sample_iq_dataset):
         """Uses compound_sampling_frequency attribute when fs not provided."""
@@ -323,9 +341,76 @@ class TestProcessIqToPowerDoppler:
         )
         assert result is not None
 
-    def test_accessor_delegates_to_process_iq_to_power_doppler(
+    def test_duration_metadata_uses_time_coordinate_units(self, sample_iq_dataset):
+        """Duration metadata is converted from the time coordinate units to seconds."""
+        iq = sample_iq_dataset["iq"].assign_coords(
+            time=xr.DataArray(
+                np.arange(20) * 100.0,
+                dims=("time",),
+                attrs={"units": "ms"},
+            )
+        )
+
+        result = process_iq_to_power_doppler(
+            iq,
+            clutter_window_width=10,
+            clutter_window_stride=5,
+            doppler_window_width=4,
+            doppler_window_stride=2,
+        )
+
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(1.0)
+        assert result.attrs["clutter_filter_window_stride"] == pytest.approx(0.5)
+        assert result.attrs["power_doppler_integration_duration"] == pytest.approx(0.4)
+        assert result.attrs["power_doppler_integration_stride"] == pytest.approx(0.2)
+
+    def test_duration_metadata_warns_when_time_units_missing(self, sample_iq_dataset):
+        """Missing time units warn and default to seconds for duration metadata."""
+        iq = sample_iq_dataset["iq"].assign_coords(
+            time=xr.DataArray(np.arange(20) * 0.1, dims=("time",))
+        )
+
+        with pytest.warns(UserWarning, match="Assuming seconds"):
+            result = process_iq_to_bmode(
+                iq, bmode_window_width=10, bmode_window_stride=5
+            )
+
+        assert result.attrs["bmode_integration_duration"] == pytest.approx(1.0)
+        assert result.attrs["bmode_integration_stride"] == pytest.approx(0.5)
+
+    def test_duration_metadata_warns_when_time_is_non_uniform(self, sample_iq_dataset):
+        """Non-uniform time coordinates use the median step with a warning."""
+        iq = sample_iq_dataset["iq"].assign_coords(
+            time=xr.DataArray(
+                [0.0, 0.1, 0.25, 0.35, 0.5] + list(np.arange(5, 20) * 0.1),
+                dims=("time",),
+                attrs={"units": "s"},
+            )
+        )
+
+        with pytest.warns(UserWarning, match="non-uniform sampling"):
+            result = process_iq_to_power_doppler(
+                iq,
+                clutter_window_width=4,
+                clutter_window_stride=2,
+                doppler_window_width=2,
+                doppler_window_stride=1,
+            )
+
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(0.4)
+
+    def test_duration_metadata_is_omitted_for_single_time_point(
         self, sample_iq_dataset
-    ):
+    ) -> None:
+        """Single-volume inputs do not emit duration metadata derived from time."""
+        iq = sample_iq_dataset["iq"].isel(time=slice(0, 1))
+
+        result = process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
+
+        assert "bmode_integration_duration" not in result.attrs
+        assert "bmode_integration_stride" not in result.attrs
+
+    def test_accessor_delegates_to_process_iq_to_power_doppler(self, sample_iq_dataset):
         """Xarray accessor calls process_iq_to_power_doppler with the correct arguments."""
         from unittest.mock import patch
 
@@ -383,11 +468,16 @@ class TestProcessIqToAxialVelocity:
 
         assert result.name == "axial_velocity"
         assert result.attrs["units"] == "m/s"
-        assert result.attrs["lag"] == 2
-        assert result.attrs["absolute_velocity"] is True
+        assert result.attrs["clutter_filters"] == "Index-based SVD"
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(1.0)
+        assert result.attrs["clutter_filter_window_stride"] == pytest.approx(1.0)
+        assert result.attrs["axial_velocity_integration_duration"] == pytest.approx(1.0)
+        assert result.attrs["axial_velocity_integration_stride"] == pytest.approx(1.0)
+        assert result.attrs["axial_velocity_lag"] == 2
+        assert result.attrs["axial_velocity_absolute"] is True
 
     def test_uses_attrs_for_parameters(self, sample_iq_dataset):
-        """Uses DataArray attributes for fs, ultrasound_frequency and beamforming_sound_velocity."""
+        """Uses DataArray attributes for fs, transmit_frequency and beamforming_sound_velocity."""
         # Set specific attribute values on the iq DataArray to verify they're used.
         sample_iq_dataset["iq"].attrs["compound_sampling_frequency"] = 100.0
         sample_iq_dataset["iq"].attrs["transmit_frequency"] = 10e6
@@ -395,8 +485,44 @@ class TestProcessIqToAxialVelocity:
 
         result = process_iq_to_axial_velocity(sample_iq_dataset["iq"])
 
-        assert result.attrs["ultrasound_frequency"] == 10e6
+        assert result.attrs["transmit_frequency"] == 10e6
         assert result.attrs["beamforming_sound_velocity"] == 1500.0
+
+    def test_svd_energy_filter_method(self, sample_iq_dataset) -> None:
+        """Energy-based SVD filtering produces an axial velocity output."""
+        result = process_iq_to_axial_velocity(
+            sample_iq_dataset["iq"],
+            clutter_window_width=10,
+            filter_method="svd_energy",
+            low_cutoff=0.1,
+            high_cutoff=0.9,
+        )
+
+        assert result.name == "axial_velocity"
+
+    def test_svd_cumulative_energy_filter_method(self, sample_iq_dataset) -> None:
+        """Cumulative-energy SVD filtering produces a power Doppler output."""
+        result = process_iq_to_power_doppler(
+            sample_iq_dataset["iq"],
+            clutter_window_width=10,
+            filter_method="svd_cumulative_energy",
+            low_cutoff=0.1,
+            high_cutoff=0.9,
+        )
+
+        assert result.name == "power_doppler"
+
+    def test_default_clutter_window_width_uses_time_chunk_size(
+        self, sample_iq_dataset
+    ) -> None:
+        """Missing clutter window width defaults to the time chunk size."""
+        iq = sample_iq_dataset["iq"].copy(
+            data=da.from_array(sample_iq_dataset["iq"].values, chunks=(5, 4, 6, 8))
+        )
+
+        result = process_iq_to_power_doppler(iq)
+
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(0.5)
 
     def test_accessor_delegates_to_process_iq_to_axial_velocity(
         self, sample_iq_dataset
@@ -441,6 +567,27 @@ class TestProcessIqToAxialVelocity:
             spatial_kernel=3,
             estimation_method="angle_average",
         )
+
+    def test_axial_velocity_output_uses_prefixed_metadata_names(
+        self, sample_iq_dataset
+    ):
+        """Axial-velocity-specific attrs use explicit `axial_velocity_` prefixes."""
+        result = process_iq_to_axial_velocity(
+            sample_iq_dataset["iq"],
+            lag=2,
+            absolute_velocity=True,
+            spatial_kernel=3,
+            estimation_method="angle_average",
+        )
+
+        assert result.attrs["axial_velocity_lag"] == 2
+        assert result.attrs["axial_velocity_absolute"] is True
+        assert result.attrs["axial_velocity_spatial_kernel"] == 3
+        assert result.attrs["axial_velocity_estimation_method"] == "angle_average"
+        assert "lag" not in result.attrs
+        assert "absolute_velocity" not in result.attrs
+        assert "spatial_kernel" not in result.attrs
+        assert "estimation_method" not in result.attrs
 
 
 class TestDataArrayClutterMask:
@@ -521,7 +668,7 @@ class TestDataArrayClutterMask:
             clutter_mask=mask_dataarray.values,
             low_cutoff=2,
             high_cutoff=8,
-            ultrasound_frequency=iq.attrs["transmit_frequency"],
+            transmit_frequency=iq.attrs["transmit_frequency"],
             beamforming_sound_velocity=iq.attrs["beamforming_sound_velocity"],
         )
 
@@ -670,8 +817,8 @@ class TestProcessIqToBmode:
 
         assert result.name == "bmode"
         assert result.attrs["units"] == "a.u."
-        assert result.attrs["bmode_window_width"] == 10
-        assert result.attrs["bmode_window_stride"] == 10
+        assert result.attrs["bmode_integration_duration"] == pytest.approx(1.0)
+        assert result.attrs["bmode_integration_stride"] == pytest.approx(1.0)
 
     def test_matches_reference_implementation(self, sample_iq_dataset):
         """Output matches reference mean magnitude computation."""

@@ -5,7 +5,24 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
+
+
+_TIME_UNIT_TO_SECONDS: dict[str, float] = {
+    "s": 1.0,
+    "sec": 1.0,
+    "second": 1.0,
+    "seconds": 1.0,
+    "ms": 1e-3,
+    "msec": 1e-3,
+    "millisecond": 1e-3,
+    "milliseconds": 1e-3,
+    "us": 1e-6,
+    "usec": 1e-6,
+    "microsecond": 1e-6,
+    "microseconds": 1e-6,
+}
 
 
 def find_stack_level() -> int:
@@ -39,6 +56,118 @@ def find_stack_level() -> int:
         # https://docs.python.org/3/library/inspect.html#inspect.Traceback
         del frame
     return n
+
+
+def _time_coord_values_in_seconds(
+    data: xr.DataArray, dim: str = "time"
+) -> npt.NDArray[np.float64]:
+    """Return a time coordinate converted to seconds.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray containing the time coordinate.
+    dim : str, default: "time"
+        Name of the coordinate dimension to convert.
+
+    Returns
+    -------
+    numpy.ndarray
+        Time coordinate values converted to seconds.
+
+    Warns
+    -----
+    UserWarning
+        If the coordinate has missing or unknown units. In that case, seconds are
+        assumed.
+    """
+    values = np.asarray(data.coords[dim].values, dtype=np.float64)
+    units = data.coords[dim].attrs.get("units")
+    if units is None:
+        warnings.warn(
+            "Time coordinate has no `units` attribute. Assuming seconds.",
+            stacklevel=find_stack_level(),
+        )
+        return values
+
+    unit = str(units).lower()
+    if unit not in _TIME_UNIT_TO_SECONDS:
+        warnings.warn(
+            f"Time coordinate uses unknown units {units!r}. Assuming seconds.",
+            stacklevel=find_stack_level(),
+        )
+        return values
+
+    return values * _TIME_UNIT_TO_SECONDS[unit]
+
+
+def _representative_step(
+    values: npt.NDArray[np.float64], uniformity_tolerance: float = 1e-5
+) -> tuple[float | None, bool]:
+    """Return a representative step size for a 1D coordinate array.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        One-dimensional coordinate values.
+    uniformity_tolerance : float, default: 1e-5
+        Maximum allowed relative range `(max_diff - min_diff) / median_diff` for the
+        coordinate to be considered uniform.
+
+    Returns
+    -------
+    step : float or None
+        Exact step size when sampling is uniform, the median consecutive difference when
+        sampling is non-uniform, or `None` when fewer than two values are provided.
+    approximate : bool
+        Whether the returned step is a median approximation derived from non-uniform
+        spacing.
+    """
+    if len(values) < 2:
+        return None, False
+
+    diffs = np.diff(values)
+    median = float(np.median(diffs))
+    if np.isclose(median, 0.0):
+        is_uniform = np.isclose(np.max(diffs), np.min(diffs))
+    else:
+        is_uniform = (np.max(diffs) - np.min(diffs)) / abs(
+            median
+        ) <= uniformity_tolerance
+
+    if is_uniform:
+        return median, False
+    return median, True
+
+
+def _representative_time_step_seconds(
+    data: xr.DataArray, dim: str = "time", uniformity_tolerance: float = 1e-5
+) -> tuple[float | None, bool]:
+    """Return a representative time step in seconds.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray containing the time coordinate.
+    dim : str, default: "time"
+        Name of the time coordinate dimension.
+    uniformity_tolerance : float, default: 1e-5
+        Maximum allowed relative range `(max_diff - min_diff) / median_diff` for the
+        time coordinate to be considered uniform.
+
+    Returns
+    -------
+    step : float or None
+        Representative time step in seconds, or `None` if fewer than two time points
+        are available.
+    approximate : bool
+        Whether the returned step is a median approximation derived from non-uniform
+        sampling.
+    """
+    return _representative_step(
+        _time_coord_values_in_seconds(data, dim),
+        uniformity_tolerance=uniformity_tolerance,
+    )
 
 
 class _DimSpacing:
@@ -121,15 +250,18 @@ def _spacing_for_dim(
             ),
         )
 
-    diffs = np.diff(coord.values)
-    median = float(np.median(diffs))
-    is_uniform = (np.max(diffs) - np.min(diffs)) / median <= uniformity_tolerance
+    representative_step, is_approximate = _representative_step(
+        np.asarray(coord.values, dtype=np.float64),
+        uniformity_tolerance=uniformity_tolerance,
+    )
 
-    if is_uniform:
-        return _DimSpacing(value=median, median=median, warn_msg=None)
+    if not is_approximate:
+        return _DimSpacing(
+            value=representative_step, median=representative_step, warn_msg=None
+        )
     return _DimSpacing(
         value=None,
-        median=median,
+        median=representative_step,
         warn_msg=f"Coordinate '{dim}' has non-uniform sampling; spacing is undefined.",
     )
 

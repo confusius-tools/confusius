@@ -238,6 +238,38 @@ def scan_4d_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def scan_4d_multiblock_path(tmp_path: Path) -> Path:
+    """Create a synthetic 4Dscan HDF5 file with `nblockRepeat > 1`."""
+    path = tmp_path / "test_4dscan_multiblock.scan"
+    nscan_repeat = 2
+    nblock_repeat = 3
+    n_time = nscan_repeat * nblock_repeat
+    time_flat = (
+        np.arange(n_time * _NPOSE, dtype=np.float64).reshape(n_time * _NPOSE, 1) * 0.1
+    )
+    data = _RNG.random(
+        (nscan_repeat, _NPOSE, nblock_repeat, _SIZE_Z, _SIZE_Y, _SIZE_X),
+        dtype=np.float64,
+    )
+    with h5py.File(path, "w") as f:
+        f.create_dataset("/Data", data=data)
+        _write_scan_metadata(
+            f,
+            mode="4Dscan",
+            size_x=_SIZE_X,
+            size_y=_SIZE_Y,
+            size_z=_SIZE_Z,
+            npose=_NPOSE,
+            nscan_repeat=nscan_repeat,
+            nblock_repeat=nblock_repeat,
+            voxels_to_probe=_VOXELS_TO_PROBE,
+            probe_to_lab=_PROBE_TO_LAB_MULTI,
+            time_data=time_flat,
+        )
+    return path
+
+
+@pytest.fixture
 def scan_2d_rotated_path(tmp_path: Path) -> Path:
     """Create a synthetic 2Dscan HDF5 file with a non-trivial probeToLab rotation.
 
@@ -328,6 +360,12 @@ def scan_4d(scan_4d_path: Path) -> xr.DataArray:
     return load_scan(scan_4d_path)
 
 
+@pytest.fixture
+def scan_4d_multiblock(scan_4d_multiblock_path: Path) -> xr.DataArray:
+    """Load a synthetic 4Dscan DataArray with repeated blocks."""
+    return load_scan(scan_4d_multiblock_path)
+
+
 # ---------------------------------------------------------------------------
 # Tests: 2Dscan
 # ---------------------------------------------------------------------------
@@ -403,7 +441,7 @@ class TestLoadScan2D:
     def test_provenance_attrs(self, scan_2d: xr.DataArray) -> None:
         """2Dscan attrs contain all provenance fields with correct values."""
         # BIDS-compatible fields
-        for key in ("device_serial_numbers", "software_versions"):
+        for key in ("device_serial_number", "software_version"):
             assert key in scan_2d.attrs
         # Iconeus-specific fields
         for key in (
@@ -418,7 +456,7 @@ class TestLoadScan2D:
         # Spot-check a few values against the fixture to guard against empty-string bugs.
         assert scan_2d.attrs["iconeus_subject"] == "sub-01"
         assert scan_2d.attrs["iconeus_date"] == "2025-01-01"
-        assert scan_2d.attrs["device_serial_numbers"] == "SN-0001"
+        assert scan_2d.attrs["device_serial_number"] == "SN-0001"
 
     def test_scan_mode_attr(self, scan_2d: xr.DataArray) -> None:
         """iconeus_scan_mode attr equals '2Dscan'."""
@@ -640,6 +678,19 @@ class TestLoadScan4D:
     def test_scan_mode_attr(self, scan_4d: xr.DataArray) -> None:
         """iconeus_scan_mode attr equals '4Dscan'."""
         assert scan_4d.attrs["iconeus_scan_mode"] == "4Dscan"
+
+    def test_multiblock_repeats_are_merged_into_time(
+        self, scan_4d_multiblock_path: Path, scan_4d_multiblock: xr.DataArray
+    ) -> None:
+        """`nblockRepeat > 1` is folded into the output time dimension."""
+        with h5py.File(scan_4d_multiblock_path, "r") as f:
+            raw = np.array(f["/Data"][()])
+        expected = np.transpose(raw, [0, 2, 1, 4, 3, 5]).reshape(
+            6, _NPOSE, _SIZE_Y, _SIZE_Z, _SIZE_X
+        )
+
+        assert scan_4d_multiblock.shape == (6, _NPOSE, _SIZE_Y, _SIZE_Z, _SIZE_X)
+        np.testing.assert_array_equal(scan_4d_multiblock.values, expected)
 
 
 # ---------------------------------------------------------------------------

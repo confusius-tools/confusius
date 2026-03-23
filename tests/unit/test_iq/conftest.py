@@ -66,7 +66,9 @@ def sample_iq_dataset(rng):
         data,
         dims=("time", "z", "y", "x"),
         coords={
-            "time": np.arange(20) * 0.1,
+            "time": xr.DataArray(
+                np.arange(20) * 0.1, dims=("time",), attrs={"units": "s"}
+            ),
             "z": np.arange(4) * 0.1,
             "y": np.arange(6) * 0.05,
             "x": np.arange(8) * 0.05,
