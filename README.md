@@ -8,7 +8,7 @@
 > [!NOTE]
 > **Pre-Alpha Status** — ConfUSIus is in pre-alpha and under active development—the API
 > may change between releases and some features may be incomplete. We are happy to help
-> you get started: join our [weekly drop-in hours](https://samuel.diebolt.io/confusius/user-guide/getting-started/#getting-help)
+> you get started: join our [weekly drop-in hours](https://confusius.tools/latest/user-guide/getting-started/#getting-help)
 > on Discord or open an [issue on GitHub](https://github.com/sdiebolt/confusius/issues)
 > for questions and feature requests.
 

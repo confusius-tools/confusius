@@ -24,7 +24,7 @@ identifiers:
     value: 10.5281/zenodo.18611124
     description: Zenodo link
 repository-code: 'https://github.com/sdiebolt/confusius'
-url: 'https://samuel.diebolt.io/confusius/'
+url: 'https://confusius.tools
 abstract: >-
   Python package for analysis and visualization of
   functional ultrasound imaging data.

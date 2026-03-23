@@ -1,6 +1,6 @@
 [project]
 site_name = "ConfUSIus"
-site_url = "https://samuel.diebolt.io/confusius/"
+site_url = "https://confusius.tools/"
 site_description = "Python package for analysis and visualization of functional ultrasound imaging data."
 site_author = "Samuel Le Meur-Diebolt"
 copyright = "Copyright © 2026 The ConfUSIus developers"
