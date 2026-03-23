@@ -7,8 +7,8 @@ icon: lucide/file-input
 ## Overview
 
 ConfUSIus is designed to handle large-scale fUSI datasets efficiently. This guide
-explains how to work with different data formats and convert them to work with
-ConfUSIus.
+explains how to load supported formats directly in ConfUSIus, choose appropriate storage
+formats for your workflow, and convert beamformed IQ data when needed.
 
 ## Working with Xarray
 
@@ -67,7 +67,8 @@ well-suited for fUSI workflows:
     - **Out-of-core processing**: Work with datasets larger than memory by loading only
       needed chunks.
     - **Compression**: Reduce storage footprint without sacrificing access speed.
-    - **Parallel I/O**: Read and write data concurrently from multiple processes.
+    - **Concurrent chunk access**: Multiple workers can read or write different
+      chunks efficiently.
     - **Cloud compatibility**: Store and access data on remote object storage (S3, GCS,
       etc.).
 
@@ -84,8 +85,8 @@ fUSI workflows involve two main categories of data:
     Complex-valued signals resulting from ultrasound beamforming of RF signals. These
     signals are typically further processed to extract derived signals such as power Doppler
     or velocity. Beamformed IQ datasets are typically very large (10s to 100s of GB per
-    acquisition session), and stored in proprietary formats depending on the acquisition
-    system (e.g., Iconeus, AUTC, EchoFrame, etc.).
+    acquisition session), and stored in system-specific layouts depending on the
+    acquisition system (e.g., Iconeus, AUTC, EchoFrame).
 
 === "Derived Acquisitions"
 
@@ -100,9 +101,16 @@ fUSI workflows involve two main categories of data:
 
 ## Converting Beamformed IQ Data
 
-Most fUSI acquisition systems output beamformed IQ data in proprietary binary formats.
-ConfUSIus currently provides built-in conversion utilities for **AUTC** and
-**EchoFrame** systems to transform their data into Zarr for efficient processing.
+Beamformed IQ exports are often stored as large binary files together with acquisition
+metadata. The file structure from AUTC and EchoFrame systems is documented, allowing
+ConfUSIus to provide built-in conversion utilities that reorganize these datasets into
+Zarr for efficient processing.
+
+!!! question "Why not Iconeus RAW files?"
+    ConfUSIus cannot currently read Iconeus RAW beamformed IQ files because this
+    format is not documented publicly. If you need to process RAW files with
+    ConfUSIus, please contact Iconeus to request an export tool or format
+    documentation.
 
 === "AUTC DATs"
 
