@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from qtpy.QtCore import QEasingCurve, QPropertyAnimation, QRectF, QSize, Qt, QTimer
-from qtpy.QtGui import QFont, QIcon, QImage, QPainter, QPixmap
+from qtpy.QtGui import QFont, QImage, QPainter, QPixmap
+from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -19,62 +20,12 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._napari._utils import make_lucide_icon
+
 if TYPE_CHECKING:
     import napari
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
-
-try:
-    from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
-
-    _HAS_SVG = True
-except ImportError:
-    _HAS_SVG = False
-
-
-def _make_lucide_icon(name: str, color: str, size: int = 16) -> QIcon:
-    """Render a Lucide SVG icon at *size* px, tinted with *color*.
-
-    Lucide icons use `stroke="currentColor"`. We replace that token with the desired hex
-    color before passing the SVG bytes to `QSvgRenderer`.
-
-    Parameters
-    ----------
-    name : str
-        Stem of the SVG file inside the assets directory (e.g. `"folder-open"`).
-    color : str
-        CSS hex color string (e.g. `"#ffd33d"`).
-    size : int, default: 16
-        Target icon size in logical pixels.
-
-    Returns
-    -------
-    QIcon
-        A `QIcon` containing the rendered pixmap, or an empty `QIcon` when the SVG
-        module is unavailable or the file does not exist.
-    """
-    if not _HAS_SVG:
-        return QIcon()
-
-    svg_path = _ASSETS_DIR / f"{name}.svg"
-    if not svg_path.exists():
-        return QIcon()
-
-    svg_bytes = svg_path.read_bytes().replace(b"currentColor", color.encode())
-
-    dpr = QApplication.instance().devicePixelRatio()  # type: ignore[union-attr]
-    px = round(size * dpr)
-
-    renderer = _QSvgRenderer(svg_bytes)
-    image = QImage(px, px, QImage.Format.Format_ARGB32_Premultiplied)
-    image.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(image)
-    renderer.render(painter, QRectF(0, 0, px, px))
-    painter.end()
-
-    pixmap = QPixmap.fromImage(image)
-    pixmap.setDevicePixelRatio(dpr)
-    return QIcon(pixmap)
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -317,7 +268,7 @@ class ConfUSIusWidget(QWidget):
         self._apply_theme()
         accent = "#ffd33d" if self._is_dark() else "#c49a0a"
         for btn, icon_name in getattr(self, "_accordion_btns", []):
-            btn.setIcon(_make_lucide_icon(icon_name, accent))
+            btn.setIcon(make_lucide_icon(icon_name, accent))
 
     # ------------------------------------------------------------------
     # UI construction
@@ -382,9 +333,6 @@ class ConfUSIusWidget(QWidget):
 
         Rendered at device pixel ratio for crisp display on HiDPI screens.
         """
-        if not _HAS_SVG:
-            return None
-
         svg_path = _ASSETS_DIR / "confusius-logo.svg"
         if not svg_path.exists():
             return None
@@ -462,7 +410,7 @@ class ConfUSIusWidget(QWidget):
 
         for i, ((title, icon_name), panel) in enumerate(zip(tab_entries, panels)):
             btn = QPushButton(title)
-            btn.setIcon(_make_lucide_icon(icon_name, accent))
+            btn.setIcon(make_lucide_icon(icon_name, accent))
             btn.setIconSize(QSize(16, 16))
             btn.setObjectName("accordion_header")
             btn.setCheckable(True)

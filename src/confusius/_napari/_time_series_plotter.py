@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 import napari
@@ -9,10 +10,20 @@ import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
-from confusius._napari._utils import napari_colors, recolor_toolbar_icons
+from confusius._napari._utils import (
+    ExportSeries,
+    create_export_button,
+    get_napari_colors,
+    prepare_export_series,
+    prompt_delimited_export_path,
+    style_export_button,
+    style_plot_toolbar,
+    write_delimited_series,
+)
 
 # Line styles cycled across reference layers so multi-layer plots are distinguishable
 # even when point/label colors are the same.
@@ -73,6 +84,7 @@ class TimeSeriesPlotter(QWidget):
         self._vline = None
         self._bg = None  # Saved pixel buffer (without vline).
         self._cursor_frame: float = 0.0
+        self._export_series: list[ExportSeries] = []
 
         # Throttle blit calls to ~60 fps so the napari time slider stays responsive when
         # the canvas is docked (docked canvases must synchronise repaints with the
@@ -115,6 +127,11 @@ class TimeSeriesPlotter(QWidget):
         )
 
         self._toolbar = NavigationToolbar(self._canvas, self)
+        self._export_button = create_export_button(
+            self._toolbar, "timeSeriesExportButton", self._save_current_plot
+        )
+        self._export_button.setEnabled(False)
+        self._toolbar.addWidget(self._export_button)
         layout.addWidget(self._toolbar)
         layout.addWidget(self._canvas)
 
@@ -132,7 +149,7 @@ class TimeSeriesPlotter(QWidget):
 
     def _get_colors(self) -> dict:
         """Get current theme colors."""
-        return napari_colors(self._viewer.theme)
+        return get_napari_colors(self._viewer.theme)
 
     def _apply_theme(self) -> None:
         """Apply napari theme to matplotlib figure."""
@@ -141,8 +158,8 @@ class TimeSeriesPlotter(QWidget):
         self._figure.patch.set_facecolor(colors["bg"])
         self._axes.set_facecolor(colors["bg"])
 
-        self._toolbar.setStyleSheet(f"background: {colors['bg']}; border: none;")
-        recolor_toolbar_icons(self._toolbar, colors["fg"])
+        style_plot_toolbar(self._toolbar, colors)
+        style_export_button(self._export_button, colors)
 
         for spine in self._axes.spines.values():
             spine.set_edgecolor(colors["fg"])
@@ -311,6 +328,7 @@ class TimeSeriesPlotter(QWidget):
 
     def _show_message(self, text: str) -> None:
         """Show a centered message in the plot area with no axes or data."""
+        self._clear_export_series()
         self._axes.clear()
         colors = self._get_colors()
         self._axes.text(
@@ -398,6 +416,9 @@ class TimeSeriesPlotter(QWidget):
             else:
                 x_values = np.arange(len(ts))
             xlabel = self._get_time_xlabel(self._current_layer)
+            self._set_export_series(
+                [(self._current_layer.name, np.asarray(x_values), np.asarray(ts))]
+            )
 
             self._axes.plot(
                 x_values,
@@ -461,6 +482,7 @@ class TimeSeriesPlotter(QWidget):
             else:
                 self._vline = None
         else:
+            self._clear_export_series()
             self._prev_ts_valid = False
             self._vline = None
             self._axes.text(
@@ -678,6 +700,41 @@ class TimeSeriesPlotter(QWidget):
         if ylim is not None:
             self._axes.set_ylim(ylim)
 
+    def _set_export_series(self, series: list[ExportSeries]) -> None:
+        """Store the currently plotted series for export."""
+        self._export_series = prepare_export_series(series)
+        self._export_button.setEnabled(bool(self._export_series))
+
+    def _clear_export_series(self) -> None:
+        """Clear the currently exported series."""
+        self._set_export_series([])
+
+    def _write_current_plot_delimited(self, path: Path, delimiter: str) -> None:
+        """Write the currently plotted time series to a delimited text file."""
+        write_delimited_series(path, self._export_series, delimiter=delimiter)
+
+    def _save_current_plot(self) -> None:
+        """Open a save dialog and export the current plot as CSV or TSV."""
+        if not self._export_series:
+            show_error("No time series plot available to save.")
+            return
+
+        export_selection = prompt_delimited_export_path(
+            self, "Export Time Series", str(Path.home() / "time_series.tsv")
+        )
+        if export_selection is None:
+            return
+
+        path, delimiter = export_selection
+
+        try:
+            self._write_current_plot_delimited(path, delimiter)
+        except Exception as exc:
+            show_error(str(exc))
+            return
+
+        show_info(f"Exported time series to {path}")
+
     def _apply_zscore(self, ts: np.ndarray) -> np.ndarray:
         """Normalise a time series to zero mean and unit variance."""
         mean = np.mean(ts)
@@ -785,6 +842,7 @@ class TimeSeriesPlotter(QWidget):
 
         self._axes.clear()
         has_any = False
+        export_series: list[ExportSeries] = []
 
         for pt_idx in range(n_points):
             pt_data = np.asarray(self._points_layer.data[pt_idx], dtype=float)
@@ -841,12 +899,14 @@ class TimeSeriesPlotter(QWidget):
                     linestyle=linestyle,
                     label=label,
                 )
+                export_series.append((label, np.asarray(x), np.asarray(ts)))
                 has_any = True
                 # Keep time coords from the last successful layer for cursor mapping.
                 self._time_coords = time_coords
                 self._current_layer = img_layer
 
         if has_any:
+            self._set_export_series(export_series)
             xlabel = self._get_time_xlabel(ref_layers[0])
             ylabel = "Z-score" if self._zscore else "Intensity"
             title_ref = ref_layers[0].name if len(ref_layers) == 1 else "All layers"
@@ -888,6 +948,7 @@ class TimeSeriesPlotter(QWidget):
         self._axes.clear()
         has_any = False
         shape_mismatch = False
+        export_series: list[ExportSeries] = []
 
         for layer_idx, img_layer in enumerate(ref_layers):
             t_idx = self._time_dim_index(img_layer)
@@ -937,6 +998,7 @@ class TimeSeriesPlotter(QWidget):
                     linestyle=linestyle,
                     label=label,
                 )
+                export_series.append((label, np.asarray(x), np.asarray(ts)))
                 has_any = True
 
             # Keep time coords from the last successful layer for cursor mapping.
@@ -944,6 +1006,7 @@ class TimeSeriesPlotter(QWidget):
             self._current_layer = img_layer
 
         if has_any:
+            self._set_export_series(export_series)
             xlabel = self._get_time_xlabel(ref_layers[0])
             ylabel = "Z-score" if self._zscore else "Intensity"
             title_ref = ref_layers[0].name if len(ref_layers) == 1 else "All layers"

@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import napari
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
-from confusius._napari._utils import napari_colors, recolor_toolbar_icons
+from confusius._napari._utils import (
+    ExportSeries,
+    create_export_button,
+    get_napari_colors,
+    prepare_export_series,
+    prompt_delimited_export_path,
+    style_export_button,
+    style_plot_toolbar,
+    write_delimited_series,
+)
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -41,6 +52,7 @@ class QCPlotsWidget(QWidget):
         # Cached data for theme-change redraws.
         self._dvars_da: xr.DataArray | None = None
         self._dvars_layer_name: str = ""
+        self._dvars_export_series: list[ExportSeries] = []
         self._data_da: dict | None = None  # pre-computed carpet dict
         self._carpet_layer_name: str = ""
         # Blitting state per plot.
@@ -91,6 +103,11 @@ class QCPlotsWidget(QWidget):
         dvars_layout.setContentsMargins(4, 4, 4, 4)
         dvars_layout.setSpacing(0)
         self._dvars_toolbar = NavigationToolbar(self._dvars_canvas, self._dvars_tab)
+        self._dvars_export_button = create_export_button(
+            self._dvars_toolbar, "dvarsExportButton", self._save_dvars
+        )
+        self._dvars_export_button.setEnabled(False)
+        self._dvars_toolbar.addWidget(self._dvars_export_button)
         dvars_layout.addWidget(self._dvars_toolbar)
         dvars_layout.addWidget(self._dvars_canvas)
         # Tab is added to self._tabs only when first populated.
@@ -118,8 +135,40 @@ class QCPlotsWidget(QWidget):
 
     def _style_toolbar(self, toolbar: NavigationToolbar, colors: dict) -> None:
         """Apply the napari background to the toolbar and recolor its icons."""
-        toolbar.setStyleSheet(f"background: {colors['bg']}; border: none;")
-        recolor_toolbar_icons(toolbar, colors["fg"])
+        style_plot_toolbar(toolbar, colors)
+        if toolbar is self._dvars_toolbar:
+            style_export_button(self._dvars_export_button, colors)
+
+    def _set_dvars_export_series(self, series: list[ExportSeries]) -> None:
+        """Store the currently plotted DVARS series for export."""
+        self._dvars_export_series = prepare_export_series(series)
+        self._dvars_export_button.setEnabled(bool(self._dvars_export_series))
+
+    def _write_dvars_delimited(self, path: Path, delimiter: str) -> None:
+        """Write the current DVARS trace to a delimited text file."""
+        write_delimited_series(path, self._dvars_export_series, delimiter=delimiter)
+
+    def _save_dvars(self) -> None:
+        """Open a save dialog and export the DVARS trace as CSV or TSV."""
+        if not self._dvars_export_series:
+            show_error("No DVARS plot available to export.")
+            return
+
+        export_selection = prompt_delimited_export_path(
+            self, "Export DVARS", str(Path.home() / "dvars.tsv")
+        )
+        if export_selection is None:
+            return
+
+        path, delimiter = export_selection
+
+        try:
+            self._write_dvars_delimited(path, delimiter)
+        except Exception as exc:
+            show_error(str(exc))
+            return
+
+        show_info(f"Exported DVARS to {path}")
 
     # ------------------------------------------------------------------
     # Blitting helpers
@@ -174,7 +223,7 @@ class QCPlotsWidget(QWidget):
         if self._tabs.indexOf(self._dvars_tab) == -1:
             self._tabs.insertTab(0, self._dvars_tab, "DVARS")
 
-        colors = napari_colors(self._viewer.theme)
+        colors = get_napari_colors(self._viewer.theme)
 
         self._dvars_fig.clear()
         self._dvars_fig.patch.set_facecolor(colors["bg"])
@@ -185,6 +234,7 @@ class QCPlotsWidget(QWidget):
         time_coord = dvars_da.coords.get("time")
         x = time_coord.values if time_coord is not None else np.arange(len(dvars_da))
         xlabel = "Time (s)" if time_coord is not None else "Frame"
+        self._set_dvars_export_series([("DVARS", x, dvars_da.values)])
 
         ax.plot(x, dvars_da.values, color=colors["accent"], linewidth=1.2)
         ax.set_xlabel(xlabel, color=colors["fg"], fontsize=9)
@@ -241,7 +291,7 @@ class QCPlotsWidget(QWidget):
         if self._tabs.indexOf(self._carpet_tab) == -1:
             self._tabs.addTab(self._carpet_tab, "Carpet plot")
 
-        colors = napari_colors(self._viewer.theme)
+        colors = get_napari_colors(self._viewer.theme)
 
         self._carpet_fig.clear()
         self._carpet_fig.patch.set_facecolor(colors["bg"])

@@ -12,6 +12,8 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
+from confusius._napari._utils import format_export_value
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -271,3 +273,78 @@ class TestUpdatePlotXlim:
 
         # The recovered xlim must match the original, not be stuck at [0, 1].
         npt.assert_allclose(xlim_recovered, xlim_first)
+
+
+# ---------------------------------------------------------------------------
+# TSV export
+# ---------------------------------------------------------------------------
+
+
+class TestTsvExport:
+    def test_writes_time_first_column_for_current_plot(
+        self, plotter, tmp_path, sample_4d_volume
+    ):
+        data = np.asarray(sample_4d_volume)
+        layer = _Layer(data, metadata={"xarray": sample_4d_volume})
+        layer.name = "signal"
+
+        plotter._current_layer = layer
+        plotter._cursor_pos = np.array([0, 1, 2, 3])
+        plotter._update_plot()
+
+        out_path = tmp_path / "timeseries.tsv"
+        plotter._write_current_plot_delimited(out_path, delimiter="\t")
+
+        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
+        assert rows[0] == ["time", "signal"]
+        assert [row[0] for row in rows[1:]] == [
+            format_export_value(value)
+            for value in sample_4d_volume.coords["time"].values
+        ]
+        assert [row[1] for row in rows[1:]] == [
+            format_export_value(value) for value in data[:, 1, 2, 3]
+        ]
+        assert plotter._export_button.isEnabled()
+
+    def test_writes_csv_when_requested(self, plotter, tmp_path):
+        plotter._set_export_series(
+            [("signal", np.array([0.0, 1.0]), np.array([10.0, 11.5]))]
+        )
+
+        out_path = tmp_path / "timeseries.csv"
+        plotter._write_current_plot_delimited(out_path, delimiter=",")
+
+        rows = [line.split(",") for line in out_path.read_text().splitlines()]
+        assert rows == [["time", "signal"], ["0", "10"], ["1", "11.5"]]
+
+    def test_aligns_multiple_series_and_deduplicates_headers(self, plotter, tmp_path):
+        plotter._set_export_series(
+            [
+                ("series", np.array([0.0, 1.0]), np.array([10.0, 11.0])),
+                ("series", np.array([1.0, 2.0]), np.array([20.0, 21.0])),
+            ]
+        )
+
+        out_path = tmp_path / "timeseries.tsv"
+        plotter._write_current_plot_delimited(out_path, delimiter="\t")
+
+        rows = [line.split("\t") for line in out_path.read_text().splitlines()]
+        assert rows == [
+            ["time", "series", "series_2"],
+            ["0", "10", ""],
+            ["1", "11", "20"],
+            ["2", "", "21"],
+        ]
+
+    def test_invalid_plot_clears_export_state(self, plotter):
+        plotter._set_export_series(
+            [("series", np.array([0.0, 1.0]), np.array([10.0, 11.0]))]
+        )
+
+        layer = _Layer(np.zeros((10, 4, 6, 8)))
+        plotter._current_layer = layer
+        plotter._cursor_pos = np.array([0, 99, 99, 99])
+        plotter._update_plot()
+
+        assert plotter._export_series == []
+        assert not plotter._export_button.isEnabled()
