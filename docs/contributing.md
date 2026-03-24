@@ -20,7 +20,7 @@ We welcome contributions to ConfUSIus! This guide will help you get started.
 
 ```bash
 # Clone your fork
-git clone https://github.com/sdiebolt/confusius.git
+git clone https://github.com/confusius-tools/confusius.git
 cd confusius
 
 # Install with development dependencies

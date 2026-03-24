@@ -6,8 +6,8 @@ site_author = "Samuel Le Meur-Diebolt"
 copyright = "Copyright © 2026 The ConfUSIus developers"
 docs_dir = "docs"
 site_dir = "site"
-repo_url = "https://github.com/sdiebolt/confusius"
-repo_name = "sdiebolt/confusius"
+repo_url = "https://github.com/confusius-tools/confusius"
+repo_name = "confusius-tools/confusius"
 edit_uri = "edit/main/docs/"
 extra_css = ["stylesheets/extra.css"]
 extra_javascript = [
@@ -63,7 +63,7 @@ nav = [
 
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
-link = "https://github.com/sdiebolt/confusius"
+link = "https://github.com/confusius-tools/confusius"
 name = "ConfUSIus on GitHub"
 
 [[project.extra.social]]

@@ -37,4 +37,4 @@ print(cf.__version__)
 
 If the installation was successful, this code will print the installed version of
 ConfUSIus without any errors. If you encounter an error, please open an issue on the
-[GitHub repository](https://github.com/sdiebolt/confusius/issues/).
+[GitHub repository](https://github.com/confusius-tools/confusius/issues/).

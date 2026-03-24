@@ -228,7 +228,7 @@ Ready to get started?
 5. **[API Reference](../api/index.md)**: Explore detailed function documentation.
 
 Still have questions? Check the [GitHub
-issues](https://github.com/sdiebolt/confusius/issues) or open a new one! You can also
+issues](https://github.com/confusius-tools/confusius/issues) or open a new one! You can also
 join the [fUSI community Discord](https://discord.gg/mZd87tgmy2) to ask questions and
 connect with other researchers using fUSI.
 

@@ -39,7 +39,7 @@ def db_scale(data: xr.DataArray, factor: int = 10) -> xr.DataArray:
     abs_data = xr.ufuncs.abs(data)
     # We compute the max value non-lazily to avoid re-triggering the entire computation
     # graph for each chunk when visualizing with napari or similar tools. See
-    # https://github.com/sdiebolt/confusius/issues/18.
+    # https://github.com/confusius-tools/confusius/issues/18.
     max_val = abs_data.max().compute()
 
     with np.errstate(divide="ignore", invalid="ignore"):

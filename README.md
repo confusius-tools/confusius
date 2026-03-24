@@ -1,7 +1,7 @@
 [![PyPI version](https://img.shields.io/pypi/v/confusius)](https://pypi.org/project/confusius/)
 [![Python versions](https://img.shields.io/pypi/pyversions/confusius)](https://pypi.org/project/confusius/)
 [![DOI](https://zenodo.org/badge/1155356116.svg)](https://doi.org/10.5281/zenodo.18611124)
-[![codecov](https://codecov.io/github/sdiebolt/confusius/graph/badge.svg?token=TL5AIRNSHS)](https://codecov.io/github/sdiebolt/confusius)
+[![codecov](https://codecov.io/gh/confusius-tools/confusius/graph/badge.svg?token=TL5AIRNSHS)](https://codecov.io/gh/confusius-tools/confusius)
 
 # ConfUSIus <img src="docs/images/confusius-logo.svg" width="200" title="ConfUSIus" alt="ConfUSIus" align="right">
 
@@ -9,7 +9,7 @@
 > **Pre-Alpha Status** — ConfUSIus is in pre-alpha and under active development—the API
 > may change between releases and some features may be incomplete. We are happy to help
 > you get started: join our [weekly drop-in hours](https://confusius.tools/latest/user-guide/getting-started/#getting-help)
-> on Discord or open an [issue on GitHub](https://github.com/sdiebolt/confusius/issues)
+> on Discord or open an [issue on GitHub](https://github.com/confusius-tools/confusius/issues)
 > for questions and feature requests.
 
 ConfUSIus is a Python package and napari plugin for handling, visualization,
@@ -77,7 +77,7 @@ pip install confusius
 To install the latest development version from GitHub:
 
 ```bash
-uv add git+https://github.com/sdiebolt/confusius.git
+uv add git+https://github.com/confusius-tools/confusius.git
 ```
 
 ### 3. Check installation
@@ -106,7 +106,7 @@ corrected_data = data.fusi.register.volumewise()
 corrected_data.fusi.plot()
 ```
 
-See the [documentation](https://sdiebolt.github.io/confusius/) for more detailed usage
+See the [documentation](https://confusius-tools.github.io/confusius/) for more detailed usage
 examples and tutorials.
 
 ## Citing ConfUSIus

@@ -14,7 +14,7 @@ preprocessing, and statistical analysis of functional ultrasound imaging (fUSI) 
     between releases and some features may be incomplete. We are happy to help you get
     started: join our [weekly drop-in hours](user-guide/getting-started.md#getting-help)
     on Discord or open an issue on
-    [GitHub](https://github.com/sdiebolt/confusius/issues) for questions and feature
+    [GitHub](https://github.com/confusius-tools/confusius/issues) for questions and feature
     requests.
 
 ## Quick Links
