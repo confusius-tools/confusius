@@ -6,7 +6,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from confusius._napari._time_series_store import TimeSeriesStore
+from confusius._napari._time_series._store import TimeSeriesStore
 
 
 def test_import_csv_creates_one_series_per_value_column(

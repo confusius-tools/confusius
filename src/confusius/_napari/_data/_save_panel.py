@@ -22,7 +22,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._writers import _compute_dataarray_from_layer
+from confusius._napari._io._writers import _compute_dataarray_from_layer
 
 if TYPE_CHECKING:
     import napari

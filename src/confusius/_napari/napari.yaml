@@ -10,31 +10,31 @@ contributions:
 
     - id: confusius.read_nifti
       title: Read NIfTI file
-      python_name: confusius._napari._readers:read_nifti
+      python_name: confusius._napari._io._readers:read_nifti
 
     - id: confusius.read_scan
       title: Read SCAN file
-      python_name: confusius._napari._readers:read_scan
+      python_name: confusius._napari._io._readers:read_scan
 
     - id: confusius.read_zarr
       title: Read Zarr store
-      python_name: confusius._napari._readers:read_zarr
+      python_name: confusius._napari._io._readers:read_zarr
 
     - id: confusius.write_nifti
       title: Write NIfTI file
-      python_name: confusius._napari._writers:write_nifti
+      python_name: confusius._napari._io._writers:write_nifti
 
     - id: confusius.write_nifti_labels
       title: Write labels to NIfTI file
-      python_name: confusius._napari._writers:write_nifti
+      python_name: confusius._napari._io._writers:write_nifti
 
     - id: confusius.write_zarr
       title: Write Zarr store
-      python_name: confusius._napari._writers:write_zarr
+      python_name: confusius._napari._io._writers:write_zarr
 
     - id: confusius.write_zarr_labels
       title: Write labels to Zarr store
-      python_name: confusius._napari._writers:write_zarr
+      python_name: confusius._napari._io._writers:write_zarr
 
   widgets:
     - command: confusius.open_widget

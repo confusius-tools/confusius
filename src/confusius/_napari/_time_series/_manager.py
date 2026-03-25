@@ -21,8 +21,8 @@ from qtpy.QtWidgets import (
     QHeaderView,
 )
 
-from confusius._napari._time_series_store import ImportedSeries, TimeSeriesStore
-from confusius._napari._utils import get_napari_colors
+from confusius._napari._theme import get_napari_colors
+from confusius._napari._time_series._store import ImportedSeries, TimeSeriesStore
 
 
 def _colored_button_style(r: int, g: int, b: int) -> str:

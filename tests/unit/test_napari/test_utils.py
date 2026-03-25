@@ -7,12 +7,12 @@ from qtpy.QtCore import QSize, Qt
 from qtpy.QtGui import QColor, QIcon, QPainter, QPixmap
 from qtpy.QtWidgets import QToolBar
 
-from confusius._napari._utils import (
+from confusius._napari._export import (
     ExportSeries,
-    recolor_toolbar_icons,
     resolve_delimited_export_path,
     write_delimited_series,
 )
+from confusius._napari._theme import recolor_toolbar_icons
 
 
 def _solid_icon(color: str, size: QSize = QSize(16, 16)) -> QIcon:
@@ -77,7 +77,7 @@ def test_resolve_delimited_export_path_uses_selected_filter():
     assert delimiter == "\t"
 
 
-def test_write_delimited_series_aligns_duplicate_time_values(tmp_path):
+def test_write_delimited_series_merges_different_time_axes(tmp_path):
     out_path = tmp_path / "export.tsv"
 
     import numpy as np
@@ -85,19 +85,19 @@ def test_write_delimited_series_aligns_duplicate_time_values(tmp_path):
     write_delimited_series(
         out_path,
         [
-            ExportSeries("series", np.array([0, 0, 1]), np.array([10, 11, 12])),
-            ExportSeries("series", np.array([0, 1, 2]), np.array([20, 21, 22])),
+            ExportSeries("live", np.array([0, 1, 2]), np.array([10, 11, 12])),
+            ExportSeries("imported", np.array([1, 2, 3]), np.array([20, 21, 22])),
         ],
         delimiter="\t",
     )
 
     rows = [line.split("\t") for line in out_path.read_text().splitlines()]
     assert rows == [
-        ["time", "series", "series_2"],
-        ["0", "10", "20"],
-        ["0", "11", ""],
-        ["1", "12", "21"],
-        ["2", "", "22"],
+        ["time", "live", "imported"],
+        ["0", "10", ""],
+        ["1", "11", "20"],
+        ["2", "12", "21"],
+        ["3", "", "22"],
     ]
 
 

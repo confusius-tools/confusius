@@ -13,15 +13,17 @@ from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
-from confusius._napari._utils import (
+from confusius._napari._export import (
     ExportSeries,
-    create_export_button,
-    get_napari_colors,
     prepare_export_series,
     prompt_delimited_export_path,
+    write_delimited_series,
+)
+from confusius._napari._theme import (
+    create_export_button,
+    get_napari_colors,
     style_export_button,
     style_plot_toolbar,
-    write_delimited_series,
 )
 
 if TYPE_CHECKING:

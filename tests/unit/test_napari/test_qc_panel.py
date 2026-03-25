@@ -25,7 +25,7 @@ def viewer(make_napari_viewer):
 
 @pytest.fixture
 def qc_panel(viewer):
-    from confusius._napari._qc_panel import QCPanel
+    from confusius._napari._qc._panel import QCPanel
 
     return QCPanel(viewer)
 

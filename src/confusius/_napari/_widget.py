@@ -20,7 +20,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._utils import make_lucide_icon
+from confusius._napari._theme import make_lucide_icon
 
 if TYPE_CHECKING:
     import napari
@@ -374,10 +374,10 @@ class ConfUSIusWidget(QWidget):
         `maximumHeight`: the expanding panel slides in from 0 to unconstrained height;
         the collapsing panel slides out before being hidden.
         """
-        from confusius._napari._data_panel import DataPanel
-        from confusius._napari._qc_panel import QCPanel
-        from confusius._napari._save_panel import SavePanel
-        from confusius._napari._time_series_panel import TimeSeriesPanel
+        from confusius._napari._data._load_panel import DataPanel
+        from confusius._napari._data._save_panel import SavePanel
+        from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._time_series._panel import TimeSeriesPanel
 
         container = QWidget()
         # Keep animation objects alive for their duration.

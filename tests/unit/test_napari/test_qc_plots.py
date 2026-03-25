@@ -7,7 +7,7 @@ import xarray as xr
 
 
 def test_dvars_export_button_and_tsv_output(make_napari_viewer, tmp_path):
-    from confusius._napari._qc_plots import QCPlotsWidget
+    from confusius._napari._qc._plots import QCPlotsWidget
 
     viewer = make_napari_viewer()
     widget = QCPlotsWidget(viewer)
@@ -33,7 +33,7 @@ def test_dvars_export_button_and_tsv_output(make_napari_viewer, tmp_path):
 
 
 def test_dvars_csv_output_without_time_coordinate(make_napari_viewer, tmp_path):
-    from confusius._napari._qc_plots import QCPlotsWidget
+    from confusius._napari._qc._plots import QCPlotsWidget
 
     viewer = make_napari_viewer()
     widget = QCPlotsWidget(viewer)

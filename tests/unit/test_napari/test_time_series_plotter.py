@@ -12,8 +12,8 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._napari._time_series_store import TimeSeriesStore
-from confusius._napari._utils import format_export_value
+from confusius._napari._time_series._store import TimeSeriesStore
+from confusius._napari._export import format_export_value
 
 
 # ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ def viewer(make_napari_viewer):
 
 @pytest.fixture
 def plotter(viewer):
-    from confusius._napari._time_series_plotter import TimeSeriesPlotter
+    from confusius._napari._time_series._plotter import TimeSeriesPlotter
 
     return TimeSeriesPlotter(viewer)
 
@@ -68,7 +68,7 @@ def store():
 
 @pytest.fixture
 def plotter_with_store(viewer, store):
-    from confusius._napari._time_series_plotter import TimeSeriesPlotter
+    from confusius._napari._time_series._plotter import TimeSeriesPlotter
 
     return TimeSeriesPlotter(viewer, store=store)
 
@@ -320,7 +320,7 @@ class TestTsvExport:
         assert plotter._export_button.isEnabled()
 
     def test_writes_csv_when_requested(self, plotter, tmp_path):
-        from confusius._napari._utils import ExportSeries
+        from confusius._napari._export import ExportSeries
 
         plotter._set_export_series(
             [ExportSeries("signal", np.array([0.0, 1.0]), np.array([10.0, 11.5]))]
@@ -333,7 +333,7 @@ class TestTsvExport:
         assert rows == [["time", "signal"], ["0", "10"], ["1", "11.5"]]
 
     def test_aligns_multiple_series_and_deduplicates_headers(self, plotter, tmp_path):
-        from confusius._napari._utils import ExportSeries
+        from confusius._napari._export import ExportSeries
 
         plotter._set_export_series(
             [
@@ -354,7 +354,7 @@ class TestTsvExport:
         ]
 
     def test_invalid_plot_clears_export_state(self, plotter):
-        from confusius._napari._utils import ExportSeries
+        from confusius._napari._export import ExportSeries
 
         plotter._set_export_series(
             [ExportSeries("series", np.array([0.0, 1.0]), np.array([10.0, 11.0]))]

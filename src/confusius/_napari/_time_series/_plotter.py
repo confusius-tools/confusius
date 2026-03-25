@@ -15,18 +15,20 @@ from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
-from confusius._napari._time_series_store import ImportedSeries, TimeSeriesStore
-from confusius._napari._utils import (
+from confusius._napari._export import (
     ExportSeries,
     PlotSeries,
-    create_export_button,
-    get_napari_colors,
     prepare_export_series,
     prompt_delimited_export_path,
-    style_export_button,
-    style_plot_toolbar,
     write_delimited_series,
 )
+from confusius._napari._theme import (
+    create_export_button,
+    get_napari_colors,
+    style_export_button,
+    style_plot_toolbar,
+)
+from confusius._napari._time_series._store import ImportedSeries, TimeSeriesStore
 
 # Line styles cycled across reference layers so multi-layer plots are distinguishable
 # even when point/label colors are the same.

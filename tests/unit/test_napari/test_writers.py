@@ -17,7 +17,7 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._napari._writers import write_nifti, write_zarr
+from confusius._napari._io._writers import write_nifti, write_zarr
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -306,7 +306,7 @@ class TestWriteZarrFromReconstruction:
 class TestDaFromNapariLayer:
     def test_default_dims_3d(self) -> None:
         """3D data without axis_labels gets default dims (z, y, x)."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4, 6, 8))
         da = _compute_dataarray_from_layer(
@@ -316,7 +316,7 @@ class TestDaFromNapariLayer:
 
     def test_default_dims_4d(self) -> None:
         """4D data without axis_labels gets default dims (time, z, y, x)."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((10, 4, 6, 8))
         da = _compute_dataarray_from_layer(data, {})
@@ -324,7 +324,7 @@ class TestDaFromNapariLayer:
 
     def test_scale_sets_coord_spacing(self) -> None:
         """Scale values produce correct coordinate spacing."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4, 6))
         da = _compute_dataarray_from_layer(
@@ -336,7 +336,7 @@ class TestDaFromNapariLayer:
 
     def test_translate_sets_coord_origin(self) -> None:
         """Translate values set the first coordinate value for each dimension."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4, 6))
         da = _compute_dataarray_from_layer(
@@ -348,7 +348,7 @@ class TestDaFromNapariLayer:
 
     def test_units_stored_in_coord_attrs(self) -> None:
         """Unit strings from meta are stored in coordinate attrs."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4, 6))
         da = _compute_dataarray_from_layer(
@@ -365,7 +365,7 @@ class TestDaFromNapariLayer:
 
     def test_voxdim_stored_in_coord_attrs(self) -> None:
         """voxdim is stored in coordinate attrs from scale magnitude."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4,))
         da = _compute_dataarray_from_layer(
@@ -376,7 +376,7 @@ class TestDaFromNapariLayer:
 
     def test_napari_generic_axis_labels_replaced_by_defaults(self) -> None:
         """Napari's 'axis -N' labels are replaced with ConfUSIus default dim names."""
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4, 6, 8))
         da = _compute_dataarray_from_layer(
@@ -388,7 +388,7 @@ class TestDaFromNapariLayer:
         """Pint pixel/dimensionless units from napari are not stored in coord attrs."""
         from unittest.mock import MagicMock
 
-        from confusius._napari._writers import _compute_dataarray_from_layer
+        from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         # Simulate pint Unit objects as napari passes them.
         pixel_unit = MagicMock()

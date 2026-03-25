@@ -22,14 +22,14 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._qc_plots import QCPlotsWidget
+from confusius._napari._qc._plots import QCPlotsWidget
 from confusius.plotting.image import _prepare_carpet_data, plot_napari
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 if TYPE_CHECKING:
     import xarray as xr
 
-    from confusius._napari._qc_plots import QCPlotsWidget
+    from confusius._napari._qc._plots import QCPlotsWidget
 
 
 @thread_worker

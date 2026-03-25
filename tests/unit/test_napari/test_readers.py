@@ -14,7 +14,7 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._napari._readers import read_nifti, read_scan, read_zarr
+from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
 
 # ---------------------------------------------------------------------------
 # Fixtures

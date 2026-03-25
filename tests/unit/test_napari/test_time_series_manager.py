@@ -5,7 +5,7 @@ from __future__ import annotations
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QColor
 
-from confusius._napari._time_series_manager import TimeSeriesManagerDialog
+from confusius._napari._time_series._manager import TimeSeriesManagerDialog
 
 
 def test_manager_refreshes_rows_from_store(qtbot, time_series_store, time_series_csv):
@@ -34,7 +34,7 @@ def test_manager_applies_store_mutations(
     assert time_series_store.imported_series()[0].visible is False
 
     monkeypatch.setattr(
-        "confusius._napari._time_series_manager.QColorDialog.getColor",
+        "confusius._napari._time_series._manager.QColorDialog.getColor",
         lambda *args, **kwargs: QColor("#123456"),
     )
     dialog._choose_color(imported[0].id)

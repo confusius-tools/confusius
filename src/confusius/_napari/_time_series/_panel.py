@@ -20,9 +20,9 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._time_series_manager import TimeSeriesManagerDialog
-from confusius._napari._time_series_plotter import TimeSeriesPlotter
-from confusius._napari._time_series_store import TimeSeriesStore
+from confusius._napari._time_series._manager import TimeSeriesManagerDialog
+from confusius._napari._time_series._plotter import TimeSeriesPlotter
+from confusius._napari._time_series._store import TimeSeriesStore
 
 
 class TimeSeriesPanel(QWidget):

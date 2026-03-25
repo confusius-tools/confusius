@@ -1,62 +1,12 @@
-"""Shared utilities for the ConfUSIus napari plugin."""
+"""Theme-aware styling helpers for the ConfUSIus napari plugin."""
 
-import datetime as dt
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-import numpy as np
-import numpy.typing as npt
-import pandas as pd
 from qtpy.QtCore import QRectF, QSize, Qt
 from qtpy.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
-from qtpy.QtWidgets import QApplication, QFileDialog, QToolButton, QWidget
-
-
-@dataclass(frozen=True, slots=True)
-class PlotSeries:
-    """A time series ready for plotting with color.
-
-    Attributes
-    ----------
-    label : str
-        Series name for legend.
-    x_values : numpy.ndarray
-        X-axis values (typically time).
-    y_values : numpy.ndarray
-        Y-axis values (intensity/z-score).
-    color : str | None
-        Hex color string, or None to use default.
-    """
-
-    label: str
-    x_values: npt.NDArray[np.floating]
-    y_values: npt.NDArray[np.floating]
-    color: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class ExportSeries:
-    """A time series ready for CSV/TSV export (no color).
-
-    Unlike `PlotSeries`, this excludes color information since exports are
-    data-only.
-
-    Attributes
-    ----------
-    label : str
-        Series name for the header.
-    x_values : numpy.ndarray
-        X-axis values (typically time).
-    y_values : numpy.ndarray
-        Y-axis values (intensity/z-score).
-    """
-
-    label: str
-    x_values: npt.NDArray[np.floating]
-    y_values: npt.NDArray[np.floating]
-
+from qtpy.QtWidgets import QApplication, QToolButton, QWidget
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
 """Directory containing SVG icon assets for export buttons."""
@@ -177,7 +127,7 @@ def style_plot_toolbar(toolbar: QWidget, colors: dict) -> None:
         Matplotlib navigation toolbar to style.
     colors : dict
         Napari theme color mapping produced by
-        [`get_napari_colors`][confusius._napari._utils.get_napari_colors].
+        [`get_napari_colors`][confusius._napari._theme.get_napari_colors].
     """
     toolbar.setStyleSheet(
         " ".join(
@@ -321,7 +271,7 @@ def style_export_button(button: QToolButton, colors: dict) -> None:
         Export button to style.
     colors : dict
         Napari theme color mapping produced by
-        [`get_napari_colors`][confusius._napari._utils.get_napari_colors].
+        [`get_napari_colors`][confusius._napari._theme.get_napari_colors].
     """
     button.setIcon(make_lucide_icon("download", colors["accent"], size=22))
     button.setIconSize(QSize(22, 22))
@@ -349,206 +299,3 @@ def style_export_button(button: QToolButton, colors: dict) -> None:
             ]
         )
     )
-
-
-def prepare_export_series(series: list[ExportSeries]) -> list[ExportSeries]:
-    """Normalize plotted series into copied 1D NumPy arrays.
-
-    Parameters
-    ----------
-    series : list[ExportSeries]
-        Plotted series to normalize.
-
-    Returns
-    -------
-    list[ExportSeries]
-        Series with copied, flattened NumPy arrays.
-
-    Raises
-    ------
-    ValueError
-        If any `x`/`y` pair has mismatched lengths.
-    """
-    prepared = []
-    for s in series:
-        x_array = np.ravel(np.asarray(s.x_values)).copy()
-        y_array = np.ravel(np.asarray(s.y_values)).copy()
-        if len(x_array) != len(y_array):
-            raise ValueError(
-                f"Cannot export {s.label!r}: time and value arrays have different lengths."
-            )
-        prepared.append(ExportSeries(s.label, x_array, y_array))
-    return prepared
-
-
-def prompt_delimited_export_path(
-    parent: QWidget, title: str, default_filename: str
-) -> tuple[Path, str] | None:
-    """Open a save dialog for CSV/TSV export.
-
-    Parameters
-    ----------
-    parent : QWidget
-        Parent widget for the save dialog.
-    title : str
-        Dialog title.
-    default_filename : str
-        Default file path shown when the dialog opens.
-
-    Returns
-    -------
-    tuple[pathlib.Path, str] | None
-        Selected path and delimiter, or `None` if the dialog was cancelled.
-    """
-    path_str, selected_filter = QFileDialog.getSaveFileName(
-        parent,
-        title,
-        default_filename,
-        "TSV (*.tsv);;CSV (*.csv);;All files (*)",
-    )
-    if not path_str:
-        return None
-    return resolve_delimited_export_path(path_str, selected_filter)
-
-
-def resolve_delimited_export_path(
-    path_str: str, selected_filter: str
-) -> tuple[Path, str]:
-    """Resolve output path and delimiter from a save dialog selection.
-
-    Parameters
-    ----------
-    path_str : str
-        Path returned by the save dialog.
-    selected_filter : str
-        Selected name filter returned by the save dialog.
-
-    Returns
-    -------
-    path : pathlib.Path
-        Output path with an inferred suffix when needed.
-    delimiter : str
-        Delimiter corresponding to the chosen file format.
-    """
-    path = Path(path_str)
-    filter_lower = selected_filter.lower()
-    suffix = path.suffix.lower()
-
-    if "csv" in filter_lower or suffix == ".csv":
-        if not suffix:
-            path = path.with_suffix(".csv")
-        return path, ","
-
-    if not suffix:
-        path = path.with_suffix(".tsv")
-    return path, "\t"
-
-
-def format_export_value(value: object) -> str:
-    """Format a scalar value for CSV or TSV export.
-
-    Parameters
-    ----------
-    value : object
-        Scalar value from the export table.
-
-    Returns
-    -------
-    str
-        String representation suitable for delimited text output.
-    """
-    if value is None:
-        return ""
-    if isinstance(value, np.datetime64):
-        return np.datetime_as_string(value)
-    if isinstance(value, np.generic):
-        return format_export_value(value.item())
-    if isinstance(value, dt.datetime):
-        return value.isoformat()
-    if isinstance(value, dt.date):
-        return value.isoformat()
-    if isinstance(value, float):
-        if np.isnan(value):
-            return ""
-        return f"{value:.16g}"
-    return str(value)
-
-
-def write_delimited_series(
-    path: Path, series: list[ExportSeries], delimiter: str, time_header: str = "time"
-) -> None:
-    """Write one or more plotted series to a delimited text file.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Output file path.
-    series : list[ExportSeries]
-        Plotted series as `(label, x_values, y_values)` tuples.
-    delimiter : str
-        Delimiter to use when writing the file.
-    time_header : str, default: "time"
-        Header label for the first column.
-
-    Raises
-    ------
-    ValueError
-        If no series are provided or any `x`/`y` pair has mismatched lengths.
-    """
-    if not series:
-        raise ValueError("No plotted data available to export.")
-
-    prepared_series = prepare_export_series(series)
-    labels = _deduplicate_export_labels([s.label for s in prepared_series])
-
-    row_lookup: dict[tuple[object, int], int] = {}
-    row_times: list[object] = []
-    column_values = [dict() for _ in prepared_series]
-
-    for column_index, s in enumerate(prepared_series):
-        occurrence_counts: dict[object, int] = {}
-        for x_value, y_value in zip(s.x_values, s.y_values, strict=True):
-            key = _export_key(x_value)
-            occurrence = occurrence_counts.get(key, 0)
-            occurrence_counts[key] = occurrence + 1
-            row_key = (key, occurrence)
-
-            row_index = row_lookup.get(row_key)
-            if row_index is None:
-                row_index = len(row_times)
-                row_lookup[row_key] = row_index
-                row_times.append(x_value)
-
-            column_values[column_index][row_index] = y_value
-
-    rows = []
-    for row_index, time_value in enumerate(row_times):
-        row = {time_header: format_export_value(time_value)}
-        for label, values in zip(labels, column_values, strict=True):
-            row[label] = format_export_value(values.get(row_index))
-        rows.append(row)
-
-    pd.DataFrame(rows, columns=[time_header, *labels]).to_csv(
-        path, sep=delimiter, index=False
-    )
-
-
-def _deduplicate_export_labels(labels: list[str]) -> list[str]:
-    """Return unique export column labels while preserving order."""
-    counts: dict[str, int] = {}
-    unique_labels = []
-    for label in labels:
-        base_label = label or "series"
-        count = counts.get(base_label, 0)
-        unique_labels.append(base_label if count == 0 else f"{base_label}_{count + 1}")
-        counts[base_label] = count + 1
-    return unique_labels
-
-
-def _export_key(value: object) -> object:
-    """Return a stable hashable key for export row alignment."""
-    if isinstance(value, np.datetime64):
-        return ("datetime64", np.datetime_as_string(value, unit="ns"))
-    if isinstance(value, np.generic):
-        return value.item()
-    return value

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from confusius._napari._time_series_store import TimeSeriesStore
+from confusius._napari._time_series._store import TimeSeriesStore
 
 
 @pytest.fixture
