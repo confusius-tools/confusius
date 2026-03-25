@@ -8,9 +8,12 @@ from typing import Literal
 import napari
 import numpy as np
 from matplotlib import colormaps as mpl_colormaps
+from matplotlib import colors as mpl_colors
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
+from napari.utils.colormaps import DirectLabelColormap
+from napari.utils.colormaps.standardize_color import transform_color
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
@@ -28,7 +31,11 @@ from confusius._napari._theme import (
     style_export_button,
     style_plot_toolbar,
 )
-from confusius._napari._time_series._store import ImportedSeries, TimeSeriesStore
+from confusius._napari._time_series._store import (
+    ImportedSeries,
+    LiveSeries,
+    TimeSeriesStore,
+)
 
 # Line styles cycled across reference layers so multi-layer plots are distinguishable
 # even when point/label colors are the same.
@@ -103,6 +110,10 @@ class TimeSeriesPlotter(QWidget):
         self._mouse_live_line = None
         self._mouse_imported_signature: tuple[str, ...] = ()
         self._mouse_legend_signature: tuple[str, ...] = ()
+        # Guard flag to prevent infinite color sync loops.
+        self._syncing_color: bool = False
+        # Guard flag to prevent reentrant plot updates.
+        self._updating_plot: bool = False
 
         # Throttle blit calls to ~60 fps so the napari time slider stays responsive when
         # the canvas is docked (docked canvases must synchronise repaints with the
@@ -122,6 +133,7 @@ class TimeSeriesPlotter(QWidget):
         if self._series_store is not None:
             self._series_store.plot_data_changed.connect(self._on_plot_data_changed)
             self._series_store.changed.connect(self._refresh_plot)
+            self._series_store.changed.connect(self._sync_live_colors_to_layers)
             # If there are already imported series, plot them instead of showing
             # instructions.
             imported = self._series_store.imported_series()
@@ -415,6 +427,8 @@ class TimeSeriesPlotter(QWidget):
 
     def _refresh_plot(self) -> None:
         """Re-render the plot for the current source mode."""
+        if self._updating_plot:
+            return
         self._mouse_plot_dirty = True
         if self._source_mode == "points":
             self._update_plot_from_points()
@@ -479,7 +493,26 @@ class TimeSeriesPlotter(QWidget):
             else:
                 x_values = np.arange(len(ts))
             xlabel = self._get_time_xlabel(self._current_layer)
-            live_label = self._current_layer.name
+
+            # Read name/color/visibility from the store if available.
+            mouse_series = (
+                self._series_store.get_live_series("mouse-0")
+                if self._series_store is not None
+                else None
+            )
+            if mouse_series is not None and not mouse_series.visible:
+                # Mouse series hidden — only show imported.
+                self._render_imported_only(saved_xlim=saved_xlim, saved_ylim=saved_ylim)
+                return
+
+            live_label = (
+                mouse_series.name
+                if mouse_series is not None
+                else self._current_layer.name
+            )
+            live_color = (
+                mouse_series.color if mouse_series is not None else colors["accent"]
+            )
 
             imported_series = self._imported_plot_series()
             coord_str = self._mouse_coord_string()
@@ -487,6 +520,7 @@ class TimeSeriesPlotter(QWidget):
 
             if self._try_fast_mouse_update(
                 live_label=live_label,
+                live_color=live_color,
                 x_values=np.asarray(x_values),
                 ts=np.asarray(ts),
                 xlabel=xlabel,
@@ -504,7 +538,7 @@ class TimeSeriesPlotter(QWidget):
                 x_values,
                 ts,
                 linewidth=1.5,
-                color=colors["accent"],
+                color=live_color,
                 label=live_label,
             )
 
@@ -632,6 +666,7 @@ class TimeSeriesPlotter(QWidget):
         self._source_mode = mode
         self._invalidate_mouse_cache()
         if mode == "mouse":
+            self._register_mouse_live_series()
             # Invalidate the saved zoom state so the first mouse-hover plot does not
             # restore the [0, 1] xlim left by the cleared axes.
             self._has_plot = False
@@ -657,9 +692,16 @@ class TimeSeriesPlotter(QWidget):
                 self._points_layer.events.data.disconnect(self._on_points_data_changed)
             except RuntimeError:
                 pass
+            try:
+                self._points_layer.events.face_color.disconnect(
+                    self._on_points_color_changed
+                )
+            except RuntimeError:
+                pass
         self._points_layer = layer
         if layer is not None:
             layer.events.data.connect(self._on_points_data_changed)
+            layer.events.face_color.connect(self._on_points_color_changed)
         if self._source_mode == "points":
             self._update_plot_from_points()
 
@@ -682,10 +724,18 @@ class TimeSeriesPlotter(QWidget):
                 self._labels_layer.events.paint.disconnect(self._on_labels_data_changed)
             except RuntimeError:
                 pass
+            try:
+                self._labels_layer.events.colormap.disconnect(
+                    self._on_labels_color_changed
+                )
+            except (RuntimeError, AttributeError):
+                pass
         self._labels_layer = layer
         if layer is not None:
             layer.events.data.connect(self._on_labels_data_changed)
             layer.events.paint.connect(self._on_labels_data_changed)
+            # Labels colors are managed via colormap; listen for colormap changes.
+            layer.events.colormap.connect(self._on_labels_color_changed)
         if self._source_mode == "labels":
             self._update_plot_from_labels()
 
@@ -798,6 +848,183 @@ class TimeSeriesPlotter(QWidget):
         self._export_series = prepare_export_series(series)
         self._export_button.setEnabled(bool(self._export_series))
 
+    # -- Live series registration ------------------------------------------------
+
+    def _register_mouse_live_series(self) -> None:
+        """Register a single live series for the mouse cursor."""
+        if self._series_store is None:
+            return
+        colors = self._get_colors()
+        self._series_store.register_live_series(
+            [
+                LiveSeries(
+                    id="mouse-0",
+                    name="Cursor",
+                    color=colors["accent"],
+                    visible=True,
+                    source_type="mouse",
+                    source_id=None,
+                ),
+            ]
+        )
+
+    def _register_points_live_series(self) -> None:
+        """Register live series from the current Points layer."""
+        if self._series_store is None or self._points_layer is None:
+            return
+        n_points = len(self._points_layer.data)
+        series = []
+        for pt_idx in range(n_points):
+            color = mpl_colors.to_hex(self._points_layer.face_color[pt_idx])
+            series.append(
+                LiveSeries(
+                    id=f"point-{pt_idx}",
+                    name=f"Point {pt_idx}",
+                    color=color,
+                    visible=True,
+                    source_type="point",
+                    source_id=pt_idx,
+                )
+            )
+        self._series_store.register_live_series(series)
+
+    def _register_labels_live_series(self, unique_labels: np.ndarray) -> None:
+        """Register live series from unique label IDs.
+
+        Parameters
+        ----------
+        unique_labels : numpy.ndarray
+            Array of nonzero label IDs found in the Labels layer.
+        """
+        if self._series_store is None:
+            return
+        series = []
+        for lid in unique_labels:
+            lid_int = int(lid)
+            color = mpl_colors.to_hex(self._get_label_color(lid_int))
+            series.append(
+                LiveSeries(
+                    id=f"label-{lid_int}",
+                    name=f"Label {lid_int}",
+                    color=color,
+                    visible=True,
+                    source_type="label",
+                    source_id=lid_int,
+                )
+            )
+        self._series_store.register_live_series(series)
+
+    # -- Bidirectional color sync -----------------------------------------------
+
+    def _sync_live_colors_to_layers(self) -> None:
+        """Push live series color overrides from the store to napari layers."""
+        if self._syncing_color or self._series_store is None:
+            return
+        self._syncing_color = True
+        try:
+            for series in self._series_store.live_series():
+                if series.source_type == "point" and self._points_layer is not None:
+                    pt_idx = series.source_id
+                    if pt_idx is not None and pt_idx < len(self._points_layer.data):
+                        current = mpl_colors.to_hex(
+                            self._points_layer.face_color[pt_idx]
+                        )
+                        if current != series.color:
+                            rgba = transform_color(series.color)[0]
+                            self._points_layer.face_color[pt_idx] = rgba
+                            self._points_layer.refresh_colors(
+                                update_color_mapping=False
+                            )
+                elif series.source_type == "label" and self._labels_layer is not None:
+                    lid = series.source_id
+                    if lid is not None:
+                        current = mpl_colors.to_hex(self._get_label_color(lid))
+                        if current != series.color:
+                            rgba = np.asarray(transform_color(series.color)[0])
+                            lid_int = int(lid)
+
+                            # Collect labels that have colors in the current colormap,
+                            # avoiding expensive full array read.
+                            unique_labels = set()
+                            for i in range(1, 51):
+                                if self._labels_layer.get_color(i) is not None:
+                                    unique_labels.add(i)
+
+                            # Get default colors - use layer's colormap if valid,
+                            # otherwise use matplotlib's categorical colormap.
+                            default_colors = self._get_default_label_colors(50)
+
+                            # Build color dict preserving all existing label colors
+                            # and adding default colors for potential future labels.
+                            color_dict: dict = {}
+                            for other_lid in unique_labels:
+                                if other_lid == lid_int:
+                                    color_dict[other_lid] = rgba
+                                else:
+                                    other_color = self._labels_layer.get_color(
+                                        other_lid
+                                    )
+                                    if other_color is not None:
+                                        color_dict[other_lid] = other_color
+
+                            # Add default colors for potential labels (up to 50) so they
+                            # don't appear transparent when painted later.
+                            # Always include at least 10 potential labels so newly painted labels
+                            # have visible colors.
+                            max_label = max(
+                                10, lid_int, max(unique_labels) if unique_labels else 0
+                            )
+                            for i in range(1, min(max_label + 1, 50)):
+                                if i not in color_dict:
+                                    color_dict[i] = default_colors[i]
+
+                            # Ensure background has a visible color (not transparent).
+                            if None not in color_dict:
+                                color_dict[None] = default_colors[0]
+
+                            self._labels_layer.colormap = DirectLabelColormap(
+                                color_dict=color_dict
+                            )
+                            self._labels_layer.refresh()
+        finally:
+            self._syncing_color = False
+
+    def _on_points_color_changed(self, event=None) -> None:
+        """Sync point colors from the layer to the store."""
+        if self._syncing_color or self._series_store is None:
+            return
+        if self._points_layer is None:
+            return
+        self._syncing_color = True
+        try:
+            for pt_idx in range(len(self._points_layer.data)):
+                sid = f"point-{pt_idx}"
+                live = self._series_store.get_live_series(sid)
+                if live is None:
+                    continue
+                new_color = mpl_colors.to_hex(self._points_layer.face_color[pt_idx])
+                if new_color != live.color:
+                    self._series_store.set_live_series_color(sid, new_color)
+        finally:
+            self._syncing_color = False
+
+    def _on_labels_color_changed(self, event=None) -> None:
+        """Sync label colors from the layer's colormap to the store."""
+        if self._syncing_color or self._series_store is None:
+            return
+        if self._labels_layer is None:
+            return
+        self._syncing_color = True
+        try:
+            for series in self._series_store.live_series():
+                if series.source_type != "label" or series.source_id is None:
+                    continue
+                new_color = mpl_colors.to_hex(self._get_label_color(series.source_id))
+                if new_color != series.color:
+                    self._series_store.set_live_series_color(series.id, new_color)
+        finally:
+            self._syncing_color = False
+
     def _clear_export_series(self) -> None:
         """Clear the currently exported series."""
         self._set_export_series([])
@@ -871,6 +1098,7 @@ class TimeSeriesPlotter(QWidget):
         self,
         *,
         live_label: str,
+        live_color: str,
         x_values: np.ndarray,
         ts: np.ndarray,
         xlabel: str,
@@ -888,7 +1116,7 @@ class TimeSeriesPlotter(QWidget):
 
         self._mouse_live_line.set_data(x_values, ts)
         self._mouse_live_line.set_label(live_label)
-        self._mouse_live_line.set_color(colors["accent"])
+        self._mouse_live_line.set_color(live_color)
         self._set_export_series(
             [ExportSeries(live_label, x_values, ts)]
             + self._plot_series_to_export(imported_series)
@@ -1016,11 +1244,25 @@ class TimeSeriesPlotter(QWidget):
         std = np.nanstd(ts)
         return (ts - mean) / std if std > 0 else ts - mean
 
+    def _get_default_label_colors(self, count: int = 20) -> np.ndarray:
+        """Return default label colors.
+
+        First tries to use the Labels layer's colormap if it has valid colors,
+        otherwise falls back to matplotlib's tab20 colormap.
+        """
+        if self._labels_layer is not None:
+            cmap = self._labels_layer.colormap
+            if hasattr(cmap, "colors") and len(cmap.colors) >= count:
+                return cmap.colors
+
+        # Fallback: use matplotlib's tab20 colormap
+        return mpl_colormaps["tab20"](np.linspace(0, 1, 20))
+
     def _get_label_color(self, label_id: int) -> tuple:
         """Return a matplotlib-compatible RGBA color for a label ID.
 
         Tries to read the color from the Labels layer's colormap; falls back
-        to matplotlib's tab20 palette.
+        to the default label colors.
         """
         if self._labels_layer is not None:
             try:
@@ -1029,7 +1271,8 @@ class TimeSeriesPlotter(QWidget):
                     return tuple(float(c) for c in color)
             except (AttributeError, KeyError, IndexError):
                 pass
-        return mpl_colormaps["tab20"](int(label_id - 1) % 20)
+        defaults = self._get_default_label_colors(20)
+        return tuple(defaults[int(label_id - 1) % 20])
 
     def _style_valid_axes(
         self,
@@ -1206,200 +1449,264 @@ class TimeSeriesPlotter(QWidget):
 
     def _update_plot_from_points(self) -> None:
         """Plot time series for every point in the Points layer."""
-        colors = self._get_colors()
-        saved_xlim, saved_ylim = self._save_view()
-
-        ref_layers = self._validate_source_layers(
-            self._points_layer, "Points", saved_xlim, saved_ylim
-        )
-        if ref_layers is None:
+        if self._updating_plot:
             return
+        self._updating_plot = True
+        try:
+            colors = self._get_colors()
+            saved_xlim, saved_ylim = self._save_view()
 
-        n_points = len(self._points_layer.data)
-        if n_points == 0:
-            self._show_message_or_imported(
-                "The selected Points layer is empty.",
-                saved_xlim=saved_xlim,
-                saved_ylim=saved_ylim,
+            ref_layers = self._validate_source_layers(
+                self._points_layer, "Points", saved_xlim, saved_ylim
             )
-            return
+            if ref_layers is None:
+                return
 
-        # Pre-compute time coordinates per layer: they don't depend on individual
-        # points.
-        layer_time_coords = [self._get_time_coords(layer) for layer in ref_layers]
+            n_points = len(self._points_layer.data)
+            if n_points == 0:
+                self._show_message_or_imported(
+                    "The selected Points layer is empty.",
+                    saved_xlim=saved_xlim,
+                    saved_ylim=saved_ylim,
+                )
+                return
 
-        self._axes.clear()
-        has_any = False
-        export_series: list[ExportSeries] = []
+            # Register live series so the manager can track them.
+            self._register_points_live_series()
 
-        for pt_idx in range(n_points):
-            pt_data = np.asarray(self._points_layer.data[pt_idx], dtype=float)
-            n_pt = len(pt_data)
-            # napari may pad layer.scale/translate to the viewer's ndim, so use the last
-            # n_pt elements to match the point's dimensionality.
-            pts_scale = np.asarray(self._points_layer.scale, dtype=float)[-n_pt:]
-            pts_translate = np.asarray(self._points_layer.translate, dtype=float)[
-                -n_pt:
-            ]
-            # data → world (spatial, n_pt dims)
-            pt_world = pt_data * pts_scale + pts_translate
-            pt_color = tuple(float(c) for c in self._points_layer.face_color[pt_idx])
+            # Pre-compute time coordinates per layer: they don't depend on individual
+            # points.
+            layer_time_coords = [self._get_time_coords(layer) for layer in ref_layers]
 
-            for layer_idx, img_layer in enumerate(ref_layers):
-                img_ndim = img_layer.data.ndim
-                if n_pt < img_ndim:
-                    # 3-D point in a 4-D image: pad the world coord with 0 at the front
-                    # so world_to_data receives the correct ndim. The time value (0) is
-                    # irrelevant — _extract_time_series replaces it with slice(None).
-                    padded = np.zeros(img_ndim)
-                    padded[-n_pt:] = pt_world
-                    pt_world_img = padded
-                else:
-                    pt_world_img = pt_world
-                try:
-                    ts = self._extract_time_series(img_layer, pt_world_img)
-                except Exception:  # noqa: BLE001
-                    ts = None
-                if ts is None:
+            self._axes.clear()
+            has_any = False
+            export_series: list[ExportSeries] = []
+
+            for pt_idx in range(n_points):
+                # Check store for visibility/name/color overrides.
+                live = (
+                    self._series_store.get_live_series(f"point-{pt_idx}")
+                    if self._series_store is not None
+                    else None
+                )
+                if live is not None and not live.visible:
                     continue
 
-                ts = np.asarray(ts, dtype=float)
-                if self._zscore:
-                    ts = self._apply_zscore(ts)
+                pt_data = np.asarray(self._points_layer.data[pt_idx], dtype=float)
+                n_pt = len(pt_data)
+                # napari may pad layer.scale/translate to the viewer's ndim, so use the last
+                # n_pt elements to match the point's dimensionality.
+                pts_scale = np.asarray(self._points_layer.scale, dtype=float)[-n_pt:]
+                pts_translate = np.asarray(self._points_layer.translate, dtype=float)[
+                    -n_pt:
+                ]
+                # data → world (spatial, n_pt dims)
+                pt_world = pt_data * pts_scale + pts_translate
 
-                time_coords = layer_time_coords[layer_idx]
+                pt_name = live.name if live is not None else f"Point {pt_idx}"
+                pt_color = (
+                    live.color
+                    if live is not None
+                    else mpl_colors.to_hex(self._points_layer.face_color[pt_idx])
+                )
+
+                for layer_idx, img_layer in enumerate(ref_layers):
+                    img_ndim = img_layer.data.ndim
+                    if n_pt < img_ndim:
+                        # 3-D point in a 4-D image: pad the world coord with 0 at the front
+                        # so world_to_data receives the correct ndim. The time value (0) is
+                        # irrelevant — _extract_time_series replaces it with slice(None).
+                        padded = np.zeros(img_ndim)
+                        padded[-n_pt:] = pt_world
+                        pt_world_img = padded
+                    else:
+                        pt_world_img = pt_world
+                    try:
+                        ts = self._extract_time_series(img_layer, pt_world_img)
+                    except Exception:  # noqa: BLE001
+                        ts = None
+                    if ts is None:
+                        continue
+
+                    ts = np.asarray(ts, dtype=float)
+                    if self._zscore:
+                        ts = self._apply_zscore(ts)
+
+                    time_coords = layer_time_coords[layer_idx]
+                    x = (
+                        time_coords
+                        if (time_coords is not None and len(time_coords) == len(ts))
+                        else np.arange(len(ts))
+                    )
+                    label = self._series_label(pt_name, img_layer, ref_layers)
+                    linestyle = _LAYER_LINESTYLES[layer_idx % len(_LAYER_LINESTYLES)]
+                    self._axes.plot(
+                        x,
+                        ts,
+                        color=pt_color,
+                        linewidth=1.5,
+                        linestyle=linestyle,
+                        label=label,
+                    )
+                    export_series.append(
+                        ExportSeries(label, np.asarray(x), np.asarray(ts))
+                    )
+                    has_any = True
+                    # Keep time coords from the last successful layer for cursor mapping.
+                    self._time_coords = time_coords
+                    self._current_layer = img_layer
+
+            if has_any:
+                self._finalize_multi_series_plot(
+                    export_series,
+                    self._points_layer.name,
+                    ref_layers,
+                    colors,
+                    saved_xlim,
+                    saved_ylim,
+                )
+            else:
+                self._show_message_or_imported(
+                    "No valid data at the point positions.\n",
+                    saved_xlim=saved_xlim,
+                    saved_ylim=saved_ylim,
+                )
+        finally:
+            self._updating_plot = False
+
+    def _update_plot_from_labels(self) -> None:
+        """Plot mean time series for each unique label in the Labels layer."""
+        if self._updating_plot:
+            return
+        self._updating_plot = True
+        try:
+            colors = self._get_colors()
+            saved_xlim, saved_ylim = self._save_view()
+
+            ref_layers = self._validate_source_layers(
+                self._labels_layer, "Labels", saved_xlim, saved_ylim
+            )
+            if ref_layers is None:
+                return
+
+            # Read the labels data. We intentionally avoid an early "all-zeros" check here
+            # because newer napari versions may return a lazy view from .data that doesn't
+            # reflect painted regions until it is iterated inside the loop.
+            labels_data = np.asarray(self._labels_layer.data)
+
+            self._axes.clear()
+            has_any = False
+            shape_mismatch = False
+            export_series: list[ExportSeries] = []
+            # Collect all unique labels across layers for registration.
+            all_unique_labels: set[int] = set()
+
+            for layer_idx, img_layer in enumerate(ref_layers):
+                t_idx = self._time_dim_index(img_layer)
+                img_data = img_layer.data
+                img_spatial = tuple(
+                    s for i, s in enumerate(img_data.shape) if i != t_idx
+                )
+
+                # Labels can have the full image shape (T, Z, Y, X) (napari creates labels
+                # with the same shape as the reference image) or the spatial shape only (Z,
+                # Y, X). Collapse the time axis in the former case.
+                if labels_data.shape == img_data.shape:
+                    labels_spatial = np.max(labels_data, axis=t_idx)
+                elif labels_data.shape == img_spatial:
+                    labels_spatial = labels_data
+                else:
+                    shape_mismatch = True
+                    continue
+
+                unique_labels = np.unique(labels_spatial)
+                unique_labels = unique_labels[unique_labels != 0]  # exclude background
+                if len(unique_labels) == 0:
+                    continue
+
+                all_unique_labels.update(int(lid) for lid in unique_labels)
+
+                # Move time to last axis so spatial boolean indexing works cleanly:
+                # img_arr[mask] → (N_voxels, T).
+                img_arr = np.moveaxis(np.asarray(img_data), t_idx, -1)
+
+                time_coords = self._get_time_coords(img_layer)
                 x = (
                     time_coords
-                    if (time_coords is not None and len(time_coords) == len(ts))
-                    else np.arange(len(ts))
+                    if time_coords is not None
+                    else np.arange(img_arr.shape[-1])
                 )
-                label = self._series_label(f"Point {pt_idx}", img_layer, ref_layers)
-                linestyle = _LAYER_LINESTYLES[layer_idx % len(_LAYER_LINESTYLES)]
-                self._axes.plot(
-                    x,
-                    ts,
-                    color=pt_color,
-                    linewidth=1.5,
-                    linestyle=linestyle,
-                    label=label,
-                )
-                export_series.append(ExportSeries(label, np.asarray(x), np.asarray(ts)))
-                has_any = True
+
+                for lid in unique_labels:
+                    lid_int = int(lid)
+                    # Check store for visibility/name/color overrides.
+                    live = (
+                        self._series_store.get_live_series(f"label-{lid_int}")
+                        if self._series_store is not None
+                        else None
+                    )
+                    if live is not None and not live.visible:
+                        continue
+
+                    mask = labels_spatial == lid
+                    ts = np.asarray(img_arr[mask].mean(axis=0), dtype=float)  # (T,)
+
+                    if self._zscore:
+                        ts = self._apply_zscore(ts)
+
+                    base_name = live.name if live is not None else f"Label {lid_int}"
+                    lid_color = (
+                        live.color
+                        if live is not None
+                        else mpl_colors.to_hex(self._get_label_color(lid_int))
+                    )
+                    label = self._series_label(base_name, img_layer, ref_layers)
+                    linestyle = _LAYER_LINESTYLES[layer_idx % len(_LAYER_LINESTYLES)]
+                    self._axes.plot(
+                        x,
+                        ts,
+                        color=lid_color,
+                        linewidth=1.5,
+                        linestyle=linestyle,
+                        label=label,
+                    )
+                    export_series.append(
+                        ExportSeries(label, np.asarray(x), np.asarray(ts))
+                    )
+                    has_any = True
+
                 # Keep time coords from the last successful layer for cursor mapping.
                 self._time_coords = time_coords
                 self._current_layer = img_layer
 
-        if has_any:
-            self._finalize_multi_series_plot(
-                export_series,
-                self._points_layer.name,
-                ref_layers,
-                colors,
-                saved_xlim,
-                saved_ylim,
-            )
-        else:
-            self._show_message_or_imported(
-                "No valid data at the point positions.\n",
-                saved_xlim=saved_xlim,
-                saved_ylim=saved_ylim,
-            )
+            # Register live series after we know all unique labels.
+            if all_unique_labels:
+                self._register_labels_live_series(np.array(sorted(all_unique_labels)))
 
-    def _update_plot_from_labels(self) -> None:
-        """Plot mean time series for each unique label in the Labels layer."""
-        colors = self._get_colors()
-        saved_xlim, saved_ylim = self._save_view()
-
-        ref_layers = self._validate_source_layers(
-            self._labels_layer, "Labels", saved_xlim, saved_ylim
-        )
-        if ref_layers is None:
-            return
-
-        # Read the labels data. We intentionally avoid an early "all-zeros" check here
-        # because newer napari versions may return a lazy view from .data that doesn't
-        # reflect painted regions until it is iterated inside the loop.
-        labels_data = np.asarray(self._labels_layer.data)
-
-        self._axes.clear()
-        has_any = False
-        shape_mismatch = False
-        export_series: list[ExportSeries] = []
-
-        for layer_idx, img_layer in enumerate(ref_layers):
-            t_idx = self._time_dim_index(img_layer)
-            img_data = img_layer.data
-            img_spatial = tuple(s for i, s in enumerate(img_data.shape) if i != t_idx)
-
-            # Labels can have the full image shape (T, Z, Y, X) (napari creates labels
-            # with the same shape as the reference image) or the spatial shape only (Z,
-            # Y, X). Collapse the time axis in the former case.
-            if labels_data.shape == img_data.shape:
-                labels_spatial = np.max(labels_data, axis=t_idx)
-            elif labels_data.shape == img_spatial:
-                labels_spatial = labels_data
-            else:
-                shape_mismatch = True
-                continue
-
-            unique_labels = np.unique(labels_spatial)
-            unique_labels = unique_labels[unique_labels != 0]  # exclude background
-            if len(unique_labels) == 0:
-                continue
-
-            # Move time to last axis so spatial boolean indexing works cleanly:
-            # img_arr[mask] → (N_voxels, T).
-            img_arr = np.moveaxis(np.asarray(img_data), t_idx, -1)
-
-            time_coords = self._get_time_coords(img_layer)
-            x = time_coords if time_coords is not None else np.arange(img_arr.shape[-1])
-
-            for lid in unique_labels:
-                mask = labels_spatial == lid
-                ts = np.asarray(img_arr[mask].mean(axis=0), dtype=float)  # (T,)
-
-                if self._zscore:
-                    ts = self._apply_zscore(ts)
-
-                label = self._series_label(f"Label {lid}", img_layer, ref_layers)
-                linestyle = _LAYER_LINESTYLES[layer_idx % len(_LAYER_LINESTYLES)]
-                self._axes.plot(
-                    x,
-                    ts,
-                    color=self._get_label_color(int(lid)),
-                    linewidth=1.5,
-                    linestyle=linestyle,
-                    label=label,
+            if has_any:
+                self._finalize_multi_series_plot(
+                    export_series,
+                    self._labels_layer.name,
+                    ref_layers,
+                    colors,
+                    saved_xlim,
+                    saved_ylim,
                 )
-                export_series.append(ExportSeries(label, np.asarray(x), np.asarray(ts)))
-                has_any = True
-
-            # Keep time coords from the last successful layer for cursor mapping.
-            self._time_coords = time_coords
-            self._current_layer = img_layer
-
-        if has_any:
-            self._finalize_multi_series_plot(
-                export_series,
-                self._labels_layer.name,
-                ref_layers,
-                colors,
-                saved_xlim,
-                saved_ylim,
-            )
-        elif shape_mismatch:
-            self._show_message_or_imported(
-                "Spatial shape of the Labels layer does not match\n"
-                "the reference image. Make sure they share the same grid.",
-                saved_xlim=saved_xlim,
-                saved_ylim=saved_ylim,
-            )
-        else:
-            self._show_message_or_imported(
-                "No valid data extracted from the Labels layer.",
-                saved_xlim=saved_xlim,
-                saved_ylim=saved_ylim,
-            )
+            elif shape_mismatch:
+                self._show_message_or_imported(
+                    "Spatial shape of the Labels layer does not match\n"
+                    "the reference image. Make sure they share the same grid.",
+                    saved_xlim=saved_xlim,
+                    saved_ylim=saved_ylim,
+                )
+            else:
+                self._show_message_or_imported(
+                    "No valid data extracted from the Labels layer.",
+                    saved_xlim=saved_xlim,
+                    saved_ylim=saved_ylim,
+                )
+        finally:
+            self._updating_plot = False
 
     def closeEvent(self, a0) -> None:
         """Clean up when widget is closed.
@@ -1420,6 +1727,10 @@ class TimeSeriesPlotter(QWidget):
                 pass
             try:
                 self._series_store.changed.disconnect(self._refresh_plot)
+            except (RuntimeError, TypeError):
+                pass
+            try:
+                self._series_store.changed.disconnect(self._sync_live_colors_to_layers)
             except (RuntimeError, TypeError):
                 pass
         self.set_points_layer(None)

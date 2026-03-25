@@ -1,9 +1,10 @@
-"""Shared store for imported napari time series."""
+"""Shared store for imported and live napari time series."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -61,8 +62,44 @@ class ImportedSeries:
     original_column_name: str
 
 
+@dataclass(frozen=True, slots=True)
+class LiveSeries:
+    """Live time series backed by a napari layer.
+
+    Unlike `ImportedSeries`, a live series does not own its data — the plotter
+    extracts it from layers on each update.  The store tracks only presentation
+    metadata (name, color, visibility) so the user can customise the plot.
+
+    Attributes
+    ----------
+    id : str
+        Stable identifier (e.g. ``"mouse-0"``, ``"point-3"``, ``"label-5"``).
+    name : str
+        Display name used in legends (editable by the user).
+    color : str
+        Hex color for the plot line.
+    visible : bool
+        Whether the series should be plotted.
+    source_type : ``"mouse"`` | ``"point"`` | ``"label"``
+        Kind of napari source that produces this series.
+    source_id : int | None
+        ``None`` for mouse, point index for points, label integer for labels.
+    """
+
+    id: str
+    name: str
+    color: str
+    visible: bool
+    source_type: Literal["mouse", "point", "label"]
+    source_id: int | None
+
+
 class TimeSeriesStore(QObject):
-    """Store imported time series shared between the panel and plotter.
+    """Store for imported and live time series.
+
+    The store is the single source of truth for series presentation metadata
+    (name, color, visibility).  It is shared between the panel, plotter, and
+    manager dialog.
 
     Parameters
     ----------
@@ -76,6 +113,7 @@ class TimeSeriesStore(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._imported_series: list[ImportedSeries] = []
+        self._live_series: dict[str, LiveSeries] = {}
         self._id_counter: int = 0
 
     def imported_series(self) -> list[ImportedSeries]:
@@ -257,6 +295,143 @@ class TimeSeriesStore(QObject):
 
         self._id_counter += len(value_columns)
         return imported
+
+    # -- Live series management ------------------------------------------------
+
+    def live_series(self) -> list[LiveSeries]:
+        """Return all live series in insertion order.
+
+        Returns
+        -------
+        list[LiveSeries]
+            All registered live series.
+        """
+        return list(self._live_series.values())
+
+    def visible_live_series(self) -> list[LiveSeries]:
+        """Return only live series marked as visible.
+
+        Returns
+        -------
+        list[LiveSeries]
+            Visible live series.
+        """
+        return [s for s in self._live_series.values() if s.visible]
+
+    def get_live_series(self, series_id: str) -> LiveSeries | None:
+        """Look up a single live series by ID.
+
+        Parameters
+        ----------
+        series_id : str
+            Series identifier.
+
+        Returns
+        -------
+        LiveSeries | None
+            The series, or ``None`` if not found.
+        """
+        return self._live_series.get(series_id)
+
+    def register_live_series(self, series: list[LiveSeries]) -> None:
+        """Register live series, preserving user overrides for existing IDs.
+
+        New IDs are added with the supplied defaults.  Existing IDs keep their
+        current name, color, and visibility.  IDs not present in *series* are
+        removed.
+
+        Parameters
+        ----------
+        series : list[LiveSeries]
+            Live series to register.
+        """
+        new_by_id = {s.id: s for s in series}
+        merged: dict[str, LiveSeries] = {}
+        for sid, new in new_by_id.items():
+            old = self._live_series.get(sid)
+            if old is not None:
+                # Preserve user overrides, but update source metadata.
+                merged[sid] = replace(
+                    new,
+                    name=old.name,
+                    color=old.color,
+                    visible=old.visible,
+                )
+            else:
+                merged[sid] = new
+
+        if merged != self._live_series:
+            self._live_series = merged
+            self._emit_changed(plot_data=True)
+
+    def clear_live_series(self) -> None:
+        """Remove all live series."""
+        if not self._live_series:
+            return
+        self._live_series.clear()
+        self._emit_changed(plot_data=True)
+
+    def rename_live_series(self, series_id: str, new_name: str) -> None:
+        """Rename one live series.
+
+        Parameters
+        ----------
+        series_id : str
+            Series identifier.
+        new_name : str
+            New display name.
+
+        Raises
+        ------
+        ValueError
+            If the name is empty or the series does not exist.
+        """
+        stripped = new_name.strip()
+        if not stripped:
+            raise ValueError("Live series name cannot be empty.")
+        self._replace_live(series_id, name=stripped)
+
+    def set_live_series_visible(self, series_id: str, visible: bool) -> None:
+        """Update the visible flag for one live series.
+
+        Parameters
+        ----------
+        series_id : str
+            Series identifier.
+        visible : bool
+            Whether the series should be plotted.
+        """
+        self._replace_live(series_id, plot_data=True, visible=visible)
+
+    def set_live_series_color(self, series_id: str, color: str) -> None:
+        """Update the plot color for one live series.
+
+        Parameters
+        ----------
+        series_id : str
+            Series identifier.
+        color : str
+            Hex color string.
+        """
+        if not color:
+            raise ValueError("Live series color cannot be empty.")
+        self._replace_live(series_id, color=color)
+
+    # -- Private helpers ------------------------------------------------------
+
+    def _replace_live(
+        self,
+        series_id: str,
+        *,
+        plot_data: bool = False,
+        **changes,
+    ) -> None:
+        """Replace one live series while preserving order."""
+        series = self._live_series.get(series_id)
+        if series is None:
+            raise ValueError(f"Unknown live series id: {series_id!r}.")
+        self._live_series[series_id] = replace(series, **changes)
+        self._emit_changed(plot_data=plot_data)
 
     def _replace_series(
         self,

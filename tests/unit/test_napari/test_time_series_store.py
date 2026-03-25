@@ -1,4 +1,4 @@
-"""Unit tests for imported napari time-series storage."""
+"""Unit tests for imported and live napari time-series storage."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-from confusius._napari._time_series._store import TimeSeriesStore
+from confusius._napari._time_series._store import LiveSeries
 
 
 def test_import_csv_creates_one_series_per_value_column(
@@ -222,3 +222,262 @@ class TestStoreSignals:
 
         assert changed_spy.count == 1
         assert plot_spy.count == 0  # Color change doesn't affect plot data
+
+
+# -- Live series tests --------------------------------------------------------
+
+
+def _make_live(
+    sid="point-0",
+    name="Point 0",
+    color="#ff0000",
+    source_type="point",
+    source_id=0,
+    visible=True,
+):
+    """Create a LiveSeries with sensible defaults for tests."""
+    return LiveSeries(
+        id=sid,
+        name=name,
+        color=color,
+        visible=visible,
+        source_type=source_type,
+        source_id=source_id,
+    )
+
+
+class TestLiveSeriesRegistration:
+    """Test register, clear, and smart re-registration."""
+
+    def test_register_creates_entries(self, time_series_store):
+        series = [
+            _make_live("point-0"),
+            _make_live("point-1", name="Point 1", source_id=1),
+        ]
+        time_series_store.register_live_series(series)
+
+        result = time_series_store.live_series()
+        assert len(result) == 2
+        assert result[0].id == "point-0"
+        assert result[1].id == "point-1"
+
+    def test_register_preserves_user_overrides(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.rename_live_series("point-0", "Cortex ROI")
+        time_series_store.set_live_series_color("point-0", "#00ff00")
+        time_series_store.set_live_series_visible("point-0", False)
+
+        # Re-register with different defaults — overrides survive.
+        time_series_store.register_live_series(
+            [
+                _make_live("point-0", name="Point 0", color="#ff0000"),
+            ]
+        )
+
+        updated = time_series_store.get_live_series("point-0")
+        assert updated.name == "Cortex ROI"
+        assert updated.color == "#00ff00"
+        assert updated.visible is False
+
+    def test_register_removes_disappeared_ids(self, time_series_store):
+        time_series_store.register_live_series(
+            [
+                _make_live("point-0"),
+                _make_live("point-1", name="Point 1", source_id=1),
+            ]
+        )
+
+        # Re-register with only point-1.
+        time_series_store.register_live_series(
+            [
+                _make_live("point-1", name="Point 1", source_id=1),
+            ]
+        )
+
+        assert time_series_store.get_live_series("point-0") is None
+        assert time_series_store.get_live_series("point-1") is not None
+
+    def test_register_adds_new_ids(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.register_live_series(
+            [
+                _make_live("point-0"),
+                _make_live("point-1", name="Point 1", source_id=1),
+            ]
+        )
+
+        assert len(time_series_store.live_series()) == 2
+
+    def test_clear_removes_all_live_series(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.clear_live_series()
+
+        assert time_series_store.live_series() == []
+
+    def test_clear_does_not_affect_imported(self, time_series_store, time_series_csv):
+        time_series_store.import_file(time_series_csv)
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.clear_live_series()
+
+        assert len(time_series_store.imported_series()) == 2
+        assert time_series_store.live_series() == []
+
+    def test_imported_clear_does_not_affect_live(
+        self, time_series_store, time_series_csv
+    ):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.import_file(time_series_csv)
+        time_series_store.clear()
+
+        assert time_series_store.imported_series() == []
+        assert len(time_series_store.live_series()) == 1
+
+
+class TestLiveSeriesMutations:
+    """Test rename, recolor, and visibility changes."""
+
+    def test_rename(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.rename_live_series("point-0", "Barrel cortex")
+
+        assert time_series_store.get_live_series("point-0").name == "Barrel cortex"
+
+    def test_rename_strips_whitespace(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.rename_live_series("point-0", "  Cortex  ")
+
+        assert time_series_store.get_live_series("point-0").name == "Cortex"
+
+    def test_rename_rejects_empty(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        with pytest.raises(ValueError, match="cannot be empty"):
+            time_series_store.rename_live_series("point-0", "   ")
+
+    def test_rename_rejects_unknown_id(self, time_series_store):
+        with pytest.raises(ValueError, match="Unknown live series"):
+            time_series_store.rename_live_series("no-such", "name")
+
+    def test_set_color(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.set_live_series_color("point-0", "#abcdef")
+
+        assert time_series_store.get_live_series("point-0").color == "#abcdef"
+
+    def test_set_color_rejects_empty(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        with pytest.raises(ValueError, match="cannot be empty"):
+            time_series_store.set_live_series_color("point-0", "")
+
+    def test_set_visible(self, time_series_store):
+        time_series_store.register_live_series([_make_live("point-0")])
+        time_series_store.set_live_series_visible("point-0", False)
+
+        assert time_series_store.get_live_series("point-0").visible is False
+        assert time_series_store.visible_live_series() == []
+
+    def test_visible_filters_correctly(self, time_series_store):
+        time_series_store.register_live_series(
+            [
+                _make_live("point-0"),
+                _make_live("point-1", name="Point 1", source_id=1),
+            ]
+        )
+        time_series_store.set_live_series_visible("point-0", False)
+
+        visible = time_series_store.visible_live_series()
+        assert len(visible) == 1
+        assert visible[0].id == "point-1"
+
+
+class TestLiveSeriesSignals:
+    """Test signal emissions for live series operations."""
+
+    def test_register_emits_both_signals(self, time_series_store, signal_spy):
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        assert changed_spy.count == 1
+        assert plot_spy.count == 1
+
+    def test_register_no_change_emits_nothing(self, time_series_store, signal_spy):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        # Same registration again.
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        assert changed_spy.count == 0
+        assert plot_spy.count == 0
+
+    def test_clear_emits_both_signals(self, time_series_store, signal_spy):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        time_series_store.clear_live_series()
+
+        assert changed_spy.count == 1
+        assert plot_spy.count == 1
+
+    def test_clear_empty_emits_nothing(self, time_series_store, signal_spy):
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        time_series_store.clear_live_series()
+
+        assert changed_spy.count == 0
+        assert plot_spy.count == 0
+
+    def test_rename_emits_changed_only(self, time_series_store, signal_spy):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        time_series_store.rename_live_series("point-0", "New name")
+
+        assert changed_spy.count == 1
+        assert plot_spy.count == 0
+
+    def test_set_color_emits_changed_only(self, time_series_store, signal_spy):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        time_series_store.set_live_series_color("point-0", "#abcdef")
+
+        assert changed_spy.count == 1
+        assert plot_spy.count == 0
+
+    def test_set_visible_emits_both_signals(self, time_series_store, signal_spy):
+        time_series_store.register_live_series([_make_live("point-0")])
+
+        changed_spy = signal_spy()
+        plot_spy = signal_spy()
+        time_series_store.changed.connect(changed_spy)
+        time_series_store.plot_data_changed.connect(plot_spy)
+
+        time_series_store.set_live_series_visible("point-0", False)
+
+        assert changed_spy.count == 1
+        assert plot_spy.count == 1
