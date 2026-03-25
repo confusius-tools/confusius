@@ -129,3 +129,17 @@ def test_compute_origin_warns_when_coordinate_is_missing() -> None:
         origin = _compute_origin(da)
 
     assert origin == {"time": 0.0, "x": 3.0}
+
+
+def test_compute_origin_handles_string_coordinates() -> None:
+    """String-based coordinates fall back to zero origin without warning."""
+    da = xr.DataArray(
+        [[1.0, 2.0]],
+        dims=["feature", "x"],
+        coords={"feature": ["eye.eye_movement"], "x": [3.0, 4.0]},
+    )
+
+    # Should not warn for string coordinates.
+    origin = _compute_origin(da)
+
+    assert origin == {"feature": 0.0, "x": 3.0}

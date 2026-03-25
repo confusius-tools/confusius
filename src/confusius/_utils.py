@@ -362,7 +362,8 @@ def _compute_origin(
     """Compute the physical origin (first coordinate value) for each dimension.
 
     For each dimension, returns the first coordinate value. If a coordinate is missing,
-    warns and falls back to `0.0`.
+    falls back to `0.0` with a warning. If a coordinate is non-numeric (e.g.
+    string-based), falls back to `0.0` without a warning.
 
     Parameters
     ----------
@@ -383,7 +384,14 @@ def _compute_origin(
             )
             result[dim] = 0.0
         else:
-            result[dim] = float(data.coords[dim].values.flat[0])
+            coord = data.coords[dim]
+            if not np.issubdtype(coord.dtype, np.integer) and not np.issubdtype(
+                coord.dtype, np.floating
+            ):
+                # Non-numeric coordinate (e.g., strings); fall back to 0.0.
+                result[dim] = 0.0
+            else:
+                result[dim] = float(coord.values.flat[0])
     return result
 
 
