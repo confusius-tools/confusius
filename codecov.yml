@@ -1,0 +1,28 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto  # Use base branch coverage as target.
+        threshold: 1%  # Allow 1% drop in coverage.
+        base: auto
+        if_ci_failed: error
+        if_not_found: success
+        if_no_uploads: error
+    # Patch coverage check - checks coverage of the changed lines.
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+        base: auto
+        if_ci_failed: error
+        if_not_found: success
+        if_no_uploads: error
+
+comment:
+  # Show project coverage changes on PR comments
+  layout: "header, diff, flags, components, files"
+  behavior: default
+  require_changes: false  # Post comment even if coverage hasn't changed.
+  require_base: true  # Require base report to post comment.
+  require_head: true  # Require head report to post comment.
+  hide_project_coverage: false  # Show project coverage in comment.
