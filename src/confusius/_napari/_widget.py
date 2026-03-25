@@ -406,6 +406,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._signals._panel import SignalPanel
+        from confusius._napari._video_panel import VideoPanel
 
         container = QWidget()
         layout = QVBoxLayout(container)
@@ -421,14 +422,19 @@ class ConfUSIusWidget(QWidget):
         data_layout.addWidget(SavePanel(self.viewer))
         data_layout.addStretch()
 
+        # Video panel (own section).
+        video_panel = VideoPanel(self.viewer)
+
         accent = "#ffd33d" if self._is_dark() else "#c49a0a"
         tab_entries = [
             ("Data I/O", "file-input"),
+            ("Video", "video"),
             ("Signals", "chart-line"),
             ("Quality Control", "clipboard-check"),
         ]
         panels = [
             data_panel,
+            video_panel,
             SignalPanel(self.viewer),
             QCPanel(self.viewer),
         ]
