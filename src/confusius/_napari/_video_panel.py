@@ -478,7 +478,6 @@ class VideoPanel(QWidget):
         so H / W stay in the displayed positions.
         """
         order = list(event.value)
-        labels = self._viewer.dims.axis_labels
         time_dim = self._fusi_time_idx
 
         # Build a corrected order: time always first, spatial dims keep
