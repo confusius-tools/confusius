@@ -106,8 +106,8 @@ corrected_data = data.fusi.register.volumewise()
 corrected_data.fusi.plot()
 ```
 
-See the [documentation](https://confusius-tools.github.io/confusius/) for more detailed usage
-examples and tutorials.
+See the [documentation](https://confusius.tools/latest) for more detailed usage examples
+and tutorials.
 
 ## Citing ConfUSIus
 
