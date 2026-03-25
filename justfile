@@ -1,3 +1,5 @@
+set windows-shell := ["pwsh.exe", "-c"]
+
 # Print the help message.
 @help:
     echo "Usage: just [RECIPE]\n"
