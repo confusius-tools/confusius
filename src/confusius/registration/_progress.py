@@ -261,9 +261,11 @@ class RegistrationProgressPlotter:
 
             display(self._fig, clear=True)
         else:
-            import matplotlib.pyplot as plt
-
-            plt.pause(0.001)
+            # Use canvas-level rendering to scope updates to this figure only.
+            # plt.pause() drives the event loop for ALL open figures, which can
+            # crash when figures from a previous registration run are still open.
+            self._fig.canvas.draw_idle()
+            self._fig.canvas.flush_events()
 
     @property
     def metric_values(self) -> list[float]:
