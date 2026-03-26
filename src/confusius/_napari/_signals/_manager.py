@@ -89,7 +89,7 @@ class SignalsManagerDialog(QDialog):
         layout.setSpacing(8)
 
         button_row = QHBoxLayout()
-        self._import_btn = QPushButton("Import...")
+        self._import_btn = QPushButton("Import")
         self._import_btn.setToolTip("Import a CSV or TSV file")
         self._import_btn.setStyleSheet(_colored_button_style(80, 160, 80))
         self._import_btn.clicked.connect(self._import_file)

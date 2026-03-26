@@ -36,7 +36,7 @@ HERE = Path(__file__).parent
 
 ZARR_PATH = "../../../data/sub-ALD030_ses-ChATChR2FibreMidThalamus_task-awake_acq-motor2dot2_proc-staticsvd50_pwd.zarr/"
 
-# Path to a hand-drawn labels layer (NIfTI or Zarr) for the time series labels
+# Path to a hand-drawn labels layer (NIfTI or Zarr) for the signal labels
 # screenshot. Set to None to fall back to the auto-generated rectangular ROIs.
 LABELS_PATH = "../../../data/sub-ALD030_ses-ChATChR2FibreMidThalamus_task-awake_acq-motor2dot2_proc-staticsvd50_labels.zarr/"
 
@@ -287,6 +287,11 @@ try:
     plotter4 = ts_panel4._ensure_plotter()
     _qt_sleep(350)
 
+    # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
+    # (the Points layer added above steals focus, making the combo empty).
+    viewer4.layers.selection.active = layer4
+    get_qapp().processEvents()
+
     # Select the Points radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
@@ -358,6 +363,11 @@ try:
     # Open the bottom dock.
     plotter5 = ts_panel5._ensure_plotter()
     _qt_sleep(350)
+
+    # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
+    # (the Labels layer added above steals focus, making the combo empty).
+    viewer5.layers.selection.active = layer5
+    get_qapp().processEvents()
 
     # Select the Labels radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires

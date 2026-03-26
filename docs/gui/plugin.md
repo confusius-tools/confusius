@@ -44,44 +44,76 @@ Three save modes are applied automatically depending on what is available:
 
 ## Signals Panel
 
-The Signals Panel plots fUSI signals over time for one or more spatial locations. The
-plot appears in a bottom dock that is created the first time you use the panel. A
-vertical cursor line that follows the napari time slider can optionally be enabled.
+The Signals Panel plots signals extracted from image layers along any non-spatial
+dimension (time, lag, feature, etc.). The plot appears in a bottom dock that is created
+the first time you click **Show Signal Plot**.
 
 ### Choosing a data source
 
-Select an image layer from the **Layer** dropdown, then choose one of three source
-modes:
+Pick one of three source modes in the **Source** group:
 
-**Hover** (default)
-: Hold ++shift++ and move the mouse over the canvas. The plot updates live with the 
-  signal at the cursor position, extracted from the currently selected image layer.
+**Mouse**
+: Hold ++shift++ and move the mouse over the canvas. The plot updates live with the
+  single-voxel signal at the cursor position.
 
 ![ConfUSIus Signals panel — hover mode](../images/gui/plugin-signals.png)
 
 **Points**
-: Select a Points layer (or click **New points layer** to create one). Each point is
-  plotted as a separate line colored by its face color. Add or remove points in napari
-  and the plot updates automatically.
+: Select a Points layer from the dropdown (or click **+** to create one). Each point
+  is plotted as a separate line colored by its face color. Add or remove points in
+  napari and the plot updates automatically.
 
 ![ConfUSIus Signals panel — points mode](../images/gui/plugin-signals-points.png)
 
 **Labels**
-: Select a Labels layer (or click **New labels layer** to create one). The mean 
-  signal is extracted for each distinct integer label and plotted as a separate line,
+: Select a Labels layer from the dropdown (or click **+** to create one). The mean
+  signal is extracted for each distinct non-zero label and plotted as a separate line,
   colored by the label's color in the napari colormap. This is useful for quickly
   comparing region-averaged signals after painting ROIs with napari's brush tool.
 
 ![ConfUSIus Signals panel — labels mode](../images/gui/plugin-signals-labels.png)
 
-### Plot options
+In Points and Labels modes, the **Reference** dropdown selects which image layer to
+extract signals from. It defaults to **All image layers**, which plots each layer as a
+separate line (distinguished by line style).
+
+### Axis parameters
 
 | Option | Description |
 |--------|-------------|
-| **Y-axis limits** | Toggle between autoscale and manual min/max. |
-| **Z-score** | Normalize each signal to zero mean and unit variance before plotting. |
-| **Grid** | Show or hide the background grid. |
-| **Reference image** | In Points and Labels modes, select which image layer to extract signals from. Defaults to all image layers, plotting each as a separate line. |
+| ***x*-axis** | Choose which non-spatial dimension to plot on the horizontal axis. Defaults to `time` when available, otherwise the first non-spatial dimension. |
+| ***y* min / *y* max** | Manual limits for the vertical axis (disabled while autoscale is on). |
+| **Autoscale *y*-axis** | When enabled, the vertical axis rescales to fit the data automatically. Disabling it captures the current limits so you can fine-tune them. |
+
+### Display options
+
+| Option | Description |
+|--------|-------------|
+| **Show grid** | Show or hide the background grid. |
+| **Show x-axis cursor** | Draw a vertical line on the plot that follows the napari dimension slider for the selected *x*-axis dimension. |
+| **Z-score signal** | Normalize each signal to zero mean and unit variance before plotting. The *y*-axis label changes from "Intensity" to "Z-score". |
+
+### Managing signals
+
+Click **Manage Signals** to open a floating dialog where you can customize both live
+signals (from the current source mode) and imported signals:
+
+- **Rename**: Double-click a signal's name to edit it.
+- **Recolor**: Click the color swatch to pick a new color. Changes are synced back to
+  the napari layer (point face color or label colormap).
+- **Show / Hide**: Toggle individual signal visibility with the checkbox.
+
+### Importing and exporting signals
+
+**Import**
+: In the Manage Signals dialog, click **Import** to load signals from a CSV or TSV
+  file. The file must contain a column whose header matches the current *x*-axis
+  dimension name (e.g. `time`) plus one or more numeric value columns. Each value
+  column becomes a separate signal overlaid on the plot.
+
+**Export**
+: Click the **Export** button in the plot toolbar to export all currently plotted
+  signals—both live and imported—to a CSV or TSV file.
 
 ## QC Panel
 
