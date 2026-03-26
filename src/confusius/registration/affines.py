@@ -8,6 +8,7 @@ import numpy.typing as npt
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
+    from SimpleITK import AffineTransform
 
 
 def _striu2mat(
@@ -168,6 +169,32 @@ def decompose_affine(
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
 
 
+def _affine_to_sitk_linear_transform(
+    affine: npt.NDArray[np.float64],
+) -> "AffineTransform":
+    """Convert a homogeneous affine matrix to a SimpleITK `AffineTransform`.
+
+    Parameters
+    ----------
+    affine : (N+1, N+1) numpy.ndarray
+        Homogeneous affine matrix where `N` is the spatial dimensionality (2
+        or 3). The last row is expected to be `[0, …, 0, 1]`.
+
+    Returns
+    -------
+    AffineTransform
+        SimpleITK affine transform with the matrix and translation set from
+        `affine`. The rotation centre is left at the origin.
+    """
+    import SimpleITK as sitk
+
+    ndim = affine.shape[0] - 1
+    tx = sitk.AffineTransform(ndim)
+    tx.SetMatrix(affine[:ndim, :ndim].flatten().tolist())
+    tx.SetTranslation(affine[:ndim, ndim].tolist())
+    return tx
+
+
 def _sitk_linear_transform_to_affine(
     transform: "sitk.Transform",
 ) -> npt.NDArray[np.float64]:
@@ -226,14 +253,17 @@ def _sitk_linear_transform_to_affine(
     )
 
     if name == "CompositeTransform":
-        # Compose sub-transforms in order (first applied last in matrix product). Type
-        # stubs declare composite-specific methods only on CompositeTransform, so use
-        # getattr to avoid type-checker errors.
+        # SimpleITK's CompositeTransform applies the last-added transform first
+        # (outermost first). GetNthTransform(0) is the outermost, so the full
+        # composite is T_0(T_1(...(T_n(p)))) = A_0 @ A_1 @ ... @ A_n @ p.
+        # Right-multiply in forward order to build A_total = A_0 @ A_1 @ ... @ A_n.
+        # Type stubs declare composite-specific methods only on CompositeTransform, so
+        # use getattr to avoid type-checker errors.
         A = np.eye(ndim + 1)
         n_sub = getattr(transform, "GetNumberOfTransforms")()
         for i in range(n_sub):
             sub = getattr(transform, "GetNthTransform")(i)
-            A = _sitk_linear_transform_to_affine(sub) @ A
+            A = A @ _sitk_linear_transform_to_affine(sub)
         return A
 
     if name == "IdentityTransform":

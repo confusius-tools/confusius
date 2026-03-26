@@ -32,6 +32,8 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius.registration.affines import _affine_to_sitk_linear_transform
+
 if TYPE_CHECKING:
     import SimpleITK as sitk
 
@@ -190,10 +192,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
 
     pre_affine_list = da.attrs.get("affines", {}).get("bspline_initialization")
     if pre_affine_list is not None:
-        pre_affine = np.array(pre_affine_list)
-        pre_tx = sitk.AffineTransform(ndim)
-        pre_tx.SetMatrix(pre_affine[:ndim, :ndim].flatten().tolist())
-        pre_tx.SetTranslation(pre_affine[:ndim, ndim].tolist())
+        pre_tx = _affine_to_sitk_linear_transform(np.array(pre_affine_list))
 
         composite = sitk.CompositeTransform(ndim)
         composite.AddTransform(pre_tx)
