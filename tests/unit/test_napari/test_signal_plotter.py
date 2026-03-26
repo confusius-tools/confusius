@@ -1,6 +1,6 @@
 """Unit tests for the SignalPlotter widget.
 
-Pure-logic methods (_time_dim_index, _extract_signals) are tested with
+Pure-logic methods (_xaxis_dim_index, _extract_signals) are tested with
 lightweight mock layers.  Methods that touch the napari viewer (_active_layer,
 _on_mouse_move) use the make_napari_viewer fixture.
 """
@@ -73,27 +73,27 @@ def plotter_with_store(viewer, store):
 
 
 # ---------------------------------------------------------------------------
-# _time_dim_index
+# _xaxis_dim_index
 # ---------------------------------------------------------------------------
 
 
-class TestTimeDimIndex:
+class TestXaxisDimIndex:
     def test_returns_zero_without_xarray_metadata(self, plotter):
         layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._time_dim_index(layer) == 0
+        assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_zero_when_no_time_dim_in_metadata(self, plotter, sample_3d_volume):
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": sample_3d_volume})
-        assert plotter._time_dim_index(layer) == 0
+        assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_zero_when_time_is_first_dim(self, plotter, sample_4d_volume):
         layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_4d_volume})
-        assert plotter._time_dim_index(layer) == 0
+        assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_correct_index_when_time_is_not_first(self, plotter):
         da = xr.DataArray(np.zeros((4, 10, 6, 8)), dims=["z", "time", "y", "x"])
         layer = _Layer(np.zeros((4, 10, 6, 8)), metadata={"xarray": da})
-        assert plotter._time_dim_index(layer) == 1
+        assert plotter._xaxis_dim_index(layer) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -165,45 +165,45 @@ class TestOnMouseMove:
 
 
 # ---------------------------------------------------------------------------
-# _get_time_coords
+# _get_xaxis_coords
 # ---------------------------------------------------------------------------
 
 
-class TestGetTimeCoords:
+class TestGetXaxisCoords:
     def test_returns_none_without_xarray_metadata(self, plotter):
         layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._get_time_coords(layer) is None
+        assert plotter._get_xaxis_coords(layer) is None
 
     def test_returns_none_when_no_time_coord(self, plotter):
         da = xr.DataArray(np.zeros((4, 6, 8)), dims=["z", "y", "x"])
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_time_coords(layer) is None
+        assert plotter._get_xaxis_coords(layer) is None
 
     def test_returns_correct_coords(self, plotter, sample_4d_volume):
         layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_4d_volume})
-        coords = plotter._get_time_coords(layer)
+        coords = plotter._get_xaxis_coords(layer)
         npt.assert_array_equal(coords, sample_4d_volume.coords["time"].values)
 
 
 # ---------------------------------------------------------------------------
-# _get_time_xlabel
+# _get_xaxis_label
 # ---------------------------------------------------------------------------
 
 
-class TestGetTimeXlabel:
+class TestGetXaxisLabel:
     def test_returns_index_without_xarray_metadata(self, plotter):
         layer = _Layer(np.zeros((10, 4, 6, 8)))
-        assert plotter._get_time_xlabel(layer) == "Index"
+        assert plotter._get_xaxis_label(layer) == "Index"
 
     def test_returns_capitalized_dim_when_no_coord(self, plotter):
         da = xr.DataArray(np.zeros((4, 6, 8)), dims=["z", "y", "x"])
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_time_xlabel(layer) == "Time"
+        assert plotter._get_xaxis_label(layer) == "Time"
 
     def test_uses_units_from_time_coord(self, plotter, sample_4d_volume):
         # sample_4d_volume has time attrs={"units": "s"}, no long_name.
         layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_4d_volume})
-        assert plotter._get_time_xlabel(layer) == "Time (s)"
+        assert plotter._get_xaxis_label(layer) == "Time (s)"
 
     def test_uses_long_name_and_units(self, plotter):
         da = xr.DataArray(
@@ -218,7 +218,7 @@ class TestGetTimeXlabel:
             },
         )
         layer = _Layer(np.zeros((5, 4)), metadata={"xarray": da})
-        assert plotter._get_time_xlabel(layer) == "Elapsed time (s)"
+        assert plotter._get_xaxis_label(layer) == "Elapsed time (s)"
 
     def test_omits_parentheses_when_no_units(self, plotter):
         da = xr.DataArray(
@@ -233,7 +233,7 @@ class TestGetTimeXlabel:
             },
         )
         layer = _Layer(np.zeros((5, 4)), metadata={"xarray": da})
-        assert plotter._get_time_xlabel(layer) == "Frame index"
+        assert plotter._get_xaxis_label(layer) == "Frame index"
 
 
 # ---------------------------------------------------------------------------
@@ -242,23 +242,23 @@ class TestGetTimeXlabel:
 
 
 class TestFrameToX:
-    def test_returns_frame_when_no_time_coords(self, plotter):
-        plotter._time_coords = None
+    def test_returns_frame_when_no_xaxis_coords(self, plotter):
+        plotter._xaxis_coords = None
         assert plotter._frame_to_x(3.0) == 3.0
 
     def test_maps_frame_index_to_time_value(self, plotter):
-        plotter._time_coords = np.array([10.0, 10.5, 11.0, 11.5])
+        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0, 11.5])
         assert plotter._frame_to_x(2.0) == 11.0
 
     def test_out_of_bounds_frame_falls_back_to_frame_value(self, plotter):
-        plotter._time_coords = np.array([10.0, 10.5, 11.0])
+        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0])
         assert plotter._frame_to_x(99.0) == 99.0
 
     def test_returns_string_for_non_numeric_coordinates(self, plotter):
         # String coordinates (e.g., feature names) must be returned as-is so
         # matplotlib places the cursor at the correct categorical position
         # instead of inserting a spurious numeric category.
-        plotter._time_coords = np.array(["feat_A", "feat_B", "feat_C"])
+        plotter._xaxis_coords = np.array(["feat_A", "feat_B", "feat_C"])
         assert plotter._frame_to_x(1.0) == "feat_B"
 
 

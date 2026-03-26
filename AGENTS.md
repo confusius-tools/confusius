@@ -43,8 +43,6 @@ Pre-commit hooks include:
 - `just generate-baselines` - Regenerate visual regression test baselines (pytest-mpl)
 - `uv run pytest path/to/test_file.py` - Run a single test file
 - `uv run pytest path/to/test_file.py::TestClass::test_method` - Run a single test
-- `uv run pytest -m "not slow"` - Skip slow tests
-- `uv run pytest -m "not real_data"` - Skip tests requiring real data files
 
 Coverage reports are generated automatically (terminal, HTML in `htmlcov/`, and XML).
 

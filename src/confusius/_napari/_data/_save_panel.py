@@ -161,13 +161,13 @@ class SavePanel(QWidget):
             if layer.metadata.get("xarray") is not None:
                 self._template_combo.addItem(layer.name)
 
-        idx = self._layer_combo.findText(current_layer)
-        if idx >= 0:
-            self._layer_combo.setCurrentIndex(idx)
+        text_index = self._layer_combo.findText(current_layer)
+        if text_index >= 0:
+            self._layer_combo.setCurrentIndex(text_index)
 
-        idx = self._template_combo.findText(current_template)
+        text_index = self._template_combo.findText(current_template)
         # -1 means "no selection" (placeholder shown), which is the correct default.
-        self._template_combo.setCurrentIndex(idx)
+        self._template_combo.setCurrentIndex(text_index)
 
         self._layer_combo.blockSignals(False)
         self._template_combo.blockSignals(False)

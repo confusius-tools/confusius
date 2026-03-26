@@ -20,6 +20,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._dims import ALL_SPATIAL_DIMS, TIME_DIM
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._signals._store import SignalStore
@@ -296,11 +297,11 @@ class SignalPanel(QWidget):
             QTimer.singleShot(200, _settle_layout)
 
         # Always sync panel settings to the plotter (covers the case where settings like
-        # the time cursor were configured before the plotter was first created).
+        # the x-axis cursor were configured before the plotter was first created).
         self._apply_settings()
         self._sync_source_to_plotter()
         if self._cursor_check.isChecked():
-            self._plotter.set_time_cursor(self._current_frame())
+            self._plotter.set_xaxis_cursor(self._current_frame())
 
         return self._plotter
 
@@ -346,7 +347,7 @@ class SignalPanel(QWidget):
         if xaxis_dim:
             plotter.set_xaxis_dim(xaxis_dim)
 
-    def _time_dim_index(self) -> int:
+    def _xaxis_dim_index(self) -> int:
         """Return the viewer dimension index for the x-axis dimension.
 
         Uses the configured x-axis dimension from the dropdown when available,
@@ -364,16 +365,18 @@ class SignalPanel(QWidget):
         # Fall back to looking for 'time'.
         for layer in self._viewer.layers:
             da = layer.metadata.get("xarray")
-            if da is not None and "time" in da.dims:
-                return list(da.dims).index("time")
+            if da is not None and TIME_DIM in da.dims:
+                return list(da.dims).index(TIME_DIM)
 
         return 0
 
     def _current_frame(self) -> float:
         """Return the current x-axis frame index from the viewer's step."""
         current_step = self._viewer.dims.current_step
-        t_idx = self._time_dim_index()
-        return float(current_step[t_idx]) if t_idx < len(current_step) else 0.0
+        xaxis_index = self._xaxis_dim_index()
+        return (
+            float(current_step[xaxis_index]) if xaxis_index < len(current_step) else 0.0
+        )
 
     def _on_cursor_toggled(self, checked: bool) -> None:
         """Connect or disconnect the x-axis step event and update the plotter."""
@@ -389,16 +392,16 @@ class SignalPanel(QWidget):
         if self._plotter is not None:
             self._plotter.set_show_cursor(checked)
             if checked:
-                self._plotter.set_time_cursor(self._current_frame())
+                self._plotter.set_xaxis_cursor(self._current_frame())
 
     def _on_xaxis_step_changed(self, event) -> None:
         """Forward the current napari x-axis step to the x-axis cursor."""
         if self._plotter is None:
             return
         current_step = event.value
-        t_idx = self._time_dim_index()
-        if t_idx < len(current_step):
-            self._plotter.set_time_cursor(float(current_step[t_idx]))
+        xaxis_index = self._xaxis_dim_index()
+        if xaxis_index < len(current_step):
+            self._plotter.set_xaxis_cursor(float(current_step[xaxis_index]))
 
     def _on_theme_changed(self) -> None:
         """Handle napari theme change."""
@@ -474,9 +477,9 @@ class SignalPanel(QWidget):
                 (self._labels_combo, cur_labels),
                 (self._ref_combo, cur_ref),
             ):
-                idx = combo.findText(prev)
-                if idx >= 0:
-                    combo.setCurrentIndex(idx)
+                text_index = combo.findText(prev)
+                if text_index >= 0:
+                    combo.setCurrentIndex(text_index)
         finally:
             self._points_combo.blockSignals(False)
             self._labels_combo.blockSignals(False)
@@ -579,7 +582,7 @@ class SignalPanel(QWidget):
 
         Returns the dimension names from the active image layer's xarray
         metadata if available, excluding:
-        - Dimensions currently displayed in the viewer (can't plot along displayed dims)
+        - Spatial dimensions (including `pose`) which are never valid signal axes
         - Dimensions with only 1 element (can't create meaningful x-axis)
 
         Falls back to dimension indices based on the layer's data shape if no
@@ -589,19 +592,19 @@ class SignalPanel(QWidget):
         if layer is None or layer._type_string != "image":
             return []
 
-        # Get the indices of displayed dimensions from napari's dims.
-        displayed_dims = set(self._viewer.dims.displayed)
-
         da = layer.metadata.get("xarray")
         if da is not None:
-            # Filter out displayed dimensions and single-element dimensions.
+            # Filter out spatial dimensions and single-element dimensions.
             return [
                 dim
                 for i, dim in enumerate(da.dims)
-                if i not in displayed_dims and da.shape[i] > 1
+                if dim not in ALL_SPATIAL_DIMS and da.shape[i] > 1
             ]
 
         # Fallback: generate generic dimension names based on data shape.
+        # Without xarray metadata we cannot identify spatial dims by name,
+        # so fall back to excluding displayed dims.
+        displayed_dims = set(self._viewer.dims.displayed)
         ndim = layer.data.ndim
         return [
             f"dim_{i}"
@@ -631,8 +634,8 @@ class SignalPanel(QWidget):
             # Try to restore previous selection, or default to 'time', or first item.
             if current and current in dims:
                 self._xaxis_combo.setCurrentText(current)
-            elif "time" in dims:
-                self._xaxis_combo.setCurrentText("time")
+            elif TIME_DIM in dims:
+                self._xaxis_combo.setCurrentText(TIME_DIM)
             else:
                 self._xaxis_combo.setCurrentIndex(0)
         finally:
@@ -653,23 +656,24 @@ class SignalPanel(QWidget):
     ]:
         """Return (shape, scale, translate) for the spatial axes of the first signal layer.
 
-        Spatial axes are those currently displayed in the viewer (i.e., not slider axes).
+        Spatial axes are those named `z`, `y`, or `x` in the xarray metadata.
+        This always covers the full spatial volume regardless of which dims are
+        currently displayed or used as sliders.
+
         All three values come from the *same* layer so they are guaranteed to
         be consistent.  Returns `(None, None, None)` when no suitable layer
         is found.
         """
-        displayed_dims = set(self._viewer.dims.displayed)
         for layer in self._viewer.layers:
             if layer._type_string != "image":
                 continue
             da = layer.metadata.get("xarray")
             if da is not None:
-                # Only use layers that have at least one non-displayed signal dim.
-                signal_dims = [i for i in range(da.ndim) if i not in displayed_dims]
-                if not signal_dims:
+                spatial_indices = [
+                    i for i, dim in enumerate(da.dims) if dim in ALL_SPATIAL_DIMS
+                ]
+                if not spatial_indices:
                     continue
-                # Extract shape/scale/translate for the displayed (spatial) axes only.
-                spatial_indices = sorted(displayed_dims & set(range(da.ndim)))
                 shape = tuple(da.shape[i] for i in spatial_indices)
                 scale = tuple(float(layer.scale[i]) for i in spatial_indices)
                 translate = tuple(float(layer.translate[i]) for i in spatial_indices)

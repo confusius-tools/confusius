@@ -18,6 +18,7 @@ from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import QSize, QTimer
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
+from confusius._dims import TIME_DIM
 from confusius._napari._export import (
     ExportSignal,
     PlotSignal,
@@ -46,7 +47,7 @@ class SignalPlotter(QWidget):
     """Bottom dock widget for live signals plotting.
 
     Supports three source modes: mouse hover (Shift + move), a Points layer, or a Labels
-    layer. Imported signals from a `SignalStore` are overlaid on every plot. The time
+    layer. Imported signals from a `SignalStore` are overlaid on every plot. The x-axis
     dimension is resolved from xarray metadata when available, falling back to the first
     array dimension.
 
@@ -84,9 +85,9 @@ class SignalPlotter(QWidget):
         # with no data (e.g. when the cursor leaves the image).
         self._prev_ts_valid: bool = False
 
-        # Time coordinate values for the current layer, used to map frame indices to
-        # real time values on the x-axis.
-        self._time_coords: np.ndarray | None = None
+        # X-axis coordinate values for the current layer, used to map frame
+        # indices to real coordinate values on the x-axis.
+        self._xaxis_coords: np.ndarray | None = None
 
         # X-axis dimension name (e.g., "time", "lag", "feature"). When None, falls back
         # to looking for a "time" dimension in the xarray metadata, then to index 0.
@@ -96,7 +97,7 @@ class SignalPlotter(QWidget):
         self._source_mode: Literal["mouse", "points", "labels"] = "mouse"
         self._points_layer = None
         self._labels_layer = None
-        self._ref_layers: list | None = None  # None = all image layers with time dim
+        self._ref_layers: list | None = None  # None = all image layers with x-axis dim
 
         # Debounce timer for labels data changes (painting is fast, replot is slow).
         self._labels_debounce = QTimer(self)
@@ -119,7 +120,7 @@ class SignalPlotter(QWidget):
         # Guard flag to prevent reentrant plot updates.
         self._updating_plot: bool = False
 
-        # Throttle blit calls to ~60 fps so the napari time slider stays responsive when
+        # Throttle blit calls to ~60 fps so the napari slider stays responsive when
         # the canvas is docked (docked canvases must synchronise repaints with the
         # QMainWindow, unlike floating ones).
         self._cursor_timer = QTimer(self)
@@ -182,7 +183,7 @@ class SignalPlotter(QWidget):
         layout.addWidget(self._canvas)
 
         self._axes = self._figure.add_subplot(111)
-        # Save background after each full redraw for blitting the time cursor.
+        # Save background after each full redraw for blitting the x-axis cursor.
         self._canvas.mpl_connect("draw_event", self._on_draw)
 
     def _setup_callbacks(self) -> None:
@@ -276,12 +277,12 @@ class SignalPlotter(QWidget):
         self._refresh_plot()
 
     def set_show_cursor(self, enabled: bool) -> None:
-        """Enable or disable the time cursor.
+        """Enable or disable the x-axis cursor.
 
         Parameters
         ----------
         enabled : bool
-            Whether to show the time cursor.
+            Whether to show the x-axis cursor.
         """
         self._show_cursor = enabled
         self._vline = None
@@ -313,19 +314,19 @@ class SignalPlotter(QWidget):
             self._invalidate_mouse_cache()
             self._refresh_plot()
 
-    def set_time_cursor(self, frame_idx: float) -> None:
-        """Schedule a blitted time-cursor update.
+    def set_xaxis_cursor(self, frame_index: float) -> None:
+        """Schedule a blitted x-axis cursor update.
 
         The blit is deferred to a ~60 fps timer so that rapid step events
-        from the napari time slider do not block the main thread waiting for
+        from the napari slider do not block the main thread waiting for
         the docked canvas to repaint.
 
         Parameters
         ----------
-        frame_idx : float
+        frame_index : float
             Frame index to position the cursor at.
         """
-        self._cursor_frame = frame_idx
+        self._cursor_frame = frame_index
         if not self._cursor_timer.isActive():
             self._cursor_timer.start()
 
@@ -338,10 +339,10 @@ class SignalPlotter(QWidget):
         matplotlib places the cursor at the correct existing category rather than
         inserting a spurious numeric label.
         """
-        if self._time_coords is not None:
-            idx = int(round(frame))
-            if 0 <= idx < len(self._time_coords):
-                coord = self._time_coords[idx]
+        if self._xaxis_coords is not None:
+            index = int(round(frame))
+            if 0 <= index < len(self._xaxis_coords):
+                coord = self._xaxis_coords[index]
                 try:
                     return float(coord)
                 except (ValueError, TypeError):
@@ -485,7 +486,7 @@ class SignalPlotter(QWidget):
             self._render_imported_only()
             return
 
-        # Preserve zoom state across voxel changes. X limits (time range) are always
+        # Preserve zoom state across voxel changes. X limits are always
         # restored so the user can zoom in and keep exploring. Y limits are only
         # restored when autoscale is off, so the axis still adjusts to the new voxel's
         # amplitude when autoscale is on.
@@ -518,17 +519,17 @@ class SignalPlotter(QWidget):
         colors = self._get_colors()
 
         ts = self._extract_signals(self._current_layer, self._cursor_pos)
-        # Update stored time coordinates for cursor mapping.
-        self._time_coords = self._get_time_coords(self._current_layer)
+        # Update stored x-axis coordinates for cursor mapping.
+        self._xaxis_coords = self._get_xaxis_coords(self._current_layer)
         if ts is not None:
             if self._zscore:
                 ts = self._apply_zscore(ts)
 
-            if self._time_coords is not None and len(self._time_coords) == len(ts):
-                x_values = self._time_coords
+            if self._xaxis_coords is not None and len(self._xaxis_coords) == len(ts):
+                x_values = self._xaxis_coords
             else:
                 x_values = np.arange(len(ts))
-            xlabel = self._get_time_xlabel(self._current_layer)
+            xlabel = self._get_xaxis_label(self._current_layer)
 
             # Read name/color/visibility from the store if available.
             mouse_signal = (
@@ -630,35 +631,35 @@ class SignalPlotter(QWidget):
 
         self._canvas.draw_idle()
 
-    def _time_dim_index(self, layer) -> int:
+    def _xaxis_dim_index(self, layer) -> int:
         """Return the data dimension index that corresponds to the x-axis.
 
         Uses the configured `_xaxis_dim` when available, otherwise looks for
-        "time" in xarray dims, falling back to 0.
+        the default signal dimension in xarray dims, falling back to 0.
         """
         da = layer.metadata.get("xarray")
         if da is not None:
             if self._xaxis_dim is not None and self._xaxis_dim in da.dims:
                 return list(da.dims).index(self._xaxis_dim)
-            if "time" in da.dims:
-                return list(da.dims).index("time")
+            if TIME_DIM in da.dims:
+                return list(da.dims).index(TIME_DIM)
         return 0
 
-    def _get_time_coords(self, layer) -> np.ndarray | None:
+    def _get_xaxis_coords(self, layer) -> np.ndarray | None:
         """Return the x-axis coordinate array from the layer's xarray metadata.
 
         Returns None when no xarray metadata is present or the DataArray has no
-        coordinate for the configured x-axis dimension (or "time" if not configured).
+        coordinate for the configured x-axis dimension.
         """
         da = layer.metadata.get("xarray")
         if da is None:
             return None
-        dim = self._xaxis_dim if self._xaxis_dim is not None else "time"
+        dim = self._xaxis_dim if self._xaxis_dim is not None else TIME_DIM
         if dim in da.coords:
             return np.asarray(da.coords[dim])
         return None
 
-    def _get_time_xlabel(self, layer) -> str:
+    def _get_xaxis_label(self, layer) -> str:
         """Return the x-axis label for the selected axis.
 
         Reads `long_name` and `units` from the coordinate attributes
@@ -668,7 +669,7 @@ class SignalPlotter(QWidget):
         if da is None:
             return "Index"
 
-        dim = self._xaxis_dim if self._xaxis_dim is not None else "time"
+        dim = self._xaxis_dim if self._xaxis_dim is not None else TIME_DIM
         if dim in da.coords:
             attrs = da.coords[dim].attrs
             name = attrs.get("long_name", dim.capitalize())
@@ -686,12 +687,12 @@ class SignalPlotter(QWidget):
         data = layer.data
         ind = list(int(round(x)) for x in layer.world_to_data(cursor_pos))
 
-        t_idx = self._time_dim_index(layer)
-        # Replace the time index before bounds-checking: the injected time world
-        # coordinate (typically 0) may fall outside the image's time range (e.g. when
-        # time starts at a non-zero offset), which would cause the check to reject valid
-        # spatial positions.
-        ind[t_idx] = slice(None)  # type: ignore[call-overload]
+        xaxis_index = self._xaxis_dim_index(layer)
+        # Replace the x-axis index before bounds-checking: the injected x-axis world
+        # coordinate (typically 0) may fall outside the data range (e.g. when the
+        # coordinate starts at a non-zero offset), which would cause the check to
+        # reject valid spatial positions.
+        ind[xaxis_index] = slice(None)  # type: ignore[call-overload]
 
         if not all(
             0 <= i < max_i for i, max_i in zip(ind, data.shape) if isinstance(i, int)
@@ -795,7 +796,7 @@ class SignalPlotter(QWidget):
         ----------
         layers : list or None
             Specific Image layers to use, or None to use all image layers
-            that have a time dimension.
+            that have an x-axis dimension.
         """
         self._ref_layers = layers
         if self._source_mode == "points":
@@ -929,16 +930,16 @@ class SignalPlotter(QWidget):
             return
         n_points = len(self._points_layer.data)
         signals = []
-        for pt_idx in range(n_points):
-            color = mpl_colors.to_hex(self._points_layer.face_color[pt_idx])
+        for point_index in range(n_points):
+            color = mpl_colors.to_hex(self._points_layer.face_color[point_index])
             signals.append(
                 LiveSignal(
-                    id=f"point-{pt_idx}",
-                    name=f"Point {pt_idx}",
+                    id=f"point-{point_index}",
+                    name=f"Point {point_index}",
                     color=color,
                     visible=True,
                     source_type="point",
-                    source_id=pt_idx,
+                    source_id=point_index,
                 )
             )
         self._signals_store.register_live_signals(signals)
@@ -979,17 +980,21 @@ class SignalPlotter(QWidget):
         try:
             for signals in self._signals_store.live_signals():
                 if signals.source_type == "point" and self._points_layer is not None:
-                    pt_idx = signals.source_id
-                    if pt_idx is not None and pt_idx < len(self._points_layer.data):
+                    point_index = signals.source_id
+                    if point_index is not None and point_index < len(
+                        self._points_layer.data
+                    ):
                         current = mpl_colors.to_hex(
-                            self._points_layer.face_color[pt_idx]
+                            self._points_layer.face_color[point_index]
                         )
                         if current != signals.color:
                             rgba = transform_color(signals.color)[0]
-                            self._points_layer.face_color[pt_idx] = rgba
-                            self._points_layer.refresh_colors(
-                                update_color_mapping=False
-                            )
+                            # napari's face_color getter returns a copy, so
+                            # indexing into it doesn't update the layer. We
+                            # must write back the full array via the setter.
+                            colors = self._points_layer.face_color.copy()
+                            colors[point_index] = rgba
+                            self._points_layer.face_color = colors
                 elif signals.source_type == "label" and self._labels_layer is not None:
                     lid = signals.source_id
                     if lid is not None:
@@ -1052,12 +1057,14 @@ class SignalPlotter(QWidget):
             return
         self._syncing_color = True
         try:
-            for pt_idx in range(len(self._points_layer.data)):
-                sid = f"point-{pt_idx}"
+            for point_index in range(len(self._points_layer.data)):
+                sid = f"point-{point_index}"
                 live = self._signals_store.get_live_signal(sid)
                 if live is None:
                     continue
-                new_color = mpl_colors.to_hex(self._points_layer.face_color[pt_idx])
+                new_color = mpl_colors.to_hex(
+                    self._points_layer.face_color[point_index]
+                )
                 if new_color != live.color:
                     self._signals_store.set_live_signal_color(sid, new_color)
         finally:
@@ -1102,26 +1109,28 @@ class SignalPlotter(QWidget):
         da = self._current_layer.metadata.get("xarray")
         if da is None:
             # Fallback: just format cursor positions without dimension names.
-            t_idx = self._time_dim_index(self._current_layer)
-            spatial_coords = [c for i, c in enumerate(self._cursor_pos) if i != t_idx]
+            xaxis_index = self._xaxis_dim_index(self._current_layer)
+            spatial_coords = [
+                c for i, c in enumerate(self._cursor_pos) if i != xaxis_index
+            ]
             return ", ".join(f"{c:.1f}" for c in spatial_coords)
 
         # Map cursor position to data indices, then to coordinate values.
-        t_idx = self._time_dim_index(self._current_layer)
+        xaxis_index = self._xaxis_dim_index(self._current_layer)
         coord_parts = []
 
         # Convert all world positions to data indices once.
         data_indices = self._current_layer.world_to_data(self._cursor_pos)
 
         for i, (dim, world_pos) in enumerate(zip(da.dims, self._cursor_pos)):
-            if i == t_idx:
+            if i == xaxis_index:
                 continue  # Skip the x-axis dimension (signals dimension).
 
             # Get the data index for this dimension.
-            data_idx = int(round(data_indices[i]))
+            data_index = int(round(data_indices[i]))
 
-            if dim in da.coords and data_idx < da.sizes[dim]:
-                coord_val = da.coords[dim].values[data_idx]
+            if dim in da.coords and data_index < da.sizes[dim]:
+                coord_val = da.coords[dim].values[data_index]
                 # Check if coordinate is string-like.
                 if isinstance(coord_val, str) or (
                     hasattr(coord_val, "dtype") and coord_val.dtype.kind in "UO"
@@ -1272,7 +1281,7 @@ class SignalPlotter(QWidget):
         self._mouse_imported_signature = self._imported_signature(imported_signals)
         self._mouse_legend_signature = self._imported_signature(imported_signals)
         self._mouse_plot_dirty = True
-        self._time_coords = None
+        self._xaxis_coords = None
         self._style_valid_axes(
             colors,
             "Time",
@@ -1526,7 +1535,7 @@ class SignalPlotter(QWidget):
         self._set_export_signals(
             export_signals + self._plot_signal_to_export(imported_signals)
         )
-        xlabel = self._get_time_xlabel(ref_layers[0])
+        xlabel = self._get_xaxis_label(ref_layers[0])
         ylabel = "Z-score" if self._zscore else "Intensity"
         title_ref = ref_layers[0].name if len(ref_layers) == 1 else "All layers"
         self._style_valid_axes(
@@ -1566,25 +1575,25 @@ class SignalPlotter(QWidget):
             # Register live signals so the manager can track them.
             self._register_points_live_signals()
 
-            # Pre-compute time coordinates per layer: they don't depend on individual
+            # Pre-compute x-axis coordinates per layer: they don't depend on individual
             # points.
-            layer_time_coords = [self._get_time_coords(layer) for layer in ref_layers]
+            layer_xaxis_coords = [self._get_xaxis_coords(layer) for layer in ref_layers]
 
             self._axes.clear()
             has_any = False
             export_signals: list[ExportSignal] = []
 
-            for pt_idx in range(n_points):
+            for point_index in range(n_points):
                 # Check store for visibility/name/color overrides.
                 live = (
-                    self._signals_store.get_live_signal(f"point-{pt_idx}")
+                    self._signals_store.get_live_signal(f"point-{point_index}")
                     if self._signals_store is not None
                     else None
                 )
                 if live is not None and not live.visible:
                     continue
 
-                pt_data = np.asarray(self._points_layer.data[pt_idx], dtype=float)
+                pt_data = np.asarray(self._points_layer.data[point_index], dtype=float)
                 n_pt = len(pt_data)
                 # napari may pad layer.scale/translate to the viewer's ndim, so use the last
                 # n_pt elements to match the point's dimensionality.
@@ -1595,20 +1604,20 @@ class SignalPlotter(QWidget):
                 # data → world (spatial, n_pt dims)
                 pt_world = pt_data * pts_scale + pts_translate
 
-                pt_name = live.name if live is not None else f"Point {pt_idx}"
+                pt_name = live.name if live is not None else f"Point {point_index}"
                 pt_color = (
                     live.color
                     if live is not None
-                    else mpl_colors.to_hex(self._points_layer.face_color[pt_idx])
+                    else mpl_colors.to_hex(self._points_layer.face_color[point_index])
                 )
 
-                for layer_idx, img_layer in enumerate(ref_layers):
+                for layer_index, img_layer in enumerate(ref_layers):
                     img_ndim = img_layer.data.ndim
                     if n_pt < img_ndim:
                         # 3D point in a 4D image: pad the world coord with 0 at the
-                        # front so world_to_data receives the correct ndim. The time
-                        # value (0) is irrelevant — _extract_signals replaces it
-                        # with slice(None).
+                        # front so world_to_data receives the correct ndim. The
+                        # x-axis value (0) is irrelevant — _extract_signals replaces
+                        # it with slice(None).
                         padded = np.zeros(img_ndim)
                         padded[-n_pt:] = pt_world
                         pt_world_img = padded
@@ -1625,14 +1634,14 @@ class SignalPlotter(QWidget):
                     if self._zscore:
                         ts = self._apply_zscore(ts)
 
-                    time_coords = layer_time_coords[layer_idx]
+                    xaxis_coords = layer_xaxis_coords[layer_index]
                     x = (
-                        time_coords
-                        if (time_coords is not None and len(time_coords) == len(ts))
+                        xaxis_coords
+                        if (xaxis_coords is not None and len(xaxis_coords) == len(ts))
                         else np.arange(len(ts))
                     )
                     label = self._signal_label(pt_name, img_layer, ref_layers)
-                    linestyle = _LAYER_LINESTYLES[layer_idx % len(_LAYER_LINESTYLES)]
+                    linestyle = _LAYER_LINESTYLES[layer_index % len(_LAYER_LINESTYLES)]
                     self._axes.plot(
                         x,
                         ts,
@@ -1645,8 +1654,8 @@ class SignalPlotter(QWidget):
                         ExportSignal(label, np.asarray(x), np.asarray(ts))
                     )
                     has_any = True
-                    # Keep time coords from the last successful layer for cursor mapping.
-                    self._time_coords = time_coords
+                    # Keep x-axis coords from the last successful layer for cursor mapping.
+                    self._xaxis_coords = xaxis_coords
                     self._current_layer = img_layer
 
             if has_any:
@@ -1694,18 +1703,18 @@ class SignalPlotter(QWidget):
             # Collect all unique labels across layers for registration.
             all_unique_labels: set[int] = set()
 
-            for layer_idx, img_layer in enumerate(ref_layers):
-                t_idx = self._time_dim_index(img_layer)
+            for layer_index, img_layer in enumerate(ref_layers):
+                xaxis_index = self._xaxis_dim_index(img_layer)
                 img_data = img_layer.data
                 img_spatial = tuple(
-                    s for i, s in enumerate(img_data.shape) if i != t_idx
+                    s for i, s in enumerate(img_data.shape) if i != xaxis_index
                 )
 
-                # Labels can have the full image shape (T, Z, Y, X) (napari creates labels
-                # with the same shape as the reference image) or the spatial shape only (Z,
-                # Y, X). Collapse the time axis in the former case.
+                # Labels can have the full image shape (napari creates labels with the
+                # same shape as the reference image) or the spatial shape only. Collapse
+                # the x-axis in the former case.
                 if labels_data.shape == img_data.shape:
-                    labels_spatial = np.max(labels_data, axis=t_idx)
+                    labels_spatial = np.max(labels_data, axis=xaxis_index)
                 elif labels_data.shape == img_spatial:
                     labels_spatial = labels_data
                 else:
@@ -1719,14 +1728,14 @@ class SignalPlotter(QWidget):
 
                 all_unique_labels.update(int(lid) for lid in unique_labels)
 
-                # Move time to last axis so spatial boolean indexing works cleanly:
-                # img_arr[mask] → (N_voxels, T).
-                img_arr = np.moveaxis(np.asarray(img_data), t_idx, -1)
+                # Move x-axis to last axis so spatial boolean indexing works cleanly:
+                # img_arr[mask] → (N_voxels, N_xaxis).
+                img_arr = np.moveaxis(np.asarray(img_data), xaxis_index, -1)
 
-                time_coords = self._get_time_coords(img_layer)
+                xaxis_coords = self._get_xaxis_coords(img_layer)
                 x = (
-                    time_coords
-                    if time_coords is not None
+                    xaxis_coords
+                    if xaxis_coords is not None
                     else np.arange(img_arr.shape[-1])
                 )
 
@@ -1754,7 +1763,7 @@ class SignalPlotter(QWidget):
                         else mpl_colors.to_hex(self._get_label_color(lid_int))
                     )
                     label = self._signal_label(base_name, img_layer, ref_layers)
-                    linestyle = _LAYER_LINESTYLES[layer_idx % len(_LAYER_LINESTYLES)]
+                    linestyle = _LAYER_LINESTYLES[layer_index % len(_LAYER_LINESTYLES)]
                     self._axes.plot(
                         x,
                         ts,
@@ -1769,7 +1778,7 @@ class SignalPlotter(QWidget):
                     has_any = True
 
                 # Keep time coords from the last successful layer for cursor mapping.
-                self._time_coords = time_coords
+                self._xaxis_coords = xaxis_coords
                 self._current_layer = img_layer
 
             # Register live signal after we know all unique labels.

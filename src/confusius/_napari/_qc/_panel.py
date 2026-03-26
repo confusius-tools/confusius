@@ -156,9 +156,9 @@ class QCPanel(QWidget):
         self._layer_combo.clear()
         for layer in self.viewer.layers:
             self._layer_combo.addItem(layer.name)
-        idx = self._layer_combo.findText(current)
-        if idx >= 0:
-            self._layer_combo.setCurrentIndex(idx)
+        index = self._layer_combo.findText(current)
+        if index >= 0:
+            self._layer_combo.setCurrentIndex(index)
 
     # ------------------------------------------------------------------
     # Status / busy helpers
@@ -285,14 +285,14 @@ class QCPanel(QWidget):
         if "time" not in da.dims:
             return None
         current_step = self.viewer.dims.current_step
-        time_dim_idx = list(da.dims).index("time")
-        if time_dim_idx >= len(current_step):
+        time_dim_index = list(da.dims).index("time")
+        if time_dim_index >= len(current_step):
             return None
-        time_idx = current_step[time_dim_idx]
+        time_index = current_step[time_dim_index]
         time_coord = da.coords.get("time")
-        if time_coord is not None and time_idx < len(time_coord):
-            return float(time_coord[time_idx])
-        return float(time_idx)
+        if time_coord is not None and time_index < len(time_coord):
+            return float(time_coord[time_index])
+        return float(time_index)
 
     def _on_time_step_changed(self, event) -> None:
         """Forward the current napari time step to the time cursor."""
