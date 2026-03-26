@@ -11,7 +11,6 @@ from confusius.registration._progress import (  # noqa: E402
     RegistrationProgressPlotter,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helper fixtures
 # ---------------------------------------------------------------------------
@@ -237,7 +236,7 @@ class TestRegisterVolumeShowProgress:
         result, _ = register_volume(
             da,
             da,
-            transform="translation",
+            transform_type="translation",
             show_progress=True,
             plot_metric=True,
             plot_composite=False,

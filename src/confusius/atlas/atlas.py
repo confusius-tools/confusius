@@ -506,7 +506,7 @@ class Atlas:
         reference: xr.DataArray,
         transform: "npt.NDArray[np.float64]",
         *,
-        reference_interpolation: Literal["linear", "bspline"] = "linear",
+        reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         sitk_threads: int = -1,
     ) -> "Atlas":
         """Resample the atlas onto the grid of `reference`.
@@ -528,7 +528,7 @@ class Atlas:
         transform : (N+1, N+1) numpy.ndarray
             Pull/inverse affine returned by `register_volume`, mapping
             `reference` physical coordinates to atlas physical coordinates.
-        reference_interpolation : {"linear", "bspline"}, default: "linear"
+        reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the `reference` variable.
         sitk_threads : int, default: -1
             Number of SimpleITK threads. Negative values use
@@ -560,7 +560,7 @@ class Atlas:
                 self.annotation.astype(np.float32),
                 reference,
                 transform,
-                interpolation="linear",
+                interpolation="nearest",
                 default_value=0.0,
                 sitk_threads=sitk_threads,
             )
@@ -574,7 +574,7 @@ class Atlas:
                 self.hemispheres.astype(np.float32),
                 reference,
                 transform,
-                interpolation="linear",
+                interpolation="nearest",
                 default_value=0.0,
                 sitk_threads=sitk_threads,
             )

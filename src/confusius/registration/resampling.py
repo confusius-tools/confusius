@@ -77,7 +77,7 @@ def resample_volume(
     spacing: Sequence[float],
     origin: Sequence[float],
     dims: Sequence[str],
-    interpolation: Literal["linear", "bspline"] = "linear",
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     default_value: float = 0.0,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
@@ -111,7 +111,7 @@ def resample_volume(
         dimension order.
     dims : sequence of str
         Dimension names of the output DataArray.
-    interpolation : {"linear", "bspline"}, default: "linear"
+    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
     default_value : float, default: 0.0
         Value assigned to voxels that fall outside the moving image's field of
@@ -174,11 +174,23 @@ def resample_volume(
     ref.SetSpacing(list(spacing))
     ref.SetOrigin(list(origin))
 
-    interp = sitk.sitkLinear if interpolation == "linear" else sitk.sitkBSpline
+    if interpolation == "nearest":
+        sitk_interpolation = sitk.sitkNearestNeighbor
+    elif interpolation == "linear":
+        sitk_interpolation = sitk.sitkLinear
+    elif interpolation == "bspline":
+        sitk_interpolation = sitk.sitkBSpline
+    else:
+        raise ValueError(f"Invalid interpolation: {interpolation}")
 
     with _sitk_thread_count(sitk_threads):
         result_sitk = sitk.Resample(
-            moving_sitk, ref, tx, interp, default_value, moving_sitk.GetPixelID()
+            moving_sitk,
+            ref,
+            tx,
+            sitk_interpolation,
+            default_value,
+            moving_sitk.GetPixelID(),
         )
         # .T restores DataArray axis order, inverse of the .T applied in
         # _dataarray_to_sitk.
@@ -207,7 +219,7 @@ def resample_like(
     moving: xr.DataArray,
     reference: xr.DataArray,
     transform: "npt.NDArray[np.float64] | xr.DataArray",
-    interpolation: Literal["linear", "bspline"] = "linear",
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     default_value: float = 0.0,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
@@ -231,7 +243,7 @@ def resample_like(
 
         - **Affine** (`numpy.ndarray`): homogeneous matrix.
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
-    interpolation : {"linear", "bspline"}, default: "linear"
+    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
     default_value : float, default: 0.0
         Value assigned to voxels that fall outside the moving image's field of view

@@ -10,7 +10,10 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils import _compute_origin, _compute_spacing
-from confusius.registration.affines import _sitk_linear_transform_to_affine
+from confusius.registration.affines import (
+    _affine_to_sitk_linear_transform,
+    _sitk_linear_transform_to_affine,
+)
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -71,13 +74,15 @@ def _dataarray_to_sitk(da: xr.DataArray) -> "sitk.Image":
 def _validate_register_volume_inputs(
     moving: xr.DataArray,
     fixed: xr.DataArray,
-    transform: Literal["translation", "rigid", "affine", "bspline"],
+    fixed_mask: xr.DataArray | None,
+    moving_mask: xr.DataArray | None,
+    transform_type: Literal["translation", "rigid", "affine", "bspline"],
     metric: Literal["correlation", "mattes_mi"],
     number_of_histogram_bins: int,
     learning_rate: float | Literal["auto"],
     number_of_iterations: int,
     convergence_window_size: int,
-    initialization: Literal["geometry", "moments", "none"],
+    centering_initialization: Literal["geometry", "moments", "none"],
     shrink_factors: Sequence[int],
     smoothing_sigmas: Sequence[int],
     resample_interpolation: Literal["linear", "bspline"],
@@ -90,7 +95,11 @@ def _validate_register_volume_inputs(
         Volume to register.
     fixed : xarray.DataArray
         Reference volume.
-    transform : {"translation", "rigid", "affine", "bspline"}
+    fixed_mask : xarray.DataArray or None
+        Mask for fixed image. If provided, must have same dimensions as fixed.
+    moving_mask : xarray.DataArray or None
+        Mask for moving image. If provided, must have same dimensions as moving.
+    transform_type : {"translation", "rigid", "affine", "bspline"}
         Transform model name.
     metric : {"correlation", "mattes_mi"}
         Similarity metric name.
@@ -102,7 +111,7 @@ def _validate_register_volume_inputs(
         Maximum number of optimizer iterations.
     convergence_window_size : int
         Window size for convergence checking.
-    initialization : {"geometry", "moments", "none"}
+    centering_initialization : {"geometry", "moments", "none"}
         Transform initializer name.
     shrink_factors : sequence of int
         Downsampling factors per pyramid level.
@@ -131,12 +140,26 @@ def _validate_register_volume_inputs(
             f"register_volume expects 2D or 3D inputs, 'fixed' is {fixed.ndim}D."
         )
 
-    # --- Literal-valued parameters ---
-    valid_transforms = {"translation", "rigid", "affine", "bspline"}
-    if transform not in valid_transforms:
+    # --- NaN checks ---
+    if np.any(np.isnan(moving.values)):
         raise ValueError(
-            f"Invalid transform {transform!r}. "
-            f"Expected one of {sorted(valid_transforms)}."
+            "'moving' contains NaN values. SimpleITK treats NaN as a regular float, "
+            "which corrupts the similarity metric. Replace NaN values before "
+            "registering (e.g. fill with zero or a background value)."
+        )
+    if np.any(np.isnan(fixed.values)):
+        raise ValueError(
+            "'fixed' contains NaN values. SimpleITK treats NaN as a regular float, "
+            "which corrupts the similarity metric. Replace NaN values before "
+            "registering (e.g. fill with zero or a background value)."
+        )
+
+    # --- Literal-valued parameters ---
+    valid_transform_types = {"translation", "rigid", "affine", "bspline"}
+    if transform_type not in valid_transform_types:
+        raise ValueError(
+            f"Invalid transform {transform_type!r}. "
+            f"Expected one of {sorted(valid_transform_types)}."
         )
 
     valid_metrics = {"correlation", "mattes_mi"}
@@ -146,9 +169,9 @@ def _validate_register_volume_inputs(
         )
 
     valid_initializations = {"geometry", "moments", "none"}
-    if initialization not in valid_initializations:
+    if centering_initialization not in valid_initializations:
         raise ValueError(
-            f"Invalid initialization {initialization!r}. "
+            f"Invalid initialization {centering_initialization!r}. "
             f"Expected one of {sorted(valid_initializations)}."
         )
 
@@ -188,6 +211,14 @@ def _validate_register_volume_inputs(
             f"number_of_histogram_bins must be a positive integer; "
             f"got {number_of_histogram_bins!r}."
         )
+
+    # --- Mask validation ---
+    from confusius.validation import validate_mask
+
+    if fixed_mask is not None:
+        validate_mask(fixed_mask, fixed, "fixed_mask")
+    if moving_mask is not None:
+        validate_mask(moving_mask, moving, "moving_mask")
 
     # --- Multi-resolution consistency ---
     if len(shrink_factors) != len(smoothing_sigmas):
@@ -237,14 +268,16 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
-    transform: Literal["translation", "rigid", "affine"],
+    fixed_mask: xr.DataArray | None = ...,
+    moving_mask: xr.DataArray | None = ...,
+    transform_type: Literal["translation", "rigid", "affine"],
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
     convergence_window_size: int = ...,
-    initialization: Literal["geometry", "moments", "none"] = ...,
+    centering_initialization: Literal["geometry", "moments", "none"] = ...,
     optimizer_weights: list[float] | None = ...,
     initial_transform: "npt.NDArray[np.float64] | None" = ...,
     mesh_size: tuple[int, int, int] = ...,
@@ -267,14 +300,16 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
-    transform: Literal["bspline"],
+    fixed_mask: xr.DataArray | None = ...,
+    moving_mask: xr.DataArray | None = ...,
+    transform_type: Literal["bspline"],
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
     convergence_window_size: int = ...,
-    initialization: Literal["geometry", "moments", "none"] = ...,
+    centering_initialization: Literal["geometry", "moments", "none"] = ...,
     optimizer_weights: list[float] | None = ...,
     initial_transform: "npt.NDArray[np.float64] | None" = ...,
     mesh_size: tuple[int, int, int] = ...,
@@ -297,13 +332,15 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
+    fixed_mask: xr.DataArray | None = ...,
+    moving_mask: xr.DataArray | None = ...,
     metric: Literal["correlation", "mattes_mi"] = ...,
     number_of_histogram_bins: int = ...,
     learning_rate: float | Literal["auto"] = ...,
     number_of_iterations: int = ...,
     convergence_minimum_value: float = ...,
     convergence_window_size: int = ...,
-    initialization: Literal["geometry", "moments", "none"] = ...,
+    centering_initialization: Literal["geometry", "moments", "none"] = ...,
     optimizer_weights: list[float] | None = ...,
     initial_transform: "npt.NDArray[np.float64] | None" = ...,
     mesh_size: tuple[int, int, int] = ...,
@@ -325,21 +362,23 @@ def register_volume(
     moving: xr.DataArray,
     fixed: xr.DataArray,
     *,
-    transform: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
+    fixed_mask: xr.DataArray | None = None,
+    moving_mask: xr.DataArray | None = None,
+    transform_type: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
     number_of_histogram_bins: int = 50,
     learning_rate: float | Literal["auto"] = "auto",
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
-    initialization: Literal["geometry", "moments", "none"] = "geometry",
+    centering_initialization: Literal["geometry", "moments", "none"] = "geometry",
     optimizer_weights: list[float] | None = None,
     initial_transform: "npt.NDArray[np.float64] | None" = None,
     mesh_size: tuple[int, int, int] = (10, 10, 10),
     use_multi_resolution: bool = False,
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
-    resample: bool = False,
+    resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     sitk_threads: int = -1,
     show_progress: bool = False,
@@ -358,7 +397,19 @@ def register_volume(
     fixed : xarray.DataArray
         Reference volume. Must be 2D or 3D. Need not have the same shape as
         `moving`.
-    transform : {"translation", "rigid", "affine", "bspline"}, default: "rigid"
+    fixed_mask : xarray.DataArray, optional
+        Mask for the fixed image. Must have boolean dtype and match the shape
+        and coordinates of `fixed`. When provided, only voxels where the mask
+        is True are used for computing the similarity metric. This is useful
+        when the fixed image contains NaN values or regions that should be
+        excluded from registration.
+    moving_mask : xarray.DataArray, optional
+        Mask for the moving image. Must have boolean dtype and match the shape
+        and coordinates of `moving`. When provided, only voxels where the mask
+        is True are used for computing the similarity metric. This is useful
+        when the moving image contains NaN values or regions that should be
+        excluded from registration.
+    transform_type : {"translation", "rigid", "affine", "bspline"}, default: "rigid"
         Transform model to use during registration. `"translation"` allows
         only shifts. `"rigid"` adds rotation. `"affine"` adds scaling and
         shearing. `"bspline"` fits a non-linear deformable transform (see
@@ -383,12 +434,12 @@ def register_volume(
     convergence_window_size : int, default: 10
         Number of values of the similarity metric which are used to estimate the energy
         profile of the similarity metric.
-    initialization : {"geometry", "moments", "none"}, default: "geometry"
+    centering_initialization : {"geometry", "moments", "none"}, default: "geometry"
         Transform initializer applied before optimization. `"geometry"` aligns the
         image centers (safe default, no assumptions about content). `"moments"` aligns
         centers of mass (better when images are offset but share the same content).
-        `"none"` uses the identity transform. Ignored for `transform="bspline"`.
-    optimizer_weights : list of float or None, default: None
+        `"none"` uses the identity transform. Ignored for `transform_type="bspline"`.
+    optimizer_weights : list of float, optional
         Per-parameter weights applied on top of the auto-estimated physical shift
         scales. `None` uses identity weights (all ones). A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of
@@ -398,17 +449,17 @@ def register_volume(
         `1` leaves it unchanged. For the 3D Euler transform the parameter order is
         `[angleX, angleY, angleZ, tx, ty, tz]`; to disable rotations around x and y
         set weights to `[0, 0, 1, 1, 1, 1]`.
-    initial_transform : (N+1, N+1) numpy.ndarray or None, default: None
+    initial_transform : (N+1, N+1) numpy.ndarray, optional
         Pre-computed affine matrix (pull/inverse convention, as returned by a previous
-        call to `register_volume`) used as a warm-start before optimisation.  When
-        provided the child transform (`transform`) is composed on top of this
-        pre-alignment.  Primarily useful for the affine → B-spline composition
+        call to `register_volume`) used as a warm-start before optimisation. When
+        provided the optimized transform (`transform_type`) is composed on top of this
+        pre-alignment. Primarily useful for the affine → B-spline composition
         workflow: run an affine registration first, then pass its result here together
-        with `transform="bspline"` to refine the deformation.  When `None` (the
-        default) the existing `initialization` behaviour is unchanged.
+        with `transform_type="bspline"` to refine the deformation.  When not provided
+        the existing `centering_initialization` behaviour is unchanged.
     mesh_size : tuple of int, default: (10, 10, 10)
         Number of B-spline mesh nodes along each spatial dimension. Only used when
-        `transform="bspline"`.
+        `transform_type="bspline"`.
     use_multi_resolution : bool, default: False
         Whether to use a multi-resolution pyramid during registration. When `True`,
         registration proceeds from a coarse downsampled version of the images to the
@@ -422,12 +473,11 @@ def register_volume(
         Gaussian smoothing sigma (in voxels) applied at each pyramid level, from
         coarsest to finest. Must have the same length as `shrink_factors`. Only used
         when `use_multi_resolution=True`.
-    resample : bool, default: False
+    resample : bool, default: True
         Whether to resample the moving volume onto the fixed grid after estimating the
         transform. When `True`, the output is resampled onto the fixed grid and its
-        coordinates match `fixed`. When `False` (the default), only the transform is
-        computed and the moving volume is returned unchanged with its original
-        coordinates.
+        coordinates match `fixed`. When `False`, only the transform is computed and the
+        moving volume is returned unchanged with its original coordinates.
     resample_interpolation : {"linear", "bspline"}, default: "linear"
         Interpolator used when resampling the moving volume onto the fixed grid.
         `"linear"` is fast and appropriate for most cases. `"bspline"` (3rd-order
@@ -458,15 +508,15 @@ def register_volume(
         coordinates matching `fixed`. When `resample=False`, the original moving
         volume with a `registration` attribute added to its metadata.
     transform : (N+1, N+1) numpy.ndarray or xarray.DataArray or None
-        Estimated registration transform.  For linear transforms
-        (`"translation"`, `"rigid"`, `"affine"`), returns a homogeneous affine
-        matrix of shape `(N+1, N+1)` in physical space, where `N` is the spatial
-        dimensionality (2 or 3).  Follows SimpleITK's pull/inverse convention: the
-        matrix maps fixed-space coordinates to moving-space coordinates.  For
-        `transform="bspline"`, returns a DataArray encoding the B-spline control-point
-        grid (see [`confusius.registration.bspline`][confusius.registration.bspline] for the DataArray schema).  When
-        `initial_transform` was also supplied, the DataArray includes
-        `attrs["affines"]["bspline_initialization"]` so that the full composite
+        Estimated registration transform. For linear transforms (`"translation"`,
+        `"rigid"`, `"affine"`), returns a homogeneous affine matrix of shape `(N+1,
+        N+1)` in physical space, where `N` is the spatial dimensionality (2 or 3).
+        Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
+        coordinates to moving-space coordinates. For `transform_type="bspline"`,
+        returns a DataArray encoding the B-spline control-point grid (see
+        [`confusius.registration.bspline`][confusius.registration.bspline] for the
+        DataArray schema). When `initial_transform` was also supplied, the DataArray
+        includes `attrs["affines"]["bspline_initialization"]` so that the full composite
         (pre-affine + B-spline) can be reconstructed for resampling.
 
     Raises
@@ -474,7 +524,9 @@ def register_volume(
     ValueError
         If either input contains a `time` dimension or is not 2D or 3D.
     ValueError
-        If `transform`, `metric`, `initialization`, or
+        If `moving` or `fixed` contains NaN values.
+    ValueError
+        If `transform_type`, `metric`, `centering_initialization`, or
         `resample_interpolation` is not a recognised value.
     ValueError
         If `learning_rate` is not a positive finite float or `"auto"`.
@@ -486,19 +538,26 @@ def register_volume(
     ValueError
         If `initial_transform` is provided and its shape does not match the image
         dimensionality.
+    TypeError
+        If `fixed_mask` or `moving_mask` is not a boolean DataArray.
+    ValueError
+        If `fixed_mask` shape does not match `fixed` or `moving_mask` shape does
+        not match `moving`.
     """
     import SimpleITK as sitk
 
     _validate_register_volume_inputs(
         moving=moving,
         fixed=fixed,
-        transform=transform,
+        fixed_mask=fixed_mask,
+        moving_mask=moving_mask,
+        transform_type=transform_type,
         metric=metric,
         number_of_histogram_bins=number_of_histogram_bins,
         learning_rate=learning_rate,
         number_of_iterations=number_of_iterations,
         convergence_window_size=convergence_window_size,
-        initialization=initialization,
+        centering_initialization=centering_initialization,
         shrink_factors=shrink_factors,
         smoothing_sigmas=smoothing_sigmas,
         resample_interpolation=resample_interpolation,
@@ -537,6 +596,22 @@ def register_volume(
 
     registration.SetInterpolator(sitk.sitkLinear)
 
+    # --- Masks ---
+    if fixed_mask is not None:
+        # Convert boolean mask to uint8 for SimpleITK
+        fixed_mask_uint8 = fixed_mask.astype(np.uint8)
+        fixed_mask_sitk = _dataarray_to_sitk(fixed_mask_uint8)
+        # Expand mask if image was expanded
+        fixed_mask_sitk = _expand_thin_dims(fixed_mask_sitk)
+        registration.SetMetricFixedMask(fixed_mask_sitk)
+    if moving_mask is not None:
+        # Convert boolean mask to uint8 for SimpleITK
+        moving_mask_uint8 = moving_mask.astype(np.uint8)
+        moving_mask_sitk = _dataarray_to_sitk(moving_mask_uint8)
+        # Expand mask if image was expanded
+        moving_mask_sitk = _expand_thin_dims(moving_mask_sitk)
+        registration.SetMetricMovingMask(moving_mask_sitk)
+
     # --- Optimizer ---
     estimate_learning_rate = registration.Never
     if learning_rate == "auto":
@@ -570,51 +645,51 @@ def register_volume(
         registration.SetSmoothingSigmasPerLevel(smoothingSigmas=[0])
         registration.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
 
-    # --- Transform and initialization ---
-    if transform == "bspline":
-        child_tx: sitk.Transform = sitk.BSplineTransformInitializer(
+    # --- Transform and centering initialization ---
+    if transform_type == "bspline":
+        sitk_centering_transform: sitk.Transform = sitk.BSplineTransformInitializer(
             fixed_reg, transformDomainMeshSize=list(mesh_size)
         )
     else:
-        if transform == "translation":
-            tx: sitk.Transform = sitk.TranslationTransform(ndim)
-        elif transform == "rigid":
-            tx = sitk.Euler2DTransform() if ndim == 2 else sitk.Euler3DTransform()
+        if transform_type == "translation":
+            sitk_centering_transform: sitk.Transform = sitk.TranslationTransform(ndim)
+        elif transform_type == "rigid":
+            sitk_centering_transform = (
+                sitk.Euler2DTransform() if ndim == 2 else sitk.Euler3DTransform()
+            )
         else:
-            tx = sitk.AffineTransform(ndim)
+            sitk_centering_transform = sitk.AffineTransform(ndim)
 
         # CenteredTransformInitializer requires a transform with a center parameter
-        # (e.g. Euler, Affine). TranslationTransform has no center, so initialization is
-        # always skipped for translation.
-        if initialization == "geometry" and transform != "translation":
-            child_tx = sitk.CenteredTransformInitializer(
+        # (e.g. Euler, Affine). TranslationTransform has no center, so centering
+        # initialization is always skipped for translation.
+        if centering_initialization == "geometry" and transform_type != "translation":
+            sitk_centering_transform = sitk.CenteredTransformInitializer(
                 fixed_reg,
                 moving_reg,
-                tx,
+                sitk_centering_transform,
                 sitk.CenteredTransformInitializerFilter.GEOMETRY,
             )
-        elif initialization == "moments" and transform != "translation":
-            child_tx = sitk.CenteredTransformInitializer(
+        elif centering_initialization == "moments" and transform_type != "translation":
+            sitk_centering_transform = sitk.CenteredTransformInitializer(
                 fixed_reg,
                 moving_reg,
-                tx,
+                sitk_centering_transform,
                 sitk.CenteredTransformInitializerFilter.MOMENTS,
             )
         else:
-            child_tx = tx
+            sitk_centering_transform = sitk_centering_transform
 
-    # Compose with pre-alignment if supplied.
     if initial_transform is not None:
-        pre_tx = sitk.AffineTransform(ndim)
-        pre_tx.SetMatrix(initial_transform[:ndim, :ndim].flatten().tolist())
-        pre_tx.SetTranslation(initial_transform[:ndim, ndim].tolist())
-        sitk_initial_tx: sitk.Transform = sitk.CompositeTransform(ndim)
-        sitk_initial_tx.AddTransform(pre_tx)
-        sitk_initial_tx.AddTransform(child_tx)
-    else:
-        sitk_initial_tx = child_tx
+        pre_tx = _affine_to_sitk_linear_transform(initial_transform)
 
-    registration.SetInitialTransform(sitk_initial_tx, inPlace=True)
+        sitk_initial_transform: sitk.Transform = sitk.CompositeTransform(ndim)
+        sitk_initial_transform.AddTransform(pre_tx)
+        sitk_initial_transform.AddTransform(sitk_centering_transform)
+    else:
+        sitk_initial_transform = sitk_centering_transform
+
+    registration.SetInitialTransform(sitk_initial_transform, inPlace=True)
 
     if show_progress:
         from confusius.registration._progress import RegistrationProgressPlotter
@@ -630,7 +705,7 @@ def register_volume(
         registration.AddCommand(sitk.sitkEndEvent, plotter.close)
 
     with _sitk_thread_count(sitk_threads):
-        result_transform = registration.Execute(fixed_reg, moving_reg)
+        sitk_optimized_transform = registration.Execute(fixed_reg, moving_reg)
 
     # When resampling, the output lives on the fixed grid; otherwise the moving volume
     # is returned unchanged and its own coordinates are preserved.
@@ -644,7 +719,7 @@ def register_volume(
                 sitk.Resample(
                     moving_sitk,
                     fixed_sitk,
-                    result_transform,
+                    sitk_optimized_transform,
                     interp,
                     0.0,
                     moving_sitk.GetPixelID(),
@@ -663,13 +738,15 @@ def register_volume(
     )
     result.attrs["registration"] = "volume"
 
-    if transform == "bspline":
+    if transform_type == "bspline":
         from confusius.registration.bspline import _sitk_bspline_to_dataarray
 
-        returned_transform: npt.NDArray[np.float64] | xr.DataArray = (
-            _sitk_bspline_to_dataarray(result_transform, pre_affine=initial_transform)
+        optimized_transform: npt.NDArray[np.float64] | xr.DataArray = (
+            _sitk_bspline_to_dataarray(
+                sitk_optimized_transform, pre_affine=initial_transform
+            )
         )
     else:
-        returned_transform = _sitk_linear_transform_to_affine(result_transform)
+        optimized_transform = _sitk_linear_transform_to_affine(sitk_optimized_transform)
 
-    return result, returned_transform
+    return result, optimized_transform

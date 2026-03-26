@@ -17,6 +17,20 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="spatial-only"):
             register_volume(sample_2d_dataarray, sample_2d_dataarray)
 
+    def test_nan_in_moving_raises(self, sample_2d_dataarray_spatial):
+        """moving with NaN values raises ValueError."""
+        moving = sample_2d_dataarray_spatial.copy()
+        moving.values[0, 0] = float("nan")
+        with pytest.raises(ValueError, match="NaN"):
+            register_volume(moving, sample_2d_dataarray_spatial, transform_type="translation")
+
+    def test_nan_in_fixed_raises(self, sample_2d_dataarray_spatial):
+        """fixed with NaN values raises ValueError."""
+        fixed = sample_2d_dataarray_spatial.copy()
+        fixed.values[0, 0] = float("nan")
+        with pytest.raises(ValueError, match="NaN"):
+            register_volume(sample_2d_dataarray_spatial, fixed, transform_type="translation")
+
     def test_wrong_ndim_1d_raises(self):
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("x",))
@@ -35,7 +49,8 @@ class TestRegisterVolumeValidation:
         """Different shapes do not raise an error."""
         moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result, _ = register_volume(
-            moving, sample_2d_dataarray_spatial, transform="translation"
+            moving, sample_2d_dataarray_spatial, transform_type="translation",
+            resample=False,
         )
         assert result.shape == moving.shape
 
@@ -47,14 +62,14 @@ class TestRegisterVolumeOutput:
         """DataArray without coordinates warns for both spacing and origin."""
         da = xr.DataArray(sample_2d_image, dims=("y", "x"))
         with pytest.warns(UserWarning):
-            register_volume(da, da, transform="translation")
+            register_volume(da, da, transform_type="translation")
 
     def test_returns_affine_matrix(self, sample_2d_dataarray_spatial):
         """register_volume returns a (3, 3) numpy affine matrix for 2D input."""
         _, affine = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
-            transform="translation",
+            transform_type="translation",
         )
         assert isinstance(affine, np.ndarray)
         assert affine.shape == (3, 3)
@@ -64,7 +79,7 @@ class TestRegisterVolumeOutput:
         _, bspline_tx = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
-            transform="bspline",
+            transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
         assert bspline_tx.attrs.get("type") == "bspline_transform"
@@ -76,7 +91,10 @@ class TestRegisterVolumeOutput:
         """resample=True output coordinates match the fixed volume, not moving."""
         moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result, _ = register_volume(
-            moving, sample_2d_dataarray_spatial, transform="translation", resample=True
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            resample=True,
         )
         assert_allclose(
             result.coords["y"].values, sample_2d_dataarray_spatial.coords["y"].values
@@ -104,7 +122,10 @@ class TestRegisterVolumeResample:
             coords=sample_2d_dataarray_spatial.coords,
         )
         result, _ = register_volume(
-            moving, sample_2d_dataarray_spatial, transform="translation", resample=False
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            resample=False,
         )
         assert_array_equal(result.values, moving.values)
 
@@ -123,7 +144,7 @@ class TestRegisterVolumeResample:
         result, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
-            transform="translation",
+            transform_type="translation",
             learning_rate=1.0,
             number_of_iterations=200,
             resample=True,
@@ -145,7 +166,7 @@ class TestRegisterVolumeAccuracy:
         result, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
-            transform="translation",
+            transform_type="translation",
             resample=True,
         )
         assert_allclose(result.values, sample_2d_dataarray_spatial.values, atol=1e-3)
@@ -155,7 +176,7 @@ class TestRegisterVolumeAccuracy:
         result, _ = register_volume(
             sample_3d_dataarray_spatial,
             sample_3d_dataarray_spatial,
-            transform="translation",
+            transform_type="translation",
             resample=True,
         )
         assert_allclose(result.values, sample_3d_dataarray_spatial.values, atol=1e-3)
@@ -176,7 +197,7 @@ class TestRegisterVolumeAccuracy:
         result, _ = register_volume(
             moving,
             fixed,
-            transform="translation",
+            transform_type="translation",
             learning_rate=1.0,
             number_of_iterations=200,
             resample=True,
@@ -192,10 +213,10 @@ class TestRegisterVolumeAccuracy:
     def test_optimizer_weights_freezes_rotation(self, sample_2d_dataarray_spatial):
         """Setting rotation weight to 0 produces the same result as translation-only."""
         da = sample_2d_dataarray_spatial
-        _, affine_translation = register_volume(da, da, transform="translation")
+        _, affine_translation = register_volume(da, da, transform_type="translation")
         # 2D rigid with rotation frozen: [rotation, tx, ty] with weight [0, 1, 1].
         _, affine_frozen = register_volume(
-            da, da, transform="rigid", optimizer_weights=[0.0, 1.0, 1.0]
+            da, da, transform_type="rigid", optimizer_weights=[0.0, 1.0, 1.0]
         )
         # The rotation sub-matrix should be identity (no rotation applied).
         assert_allclose(affine_frozen[:2, :2], np.eye(2), atol=1e-4)
@@ -218,7 +239,7 @@ class TestRegisterVolumeThinDims:
             },
         )
         with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _ = register_volume(da, da, transform="translation")
+            result, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
 
     def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
@@ -235,7 +256,9 @@ class TestRegisterVolumeThinDims:
             },
         )
         with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _ = register_volume(da, da, transform="translation", resample=True)
+            result, _ = register_volume(
+                da, da, transform_type="translation", resample=True
+            )
         assert result.shape == da.shape
 
     def test_3d_volume_with_depth_2_does_not_crash(self):
@@ -251,7 +274,7 @@ class TestRegisterVolumeThinDims:
                 "x": np.arange(16) * 0.1,
             },
         )
-        result, _ = register_volume(da, da, transform="translation")
+        result, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
 
 
@@ -351,7 +374,10 @@ class TestResampleVolume:
             coords=sample_2d_dataarray_spatial.coords,
         )
         resampled_direct, affine = register_volume(
-            moving, sample_2d_dataarray_spatial, transform="translation", resample=True
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            resample=True,
         )
         result = resample_volume(
             moving, affine, **self._grid_from_da(sample_2d_dataarray_spatial)
@@ -368,7 +394,7 @@ class TestInitialTransform:
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
-                transform="bspline",
+                transform_type="bspline",
                 initial_transform=np.eye(4),  # wrong: 3D affine for 2D images
             )
 
@@ -380,7 +406,7 @@ class TestInitialTransform:
         _, bspline_tx = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
-            transform="bspline",
+            transform_type="bspline",
             initial_transform=pre_affine,
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -394,7 +420,7 @@ class TestInitialTransform:
         _, bspline_tx = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
-            transform="bspline",
+            transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
         affines = bspline_tx.attrs.get("affines", {})
@@ -421,7 +447,7 @@ class TestResampleVolumeWithBspline:
         resampled_direct, bspline_tx = register_volume(
             moving,
             sample_2d_dataarray_spatial,
-            transform="bspline",
+            transform_type="bspline",
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -446,13 +472,13 @@ class TestResampleVolumeWithBspline:
         _, affine_tx = register_volume(
             moving,
             sample_2d_dataarray_spatial,
-            transform="affine",
+            transform_type="affine",
         )
         # Second pass: B-spline refinement on top of the affine.
         resampled_direct, bspline_tx = register_volume(
             moving,
             sample_2d_dataarray_spatial,
-            transform="bspline",
+            transform_type="bspline",
             initial_transform=affine_tx,
             resample=True,
         )
@@ -518,7 +544,10 @@ class TestResampleLike:
             coords=sample_2d_dataarray_spatial.coords,
         )
         resampled_direct, affine = register_volume(
-            moving, sample_2d_dataarray_spatial, transform="translation", resample=True
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            resample=True,
         )
         result = resample_like(moving, sample_2d_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
@@ -536,12 +565,45 @@ class TestResampleLike:
         resampled_direct, affine = register_volume(
             moving,
             sample_3d_dataarray_spatial,
-            transform="translation",
+            transform_type="translation",
             learning_rate=1.0,
             number_of_iterations=200,
             resample=True,
         )
         result = resample_like(moving, sample_3d_dataarray_spatial, affine)
+        assert_allclose(result.values, resampled_direct.values, atol=1e-5)
+
+    def test_matches_register_volume_with_initial_transform(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """resample_like matches register_volume(resample=True) when initial_transform is used.
+
+        Regression test for a bug where CompositeTransform sub-transforms were
+        composed in the wrong order in _sitk_linear_transform_to_affine, causing
+        the returned affine matrix to differ from the transform actually applied
+        during resampling.
+        """
+        rng = np.random.default_rng(42)
+        shift = rng.integers(2, 4, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(
+            shifted,
+            dims=sample_2d_dataarray_spatial.dims,
+            coords=sample_2d_dataarray_spatial.coords,
+        )
+        _, affine_init = register_volume(
+            moving, sample_2d_dataarray_spatial, transform_type="translation"
+        )
+        resampled_direct, affine = register_volume(
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="affine",
+            initial_transform=affine_init,
+            resample=True,
+        )
+        result = resample_like(moving, sample_2d_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_matches_resample_volume(
