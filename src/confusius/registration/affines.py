@@ -1,14 +1,40 @@
 """Affine matrix decomposition and composition utilities."""
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
-    from SimpleITK import AffineTransform
+    from SimpleITK import (
+        AffineTransform,
+        Euler2DTransform,
+        Euler3DTransform,
+        Similarity2DTransform,
+        Similarity3DTransform,
+        VersorRigid3DTransform,
+    )
+
+    _MatrixTransform = (
+        AffineTransform
+        | Euler2DTransform
+        | Euler3DTransform
+        | Similarity2DTransform
+        | Similarity3DTransform
+        | VersorRigid3DTransform
+    )
+
+_MATRIX_TRANSFORMS = {
+    "AffineTransform",
+    "Euler2DTransform",
+    "Euler3DTransform",
+    "Similarity2DTransform",
+    "Similarity3DTransform",
+    "VersorRigid3DTransform",
+}
+"""SimpleITK linear transform types that expose `GetMatrix`, `GetCenter`, and `GetTranslation`."""
 
 
 def _striu2mat(
@@ -203,8 +229,7 @@ def _sitk_linear_transform_to_affine(
     Handles `TranslationTransform`, `Euler2DTransform`, `Euler3DTransform`,
     `AffineTransform`, `VersorRigid3DTransform`, and `CompositeTransform`
     (by composing each sub-transform in order). Non-linear transforms
-    (`BSplineTransform`, `DisplacementField`) are not supported; callers are
-    responsible for never passing them here.
+    (`BSplineTransform`, `DisplacementField`) are not supported.
 
     Parameters
     ----------
@@ -221,18 +246,18 @@ def _sitk_linear_transform_to_affine(
     Raises
     ------
     AssertionError
-        If called with a non-linear transform (`BSplineTransform`,
-        `DisplacementField`). This indicates a programming error; callers
-        must not pass non-linear transforms to this function.
+        If called with a non-linear transform (`BSplineTransform`, `DisplacementField`).
 
     Notes
     -----
     SimpleITK uses a pull (inverse-mapping) convention: `Resample` iterates
     over fixed-grid points and applies the transform to look up the
     corresponding moving-image location. For linear transforms, the stored
-    parameters encode::
+    parameters encode:
 
-        p_moving = A @ (p_fixed - center) + center + translation
+    ```python
+    p_moving = A @ (p_fixed - center) + center + translation
+    ```
 
     where `A` is the `(N, N)` matrix returned by `GetMatrix()` and
     `center` is the rotation centre. This is equivalent to the homogeneous
@@ -253,17 +278,16 @@ def _sitk_linear_transform_to_affine(
     )
 
     if name == "CompositeTransform":
+        import SimpleITK as sitk
+
         # SimpleITK's CompositeTransform applies the last-added transform first
         # (outermost first). GetNthTransform(0) is the outermost, so the full
         # composite is T_0(T_1(...(T_n(p)))) = A_0 @ A_1 @ ... @ A_n @ p.
         # Right-multiply in forward order to build A_total = A_0 @ A_1 @ ... @ A_n.
-        # Type stubs declare composite-specific methods only on CompositeTransform, so
-        # use getattr to avoid type-checker errors.
+        assert isinstance(transform, sitk.CompositeTransform)
         A = np.eye(ndim + 1)
-        n_sub = getattr(transform, "GetNumberOfTransforms")()
-        for i in range(n_sub):
-            sub = getattr(transform, "GetNthTransform")(i)
-            A = A @ _sitk_linear_transform_to_affine(sub)
+        for i in range(transform.GetNumberOfTransforms()):
+            A = A @ _sitk_linear_transform_to_affine(transform.GetNthTransform(i))
         return A
 
     if name == "IdentityTransform":
@@ -275,13 +299,18 @@ def _sitk_linear_transform_to_affine(
         A[:ndim, ndim] = np.array(transform.GetParameters())
         return A
 
-    # All remaining linear transforms (Euler2D, Euler3D, Affine, Similarity, Versor…)
-    # expose GetMatrix(), GetCenter(), and GetTranslation() directly. The type stubs
-    # only declare these on concrete subclasses, so we use getattr to satisfy the
-    # type checker without a runtime cast.
-    mat = np.array(getattr(transform, "GetMatrix")()).reshape(ndim, ndim)
-    center = np.array(getattr(transform, "GetCenter")())
-    translation = np.array(getattr(transform, "GetTranslation")())
+    # All remaining supported linear transforms expose GetMatrix(), GetCenter(), and
+    # GetTranslation(). Raise on anything unexpected. Cast to the _MatrixTransform
+    # union: SimpleITK's stubs don't expose MatrixOffsetTransformBase as a Python class
+    # so there is no common supertype to narrow to.
+    if name not in _MATRIX_TRANSFORMS:
+        raise ValueError(
+            f"_sitk_linear_transform_to_affine: unsupported transform type {name!r}."
+        )
+    linear = cast("_MatrixTransform", transform)
+    mat = np.array(linear.GetMatrix()).reshape(ndim, ndim)
+    center = np.array(linear.GetCenter())
+    translation = np.array(linear.GetTranslation())
 
     A = np.eye(ndim + 1)
     A[:ndim, :ndim] = mat
