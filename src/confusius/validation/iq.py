@@ -3,16 +3,17 @@
 import numpy as np
 import xarray as xr
 
-# Required dimensions and coordinates for IQ datasets.
-_REQUIRED_DIMS = ("time", "z", "y", "x")
-_REQUIRED_COORDS = ("time", "z", "y", "x")
+from confusius._dims import SPATIAL_DIMS, TIME_DIM
 
-# Required attributes that all IQ data must have.
+_REQUIRED_DIMS = (TIME_DIM, *SPATIAL_DIMS)
+"""Required dimensions and coordinates that all IQ data must have."""
+
 _REQUIRED_ATTRS = (
     "compound_sampling_frequency",
     "transmit_frequency",
     "beamforming_sound_velocity",
 )
+"""Required attributes that all IQ data must have."""
 
 
 def validate_iq(iq: xr.DataArray, require_attrs: bool = True) -> None:
@@ -93,7 +94,7 @@ def validate_iq(iq: xr.DataArray, require_attrs: bool = True) -> None:
             "Use .transpose() to reorder dimensions if needed."
         )
 
-    missing_coords = set(_REQUIRED_COORDS) - set(iq.coords.keys())
+    missing_coords = set(_REQUIRED_DIMS) - set(iq.coords.keys())
     if missing_coords:
         raise ValueError(f"Missing required coordinates: {missing_coords}.")
 

@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._dims import SPATIAL_DIMS
+
 if TYPE_CHECKING:
     import numpy.typing as npt
-
-_SPATIAL_DIMS = ("z", "y", "x")
 
 
 def affine_to(
@@ -135,11 +135,11 @@ def apply_affine(
             f"Rotation block:\n{rotation}"
         )
 
-    # Apply the affine to each spatial dimension's 1-D coordinate array.
+    # Apply the affine to each spatial dimension's 1D coordinate array.
     # For a diagonal rotation the new coord for axis i is:
     #   new_coord_i = rotation[i, i] * old_coord_i + translation[i]
     spatial_axes = [0, 1, 2]  # z, y, x map to affine rows 0, 1, 2.
-    dim_names = list(_SPATIAL_DIMS)
+    dim_names = list(SPATIAL_DIMS)
     new_coords = dict(da.coords)
 
     for axis, dim in zip(spatial_axes, dim_names):

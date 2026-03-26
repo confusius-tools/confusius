@@ -20,7 +20,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import ALL_SPATIAL_DIMS, TIME_DIM
+from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._signals._store import SignalStore
@@ -598,7 +598,7 @@ class SignalPanel(QWidget):
             return [
                 dim
                 for i, dim in enumerate(da.dims)
-                if dim not in ALL_SPATIAL_DIMS and da.shape[i] > 1
+                if dim not in SPATIAL_DIMS_WITH_POSE and da.shape[i] > 1
             ]
 
         # Fallback: generate generic dimension names based on data shape.
@@ -670,7 +670,7 @@ class SignalPanel(QWidget):
             da = layer.metadata.get("xarray")
             if da is not None:
                 spatial_indices = [
-                    i for i, dim in enumerate(da.dims) if dim in ALL_SPATIAL_DIMS
+                    i for i, dim in enumerate(da.dims) if dim in SPATIAL_DIMS_WITH_POSE
                 ]
                 if not spatial_indices:
                     continue

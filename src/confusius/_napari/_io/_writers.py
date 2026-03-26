@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from confusius._dims import SPATIAL_DIMS, TIME_DIM
+
 _NAPARI_GENERIC_AXIS = re.compile(r"^axis -?\d+$")
 """Matches napari's default generic axis labels (e.g. 'axis -4', 'axis -3', ...)."""
 
@@ -54,10 +56,10 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     ndim = np.asarray(data).ndim
 
     _default_dims: dict[int, tuple[str, ...]] = {
-        1: ("x",),
-        2: ("y", "x"),
-        3: ("z", "y", "x"),
-        4: ("time", "z", "y", "x"),
+        1: SPATIAL_DIMS[-1:],  # ("x",)
+        2: SPATIAL_DIMS[-2:],  # ("y", "x")
+        3: SPATIAL_DIMS,  # ("z", "y", "x")
+        4: (TIME_DIM, *SPATIAL_DIMS),  # ("time", "z", "y", "x")
     }
     raw_labels = meta.get("axis_labels")
     if raw_labels and not all(
