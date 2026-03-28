@@ -15,8 +15,10 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -92,7 +94,9 @@ class VideoPanel(QWidget):
     button keep both the fUSI scan and the video synchronised in physical time.
 
     The spatial dimensions use a single isotropic scale matching the fUSI scan
-    height, and the video is placed to the right of the scan.
+    height.  The viewer's grid mode is enabled so the video and fUSI scan are
+    displayed side-by-side in separate viewports; grid mode is restored to its
+    previous state when the video is unloaded.
 
     When the user reorders fUSI dimensions the video layer is dynamically
     transposed so that H and W always remain in the displayed positions.  The
@@ -113,7 +117,8 @@ class VideoPanel(QWidget):
         # Video state.
         self._ref_layer = None
         self._video_layer = None
-        self._video_da_base: da.Array | None = None
+        self._video_da_full: da.Array | None = None  # All frames, padded.
+        self._video_da_base: da.Array | None = None  # After frame-step subsampling.
         self._base_scale: tuple[float, ...] = ()
         self._base_translate: tuple[float, ...] = ()
         self._video_h: int = 0
@@ -121,6 +126,10 @@ class VideoPanel(QWidget):
         self._n_pad: int = 0
         self._is_rgb: bool = False
         self._fusi_time_idx: int = 0
+        self._fps: float = 0.0
+
+        # Grid mode state (saved before enabling, restored on unload).
+        self._grid_was_enabled: bool = False
 
         # Dimension guard.
         self._last_safe_order: tuple[int, ...] | None = None
@@ -175,6 +184,30 @@ class VideoPanel(QWidget):
         self._load_btn.setEnabled(False)
         self._load_btn.clicked.connect(self._load_from_path)
         layout.addWidget(self._load_btn)
+
+        # Playback controls (enabled after loading).
+        playback_group = QGroupBox("Playback")
+        playback_layout = QVBoxLayout(playback_group)
+        playback_layout.setSpacing(4)
+
+        step_row = QHBoxLayout()
+        step_row.addWidget(QLabel("Frame step:"))
+        self._step_spin = QSpinBox()
+        self._step_spin.setRange(1, 100)
+        self._step_spin.setValue(1)
+        self._step_spin.setMaximumWidth(60)
+        self._step_spin.setToolTip(
+            "Show every Nth frame. Higher values skip frames for lighter playback."
+        )
+        self._step_spin.setEnabled(False)
+        self._step_spin.valueChanged.connect(self._on_frame_step_changed)
+        step_row.addWidget(self._step_spin)
+        playback_layout.addLayout(step_row)
+
+        self._fps_label = QLabel("")
+        playback_layout.addWidget(self._fps_label)
+
+        layout.addWidget(playback_group)
 
         layout.addStretch()
         self._refresh_layer_combo()
@@ -255,7 +288,7 @@ class VideoPanel(QWidget):
         self._load(Path(path_str), ref)
 
     def _unload(self) -> None:
-        """Remove the video layer."""
+        """Remove the video layer and restore grid mode."""
         self._disconnect()
         if self._video_layer is not None:
             try:
@@ -263,8 +296,13 @@ class VideoPanel(QWidget):
             except ValueError:
                 pass
             self._video_layer = None
+        # Restore grid mode to its previous state.
+        self._viewer.grid.enabled = self._grid_was_enabled
+        self._video_da_full = None
         self._video_da_base = None
         self._ref_layer = None
+        self._step_spin.setEnabled(False)
+        self._fps_label.setText("")
 
     def _load(self, path: Path, ref_layer) -> None:
         if not path.is_file():
@@ -298,25 +336,35 @@ class VideoPanel(QWidget):
             video_da = da.expand_dims(video_da, axis=1)
 
         # Store base state (before any transposition).
-        self._video_da_base = video_da
+        self._video_da_full = video_da
         self._video_h = video_h
         self._video_w = video_w
         self._n_pad = n_pad
         self._is_rgb = is_rgb
+        self._fps = fps
         self._fusi_time_idx = (
             list(ref_xr.dims).index("time") if "time" in ref_xr.dims else 0
         )
 
-        time_scale = 1.0 / fps if fps > 0 else 1.0
-        spatial_scale, ty, tx = self._compute_spatial_params(video_h, video_w)
+        # Apply frame step (subsample time axis).
+        frame_step = self._step_spin.value()
+        self._video_da_base = video_da[::frame_step]
+
+        time_scale = frame_step / fps if fps > 0 else 1.0
+        spatial_scale, ty = self._compute_spatial_params(video_h, video_w)
         self._base_scale = (
             (time_scale,) + (1.0,) * n_pad + (spatial_scale, spatial_scale)
         )
-        self._base_translate = (0.0,) + (0.0,) * n_pad + (ty, tx)
+        self._base_translate = (0.0,) + (0.0,) * n_pad + (ty, 0.0)
 
         # Arrange for the current dim order.
         current_order = tuple(self._viewer.dims.order)
         data, scale, translate = self._arrange_for_order(current_order)
+
+        # Block layer-list signals while adding so _refresh_layer_combo
+        # does not see the new layer before _video_layer is assigned.
+        self._viewer.layers.events.inserted.disconnect(self._refresh_layer_combo)
+        self._viewer.layers.events.removed.disconnect(self._on_layer_removed)
 
         self._video_layer = self._viewer.add_image(
             data,
@@ -326,12 +374,81 @@ class VideoPanel(QWidget):
             translate=translate,
         )
 
+        self._viewer.layers.events.inserted.connect(self._refresh_layer_combo)
+        self._viewer.layers.events.removed.connect(self._on_layer_removed)
+
+        # Enable grid mode for side-by-side display.
+        self._grid_was_enabled = self._viewer.grid.enabled
+        self._viewer.grid.enabled = True
+
         # Connect dim-order callback.
         self._last_safe_order = current_order
         self._viewer.dims.events.order.connect(self._on_dim_order_changed)
         self._guarding_order = True
 
-        show_info(f"Video '{path.stem}' loaded ({n_frames} frames, {fps:.1f} fps).")
+        # Enable playback controls and show effective FPS.
+        self._step_spin.setEnabled(True)
+        self._update_fps_label()
+
+        n_shown = self._video_da_base.shape[0]
+        show_info(
+            f"Video '{path.stem}' loaded ({n_frames} frames, {fps:.1f} fps, "
+            f"showing {n_shown} frames at step {frame_step})."
+        )
+
+    # ------------------------------------------------------------------
+    # Frame step
+    # ------------------------------------------------------------------
+
+    def _update_fps_label(self) -> None:
+        """Update the effective-FPS label from current state."""
+        step = self._step_spin.value()
+        if self._fps > 0:
+            effective = self._fps / step
+            self._fps_label.setText(f"{effective:.1f} fps effective")
+        else:
+            self._fps_label.setText("")
+
+    def _on_frame_step_changed(self, value: int) -> None:
+        """Rebuild the video layer with a new frame step."""
+        if self._video_da_full is None or self._video_layer is None:
+            return
+
+        self._video_da_base = self._video_da_full[::value]
+
+        # Update time scale for the new step.
+        time_scale = value / self._fps if self._fps > 0 else 1.0
+        base_s = list(self._base_scale)
+        base_s[0] = time_scale
+        self._base_scale = tuple(base_s)
+
+        # Rebuild the layer.
+        current_order = self._last_safe_order or tuple(self._viewer.dims.order)
+        data, scale, translate = self._arrange_for_order(current_order)
+
+        name = self._video_layer.name
+        self._viewer.layers.events.inserted.disconnect(self._refresh_layer_combo)
+        self._viewer.layers.events.removed.disconnect(self._on_layer_removed)
+        try:
+            self._viewer.layers.remove(self._video_layer)
+        except ValueError:
+            pass
+
+        self._video_layer = self._viewer.add_image(
+            data,
+            name=name,
+            rgb=self._is_rgb,
+            scale=scale,
+            translate=translate,
+        )
+        self._viewer.layers.events.inserted.connect(self._refresh_layer_combo)
+        self._viewer.layers.events.removed.connect(self._on_layer_removed)
+
+        self._update_fps_label()
+        n_shown = self._video_da_base.shape[0]
+        show_info(
+            f"Frame step {value}: showing {n_shown} frames ({self._fps / value:.1f} fps effective)."
+        )
 
     # ------------------------------------------------------------------
     # Spatial transform
@@ -339,52 +456,45 @@ class VideoPanel(QWidget):
 
     def _compute_spatial_params(
         self, video_h: int, video_w: int
-    ) -> tuple[float, float, float]:
-        """Return ``(isotropic_scale, translate_y, translate_x)``.
+    ) -> tuple[float, float]:
+        """Return ``(isotropic_scale, translate_y)``.
 
         Uses the selected reference layer to determine the spatial bounding
-        box.  The video is scaled to match the reference height and positioned
-        one pixel to the right.
+        box.  The video is scaled isotropically to match the reference height
+        and centred vertically on the scan.
         """
         ref = self._ref_layer
         if ref is None:
-            return 1.0, 0.0, 0.0
+            return 1.0, 0.0
 
         try:
             xr_da = ref.metadata.get("xarray")
         except RuntimeError:
             # Layer's C++ wrapper was deleted.
             self._ref_layer = None
-            return 1.0, 0.0, 0.0
+            return 1.0, 0.0
         if xr_da is None:
-            return 1.0, 0.0, 0.0
+            return 1.0, 0.0
 
         displayed = self._viewer.dims.displayed
         labels = self._viewer.dims.axis_labels
         if len(displayed) < 2 or len(labels) <= max(displayed):
-            return 1.0, 0.0, 0.0
+            return 1.0, 0.0
 
         y_dim = str(labels[displayed[-2]])
         x_dim = str(labels[displayed[-1]])
 
         if y_dim not in xr_da.coords or x_dim not in xr_da.coords:
-            return 1.0, 0.0, 0.0
+            return 1.0, 0.0
 
         y_coords = np.asarray(xr_da.coords[y_dim], dtype=np.float64)
-        x_coords = np.asarray(xr_da.coords[x_dim], dtype=np.float64)
 
         y_min, y_max = float(y_coords.min()), float(y_coords.max())
-        x_max = float(x_coords.max())
 
         y_step = (
             float(np.median(np.diff(y_coords)))
             if len(y_coords) > 1
             else float(xr_da.coords[y_dim].attrs.get("voxdim", 1.0))
-        )
-        x_step = (
-            float(np.median(np.diff(x_coords)))
-            if len(x_coords) > 1
-            else float(xr_da.coords[x_dim].attrs.get("voxdim", 1.0))
         )
 
         fusi_extent_y = (y_max - y_min) + abs(y_step)
@@ -392,9 +502,8 @@ class VideoPanel(QWidget):
 
         center_y = (y_min + y_max) / 2
         translate_y = center_y - scale * (video_h - 1) / 2
-        translate_x = x_max + abs(x_step)
 
-        return scale, translate_y, translate_x
+        return scale, translate_y
 
     # ------------------------------------------------------------------
     # Dynamic transposition to keep H, W always displayed
@@ -440,7 +549,7 @@ class VideoPanel(QWidget):
         napari_ndim = len(perm)
 
         # Recompute spatial params for the (possibly new) displayed dims.
-        spatial_scale, ty, tx = self._compute_spatial_params(
+        spatial_scale, ty = self._compute_spatial_params(
             self._video_h, self._video_w
         )
 
@@ -450,7 +559,7 @@ class VideoPanel(QWidget):
         base_s[self._n_pad + 1] = spatial_scale
         base_s[self._n_pad + 2] = spatial_scale
         base_t[self._n_pad + 1] = ty
-        base_t[self._n_pad + 2] = tx
+        base_t[self._n_pad + 2] = 0.0
         self._base_scale = tuple(base_s)
         self._base_translate = tuple(base_t)
 

@@ -402,7 +402,7 @@ class SignalPlotter(QWidget):
             try:
                 x_cursor = self._world_to_xaxis(self._cursor_world)
                 self._canvas.restore_region(self._bg)
-                self._vline.set_xdata([x_cursor, x_cursor])
+                self._vline.set_xdata([self._cursor_frame, self._cursor_frame])
                 self._axes.draw_artist(self._vline)
                 self._canvas.blit(self._figure.bbox)
             except Exception:  # noqa: BLE001

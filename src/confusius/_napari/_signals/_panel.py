@@ -44,6 +44,7 @@ class SignalPanel(QWidget):
         self._plotter: SignalPlotter | None = None
         self._signals_manager: SignalsManagerDialog | None = None
         self._signals_store = SignalStore(self)
+        self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
         viewer.events.theme.connect(self._on_theme_changed)
 
@@ -354,9 +355,12 @@ class SignalPanel(QWidget):
     def _xaxis_dim_index(self) -> int:
         """Return the viewer dimension index for the x-axis dimension.
 
-        Uses the configured x-axis dimension from the dropdown when available,
-        otherwise falls back to looking for a 'time' dimension, then to 0.
+        Uses a cached value when available. The cache is invalidated when the
+        x-axis combo selection changes or layers are added/removed.
         """
+        if self._cached_xaxis_dim_index is not None:
+            return self._cached_xaxis_dim_index
+
         xaxis_dim = self._xaxis_combo.currentText()
 
         # First try the configured x-axis dimension.
@@ -364,14 +368,17 @@ class SignalPanel(QWidget):
             for layer in self._viewer.layers:
                 da = layer.metadata.get("xarray")
                 if da is not None and xaxis_dim in da.dims:
-                    return list(da.dims).index(xaxis_dim)
+                    self._cached_xaxis_dim_index = list(da.dims).index(xaxis_dim)
+                    return self._cached_xaxis_dim_index
 
         # Fall back to looking for 'time'.
         for layer in self._viewer.layers:
             da = layer.metadata.get("xarray")
             if da is not None and TIME_DIM in da.dims:
-                return list(da.dims).index(TIME_DIM)
+                self._cached_xaxis_dim_index = list(da.dims).index(TIME_DIM)
+                return self._cached_xaxis_dim_index
 
+        self._cached_xaxis_dim_index = 0
         return 0
 
     def _current_xaxis_world(self) -> float:
@@ -446,6 +453,7 @@ class SignalPanel(QWidget):
 
     def _refresh_source_combos(self, _event=None) -> None:
         """Repopulate all source combo boxes from the current viewer layers."""
+        self._cached_xaxis_dim_index = None
         # Preserve current selections.
         cur_points = self._points_combo.currentText()
         cur_labels = self._labels_combo.currentText()
@@ -569,6 +577,7 @@ class SignalPanel(QWidget):
         is inserted, since the metadata may be attached after the layer is added
         to the viewer (e.g., via plot_napari).
         """
+        self._cached_xaxis_dim_index = None
         self._refresh_source_combos()
 
         # Defer the x-axis combo refresh to the next event-loop iteration so that
@@ -657,6 +666,7 @@ class SignalPanel(QWidget):
 
     def _on_xaxis_changed(self) -> None:
         """Handle x-axis dimension selection change."""
+        self._cached_xaxis_dim_index = None
         self._apply_settings()
 
     def _spatial_info(
