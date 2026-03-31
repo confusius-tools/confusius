@@ -55,6 +55,20 @@ class _TimeOverlay:
                 return da.coords["time"].attrs.get("units", "s")
         return None
 
+    def _read_time_value(self, step: int) -> float | None:
+        """Read the actual time coordinate value for a given step index.
+
+        Uses xarray metadata so non-uniform coordinates are resolved correctly
+        instead of relying on napari's linear scale/translate approximation.
+        """
+        for layer in self._viewer.layers:
+            da = layer.metadata.get("xarray")
+            if da is not None and "time" in da.coords:
+                coords = da.coords["time"].values
+                if 0 <= step < len(coords):
+                    return float(coords[step])
+        return None
+
     # -- lifecycle --------------------------------------------------------
 
     def _activate(self) -> None:
@@ -94,7 +108,12 @@ class _TimeOverlay:
         """Set the overlay text to the current time value."""
         if not self._active or self._time_idx is None:
             return
-        time_val = float(self._viewer.dims.point[self._time_idx])
+        step = int(self._viewer.dims.current_step[self._time_idx])
+        time_val = self._read_time_value(step)
+        if time_val is None:
+            # Fall back to napari's linear approximation when no xarray
+            # metadata is available.
+            time_val = float(self._viewer.dims.point[self._time_idx])
         self._viewer.text_overlay.text = (
             f"{time_val:.2f} {self._units if self._units else ''}"
         )

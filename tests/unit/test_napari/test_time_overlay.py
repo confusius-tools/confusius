@@ -7,6 +7,7 @@ from pathlib import Path
 import nibabel as nib
 import numpy as np
 import pytest
+import xarray as xr
 
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius.plotting import plot_napari
@@ -72,6 +73,52 @@ class TestTimeOverlay:
         expected = f"{float(viewer.dims.point[overlay._time_idx]):.2f} s"
         assert viewer.text_overlay.text == expected
         assert viewer.text_overlay.visible
+
+    def test_nonuniform_time_matches_xarray_coords(
+        self, rng, make_napari_viewer
+    ) -> None:
+        """Overlay must show the actual xarray coordinate, not the linear approximation.
+
+        When time spacing is non-uniform, napari's ``dims.point`` uses a linear
+        scale/translate approximation (median spacing) that diverges from the
+        true coordinate values. The overlay should display the real coordinate
+        so it stays consistent with the signal plotter's x-axis cursor.
+        """
+        # Non-uniform time: large gaps followed by small ones.
+        time_coords = np.array([0.0, 0.5, 2.0, 2.1, 5.0])
+        shape = (len(time_coords), 4, 6, 8)
+        data = rng.random(shape).astype(np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(
+                    time_coords, dims=["time"], attrs={"units": "s"}
+                ),
+                "z": xr.DataArray(np.arange(4) * 0.2, dims=["z"]),
+                "y": xr.DataArray(np.arange(6) * 0.1, dims=["y"]),
+                "x": xr.DataArray(np.arange(8) * 0.05, dims=["x"]),
+            },
+        )
+
+        viewer = make_napari_viewer()
+        with pytest.warns(UserWarning, match="non-uniform spacing"):
+            _, _ = plot_napari(
+                da, viewer=viewer, show_colorbar=False, show_scale_bar=False
+            )
+        overlay = _TimeOverlay(viewer)
+        overlay.check()
+        assert overlay._active
+
+        # Step through every frame and verify the overlay shows the true
+        # xarray coordinate, not the linear scale*step + translate value.
+        for step, expected_time in enumerate(time_coords):
+            viewer.dims.set_current_step(overlay._time_idx, step)
+            expected_text = f"{expected_time:.2f} s"
+            assert viewer.text_overlay.text == expected_text, (
+                f"step {step}: overlay shows {viewer.text_overlay.text!r}, "
+                f"expected {expected_text!r}"
+            )
 
     def test_deactivates_when_time_layer_is_removed(
         self, sample_4d_volume, make_napari_viewer
