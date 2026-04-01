@@ -113,12 +113,10 @@ class TestCorrectSliceTiming:
         with pytest.raises(ValueError, match="'time' dimension"):
             correct_slice_timings(da)
 
-    def test_raises_chunked_time(self) -> None:
+    def test_raises_chunked_time(self, consolidated_scan_4d: xr.DataArray) -> None:
         """Raises ValueError if the time dimension is chunked."""
-        dask = pytest.importorskip("dask.array")
-        ntime, nz = 20, 3
-        da = _make_consolidated_da(ntime=ntime, nz=nz, slice_offsets=np.zeros(nz))
-        da_chunked = da.copy(data=dask.from_array(da.values, chunks=(5, nz, 2, 3)))
+        pytest.importorskip("dask.array")
+        da_chunked = consolidated_scan_4d.chunk({"time": 1})
         with pytest.raises(ValueError, match="chunked along the 'time' dimension"):
             correct_slice_timings(da_chunked)
 
@@ -275,26 +273,106 @@ class TestCorrectSliceTiming:
                     result.coords[coord].values, da.coords[coord].values
                 )
 
+    def test_pose_time_and_slice_time_equivalent_with_start_reference(self) -> None:
+        """pose_time and slice_time paths give identical corrections with 'start' reference.
+
+        With 'start' volume acquisition reference, the `time` coordinate holds the
+        volume onset, which is the same whether working with unconsolidated data
+        (pose_time) or consolidated data (slice_time). Both paths must therefore produce
+        identical output. With 'end' reference the `time` coordinates differ between
+        consolidated and unconsolidated data, so results would not match.
+        """
+        ntime, npose = 20, 4
+        tr = 0.2
+        rng = np.random.default_rng(7)
+        data = rng.random((ntime, npose, 2, 3))
+
+        time_vals = (
+            np.arange(ntime) * tr
+        )  # start-referenced: time[t] = onset of volume t
+        # Acquisition time for pose p at volume t is the onset plus p * (TR / npose).
+        pose_time_vals = time_vals[:, None] + np.arange(npose) * (tr / npose)
+
+        time_coord = xr.DataArray(
+            time_vals,
+            dims=["time"],
+            attrs={"units": "s", "volume_acquisition_reference": "start"},
+        )
+        timing_attrs = {"units": "s"}
+
+        da_unconsolidated = xr.DataArray(
+            data[:, :, None],
+            dims=("time", "pose", "z", "y", "x"),
+            coords={
+                "time": time_coord,
+                "pose": np.arange(npose),
+                "z": np.array([0.0]),
+                "y": np.arange(2) * 0.3,
+                "x": np.arange(3) * 0.4,
+                "pose_time": xr.DataArray(
+                    pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
+                ),
+            },
+        )
+
+        da_consolidated = xr.DataArray(
+            data,
+            dims=("time", "z", "y", "x"),
+            coords={
+                "time": time_coord,
+                "z": np.arange(npose) * 0.5,
+                "y": np.arange(2) * 0.3,
+                "x": np.arange(3) * 0.4,
+                "slice_time": xr.DataArray(
+                    pose_time_vals, dims=["time", "z"], attrs=timing_attrs
+                ),
+            },
+        )
+
+        result_unconsolidated = correct_slice_timings(da_unconsolidated)
+        result_consolidated = correct_slice_timings(da_consolidated)
+
+        np.testing.assert_allclose(
+            result_unconsolidated.squeeze("z").values, result_consolidated.values, atol=1e-12
+        )
+
     # ------------------------------------------------------------------
     # Laziness
     # ------------------------------------------------------------------
 
-    def test_lazy_with_dask_input(self) -> None:
+    def test_lazy_with_dask_input(self, consolidated_scan_4d: xr.DataArray) -> None:
         """Output is dask-backed and numerically identical to the eager result."""
-        dask = pytest.importorskip("dask.array")
-        da = _make_consolidated_da(ntime=20, nz=3, slice_offsets=np.zeros(3))
-        da_dask = da.copy(data=dask.from_array(da.values, chunks=(20, 3, 2, 3)))
-        result = correct_slice_timings(da_dask)
-        assert hasattr(result.data, "dask"), "Output should be dask-backed."
-        np.testing.assert_allclose(result.values, da.values, atol=1e-12)
+        pytest.importorskip("dask.array")
+        da = consolidated_scan_4d
+        da_dask = da.chunk({"z": 1})
+        eager_result = correct_slice_timings(da)
+        lazy_result = correct_slice_timings(da_dask)
+        assert hasattr(lazy_result.data, "dask"), "Output should be dask-backed."
+        np.testing.assert_allclose(lazy_result.values, eager_result.values, atol=1e-12)
 
     # ------------------------------------------------------------------
     # Method fallback
     # ------------------------------------------------------------------
 
-    def test_cubic_method_fallback(self) -> None:
+    def test_cubic_method_fallback(self, consolidated_scan_4d: xr.DataArray) -> None:
         """Cubic falls back to linear when there are too few points."""
-        da = _make_consolidated_da(ntime=3, nz=2, slice_offsets=np.zeros(2))
+        # Load to eager so the warning fires immediately rather than at compute time.
+        da = consolidated_scan_4d.isel(time=slice(0, 3)).load()
         with pytest.warns(UserWarning, match="falling back to 'linear'"):
             result = correct_slice_timings(da, method="cubic")
-        assert result.shape == da.shape
+        expected = correct_slice_timings(da, method="linear")
+        np.testing.assert_allclose(result.values, expected.values, atol=1e-12)
+
+    def test_reraises_unrecognised_interp_error(
+        self, consolidated_scan_4d: xr.DataArray
+    ) -> None:
+        """Non-boundary ValueError from interp1d is re-raised unchanged."""
+        # Load to eager so the error fires immediately rather than at compute time.
+        # fill_value=(1.0, 2.0, 3.0) makes interp1d raise a ValueError whose message
+        # does not contain "derivatives at boundaries", so _interpolate_timeseries
+        # should re-raise rather than fall back to linear.
+        with pytest.raises(ValueError, match="broadcast"):
+            correct_slice_timings(
+                consolidated_scan_4d.load(),
+                fill_value=(1.0, 2.0, 3.0),  # type: ignore[arg-type]
+            )

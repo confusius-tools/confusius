@@ -19,25 +19,27 @@ def _interpolate_timeseries(
     method: str,
     fill_value: Any,
 ) -> npt.NDArray[np.floating]:
-    """Interpolate a 1-D time series from acquisition times to target times.
+    """Interpolate a 1D time series from acquisition times to target times.
 
     Parameters
     ----------
-    ts : numpy.ndarray
-        Signal values at acquisition times, shape `(ntime,)`.
-    acq_times : numpy.ndarray
-        Acquisition timestamps for this sweep position, shape `(ntime,)`.
-    target_times : numpy.ndarray
-        Target timestamps to interpolate to, shape `(ntime,)`.
-    method : str
-        Interpolation kind passed to `scipy.interpolate.interp1d`.
-    fill_value : float or tuple or str
-        Fill value for out-of-range targets, passed to `scipy.interpolate.interp1d`.
+    ts : (time,) numpy.ndarray
+        Signal values at acquisition times.
+    acq_times : (time,) numpy.ndarray
+        Acquisition timestamps for this sweep position.
+    target_times : (time,) numpy.ndarray
+        Target timestamps to interpolate to.
+    method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}
+        Interpolation kind passed to
+        [`scipy.interpolate.interp1d`][scipy.interpolate.interp1d].
+    fill_value : float or tuple[float, float] or {"extrapolate"}
+        Fill value for out-of-range targets, passed to
+        [`scipy.interpolate.interp1d`][scipy.interpolate.interp1d].
 
     Returns
     -------
-    numpy.ndarray
-        Interpolated signal at `target_times`, shape `(ntime,)`.
+    (time,) numpy.ndarray
+        Interpolated signal at `target_times`.
     """
     try:
         return interp1d(
