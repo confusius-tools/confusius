@@ -53,10 +53,10 @@ nav = [
         { "Signal Extraction" = "api/extract.md" },
         { "Signal Processing" = "api/signal.md" },
         { "Functional Connectivity" = "api/connectivity.md" },
+        { "General Linear Model" = "api/glm.md" },
         { "Xarray Integration" = "api/xarray.md" },
     ]},
     { "Examples" = "examples/index.md" },
-    { "Roadmap" = "roadmap.md" },
     { "Contributing" = "contributing.md" },
     { "Citing" = "citing.md" },
 ]
