@@ -5,22 +5,18 @@ import xarray as xr
 from confusius.validation import validate_mask
 
 
-def extract_with_mask(
-    data: xr.DataArray,
-    mask: xr.DataArray,
-) -> xr.DataArray:
+def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     """Extract signals from fUSI data using a binary mask.
 
-    This function flattens the spatial dimensions specified by the mask into a
-    single `space` dimension, while preserving all other dimensions (e.g., time,
-    pose).
+    This function flattens the spatial dimensions specified by the mask into a single
+    `space` dimension, while preserving all other dimensions (e.g., time, components).
 
     Parameters
     ----------
     data : xarray.DataArray
-        Input array with spatial dimensions matching the mask. Can have any number
-        of non-spatial dimensions (e.g., `time`, `pose`). The spatial dimensions
-        must match those in the mask.
+        Input array with spatial dimensions matching the mask. Can have any number of
+        non-spatial dimensions (e.g., `time`, `components`). The spatial dimensions must
+        match those in the mask.
     mask : xarray.DataArray
         Mask defining which voxels to extract. Its dimensions define the spatial
         dimensions that will be flattened. Must have boolean dtype, or integer dtype
@@ -32,9 +28,9 @@ def extract_with_mask(
     Returns
     -------
     xarray.DataArray
-        Array with spatial dimensions flattened into a `space` dimension.
-        All non-spatial dimensions are preserved. The `space` dimension has a
-        MultiIndex storing spatial coordinates.
+        Array with spatial dimensions flattened into a `space` dimension. All
+        non-spatial dimensions are preserved. The `space` dimension has a MultiIndex
+        storing spatial coordinates.
 
         For example:
 
@@ -45,13 +41,12 @@ def extract_with_mask(
         For simple round-trip reconstruction, use `.unstack("space")` which
         re-creates the original DataArray using the smallest bounding box containing the
         masked voxels. For full mask shape reconstruction, use
-        `confusius.extract.unmask`.
+        [`confusius.extract.unmask`][confusius.extract.unmask].
 
     Raises
     ------
     ValueError
-        If `mask` dimensions don't match `data`'s spatial dimensions, or if `data` has
-        fewer than 2 spatial dimensions.
+        If `mask` dimensions don't match `data`'s spatial dimensions.
     TypeError
         If `mask` is not boolean dtype.
 
@@ -96,8 +91,10 @@ def extract_with_mask(
 
     mask_aligned = mask.reindex_like(template)
 
-    data_flat = data.stack(space=spatial_dims)
+    if "space" in data.dims and set(spatial_dims) == {"space"}:
+        mask_flat = mask_aligned.values.astype(bool)
+        return data.isel(space=mask_flat)
 
-    # Integer masks (0 = background, non-zero = selected) are treated as boolean.
+    data_flat = data.stack(space=spatial_dims)
     mask_flat = mask_aligned.values.flatten().astype(bool)
     return data_flat.isel(space=mask_flat)
