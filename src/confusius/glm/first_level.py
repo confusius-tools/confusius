@@ -238,7 +238,7 @@ class FirstLevelModel(BaseEstimator):
                 ols_model = OLSModel(design_array)
                 ols_results = ols_model.fit(data_2d)
                 rho_per_voxel, _ = estimate_ar_coeffs(
-                    ols_results.whitened_residuals, order=ar_order
+                    ols_results.residuals, order=ar_order
                 )
                 ar_model = ARModel(design_array, rho_per_voxel)
                 results = ar_model.fit(data_2d)

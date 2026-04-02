@@ -129,18 +129,16 @@ class OLSModel:
             Fitted model results containing parameter estimates,
             residuals, and statistics.
         """
-        # Whiten data
-        wY = self.whiten(Y)
+        whitened_Y = self.whiten(Y)
 
-        # Estimate parameters: beta = (X^T X)^-1 X^T Y
-        beta = self.calc_beta @ wY
+        # Estimate parameters: beta = (X^T X)^-1 X^T Y.
+        beta = self.calc_beta @ whitened_Y
 
-        # Compute whitened residuals
-        wresid = wY - self.whitened_design @ beta
+        # Compute whitened residuals.
+        whitened_residuals = whitened_Y - self.whitened_design @ beta
 
-        # Estimate dispersion (variance)
-        # sigma^2 = RSS / (n - p)
-        rss = np.sum(wresid**2, axis=0)
+        # Estimate dispersion (variance): sigma^2 = RSS / (n - p).
+        rss = np.sum(whitened_residuals**2, axis=0)
         if self.df_residuals > 0:
             dispersion = rss / self.df_residuals
         else:
@@ -150,8 +148,8 @@ class OLSModel:
             theta=beta,
             Y=Y,
             model=self,
-            whitened_Y=wY,
-            whitened_residuals=wresid,
+            whitened_Y=whitened_Y,
+            whitened_residuals=whitened_residuals,
             dispersion=dispersion,
             cov=self.normalized_cov_beta,
         )
@@ -219,6 +217,28 @@ class ARModel:
         self.df_total = design.shape[0]
         self.df_residuals = self.df_total - self.df_model
 
+    def whiten(self, Y: npt.NDArray[np.floating]) -> npt.NDArray[np.float64]:
+        """Apply per-voxel AR(p) whitening to data.
+
+        Unlike `OLSModel.whiten`, this operates on `(n_timepoints, n_voxels)` data
+        only — the design matrix is handled implicitly via cross-product expansion in
+        `fit`.
+
+        Parameters
+        ----------
+        Y : (n_timepoints, n_voxels) numpy.ndarray
+            Data to whiten.
+
+        Returns
+        -------
+        (n_timepoints, n_voxels) numpy.ndarray
+            Whitened data.
+        """
+        whitened = Y.copy().astype(np.float64)
+        for i in range(self.order):
+            whitened[(i + 1) :] -= self.rho[i] * Y[: -(i + 1)]
+        return whitened
+
     def fit(self, Y: npt.NDArray[np.floating]) -> RegressionResults:
         """Fit the AR model per voxel.
 
@@ -250,21 +270,45 @@ class ARModel:
                 f"rho has {self.rho.shape[1]} voxels but Y has {V} voxels."
             )
 
-        # Whiten data: wY[t, v] = Y[t, v] - sum_i(rho[i, v] * Y[t-(i+1), v])
-        wY = Y.copy().astype(np.float64)
-        for i in range(self.order):
-            wY[(i + 1) :] -= self.rho[i] * Y[: -(i + 1)]
+        whitened_Y = self.whiten(Y)
 
-        # Whiten design per voxel: wX[v, t, k] = X[t, k] - sum_i(rho[i,v] * X[t-(i+1),k])
-        wX = np.broadcast_to(self.design, (V, T, K)).copy().astype(np.float64)
-        for i in range(self.order):
-            wX[:, (i + 1) :, :] -= (
-                self.rho[i, :, np.newaxis, np.newaxis] * self.design[: -(i + 1)]
-            )
+        # Avoid materializing whitened_X of shape (V, T, K): for large V and T this can
+        # exhaust memory. Instead precompute cross-products from the design lags.
+        #
+        # Define padded lags L[i] where L[i, t, :] = X[t-(i+1), :] for t >= i+1, else 0.
+        # Then whitened_X[v] = X - sum_i(rho[i,v] * L[i]).
+        #
+        # Normal-equation cross-products follow by expanding:
+        #   XtX[v] = A - rho·(B + Bᵀ) + rhoᵀ C rho
+        #   XtY[v] = P[:,v] - sum_i(rho[i,v] * Q[i,:,v])
+        #
+        # where A=(K,K), B=(p,K,K), C=(p,p,K,K), P=(K,V), Q=(p,K,V) — all small.
 
-        # Normal equations batched over voxels.
-        XtX = np.einsum("vtk,vtl->vkl", wX, wX)  # (V, K, K)
-        XtY = np.einsum("vtk,tv->vk", wX, wY)  # (V, K)
+        X = self.design.astype(np.float64)
+
+        # Padded lags: (order, T, K)
+        L = np.zeros((self.order, T, K))
+        for i in range(self.order):
+            L[i, (i + 1) :, :] = X[: -(i + 1), :]
+
+        # Precompute design cross-products (independent of Y and rho).
+        A = X.T @ X  # (K, K)
+        B = np.einsum("tk,itl->ikl", X, L)  # (order, K, K): X.T @ L[i]
+        C = np.einsum("itk,jtl->ijkl", L, L)  # (order, order, K, K): L[i].T @ L[j]
+
+        B_sym = B + B.transpose(0, 2, 1)  # B[i] + B[i].T for each i
+
+        # XtX[v] = A - sum_i rho[i,v]*B_sym[i] + sum_ij rho[i,v]*rho[j,v]*C[i,j]
+        XtX = (
+            A[np.newaxis]
+            - np.einsum("iv,ikl->vkl", self.rho, B_sym)
+            + np.einsum("iv,jv,ijkl->vkl", self.rho, self.rho, C)
+        )  # (V, K, K)
+
+        # XtY[v] = X.T @ wY[:,v] - sum_i rho[i,v] * L[i].T @ wY[:,v]
+        P = X.T @ whitened_Y  # (K, V)
+        Q = np.einsum("itk,tv->ikv", L, whitened_Y)  # (order, K, V)
+        XtY = P.T - np.einsum("iv,ikv->vk", self.rho, Q)  # (V, K)
 
         # beta: (V, K) transposed to (K, V) to match convention.
         beta = np.linalg.solve(XtX, XtY[..., np.newaxis])[..., 0].T
@@ -272,8 +316,11 @@ class ARModel:
         # Per-voxel normalized covariance: (V, K, K) = (XtX)^{-1}
         cov_beta = np.linalg.inv(XtX)
 
-        # Whitened residuals: (T, V)
-        wresid = wY - np.einsum("vtk,kv->tv", wX, beta)
+        # Whitened residuals: wresid = wY - wX @ beta, computed without wX.
+        # wX[v] @ beta[:,v] = X @ beta[:,v] - sum_i rho[i,v] * L[i] @ beta[:,v]
+        wresid = whitened_Y - X @ beta
+        for i in range(self.order):
+            wresid += self.rho[i] * (L[i] @ beta)  # rho[i]: (V,), L[i]@beta: (T,V)
 
         # Dispersion per voxel.
         rss = np.sum(wresid**2, axis=0)
@@ -286,7 +333,7 @@ class ARModel:
             theta=beta,
             Y=Y,
             model=self,
-            whitened_Y=wY,
+            whitened_Y=whitened_Y,
             whitened_residuals=wresid,
             dispersion=dispersion,
             cov=cov_beta,
