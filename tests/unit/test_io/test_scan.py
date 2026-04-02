@@ -218,6 +218,10 @@ class TestLoadScan2D:
         assert scan_2d.attrs["iconeus_date"] == "2025-01-01"
         assert scan_2d.attrs["device_serial_number"] == "SN-0001"
 
+    def test_name_from_scan_tag(self, scan_2d: xr.DataArray) -> None:
+        """DataArray name is taken from iconeus_scan (Scan_tag)."""
+        assert scan_2d.name == "scan-01"
+
     def test_scan_mode_attr(self, scan_2d: xr.DataArray) -> None:
         """iconeus_scan_mode attr equals '2Dscan'."""
         assert scan_2d.attrs["iconeus_scan_mode"] == "2Dscan"

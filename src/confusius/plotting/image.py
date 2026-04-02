@@ -13,6 +13,7 @@ from confusius._utils import find_stack_level, get_coordinate_spacings_best_effo
 from confusius.atlas._structures import _build_atlas_cmap_and_norm
 from confusius.extract import extract_with_mask
 from confusius.signal import clean
+from confusius.validation import validate_time_series
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -706,7 +707,7 @@ class VolumePlotter:
 
             cbar.ax.yaxis.set_tick_params(color=text_color)
             plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
-            cbar.outline.set_edgecolor(text_color)  # type: ignore[union-attr]
+            cbar.outline.set_edgecolor(text_color)  # type: ignore
 
         return self
 
@@ -1627,7 +1628,7 @@ def draw_napari_labels(
     >>> # Convert painted labels to an integer label map DataArray.
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     """
-    viewer, image_layer = plot_napari(data, viewer=viewer, **kwargs)
+    viewer, _ = plot_napari(data, viewer=viewer, **kwargs)
 
     # Reuse the same spatial scale and translate that plot_napari computed for
     # the image layer so the Labels layer overlays correctly.
@@ -1807,20 +1808,24 @@ def _prepare_carpet_data(
     if np.iscomplexobj(data):
         data = xr.ufuncs.abs(data)
 
-    if "time" not in data.dims or "time" not in data.coords:
-        raise ValueError("Data must have 'time' dimension and coordinates.")
+    validate_time_series(data, "plot_carpet", check_time_chunks=False)
 
     n_timepoints = data.sizes["time"]
 
-    non_zero_voxels = (data != 0).any(dim="time")
+    non_zero = (data != 0).any(dim="time")
     if mask is None:
-        mask = non_zero_voxels
+        mask = non_zero
     else:
-        mask = mask & non_zero_voxels
+        mask = mask & non_zero
 
-    spatial_dims = [d for d in data.dims if d != "time"]
     signals = extract_with_mask(data, mask)
-    signals = signals.drop_vars(spatial_dims + ["space"])
+
+    # Carpet plots don't need spatial coordinates, and multi-index coordinates will make
+    # plotting fail.
+    space_coords = [c for c in signals.coords if "space" in signals.coords[c].dims]
+    signals = signals.drop_vars(space_coords).assign_coords(
+        space=np.arange(signals.sizes["space"])
+    )
 
     signals = clean(
         signals,

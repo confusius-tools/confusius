@@ -294,12 +294,7 @@ def load_scan(
                 " '3Dscan', '4Dscan'."
             )
 
-        name_parts = [
-            attrs["iconeus_subject"],
-            attrs["iconeus_session"],
-            attrs["iconeus_scan"],
-        ]
-        data_array.name = "_".join(p for p in name_parts if p) or path.stem
+        data_array.name = attrs["iconeus_scan"] or path.stem
     except Exception:
         h5.close()
         raise

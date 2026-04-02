@@ -87,6 +87,29 @@ class TestWithMask:
         ]
         np.testing.assert_array_equal(signals.values, expected_values)
 
+    def test_2d_signals(self):
+        """Test extraction from 2D signals (time, space) with 1D mask."""
+        data = xr.DataArray(
+            np.arange(20).reshape(4, 5),
+            dims=["time", "space"],
+            coords={"time": [0, 1, 2, 3], "space": [0, 1, 2, 3, 4]},
+        )
+
+        mask = xr.DataArray(
+            [True, False, True, True, False],
+            dims=["space"],
+            coords={"space": [0, 1, 2, 3, 4]},
+        )
+
+        signals = extract.extract_with_mask(data, mask)
+
+        assert signals.dims == ("time", "space")
+        assert signals.shape == (4, 3)
+        np.testing.assert_array_equal(
+            signals.values,
+            [[0, 2, 3], [5, 7, 8], [10, 12, 13], [15, 17, 18]],
+        )
+
 
 class TestUnmask:
     """Tests for extract.unmask function."""
