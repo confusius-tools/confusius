@@ -273,30 +273,31 @@ class TestCorrectSliceTiming:
                     result.coords[coord].values, da.coords[coord].values
                 )
 
-    def test_pose_time_and_slice_time_equivalent_with_start_reference(self) -> None:
-        """pose_time and slice_time paths give identical corrections with 'start' reference.
+    @pytest.mark.parametrize("reference", ["start", "center", "end"])
+    def test_pose_time_and_slice_time_equivalent(self, reference: str) -> None:
+        """pose_time and slice_time paths give identical corrections for any reference.
 
-        With 'start' volume acquisition reference, the `time` coordinate holds the
-        volume onset, which is the same whether working with unconsolidated data
-        (pose_time) or consolidated data (slice_time). Both paths must therefore produce
-        identical output. With 'end' reference the `time` coordinates differ between
-        consolidated and unconsolidated data, so results would not match.
+        Both paths use the same actual per-pose acquisition times (pose_time_vals) and
+        the same `time` coordinate, so the interpolation target and source are identical
+        regardless of which reference point the `time` coordinate uses.
         """
         ntime, npose = 20, 4
         tr = 0.2
         rng = np.random.default_rng(7)
         data = rng.random((ntime, npose, 2, 3))
 
-        time_vals = (
-            np.arange(ntime) * tr
-        )  # start-referenced: time[t] = onset of volume t
+        # Volume onset times (always start-referenced internally).
+        onset_vals = np.arange(ntime) * tr
+        # Shift the `time` coordinate to the chosen reference point.
+        ref_offsets = {"start": 0.0, "center": 0.5, "end": 1.0}
+        time_vals = onset_vals + ref_offsets[reference] * tr
         # Acquisition time for pose p at volume t is the onset plus p * (TR / npose).
-        pose_time_vals = time_vals[:, None] + np.arange(npose) * (tr / npose)
+        pose_time_vals = onset_vals[:, None] + np.arange(npose) * (tr / npose)
 
         time_coord = xr.DataArray(
             time_vals,
             dims=["time"],
-            attrs={"units": "s", "volume_acquisition_reference": "start"},
+            attrs={"units": "s", "volume_acquisition_reference": reference},
         )
         timing_attrs = {"units": "s"}
 
@@ -333,7 +334,9 @@ class TestCorrectSliceTiming:
         result_consolidated = correct_slice_timings(da_consolidated)
 
         np.testing.assert_allclose(
-            result_unconsolidated.squeeze("z").values, result_consolidated.values, atol=1e-12
+            result_unconsolidated.squeeze("z").values,
+            result_consolidated.values,
+            atol=1e-12,
         )
 
     # ------------------------------------------------------------------

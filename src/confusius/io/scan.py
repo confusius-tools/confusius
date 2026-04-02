@@ -531,7 +531,8 @@ def _load_4dscan(
         .reshape(n_time, npose)
     )
 
-    block_time = time_raw[np.arange(n_time), np.argmin(time_raw, axis=1)]
+    # Iconeus SCAN files store end-referenced timestamps.
+    block_time = time_raw.max(axis=1)
     time_attrs: dict[str, Any] = {
         "units": "s",
         "volume_acquisition_reference": "end",
@@ -540,23 +541,10 @@ def _load_4dscan(
     if volume_acquisition_duration is not None:
         time_attrs["volume_acquisition_duration"] = volume_acquisition_duration
 
-    pose_vals = np.arange(npose)
-
-    pose_time = xr.DataArray(
-        time_raw,
-        dims=["time", "pose"],
-        attrs=time_attrs,
-    )
-
     coords: dict[str, Any] = {
-        "time": xr.DataArray(
-            block_time,
-            dims=["time"],
-            # Iconeus SCAN files store end-referenced timestamps.
-            attrs=time_attrs,
-        ),
-        "pose": xr.DataArray(pose_vals, dims=["pose"]),
-        "pose_time": pose_time,
+        "time": xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
+        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
+        "pose_time": xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
         **spatial_coords,
     }
 
