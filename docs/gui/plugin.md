@@ -103,6 +103,11 @@ separate line (distinguished by line style).
 | **Show x-axis cursor** | Draw a vertical line on the plot that follows the napari dimension slider for the selected *x*-axis dimension. |
 | **Z-score signal** | Normalize each signal to zero mean and unit variance before plotting. The *y*-axis label changes from "Intensity" to "Z-score". |
 
+!!! tip "Click to navigate"
+    Left-click anywhere on the signal plot to jump the napari viewer to the
+    corresponding time slice. Clicks are ignored while a zoom or pan tool is active
+    in the plot toolbar.
+
 ### Managing signals
 
 Click **Manage Signals** to open a floating dialog where you can customize both live
@@ -148,6 +153,11 @@ Select a layer from the **Layer** dropdown, check the metrics you want, and clic
     **Carpet plot**
     : Displays the full voxel time series as a 2D raster (time × voxels). See [Carpet
       Plot](../user-guide/quality-control.md#carpet-plot) for interpretation.
+
+    !!! tip "Click to navigate"
+        Left-click anywhere on a temporal metric plot (DVARS or carpet) to jump the
+        napari viewer to the corresponding time slice. Clicks are ignored while a zoom
+        or pan tool is active in the plot toolbar.
 
 === "Spatial metrics"
 
