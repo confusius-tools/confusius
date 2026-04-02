@@ -89,6 +89,7 @@ class QCPanel(QWidget):
         viewer.layers.events.removed.connect(self._refresh_layers)
         viewer.events.theme.connect(self._on_theme_changed)
         viewer.dims.events.current_step.connect(self._on_time_step_changed)
+        viewer.layers.selection.events.changed.connect(self._on_time_step_changed)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -275,24 +276,55 @@ class QCPanel(QWidget):
         except RuntimeError:
             self._qc_plots = None
 
-    def _time_val_from_da(self, da: xr.DataArray) -> float | None:
-        """Return the current time value for *da* based on the viewer step.
+    def _time_val_from_layer(self, layer: napari.layers.Layer) -> float | None:
+        """Return the current time value for *layer* based on the viewer position.
 
-        Maps the viewer's current step index for the time dimension to the corresponding
-        coordinate value (or bare index when no coordinate exists). Returns None when
-        the time dimension cannot be resolved.
+        Uses the layer's `world_to_data` transform to map the viewer's
+        world coordinate to the correct data index, then looks up the
+        xarray coordinate.  This handles multi-recording setups (different
+        time origins) and non-uniform time spacing correctly.
+
+        Returns `None` when the time dimension cannot be resolved.
         """
-        if "time" not in da.dims:
+        import numpy as np
+
+        da = layer.metadata.get("xarray")
+        if da is None or "time" not in da.dims:
             return None
-        current_step = self.viewer.dims.current_step
+
         time_dim_index = list(da.dims).index("time")
-        if time_dim_index >= len(current_step):
-            return None
-        time_index = current_step[time_dim_index]
+        world_point = np.array(self.viewer.dims.point)
+        offset = self.viewer.dims.ndim - layer.ndim
+        layer_world = world_point[offset:]
+        data_point = layer.world_to_data(layer_world)
+        time_index = int(np.round(data_point[time_dim_index]))
+
         time_coord = da.coords.get("time")
-        if time_coord is not None and time_index < len(time_coord):
+        if time_coord is not None and 0 <= time_index < len(time_coord):
             return float(time_coord[time_index])
-        return float(time_index)
+        if 0 <= time_index < da.sizes["time"]:
+            return float(time_index)
+        return None
+
+    def _selected_time_layer(self) -> napari.layers.Layer | None:
+        """Return the single selected layer with a time axis, or `None`.
+
+        Mirrors the reference-layer logic in `_TimeOverlay` so that the
+        QC cursor stays in sync with the time overlay.  When zero or more
+        than one time-aware layers are selected, falls back to the first
+        time-aware layer in the viewer.
+        """
+        selected = [
+            layer
+            for layer in self.viewer.layers.selection
+            if "time" in layer.axis_labels
+        ]
+        if len(selected) == 1:
+            return selected[0]
+        for layer in self.viewer.layers:
+            if "time" in layer.axis_labels:
+                return layer
+        return None
 
     def _on_time_step_changed(self, event) -> None:
         """Forward the current napari time step to the time cursor."""
@@ -304,18 +336,11 @@ class QCPanel(QWidget):
             self._qc_plots = None
             return
 
-        layer_name = self._layer_combo.currentText()
-        if not layer_name:
-            return
-        try:
-            layer = self.viewer.layers[layer_name]
-        except KeyError:
+        layer = self._selected_time_layer()
+        if layer is None:
             return
 
-        da = layer.metadata.get("xarray")
-        if da is None:
-            return
-        time_val = self._time_val_from_da(da)
+        time_val = self._time_val_from_layer(layer)
         if time_val is not None:
             self._qc_plots.set_time_cursor(time_val)
 
@@ -340,11 +365,13 @@ class QCPanel(QWidget):
                 if "carpet" in results:
                     qc_widget.update_carpet(results["carpet"], layer_name=layer_name)
 
-                # Sync cursor to the current slider position so it does not start at t=0
-                # when plots are first drawn.
-                time_val = self._time_val_from_da(da)
-                if time_val is not None:
-                    qc_widget.set_time_cursor(time_val)
+                # Sync cursor to the current slider position so it does not
+                # start at t=0 when plots are first drawn.
+                time_layer = self._selected_time_layer()
+                if time_layer is not None:
+                    time_val = self._time_val_from_layer(time_layer)
+                    if time_val is not None:
+                        qc_widget.set_time_cursor(time_val)
 
                 self._show_btn.show()
 

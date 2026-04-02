@@ -21,6 +21,16 @@ directly in the text field and press ++enter++. Enable **Load lazily** beforehan
 keep the array Dask-backed for large files. A progress bar animates during loading, and
 any error is reported in the napari notification bar.
 
+!!! info "Time overlay"
+    When a loaded scan contains a time dimension, the current time coordinate is
+    displayed as a text overlay in the bottom-left corner of the canvas. The value and
+    units are read from the scan's coordinate metadata and update automatically as you
+    scrub the time slider.
+
+    When multiple scans are open, the overlay reflects the currently selected layer.
+    If zero or more than one layer is selected, it keeps following the previously
+    selected one.
+
 ### Saving data
 
 1. Select the layer to save from the **Save layer** dropdown.

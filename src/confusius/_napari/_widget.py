@@ -21,6 +21,7 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._theme import make_lucide_icon
+from confusius._napari._time_overlay import _TimeOverlay
 
 if TYPE_CHECKING:
     import napari
@@ -213,6 +214,9 @@ class ConfUSIusWidget(QWidget):
         # Defer the title update so napari has time to fully configure the dock widget
         # (including installing its custom title bar).
         QTimer.singleShot(500, self._fix_dock_title)
+
+        # Timestamp overlay — shown whenever time is being sliced.
+        self._time_overlay = _TimeOverlay(self.viewer)
 
     # ------------------------------------------------------------------
     # Theme

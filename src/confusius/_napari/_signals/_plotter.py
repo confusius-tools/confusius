@@ -109,7 +109,7 @@ class SignalPlotter(QWidget):
         self._show_cursor: bool = False
         self._vline = None
         self._bg = None  # Saved pixel buffer (without vline).
-        self._cursor_frame: float = 0.0
+        self._cursor_world: float = 0.0
         self._export_signals: list[ExportSignal] = []
         self._mouse_plot_dirty: bool = True
         self._mouse_live_line = None
@@ -314,7 +314,7 @@ class SignalPlotter(QWidget):
             self._invalidate_mouse_cache()
             self._refresh_plot()
 
-    def set_xaxis_cursor(self, frame_index: float) -> None:
+    def set_xaxis_cursor(self, world_value: float) -> None:
         """Schedule a blitted x-axis cursor update.
 
         The blit is deferred to a ~60 fps timer so that rapid step events
@@ -323,37 +323,56 @@ class SignalPlotter(QWidget):
 
         Parameters
         ----------
-        frame_index : float
-            Frame index to position the cursor at.
+        world_value : float
+            World coordinate along the x-axis dimension.
         """
-        self._cursor_frame = frame_index
+        self._cursor_world = world_value
         if not self._cursor_timer.isActive():
             self._cursor_timer.start()
 
-    def _frame_to_x(self, frame: float) -> float | str:
-        """Convert a napari frame index to the x-axis value used for plotting.
+    def _world_to_xaxis(self, world_value: float) -> float | str:
+        """Convert a world coordinate to the x-axis value used for plotting.
 
-        When coordinates are available and numeric, the frame index is mapped to the
-        corresponding coordinate value. For non-numeric coordinates (e.g., feature
-        names on a categorical axis) the coordinate string itself is returned so that
-        matplotlib places the cursor at the correct existing category rather than
-        inserting a spurious numeric label.
+        Uses the current layer's `world_to_data` transform to map the
+        world coordinate to a data index, then looks up the actual xarray
+        coordinate value.  This keeps the cursor in sync with the time
+        overlay for non-uniform spacing and multi-recording setups.
+
+        For non-numeric coordinates (e.g., feature names on a categorical
+        axis) the coordinate string itself is returned so that matplotlib
+        places the cursor at the correct existing category.
         """
-        if self._xaxis_coords is not None:
-            index = int(round(frame))
+        if self._xaxis_coords is not None and self._current_layer is not None:
+            index = self._world_to_data_index(world_value)
             if 0 <= index < len(self._xaxis_coords):
                 coord = self._xaxis_coords[index]
                 try:
                     return float(coord)
                 except (ValueError, TypeError):
                     return str(coord)
-        return frame
+        return world_value
+
+    def _world_to_data_index(self, world_value: float) -> int:
+        """Map a scalar world coordinate to a data index on the x-axis.
+
+        Builds a full world-space point from the current viewer position,
+        overrides the x-axis component with *world_value*, and transforms
+        through the current layer's `world_to_data`.
+        """
+        layer = self._current_layer
+        world_point = np.array(self._viewer.dims.point)
+        xaxis_idx = self._xaxis_dim_index(layer)
+        offset = self._viewer.dims.ndim - layer.ndim
+        layer_world = world_point[offset:]
+        layer_world[xaxis_idx] = world_value
+        data_point = layer.world_to_data(layer_world)
+        return int(np.round(data_point[xaxis_idx]))
 
     def _flush_cursor(self) -> None:
         """Perform the actual blit for the current cursor position."""
         if self._vline is not None and self._bg is not None:
             try:
-                x_cursor = self._frame_to_x(self._cursor_frame)
+                x_cursor = self._world_to_xaxis(self._cursor_world)
                 self._canvas.restore_region(self._bg)
                 self._vline.set_xdata([x_cursor, x_cursor])
                 self._axes.draw_artist(self._vline)
@@ -1409,7 +1428,7 @@ class SignalPlotter(QWidget):
             )
         if self._show_cursor and show_cursor:
             self._vline = self._axes.axvline(
-                self._frame_to_x(self._cursor_frame),
+                self._world_to_xaxis(self._cursor_world),
                 color=colors["cursor"],
                 linewidth=1.2,
                 alpha=0.85,
