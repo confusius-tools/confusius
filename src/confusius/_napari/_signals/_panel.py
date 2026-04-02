@@ -246,6 +246,7 @@ class SignalPanel(QWidget):
         """
         if self._plotter is None:
             self._plotter = SignalPlotter(self._viewer, store=self._signals_store)
+            self._plotter.frame_clicked.connect(self._on_frame_clicked)
 
         if self._plotter.parent() is None:
             # Widget is not docked, create (or re-create) the dock.
@@ -402,6 +403,14 @@ class SignalPanel(QWidget):
         xaxis_index = self._xaxis_dim_index()
         if xaxis_index < len(current_step):
             self._plotter.set_xaxis_cursor(float(current_step[xaxis_index]))
+
+    def _on_frame_clicked(self, frame: float) -> None:
+        """Navigate the viewer to the frame that was clicked on the plot."""
+        xaxis_index = self._xaxis_dim_index()
+        current_step = list(self._viewer.dims.current_step)
+        if xaxis_index < len(current_step):
+            current_step[xaxis_index] = round(frame)
+            self._viewer.dims.current_step = tuple(current_step)
 
     def _on_theme_changed(self) -> None:
         """Handle napari theme change."""

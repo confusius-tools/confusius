@@ -198,6 +198,7 @@ class QCPanel(QWidget):
 
         if self._qc_plots is None:
             self._qc_plots = QCPlotsWidget(self.viewer)
+            self._qc_plots.time_clicked.connect(self._on_time_clicked)
 
         if self._qc_plots.parent() is None:
             # Widget is not currently docked (brand-new or orphaned after dock closure).
@@ -318,6 +319,34 @@ class QCPanel(QWidget):
         time_val = self._time_val_from_da(da)
         if time_val is not None:
             self._qc_plots.set_time_cursor(time_val)
+
+    def _on_time_clicked(self, time_val: float) -> None:
+        """Navigate the viewer to the time value that was clicked on a QC plot."""
+        import numpy as np
+
+        layer_name = self._layer_combo.currentText()
+        if not layer_name:
+            return
+        try:
+            layer = self.viewer.layers[layer_name]
+        except KeyError:
+            return
+
+        da = layer.metadata.get("xarray")
+        if da is None or "time" not in da.dims:
+            return
+
+        time_dim_index = list(da.dims).index("time")
+        time_coord = da.coords.get("time")
+        if time_coord is not None:
+            frame = int(np.argmin(np.abs(time_coord.values - time_val)))
+        else:
+            frame = round(time_val)
+
+        current_step = list(self.viewer.dims.current_step)
+        if time_dim_index < len(current_step):
+            current_step[time_dim_index] = frame
+            self.viewer.dims.current_step = tuple(current_step)
 
     # ------------------------------------------------------------------
     # Compute callbacks
