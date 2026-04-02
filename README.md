@@ -129,17 +129,3 @@ Or in BibTeX format:
   url       = {https://doi.org/10.5281/zenodo.18611124}
 }
 ```
-
-If you use the ConfUSIus GUI in your research, please also cite
-[napari](https://napari.org), which powers it:
-
-```bibtex
-@software{napari,
-  author    = {{napari contributors}},
-  title     = {napari: a multi-dimensional image viewer for {Python}},
-  year      = {2019},
-  publisher = {Zenodo},
-  doi       = {10.5281/zenodo.3555620},
-  url       = {https://doi.org/10.5281/zenodo.3555620}
-}
-```
