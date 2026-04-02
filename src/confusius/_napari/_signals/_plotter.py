@@ -15,7 +15,7 @@ from matplotlib.figure import Figure
 from napari.utils.colormaps import DirectLabelColormap
 from napari.utils.colormaps.standardize_color import transform_color
 from napari.utils.notifications import show_error, show_info
-from qtpy.QtCore import QSize, QTimer
+from qtpy.QtCore import QSize, QTimer, Signal
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from confusius._dims import TIME_DIM
@@ -57,6 +57,12 @@ class SignalPlotter(QWidget):
         The active napari viewer instance.
     store : SignalStore | None, optional
         Shared store containing imported signals to overlay on the live plot.
+    """
+
+    frame_clicked = Signal(float)
+    """Emitted when the user left-clicks on the plot axes.
+
+    The payload is the frame index corresponding to the clicked x position.
     """
 
     def __init__(
@@ -185,6 +191,8 @@ class SignalPlotter(QWidget):
         self._axes = self._figure.add_subplot(111)
         # Save background after each full redraw for blitting the x-axis cursor.
         self._canvas.mpl_connect("draw_event", self._on_draw)
+        # Left-click navigates the viewer to the clicked frame.
+        self._canvas.mpl_connect("button_press_event", self._on_click)
 
     def _setup_callbacks(self) -> None:
         """Set up napari event callbacks."""
@@ -367,6 +375,26 @@ class SignalPlotter(QWidget):
         layer_world[xaxis_idx] = world_value
         data_point = layer.world_to_data(layer_world)
         return int(np.round(data_point[xaxis_idx]))
+
+    def _x_to_frame(self, x_val: float) -> float:
+        """Convert an x-axis value back to a frame index (inverse of `_frame_to_x`)."""
+        if self._xaxis_coords is not None:
+            try:
+                coords = np.asarray(self._xaxis_coords, dtype=float)
+                return float(np.argmin(np.abs(coords - x_val)))
+            except (ValueError, TypeError):
+                pass
+        return x_val
+
+    def _on_click(self, event) -> None:
+        """Handle left-click on the axes: emit `frame_clicked` for viewer navigation."""
+        if event.inaxes is not self._axes:
+            return
+        if event.button != 1:
+            return
+        if self._toolbar.mode:
+            return
+        self.frame_clicked.emit(self._x_to_frame(event.xdata))
 
     def _flush_cursor(self) -> None:
         """Perform the actual blit for the current cursor position."""
