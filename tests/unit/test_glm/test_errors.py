@@ -15,7 +15,7 @@ from confusius.glm._design import (
     make_first_level_design_matrix,
 )
 from confusius.glm._models import ARModel, OLSModel
-from confusius.glm._utils import expression_to_contrast_vector
+from confusius.glm._utils import estimate_ar_coeffs, expression_to_contrast_vector
 
 
 # -----------------------------------------------------------------------------
@@ -406,5 +406,16 @@ class TestUtils:
 
         with pytest.raises(ValueError, match="Could not evaluate"):
             expression_to_contrast_vector("invalid_column", columns)
+
+    def test_estimate_ar_coeffs_1d_signal(self):
+        """1D signal input returns scalar-shaped coefficients."""
+        signal = np.random.default_rng(0).standard_normal(100)
+        rho, sigma = estimate_ar_coeffs(signal, order=1)
+        assert rho.shape == (1,)
+
+    def test_estimate_ar_coeffs_invalid_ndim(self):
+        """3D array input raises ValueError."""
+        with pytest.raises(ValueError, match="Expected 1D or 2D"):
+            estimate_ar_coeffs(np.zeros((5, 5, 5)))
 
 

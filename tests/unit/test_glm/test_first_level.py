@@ -249,6 +249,71 @@ class TestFirstLevelModelContrastMultiRun:
         assert z_map.shape == (2, 3, 4)
         assert np.all(np.isfinite(z_map.values))
 
+    def test_multi_run_confounds_as_list(self, rng, frame_times, events):
+        """Multi-run fit with per-run confounds as a list."""
+        data1 = xr.DataArray(
+            rng.standard_normal((200, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={"time": frame_times},
+        )
+        data2 = xr.DataArray(
+            rng.standard_normal((200, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={"time": frame_times},
+        )
+        conf = pd.DataFrame({"motion": rng.standard_normal(200)})
+        model = FirstLevelModel(noise_model="ols")
+        model.fit([data1, data2], events=[events, events], confounds=[conf, conf])
+        assert "motion" in model.design_matrices_[0].columns
+
+
+class TestFirstLevelModelFContrast:
+    """Test F-contrast path through compute_contrast."""
+
+    @pytest.fixture(autouse=True)
+    def _fitted_model(self, fusi_data, events):
+        self.model = FirstLevelModel(noise_model="ols")
+        self.model.fit(fusi_data, events=events)
+
+    def test_f_contrast_2d_array(self):
+        """F-contrast with a 2D matrix produces a spatial z-map."""
+        dm = self.model.design_matrices_[0]
+        a_idx = list(dm.columns).index("A")
+        b_idx = list(dm.columns).index("B")
+        # 2x K matrix testing A and B jointly.
+        c = np.zeros((2, len(dm.columns)))
+        c[0, a_idx] = 1.0
+        c[1, b_idx] = 1.0
+        z_map = self.model.compute_contrast(c, stat_type="F")
+        assert z_map.shape == (2, 3, 4)
+        assert np.all(np.isfinite(z_map.values))
+
+    def test_f_contrast_effect_size_2d_output(self):
+        """F-contrast effect_size output has a contrast_dim dimension."""
+        dm = self.model.design_matrices_[0]
+        a_idx = list(dm.columns).index("A")
+        b_idx = list(dm.columns).index("B")
+        c = np.zeros((2, len(dm.columns)))
+        c[0, a_idx] = 1.0
+        c[1, b_idx] = 1.0
+        e_map = self.model.compute_contrast(c, stat_type="F", output_type="effect_size")
+        assert e_map.dims[0] == "contrast_dim"
+        assert e_map.shape == (2, 2, 3, 4)
+
+    def test_explicit_stat_type_t(self):
+        """Passing stat_type='t' explicitly still works for 1D contrasts."""
+        z_map = self.model.compute_contrast("A - B", stat_type="t")
+        assert z_map.shape == (2, 3, 4)
+
+    def test_2d_contrast_zero_padding(self):
+        """2D contrast narrower than design is zero-padded."""
+        # A 2xK short contrast, where K < n_design_cols.
+        c = np.zeros((2, 2))
+        c[0, 0] = 1.0
+        c[1, 1] = -1.0
+        z_map = self.model.compute_contrast(c, stat_type="F")
+        assert z_map.shape == (2, 3, 4)
+
 
 # -----------------------------------------------------------------------------
 # FirstLevelModel: reference check against manual computation
@@ -328,6 +393,51 @@ class TestFirstLevelModelErrors:
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="design matrices"):
             model.fit([fusi_data, fusi_data], design_matrices=[dm])
+
+    def test_spatial_shape_mismatch_raises(self, rng, frame_times, events):
+        """Multi-run fit raises if runs have different spatial shapes."""
+        data1 = xr.DataArray(
+            rng.standard_normal((200, 2, 3)),
+            dims=["time", "z", "x"],
+            coords={"time": frame_times},
+        )
+        data2 = xr.DataArray(
+            rng.standard_normal((200, 4, 3)),
+            dims=["time", "z", "x"],
+            coords={"time": frame_times},
+        )
+        model = FirstLevelModel(noise_model="ols")
+        with pytest.raises(ValueError, match="spatial shape"):
+            model.fit([data1, data2], events=[events, events])
+
+    def test_confounds_list_length_mismatch_raises(self, fusi_data, events, rng):
+        """Confound list with wrong number of entries raises ValueError."""
+        conf = pd.DataFrame({"motion": rng.standard_normal(200)})
+        model = FirstLevelModel(noise_model="ols")
+        with pytest.raises(ValueError, match="confound"):
+            model.fit([fusi_data, fusi_data], events=[events, events], confounds=[conf])
+
+    def test_ar_noise_model_non_numeric_order_raises(self, fusi_data, events):
+        """noise_model='arfoo' raises ValueError for non-numeric AR order."""
+        model = FirstLevelModel(noise_model="arfoo")
+        with pytest.raises(ValueError, match="noise_model"):
+            model.fit(fusi_data, events=events)
+
+    def test_2d_contrast_too_wide_raises(self, fusi_data, events):
+        """2D contrast wider than design columns raises ValueError."""
+        model = FirstLevelModel(noise_model="ols")
+        model.fit(fusi_data, events=events)
+        n_cols = len(model.design_matrices_[0].columns)
+        c = np.zeros((2, n_cols + 3))
+        with pytest.raises(ValueError, match="exceeds"):
+            model.compute_contrast(c, stat_type="F")
+
+    def test_3d_contrast_raises(self, fusi_data, events):
+        """3D contrast array raises ValueError."""
+        model = FirstLevelModel(noise_model="ols")
+        model.fit(fusi_data, events=events)
+        with pytest.raises(ValueError, match="string, 1-D, or 2-D"):
+            model.compute_contrast(np.zeros((2, 3, 4)))
 
 
 # -----------------------------------------------------------------------------

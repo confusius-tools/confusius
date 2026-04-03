@@ -12,10 +12,13 @@ from confusius.glm._models import (
     RegressionResults,
 )  # exported for user type annotations
 from confusius.glm.first_level import FirstLevelModel
+from confusius.glm.second_level import SecondLevelModel, make_second_level_design_matrix
 
 __all__ = [
     "FirstLevelModel",
+    "SecondLevelModel",
     "make_first_level_design_matrix",
+    "make_second_level_design_matrix",
     "RegressionResults",
     "Contrast",
 ]

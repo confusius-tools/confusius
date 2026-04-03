@@ -180,7 +180,7 @@ def compute_dvars(
 
     signals_np = signals.values
     # This isn't a robust estimator of AR(1).
-    ar1, _ = estimate_ar_coeffs(signals_np, order=1, method="yw")
+    ar1, _ = estimate_ar_coeffs(signals_np, order=1)
 
     # For an AR(1) process, the variance of temporal differences is:
     # Var(diff) = Var(x) * (2 * (1 - rho)) = 2 * (1 - rho) * sigma^2

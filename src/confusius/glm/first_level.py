@@ -468,16 +468,18 @@ class FirstLevelModel(BaseEstimator):
                 )
             else:
                 f_res = results.f_contrast(contrast_vec)
+                q = int(f_res["df_num"])
+                # Per-voxel variance: mean of diagonal of each voxel's contrast
+                # covariance matrix. covariance is always (V, q, q).
+                variance = f_res["covariance"][:, np.arange(q), np.arange(q)].mean(
+                    axis=1
+                )  # (V,)
                 run_contrast = Contrast(
                     effect=f_res["effect"],
-                    variance=np.atleast_1d(
-                        np.diag(f_res["covariance"].mean(axis=0))
-                        if f_res["covariance"].ndim == 3
-                        else np.diag(f_res["covariance"])
-                    ),
+                    variance=variance,
                     dof=float(f_res["df_den"]),
                     stat_type="F",
-                    dim=int(f_res["df_num"]),
+                    dim=int(q),
                 )
 
             combined = run_contrast if combined is None else combined + run_contrast

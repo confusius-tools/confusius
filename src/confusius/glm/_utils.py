@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -79,71 +79,13 @@ def _yule_walker_2d(
     return rho, sigma
 
 
-def _burg_2d(
-    signals: npt.NDArray[np.floating],
-    order: int,
-) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
-    """AR coefficient estimation using Burg's method, vectorized over voxels.
-
-    Estimates AR coefficients by minimizing forward and backward prediction errors
-    simultaneously using a recursive lattice filter. Provides better frequency
-    resolution than Yule-Walker for short time series.
-
-    Parameters
-    ----------
-    signals : (n_time, n_voxels) numpy.ndarray
-        Time series data with time in rows and voxels in columns.
-    order : int
-        AR model order.
-
-    Returns
-    -------
-    rho : (order, n_voxels) numpy.ndarray
-        AR coefficients for each voxel.
-    sigma : (n_voxels,) numpy.ndarray
-        Residual standard deviation for each voxel.
-    """
-    n_time, n_voxels = signals.shape
-    signals_centered = signals - signals.mean(axis=0)
-
-    rho = np.zeros((order, n_voxels))
-
-    fwd = signals_centered[1:]
-    bwd = signals_centered[:-1]
-
-    for p in range(order):
-        if p == 0:
-            numerator = 2 * np.sum(fwd * bwd, axis=0)
-            denominator = np.sum(fwd**2, axis=0) + np.sum(bwd**2, axis=0)
-        else:
-            numerator = 2 * np.sum(fwd[p:] * bwd[:-p], axis=0)
-            denominator = np.sum(fwd[p:] ** 2, axis=0) + np.sum(bwd[:-p] ** 2, axis=0)
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            rho[p] = np.where(denominator != 0, numerator / denominator, 0)
-
-        if p < order - 1:
-            fwd_new = fwd[p + 1 :] - rho[p] * bwd[: -(p + 1)]
-            bwd_new = bwd[p + 1 :] - rho[p] * fwd[: -(p + 1)]
-            fwd, bwd = fwd_new, bwd_new
-
-    sigma_sq = np.sum(signals_centered**2, axis=0) - np.sum(
-        rho * (signals_centered[1:] * signals_centered[:-1]), axis=0
-    )
-    sigma = np.sqrt(np.maximum(sigma_sq / n_time, 0))
-
-    return rho, sigma
-
-
 def estimate_ar_coeffs(
     signals: npt.NDArray[np.floating],
     order: int = 1,
-    method: Literal["yw", "burg"] = "yw",
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating] | np.floating]:
-    """Estimate AR(p) coefficients from time series data.
+    """Estimate AR(p) coefficients from time series data using Yule-Walker equations.
 
-    Handles both single-signal (1D) and multi-voxel (2D) inputs. Uses Yule-Walker
-    equations by default; Burg's method available for better frequency resolution.
+    Handles both single-signal (1D) and multi-voxel (2D) inputs.
 
     Parameters
     ----------
@@ -151,8 +93,6 @@ def estimate_ar_coeffs(
         Time series data. For 2D input, voxels are in columns.
     order : int, default: 1
         AR model order.
-    method : {"yw", "burg"}, default: "yw"
-        Estimation method. "yw" = Yule-Walker (default), "burg" = Burg's method.
 
     Returns
     -------
@@ -164,7 +104,7 @@ def estimate_ar_coeffs(
     Raises
     ------
     LinAlgError
-        If Toeplitz matrix is singular (Yule-Walker) or Levinson recursion fails.
+        If the Toeplitz autocorrelation matrix is singular.
 
     Examples
     --------
@@ -186,12 +126,7 @@ def estimate_ar_coeffs(
     is_1d = signals.ndim == 1
     signals_2d = signals[:, np.newaxis] if is_1d else signals
 
-    if method == "yw":
-        rho, sigma = _yule_walker_2d(signals_2d, order)
-    elif method == "burg":
-        rho, sigma = _burg_2d(signals_2d, order)
-    else:
-        raise ValueError(f"Unknown method: {method}")
+    rho, sigma = _yule_walker_2d(signals_2d, order)
 
     if is_1d:
         return rho[:, 0], sigma[0]

@@ -218,6 +218,47 @@ class TestARModel:
         with pytest.raises(ValueError, match="voxels"):
             model.fit(response_matrix)
 
+    def test_ar_t_contrast_per_voxel(self, design_matrix, response_matrix):
+        """AR t_contrast uses per-voxel covariance and returns correct shapes."""
+        n_voxels = response_matrix.shape[1]
+        rho = np.full((1, n_voxels), 0.4)
+        model = ARModel(design_matrix, rho=rho)
+        results = model.fit(response_matrix)
+
+        contrast = np.zeros(design_matrix.shape[1])
+        contrast[0] = 1.0
+        t_result = results.t_contrast(contrast)
+
+        assert t_result["effect"].shape == (n_voxels,)
+        assert t_result["sd"].shape == (n_voxels,)
+        assert t_result["t"].shape == (n_voxels,)
+
+    def test_ar_f_equals_t_squared(self, design_matrix, response_matrix):
+        """AR F-statistic with 1 numerator df equals t-statistic squared."""
+        n_voxels = response_matrix.shape[1]
+        rho = np.full((1, n_voxels), 0.4)
+        model = ARModel(design_matrix, rho=rho)
+        results = model.fit(response_matrix)
+
+        contrast = np.zeros(design_matrix.shape[1])
+        contrast[0] = 1.0
+        t_result = results.t_contrast(contrast)
+        f_result = results.f_contrast(contrast[np.newaxis, :])
+
+        assert_allclose(f_result["F"], t_result["t"] ** 2, rtol=1e-5)
+
+    def test_ar_saturated_dispersion_is_nan(self, rng):
+        """AR fit with df_residuals=0 (saturated model) sets dispersion to NaN."""
+        T, K, n_voxels = 10, 10, 3
+        X = rng.standard_normal((T, K))
+        Y = rng.standard_normal((T, n_voxels))
+        rho = np.full((1, n_voxels), 0.3)
+        model = ARModel(X, rho=rho)
+        results = model.fit(Y)
+
+        assert results.df_residuals == 0
+        assert np.all(np.isnan(results.dispersion))
+
 
 # -----------------------------------------------------------------------------
 # RegressionResults tests
