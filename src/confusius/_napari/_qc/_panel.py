@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import napari
+import napari.layers
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error
 from qtpy.QtCore import QSize, Qt, QTimer

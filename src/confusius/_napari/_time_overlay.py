@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import napari
+import napari.layers
 import numpy as np
 
 

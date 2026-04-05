@@ -31,7 +31,7 @@ dependencies = [
     "joblib-progress>=1.0.6",
     "matplotlib>=3.10.7",
     "napari-video>=0.2.13",
-    "napari[all]>=0.6.6",
+    "napari[optional,pyqt5]>=0.6.6",
     "nibabel>=5.0.0",
     "numpy>=2.3.4",
     "rich>=14.2.0",
@@ -66,6 +66,12 @@ dev = [
     "mkdocstrings[python]>=1.0.3",
     "pytest-qt>=4.5.0",
 ]
+
+[tool.uv]
+# Ensure the lock file resolves wheels compatible with Windows (win_amd64).
+# Napari's pyqt5 extra uses the wrong marker (sys_platform == 'Windows')
+# which can cause pyqt5-qt5 to resolve to a macOS-only version.
+required-environments = ["sys_platform == 'win32' and platform_machine == 'AMD64'"]
 
 [tool.numpydoc_validation]
 exclude = [

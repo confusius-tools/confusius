@@ -250,13 +250,13 @@ class _TourOverlay(QWidget):
         self._spotlight = rect
         self.update()
 
-    def mousePressEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[invalid-method-override]
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:  # ty: ignore[invalid-method-override]
         # Consume clicks outside the tooltip so underlying widgets are not accidentally
         # activated during the tour.
         if event is not None:
             event.accept()
 
-    def paintEvent(self, _event: QPaintEvent | None) -> None:  # type: ignore[invalid-method-override]  # noqa: N802
+    def paintEvent(self, _event: QPaintEvent | None) -> None:  # ty: ignore[invalid-method-override]  # noqa: N802
         painter = QPainter()
         if not painter.begin(self):
             return
