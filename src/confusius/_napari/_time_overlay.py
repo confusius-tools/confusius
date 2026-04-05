@@ -60,11 +60,13 @@ class _TimeOverlay:
         return None
 
     def _read_time_units(self) -> str | None:
-        """Read time units from the reference layer's xarray metadata."""
+        """Read time units from the reference layer's metadata."""
         if self._ref_layer is not None:
             da = self._ref_layer.metadata.get("xarray")
             if da is not None and "time" in da.coords:
                 return da.coords["time"].attrs.get("units", "s")
+            # Fallback for non-xarray layers (e.g., video).
+            return self._ref_layer.metadata.get("time_units")
         return None
 
     def _read_time_value(self) -> float | None:
