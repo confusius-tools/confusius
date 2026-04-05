@@ -1,5 +1,6 @@
 """Unit tests for confusius.io.utils module."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,9 @@ def test_check_path_expands_tilde(tmp_path, monkeypatch):
     file_path.touch()
 
     monkeypatch.setenv("HOME", str(tmp_path))
+    if sys.platform == "win32":
+        # On Windows, Path.expanduser() uses USERPROFILE, not HOME.
+        monkeypatch.setenv("USERPROFILE", str(tmp_path))
     result = check_path("~/test.txt", type="file")
 
     assert result.resolve() == file_path.resolve()
