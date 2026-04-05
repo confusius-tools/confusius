@@ -406,7 +406,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._signals._panel import SignalPanel
-        from confusius._napari._video_panel import VideoPanel
+        from confusius._napari._video._video_panel import VideoPanel
 
         container = QWidget()
         layout = QVBoxLayout(container)

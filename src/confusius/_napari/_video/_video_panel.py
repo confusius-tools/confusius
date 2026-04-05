@@ -49,6 +49,9 @@ class _VideoArray:
     n_pad : int, default: 0
         Number of size-1 dimensions inserted between the time axis and
         the spatial axes.
+    step : int, default: 1
+        Show every *step*-th frame (temporal subsampling).  Logical
+        frame ``t`` maps to physical frame ``t * step``.
     time_dim : int, default: 0
         Position of the time axis in the output shape.
     h_dim : int or None, optional
@@ -65,14 +68,16 @@ class _VideoArray:
         dtype: np.dtype,
         frame_shape: tuple[int, ...],
         n_pad: int = 0,
+        step: int = 1,
         time_dim: int = 0,
         h_dim: int | None = None,
         w_dim: int | None = None,
     ) -> None:
         self._video = video
         self._n_pad = n_pad
+        self._step = step
 
-        n_frames = video.number_of_frames
+        n_frames = len(range(0, video.number_of_frames, step))
         is_rgb = len(frame_shape) == 3 and frame_shape[2] in (3, 4)
         self._is_rgb = is_rgb
 
@@ -131,7 +136,7 @@ class _VideoArray:
         )
 
         def _fetch(t: int) -> np.ndarray:
-            frame = np.ascontiguousarray(self._video[t])
+            frame = np.ascontiguousarray(self._video[t * self._step])
             # Transpose H and W if W comes before H in the layout.
             if self._transpose_hw:
                 frame = np.swapaxes(frame, 0, 1)
@@ -174,8 +179,9 @@ class VideoPanel(QWidget):
 
     The video layer receives the same ``axis_labels`` as the fUSI scan so
     that napari handles dimension reordering identically for both layers.
-    The time scale is set to ``frame_step / fps`` so that napari's slider
-    shows physical seconds.
+    The time scale is ``frame_step / fps``, and the time dimension size
+    is reduced by the frame step, so napari auto-computes the correct
+    world-coordinate range without any ``set_range`` call.
 
     The spatial dimensions use a single isotropic scale matching the fUSI
     scan height.  The viewer's grid mode is enabled so the video and fUSI
@@ -280,9 +286,9 @@ class VideoPanel(QWidget):
         self._step_spin = QSpinBox()
         self._step_spin.setRange(1, 100)
         self._step_spin.setValue(1)
-        self._step_spin.setMaximumWidth(60)
+        self._step_spin.setMaximumWidth(50)
         self._step_spin.setToolTip(
-            "Show every Nth frame. Higher values skip frames for lighter playback."
+            "Show every N-th frame. Higher values skip frames for lighter playback."
         )
         self._step_spin.setEnabled(False)
         self._step_spin.valueChanged.connect(self._on_frame_step_changed)
@@ -442,12 +448,8 @@ class VideoPanel(QWidget):
         self._viewer.dims.events.order.connect(self._on_dim_order_changed)
         self._guarding_order = True
 
-        # Set frame step range on the time axis.
-        frame_step = self._step_spin.value()
-        time_axis = self._fusi_time_idx
-        self._viewer.dims.set_range(time_axis, (0, n_frames - 1, frame_step))
-
         # Enable playback controls and show effective FPS.
+        frame_step = self._step_spin.value()
         self._step_spin.setEnabled(True)
         self._update_fps_label()
 
@@ -472,18 +474,22 @@ class VideoPanel(QWidget):
         displayed_v, displayed_h = self._displayed_dims
 
         # Build the array wrapper with explicit dim positions.
+        frame_step = self._step_spin.value()
         data = _VideoArray(
             self._video,
             dtype=self._frame_dtype,
             frame_shape=self._frame_shape,
             n_pad=self._n_pad,
+            step=frame_step,
             time_dim=self._fusi_time_idx,
             h_dim=displayed_v,
             w_dim=displayed_h,
         )
 
-        # Compute per-dim scale and translate.
-        frame_step = self._step_spin.value()
+        # Time scale = frame_step / fps.  Each logical frame spans
+        # ``frame_step`` physical frames, so consecutive data points are
+        # ``frame_step / fps`` seconds apart.  napari auto-computes the
+        # correct world-coordinate range from shape * scale.
         time_scale = frame_step / self._fps if self._fps > 0 else 1.0
         spatial_scale, ty = self._compute_spatial_params(displayed_v)
 
@@ -537,28 +543,30 @@ class VideoPanel(QWidget):
             self._fps_label.setText("")
 
     def _on_frame_step_changed(self, value: int) -> None:
-        """Update the time-axis range for the new frame step.
+        """Rebuild the video layer with a new frame step.
 
-        Instead of rebuilding the video layer, this simply adjusts the
-        napari dims range so the slider steps through every *value*-th
-        frame.  The time scale on the layer is updated in-place.
+        The step is encoded in the `_VideoArray` shape (fewer logical
+        frames) and the layer's time scale (``value / fps``).  napari
+        auto-computes the correct slider range from shape and scale, so
+        no ``set_range`` call is needed.
+
+        The current world time is saved before the rebuild and restored
+        afterward so the slider stays at the closest valid position.
         """
         if self._video is None or self._video_layer is None:
             return
 
-        n_frames = self._video.number_of_frames
+        # Save current world time before rebuild.
         time_axis = self._fusi_time_idx
+        current_time = float(self._viewer.dims.point[time_axis])
 
-        # Update the dims slider range/step.
-        self._viewer.dims.set_range(time_axis, (0, n_frames - 1, value))
+        self._rebuild_video_layer()
 
-        # Update the time scale in-place on the layer.
-        time_scale = value / self._fps if self._fps > 0 else 1.0
-        new_scale = list(self._video_layer.scale)
-        new_scale[self._fusi_time_idx] = time_scale
-        self._video_layer.scale = new_scale
-
+        # Restore to nearest valid position at the same time.
+        self._viewer.dims.set_point(time_axis, current_time)
         self._update_fps_label()
+
+        n_frames = self._video.number_of_frames
         n_shown = len(range(0, n_frames, value))
         show_info(
             f"Frame step {value}: showing {n_shown} frames "
