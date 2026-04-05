@@ -413,12 +413,17 @@ class SignalPanel(QWidget):
             self._plotter.set_xaxis_cursor(float(dims_point[xaxis_index]))
 
     def _on_frame_clicked(self, frame: float) -> None:
-        """Navigate the viewer to the frame that was clicked on the plot."""
+        """Navigate the viewer to the clicked x-axis coordinate.
+
+        ``frame`` is the x-axis plot value (a world coordinate, e.g. time
+        in seconds).  Using `dims.set_point` avoids the double-conversion
+        bug that occurs when setting `current_step` directly — the step
+        index depends on `dims.range.step`, which changes when a video
+        layer with a different time scale is loaded.
+        """
         xaxis_index = self._xaxis_dim_index()
-        current_step = list(self._viewer.dims.current_step)
-        if xaxis_index < len(current_step):
-            current_step[xaxis_index] = round(frame)
-            self._viewer.dims.current_step = tuple(current_step)
+        if xaxis_index < len(self._viewer.dims.point):
+            self._viewer.dims.set_point(xaxis_index, frame)
 
     def _on_theme_changed(self) -> None:
         """Handle napari theme change."""
@@ -604,14 +609,26 @@ class SignalPanel(QWidget):
         - Spatial dimensions (including `pose`) which are never valid signal axes
         - Dimensions with only 1 element (can't create meaningful x-axis)
 
-        Falls back to dimension indices based on the layer's data shape if no
-        xarray metadata is present.
+        When the active layer lacks xarray metadata (e.g., a video layer),
+        falls back to the first image layer in the viewer that does have
+        xarray metadata.  Returns an empty list when no suitable layer is
+        found.
         """
         layer = self._viewer.layers.selection.active
         if layer is None or layer._type_string != "image":
             return []
 
         da = layer.metadata.get("xarray")
+
+        # If the active layer has no xarray metadata (e.g., video layer),
+        # search for the first image layer that does.
+        if da is None:
+            for other in self._viewer.layers:
+                if other._type_string == "image":
+                    da = other.metadata.get("xarray")
+                    if da is not None:
+                        break
+
         if da is not None:
             # Filter out spatial dimensions and single-element dimensions.
             return [
@@ -620,16 +637,7 @@ class SignalPanel(QWidget):
                 if dim not in SPATIAL_DIMS_WITH_POSE and da.shape[i] > 1
             ]
 
-        # Fallback: generate generic dimension names based on data shape.
-        # Without xarray metadata we cannot identify spatial dims by name,
-        # so fall back to excluding displayed dims.
-        displayed_dims = set(self._viewer.dims.displayed)
-        ndim = layer.data.ndim
-        return [
-            f"dim_{i}"
-            for i in range(ndim)
-            if i not in displayed_dims and layer.data.shape[i] > 1
-        ]
+        return []
 
     def _refresh_xaxis_combo(self) -> None:
         """Repopulate the x-axis dimension dropdown.

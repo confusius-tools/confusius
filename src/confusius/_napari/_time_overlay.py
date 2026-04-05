@@ -77,6 +77,10 @@ class _TimeOverlay:
         scales are resolved correctly.  The data index is then used to
         look up the true xarray coordinate, avoiding napari's linear
         scale/translate approximation for non-uniform spacing.
+
+        For layers without xarray metadata (e.g., video layers), returns
+        `None` so that the caller falls back to ``dims.point`` which is
+        correct as long as the layer's time scale is set properly.
         """
         if self._ref_layer is None:
             return None

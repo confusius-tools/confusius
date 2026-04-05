@@ -62,7 +62,8 @@ class SignalPlotter(QWidget):
     frame_clicked = Signal(float)
     """Emitted when the user left-clicks on the plot axes.
 
-    The payload is the frame index corresponding to the clicked x position.
+    The payload is the x-axis coordinate value at the clicked position
+    (a world coordinate, e.g. time in seconds).
     """
 
     def __init__(
@@ -341,10 +342,9 @@ class SignalPlotter(QWidget):
     def _world_to_xaxis(self, world_value: float) -> float | str:
         """Convert a world coordinate to the x-axis value used for plotting.
 
-        Uses the current layer's `world_to_data` transform to map the
-        world coordinate to a data index, then looks up the actual xarray
-        coordinate value.  This keeps the cursor in sync with the time
-        overlay for non-uniform spacing and multi-recording setups.
+        For numeric axes the world coordinate is returned directly so the
+        cursor stays in exact sync with the time overlay (no snapping to
+        the nearest data point).
 
         For non-numeric coordinates (e.g., feature names on a categorical
         axis) the coordinate string itself is returned so that matplotlib
@@ -355,8 +355,9 @@ class SignalPlotter(QWidget):
             if 0 <= index < len(self._xaxis_coords):
                 coord = self._xaxis_coords[index]
                 try:
-                    return float(coord)
+                    float(coord)
                 except (ValueError, TypeError):
+                    # Categorical axis — snap to the actual category.
                     return str(coord)
         return world_value
 
@@ -394,7 +395,7 @@ class SignalPlotter(QWidget):
             return
         if self._toolbar.mode:
             return
-        self.frame_clicked.emit(self._x_to_frame(event.xdata))
+        self.frame_clicked.emit(event.xdata)
 
     def _flush_cursor(self) -> None:
         """Perform the actual blit for the current cursor position."""
@@ -402,7 +403,7 @@ class SignalPlotter(QWidget):
             try:
                 x_cursor = self._world_to_xaxis(self._cursor_world)
                 self._canvas.restore_region(self._bg)
-                self._vline.set_xdata([self._cursor_frame, self._cursor_frame])
+                self._vline.set_xdata([x_cursor, x_cursor])
                 self._axes.draw_artist(self._vline)
                 self._canvas.blit(self._figure.bbox)
             except Exception:  # noqa: BLE001
@@ -442,17 +443,29 @@ class SignalPlotter(QWidget):
         self._update_plot()
 
     def _on_layer_change(self, event) -> None:
-        """Handle layer insertion/removal or active-layer change events."""
+        """Handle layer insertion/removal or active-layer change events.
+
+        When the newly active layer is not a valid signal source (e.g., a
+        video layer without xarray metadata), ``_current_layer`` is left
+        unchanged so that the plotter continues to reference the previous
+        valid layer for signal extraction, cursor mapping, and
+        click-to-navigate.
+        """
         if self._source_mode != "mouse":
             return
-        self._current_layer = self._active_layer()
+        layer = self._active_layer()
+        if layer is not None:
+            self._current_layer = layer
         if self._cursor_pos is not None and self._current_layer is not None:
             self._update_plot()
 
     def _active_layer(self):
         """Return the active layer, or None if it is not a valid image.
 
-        A layer is considered valid when it is a 3-D+ non-RGB image.
+        A layer is considered valid when it is a 3-D+ non-RGB image with
+        xarray metadata.  Layers without xarray (e.g., video layers) are
+        excluded because they do not carry coordinate information needed
+        for signal extraction and x-axis labelling.
         """
         layer = self._viewer.layers.selection.active
         if (
@@ -460,6 +473,7 @@ class SignalPlotter(QWidget):
             and layer._type_string == "image"
             and layer.data.ndim >= 3
             and not getattr(layer, "rgb", False)
+            and layer.metadata.get("xarray") is not None
         ):
             return layer
         return None
