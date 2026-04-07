@@ -598,6 +598,9 @@ class TestSaveNifti:
                 "clutter_filters": "Index-based SVD [50, +inf[",
                 "clutter_filter_window_duration": 0.6,
                 "clutter_filter_window_stride": 0.6,
+                "power_doppler_integration_stride": 0.2,
+                "axial_velocity_integration_stride": 0.25,
+                "bmode_integration_stride": 0.3,
                 "axial_velocity_lag": 2,
                 "axial_velocity_absolute": True,
                 "axial_velocity_spatial_kernel": 3,
@@ -616,7 +619,10 @@ class TestSaveNifti:
         assert sidecar["ClutterFilters"] == "Index-based SVD [50, +inf["
         assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(0.6)
         assert sidecar["ClutterFilterWindowStride"] == pytest.approx(0.6)
+        assert sidecar["PowerDopplerIntegrationStride"] == pytest.approx(0.2)
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(0.3)
+        assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.25)
+        assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.3)
         assert sidecar["ConfUSIusAxialVelocityLag"] == 2
         assert sidecar["ConfUSIusAxialVelocityAbsolute"] is True
         assert sidecar["ConfUSIusAxialVelocitySpatialKernel"] == 3
@@ -1580,6 +1586,48 @@ class TestRoundtrip:
 
         assert sidecar["RepetitionTime"] == 1.0  # Converted from 1000 ms to 1 s.
         assert "DelayAfterTrigger" not in sidecar
+
+    def test_save_converts_processing_duration_attrs_to_seconds(
+        self, tmp_path, sample_4d_volume
+    ) -> None:
+        """Processing duration and stride attrs are converted to seconds in sidecar."""
+        da = sample_4d_volume.copy().assign_coords(
+            time=xr.DataArray(
+                np.arange(sample_4d_volume.sizes["time"]) * 100.0,
+                dims=["time"],
+                attrs={"units": "ms"},
+            )
+        )
+        da.attrs.update(
+            {
+                "clutter_filter_window_duration": 300.0,
+                "clutter_filter_window_stride": 200.0,
+                "power_doppler_integration_duration": 80.0,
+                "power_doppler_integration_stride": 40.0,
+                "axial_velocity_integration_duration": 160.0,
+                "axial_velocity_integration_stride": 50.0,
+                "bmode_integration_duration": 100.0,
+                "bmode_integration_stride": 60.0,
+            }
+        )
+
+        nifti_path = tmp_path / "processing_duration_ms.nii.gz"
+        save_nifti(da, nifti_path)
+
+        sidecar_path = nifti_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+
+        assert sidecar["ClutterFilterWindowDuration"] == pytest.approx(0.3)
+        assert sidecar["ClutterFilterWindowStride"] == pytest.approx(0.2)
+        assert sidecar["PowerDopplerIntegrationDuration"] == pytest.approx(0.08)
+        assert sidecar["PowerDopplerIntegrationStride"] == pytest.approx(0.04)
+        assert sidecar["ConfUSIusAxialVelocityIntegrationDuration"] == pytest.approx(
+            0.16
+        )
+        assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.05)
+        assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(0.1)
+        assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.06)
 
     def test_save_warns_on_inconsistent_spatial_units(self, tmp_path, sample_3d_volume):
         """Saving warns when spatial dimensions have different units."""

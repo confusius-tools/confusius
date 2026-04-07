@@ -472,7 +472,9 @@ class TestProcessIqToPowerDoppler:
         result = process_iq_to_power_doppler(
             sample_iq_dataarray,
             clutter_window_width=10,
-            clutter_window_stride=10,
+            clutter_window_stride=5,
+            doppler_window_width=2,
+            doppler_window_stride=1,
             low_cutoff=1,
             high_cutoff=8,
         )
@@ -480,9 +482,12 @@ class TestProcessIqToPowerDoppler:
         assert result.name == "power_doppler"
         assert result.attrs["units"] == "a.u."
         assert result.attrs["clutter_filters"] == "Index-based SVD [1, 8["
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(1.0)
+        assert result.attrs["clutter_filter_window_stride"] == pytest.approx(0.5)
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
-        ] == pytest.approx(1.0)
+        ] == pytest.approx(0.2)
+        assert result.attrs["power_doppler_integration_stride"] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
 
     def test_butterworth_uses_time_coord_step_as_fs(self, sample_iq_dataarray):
@@ -565,7 +570,7 @@ class TestProcessIqToPowerDoppler:
             UserWarning,
             match=(
                 "no `units` attribute|compound_sampling_frequency|"
-                "B-mode integration duration varies"
+                "B-mode integration (duration|stride) varies"
             ),
         ):
             result = process_iq_to_bmode(
@@ -648,7 +653,7 @@ class TestProcessIqToPowerDoppler:
     def test_duration_irregular_time_spacing_warns_about_median_approximation(
         self, sample_iq_dataarray
     ) -> None:
-        """Irregular time-spacing fallback warns that the inferred duration is approximate."""
+        """Irregular timing emits warnings about approximate timing metadata."""
         iq = sample_iq_dataarray.copy()
         iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
         iq.attrs.pop("compound_sampling_frequency", None)
@@ -660,7 +665,10 @@ class TestProcessIqToPowerDoppler:
             )
         )
 
-        with pytest.warns(UserWarning, match="median approximation"):
+        with pytest.warns(
+            UserWarning,
+            match="median approximation|B-mode integration stride varies",
+        ):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=1, bmode_window_stride=1
             )
@@ -735,7 +743,9 @@ class TestProcessIqToAxialVelocity:
         result = process_iq_to_axial_velocity(
             sample_iq_dataarray,
             clutter_window_width=10,
-            clutter_window_stride=10,
+            clutter_window_stride=5,
+            velocity_window_width=3,
+            velocity_window_stride=1,
             lag=2,
             absolute_velocity=True,
         )
@@ -743,9 +753,13 @@ class TestProcessIqToAxialVelocity:
         assert result.name == "axial_velocity"
         assert result.attrs["units"] == "m/s"
         assert result.attrs["clutter_filters"] == "Index-based SVD"
+        assert result.attrs["clutter_filter_window_duration"] == pytest.approx(1.0)
+        assert result.attrs["clutter_filter_window_stride"] == pytest.approx(0.5)
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
-        ] == pytest.approx(1.0)
+        ] == pytest.approx(0.3)
+        assert result.attrs["axial_velocity_integration_duration"] == pytest.approx(0.3)
+        assert result.attrs["axial_velocity_integration_stride"] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
         assert result.attrs["axial_velocity_lag"] == 2
         assert result.attrs["axial_velocity_absolute"] is True
@@ -1108,11 +1122,13 @@ class TestProcessIqToBmode:
         result = process_iq_to_bmode(
             sample_iq_dataarray,
             bmode_window_width=10,
-            bmode_window_stride=10,
+            bmode_window_stride=5,
         )
 
         assert result.name == "bmode"
         assert result.attrs["units"] == "a.u."
+        assert result.attrs["bmode_integration_duration"] == pytest.approx(1.0)
+        assert result.attrs["bmode_integration_stride"] == pytest.approx(0.5)
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
         ] == pytest.approx(1.0)

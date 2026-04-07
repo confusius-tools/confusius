@@ -71,6 +71,20 @@ _CONFUSIUS_TO_NIFTI_TIME_UNITS: dict[str, str] = {
 _SLICE_TIME_DIM_TO_DIRECTION: dict[str, str] = {"x": "i", "y": "j", "z": "k"}
 """Mapping from slice-time spatial dimension names to BIDS directions."""
 
+_TIME_ATTRS_TO_SECONDS: frozenset[str] = frozenset(
+    {
+        "clutter_filter_window_duration",
+        "clutter_filter_window_stride",
+        "power_doppler_integration_duration",
+        "power_doppler_integration_stride",
+        "axial_velocity_integration_duration",
+        "axial_velocity_integration_stride",
+        "bmode_integration_duration",
+        "bmode_integration_stride",
+    }
+)
+"""Time-valued processing attrs that are expressed in time-coordinate units."""
+
 
 class _NiftiHeaderExtractor:
     """Extract relevant metadata from NIfTI header."""
@@ -1335,11 +1349,21 @@ def _build_nifti_sidecar_metadata(
         Metadata dictionary combining serializable DataArray attrs, non-header affines,
         and timing metadata.
     """
+
     sidecar_attrs = {
         k: v
         for k, v in data_array.attrs.items()
         if k not in ("sform_code", "qform_code", "affines")
     }
+    if "time" in data_array.coords:
+        from_unit = data_array.coords["time"].attrs.get("units")
+        for key in _TIME_ATTRS_TO_SECONDS:
+            value = sidecar_attrs.get(key)
+            if isinstance(value, int | float | np.integer | np.floating):
+                converted_value = convert_time_values(value, from_unit, "s")
+                sidecar_attrs[key] = float(
+                    np.asarray(converted_value, dtype=np.float64)
+                )
 
     extra_affines = {
         k: np.asarray(v).tolist()
@@ -1477,7 +1501,9 @@ def save_nifti(
     -----
     Time coordinates are automatically converted to seconds for BIDS compliance. If the
     time coordinate has a "units" attribute, values are converted from "ms" or "us" to
-    "s". If no units are specified, seconds are assumed.
+    "s". If no units are specified, seconds are assumed. Known time-valued processing
+    metadata stored in `data_array.attrs` is converted to seconds using the same unit
+    convention.
 
     A warning is issued if spatial dimensions `(x, y, z)` have inconsistent units, as
     NIfTI only supports a single spatial unit in the `xyzt_units` header field.
