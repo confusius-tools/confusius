@@ -27,6 +27,7 @@ from confusius._napari._theme import (
 )
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
     import xarray as xr
 
 
@@ -64,10 +65,10 @@ class QCPlotsWidget(QWidget):
         self._data_da: dict | None = None  # pre-computed carpet dict
         self._carpet_layer_name: str = ""
         # Blitting state per plot.
-        self._dvars_ax = None
+        self._dvars_ax: Axes | None = None
         self._dvars_vline = None
         self._dvars_bg = None  # saved pixel buffer (no vline)
-        self._carpet_ax = None
+        self._carpet_ax: Axes | None = None
         self._carpet_vline = None
         self._carpet_bg = None
         # Last known time value so vlines are restored correctly after replot.
@@ -378,7 +379,11 @@ class QCPlotsWidget(QWidget):
         if time_val is None:
             return
 
-        if self._dvars_vline is not None and self._dvars_bg is not None:
+        if (
+            self._dvars_vline is not None
+            and self._dvars_bg is not None
+            and self._dvars_ax is not None
+        ):
             try:
                 self._dvars_canvas.restore_region(self._dvars_bg)
                 self._dvars_vline.set_xdata([time_val, time_val])
@@ -387,7 +392,11 @@ class QCPlotsWidget(QWidget):
             except Exception:  # noqa: BLE001
                 self._dvars_bg = None  # Force a full redraw next time.
 
-        if self._carpet_vline is not None and self._carpet_bg is not None:
+        if (
+            self._carpet_vline is not None
+            and self._carpet_bg is not None
+            and self._carpet_ax is not None
+        ):
             try:
                 self._carpet_canvas.restore_region(self._carpet_bg)
                 self._carpet_vline.set_xdata([time_val, time_val])

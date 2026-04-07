@@ -30,7 +30,7 @@ dependencies = [
     "joblib>=1.5.2",
     "joblib-progress>=1.0.6",
     "matplotlib>=3.10.7",
-    "napari[all]>=0.6.6",
+    "napari[all]>=0.7.0",
     "nibabel>=5.0.0",
     "numpy>=2.3.4",
     "rich>=14.2.0",
@@ -111,6 +111,10 @@ addopts = [
 filterwarnings = [
     "error",
     "ignore::DeprecationWarning:copy",
+    # napari 0.7.x still uses pydantic v1-style `json_encoders`; with
+    # pydantic>=2.12 this raises PydanticDeprecatedSince20 during import.
+    # We treat warnings as errors in tests, so ignore this upstream warning.
+    "ignore:`json_encoders` is deprecated.*:pydantic.warnings.PydanticDeprecatedSince20",
     "ignore:builtin type.*[Ss]wig.*:DeprecationWarning",
     # Under the Agg backend used in tests, RegistrationProgressPlotter correctly
     # warns that no interactive window will appear. Suppress both our own warning

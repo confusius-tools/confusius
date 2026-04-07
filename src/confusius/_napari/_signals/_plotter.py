@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import napari
 import numpy as np
@@ -38,9 +38,11 @@ from confusius._napari._theme import (
     style_plot_toolbar,
 )
 
-# Line styles cycled across reference layers so multi-layer plots are distinguishable
-# even when point/label colors are the same.
+_SOURCE_MODE = Literal["mouse", "points", "labels"]
+"""Source modes for the plotter, determining where signals are extracted from."""
+
 _LAYER_LINESTYLES = ["-", "--", "-.", ":"]
+"""Line styles to cycle across reference layers for visual distinction when colors are the same."""
 
 
 class SignalPlotter(QWidget):
@@ -100,10 +102,10 @@ class SignalPlotter(QWidget):
         self._xaxis_dim: str | None = None
 
         # Source mode: "mouse" | "points" | "labels".
-        self._source_mode: Literal["mouse", "points", "labels"] = "mouse"
+        self._source_mode: _SOURCE_MODE = "mouse"
         self._points_layer = None
         self._labels_layer = None
-        self._ref_layers: list | None = None  # None = all image layers with x-axis dim
+        self._ref_layers: list | None = None
 
         # Debounce timer for labels data changes (painting is fast, replot is slow).
         self._labels_debounce = QTimer(self)
@@ -347,8 +349,8 @@ class SignalPlotter(QWidget):
         overlay for non-uniform spacing and multi-recording setups.
 
         For non-numeric coordinates (e.g., feature names on a categorical
-        axis) the coordinate string itself is returned so that matplotlib
-        places the cursor at the correct existing category.
+        axis), returns the coordinate string so matplotlib places the cursor
+        at the existing category.
         """
         if self._xaxis_coords is not None and self._current_layer is not None:
             index = self._world_to_data_index(world_value)
@@ -368,6 +370,8 @@ class SignalPlotter(QWidget):
         through the current layer's `world_to_data`.
         """
         layer = self._current_layer
+        if layer is None:
+            return int(round(world_value))
         world_point = np.array(self._viewer.dims.point)
         xaxis_idx = self._xaxis_dim_index(layer)
         offset = self._viewer.dims.ndim - layer.ndim
@@ -752,7 +756,7 @@ class SignalPlotter(QWidget):
     # Source mode — public setters
     # ------------------------------------------------------------------
 
-    def set_source_mode(self, mode: Literal["mouse", "points", "labels"]) -> None:
+    def set_source_mode(self, mode: _SOURCE_MODE) -> None:
         """Switch the active plotting source.
 
         Parameters
@@ -1211,10 +1215,23 @@ class SignalPlotter(QWidget):
     ) -> None:
         """Plot a list of signals onto the current axes."""
         for s in signals:
-            kwargs = {"linewidth": linewidth, "alpha": alpha, "label": s.label}
             if s.color is not None:
-                kwargs["color"] = s.color
-            self._axes.plot(s.x_values, s.y_values, **kwargs)
+                self._axes.plot(
+                    s.x_values,
+                    s.y_values,
+                    linewidth=linewidth,
+                    alpha=alpha,
+                    label=s.label,
+                    color=s.color,
+                )
+            else:
+                self._axes.plot(
+                    s.x_values,
+                    s.y_values,
+                    linewidth=linewidth,
+                    alpha=alpha,
+                    label=s.label,
+                )
 
     def _imported_signature(self, signals: list[PlotSignal]) -> tuple[str, ...]:
         """Return a lightweight signature for imported signals already on the axes."""
@@ -1456,7 +1473,7 @@ class SignalPlotter(QWidget):
             )
         if self._show_cursor and show_cursor:
             self._vline = self._axes.axvline(
-                self._world_to_xaxis(self._cursor_world),
+                cast(float, self._world_to_xaxis(self._cursor_world)),
                 color=colors["cursor"],
                 linewidth=1.2,
                 alpha=0.85,
@@ -1610,7 +1627,11 @@ class SignalPlotter(QWidget):
             if ref_layers is None:
                 return
 
-            n_points = len(self._points_layer.data)
+            points_layer = self._points_layer
+            if points_layer is None:
+                return
+
+            n_points = len(points_layer.data)
             if n_points == 0:
                 self._show_message_or_imported(
                     "The selected Points layer is empty.",
@@ -1640,14 +1661,12 @@ class SignalPlotter(QWidget):
                 if live is not None and not live.visible:
                     continue
 
-                pt_data = np.asarray(self._points_layer.data[point_index], dtype=float)
+                pt_data = np.asarray(points_layer.data[point_index], dtype=float)
                 n_pt = len(pt_data)
                 # napari may pad layer.scale/translate to the viewer's ndim, so use the last
                 # n_pt elements to match the point's dimensionality.
-                pts_scale = np.asarray(self._points_layer.scale, dtype=float)[-n_pt:]
-                pts_translate = np.asarray(self._points_layer.translate, dtype=float)[
-                    -n_pt:
-                ]
+                pts_scale = np.asarray(points_layer.scale, dtype=float)[-n_pt:]
+                pts_translate = np.asarray(points_layer.translate, dtype=float)[-n_pt:]
                 # data → world (spatial, n_pt dims)
                 pt_world = pt_data * pts_scale + pts_translate
 
@@ -1655,7 +1674,7 @@ class SignalPlotter(QWidget):
                 pt_color = (
                     live.color
                     if live is not None
-                    else mpl_colors.to_hex(self._points_layer.face_color[point_index])
+                    else mpl_colors.to_hex(points_layer.face_color[point_index])
                 )
 
                 for layer_index, img_layer in enumerate(ref_layers):
@@ -1708,7 +1727,7 @@ class SignalPlotter(QWidget):
             if has_any:
                 self._finalize_multi_signals_plot(
                     export_signals,
-                    self._points_layer.name,
+                    points_layer.name,
                     ref_layers,
                     colors,
                     saved_xlim,
@@ -1738,10 +1757,14 @@ class SignalPlotter(QWidget):
             if ref_layers is None:
                 return
 
+            labels_layer = self._labels_layer
+            if labels_layer is None:
+                return
+
             # Read the labels data. We intentionally avoid an early "all-zeros" check here
             # because newer napari versions may return a lazy view from .data that doesn't
             # reflect painted regions until it is iterated inside the loop.
-            labels_data = np.asarray(self._labels_layer.data)
+            labels_data = np.asarray(labels_layer.data)
 
             self._axes.clear()
             has_any = False
@@ -1835,7 +1858,7 @@ class SignalPlotter(QWidget):
             if has_any:
                 self._finalize_multi_signals_plot(
                     export_signals,
-                    self._labels_layer.name,
+                    labels_layer.name,
                     ref_layers,
                     colors,
                     saved_xlim,

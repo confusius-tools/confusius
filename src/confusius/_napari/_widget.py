@@ -276,8 +276,10 @@ class ConfUSIusWidget(QWidget):
                 # napari's QtCustomTitleBar stores the visible text in a `title`
                 # attribute (a QLabel).
                 tb = dock.titleBarWidget()
-                if tb is not None and hasattr(tb, "title"):
-                    tb.title.setText(title)
+                if tb is not None:
+                    set_text = getattr(getattr(tb, "title", None), "setText", None)
+                    if callable(set_text):
+                        set_text(title)
                 return
         except Exception:  # noqa: BLE001
             pass

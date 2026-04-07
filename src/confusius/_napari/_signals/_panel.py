@@ -523,7 +523,12 @@ class SignalPanel(QWidget):
             return
 
         btn_id = self._source_btn_group.checkedId()
-        mode = {0: "mouse", 1: "points", 2: "labels"}.get(btn_id, "mouse")
+        if btn_id == 1:
+            mode = "points"
+        elif btn_id == 2:
+            mode = "labels"
+        else:
+            mode = "mouse"
 
         # Reference layers.
         ref_text = self._ref_combo.currentText()

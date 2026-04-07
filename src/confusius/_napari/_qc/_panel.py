@@ -27,6 +27,7 @@ from confusius.plotting.image import _prepare_carpet_data, plot_napari
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 if TYPE_CHECKING:
+    from napari.layers import Layer
     import xarray as xr
 
     from confusius._napari._qc._plots import QCPlotsWidget
@@ -285,7 +286,7 @@ class QCPanel(QWidget):
         except RuntimeError:
             self._qc_plots = None
 
-    def _time_val_from_layer(self, layer: napari.layers.Layer) -> float | None:
+    def _time_val_from_layer(self, layer: Layer) -> float | None:
         """Return the current time value for *layer* based on the viewer position.
 
         Uses the layer's `world_to_data` transform to map the viewer's
@@ -315,7 +316,7 @@ class QCPanel(QWidget):
             return float(time_index)
         return None
 
-    def _selected_time_layer(self) -> napari.layers.Layer | None:
+    def _selected_time_layer(self) -> Layer | None:
         """Return the single selected layer with a time axis, or `None`.
 
         Mirrors the reference-layer logic in `_TimeOverlay` so that the
