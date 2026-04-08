@@ -55,6 +55,7 @@ class SignalPanel(QWidget):
 
         # Source group.
         source_group = QGroupBox("Source")
+        self._source_group = source_group
         source_layout = QVBoxLayout(source_group)
         source_layout.setSpacing(4)
 
@@ -129,6 +130,7 @@ class SignalPanel(QWidget):
 
         # Axis parameters group.
         axis_group = QGroupBox("Axis Parameters")
+        self._axis_group = axis_group
         axis_layout = QVBoxLayout(axis_group)
         axis_layout.setSpacing(4)
 
@@ -190,6 +192,7 @@ class SignalPanel(QWidget):
 
         # Display options.
         display_group = QGroupBox("Display Options")
+        self._display_group = display_group
         display_layout = QVBoxLayout(display_group)
         display_layout.setSpacing(4)
 
@@ -246,6 +249,7 @@ class SignalPanel(QWidget):
         """
         if self._plotter is None:
             self._plotter = SignalPlotter(self._viewer, store=self._signals_store)
+            self._plotter.frame_clicked.connect(self._on_frame_clicked)
 
         if self._plotter.parent() is None:
             # Widget is not docked, create (or re-create) the dock.
@@ -301,7 +305,7 @@ class SignalPanel(QWidget):
         self._apply_settings()
         self._sync_source_to_plotter()
         if self._cursor_check.isChecked():
-            self._plotter.set_xaxis_cursor(self._current_frame())
+            self._plotter.set_xaxis_cursor(self._current_xaxis_world())
 
         return self._plotter
 
@@ -370,13 +374,11 @@ class SignalPanel(QWidget):
 
         return 0
 
-    def _current_frame(self) -> float:
-        """Return the current x-axis frame index from the viewer's step."""
-        current_step = self._viewer.dims.current_step
+    def _current_xaxis_world(self) -> float:
+        """Return the current world coordinate along the x-axis dimension."""
         xaxis_index = self._xaxis_dim_index()
-        return (
-            float(current_step[xaxis_index]) if xaxis_index < len(current_step) else 0.0
-        )
+        dims_point = self._viewer.dims.point
+        return float(dims_point[xaxis_index]) if xaxis_index < len(dims_point) else 0.0
 
     def _on_cursor_toggled(self, checked: bool) -> None:
         """Connect or disconnect the x-axis step event and update the plotter."""
@@ -392,16 +394,24 @@ class SignalPanel(QWidget):
         if self._plotter is not None:
             self._plotter.set_show_cursor(checked)
             if checked:
-                self._plotter.set_xaxis_cursor(self._current_frame())
+                self._plotter.set_xaxis_cursor(self._current_xaxis_world())
 
     def _on_xaxis_step_changed(self, event) -> None:
-        """Forward the current napari x-axis step to the x-axis cursor."""
+        """Forward the current napari x-axis world coordinate to the cursor."""
         if self._plotter is None:
             return
-        current_step = event.value
         xaxis_index = self._xaxis_dim_index()
+        dims_point = self._viewer.dims.point
+        if xaxis_index < len(dims_point):
+            self._plotter.set_xaxis_cursor(float(dims_point[xaxis_index]))
+
+    def _on_frame_clicked(self, frame: float) -> None:
+        """Navigate the viewer to the frame that was clicked on the plot."""
+        xaxis_index = self._xaxis_dim_index()
+        current_step = list(self._viewer.dims.current_step)
         if xaxis_index < len(current_step):
-            self._plotter.set_xaxis_cursor(float(current_step[xaxis_index]))
+            current_step[xaxis_index] = round(frame)
+            self._viewer.dims.current_step = tuple(current_step)
 
     def _on_theme_changed(self) -> None:
         """Handle napari theme change."""
@@ -513,7 +523,12 @@ class SignalPanel(QWidget):
             return
 
         btn_id = self._source_btn_group.checkedId()
-        mode = {0: "mouse", 1: "points", 2: "labels"}.get(btn_id, "mouse")
+        if btn_id == 1:
+            mode = "points"
+        elif btn_id == 2:
+            mode = "labels"
+        else:
+            mode = "mouse"
 
         # Reference layers.
         ref_text = self._ref_combo.currentText()

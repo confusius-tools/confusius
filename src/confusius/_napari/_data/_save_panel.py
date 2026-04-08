@@ -82,9 +82,14 @@ class SavePanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # --- Layer selection ------------------------------------------
-        layer_group = QGroupBox("Layer")
-        layer_form = QFormLayout(layer_group)
+        # --- Layer saving ---------------------------------------------
+        save_group = QGroupBox("Layer Saving")
+        self._save_group = save_group
+        self._layer_group = save_group
+        save_layout = QVBoxLayout(save_group)
+        save_layout.setSpacing(8)
+
+        layer_form = QFormLayout()
         layer_form.setSpacing(6)
 
         self._layer_combo = QComboBox()
@@ -101,12 +106,7 @@ class SavePanel(QWidget):
 
         layer_form.addRow("Save layer:", self._layer_combo)
         layer_form.addRow("Coordinates from:", self._template_combo)
-        layout.addWidget(layer_group)
-
-        # --- Output ------------------------------------------------------
-        output_group = QGroupBox("Output")
-        output_layout = QVBoxLayout(output_group)
-        output_layout.setSpacing(6)
+        save_layout.addLayout(layer_form)
 
         self._path_edit = QLineEdit()
         self._path_edit.setPlaceholderText("Output path (.nii.gz or .zarr) …")
@@ -119,8 +119,8 @@ class SavePanel(QWidget):
         path_row.addWidget(self._path_edit)
         path_row.addWidget(self._browse_btn)
 
-        output_layout.addLayout(path_row)
-        layout.addWidget(output_group)
+        save_layout.addLayout(path_row)
+        layout.addWidget(save_group)
 
         # --- Progress + save button -----------------------------------
         self._progress = QProgressBar()

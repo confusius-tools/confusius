@@ -48,7 +48,8 @@ There are two ways to start the plugin:
 
 The widget contains three collapsible panels—[Data I/O](plugin.md#data-io-panel),
 [Signals](plugin.md#signals-panel), and [QC](plugin.md#qc-panel)—that can each be
-expanded or collapsed independently.
+expanded or collapsed independently. If you want a quick walkthrough inside napari
+itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 
 !!! tip "Running napari programmatically"
     If you prefer to open napari from a Python script or Jupyter notebook, see the

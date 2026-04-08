@@ -27,6 +27,7 @@ from confusius.plotting.image import _prepare_carpet_data, plot_napari
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 if TYPE_CHECKING:
+    from napari.layers import Layer
     import xarray as xr
 
     from confusius._napari._qc._plots import QCPlotsWidget
@@ -89,18 +90,26 @@ class QCPanel(QWidget):
         viewer.layers.events.removed.connect(self._refresh_layers)
         viewer.events.theme.connect(self._on_theme_changed)
         viewer.dims.events.current_step.connect(self._on_time_step_changed)
+        viewer.layers.selection.events.changed.connect(self._on_time_step_changed)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        layout.addWidget(QLabel("Layer"))
+        layer_group = QGroupBox("Layer")
+        self._layer_group = layer_group
+        layer_layout = QVBoxLayout(layer_group)
+        layer_layout.setSpacing(4)
+
+        layer_layout.addWidget(QLabel("Layer"))
         self._layer_combo = QComboBox()
-        layout.addWidget(self._layer_combo)
+        layer_layout.addWidget(self._layer_combo)
+        layout.addWidget(layer_group)
 
         # --- Temporal metrics (bottom dock) ---------------------------
         ts_group = QGroupBox("Temporal metrics")
+        self._temporal_group = ts_group
         ts_layout = QVBoxLayout(ts_group)
         ts_layout.setSpacing(4)
         self._dvars_check = QCheckBox("DVARS")
@@ -113,6 +122,7 @@ class QCPanel(QWidget):
 
         # --- Spatial map metrics (new viewer layers) ---------------------
         maps_group = QGroupBox("Spatial metrics")
+        self._spatial_group = maps_group
         maps_layout = QVBoxLayout(maps_group)
         maps_layout.setSpacing(4)
         self._tsnr_check = QCheckBox("tSNR")
@@ -198,6 +208,7 @@ class QCPanel(QWidget):
 
         if self._qc_plots is None:
             self._qc_plots = QCPlotsWidget(self.viewer)
+            self._qc_plots.time_clicked.connect(self._on_time_clicked)
 
         if self._qc_plots.parent() is None:
             # Widget is not currently docked (brand-new or orphaned after dock closure).
@@ -275,26 +286,57 @@ class QCPanel(QWidget):
         except RuntimeError:
             self._qc_plots = None
 
-    def _time_val_from_da(self, da: xr.DataArray) -> float | None:
-        """Return the current time value for *da* based on the viewer step.
+    def _time_val_from_layer(self, layer: Layer) -> float | None:
+        """Return the current time value for *layer* based on the viewer position.
 
-        Maps the viewer's current step index for the time dimension to the corresponding
-        coordinate value (or bare index when no coordinate exists). Returns None when
-        the time dimension cannot be resolved.
+        Uses the layer's `world_to_data` transform to map the viewer's
+        world coordinate to the correct data index, then looks up the
+        xarray coordinate.  This handles multi-recording setups (different
+        time origins) and non-uniform time spacing correctly.
+
+        Returns `None` when the time dimension cannot be resolved.
         """
-        if "time" not in da.dims:
-            return None
-        current_step = self.viewer.dims.current_step
-        time_dim_index = list(da.dims).index("time")
-        if time_dim_index >= len(current_step):
-            return None
-        time_index = current_step[time_dim_index]
-        time_coord = da.coords.get("time")
-        if time_coord is not None and time_index < len(time_coord):
-            return float(time_coord[time_index])
-        return float(time_index)
+        import numpy as np
 
-    def _on_time_step_changed(self, event) -> None:
+        da = layer.metadata.get("xarray")
+        if da is None or "time" not in da.dims:
+            return None
+
+        time_dim_index = list(da.dims).index("time")
+        world_point = np.array(self.viewer.dims.point)
+        offset = self.viewer.dims.ndim - layer.ndim
+        layer_world = world_point[offset:]
+        data_point = layer.world_to_data(layer_world)
+        time_index = int(np.round(data_point[time_dim_index]))
+
+        time_coord = da.coords.get("time")
+        if time_coord is not None and 0 <= time_index < len(time_coord):
+            return float(time_coord[time_index])
+        if 0 <= time_index < da.sizes["time"]:
+            return float(time_index)
+        return None
+
+    def _selected_time_layer(self) -> Layer | None:
+        """Return the single selected layer with a time axis, or `None`.
+
+        Mirrors the reference-layer logic in `_TimeOverlay` so that the
+        QC cursor stays in sync with the time overlay.  When zero or more
+        than one time-aware layers are selected, falls back to the first
+        time-aware layer in the viewer.
+        """
+        selected = [
+            layer
+            for layer in self.viewer.layers.selection
+            if "time" in layer.axis_labels
+        ]
+        if len(selected) == 1:
+            return selected[0]
+        for layer in self.viewer.layers:
+            if "time" in layer.axis_labels:
+                return layer
+        return None
+
+    def _on_time_step_changed(self) -> None:
         """Forward the current napari time step to the time cursor."""
         if self._qc_plots is None:
             return
@@ -303,6 +345,18 @@ class QCPanel(QWidget):
         except RuntimeError:
             self._qc_plots = None
             return
+
+        layer = self._selected_time_layer()
+        if layer is None:
+            return
+
+        time_val = self._time_val_from_layer(layer)
+        if time_val is not None:
+            self._qc_plots.set_time_cursor(time_val)
+
+    def _on_time_clicked(self, time_val: float) -> None:
+        """Navigate the viewer to the time value that was clicked on a QC plot."""
+        import numpy as np
 
         layer_name = self._layer_combo.currentText()
         if not layer_name:
@@ -313,11 +367,20 @@ class QCPanel(QWidget):
             return
 
         da = layer.metadata.get("xarray")
-        if da is None:
+        if da is None or "time" not in da.dims:
             return
-        time_val = self._time_val_from_da(da)
-        if time_val is not None:
-            self._qc_plots.set_time_cursor(time_val)
+
+        time_dim_index = list(da.dims).index("time")
+        time_coord = da.coords.get("time")
+        if time_coord is not None:
+            frame = int(np.argmin(np.abs(time_coord.values - time_val)))
+        else:
+            frame = round(time_val)
+
+        current_step = list(self.viewer.dims.current_step)
+        if time_dim_index < len(current_step):
+            current_step[time_dim_index] = frame
+            self.viewer.dims.current_step = tuple(current_step)
 
     # ------------------------------------------------------------------
     # Compute callbacks
@@ -340,11 +403,13 @@ class QCPanel(QWidget):
                 if "carpet" in results:
                     qc_widget.update_carpet(results["carpet"], layer_name=layer_name)
 
-                # Sync cursor to the current slider position so it does not start at t=0
-                # when plots are first drawn.
-                time_val = self._time_val_from_da(da)
-                if time_val is not None:
-                    qc_widget.set_time_cursor(time_val)
+                # Sync cursor to the current slider position so it does not
+                # start at t=0 when plots are first drawn.
+                time_layer = self._selected_time_layer()
+                if time_layer is not None:
+                    time_val = self._time_val_from_layer(time_layer)
+                    if time_val is not None:
+                        qc_widget.set_time_cursor(time_val)
 
                 self._show_btn.show()
 

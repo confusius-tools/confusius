@@ -18,6 +18,12 @@ clean-docs:
     rm -rf .cache/
     rm -rf site/
 
+# Generate documentation images.
+generate-doc-images:
+    uv run docs/images/gui/generate.py
+    uv run docs/images/qc/generate.py
+    uv run docs/images/visualization/generate.py
+
 # Run all tests.
 test:
     uv run pytest tests/ --mpl
@@ -38,6 +44,7 @@ pre-commit:
 # Aliases
 alias d := docs
 alias cd := clean-docs
+alias gdi := generate-doc-images
 alias sd := serve-docs
 alias t := test
 alias tv := test-verbose

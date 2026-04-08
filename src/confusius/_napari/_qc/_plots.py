@@ -10,7 +10,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from napari.utils.notifications import show_error, show_info
-from qtpy.QtCore import QSize, QTimer
+from qtpy.QtCore import QSize, QTimer, Signal
 from qtpy.QtWidgets import QSizePolicy, QTabWidget, QVBoxLayout, QWidget
 
 from confusius._napari._export import (
@@ -27,6 +27,7 @@ from confusius._napari._theme import (
 )
 
 if TYPE_CHECKING:
+    from matplotlib.axes import Axes
     import xarray as xr
 
 
@@ -47,6 +48,12 @@ class QCPlotsWidget(QWidget):
         Used to read the current theme whenever plots are (re)drawn.
     """
 
+    time_clicked = Signal(float)
+    """Emitted when the user left-clicks on a QC plot axes.
+
+    The payload is the x-axis time value (or frame index) at the click position.
+    """
+
     def __init__(self, viewer: napari.Viewer) -> None:
         super().__init__()
         self._viewer = viewer
@@ -58,10 +65,10 @@ class QCPlotsWidget(QWidget):
         self._data_da: dict | None = None  # pre-computed carpet dict
         self._carpet_layer_name: str = ""
         # Blitting state per plot.
-        self._dvars_ax = None
+        self._dvars_ax: Axes | None = None
         self._dvars_vline = None
         self._dvars_bg = None  # saved pixel buffer (no vline)
-        self._carpet_ax = None
+        self._carpet_ax: Axes | None = None
         self._carpet_vline = None
         self._carpet_bg = None
         # Last known time value so vlines are restored correctly after replot.
@@ -99,6 +106,7 @@ class QCPlotsWidget(QWidget):
         # draw_event fires after every full redraw; use it to save the background
         # (without the animated vline) ready for blitting.
         self._dvars_canvas.mpl_connect("draw_event", self._on_dvars_draw)
+        self._dvars_canvas.mpl_connect("button_press_event", self._on_dvars_click)
 
         self._dvars_tab = QWidget()
         dvars_layout = QVBoxLayout(self._dvars_tab)
@@ -119,6 +127,7 @@ class QCPlotsWidget(QWidget):
         self._carpet_canvas = FigureCanvas(self._carpet_fig)
         self._carpet_canvas.setSizePolicy(_exp, _exp)
         self._carpet_canvas.mpl_connect("draw_event", self._on_carpet_draw)
+        self._carpet_canvas.mpl_connect("button_press_event", self._on_carpet_click)
 
         self._carpet_tab = QWidget()
         carpet_layout = QVBoxLayout(self._carpet_tab)
@@ -197,6 +206,30 @@ class QCPlotsWidget(QWidget):
             self._carpet_canvas.blit(self._carpet_fig.bbox)
         except Exception:  # noqa: BLE001
             self._carpet_bg = None
+
+    # ------------------------------------------------------------------
+    # Click-to-navigate helpers
+    # ------------------------------------------------------------------
+
+    def _on_dvars_click(self, event) -> None:
+        """Handle left-click on DVARS axes: emit `time_clicked`."""
+        if event.inaxes is not self._dvars_ax:
+            return
+        if event.button != 1:
+            return
+        if self._dvars_toolbar.mode:
+            return
+        self.time_clicked.emit(event.xdata)
+
+    def _on_carpet_click(self, event) -> None:
+        """Handle left-click on carpet plot axes: emit `time_clicked`."""
+        if event.inaxes is not self._carpet_ax:
+            return
+        if event.button != 1:
+            return
+        if self._carpet_toolbar.mode:
+            return
+        self.time_clicked.emit(event.xdata)
 
     # ------------------------------------------------------------------
     # Update helpers
@@ -346,7 +379,11 @@ class QCPlotsWidget(QWidget):
         if time_val is None:
             return
 
-        if self._dvars_vline is not None and self._dvars_bg is not None:
+        if (
+            self._dvars_vline is not None
+            and self._dvars_bg is not None
+            and self._dvars_ax is not None
+        ):
             try:
                 self._dvars_canvas.restore_region(self._dvars_bg)
                 self._dvars_vline.set_xdata([time_val, time_val])
@@ -355,7 +392,11 @@ class QCPlotsWidget(QWidget):
             except Exception:  # noqa: BLE001
                 self._dvars_bg = None  # Force a full redraw next time.
 
-        if self._carpet_vline is not None and self._carpet_bg is not None:
+        if (
+            self._carpet_vline is not None
+            and self._carpet_bg is not None
+            and self._carpet_ax is not None
+        ):
             try:
                 self._carpet_canvas.restore_region(self._carpet_bg)
                 self._carpet_vline.set_xdata([time_val, time_val])

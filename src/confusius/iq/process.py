@@ -151,7 +151,7 @@ def _get_filter_sampling_frequency(
 
 
 def _summarize_window_duration(
-    durations: npt.ArrayLike,
+    durations: npt.NDArray,
     *,
     description: str,
     uniformity_tolerance: float = 1e-5,
@@ -180,12 +180,11 @@ def _summarize_window_duration(
         tolerance, returns the common duration. Otherwise, returns the median duration
         and emits a warning.
     """
-    duration_values = np.asarray(durations, dtype=np.float64)
-    if duration_values.size == 1:
-        return float(duration_values[0])
+    if durations.size == 1:
+        return float(durations[0])
 
-    median = float(np.median(duration_values))
-    is_uniform = (np.max(duration_values) - np.min(duration_values)) / abs(
+    median = float(np.median(durations))
+    is_uniform = (np.max(durations) - np.min(durations)) / abs(
         median
     ) <= uniformity_tolerance
 
@@ -197,6 +196,164 @@ def _summarize_window_duration(
         )
 
     return median
+
+
+def _compute_clutter_filter_window_metadata(
+    iq: xr.DataArray, *, clutter_window_width: int, clutter_window_stride: int
+) -> tuple[float, float]:
+    """Compute representative clutter-filter window duration and stride metadata.
+
+    Parameters
+    ----------
+    iq : xarray.DataArray
+        Input IQ data.
+    clutter_window_width : int
+        Width of the clutter-filter window, in volumes.
+    clutter_window_stride : int
+        Stride of the clutter-filter window, in volumes.
+
+    Returns
+    -------
+    clutter_window_duration : float
+        Representative clutter-filter window duration in the input time-coordinate
+        units.
+    clutter_window_stride_duration : float
+        Representative clutter-filter window stride in the input time-coordinate
+        units.
+    """
+    iq_time_reference = iq.coords["time"].attrs.get(
+        "volume_acquisition_reference", "start"
+    )
+    if iq_time_reference not in {"start", "center", "end"}:
+        raise ValueError(
+            f"Unknown volume_acquisition_reference: {iq_time_reference!r}. Must be "
+            "'start', 'center', or 'end'."
+        )
+
+    iq_volume_duration = _get_volume_acquisition_duration(iq)
+    iq_volume_timings = np.asarray(iq.coords["time"].values)
+    window_starts = convert_time_reference(
+        iq_volume_timings,
+        iq_volume_duration,
+        from_reference=iq_time_reference,
+        to_reference="start",
+    )
+
+    n_outer_windows = (
+        len(iq_volume_timings) - clutter_window_width
+    ) // clutter_window_stride + 1
+    outer_starts = np.arange(n_outer_windows) * clutter_window_stride
+    outer_ends = outer_starts + clutter_window_width - 1
+
+    clutter_window_durations = (
+        iq_volume_timings[outer_ends]
+        - iq_volume_timings[outer_starts]
+        + iq_volume_duration
+    )
+    clutter_window_duration = _summarize_window_duration(
+        clutter_window_durations, description="Clutter filter window duration"
+    )
+
+    if n_outer_windows > 1:
+        clutter_window_stride_duration = _summarize_window_duration(
+            np.diff(window_starts[outer_starts]),
+            description="Clutter filter window stride",
+        )
+    else:
+        time_step, _ = get_representative_time_step(iq)
+        if time_step is None:
+            clutter_window_stride_duration = clutter_window_stride * iq_volume_duration
+        else:
+            clutter_window_stride_duration = clutter_window_stride * time_step
+
+    return clutter_window_duration, float(clutter_window_stride_duration)
+
+
+def _compute_inner_window_metadata(
+    iq: xr.DataArray,
+    *,
+    output_timings: npt.NDArray[np.floating],
+    output_durations: npt.NDArray[np.floating],
+    output_window_stride: int,
+    inner_windows_per_outer_window: int,
+    duration_description: str,
+    stride_description: str,
+) -> tuple[float, float]:
+    """Compute representative inner-window duration and stride metadata.
+
+    Parameters
+    ----------
+    iq : xarray.DataArray
+        Input IQ data.
+    output_timings : array-like
+        Output timings for each processed window.
+    output_durations : array-like
+        Durations for each processed window.
+    output_window_stride : int
+        Output-window stride in volumes.
+    inner_windows_per_outer_window : int
+        Number of inner windows produced for each outer window.
+    duration_description : str
+        Description used when duration values vary across windows.
+    stride_description : str
+        Description used when stride values vary across windows.
+
+    Returns
+    -------
+    output_window_duration : float
+        Representative output-window duration in time-coordinate units.
+    output_window_stride_duration : float
+        Representative output-window stride in time-coordinate units.
+    """
+    output_window_duration = _summarize_window_duration(
+        output_durations,
+        description=duration_description,
+    )
+
+    output_reference = iq.coords["time"].attrs.get(
+        "volume_acquisition_reference", "start"
+    )
+    if output_reference not in {"start", "center", "end"}:
+        raise ValueError(
+            f"Unknown volume_acquisition_reference: {output_reference!r}. Must be "
+            "'start', 'center', or 'end'."
+        )
+
+    if output_timings.size > 1:
+        output_starts = convert_time_reference(
+            output_timings,
+            output_durations,
+            from_reference=output_reference,
+            to_reference="start",
+        )
+        if inner_windows_per_outer_window > 1:
+            n_outer_windows, remainder = divmod(
+                output_starts.size, inner_windows_per_outer_window
+            )
+            if remainder == 0 and n_outer_windows > 0:
+                output_starts_per_outer = output_starts.reshape(
+                    n_outer_windows, inner_windows_per_outer_window
+                )
+                stride_values = np.diff(output_starts_per_outer, axis=1).ravel()
+            else:
+                stride_values = np.diff(output_starts)
+        else:
+            stride_values = np.diff(output_starts)
+
+        output_window_stride_duration = _summarize_window_duration(
+            stride_values, description=stride_description
+        )
+        return output_window_duration, float(output_window_stride_duration)
+
+    time_step, _ = get_representative_time_step(iq)
+    if time_step is None:
+        output_window_stride_duration = (
+            output_window_stride * _get_volume_acquisition_duration(iq)
+        )
+    else:
+        output_window_stride_duration = output_window_stride * time_step
+
+    return output_window_duration, float(output_window_stride_duration)
 
 
 def compute_processed_volume_timings(
@@ -1069,9 +1226,26 @@ def process_iq_to_power_doppler(
         inner_window_width=doppler_window_width,
         inner_window_stride=doppler_window_stride,
     )
-    doppler_window_duration = _summarize_window_duration(
-        doppler_window_durations,
-        description="Power Doppler integration duration",
+    doppler_windows_per_clutter_window = (
+        clutter_window_width - doppler_window_width
+    ) // doppler_window_stride + 1
+    doppler_window_duration, doppler_window_stride_duration = (
+        _compute_inner_window_metadata(
+            iq,
+            output_timings=output_times_values,
+            output_durations=doppler_window_durations,
+            output_window_stride=doppler_window_stride,
+            inner_windows_per_outer_window=doppler_windows_per_clutter_window,
+            duration_description="Power Doppler integration duration",
+            stride_description="Power Doppler integration stride",
+        )
+    )
+    clutter_window_duration, clutter_window_stride_duration = (
+        _compute_clutter_filter_window_metadata(
+            iq,
+            clutter_window_width=clutter_window_width,
+            clutter_window_stride=clutter_window_stride,
+        )
     )
     output_times = xr.DataArray(
         output_times_values,
@@ -1094,7 +1268,10 @@ def process_iq_to_power_doppler(
         "clutter_filters": _format_clutter_filter_spec(
             filter_method, low_cutoff, high_cutoff
         ),
+        "clutter_filter_window_duration": clutter_window_duration,
+        "clutter_filter_window_stride": clutter_window_stride_duration,
         "power_doppler_integration_duration": doppler_window_duration,
+        "power_doppler_integration_stride": doppler_window_stride_duration,
     }
     return xr.DataArray(
         result,
@@ -1168,9 +1345,16 @@ def process_iq_to_bmode(
         inner_window_width=bmode_window_width,
         inner_window_stride=bmode_window_width,
     )
-    bmode_window_duration = _summarize_window_duration(
-        bmode_window_durations,
-        description="B-mode integration duration",
+    bmode_window_duration, bmode_window_stride_duration = (
+        _compute_inner_window_metadata(
+            iq,
+            output_timings=output_times_values,
+            output_durations=bmode_window_durations,
+            output_window_stride=bmode_window_stride,
+            inner_windows_per_outer_window=1,
+            duration_description="B-mode integration duration",
+            stride_description="B-mode integration stride",
+        )
     )
     output_times = xr.DataArray(
         output_times_values,
@@ -1191,6 +1375,7 @@ def process_iq_to_bmode(
         "long_name": "B-mode intensity",
         "cmap": "gray",
         "bmode_integration_duration": bmode_window_duration,
+        "bmode_integration_stride": bmode_window_stride_duration,
     }
 
     return xr.DataArray(
@@ -1400,9 +1585,26 @@ def process_iq_to_axial_velocity(
         inner_window_width=velocity_window_width,
         inner_window_stride=velocity_window_stride,
     )
-    velocity_window_duration = _summarize_window_duration(
-        velocity_window_durations,
-        description="Axial velocity integration duration",
+    velocity_windows_per_clutter_window = (
+        clutter_window_width - velocity_window_width
+    ) // velocity_window_stride + 1
+    velocity_window_duration, velocity_window_stride_duration = (
+        _compute_inner_window_metadata(
+            iq,
+            output_timings=output_times_values,
+            output_durations=velocity_window_durations,
+            output_window_stride=velocity_window_stride,
+            inner_windows_per_outer_window=velocity_windows_per_clutter_window,
+            duration_description="Axial velocity integration duration",
+            stride_description="Axial velocity integration stride",
+        )
+    )
+    clutter_window_duration, clutter_window_stride_duration = (
+        _compute_clutter_filter_window_metadata(
+            iq,
+            clutter_window_width=clutter_window_width,
+            clutter_window_stride=clutter_window_stride,
+        )
     )
     output_times = xr.DataArray(
         output_times_values,
@@ -1426,6 +1628,8 @@ def process_iq_to_axial_velocity(
         "clutter_filters": _format_clutter_filter_spec(
             filter_method, low_cutoff, high_cutoff
         ),
+        "clutter_filter_window_duration": clutter_window_duration,
+        "clutter_filter_window_stride": clutter_window_stride_duration,
         "axial_velocity_lag": lag,
         "axial_velocity_absolute": absolute_velocity,
         "axial_velocity_spatial_kernel": spatial_kernel,
@@ -1433,6 +1637,7 @@ def process_iq_to_axial_velocity(
         "beamforming_sound_velocity": beamforming_sound_velocity,
         "axial_velocity_estimation_method": estimation_method,
         "axial_velocity_integration_duration": velocity_window_duration,
+        "axial_velocity_integration_stride": velocity_window_stride_duration,
     }
     return xr.DataArray(
         result,

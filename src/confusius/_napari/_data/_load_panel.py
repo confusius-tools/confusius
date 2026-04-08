@@ -91,7 +91,8 @@ class DataPanel(QWidget):
         layout.setSpacing(8)
 
         # --- File group --------------------------------------------------
-        file_group = QGroupBox("File")
+        file_group = QGroupBox("File Loading")
+        self._file_group = file_group
         file_layout = QVBoxLayout(file_group)
         file_layout.setSpacing(6)
 

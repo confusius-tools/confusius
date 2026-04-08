@@ -6,5 +6,6 @@ multi-pose specific operations.
 """
 
 from confusius.multipose.consolidate import consolidate_poses
+from confusius.multipose.slice_timing import correct_slice_timings
 
-__all__ = ["consolidate_poses"]
+__all__ = ["consolidate_poses", "correct_slice_timings"]

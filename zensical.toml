@@ -58,6 +58,7 @@ nav = [
     ]},
     { "Examples" = "examples/index.md" },
     { "Contributing" = "contributing.md" },
+    { "Contributors" = "contributors.md" },
     { "Citing" = "citing.md" },
 ]
 

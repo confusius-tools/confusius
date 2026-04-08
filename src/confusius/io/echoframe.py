@@ -115,7 +115,8 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
         # Probe parameters.
         transmit_frequency = float(np.array(probe_spec["Fc"][:]).item())
         probe_n_elements = int(np.array(probe_spec["nElementsX"][:]).item())
-        probe_pitch = float(np.array(probe_spec["pitchX"][:]).item())
+        # Probe pitch is stored in meters in the EchoFrame metadata files.
+        probe_pitch = float(np.array(probe_spec["pitchX"][:]).item()) * 1e3
 
         # Sequence parameters.
         speed_of_sound = float(np.array(recon_spec["c0"][:]).item())

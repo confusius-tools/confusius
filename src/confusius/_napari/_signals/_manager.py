@@ -294,7 +294,10 @@ class SignalsManagerDialog(QDialog):
     def _remove_selected(self) -> None:
         """Remove the currently selected imported signal (live signals are skipped)."""
         signal_ids = []
-        for index in self._table.selectionModel().selectedRows():
+        selection_model = self._table.selectionModel()
+        if selection_model is None:
+            return
+        for index in selection_model.selectedRows():
             item = self._table.item(index.row(), 1)
             if item is None:
                 continue

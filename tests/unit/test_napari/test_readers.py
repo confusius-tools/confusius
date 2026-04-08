@@ -152,10 +152,18 @@ class TestReaderLayerData:
             np.zeros((8, 6, 4, 10), dtype=np.float32),
             dims=["x", "y", "z", "time"],
             coords={
-                "x": xr.DataArray(1.0 + np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}),
-                "y": xr.DataArray(2.0 + np.arange(6) * 0.10, dims=["y"], attrs={"units": "mm"}),
-                "z": xr.DataArray(3.0 + np.arange(4) * 0.20, dims=["z"], attrs={"units": "mm"}),
-                "time": xr.DataArray(10.0 + np.arange(10) * 0.5, dims=["time"], attrs={"units": "s"}),
+                "x": xr.DataArray(
+                    1.0 + np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    2.0 + np.arange(6) * 0.10, dims=["y"], attrs={"units": "mm"}
+                ),
+                "z": xr.DataArray(
+                    3.0 + np.arange(4) * 0.20, dims=["z"], attrs={"units": "mm"}
+                ),
+                "time": xr.DataArray(
+                    10.0 + np.arange(10) * 0.5, dims=["time"], attrs={"units": "s"}
+                ),
             },
         )
         path = tmp_path / "time_last.zarr"

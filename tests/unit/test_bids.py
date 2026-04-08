@@ -98,6 +98,34 @@ class TestCaseConversion:
 
         assert roundtripped == attrs
 
+    def test_clutter_filter_window_metadata_mapping(self):
+        """Clutter-filter timing metadata uses canonical BIDS field names."""
+        attrs = {
+            "clutter_filter_window_duration": 0.6,
+            "clutter_filter_window_stride": 0.3,
+        }
+
+        bids_attrs = bids.to_bids(attrs)
+
+        assert bids_attrs["ClutterFilterWindowDuration"] == 0.6
+        assert bids_attrs["ClutterFilterWindowStride"] == 0.3
+        assert bids.from_bids(bids_attrs) == attrs
+
+    def test_integration_stride_metadata_mapping(self):
+        """Integration stride metadata maps to expected BIDS and ConfUSIus keys."""
+        attrs = {
+            "power_doppler_integration_stride": 0.2,
+            "axial_velocity_integration_stride": 0.25,
+            "bmode_integration_stride": 0.3,
+        }
+
+        bids_attrs = bids.to_bids(attrs)
+
+        assert bids_attrs["PowerDopplerIntegrationStride"] == 0.2
+        assert bids_attrs["ConfUSIusAxialVelocityIntegrationStride"] == 0.25
+        assert bids_attrs["ConfUSIusBmodeIntegrationStride"] == 0.3
+        assert bids.from_bids(bids_attrs) == attrs
+
     def test_from_bids_restores_internal_attributes(self):
         """Test that ConfUSIus-prefixed internal fields restore their original names."""
         bids_attrs = {

@@ -29,6 +29,7 @@ class _Layer:
         self._type_string = type_string
         self.rgb = rgb
         self.name = "mock"
+        self.ndim = self.data.ndim
 
     def world_to_data(self, pos):
         # Identity mapping: world == data coordinates in these tests.
@@ -237,29 +238,64 @@ class TestGetXaxisLabel:
 
 
 # ---------------------------------------------------------------------------
-# _frame_to_x
+# _world_to_xaxis
 # ---------------------------------------------------------------------------
 
 
-class TestFrameToX:
-    def test_returns_frame_when_no_xaxis_coords(self, plotter):
-        plotter._xaxis_coords = None
-        assert plotter._frame_to_x(3.0) == 3.0
+class TestWorldToXaxis:
+    """_world_to_xaxis maps a world coordinate to the plot x-axis value."""
 
-    def test_maps_frame_index_to_time_value(self, plotter):
-        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0, 11.5])
-        assert plotter._frame_to_x(2.0) == 11.0
+    def _setup_plotter(self, plotter, xaxis_coords, *, xaxis_dim="time"):
+        """Wire a mock layer with identity world_to_data into the plotter."""
+        da = xr.DataArray(
+            np.zeros((len(xaxis_coords), 4)),
+            dims=[xaxis_dim, "x"],
+            coords={xaxis_dim: xaxis_coords},
+        )
+        layer = _Layer(da.values, metadata={"xarray": da})
+        plotter._current_layer = layer
+        plotter._xaxis_coords = np.asarray(xaxis_coords)
+        plotter._xaxis_dim = xaxis_dim
 
-    def test_out_of_bounds_frame_falls_back_to_frame_value(self, plotter):
+    def test_returns_world_when_no_current_layer(self, plotter):
         plotter._xaxis_coords = np.array([10.0, 10.5, 11.0])
-        assert plotter._frame_to_x(99.0) == 99.0
+        plotter._current_layer = None
+        assert plotter._world_to_xaxis(3.0) == 3.0
+
+    def test_returns_world_when_no_xaxis_coords(self, plotter):
+        plotter._xaxis_coords = None
+        plotter._current_layer = _Layer(np.zeros((4, 4)))
+        assert plotter._world_to_xaxis(3.0) == 3.0
+
+    def test_maps_world_to_time_value(self, plotter):
+        # Identity world_to_data → world 2.0 maps to data index 2.
+        self._setup_plotter(plotter, [10.0, 10.5, 11.0, 11.5])
+        assert plotter._world_to_xaxis(2.0) == 11.0
+
+    def test_out_of_bounds_falls_back_to_world_value(self, plotter):
+        self._setup_plotter(plotter, [10.0, 10.5, 11.0])
+        assert plotter._world_to_xaxis(99.0) == 99.0
 
     def test_returns_string_for_non_numeric_coordinates(self, plotter):
         # String coordinates (e.g., feature names) must be returned as-is so
         # matplotlib places the cursor at the correct categorical position
         # instead of inserting a spurious numeric category.
-        plotter._xaxis_coords = np.array(["feat_A", "feat_B", "feat_C"])
-        assert plotter._frame_to_x(1.0) == "feat_B"
+        self._setup_plotter(
+            plotter, ["feat_A", "feat_B", "feat_C"], xaxis_dim="feature"
+        )
+        assert plotter._world_to_xaxis(1.0) == "feat_B"
+
+    def test_nonuniform_time_resolves_correctly(self, plotter):
+        """Non-uniform coordinates are resolved through world_to_data."""
+        self._setup_plotter(plotter, [0.0, 0.5, 2.0, 2.1, 5.0])
+        # With identity transform, world 3.0 rounds to data index 3.
+        assert plotter._world_to_xaxis(3.0) == 2.1
+
+    def test_non_time_xaxis_dim(self, plotter):
+        """Cursor sync works for non-time x-axis dimensions (e.g., lag)."""
+        lag_coords = [0.0, 0.1, 0.2, 0.3, 0.4]
+        self._setup_plotter(plotter, lag_coords, xaxis_dim="lag")
+        assert plotter._world_to_xaxis(3.0) == 0.3
 
 
 # ---------------------------------------------------------------------------

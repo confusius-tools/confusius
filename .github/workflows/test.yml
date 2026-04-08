@@ -13,13 +13,26 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v6
+
+      - name: Setup headless display (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        uses: pyvista/setup-headless-display-action@v4
+        with:
+          qt: true
+
+      - name: Setup headless display (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: pyvista/setup-headless-display-action@v4
+        with:
+          install-mesa3d-offscreen: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -33,8 +46,8 @@ jobs:
         run: uv run pytest tests/
 
       - name: Upload coverage to Codecov
-        if: matrix.python-version == '3.13'
-        uses: codecov/codecov-action@v5
+        if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.xml
           fail_ci_if_error: false

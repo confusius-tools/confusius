@@ -218,6 +218,10 @@ class TestLoadScan2D:
         assert scan_2d.attrs["iconeus_date"] == "2025-01-01"
         assert scan_2d.attrs["device_serial_number"] == "SN-0001"
 
+    def test_name_from_scan_tag(self, scan_2d: xr.DataArray) -> None:
+        """DataArray name is taken from iconeus_scan (Scan_tag)."""
+        assert scan_2d.name == "scan-01"
+
     def test_scan_mode_attr(self, scan_2d: xr.DataArray) -> None:
         """iconeus_scan_mode attr equals '2Dscan'."""
         assert scan_2d.attrs["iconeus_scan_mode"] == "2Dscan"
@@ -383,13 +387,13 @@ class TestLoadScan4D:
             "volume_acquisition_duration"
         ] == pytest.approx(0.4)
 
-    def test_time_coord_earliest_per_block(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan time coordinate equals earliest timestamp per block."""
+    def test_time_coord_latest_per_block(self, scan_4d: xr.DataArray) -> None:
+        """4Dscan time coordinate equals latest (end-referenced) timestamp per block."""
         time_flat = _end_referenced_times(_T * _NPOSE, _POSE_DURATION).reshape(
             _T * _NPOSE, 1
         )
         time_mat = time_flat.reshape(_T, _NPOSE)
-        expected = time_mat[np.arange(_T), np.argmin(time_mat, axis=1)]
+        expected = time_mat.max(axis=1)
         np.testing.assert_allclose(scan_4d.coords["time"].values, expected, rtol=1e-10)
 
     def test_pose_coord(self, scan_4d: xr.DataArray) -> None:

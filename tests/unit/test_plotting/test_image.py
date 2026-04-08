@@ -559,6 +559,28 @@ class TestPlotNapari:
         npt.assert_allclose(layer.scale, [1.0, 1.0, 1.0], rtol=1e-5)
         viewer.close()
 
+    def test_labels_layer_preserves_xarray_metadata(
+        self, sample_4d_volume, make_napari_viewer
+    ) -> None:
+        """Labels layers keep the source DataArray in napari metadata."""
+        labels = xr.DataArray(
+            (sample_4d_volume > 0.5).astype(np.int32),
+            dims=sample_4d_volume.dims,
+            coords=sample_4d_volume.coords,
+            attrs=sample_4d_volume.attrs,
+        )
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            labels,
+            viewer=viewer,
+            layer_type="labels",
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+
+        assert layer.metadata["xarray"] is labels
+        viewer.close()
+
 
 # Image comparison tests with pytest-mpl
 # These generate baseline images for visual regression testing

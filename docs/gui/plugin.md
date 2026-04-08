@@ -5,7 +5,8 @@ icon: lucide/app-window
 # Using the Plugin
 
 The ConfUSIus sidebar contains three collapsible panels. Each panel operates
-independently and can be expanded or collapsed by clicking its header.
+independently and can be expanded or collapsed by clicking its header. For an in-app
+introduction, click **Take a Tour** in the sidebar header.
 
 ## Data I/O Panel
 
@@ -20,6 +21,16 @@ Click **Browse** to pick a file—it loads immediately on selection. Or paste a 
 directly in the text field and press ++enter++. Enable **Load lazily** beforehand to
 keep the array Dask-backed for large files. A progress bar animates during loading, and
 any error is reported in the napari notification bar.
+
+!!! info "Time overlay"
+    When a loaded scan contains a time dimension, the current time coordinate is
+    displayed as a text overlay in the bottom-left corner of the canvas. The value and
+    units are read from the scan's coordinate metadata and update automatically as you
+    scrub the time slider.
+
+    When multiple scans are open, the overlay reflects the currently selected layer.
+    If zero or more than one layer is selected, it keeps following the previously
+    selected one.
 
 ### Saving data
 
@@ -93,6 +104,11 @@ separate line (distinguished by line style).
 | **Show x-axis cursor** | Draw a vertical line on the plot that follows the napari dimension slider for the selected *x*-axis dimension. |
 | **Z-score signal** | Normalize each signal to zero mean and unit variance before plotting. The *y*-axis label changes from "Intensity" to "Z-score". |
 
+!!! tip "Click to navigate"
+    Left-click anywhere on the signal plot to jump the napari viewer to the
+    corresponding time slice. Clicks are ignored while a zoom or pan tool is active
+    in the plot toolbar.
+
 ### Managing signals
 
 Click **Manage Signals** to open a floating dialog where you can customize both live
@@ -138,6 +154,11 @@ Select a layer from the **Layer** dropdown, check the metrics you want, and clic
     **Carpet plot**
     : Displays the full voxel time series as a 2D raster (time × voxels). See [Carpet
       Plot](../user-guide/quality-control.md#carpet-plot) for interpretation.
+
+    !!! tip "Click to navigate"
+        Left-click anywhere on a temporal metric plot (DVARS or carpet) to jump the
+        napari viewer to the corresponding time slice. Clicks are ignored while a zoom
+        or pan tool is active in the plot toolbar.
 
 === "Spatial metrics"
 
