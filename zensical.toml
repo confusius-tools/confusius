@@ -33,6 +33,7 @@ nav = [
         { "Signal Processing" = "user-guide/signal.md" },
         { "Functional Connectivity" = "user-guide/connectivity.md" },
         { "General Linear Model" = "user-guide/glm.md" },
+        { "Datasets" = "user-guide/datasets.md" },
     ]},
     { "Graphical Interface" = [
         { "Overview" = "gui/overview.md" },
@@ -54,6 +55,7 @@ nav = [
         { "Signal Processing" = "api/signal.md" },
         { "Functional Connectivity" = "api/connectivity.md" },
         { "Xarray Integration" = "api/xarray.md" },
+        { "Datasets" = "api/datasets.md" },
     ]},
     { "Examples" = "examples/index.md" },
     { "Roadmap" = "roadmap.md" },

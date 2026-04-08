@@ -97,4 +97,11 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Functional connectivity analysis for fUSI data.
 
+- **[:lucide-database: Datasets](datasets.md)**
+
+    ---
+
+    Fetchers for publicly available fUSI datasets with automatic caching and
+    offline support.
+
 </div>
