@@ -16,10 +16,14 @@ ConfUSIus provides three QC metrics, divided into two categories:
 | Coefficient of variation | [`compute_cv`][confusius.qc.compute_cv] | Spatial | Mapping temporal variability |
 | Temporal SNR | [`compute_tsnr`][confusius.qc.compute_tsnr] | Spatial | — see note below |
 
+
 ??? example "Example dataset setup (Nunez-Elizalde *et al.*, 2022)"
-    The screenshots on this page are generated from the Nunez-Elizalde *et al.* (2022)
-    dataset[^nunez2022] using
-    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022].
+    The figures on this page are generated using the Nunez-Elizalde *et al.* (2022)
+    dataset[^nunez2022] obtained with
+    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022]. The
+    code below shows how to load the power Doppler and Allen atlas segmentation for one
+    acquisition. You can run this code in a Jupyter notebook to follow along and
+    generate the same figures as you read through the guide.
 
     ```python
     import confusius as cf

@@ -20,9 +20,13 @@ automatically. The [Xarray accessor](xarray.md) variants (`.fusi.plot.*`) offer 
 concise syntax; both call the same underlying functions.
 
 ??? example "Example dataset setup (Nunez-Elizalde *et al.*, 2022)"
-    The screenshots on this page are generated from the Nunez-Elizalde *et al.* (2022)
-    dataset[^nunez2022] using
-    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022].
+    The figures on this page are generated using the Nunez-Elizalde *et al.* (2022)
+    dataset[^nunez2022] obtained with
+    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022]. The
+    code below shows how to load the power Doppler, angiography, and Allen atlas
+    segmentation for one acquisition and build a napari colormap from the Allen
+    structure tree. You can run this code in a Jupyter notebook to follow along and
+    generate the same figures as you read through the guide.
 
     ```python
     import csv
