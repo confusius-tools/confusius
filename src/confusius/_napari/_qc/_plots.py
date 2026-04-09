@@ -73,6 +73,7 @@ class QCPlotsWidget(QWidget):
         self._carpet_bg = None
         # Last known time value so vlines are restored correctly after replot.
         self._current_time_val: float | None = None
+        self._flushing_cursor: bool = False
         # Throttle blit calls to ~60 fps (see SignalsPlotter for rationale).
         self._cursor_timer = QTimer(self)
         self._cursor_timer.setSingleShot(True)
@@ -375,6 +376,15 @@ class QCPlotsWidget(QWidget):
 
     def _flush_cursor(self) -> None:
         """Perform the actual blit for the current cursor position."""
+        if self._flushing_cursor:
+            return
+        self._flushing_cursor = True
+        try:
+            self._flush_cursor_impl()
+        finally:
+            self._flushing_cursor = False
+
+    def _flush_cursor_impl(self) -> None:
         time_val = self._current_time_val
         if time_val is None:
             return
@@ -388,7 +398,9 @@ class QCPlotsWidget(QWidget):
                 self._dvars_canvas.restore_region(self._dvars_bg)
                 self._dvars_vline.set_xdata([time_val, time_val])
                 self._dvars_ax.draw_artist(self._dvars_vline)
-                self._dvars_canvas.blit(self._dvars_fig.bbox)
+                # Use update() (async) instead of blit() (sync repaint) to
+                # avoid blocking the Qt event loop during rapid animation.
+                self._dvars_canvas.update()
             except Exception:  # noqa: BLE001
                 self._dvars_bg = None  # Force a full redraw next time.
 
@@ -401,7 +413,7 @@ class QCPlotsWidget(QWidget):
                 self._carpet_canvas.restore_region(self._carpet_bg)
                 self._carpet_vline.set_xdata([time_val, time_val])
                 self._carpet_ax.draw_artist(self._carpet_vline)
-                self._carpet_canvas.blit(self._carpet_fig.bbox)
+                self._carpet_canvas.update()
             except Exception:  # noqa: BLE001
                 self._carpet_bg = None
 

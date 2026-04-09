@@ -128,6 +128,8 @@ class SignalPlotter(QWidget):
         self._syncing_color: bool = False
         # Guard flag to prevent reentrant plot updates.
         self._updating_plot: bool = False
+        # Guard flag to skip overlapping cursor flushes.
+        self._flushing_cursor: bool = False
 
         # Throttle blit calls to ~60 fps so the napari slider stays responsive when
         # the canvas is docked (docked canvases must synchronise repaints with the
@@ -403,15 +405,23 @@ class SignalPlotter(QWidget):
 
     def _flush_cursor(self) -> None:
         """Perform the actual blit for the current cursor position."""
-        if self._vline is not None and self._bg is not None:
-            try:
-                x_cursor = self._world_to_xaxis(self._cursor_world)
-                self._canvas.restore_region(self._bg)
-                self._vline.set_xdata([x_cursor, x_cursor])
-                self._axes.draw_artist(self._vline)
-                self._canvas.blit(self._figure.bbox)
-            except Exception:  # noqa: BLE001
-                self._bg = None  # Force a full redraw next time.
+        if self._flushing_cursor:
+            return
+        self._flushing_cursor = True
+        try:
+            if self._vline is not None and self._bg is not None:
+                try:
+                    x_cursor = self._world_to_xaxis(self._cursor_world)
+                    self._canvas.restore_region(self._bg)
+                    self._vline.set_xdata([x_cursor, x_cursor])
+                    self._axes.draw_artist(self._vline)
+                    # Use update() (async) instead of blit() (sync repaint)
+                    # to avoid blocking the Qt event loop during animation.
+                    self._canvas.update()
+                except Exception:  # noqa: BLE001
+                    self._bg = None  # Force a full redraw next time.
+        finally:
+            self._flushing_cursor = False
 
     def _on_draw(self, event) -> None:
         """After each full redraw, save the background and blit the vline."""
