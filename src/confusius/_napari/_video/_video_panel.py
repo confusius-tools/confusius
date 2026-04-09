@@ -536,9 +536,9 @@ class VideoPanel(QWidget):
             # In-place update: reuse the existing vispy node and skip
             # contrast-limit recomputation / layer-list event storms.
             clims = self._video_layer.contrast_limits
-            self._video_layer.data = data
+            self._video_layer.data = data  # type: ignore[invalid-assignment]
             self._video_layer.contrast_limits = clims
-            self._video_layer.scale = tuple(scale)
+            self._video_layer.scale = tuple(scale)  # type: ignore[invalid-assignment]
             self._video_layer.translate = tuple(translate)
             return
 
