@@ -38,8 +38,12 @@ HERE = Path(__file__).parent
 _SUBJECT = "CR022"
 _SESSION = "20201011"
 _TASK = "spontaneous"
-_ACQ_SLICE = "slice03"
+_ACQ_SLICE = "slice04"
+
 _SLICE_INDEX = int(_ACQ_SLICE.replace("slice", ""))
+
+_ROI_STRUCTURE_ID = 1089
+_ROI_STRUCTURE_NAME = "HIP"
 
 _DERIVATIVE_ATLAS_REL_PATH = (
     Path("derivatives")
@@ -116,63 +120,71 @@ def _detect_structure_label_key(csv_path: Path, atlas_labels: np.ndarray) -> str
     return best_key
 
 
-def _collect_isocortex_labels(csv_path: Path, key_name: str) -> set[int]:
-    """Return atlas labels belonging to Isocortex descendants."""
+def _collect_labels_for_structure(
+    csv_path: Path,
+    key_name: str,
+    structure_id: int,
+) -> set[int]:
+    """Return atlas labels belonging to descendants of a structure id."""
     with csv_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
 
-    cortex_labels: set[int] = set()
+    structure_labels: set[int] = set()
+    token = f"/{structure_id}/"
     for row in rows:
         label = _try_int(row.get(key_name))
         if label is None or label <= 0:
             continue
         structure_path = (row.get("structure_id_path") or "").strip()
-        if "/315/" in structure_path:
-            cortex_labels.add(label)
+        if token in structure_path:
+            structure_labels.add(label)
 
-    return cortex_labels
+    return structure_labels
 
 
-def _build_symmetric_cortex_rois(
+def _build_bilateral_roi_masks(
     atlas_mask_2d: np.ndarray,
-    isocortex_labels: set[int],
-) -> tuple[np.ndarray, np.ndarray, int]:
-    """Build bilateral ROI masks from a single cortical atlas label."""
+    roi_labels: set[int],
+) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """Build bilateral ROI masks from all labels in a target structure."""
     atlas_2d = np.asarray(atlas_mask_2d)
     if atlas_2d.ndim != 2:
         raise ValueError(f"Expected 2D atlas mask, got shape {atlas_2d.shape}.")
 
     _, nx = atlas_2d.shape
     x_mid = nx // 2
-    best_label = -1
-    best_score = -1
-    best_left = None
-    best_right = None
+    labels_in_slice = sorted(
+        int(raw_label)
+        for raw_label in np.unique(atlas_2d)
+        if int(raw_label) > 0 and int(raw_label) in roi_labels
+    )
+    if not labels_in_slice:
+        raise RuntimeError("Could not find target ROI labels in atlas slice.")
 
-    for raw_label in np.unique(atlas_2d):
-        label = int(raw_label)
-        if label <= 0 or label not in isocortex_labels:
-            continue
+    roi_mask = np.isin(atlas_2d, labels_in_slice)
+    left = roi_mask.copy()
+    left[:, x_mid:] = False
+    right = roi_mask.copy()
+    right[:, :x_mid] = False
+    if int(np.count_nonzero(left)) == 0 or int(np.count_nonzero(right)) == 0:
+        raise RuntimeError(
+            "Target ROI does not have bilateral coverage in atlas slice."
+        )
 
-        mask = atlas_2d == label
-        left = mask.copy()
-        left[:, x_mid:] = False
-        right = mask.copy()
-        right[:, :x_mid] = False
+    return left, right, labels_in_slice
 
-        left_count = int(np.count_nonzero(left))
-        right_count = int(np.count_nonzero(right))
-        score = min(left_count, right_count)
-        if score > best_score:
-            best_label = label
-            best_score = score
-            best_left = left
-            best_right = right
 
-    if best_left is None or best_right is None or best_score <= 0:
-        raise RuntimeError("Could not find a bilateral isocortex region in atlas mask.")
+def _point_inside_mask_near_centroid(mask_2d: np.ndarray) -> tuple[float, float]:
+    """Return an in-mask point closest to the mask centroid."""
+    points = np.argwhere(mask_2d)
+    if points.size == 0:
+        raise RuntimeError("Cannot compute point for an empty ROI mask.")
 
-    return best_left, best_right, best_label
+    centroid = np.mean(points, axis=0)
+    distances2 = np.sum((points - centroid) ** 2, axis=1)
+    best_idx = int(np.argmin(distances2))
+    y, x = points[best_idx]
+    return float(y), float(x)
 
 
 def _normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
@@ -257,29 +269,32 @@ atlas_slice = atlas_mask.sel(z=[target_z], method="nearest")
 
 atlas_labels = np.unique(np.asarray(atlas_mask.values))
 label_key = _detect_structure_label_key(structure_tree_csv, atlas_labels)
-cortex_labels = _collect_isocortex_labels(structure_tree_csv, label_key)
+roi_labels = _collect_labels_for_structure(
+    structure_tree_csv,
+    label_key,
+    _ROI_STRUCTURE_ID,
+)
 
-cortex_mask = np.isin(np.asarray(atlas_slice.values), list(cortex_labels))
-if not np.any(cortex_mask):
-    raise RuntimeError("No isocortex labels found in selected atlas slice.")
+roi_mask = np.isin(np.asarray(atlas_slice.values), list(roi_labels))
+if not np.any(roi_mask):
+    raise RuntimeError(
+        f"No {_ROI_STRUCTURE_NAME} labels found in selected atlas slice."
+    )
 
 atlas_2d = np.asarray(atlas_slice.values)[0]
-GUI_LEFT_ROI, GUI_RIGHT_ROI, GUI_LABEL_ID = _build_symmetric_cortex_rois(
+GUI_LEFT_ROI, GUI_RIGHT_ROI, GUI_LABEL_IDS = _build_bilateral_roi_masks(
     atlas_2d,
-    cortex_labels,
+    roi_labels,
 )
-_left_points = np.argwhere(GUI_LEFT_ROI)
-_right_points = np.argwhere(GUI_RIGHT_ROI)
-GUI_POINT_LEFT = np.array(
-    [0.0, np.mean(_left_points[:, 0]), np.mean(_left_points[:, 1])]
-)
-GUI_POINT_RIGHT = np.array(
-    [0.0, np.mean(_right_points[:, 0]), np.mean(_right_points[:, 1])]
-)
+left_y, left_x = _point_inside_mask_near_centroid(GUI_LEFT_ROI)
+right_y, right_x = _point_inside_mask_near_centroid(GUI_RIGHT_ROI)
+GUI_POINT_LEFT = np.array([0.0, left_y, left_x])
+GUI_POINT_RIGHT = np.array([0.0, right_y, right_x])
 console.print(
     "  Using atlas z="
     f"{float(atlas_slice['z'].values[0]):.3f} "
-    f"for acq-slice{_SLICE_INDEX:02d} cortex ROIs (label {GUI_LABEL_ID})"
+    f"for acq-slice{_SLICE_INDEX:02d} {_ROI_STRUCTURE_NAME} ROIs "
+    f"({len(GUI_LABEL_IDS)} labels)"
 )
 
 
