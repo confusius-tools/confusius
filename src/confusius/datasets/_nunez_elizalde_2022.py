@@ -148,6 +148,29 @@ def _filter_files(
     for path, osf_id in index.items():
         parts = Path(path).parts
 
+        # Handle derivatives explicitly so subject/session filters apply there too.
+        if parts[0] == "derivatives":
+            derivative_sub = next((p for p in parts if p.startswith("sub-")), None)
+            derivative_ses = next((p for p in parts if p.startswith("ses-")), None)
+
+            # Derivative files without subject/session (e.g. dataset_description,
+            # shared lookup tables) are always included.
+            if derivative_sub is None:
+                filtered[path] = osf_id
+                continue
+
+            sub_id = derivative_sub.removeprefix("sub-")
+            if subjects is not None and sub_id not in subjects:
+                continue
+
+            if derivative_ses is not None:
+                ses_id = derivative_ses.removeprefix("ses-")
+                if sessions is not None and ses_id not in sessions:
+                    continue
+
+            filtered[path] = osf_id
+            continue
+
         # Always include top-level BIDS files (no subject folder).
         if not parts[0].startswith("sub-"):
             filtered[path] = osf_id
