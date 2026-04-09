@@ -26,8 +26,8 @@ from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 HERE = Path(__file__).parent
 
-_SUBJECT = "CR022"
-_SESSION = "20201011"
+_SUBJECT = "CR024"
+_SESSION = "20201029"
 _TASK = "spontaneous"
 _ACQ_SLICE = "slice03"
 
@@ -40,7 +40,7 @@ _DERIVATIVE_ATLAS_REL_PATH = (
     / f"sub-{_SUBJECT}_ses-{_SESSION}_space-fusi_desc-allenccf_dseg.nii.gz"
 )
 
-_MEAN_DB_LIMITS = (-20.0, 0.0)
+_MEAN_DB_LIMITS = (-25.0, 0.0)
 _CV_LIMITS = (0.0, 1.0)
 
 console = Console()

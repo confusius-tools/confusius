@@ -42,7 +42,10 @@ HERE = Path(__file__).parent
 _SUBJECT = "CR022"
 _SESSION = "20201011"
 _TASK = "spontaneous"
-_ACQ_SLICE = "slice03"
+_ACQ_SLICE = "slice04"
+
+_ROI_STRUCTURE_ID = 1089
+_ROI_STRUCTURE_NAME = "HIP"
 
 _DERIVATIVE_ATLAS_REL_PATH = (
     Path("derivatives")
@@ -173,67 +176,59 @@ def _build_structure_tree_colormap(
     return id_to_rgb, best_key, coverage
 
 
-def _collect_isocortex_labels(csv_path: Path, key_name: str) -> set[int]:
-    """Return atlas labels belonging to Isocortex descendants.
-
-    Uses Allen structure id 315 (Isocortex) in `structure_id_path`.
-    """
+def _collect_labels_for_structure(
+    csv_path: Path,
+    key_name: str,
+    structure_id: int,
+) -> set[int]:
+    """Return atlas labels belonging to descendants of a structure id."""
     with csv_path.open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
 
-    cortex_labels: set[int] = set()
+    structure_labels: set[int] = set()
+    token = f"/{structure_id}/"
     for row in rows:
         label = _try_int(row.get(key_name))
         if label is None or label <= 0:
             continue
 
         structure_path = (row.get("structure_id_path") or "").strip()
-        if "/315/" in structure_path:
-            cortex_labels.add(label)
+        if token in structure_path:
+            structure_labels.add(label)
 
-    return cortex_labels
+    return structure_labels
 
 
-def _build_symmetric_cortex_rois(
+def _build_bilateral_roi_masks(
     atlas_mask_2d: np.ndarray,
-    isocortex_labels: set[int],
-) -> tuple[np.ndarray, np.ndarray, int]:
-    """Build bilateral ROI masks from a single cortical atlas label."""
+    roi_labels: set[int],
+) -> tuple[np.ndarray, np.ndarray, list[int]]:
+    """Build bilateral ROI masks from all labels in a target structure."""
     atlas_2d = np.asarray(atlas_mask_2d)
     if atlas_2d.ndim != 2:
         raise ValueError(f"Expected 2D atlas mask, got shape {atlas_2d.shape}.")
 
     ny, nx = atlas_2d.shape
     x_mid = nx // 2
-    best_label = -1
-    best_score = -1
-    best_left = None
-    best_right = None
+    labels_in_slice = sorted(
+        int(raw_label)
+        for raw_label in np.unique(atlas_2d)
+        if int(raw_label) > 0 and int(raw_label) in roi_labels
+    )
+    if not labels_in_slice:
+        raise RuntimeError("Could not find target ROI labels in atlas slice.")
 
-    for raw_label in np.unique(atlas_2d):
-        label = int(raw_label)
-        if label <= 0 or label not in isocortex_labels:
-            continue
+    roi_mask = np.isin(atlas_2d, labels_in_slice)
+    left = roi_mask.copy()
+    left[:, x_mid:] = False
+    right = roi_mask.copy()
+    right[:, :x_mid] = False
+    if int(np.count_nonzero(left)) == 0 or int(np.count_nonzero(right)) == 0:
+        raise RuntimeError(
+            "Target ROI does not have bilateral coverage in atlas slice."
+        )
 
-        mask = atlas_2d == label
-        left = mask.copy()
-        left[:, x_mid:] = False
-        right = mask.copy()
-        right[:, :x_mid] = False
-
-        left_count = int(np.count_nonzero(left))
-        right_count = int(np.count_nonzero(right))
-        score = min(left_count, right_count)
-        if score > best_score:
-            best_label = label
-            best_score = score
-            best_left = left
-            best_right = right
-
-    if best_left is None or best_right is None or best_score <= 0:
-        raise RuntimeError("Could not find a bilateral isocortex region in atlas mask.")
-
-    return best_left, best_right, best_label
+    return left, right, labels_in_slice
 
 
 def _normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
@@ -324,7 +319,7 @@ console.print(
 atlas_mask = None
 id_to_rgb: dict = {}
 structure_tree_csv: Path | None = None
-isocortex_labels: set[int] = set()
+roi_labels: set[int] = set()
 
 atlas_mask_path = (
     Path(ATLAS_MASK_PATH)
@@ -382,7 +377,11 @@ if atlas_mask_path is not None:
             "Incomplete structure-tree color coverage for atlas labels: "
             f"{coverage:.1%}."
         )
-    isocortex_labels = _collect_isocortex_labels(structure_tree_csv, key_name)
+    roi_labels = _collect_labels_for_structure(
+        structure_tree_csv,
+        key_name,
+        _ROI_STRUCTURE_ID,
+    )
     console.print(
         "  Built colormap from structure tree "
         f"({key_name}, {len(id_to_rgb)} labels, {coverage:.1%} coverage)."
@@ -643,20 +642,21 @@ try:
 
     labels_layer.data[...] = 0
 
-    if atlas_mask is None or not isocortex_labels:
-        raise RuntimeError("Atlas-driven cortex ROIs are unavailable.")
+    if atlas_mask is None or not roi_labels:
+        raise RuntimeError(f"Atlas-driven {_ROI_STRUCTURE_NAME} ROIs are unavailable.")
 
     atlas_values = np.asarray(atlas_mask.values)
     atlas_2d = atlas_values[0] if atlas_values.ndim == 3 else atlas_values
-    left_roi, right_roi, label_id = _build_symmetric_cortex_rois(
+    left_roi, right_roi, label_ids = _build_bilateral_roi_masks(
         atlas_2d,
-        isocortex_labels,
+        roi_labels,
     )
 
     labels_layer.data[..., left_roi] = 1
     labels_layer.data[..., right_roi] = 2
     console.print(
-        f"  Painted symmetric cortex ROIs from atlas segmentation (label {label_id})"
+        "  Painted symmetric atlas ROIs "
+        f"for {_ROI_STRUCTURE_NAME} ({len(label_ids)} labels)"
     )
 
     labels_layer.refresh()
