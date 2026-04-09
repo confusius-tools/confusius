@@ -27,6 +27,12 @@ _FAKE_INDEX = {
     # Second session — session-filtered.
     "sub-CR020/ses-20191121/angio/sub-CR020_ses-20191121_pwd.nii.gz": "/file007",
     "sub-CR020/ses-20191121/fusi/sub-CR020_ses-20191121_task-kalatsky_acq-slice01_pwd.nii.gz": "/file008",
+    # Derivatives — should also be subject/session-filtered.
+    "derivatives/allenccf_align/dataset_description.json": "/file010",
+    "derivatives/allenccf_align/structure_tree_safe_2017.csv": "/file011",
+    "derivatives/allenccf_align/sub-CR020/ses-20191122/fusi/sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz": "/file012",
+    "derivatives/allenccf_align/sub-CR020/ses-20191121/fusi/sub-CR020_ses-20191121_space-fusi_desc-allenccf_dseg.nii.gz": "/file013",
+    "derivatives/allenccf_align/sub-OTHER/ses-20191122/fusi/sub-OTHER_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz": "/file014",
 }
 
 
@@ -156,6 +162,30 @@ def test_fetch_session_filter(tmp_path, mock_get_index, mock_retrieve):
     downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
     assert "sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
     assert "sub-CR020_ses-20191121_pwd.nii.gz" not in downloaded
+
+
+def test_fetch_filters_derivatives_by_subject_and_session(
+    tmp_path, mock_get_index, mock_retrieve
+):
+    fetch_nunez_elizalde_2022(
+        data_dir=tmp_path,
+        subjects=["CR020"],
+        sessions=["20191122"],
+    )
+
+    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    # Shared derivative files (no subject/session folder) should still be included.
+    assert "dataset_description.json" in downloaded
+    assert "structure_tree_safe_2017.csv" in downloaded
+    # Matching derivative subject/session is included.
+    assert "sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" in downloaded
+    # Non-matching derivative subject/session are excluded.
+    assert (
+        "sub-CR020_ses-20191121_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
+    )
+    assert (
+        "sub-OTHER_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
+    )
 
 
 def test_fetch_acq_filter_excludes_non_matching_fusi_includes_angio(
