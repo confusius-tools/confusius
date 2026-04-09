@@ -1,10 +1,10 @@
-"""Tests for the datasets registry, list(), and format_bytes."""
+"""Tests for the datasets registry, list_datasets(), and format_bytes."""
 
 from __future__ import annotations
 
 import pytest
 
-from confusius.datasets import _REGISTRY, list
+from confusius.datasets import _REGISTRY, list_datasets
 from confusius.datasets._utils import format_bytes
 
 # ---------------------------------------------------------------------------
@@ -49,12 +49,12 @@ def test_registry_entries_are_importable():
 
 
 # ---------------------------------------------------------------------------
-# list()
+# list_datasets()
 # ---------------------------------------------------------------------------
 
 
-def test_list_prints_table(capsys):
-    list()
+def test_list_datasets_prints_table(capsys):
+    list_datasets()
     captured = capsys.readouterr().out
     assert "Available Datasets" in captured
     for name, _ in _REGISTRY:

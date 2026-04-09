@@ -3,7 +3,7 @@
 __all__ = [
     "fetch_nunez_elizalde_2022",
     "get_datasets_dir",
-    "list",
+    "list_datasets",
 ]
 
 from ._nunez_elizalde_2022 import _TOTAL_SIZE_BYTES as _nunez_elizalde_2022_size
@@ -16,7 +16,7 @@ _REGISTRY: tuple[tuple[str, int], ...] = (
 """Registry of (fetcher_name, total_size_bytes) for each dataset."""
 
 
-def list() -> None:
+def list_datasets() -> None:
     """Print a table of available datasets.
 
     Displays each fetch function and the total download size.

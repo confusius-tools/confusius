@@ -24,8 +24,8 @@ icon: lucide/database
 
     **Utilities:**
 
-    - [`list`][confusius.datasets.list]: Print a table of all available datasets with
-      their download sizes.
+    - [`list_datasets`][confusius.datasets.list_datasets]: Print a table of all
+      available datasets with their download sizes.
     - [`get_datasets_dir`][confusius.datasets.get_datasets_dir]: Resolve the confusius
       data directory using the priority chain: function argument →
       `CONFUSIUS_DATA` environment variable → platform cache directory.
