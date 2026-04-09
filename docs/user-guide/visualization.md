@@ -19,6 +19,81 @@ All functions accept DataArrays and use physical coordinates for axis scaling
 automatically. The [Xarray accessor](xarray.md) variants (`.fusi.plot.*`) offer a more
 concise syntax; both call the same underlying functions.
 
+??? example "Example dataset setup (Nunez-Elizalde *et al.*, 2022)"
+    The screenshots on this page are generated from the Nunez-Elizalde *et al.* (2022)
+    dataset[^nunez2022] using
+    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022].
+
+    ```python
+    import csv
+
+    import confusius as cf
+    import numpy as np
+    from confusius.datasets import fetch_nunez_elizalde_2022
+    from napari.utils.colormaps import DirectLabelColormap
+
+
+    def _nunez_allen_label_colormap(structure_tree_csv, atlas_labels):
+        """Build a napari labels colormap from structure-tree colors."""
+        with open(structure_tree_csv, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+
+        labels = {int(v) for v in np.unique(atlas_labels.values) if int(v) > 0}
+        key = max(
+            ("graph_order", "sphinx_id", "id"),
+            key=lambda k: len({int(float(r[k])) for r in rows if r.get(k)} & labels),
+        )
+
+        rgb = {}
+        for r in rows:
+            if not r.get(key) or not r.get("color_hex_triplet"):
+                continue
+            lab = int(float(r[key]))
+            if lab not in labels:
+                continue
+            h = r["color_hex_triplet"].lstrip("#")
+            rgb[lab] = tuple(int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))
+
+        return DirectLabelColormap(
+            color_dict={
+                0: np.zeros(4),
+                None: np.zeros(4),
+                **{k: np.array([*v, 0.7]) for k, v in rgb.items()},
+            }
+        )
+
+    bids_root = fetch_nunez_elizalde_2022(
+        subjects=["CR022"],
+        sessions=["20201011"],
+        tasks=["spontaneous"],
+    )
+
+    pwd = cf.load(
+        bids_root
+        / "sub-CR022/ses-20201011/fusi"
+        / "sub-CR022_ses-20201011_task-spontaneous_acq-slice03_pwd.nii.gz"
+    )
+    mean_vol = pwd.mean("time").compute()
+    angio = cf.load(
+        bids_root
+        / "sub-CR022/ses-20201011/angio"
+        / "sub-CR022_ses-20201011_pwd.nii.gz"
+    ).compute()
+    atlas_labels = cf.load(
+        bids_root
+        / "derivatives/allenccf_align/sub-CR022/ses-20201011/fusi"
+        / "sub-CR022_ses-20201011_space-fusi_desc-allenccf_dseg.nii.gz"
+    )
+    atlas_labels = atlas_labels.sel(z=mean_vol["z"], method="nearest").assign_coords(
+        z=mean_vol["z"]
+    )
+
+    label_colormap = _nunez_allen_label_colormap(
+        bids_root / "derivatives/allenccf_align/structure_tree_safe_2017.csv",
+        atlas_labels,
+    )
+    ```
+
 ## Interactive Exploration with napari
 
 ConfUSIus relies on [napari](https://napari.org) for interactive visualization of 3D+t
@@ -33,20 +108,14 @@ the controls and features.
 === "Xarray accessor"
 
     ```python
-    import xarray as xr
-    import confusius
-
-    pwd = cf.load("sub-01_task-awake_pwd.zarr")
     viewer, layer = pwd.fusi.plot.napari()
     ```
 
 === "Function API"
 
     ```python
-    import xarray as xr
     import confusius as cf
 
-    pwd = cf.load("sub-01_task-awake_pwd.zarr")
     viewer, layer = cf.plotting.plot_napari(pwd)
     ```
 
@@ -68,7 +137,7 @@ and elevation slices with the sliders or mouse wheel.
     hosts hundreds of plugins that extend functionality—from segmentation algorithms to
     integration with other imaging modalities like microscopy or MRI.
 
-### Napari's Parameters
+### Napari Parameters
 
 By default napari auto-scales contrast to the data range. For power Doppler, working
 in decibel scale with explicit limits is often more informative:
@@ -77,7 +146,7 @@ in decibel scale with explicit limits is often more informative:
 # dB-scaled power Doppler with fixed contrast window.
 viewer, layer = cf.plotting.plot_napari(
     pwd.fusi.scale.db(),
-    contrast_limits=(-30, 0),
+    contrast_limits=(-20, 0),
     colormap="hot",
 )
 ```
@@ -88,39 +157,24 @@ viewer, layer = cf.plotting.plot_napari(
 ### Overlaying an Atlas as a Labels Layer
 
 Napari's **labels** layer renders integer-labeled masks as filled or contoured regions,
-ideal for visualizing an atlas alongside your power Doppler data.
-[`Atlas.from_brainglobe`][confusius.atlas.Atlas.from_brainglobe] embeds the official
-Allen colors in `annotation.attrs["rgb_lookup"]`, so per-region coloring is applied
-automatically:
-
-!!! question "Registering your data to an atlas"
-    This example assumes your fUSI data has already been registered to the Allen Mouse
-    Brain atlas. See the [Atlases](atlas.md) guide for loading and working with brain
-    atlases, and the [Registration](registration.md) guide for how to obtain the `transform`
-    used in `atlas.resample_like`.
+ideal for visualizing an atlas alongside your power Doppler data. With the Nunez-Elizalde
+dataset, you can use the precomputed Allen segmentation in `derivatives/allenccf_align`:
 
 ```python
 import confusius as cf
-import xarray as xr
-from confusius.atlas import Atlas
 
 # Load power Doppler mean volume and open viewer.
-mean_vol = pwd.mean("time").compute()
 viewer, layer = cf.plotting.plot_napari(
     mean_vol.fusi.scale.db(),
-    contrast_limits=(-15, 0),
+    contrast_limits=(-20, 0),
 )
 
-# Load Atlas and resample to fUSI space (see Atlas and Registration guides).
-atlas = Atlas.from_brainglobe("allen_mouse_100um")
-atlas_fusi = atlas.resample_like(mean_vol, transform)
-
-# Add as a labels layer — Allen colors are applied automatically from
-# atlas_fusi.annotation.attrs["rgb_lookup"].
+# Add pre-registered Allen labels as a labels layer.
 viewer, labels_layer = cf.plotting.plot_napari(
-    atlas_fusi.annotation,
+    atlas_labels,
     viewer=viewer,
     layer_type="labels",
+    colormap=label_colormap,
     name="Allen atlas",
     opacity=0.6,
 )
@@ -175,7 +229,7 @@ mean_vol = pwd.mean("time").compute()
 # Open viewer with an empty Labels layer ready for painting.
 viewer, labels_layer = cf.plotting.draw_napari_labels(
     mean_vol.fusi.scale.db(),
-    contrast_limits=(-15, 0),
+    contrast_limits=(-20, 0),
     colormap="gray",
 )
 ```
@@ -273,12 +327,18 @@ layout can be controlled using `nrows` and `ncols`, or by specifying axes direct
 details).
 
 ```python
-plotter = angio.fusi.plot.volume(
+import numpy as np
+
+z = angio["z"].values
+margin = max(1, int(round(0.12 * (len(z) - 1))))
+slice_coords = tuple(np.linspace(float(z[margin]), float(z[-margin - 1]), 3))
+
+plotter = angio.fusi.scale.db().fusi.plot.volume(
     nrows=1,
     slice_mode="z",
-    slice_coords=(1.6, 2.4, 3.2),
+    slice_coords=slice_coords,
     cmap="inferno",
-    vmin=-30,
+    vmin=-20,
     vmax=0,
     show_colorbar=False,
 )
@@ -355,7 +415,7 @@ plotter = cf.plotting.plot_volume(
     pwd.fusi.scale.db(),
     slice_mode="z",
     cmap="gray",
-    vmin=-15,
+    vmin=-20,
     vmax=0,
     cbar_label="Power Doppler (dB)",
 )
@@ -456,3 +516,9 @@ and the [Xarray Integration API reference](../api/xarray.md).
     Power, Jonathan D. "A Simple but Useful Way to Assess fMRI Scan Qualities."
     NeuroImage, vol. 154, July 2017, pp. 150–58. DOI.org (Crossref),
     <https://doi.org/10.1016/j.neuroimage.2016.08.009>.
+
+[^nunez2022]:
+    Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
+    behaving mice." figshare dataset, 2022. DOI.org (Datacite),
+    <https://doi.org/10.6084/m9.figshare.19316228>; mirrored on OSF at
+    <https://osf.io/43skw/>.

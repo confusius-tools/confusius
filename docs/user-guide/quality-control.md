@@ -16,6 +16,36 @@ ConfUSIus provides three QC metrics, divided into two categories:
 | Coefficient of variation | [`compute_cv`][confusius.qc.compute_cv] | Spatial | Mapping temporal variability |
 | Temporal SNR | [`compute_tsnr`][confusius.qc.compute_tsnr] | Spatial | — see note below |
 
+??? example "Example dataset setup (Nunez-Elizalde *et al.*, 2022)"
+    The screenshots on this page are generated from the Nunez-Elizalde *et al.* (2022)
+    dataset[^nunez2022] using
+    [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022].
+
+    ```python
+    import confusius as cf
+    from confusius.datasets import fetch_nunez_elizalde_2022
+
+    bids_root = fetch_nunez_elizalde_2022(
+        subjects=["CR022"],
+        sessions=["20201011"],
+        tasks=["spontaneous"],
+    )
+
+    pwd = cf.load(
+        bids_root
+        / "sub-CR022/ses-20201011/fusi"
+        / "sub-CR022_ses-20201011_task-spontaneous_acq-slice03_pwd.nii.gz"
+    )
+    atlas_labels = cf.load(
+        bids_root
+        / "derivatives/allenccf_align/sub-CR022/ses-20201011/fusi"
+        / "sub-CR022_ses-20201011_space-fusi_desc-allenccf_dseg.nii.gz"
+    )
+    atlas_labels = atlas_labels.sel(z=pwd["z"], method="nearest").assign_coords(z=pwd["z"])
+    brain_mask = atlas_labels > 0
+    signals = pwd.fusi.extract.with_mask(brain_mask)
+    ```
+
 ## DVARS
 
 DVARS (temporal **D**erivative of **VAR**iance**S**) measures how much the signal
@@ -35,15 +65,7 @@ internally. Using brain-masked signals is recommended to exclude background voxe
 inflate the variance estimate:
 
 ```python
-import xarray as xr
-import confusius as cf
 from confusius.qc import compute_dvars
-
-pwd = cf.load("sub-01_task-awake_pwd.zarr")
-brain_mask = cf.load("brain_mask.zarr")
-
-# Extract brain voxel time-series first.
-signals = pwd.fusi.extract.with_mask(brain_mask)
 
 # Compute standardized DVARS (default).
 dvars = compute_dvars(signals)
@@ -58,12 +80,22 @@ for quick visual inspection:
 ```python
 import matplotlib.pyplot as plt
 
-threshold = 3
+threshold = 2.5
 flagged = dvars > threshold
+flagged_dvars = dvars.where(flagged, drop=True)
 
 fig, ax = plt.subplots(figsize=(10, 3))
 dvars.plot(ax=ax, linewidth=0.8, label="Standardized DVARS")
-dvars[flagged].plot(ax=ax, marker="o", linestyle="", color="red", ms=3, label="Flagged frames")
+if flagged_dvars.size > 0:
+    ax.plot(
+        flagged_dvars["time"].values,
+        flagged_dvars.values,
+        marker="o",
+        linestyle="",
+        color="red",
+        ms=3,
+        label="Flagged frames",
+    )
 ax.axhline(threshold, color="red", linestyle="--", label=f"Threshold ({threshold})")
 ax.legend()
 ```
@@ -135,6 +167,13 @@ cv = compute_cv(pwd)
 
 Comparing CV to the mean power Doppler image helps interpret the map: motion artifacts
 appear as regions of elevated CV, while vascular structure appears with low CV.
+
+```python
+mean_pwd = pwd.mean("time").fusi.scale.db()
+
+plotter = mean_pwd.fusi.plot.volume(slice_mode="z", vmin=-20, vmax=0)
+plotter = cv.fusi.plot.volume(slice_mode="z", vmin=0, vmax=1)
+```
 
 === "Mean Power Doppler"
 
@@ -220,3 +259,9 @@ For full parameter documentation, see the [QC API reference](../api/qc.md).
     Le Meur-Diebolt, Samuel, et al. "Robust Functional Ultrasound Imaging in the Awake
     and Behaving Brain: A Systematic Framework for Motion Artifact Removal." bioRxiv,
     17 June 2025. DOI.org (Crossref), <https://doi.org/10.1101/2025.06.16.659882>.
+
+[^nunez2022]:
+    Nunez-Elizalde, A. O., et al. "A Neurophysiological fUSI-BIDS dataset from awake,
+    behaving mice." figshare dataset, 2022. DOI.org (Datacite),
+    <https://doi.org/10.6084/m9.figshare.19316228>; mirrored on OSF at
+    <https://osf.io/43skw/>.
