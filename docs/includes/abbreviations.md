@@ -9,6 +9,8 @@
 *[ICA]: Independent Component Analysis
 *[GLM]: General Linear Model
 *[GLMs]: General Linear Models
+*[OLS]: Ordinary Least Squares
+*[RSS]: Residual Sum of Squares
 *[ROI]: Region of Interest
 *[ROIs]: Regions of Interest
 *[HRF]: Hemodynamic Response Function

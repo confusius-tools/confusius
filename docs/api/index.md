@@ -85,17 +85,24 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
     Signal processing tools for fUSI time series including denoising and motion artifact
     correction.
 
-- **[:lucide-brackets: Xarray Integration](xarray.md)**
-
-    ---
-
-    Xarray integration providing DataArray accessors for fUSI data.
-
 - **[:lucide-brain-circuit: Functional Connectivity](connectivity.md)**
 
     ---
 
     Functional connectivity analysis for fUSI data.
+
+- **[:lucide-square-function: General Linear Model](glm.md)**
+
+    ---
+
+    Voxel-wise GLM for first- and second-level analysis of fUSI data, including design
+    matrix construction and contrast computation.
+
+- **[:lucide-brackets: Xarray Integration](xarray.md)**
+
+    ---
+
+    Xarray integration providing DataArray accessors for fUSI data.
 
 - **[:lucide-database: Datasets](datasets.md)**
 
