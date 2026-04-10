@@ -469,7 +469,7 @@ class GuidedTour(QObject):
         self._apply_geometry(step, target)
 
     def _apply_geometry(self, step: TourStep, target: QWidget) -> None:
-        """Resize the scrim and place the spotlight + tooltip for ``step``."""
+        """Resize the scrim and place the spotlight + tooltip for `step`."""
         # Keep overlay geometry in sync with the window (handles resizes).
         self._overlay.setGeometry(self._window.rect())
 
