@@ -59,7 +59,7 @@ _VALID_DATASETS = frozenset(
 """Valid values for the `datasets` parameter of `fetch_cybis_pereira_2026`."""
 
 
-class _RichProgressAdapter:
+class _RichProgressAdapter:  # pragma: no cover
     """Adapt a rich Progress task to the tqdm-like interface pooch expects.
 
     Pooch's `HTTPDownloader` calls `.update(chunk_size)` during streaming,
