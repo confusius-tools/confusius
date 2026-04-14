@@ -7,9 +7,14 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from confusius.datasets import fetch_cybis_pereira_2026
-from confusius.datasets._cybis_pereira_2026 import _BIDS_ROOT, _INDEX_FILENAME
+from confusius.datasets._cybis_pereira_2026 import (
+    _BIDS_ROOT,
+    _INDEX_FILENAME,
+    _MAX_DOWNLOAD_RETRIES,
+)
 
 # Minimal fake index representing the different file categories in the dataset.
 _FAKE_INDEX = {
@@ -186,6 +191,75 @@ def test_fetch_accepts_string_subjects(tmp_path, mock_get_index, mock_retrieve):
     downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
     assert "sub-rat83_task-navigation_pwd.nii.gz" in downloaded
     assert "sub-rat84_task-navigation_pwd.nii.gz" not in downloaded
+
+
+# ---------------------------------------------------------------------------
+# fetch_cybis_pereira_2026 — retry behaviour
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_retries_on_transient_failure(tmp_path, mock_get_index):
+    """Transient network errors are retried and eventually succeed."""
+    bids_dir = tmp_path / _BIDS_ROOT
+
+    # Pre-create every file except one so only that file goes through retrieve.
+    target_rel = "sub-rat83/fusi/sub-rat83_task-navigation_pwd.nii.gz"
+    for rel in _FAKE_INDEX:
+        if rel == target_rel:
+            continue
+        dest = bids_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.touch()
+
+    call_count = {"n": 0}
+
+    def flaky_retrieve(url, known_hash, fname, path, progressbar):
+        call_count["n"] += 1
+        if call_count["n"] < _MAX_DOWNLOAD_RETRIES:
+            raise requests.exceptions.ReadTimeout("simulated timeout")
+        dest = Path(path) / fname
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.touch()
+        return str(dest)
+
+    with (
+        patch(
+            "confusius.datasets._cybis_pereira_2026.pooch.retrieve",
+            side_effect=flaky_retrieve,
+        ),
+        patch("confusius.datasets._cybis_pereira_2026.time.sleep"),
+    ):
+        fetch_cybis_pereira_2026(data_dir=tmp_path)
+
+    assert call_count["n"] == _MAX_DOWNLOAD_RETRIES
+
+
+def test_fetch_raises_after_max_retries(tmp_path, mock_get_index):
+    """Persistent network errors propagate after the retry budget is exhausted."""
+    bids_dir = tmp_path / _BIDS_ROOT
+
+    target_rel = "sub-rat83/fusi/sub-rat83_task-navigation_pwd.nii.gz"
+    for rel in _FAKE_INDEX:
+        if rel == target_rel:
+            continue
+        dest = bids_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.touch()
+
+    def always_fails(url, known_hash, fname, path, progressbar):
+        raise requests.exceptions.ReadTimeout("persistent timeout")
+
+    with (
+        patch(
+            "confusius.datasets._cybis_pereira_2026.pooch.retrieve",
+            side_effect=always_fails,
+        ) as mock_retrieve,
+        patch("confusius.datasets._cybis_pereira_2026.time.sleep"),
+    ):
+        with pytest.raises(requests.exceptions.ReadTimeout):
+            fetch_cybis_pereira_2026(data_dir=tmp_path)
+
+    assert mock_retrieve.call_count == _MAX_DOWNLOAD_RETRIES
 
 
 # ---------------------------------------------------------------------------

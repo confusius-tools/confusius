@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
 
 import pooch
@@ -28,6 +29,12 @@ _BIDS_ROOT = "cybis-pereira-2026-bids"
 _INDEX_FILENAME = "dataset_index.json"
 _OSF_DOWNLOAD_BASE = "https://osf.io/download/{}/"
 _TOTAL_SIZE_BYTES = 12_883_924_421
+
+_MAX_DOWNLOAD_RETRIES = 3
+"""Maximum number of attempts per file when OSF returns a transient error."""
+
+_RETRY_BACKOFF_BASE = 2.0
+"""Base of the exponential backoff (seconds) between retry attempts."""
 
 _VALID_DATASETS = frozenset(
     {
@@ -81,10 +88,78 @@ class _RichProgressAdapter:
         self._finalized = True
 
     def close(self) -> None:
-        # Correct for any rounding from chunk_size not dividing file_total.
+        # On success, pooch calls reset() (setting _finalized=True) before
+        # close(), so we add any rounding remainder here. On failure, close()
+        # runs from pooch's `finally` block without reset() being called first,
+        # and we must not advance the shared task for bytes that never arrived.
+        if not self._finalized:
+            return
         remaining = self._file_total - self._advanced
         if remaining > 0:
             self._progress.update(self._task_id, advance=remaining)
+            self._advanced = self._file_total
+
+    def rewind(self) -> None:
+        """Undo progress reported so far so a retry doesn't double-count.
+
+        After a failed download, the shared task may have been advanced by
+        partial bytes. Call this before retrying so the cumulative bar
+        stays aligned with what is actually on disk.
+        """
+        if self._advanced > 0:
+            self._progress.update(self._task_id, advance=-self._advanced)
+        self._advanced = 0
+        self._finalized = False
+
+
+def _retrieve_with_retries(
+    url: str,
+    dest: Path,
+    adapter: _RichProgressAdapter,
+    logger: logging.Logger,
+) -> None:
+    """Call `pooch.retrieve`, retrying on transient network errors.
+
+    OSF occasionally closes long-running connections mid-stream, surfacing
+    as `requests.exceptions.RequestException` subclasses (ReadTimeout,
+    ConnectionError, ChunkedEncodingError). Retry up to
+    `_MAX_DOWNLOAD_RETRIES` times with exponential backoff before
+    propagating the failure.
+
+    Parameters
+    ----------
+    url : str
+        Direct download URL for the file.
+    dest : pathlib.Path
+        Target path on disk; used for the filename, parent directory, and
+        user-facing log messages.
+    adapter : _RichProgressAdapter
+        Progress adapter bound to the shared cumulative task. Rewound on
+        each failed attempt so byte accounting stays correct.
+    logger : logging.Logger
+        Logger used to surface retry warnings.
+    """
+    for attempt in range(1, _MAX_DOWNLOAD_RETRIES + 1):
+        try:
+            pooch.retrieve(
+                url=url,
+                known_hash=None,
+                fname=dest.name,
+                path=dest.parent,
+                progressbar=adapter,
+            )
+            return
+        except requests.exceptions.RequestException as exc:
+            adapter.rewind()
+            if attempt == _MAX_DOWNLOAD_RETRIES:
+                raise
+            wait = _RETRY_BACKOFF_BASE**attempt
+            logger.warning(
+                f"Download of {dest.name!r} failed "
+                f"(attempt {attempt}/{_MAX_DOWNLOAD_RETRIES}): {exc}. "
+                f"Retrying in {wait:.1f}s..."
+            )
+            time.sleep(wait)
 
 
 def _resolve_index_url() -> str:
@@ -354,12 +429,11 @@ def fetch_cybis_pereira_2026(
                 )
                 adapter = _RichProgressAdapter(progress, task)
                 osf_path = file_info["osf_path"]
-                pooch.retrieve(
+                _retrieve_with_retries(
                     url=_OSF_DOWNLOAD_BASE.format(osf_path.lstrip("/")),
-                    known_hash=None,
-                    fname=dest.name,
-                    path=dest.parent,
-                    progressbar=adapter,
+                    dest=dest,
+                    adapter=adapter,
+                    logger=pooch_logger,
                 )
 
             progress.update(task, description="Download complete.")
