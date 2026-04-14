@@ -379,7 +379,7 @@ def fetch_cybis_pereira_2026(
 ) -> Path:
     """Fetch the Cybis Pereira 2026 fUSI-BIDS dataset.
 
-    Downloads functional ultrasound imaging data from freely-moving mice
+    Downloads functional ultrasound imaging data from freely-moving rats
     investigating vascular coding of speed in the spatial navigation system,
     converted to fUSI-BIDS format from Cybis Pereira et al. (2026).
 
@@ -401,8 +401,8 @@ def fetch_cybis_pereira_2026(
         `"interanimal-decode-speed"`, `"dlc-videos"`. Accepts a single
         string or a list. If not provided, all datasets are downloaded.
     subjects : str or list[str], optional
-        Subject IDs to download (without "sub-" prefix), e.g. `"rat83"` or
-        `["rat83", "rat84"]`. If not provided, all subjects are downloaded.
+        Subject IDs to download (without "sub-" prefix), e.g. `"rat73"` or
+        `["rat75", "rat73"]`. If not provided, all subjects are downloaded.
     sessions : str or list[str], optional
         Session IDs to download (without "ses-" prefix), e.g.
         `"20220523"` or `["20220523", "20220524"]`. If not provided,

@@ -125,7 +125,7 @@ fraction of this (see the examples below).
 
 === "Cybis Pereira 2026"
 
-    Functional ultrasound imaging data from freely-moving mice investigating vascular
+    Functional ultrasound imaging data from freely-moving rats investigating vascular
     coding of speed in the spatial navigation system, from Cybis Pereira et al.
     (2026)[^cybis2026], hosted on [OSF (2v6f7)](https://osf.io/2v6f7/).
     Total size: **~13 GB**.
@@ -136,7 +136,7 @@ fraction of this (see the examples below).
     | Filter     | BIDS entity / scope | Example                              |
     |------------|---------------------|--------------------------------------|
     | `datasets` | dataset name        | `"glm-speed"`, `["rawdata", "dlc-videos"]` |
-    | `subjects` | `sub-`              | `["rat83", "rat84"]`                 |
+    | `subjects` | `sub-`              | `["rat75", "rat73"]`                 |
     | `sessions` | `ses-`              | `["20220523"]`                       |
     | `acqs`     | `acq-`              | `["slice32"]`                        |
 
@@ -205,7 +205,7 @@ Xarray DataArrays.
 
 ## API Reference
 
-See the [`confusius.datasets` API reference](confusius.datasets) for the full list
+See the [`confusius.datasets` API reference][confusius.datasets] for the full list
 of parameters and return types.
 
 [^nunez2022]:
