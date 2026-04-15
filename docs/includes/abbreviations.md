@@ -7,6 +7,8 @@
 *[SVD]: Singular Value Decomposition
 *[PCA]: Principal Component Analysis
 *[ICA]: Independent Component Analysis
+*[CAP]: Co-Activation Pattern
+*[CAPs]: Co-Activation Patterns
 *[GLM]: General Linear Model
 *[GLMs]: General Linear Models
 *[ROI]: Region of Interest
@@ -17,6 +19,7 @@
 *[FWER]: Family-Wise Error Rate
 *[SNR]: Signal-to-Noise Ratio
 *[CNR]: Contrast-to-Noise Ratio
+*[SSQ]: Sum of Squares
 *[DOF]: Degrees of Freedom
 *[QC]: Quality Control
 *[tSNR]: Temporal Signal-to-Noise Ratio
