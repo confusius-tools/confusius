@@ -91,6 +91,13 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Xarray integration providing DataArray accessors for fUSI data.
 
+- **[:lucide-layers: Decomposition](decomposition.md)**
+
+    ---
+
+    Matrix decomposition algorithms for fUSI time series (e.g. PCA, NMF, ICA).
+
+
 - **[:lucide-brain-circuit: Functional Connectivity](connectivity.md)**
 
     ---
