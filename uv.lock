@@ -623,7 +623,7 @@ wheels = [
 
 [[package]]
 name = "confusius"
-version = "0.0.1a24"
+version = "0.0.1a25"
 source = { editable = "." }
 dependencies = [
     { name = "brainglobe-atlasapi" },
