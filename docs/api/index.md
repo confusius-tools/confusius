@@ -95,8 +95,7 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     ---
 
-    Dimensionality reduction tools for fUSI time series, including xarray-aware
-    principal component analysis.
+    Matrix decomposition algorithms for fUSI time series (e.g. PCA, NMF, ICA).
 
 
 - **[:lucide-brain-circuit: Functional Connectivity](connectivity.md)**
