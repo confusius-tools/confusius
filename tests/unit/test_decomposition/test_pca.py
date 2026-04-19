@@ -179,6 +179,15 @@ def test_transform_without_time_coordinate_uses_index(sample_data):
     )
 
 
+def test_transform_chunked_time_reports_transform_operation(sample_data):
+    """transform chunking error message identifies PCA.transform."""
+    model = PCA(n_components=4, random_state=0).fit(sample_data)
+    chunked = sample_data.chunk({"time": 10})
+
+    with pytest.raises(ValueError, match="PCA.transform requires the full time series"):
+        model.transform(chunked)
+
+
 def test_sklearn_interface_fitted_state(sample_data):
     """Estimator exposes sklearn fitted-state behavior."""
     model = PCA(n_components=3, random_state=0)
@@ -186,6 +195,25 @@ def test_sklearn_interface_fitted_state(sample_data):
         check_is_fitted(model)
 
     check_is_fitted(model.fit(sample_data))
+
+
+def test_fit_failure_does_not_mark_estimator_fitted(sample_data, monkeypatch):
+    """Estimator remains unfitted when underlying sklearn PCA fit fails."""
+    import confusius.decomposition.pca as pca_module
+
+    def _raise_fit(self, X, y=None):
+        raise RuntimeError("fit failed")
+
+    monkeypatch.setattr(pca_module._SklearnPCA, "fit", _raise_fit)
+
+    model = PCA(n_components=3, random_state=0)
+    with pytest.raises(RuntimeError, match="fit failed"):
+        model.fit(sample_data)
+
+    assert not hasattr(model, "_pca")
+    assert not model.__sklearn_is_fitted__()
+    with pytest.raises(Exception):
+        check_is_fitted(model)
 
 
 def test_get_params_includes_constructor_arguments():

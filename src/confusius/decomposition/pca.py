@@ -122,9 +122,13 @@ class PCA(BaseEstimator, TransformerMixin):
             spatial dimensions.
         """
         del y
-        X_proc, X_stacked, spatial_dims = self._prepare_data(X, check_layout=False)
+        X_proc, X_stacked, spatial_dims = self._prepare_data(
+            X,
+            check_layout=False,
+            operation_name="PCA.fit",
+        )
 
-        self._pca = _SklearnPCA(
+        pca = _SklearnPCA(
             n_components=self.n_components,
             whiten=self.whiten,
             svd_solver=self.svd_solver,
@@ -134,7 +138,7 @@ class PCA(BaseEstimator, TransformerMixin):
             power_iteration_normalizer=self.power_iteration_normalizer,
             random_state=self.random_state,
         )
-        self._pca.fit(X_proc)
+        pca.fit(X_proc)
 
         self.spatial_dims_ = spatial_dims
         self._spatial_sizes_ = {dim: int(X.sizes[dim]) for dim in self.spatial_dims_}
@@ -142,9 +146,9 @@ class PCA(BaseEstimator, TransformerMixin):
         self._fit_attrs_ = dict(X.attrs)
         self._fit_name_ = X.name
 
-        component_coord = np.arange(self._pca.components_.shape[0], dtype=np.intp)
+        component_coord = np.arange(pca.components_.shape[0], dtype=np.intp)
         components_stacked = xr.DataArray(
-            self._pca.components_,
+            pca.components_,
             dims=["component", "feature"],
             coords={"component": component_coord, "feature": self._feature_coord_},
         )
@@ -155,31 +159,32 @@ class PCA(BaseEstimator, TransformerMixin):
         self.components_: xr.DataArray = components
 
         mean_stacked = xr.DataArray(
-            self._pca.mean_,
+            pca.mean_,
             dims=["feature"],
             coords={"feature": self._feature_coord_},
         )
         self.mean_: xr.DataArray = mean_stacked.unstack("feature")
 
         self.explained_variance_: xr.DataArray = xr.DataArray(
-            self._pca.explained_variance_,
+            pca.explained_variance_,
             dims=["component"],
             coords={"component": component_coord},
         )
         self.explained_variance_ratio_: xr.DataArray = xr.DataArray(
-            self._pca.explained_variance_ratio_,
+            pca.explained_variance_ratio_,
             dims=["component"],
             coords={"component": component_coord},
         )
         self.singular_values_: xr.DataArray = xr.DataArray(
-            self._pca.singular_values_,
+            pca.singular_values_,
             dims=["component"],
             coords={"component": component_coord},
         )
 
-        self.n_components_ = int(self._pca.n_components_)
+        self.n_components_ = int(pca.n_components_)
         self.n_features_in_ = int(X_proc.shape[1])
-        self.noise_variance_ = float(self._pca.noise_variance_)
+        self.noise_variance_ = float(pca.noise_variance_)
+        self._pca = pca
 
         return self
 
@@ -197,8 +202,12 @@ class PCA(BaseEstimator, TransformerMixin):
         (time, component) xarray.DataArray
             PCA signals in component space.
         """
-        check_is_fitted(self, attributes=["_pca"])
-        X_proc, _, _ = self._prepare_data(X, check_layout=True)
+        check_is_fitted(self)
+        X_proc, _, _ = self._prepare_data(
+            X,
+            check_layout=True,
+            operation_name="PCA.transform",
+        )
         signals = self._pca.transform(X_proc)
 
         if "time" in X.coords:
@@ -239,7 +248,7 @@ class PCA(BaseEstimator, TransformerMixin):
         TypeError
             If `X` is neither `xarray.DataArray` nor `numpy.ndarray`.
         """
-        check_is_fitted(self, attributes=["_pca"])
+        check_is_fitted(self)
 
         if isinstance(X, xr.DataArray):
             if set(X.dims) != {"time", "component"}:
@@ -282,10 +291,13 @@ class PCA(BaseEstimator, TransformerMixin):
         return reconstructed_da
 
     def _prepare_data(
-        self, X: xr.DataArray, check_layout: bool
+        self,
+        X: xr.DataArray,
+        check_layout: bool,
+        operation_name: str,
     ) -> tuple[npt.NDArray[np.float64], xr.DataArray, tuple[str, ...]]:
         """Validate and stack `(time, ...)` data into `(time, feature)` matrix."""
-        validate_time_series(X, operation_name="PCA.fit" if not check_layout else "PCA")
+        validate_time_series(X, operation_name=operation_name)
 
         input_spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
         if len(input_spatial_dims) == 0:
@@ -316,4 +328,4 @@ class PCA(BaseEstimator, TransformerMixin):
 
     def __sklearn_is_fitted__(self) -> bool:
         """Check whether the estimator has been fitted."""
-        return hasattr(self, "_pca")
+        return hasattr(self, "components_") and hasattr(self, "n_components_")
