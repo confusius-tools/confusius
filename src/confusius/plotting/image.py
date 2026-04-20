@@ -418,10 +418,16 @@ class VolumePlotter:
         axis_idx: int,
         new_lim: tuple[float, float],
     ) -> tuple[float, float]:
-        """Expand the stored limit for `axis_idx` to encompass `new_lim`."""
+        """Expand the stored limit for `axis_idx` to encompass `new_lim`.
+
+        Preserves the direction (increasing vs. decreasing) implied by `new_lim`
+        so that reversed coordinate arrays keep their orientation.
+        """
         if axis_idx in store:
             prev = store[axis_idx]
-            new_lim = (min(prev[0], new_lim[0]), max(prev[1], new_lim[1]))
+            lo = min(prev[0], prev[1], new_lim[0], new_lim[1])
+            hi = max(prev[0], prev[1], new_lim[0], new_lim[1])
+            new_lim = (lo, hi) if new_lim[0] <= new_lim[1] else (hi, lo)
         store[axis_idx] = new_lim
         return new_lim
 
@@ -708,11 +714,12 @@ class VolumePlotter:
                 ax.axis("off")
 
             # Expand stored limits to encompass overlaid volumes with different extents.
+            # Use first/last (not min/max) so reversed coordinate arrays keep direction.
             current_xlim = self._update_stored_lim(
-                self._axis_xlims, axis_idx, (float(x_vals.min()), float(x_vals.max()))
+                self._axis_xlims, axis_idx, (float(x_vals[0]), float(x_vals[-1]))
             )
             current_ylim = self._update_stored_lim(
-                self._axis_ylims, axis_idx, (float(y_vals.min()), float(y_vals.max()))
+                self._axis_ylims, axis_idx, (float(y_vals[0]), float(y_vals[-1]))
             )
             self._set_ax_lims(ax, current_xlim, current_ylim)
 
@@ -995,8 +1002,8 @@ class VolumePlotter:
                 # matplotlib limits, which may include padding.
                 x_edges = _centers_to_edges(x_coords)
                 y_edges = _centers_to_edges(y_coords)
-                xlim = (float(x_edges.min()), float(x_edges.max()))
-                ylim = (float(y_edges.min()), float(y_edges.max()))
+                xlim = (float(x_edges[0]), float(x_edges[-1]))
+                ylim = (float(y_edges[0]), float(y_edges[-1]))
                 self._set_ax_lims(ax, xlim, ylim)
                 self._style_ax(ax)
                 ax.set_xlabel(_build_axis_label(mask, dim_col), color=self._text_color)
