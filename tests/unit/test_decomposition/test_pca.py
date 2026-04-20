@@ -38,6 +38,21 @@ def test_fit_transform_returns_dataarray(sample_data):
 
     assert model.components_.dims == ("component", "y", "x")
     assert model.components_.shape == (6, 4, 5)
+    assert model.n_samples_ == sample_data.sizes["time"]
+    assert model.n_features_in_ == sample_data.sizes["y"] * sample_data.sizes["x"]
+
+
+def test_feature_names_in_for_string_feature_labels():
+    """feature_names_in_ is defined when flattened feature labels are strings."""
+    data = xr.DataArray(
+        np.arange(18.0).reshape(6, 3),
+        dims=["time", "region"],
+        coords={"region": ["A", "B", "C"]},
+    )
+
+    model = PCA(n_components=2, random_state=0).fit(data)
+
+    np.testing.assert_array_equal(model.feature_names_in_, np.array(["A", "B", "C"]))
 
 
 def test_fit_transform_matches_fit_then_transform(sample_data):
@@ -139,6 +154,12 @@ def test_fit_requires_spatial_dimension():
 
     with pytest.raises(ValueError, match="at least one spatial dimension"):
         PCA().fit(only_time)
+
+
+def test_fit_rejects_unexpected_fit_params(sample_data):
+    """fit raises when unexpected sklearn-style fit params are provided."""
+    with pytest.raises(TypeError, match="Unexpected fit parameters"):
+        PCA().fit(sample_data, sample_weight=np.ones(sample_data.sizes["time"]))
 
 
 def test_transform_checks_spatial_layout(sample_data):

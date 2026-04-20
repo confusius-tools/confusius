@@ -13,48 +13,146 @@ from confusius.validation import validate_time_series
 
 
 class PCA(BaseEstimator, TransformerMixin):
-    """Principal component analysis for fUSI `xarray.DataArray` inputs.
+    """Principal component analysis for fUSI data.
 
-    This estimator wraps `sklearn.decomposition.PCA`
-    but keeps xarray metadata through `transform` and `inverse_transform`:
+    This estimator wraps [`sklearn.decomposition.PCA`][sklearn.decomposition.PCA] but
+    keeps xarray metadata through `transform` and `inverse_transform`:
 
     - Input data are expected as `(time, ...)` where `...` are spatial dimensions.
-    - `transform` returns a `(time, component)` `xarray.DataArray`.
-    - `inverse_transform` reconstructs to `(time, ...)` using the fitted
-      spatial coordinates.
+    - `transform` returns a `(time, component)` DataArray.
+    - `inverse_transform` reconstructs to `(time, ...)` using the fitted spatial
+      coordinates.
 
     Parameters
     ----------
-    n_components : int, float, "mle", or None, default: None
-        Number of principal components to keep. Passed to sklearn PCA.
+    n_components : int, float or "mle", default: None
+        Number of components to keep.
+        if `n_components` is not set all components are kept:
+
+        `n_components == min(n_samples, n_features)`
+
+        If `n_components == "mle"` and `svd_solver == "full"`, Minka's
+        MLE is used to guess the dimension. Use of `n_components == "mle"`
+        will interpret `svd_solver == "auto"` as `svd_solver == "full"`.
+
+        If `0 < n_components < 1` and `svd_solver == "full"`, select the
+        number of components such that the amount of variance that needs to be
+        explained is greater than the percentage specified by `n_components`.
+
+        If `svd_solver == "arpack"`, the number of components must be
+        strictly less than the minimum of `n_features` and `n_samples`.
+
+        Hence, the None case results in:
+
+        `n_components == min(n_samples, n_features) - 1`.
     whiten : bool, default: False
-        Whether to whiten components. Passed to sklearn PCA.
+        When `True` (`False` by default) the `components_` vectors are multiplied
+        by the square root of `n_samples` and then divided by the singular values
+        to ensure uncorrelated outputs with unit component-wise variances.
+
+        Whitening will remove some information from the transformed signal
+        (the relative variance scales of the components) but can sometime
+        improve the predictive accuracy of the downstream estimators by
+        making their data respect some hard-wired assumptions.
     svd_solver : {"auto", "full", "covariance_eigh", "arpack", "randomized"}, \
             default: "auto"
-        SVD solver strategy. Passed to sklearn PCA.
+        "auto":
+            The solver is selected by a default "auto" policy based on
+            `X.shape` and `n_components`: if the input data has fewer than
+            1000 features and more than 10 times as many samples, then the
+            "covariance_eigh" solver is used. Otherwise, if the input data is
+            larger than 500x500 and the number of components to extract is
+            lower than 80% of the smallest dimension of the data, then the
+            more efficient "randomized" method is selected. Otherwise the exact
+            "full" SVD is computed and optionally truncated afterwards.
+
+        "full":
+            Run exact full SVD calling the standard LAPACK solver via
+            `scipy.linalg.svd` and select the components by postprocessing.
+
+        "covariance_eigh":
+            Precompute the covariance matrix (on centered data), run a
+            classical eigenvalue decomposition on the covariance matrix
+            typically using LAPACK and select the components by postprocessing.
+            This solver is very efficient for `n_samples >> n_features` and
+            small `n_features`. It is, however, not tractable otherwise for
+            large `n_features` (large memory footprint required to materialize
+            the covariance matrix). Also note that compared to the "full"
+            solver, this solver effectively doubles the condition number and is
+            therefore less numerically stable (e.g. on input data with a large
+            range of singular values).
+
+        "arpack":
+            Run SVD truncated to `n_components` calling ARPACK solver via
+            `scipy.sparse.linalg.svds`. It requires strictly
+            `0 < n_components < min(X.shape)`.
+
+        "randomized":
+            Run randomized SVD by the method of Halko et al.
     tol : float, default: 0.0
-        Tolerance for ARPACK solver. Passed to sklearn PCA.
+        Tolerance for singular values computed by `svd_solver == "arpack"`.
+        Must be of range `[0.0, infinity)`.
     iterated_power : int or "auto", default: "auto"
-        Number of power iterations for randomized solver. Passed to sklearn PCA.
+        Number of iterations for the power method computed by
+        `svd_solver == "randomized"`.
+        Must be of range `[0, infinity)`.
     n_oversamples : int, default: 10
-        Number of oversamples for randomized solver. Passed to sklearn PCA.
+        This parameter is only relevant when `svd_solver="randomized"`.
+        It corresponds to the additional number of random vectors to sample the
+        range of `X` so as to ensure proper conditioning. See
+        [`randomized_svd`][sklearn.utils.extmath.randomized_svd] for more details.
     power_iteration_normalizer : {"auto", "QR", "LU", "none"}, default: "auto"
-        Power-iteration normalizer for randomized solver. Passed to sklearn PCA.
+        Power iteration normalizer for randomized SVD solver.
+        Not used by ARPACK. See
+        [`randomized_svd`][sklearn.utils.extmath.randomized_svd] for more details.
     random_state : int or None, default: None
-        Seed for stochastic solvers. Passed to sklearn PCA.
+        Used when the "arpack" or "randomized" solvers are used. Pass an int
+        for reproducible results across multiple function calls.
 
     Attributes
     ----------
-    components_ : (component, ...) xarray.DataArray
-        Spatial principal components reshaped to the original spatial geometry.
+    components_ : (n_components, ...) xarray.DataArray
+        Principal axes in feature space, representing the directions of maximum variance
+        in the data. Equivalently, the right singular vectors of the centered input
+        data, parallel to its eigenvectors. The components are sorted by decreasing
+        `explained_variance_` and reshaped to the original spatial geometry.
+    explained_variance_ : (n_components,) xarray.DataArray
+        The amount of variance explained by each of the selected components. The
+        variance estimation uses `n_samples - 1` degrees of freedom.
+
+        Equal to `n_components` largest eigenvalues of the covariance matrix of `X`.
+    explained_variance_ratio_ : (n_components,) xarray.DataArray
+        Percentage of variance explained by each of the selected components.
+
+        If `n_components` is not set then all components are stored and the sum of the
+        ratios is equal to 1.0.
+    singular_values_ : (n_components,) xarray.DataArray
+        The singular values corresponding to each of the selected components. The
+        singular values are equal to the 2-norms of the `n_components` variables in the
+        lower-dimensional space.
     mean_ : (...) xarray.DataArray
-        Per-feature mean map used by PCA.
-    explained_variance_ : (component,) xarray.DataArray
-        Explained variance for each component.
-    explained_variance_ratio_ : (component,) xarray.DataArray
-        Fraction of variance explained by each component.
-    singular_values_ : (component,) xarray.DataArray
-        Singular values for each selected component.
+        Per-feature empirical mean, estimated from the training set. Equal to
+        `X.mean(axis=0)`.
+    n_components_ : int
+        The estimated number of components. When `n_components` is set to "mle" or a
+        number between 0 and 1 (with `svd_solver == "full"`) this number is estimated
+        from input data. Otherwise it equals the parameter n_components, or the lesser
+        value of `n_features` and `n_samples` if `n_components` is `None`.
+    n_samples_ : int
+        Number of samples in the training data.
+    noise_variance_ : float
+        The estimated noise covariance following the Probabilistic PCA model from
+        Tipping and Bishop 1999. See "Pattern Recognition and Machine Learning" by C.
+        Bishop, 12.2.1 p. 574 or <http://www.miketipping.com/papers/met-mppca.pdf>. It
+        is required to compute the estimated data covariance and score samples.
+
+        Equal to the average of `min(n_features, n_samples) - n_components` smallest
+        eigenvalues of the covariance matrix of `X`.
+    n_features_in_ : int
+        Number of features seen during fit.
+    feature_names_in_ : (n_features_in_,) numpy.ndarray
+        Feature names seen during `fit`. Defined only when flattened feature labels are
+        all strings.
 
     Examples
     --------
@@ -100,15 +198,17 @@ class PCA(BaseEstimator, TransformerMixin):
         self.power_iteration_normalizer = power_iteration_normalizer
         self.random_state = random_state
 
-    def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
-        """Fit PCA on `(time, ...)` data.
+    def fit(self, X: xr.DataArray, y: None = None, **fit_params: object) -> "PCA":
+        """Fit PCA on `(time, ...)` fUSI data.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
             Input fUSI data.
         y : None, optional
-            Ignored. Present for sklearn API compatibility.
+            Ignored. Present for scikit-learn API compatibility.
+        **fit_params : object
+            Additional fit parameters. Currently unsupported.
 
         Returns
         -------
@@ -118,10 +218,16 @@ class PCA(BaseEstimator, TransformerMixin):
         Raises
         ------
         ValueError
-            If input has no `time` dimension, fewer than 2 timepoints, or no
-            spatial dimensions.
+            If input has no `time` dimension, fewer than 2 timepoints, or no spatial
+            dimensions.
+        TypeError
+            If additional fit parameters are provided.
         """
         del y
+        if fit_params:
+            keys = ", ".join(sorted(fit_params))
+            raise TypeError(f"Unexpected fit parameters for PCA.fit: {keys}.")
+
         X_proc, X_stacked, spatial_dims = self._prepare_data(
             X,
             check_layout=False,
@@ -182,20 +288,52 @@ class PCA(BaseEstimator, TransformerMixin):
         )
 
         self.n_components_ = int(pca.n_components_)
+        self.n_samples_ = int(X_proc.shape[0])
         self.n_features_in_ = int(X_proc.shape[1])
         self.noise_variance_ = float(pca.noise_variance_)
+
+        if len(self.spatial_dims_) == 1 and self.spatial_dims_[0] in X.coords:
+            feature_labels = np.asarray(X.coords[self.spatial_dims_[0]].values)
+            if all(isinstance(value, (str, np.str_)) for value in feature_labels):
+                self.feature_names_in_ = feature_labels.astype(str, copy=False)
+
         self._pca = pca
 
         return self
 
-    def transform(self, X: xr.DataArray) -> xr.DataArray:
-        """Project data into PCA component space.
+    def fit_transform(
+        self, X: xr.DataArray, y: None = None, **fit_params: object
+    ) -> xr.DataArray:
+        """Fit PCA on `X` and return transformed component signals.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data with the same spatial dimensions and sizes as the data
-            used during fit.
+            Input fUSI data.
+        y : None, optional
+            Ignored. Present for scikit-learn API compatibility.
+        **fit_params : object
+            Additional fit parameters forwarded to
+            [fit][confusius.decomposition.PCA.fit].
+
+        Returns
+        -------
+        (time, component) xarray.DataArray
+            PCA signals in component space.
+        """
+        return self.fit(X, y=y, **fit_params).transform(X)
+
+    def transform(self, X: xr.DataArray) -> xr.DataArray:
+        """Project data into PCA component space.
+
+        `X` is projected on the first principal components previously extracted from a
+        training set.
+
+        Parameters
+        ----------
+        X : (time, ...) xarray.DataArray
+            Input fUSI data with the same spatial dimensions and sizes as the data used
+            during fit.
 
         Returns
         -------
