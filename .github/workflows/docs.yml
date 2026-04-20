@@ -49,7 +49,7 @@ jobs:
             libxcb-xinerama0
 
       - name: Cache Nunez-Elizalde dataset
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/confusius/nunez-elizalde-2022-bids
           key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('docs/images/gui/generate.py', 'docs/images/qc/generate.py', 'docs/images/visualization/generate.py') }}
@@ -69,6 +69,6 @@ jobs:
       - name: Build documentation
         run: uv run zensical build --clean
 
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site

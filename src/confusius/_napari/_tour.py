@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QObject, QPoint, QRect, Qt, QTimer, Signal
+from qtpy.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, Signal
 from qtpy.QtGui import QColor, QFont, QPainter, QPen
 from qtpy.QtWidgets import (
     QDockWidget,
@@ -41,8 +41,8 @@ class TourStep:
     body : str
         Longer explanatory text.
     anchor : str
-        Preferred tooltip placement relative to the target: ``"right"``,
-        ``"left"``, ``"above"``, or ``"below"``.
+        Preferred tooltip placement relative to the target: `"right"`,
+        `"left"`, `"above"`, or `"below"`.
     spotlight_rect : Callable[[], QRect | None] | None
         Optional callable returning a custom spotlight rectangle in window
         coordinates. Use this when a step should highlight multiple related
@@ -337,6 +337,8 @@ class GuidedTour(QObject):
         # rapid next/back clicks are discarded.
         self._generation = 0
         self._on_close = on_close
+        self._active = False
+        self._event_filter_installed = False
 
         self._overlay = _TourOverlay(parent_window)
         self._tooltip = _TourTooltip(parent_window)
@@ -349,18 +351,31 @@ class GuidedTour(QObject):
 
     def start(self) -> None:
         """Show the overlay and display the first step."""
+        if self._active:
+            return
         self._overlay.setGeometry(self._window.rect())
         self._overlay.show()
         self._overlay.raise_()
         self._tooltip.show()
         self._tooltip.raise_()
+        self._active = True
+        # Watch the top-level window for resize events so the scrim, spotlight,
+        # and tooltip stay aligned when the napari window or its docks change
+        # size while the tour is active.
+        if not self._event_filter_installed:
+            self._window.installEventFilter(self)
+            self._event_filter_installed = True
         # Defer one event-loop iteration so the tooltip completes its initial
         # layout pass before set_content calls adjustSize().
         QTimer.singleShot(0, lambda: self._show_step(0))
 
     def close_tour(self) -> None:
         """Tear down the overlay and restore the UI to its pre-tour state."""
+        self._active = False
         self._generation += 1  # Invalidate any pending timers.
+        if self._event_filter_installed:
+            self._window.removeEventFilter(self)
+            self._event_filter_installed = False
         self._overlay.hide()
         self._tooltip.hide()
         if self._on_close is not None:
@@ -369,6 +384,35 @@ class GuidedTour(QObject):
         self._tooltip.deleteLater()
         self.finished.emit()
         self.deleteLater()
+
+    # -- Event handling ------------------------------------------------------
+
+    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore[invalid-method-override]  # noqa: N802
+        """Reposition the overlay when the watched window is resized.
+
+        Parameters
+        ----------
+        watched : qtpy.QtCore.QObject or None
+            The object the event was sent to; only `self._window` is acted
+            on.
+        event : qtpy.QtCore.QEvent or None
+            The intercepted event. Only `QEvent.Type.Resize` triggers a
+            reposition; all others fall through unchanged.
+
+        Returns
+        -------
+        bool
+            Always the base class result — the event is never consumed so
+            napari's own layout handlers still run.
+        """
+        if (
+            event is not None
+            and watched is self._window
+            and event.type() == QEvent.Type.Resize
+            and self._active
+        ):
+            self._reposition_current()
+        return super().eventFilter(watched, event)
 
     # -- Navigation ----------------------------------------------------------
 
@@ -410,6 +454,25 @@ class GuidedTour(QObject):
                 self.close_tour()
             return
 
+        self._tooltip.set_content(step.title, step.body, index + 1, len(self._steps))
+        self._apply_geometry(step, target)
+        self._tooltip.show()
+        self._tooltip.raise_()
+
+    def _reposition_current(self) -> None:
+        """Recompute geometry for the active step without re-running pre_action."""
+        if not self._active:
+            return
+        if not (0 <= self._current < len(self._steps)):
+            return
+        step = self._steps[self._current]
+        target = step.target()
+        if target is None or not target.isVisible():
+            return
+        self._apply_geometry(step, target)
+
+    def _apply_geometry(self, step: TourStep, target: QWidget) -> None:
+        """Resize the scrim and place the spotlight + tooltip for `step`."""
         # Keep overlay geometry in sync with the window (handles resizes).
         self._overlay.setGeometry(self._window.rect())
 
@@ -435,10 +498,7 @@ class GuidedTour(QObject):
             placement_rect = QRect(anchor_rect)
             placement_rect.moveTop(target_rect.top())
 
-        self._tooltip.set_content(step.title, step.body, index + 1, len(self._steps))
         self._tooltip.place(placement_rect, step.anchor, self._window.rect())
-        self._tooltip.show()
-        self._tooltip.raise_()
 
 
 # ---------------------------------------------------------------------------

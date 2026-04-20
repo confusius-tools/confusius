@@ -533,6 +533,21 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
+    def test_length_three_spatial_axis_not_treated_as_rgb(
+        self, sample_3d_volume, make_napari_viewer
+    ) -> None:
+        """A spatial axis of length 3 is not auto-interpreted as RGB channels."""
+        data = sample_3d_volume.isel(x=slice(0, 3))
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            data, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+
+        assert not layer.rgb
+        npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
+        npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
+        viewer.close()
+
     def test_4d_scale_uses_time_spacing(
         self, sample_4d_volume, make_napari_viewer
     ) -> None:

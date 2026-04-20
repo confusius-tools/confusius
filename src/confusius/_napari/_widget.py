@@ -26,6 +26,8 @@ from confusius._napari._time_overlay import _TimeOverlay
 if TYPE_CHECKING:
     import napari
 
+    from confusius._napari._tour import GuidedTour
+
 _ASSETS_DIR = Path(__file__).parent / "assets"
 
 
@@ -222,6 +224,7 @@ class ConfUSIusWidget(QWidget):
             QSizePolicy.Policy.MinimumExpanding,
             QSizePolicy.Policy.Expanding,
         )
+        self._active_tour: GuidedTour | None = None
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -297,8 +300,18 @@ class ConfUSIusWidget(QWidget):
     def _start_tour(self) -> None:
         from confusius._napari._tour import build_default_tour
 
+        # Ignore repeat clicks on the tour button while a tour is already
+        # running so we don't spawn stacked overlays.
+        if self._active_tour is not None:
+            return
+
         tour = build_default_tour(self, is_dark=self._is_dark())
+        self._active_tour = tour
+        tour.finished.connect(self._on_tour_finished)
         tour.start()
+
+    def _on_tour_finished(self) -> None:
+        self._active_tour = None
 
     # ------------------------------------------------------------------
     # UI construction

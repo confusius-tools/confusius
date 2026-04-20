@@ -1519,6 +1519,10 @@ def plot_napari(
             if cmap_attr is not None:
                 layer_kwargs["colormap"] = cmap_attr
 
+        # fUSI arrays are scalar fields; prevent napari from auto-interpreting a
+        # trailing axis of length 3/4 as RGB channels.
+        layer_kwargs.setdefault("rgb", False)
+
         layer_kwargs.setdefault("translate", coord_translates)
 
         # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
