@@ -3,6 +3,7 @@
 __all__ = [
     "atlas",
     "connectivity",
+    "decomposition",
     "datasets",
     "extract",
     "io",
@@ -28,6 +29,7 @@ __version__ = metadata.version("confusius")
 from confusius import (
     atlas,
     connectivity,
+    decomposition,
     datasets,
     extract,
     io,
