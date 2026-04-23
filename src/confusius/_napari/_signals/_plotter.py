@@ -408,6 +408,10 @@ class SignalPlotter(QWidget):
         if self._flushing_cursor:
             return
         self._flushing_cursor = True
+        # Reentry guard: GUI events can trigger a new flush while the
+        # previous one is still in progress (i.e. animation running and user clicks
+        # in the plot to jump to that frame, or basically anything that will trigger a
+        # redraw while animation is running)
         try:
             if self._vline is not None and self._bg is not None:
                 try:

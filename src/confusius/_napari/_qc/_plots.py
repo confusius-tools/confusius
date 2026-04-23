@@ -27,8 +27,8 @@ from confusius._napari._theme import (
 )
 
 if TYPE_CHECKING:
-    from matplotlib.axes import Axes
     import xarray as xr
+    from matplotlib.axes import Axes
 
 
 class QCPlotsWidget(QWidget):
@@ -379,6 +379,10 @@ class QCPlotsWidget(QWidget):
         if self._flushing_cursor:
             return
         self._flushing_cursor = True
+        # Skip overlapping flushes: GUI events can trigger a new flush while the
+        # previous one is still in progress (i.e. animation running and user clicks
+        # in the plot to jump to that frame, or basically anything that will trigger a
+        # redraw while animation is running)
         try:
             self._flush_cursor_impl()
         finally:
