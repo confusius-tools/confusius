@@ -31,6 +31,7 @@ nav = [
         { "Registration" = "user-guide/registration.md" },
         { "Spatial Processing" = "user-guide/spatial.md" },
         { "Signal Processing" = "user-guide/signal.md" },
+        { "Decomposition" = "user-guide/decomposition.md" },
         { "Functional Connectivity" = "user-guide/connectivity.md" },
         { "General Linear Model" = "user-guide/glm.md" },
         { "Datasets" = "user-guide/datasets.md" },
@@ -53,6 +54,7 @@ nav = [
         { "Spatial Processing" = "api/spatial.md" },
         { "Signal Extraction" = "api/extract.md" },
         { "Signal Processing" = "api/signal.md" },
+        { "Decomposition" = "api/decomposition.md" },
         { "Functional Connectivity" = "api/connectivity.md" },
         { "Xarray Integration" = "api/xarray.md" },
         { "Datasets" = "api/datasets.md" },
@@ -143,10 +145,12 @@ inventories = [
     "https://brainglobe.info/objects.inv",
     "https://treelib.readthedocs.io/en/latest/objects.inv",
     "https://docs.pydantic.dev/latest/objects.inv",
+    "https://scikit-learn.org/stable/objects.inv",
 ]
 paths = ["src"]
 
 [project.plugins.mkdocstrings.handlers.python.options]
+preload_modules = ["sklearn", "pydantic"]
 docstring_style = "numpy"
 docstring_section_style = "list"
 members_order = "alphabetical"
