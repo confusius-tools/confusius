@@ -250,13 +250,13 @@ class _TourOverlay(QWidget):
         self._spotlight = rect
         self.update()
 
-    def mousePressEvent(self, event: QMouseEvent | None) -> None:  # type: ignore[invalid-method-override]
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:  # ty: ignore[invalid-method-override]
         # Consume clicks outside the tooltip so underlying widgets are not accidentally
         # activated during the tour.
         if event is not None:
             event.accept()
 
-    def paintEvent(self, _event: QPaintEvent | None) -> None:  # type: ignore[invalid-method-override]  # noqa: N802
+    def paintEvent(self, _event: QPaintEvent | None) -> None:  # ty: ignore[invalid-method-override]  # noqa: N802
         painter = QPainter()
         if not painter.begin(self):
             return
@@ -529,6 +529,7 @@ def build_default_tour(
     from confusius._napari._data._save_panel import SavePanel
     from confusius._napari._qc._panel import QCPanel
     from confusius._napari._signals._panel import SignalPanel
+    from confusius._napari._video._video_panel import VideoPanel
 
     window = plugin_widget.window() or plugin_widget
 
@@ -702,6 +703,77 @@ def build_default_tour(
             pre_action=_expand_section("Data I/O"),
         ),
         TourStep(
+            target=_accordion_panel("Video"),
+            title="Video",
+            body=(
+                "This section lets you load one or more behavioral videos alongside "
+                "your fUSI recording. Each video is overlaid on the reference scan "
+                "and placed in its own grid cell, synchronized frame by frame to the "
+                "acquisition, so you can see what the animal was doing at each time "
+                "point."
+            ),
+            anchor="left",
+            spotlight_rect=_accordion_tab_rect("Video"),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Video"),
+        ),
+        TourStep(
+            target=_panel_attr("Video", VideoPanel, "_ref_group"),
+            title="Reference Layer",
+            body=(
+                "Pick the fUSI image layer that the videos will synchronize to. "
+                "When you scrub through the image frames, every loaded video follows "
+                "along automatically. You can switch the reference at any time; all "
+                "loaded videos will re-align to the new scan."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Video"),
+        ),
+        TourStep(
+            target=_panel_attr("Video", VideoPanel, "_file_group"),
+            title="Add a Video",
+            body=(
+                "Enter or browse for a video file (.mp4, .mov, .avi), then click "
+                "<b>Add video</b> to import it. The video appears as a new layer in "
+                "its own grid cell, overlaid on the reference scan. Repeat to add "
+                "more videos side by side."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Video",
+                VideoPanel,
+                "_file_group",
+                "_load_btn",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Video"),
+        ),
+        TourStep(
+            target=_panel_attr("Video", VideoPanel, "_videos_group"),
+            title="Loaded Videos",
+            body=(
+                "All currently loaded videos appear here. Select one and click "
+                "<b>Remove selected</b> to unload it; grid mode is restored to its "
+                "previous state once the last video is removed."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Video"),
+        ),
+        TourStep(
+            target=_panel_attr("Video", VideoPanel, "_playback_group"),
+            title="Playback Settings",
+            body=(
+                "Adjust the <b>Frame step</b> to skip frames for lighter playback "
+                "when videos are long or heavy. A step of N shows every N-th frame "
+                "and applies to every loaded video."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Video"),
+        ),
+        TourStep(
             target=_accordion_panel("Signals"),
             title="Signals",
             body=(
@@ -817,8 +889,8 @@ def build_default_tour(
             title="You're Ready to Explore!",
             body=(
                 "You're all set to start exploring. Load a dataset in Data I/O, "
-                "explore signals, run a few QC checks, and have fun digging into some "
-                "fUSI data!"
+                "overlay a behavioral video, explore signals, run a few QC checks, "
+                "and have fun digging into some fUSI data!"
             ),
             anchor="left",
             spotlight_rect=lambda: _widget_rect(plugin_widget),

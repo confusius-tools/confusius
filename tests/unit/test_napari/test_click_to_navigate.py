@@ -86,6 +86,26 @@ class TestSignalPlotterOnClick:
 
         assert spy.count == 1
 
+    def test_emits_xaxis_value_not_data_index(self, plotter):
+        """The signal must emit the x-axis plot coordinate (world value),
+        not the data index returned by _x_to_frame.
+
+        Regression: the old code emitted _x_to_frame(xdata), which is a
+        data index.  When a video layer changed dims.range.step, the panel
+        incorrectly converted this index again, causing a click at 300s to
+        navigate to 300/fps instead.
+        """
+        received = []
+        plotter.frame_clicked.connect(lambda v: received.append(v))
+        plotter._xaxis_coords = np.array([10.0, 10.5, 11.0])
+
+        # Click at x=10.5 on the plot — must emit 10.5 (world), not 1 (index).
+        event = _FakeMouseEvent(inaxes=plotter._axes, xdata=10.5)
+        plotter._on_click(event)
+
+        assert len(received) == 1
+        assert received[0] == pytest.approx(10.5)
+
     def test_ignores_right_click(self, plotter, signal_spy):
         spy = signal_spy()
         plotter.frame_clicked.connect(spy)

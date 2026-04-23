@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import napari
+import napari.layers
 import numpy as np
 
 if TYPE_CHECKING:
@@ -65,11 +66,13 @@ class _TimeOverlay:
         return None
 
     def _read_time_units(self) -> str | None:
-        """Read time units from the reference layer's xarray metadata."""
+        """Read time units from the reference layer's metadata."""
         if self._ref_layer is not None:
             da = self._ref_layer.metadata.get("xarray")
             if da is not None and "time" in da.coords:
                 return da.coords["time"].attrs.get("units", "s")
+            # Fallback for non-xarray layers (e.g., video).
+            return self._ref_layer.metadata.get("time_units")
         return None
 
     def _read_time_value(self) -> float | None:
@@ -80,6 +83,10 @@ class _TimeOverlay:
         scales are resolved correctly.  The data index is then used to
         look up the true xarray coordinate, avoiding napari's linear
         scale/translate approximation for non-uniform spacing.
+
+        For layers without xarray metadata (e.g., video layers), returns
+        `None` so that the caller falls back to ``dims.point`` which is
+        correct as long as the layer's time scale is set properly.
         """
         if self._ref_layer is None:
             return None

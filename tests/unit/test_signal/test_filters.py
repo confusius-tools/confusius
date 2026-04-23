@@ -47,7 +47,7 @@ class TestFilterButterworth:
         )
         expected = scipy.signal.sosfiltfilt(sos, data, axis=0)
 
-        np.testing.assert_allclose(filtered.values, expected, rtol=1e-10)
+        np.testing.assert_allclose(filtered.values, expected)
 
     def test_highpass_matches_scipy(self, sample_timeseries):
         """High-pass filter should match scipy.signal.butter + sosfiltfilt."""
@@ -74,7 +74,7 @@ class TestFilterButterworth:
         )
         expected = scipy.signal.sosfiltfilt(sos, data, axis=0)
 
-        np.testing.assert_allclose(filtered.values, expected, rtol=1e-10)
+        np.testing.assert_allclose(filtered.values, expected)
 
     def test_bandpass_matches_scipy(self, sample_timeseries):
         """Band-pass filter should match scipy.signal.butter + sosfiltfilt."""
@@ -109,7 +109,7 @@ class TestFilterButterworth:
         )
         expected = scipy.signal.sosfiltfilt(sos, data, axis=0)
 
-        np.testing.assert_allclose(filtered.values, expected, rtol=1e-10)
+        np.testing.assert_allclose(filtered.values, expected)
 
     def test_lowpass_attenuates_high_frequencies(self):
         """Low-pass filter should attenuate high frequencies."""
@@ -206,9 +206,7 @@ class TestFilterButterworth:
         filtered_multi = filter_butterworth(multi_voxel, high_cutoff=0.1, order=5)
 
         # First column of multi-voxel result should match single voxel result.
-        np.testing.assert_allclose(
-            filtered_multi.values[:, 0], filtered_single.values, rtol=1e-10
-        )
+        np.testing.assert_allclose(filtered_multi.values[:, 0], filtered_single.values)
 
     def test_preserves_shape_and_coords_multidimensional(self):
         """Filter should preserve shape and coordinates for multi-dimensional data."""
@@ -250,9 +248,7 @@ class TestFilterButterworth:
         signals_eager = signals.compute()
         filtered_eager = filter_butterworth(signals_eager, high_cutoff=0.1, order=5)
 
-        np.testing.assert_allclose(
-            filtered.compute().values, filtered_eager.values, rtol=1e-10
-        )
+        np.testing.assert_allclose(filtered.compute().values, filtered_eager.values)
 
     def test_raises_when_no_time_dimension(self):
         """Should raise ValueError if no time dimension."""

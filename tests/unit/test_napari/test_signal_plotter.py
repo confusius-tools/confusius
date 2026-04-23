@@ -139,8 +139,16 @@ class TestActiveLayer:
         viewer.add_image(np.zeros((4, 6, 3), dtype=np.uint8), rgb=True)
         assert plotter._active_layer() is None
 
-    def test_returns_layer_for_valid_image(self, viewer, plotter):
-        layer = viewer.add_image(np.zeros((10, 4, 6, 8)))
+    def test_returns_none_for_image_without_xarray(self, viewer, plotter):
+        viewer.add_image(np.zeros((10, 4, 6, 8)))
+        assert plotter._active_layer() is None
+
+    def test_returns_layer_for_valid_image_with_xarray(
+        self, viewer, plotter, sample_4d_volume
+    ):
+        layer = viewer.add_image(
+            sample_4d_volume.values, metadata={"xarray": sample_4d_volume}
+        )
         assert plotter._active_layer() is layer
 
 
@@ -150,8 +158,12 @@ class TestActiveLayer:
 
 
 class TestOnMouseMove:
-    def test_shift_updates_cursor_pos_and_current_layer(self, viewer, plotter):
-        layer = viewer.add_image(np.zeros((10, 4, 6, 8)))
+    def test_shift_updates_cursor_pos_and_current_layer(
+        self, viewer, plotter, sample_4d_volume
+    ):
+        layer = viewer.add_image(
+            sample_4d_volume.values, metadata={"xarray": sample_4d_volume}
+        )
         viewer.layers.selection.active = layer
         plotter._on_mouse_move(viewer, _FakeEventShift())
         assert plotter._cursor_pos is not None
@@ -267,10 +279,11 @@ class TestWorldToXaxis:
         plotter._current_layer = _Layer(np.zeros((4, 4)))
         assert plotter._world_to_xaxis(3.0) == 3.0
 
-    def test_maps_world_to_time_value(self, plotter):
-        # Identity world_to_data → world 2.0 maps to data index 2.
+    def test_returns_world_value_for_numeric_coords(self, plotter):
+        # Numeric coordinates return the world value directly (no snapping)
+        # so the cursor stays in exact sync with the time overlay.
         self._setup_plotter(plotter, [10.0, 10.5, 11.0, 11.5])
-        assert plotter._world_to_xaxis(2.0) == 11.0
+        assert plotter._world_to_xaxis(2.0) == 2.0
 
     def test_out_of_bounds_falls_back_to_world_value(self, plotter):
         self._setup_plotter(plotter, [10.0, 10.5, 11.0])
@@ -285,17 +298,337 @@ class TestWorldToXaxis:
         )
         assert plotter._world_to_xaxis(1.0) == "feat_B"
 
-    def test_nonuniform_time_resolves_correctly(self, plotter):
-        """Non-uniform coordinates are resolved through world_to_data."""
+    def test_nonuniform_time_returns_world_value(self, plotter):
+        """Non-uniform numeric coordinates return the world value directly."""
         self._setup_plotter(plotter, [0.0, 0.5, 2.0, 2.1, 5.0])
-        # With identity transform, world 3.0 rounds to data index 3.
-        assert plotter._world_to_xaxis(3.0) == 2.1
+        assert plotter._world_to_xaxis(3.0) == 3.0
 
-    def test_non_time_xaxis_dim(self, plotter):
-        """Cursor sync works for non-time x-axis dimensions (e.g., lag)."""
+    def test_non_time_xaxis_dim_returns_world_value(self, plotter):
+        """Non-time numeric axes also return the world value directly."""
         lag_coords = [0.0, 0.1, 0.2, 0.3, 0.4]
         self._setup_plotter(plotter, lag_coords, xaxis_dim="lag")
-        assert plotter._world_to_xaxis(3.0) == 0.3
+        assert plotter._world_to_xaxis(3.0) == 3.0
+
+
+# ---------------------------------------------------------------------------
+# _flush_cursor — axvline synchronisation
+# ---------------------------------------------------------------------------
+
+
+class TestFlushCursor:
+    """The blitted x-axis cursor must track the world coordinate.
+
+    Regression: _flush_cursor used a non-existent ``_cursor_frame`` attribute
+    instead of the value computed by ``_world_to_xaxis``, causing the axvline
+    to silently fail to update (the AttributeError was swallowed by the
+    bare except clause).
+    """
+
+    def _add_vline_and_bg(self, plotter, x_initial=0.0):
+        """Add a vline and capture background so _flush_cursor can blit."""
+        plotter._vline = plotter._axes.axvline(x_initial, color="red", animated=True)
+        plotter._canvas.draw()
+        plotter._bg = plotter._canvas.copy_from_bbox(plotter._figure.bbox)
+
+    def test_flush_cursor_does_not_raise(self, plotter):
+        """_flush_cursor must not raise (regression for missing _cursor_frame)."""
+        self._add_vline_and_bg(plotter)
+        plotter._cursor_world = 2.0
+        # Before the fix this raised AttributeError caught by the except clause,
+        # which set _bg to None. After the fix, _bg must remain intact.
+        plotter._flush_cursor()
+        assert plotter._bg is not None
+
+    def test_flush_cursor_moves_vline_to_world_value(self, plotter):
+        """The vline x-position must reflect _world_to_xaxis(cursor_world)."""
+        self._add_vline_and_bg(plotter)
+        plotter._cursor_world = 3.0
+        plotter._flush_cursor()
+        expected = plotter._world_to_xaxis(3.0)
+        actual = plotter._vline.get_xdata()[0]
+        assert actual == pytest.approx(expected)
+
+    def test_flush_cursor_uses_world_value_with_xarray_coords(self, plotter):
+        """Even with xarray coords, the vline uses the world value directly
+        so it stays in exact sync with the time overlay (no snapping)."""
+        coords = np.array([10.0, 10.5, 11.0, 11.5, 12.0])
+        da = xr.DataArray(np.zeros((5, 4)), dims=["time", "x"], coords={"time": coords})
+        layer = _Layer(da.values, metadata={"xarray": da})
+        plotter._current_layer = layer
+        plotter._xaxis_coords = coords
+        plotter._xaxis_dim = "time"
+
+        self._add_vline_and_bg(plotter)
+        plotter._cursor_world = 2.0
+        plotter._flush_cursor()
+        actual = plotter._vline.get_xdata()[0]
+        # World value returned directly, not snapped to xarray coords.
+        assert actual == pytest.approx(2.0)
+
+    def test_flush_cursor_falls_back_to_world_for_no_xarray(self, plotter):
+        """Without xarray metadata the vline position equals the world value.
+
+        This is the video-layer case: no xarray metadata, so
+        ``_world_to_xaxis`` returns the world value unchanged, which is
+        ``dims.point[time_idx]`` -- the same value the time overlay uses.
+        """
+        plotter._xaxis_coords = None
+        plotter._current_layer = None
+        self._add_vline_and_bg(plotter)
+        plotter._cursor_world = 3.5
+        plotter._flush_cursor()
+        actual = plotter._vline.get_xdata()[0]
+        assert actual == pytest.approx(3.5)
+
+
+# ---------------------------------------------------------------------------
+# Video layer interaction — plotter must ignore non-xarray layers
+# ---------------------------------------------------------------------------
+
+
+class TestVideoLayerInteraction:
+    """When a video layer (no xarray metadata) is selected alongside a fUSI
+    scan, the plotter must continue using the fUSI layer for signal extraction,
+    cursor mapping, and click-to-navigate.
+    """
+
+    @pytest.fixture
+    def fusi_layer(self, viewer, sample_4d_volume):
+        """Add a real fUSI layer with xarray metadata to the viewer."""
+        from confusius.plotting import plot_napari
+
+        _, layer = plot_napari(
+            sample_4d_volume,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+        return layer
+
+    @pytest.fixture
+    def video_layer(self, viewer):
+        """Add a real video-like layer (no xarray, just fps metadata).
+
+        Uses a 4D grayscale array so that napari sees the same ndim as the
+        fUSI scan.  The critical property is the absence of xarray metadata.
+        """
+        data = np.zeros((20, 4, 48, 64), dtype=np.uint8)
+        return viewer.add_image(
+            data,
+            name="Video: test",
+            scale=(1 / 30.0, 1.0, 1.0, 1.0),
+            axis_labels=("time", "z", "y", "x"),
+            metadata={"fps": 30.0, "time_units": "s"},
+        )
+
+    def test_on_layer_change_retains_current_layer_when_video_selected(
+        self, viewer, plotter, fusi_layer, video_layer
+    ):
+        """Selecting the video layer must not clear _current_layer.
+
+        _active_layer() correctly returns None for the video layer, but
+        _on_layer_change must not overwrite _current_layer with None --
+        the previous fUSI layer must remain active for signal extraction.
+        """
+        # Set fUSI as the current layer (previous state).
+        plotter._current_layer = fusi_layer
+
+        # Now select the video layer.
+        viewer.layers.selection.active = video_layer
+        plotter._on_layer_change(None)
+
+        # _current_layer must still be the fUSI layer, not None.
+        assert plotter._current_layer is fusi_layer
+
+    def test_on_layer_change_updates_current_layer_for_valid_xarray_layer(
+        self, viewer, plotter, fusi_layer
+    ):
+        """Selecting a valid xarray layer must update _current_layer."""
+        plotter._current_layer = None
+
+        viewer.layers.selection.active = fusi_layer
+        plotter._on_layer_change(None)
+
+        assert plotter._current_layer is fusi_layer
+
+    def test_cursor_uses_world_value_when_video_selected(
+        self, viewer, plotter, fusi_layer, video_layer, sample_4d_volume
+    ):
+        """The x-axis cursor uses the world value directly (no snapping)
+        even when the fUSI layer is retained as _current_layer.  This
+        keeps the cursor in exact sync with the time overlay.
+        """
+        plotter._current_layer = fusi_layer
+        plotter._xaxis_coords = np.array(sample_4d_volume.coords["time"].values)
+        plotter._xaxis_dim = "time"
+
+        # Select the video layer (doesn't change _current_layer).
+        viewer.layers.selection.active = video_layer
+
+        # World value returned directly, not snapped to xarray coords.
+        result = plotter._world_to_xaxis(2.0)
+        assert result == pytest.approx(2.0)
+
+    def test_click_to_navigate_works_when_video_selected(
+        self, plotter, fusi_layer, sample_4d_volume
+    ):
+        """_x_to_frame must still convert xarray coords to frame indices
+        when _xaxis_coords is retained from the fUSI layer.
+        """
+        plotter._current_layer = fusi_layer
+        plotter._xaxis_coords = np.array(sample_4d_volume.coords["time"].values)
+
+        # Click on x=11.0 in the plot -> should map to frame index 2.
+        frame = plotter._x_to_frame(11.0)
+        assert frame == pytest.approx(2.0)
+
+    def test_flush_cursor_with_fusi_retained_after_video_selection(
+        self, viewer, plotter, fusi_layer, video_layer, sample_4d_volume
+    ):
+        """_flush_cursor must use the world value directly (no snapping)
+        when the video layer is selected but _current_layer is the fUSI.
+        """
+        plotter._current_layer = fusi_layer
+        plotter._xaxis_coords = np.array(sample_4d_volume.coords["time"].values)
+        plotter._xaxis_dim = "time"
+
+        plotter._vline = plotter._axes.axvline(0, color="red", animated=True)
+        plotter._canvas.draw()
+        plotter._bg = plotter._canvas.copy_from_bbox(plotter._figure.bbox)
+
+        # World value returned directly, not snapped to xarray coord 11.5.
+        plotter._cursor_world = 3.0
+        plotter._flush_cursor()
+
+        actual = plotter._vline.get_xdata()[0]
+        assert actual == pytest.approx(3.0)
+        assert plotter._bg is not None
+
+
+# ---------------------------------------------------------------------------
+# Panel x-axis combo — must not break when video layer is active
+# ---------------------------------------------------------------------------
+
+
+class TestPanelXaxisWithVideoLayer:
+    """The SignalPanel x-axis combo must remain stable when the active layer
+    changes to a video layer that lacks xarray metadata.
+
+    ``_get_available_xaxis_dims`` must fall back to scanning all layers for
+    xarray metadata instead of generating generic ``dim_0`` entries from
+    the video layer.
+    """
+
+    @pytest.fixture
+    def fusi_layer(self, viewer, sample_4d_volume):
+        """Add a real fUSI layer with xarray metadata to the viewer."""
+        from confusius.plotting import plot_napari
+
+        _, layer = plot_napari(
+            sample_4d_volume,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+        return layer
+
+    @pytest.fixture
+    def video_layer(self, viewer):
+        """Add a real video-like layer (no xarray, just fps metadata).
+
+        Uses a 4D grayscale array so that napari sees the same ndim as the
+        fUSI scan.  The critical property is the absence of xarray metadata.
+        """
+        data = np.zeros((20, 4, 48, 64), dtype=np.uint8)
+        return viewer.add_image(
+            data,
+            name="Video: test",
+            scale=(1 / 30.0, 1.0, 1.0, 1.0),
+            axis_labels=("time", "z", "y", "x"),
+            metadata={"fps": 30.0, "time_units": "s"},
+        )
+
+    @pytest.fixture
+    def signal_panel(self, viewer):
+        """Create a real SignalPanel wired to the viewer."""
+        from confusius._napari._signals._panel import SignalPanel
+
+        return SignalPanel(viewer)
+
+    def test_returns_time_when_fusi_is_active(self, viewer, signal_panel, fusi_layer):
+        """Baseline: x-axis dims include 'time' when fUSI is active."""
+        viewer.layers.selection.active = fusi_layer
+
+        dims = signal_panel._get_available_xaxis_dims()
+        assert "time" in dims
+
+    def test_falls_back_to_xarray_layers_when_video_is_active(
+        self, viewer, signal_panel, fusi_layer, video_layer
+    ):
+        """When the video layer is active, _get_available_xaxis_dims must
+        fall back to the fUSI layer's dims instead of returning generic dim names.
+        """
+        viewer.layers.selection.active = video_layer
+
+        dims = signal_panel._get_available_xaxis_dims()
+        assert "time" in dims
+        # Must NOT contain generic dim names from the video layer.
+        assert not any(d.startswith("dim_") for d in dims)
+
+    def test_returns_empty_when_no_xarray_layers_exist(
+        self, viewer, signal_panel, video_layer
+    ):
+        """When no layers have xarray metadata, return empty list."""
+        viewer.layers.selection.active = video_layer
+
+        dims = signal_panel._get_available_xaxis_dims()
+        assert dims == []
+
+    def test_xaxis_dim_index_finds_time_from_fusi_when_video_active(
+        self, viewer, signal_panel, fusi_layer, video_layer
+    ):
+        """_xaxis_dim_index must find the time dimension from the fUSI layer
+        even when the video layer is the active selection.
+        """
+        # Ensure the combo is populated from the fUSI layer before switching.
+        viewer.layers.selection.active = fusi_layer
+        signal_panel._refresh_xaxis_combo()
+
+        viewer.layers.selection.active = video_layer
+        signal_panel._xaxis_combo.setCurrentText("time")
+
+        idx = signal_panel._xaxis_dim_index()
+        assert idx == 0  # time is dim 0 in the fUSI layer.
+
+    def test_click_to_navigate_uses_world_coordinate_with_video_layer(
+        self, viewer, signal_panel, fusi_layer, video_layer
+    ):
+        """Regression: clicking at 300s on the plot must navigate to ~300s,
+        not 300/fps.
+
+        When a video layer is loaded its time scale (1/fps) becomes the
+        smallest scale on the time axis, shrinking ``dims.range.step``.
+        The old code set ``current_step`` directly from a data index, so
+        the world coordinate was ``data_index * range.step`` instead of the
+        intended time.  The fix emits the x-axis plot value (already in
+        world coordinates) and uses ``dims.set_point`` which accepts
+        world coordinates directly.
+        """
+        # Ensure the combo is populated from the fUSI layer before switching.
+        viewer.layers.selection.active = fusi_layer
+        signal_panel._refresh_xaxis_combo()
+
+        viewer.layers.selection.active = video_layer
+        signal_panel._xaxis_combo.setCurrentText("time")
+
+        # Simulate the plotter emitting a click at x=12.5 (seconds).
+        # The panel calls set_point(0, 12.5) -- NOT current_step.
+        signal_panel._on_frame_clicked(12.5)
+
+        # Verify the viewer navigated to the correct world coordinate.
+        time_idx = signal_panel._xaxis_dim_index()
+        actual_world = float(viewer.dims.point[time_idx])
+        assert actual_world == pytest.approx(12.5)
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,8 @@
 """Unit tests for the QCPanel widget.
 
-_time_val_from_layer is the only non-trivial pure-logic method; it converts
-the viewer's world coordinate to a physical time value using the layer's
-``world_to_data`` transform and xarray coordinate.  Layer combo refresh is
-tested to verify that the inserted/removed event connections are wired
-correctly.
+Tests cover the time dimension helpers (`_time_dim_index`, `_current_time_world`)
+that power the QC cursor and click-to-navigate, as well as the layer combo
+refresh to verify that inserted/removed event connections are wired correctly.
 """
 
 from __future__ import annotations
@@ -34,56 +32,60 @@ def qc_panel(viewer):
 
 
 # ---------------------------------------------------------------------------
-# _time_val_from_layer
+# _time_dim_index / _current_time_world
 # ---------------------------------------------------------------------------
 
 
-class TestTimeValFromLayer:
-    def test_returns_none_for_layer_without_time(self, viewer, qc_panel):
-        layer = viewer.add_image(
-            np.zeros((4, 6, 8)), metadata={"xarray": None}
-        )
-        assert qc_panel._time_val_from_layer(layer) is None
+class TestTimeDimIndex:
+    def test_defaults_to_zero_without_xarray_layers(self, viewer, qc_panel):
+        viewer.add_image(np.zeros((4, 6, 8)), metadata={"xarray": None})
+        assert qc_panel._time_dim_index() == 0
 
-    def test_returns_coordinate_value(self, viewer, qc_panel, sample_4d_volume):
-        _, layer = plot_napari(
+    def test_finds_time_dim_from_xarray_layer(self, viewer, qc_panel, sample_4d_volume):
+        plot_napari(
+            sample_4d_volume,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+        assert qc_panel._time_dim_index() == list(sample_4d_volume.dims).index("time")
+
+
+class TestCurrentTimeWorld:
+    def test_returns_world_coordinate(self, viewer, qc_panel, sample_4d_volume):
+        plot_napari(
             sample_4d_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
         )
         viewer.dims.set_current_step(0, 3)
-        result = qc_panel._time_val_from_layer(layer)
-        assert result == pytest.approx(
-            float(sample_4d_volume.coords["time"][3])
-        )
+        result = qc_panel._current_time_world()
+        assert result == pytest.approx(float(viewer.dims.point[0]))
 
-    def test_nonuniform_time_resolves_correctly(self, rng, viewer, qc_panel):
-        """Non-uniform time spacing is resolved via world_to_data."""
-        time_coords = np.array([0.0, 0.5, 2.0, 2.1, 5.0])
+    def test_consistent_with_video_layer(self, rng, viewer, qc_panel):
+        """World coordinate is correct even when a video layer is also loaded."""
+        time_coords = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
         da = xr.DataArray(
             rng.random((5, 4, 6, 8)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
-                "time": xr.DataArray(
-                    time_coords, dims=["time"], attrs={"units": "s"}
-                ),
+                "time": xr.DataArray(time_coords, dims=["time"], attrs={"units": "s"}),
                 "z": xr.DataArray(np.arange(4) * 0.2, dims=["z"]),
                 "y": xr.DataArray(np.arange(6) * 0.1, dims=["y"]),
                 "x": xr.DataArray(np.arange(8) * 0.05, dims=["x"]),
             },
         )
-        with pytest.warns(UserWarning, match="non-uniform spacing"):
-            _, layer = plot_napari(
-                da, viewer=viewer, show_colorbar=False, show_scale_bar=False
-            )
+        plot_napari(da, viewer=viewer, show_colorbar=False, show_scale_bar=False)
+        # Add a plain image layer without xarray metadata (simulates a video).
+        viewer.add_image(rng.random((20, 4, 6, 8)).astype(np.float32), name="video")
+        # Select the video layer so it becomes active.
+        viewer.layers.selection.active = viewer.layers["video"]
 
-        for step, expected in enumerate(time_coords):
+        for step in range(5):
             viewer.dims.set_current_step(0, step)
-            result = qc_panel._time_val_from_layer(layer)
-            assert result == pytest.approx(expected), (
-                f"step {step}: got {result}, expected {expected}"
-            )
+            result = qc_panel._current_time_world()
+            assert result == pytest.approx(float(viewer.dims.point[0]))
 
 
 # ---------------------------------------------------------------------------
