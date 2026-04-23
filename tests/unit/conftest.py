@@ -548,12 +548,13 @@ def sample_3d_volume(rng):
 
     Shape: (4, 6, 8) - small enough for fast tests.
     Includes time as a scalar coordinate for consistency with 4D volumes.
-    Includes metadata attributes for testing labels and units.
+    Includes name and metadata attributes for testing labels and units.
     """
     shape = (4, 6, 8)
     data = rng.random(shape)
     da = xr.DataArray(
         data,
+        name="power_doppler",
         dims=["z", "y", "x"],
         coords={
             "z": xr.DataArray(
@@ -587,12 +588,13 @@ def sample_4d_volume(rng):
 
     Shape: (10, 4, 6, 8) - small enough for fast tests.
     Spatial coordinates match sample_3d_volume exactly.
-    Includes metadata attributes for testing labels and units.
+    Includes name and metadata attributes for testing labels and units.
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape)
     da = xr.DataArray(
         data,
+        name="power_doppler",
         dims=["time", "z", "y", "x"],
         coords={
             "time": xr.DataArray(
@@ -629,12 +631,13 @@ def sample_4d_volume_complex(rng):
     """Complex-valued 4D volume (time, z, y, x) for IQ processing tests.
 
     Shape: (10, 4, 6, 8) - matches sample_4d_volume spatial dimensions.
-    Includes metadata attributes for testing labels and units.
+    Includes name and metadata attributes for testing labels and units.
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
     da = xr.DataArray(
         data,
+        name="iq",
         dims=["time", "z", "y", "x"],
         coords={
             "time": xr.DataArray(

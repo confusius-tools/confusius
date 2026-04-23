@@ -2,124 +2,30 @@
 
 from __future__ import annotations
 
-import json
-import logging
 import re
 from pathlib import Path
+from typing import cast
 
-import pooch
-import requests
-from rich.logging import RichHandler
-from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
-    Progress,
-    SpinnerColumn,
-    TextColumn,
-    TimeElapsedColumn,
-    TimeRemainingColumn,
-)
-
+from ._osf import OsfFileInfo, download_missing_osf_files, get_index
 from ._utils import get_datasets_dir
 
 _OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
-_INDEX_FILENAME = "dataset_index.json"
-_OSF_DOWNLOAD_BASE = "https://osf.io/download/{}/"
 _TOTAL_SIZE_BYTES = 6_982_575_320
 
-
-def _resolve_index_url() -> str:
-    """Find the dataset_index.json download URL via the OSF API.
-
-    Makes two API calls: one to get the BIDS root folder, one to find the
-    index file within it.
-
-    Returns
-    -------
-    str
-        Direct download URL for dataset_index.json.
-
-    Raises
-    ------
-    RuntimeError
-        If the index file is not found. This means nunez-upload --index-only
-        has not been run yet.
-    """
-    # Get root storage listing to find the BIDS root folder.
-    resp = requests.get(
-        f"https://api.osf.io/v2/nodes/{_OSF_PROJECT_ID}/files/osfstorage/"
-    )
-    resp.raise_for_status()
-
-    folder_url = None
-    for item in resp.json()["data"]:
-        if item["attributes"]["name"] == _BIDS_ROOT:
-            folder_url = item["relationships"]["files"]["links"]["related"]["href"]
-            break
-
-    if folder_url is None:
-        raise RuntimeError(
-            f"Could not find the {_BIDS_ROOT!r} folder on OSF "
-            f"(project {_OSF_PROJECT_ID})."
-        )
-
-    # Find dataset_index.json inside the BIDS root folder.
-    resp = requests.get(folder_url)
-    resp.raise_for_status()
-
-    for item in resp.json()["data"]:
-        if item["attributes"]["name"] == _INDEX_FILENAME:
-            return item["links"]["download"]
-
-    raise RuntimeError(
-        f"{_INDEX_FILENAME!r} was not found on OSF (project {_OSF_PROJECT_ID}). "
-        "Run 'nunez-upload --index-only' from the nunez-elizalde-2022-bids "
-        "repository to generate it."
-    )
-
-
-def _get_index(data_dir: Path, refresh: bool = False) -> dict[str, str]:
-    """Return the dataset index.
-
-    Uses the locally cached index when available and `refresh` is False,
-    enabling offline use. When `refresh` is True or no cached index exists,
-    fetches the latest version from OSF.
-
-    Parameters
-    ----------
-    data_dir : pathlib.Path
-        Local directory where the index is cached.
-    refresh : bool, default: False
-        If True, always fetch the latest index from OSF even if a local copy
-        exists.
-
-    Returns
-    -------
-    dict[str, str]
-        Mapping from BIDS-relative file paths to OSF file IDs.
-    """
-    index_path = data_dir / _INDEX_FILENAME
-    if not refresh and index_path.exists():
-        return json.loads(index_path.read_text(encoding="utf-8"))
-
-    url = _resolve_index_url()
-    response = requests.get(url)
-    response.raise_for_status()
-    index = response.json()
-    index_path.write_text(
-        json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    return index
+_MISSING_INDEX_HINT = (
+    "Run 'nunez-upload --index-only' from the nunez-elizalde-2022-bids "
+    "repository to generate it."
+)
 
 
 def _filter_files(
-    index: dict[str, str],
+    index: dict[str, OsfFileInfo],
     subjects: list[str] | None,
     sessions: list[str] | None,
     tasks: list[str] | None,
     acqs: list[str] | None,
-) -> dict[str, str]:
+) -> dict[str, OsfFileInfo]:
     """Filter the index to files matching the requested subjects/sessions/tasks.
 
     Top-level BIDS metadata files (dataset_description.json, participants.*,
@@ -127,8 +33,8 @@ def _filter_files(
 
     Parameters
     ----------
-    index : dict[str, str]
-        Full dataset index as returned by `_get_index`.
+    index : dict[str, OsfFileInfo]
+        Full dataset index as returned by `get_index`.
     subjects : list[str] or None
         Subject IDs to include (without "sub-" prefix), e.g. `["CR020"]`. If `None`, all
         subjects are included.
@@ -144,12 +50,12 @@ def _filter_files(
 
     Returns
     -------
-    dict[str, str]
+    dict[str, OsfFileInfo]
         Subset of the index matching the filters.
     """
-    filtered: dict[str, str] = {}
+    filtered: dict[str, OsfFileInfo] = {}
 
-    for path, osf_id in index.items():
+    for path, file_info in index.items():
         parts = Path(path).parts
 
         # Handle derivatives explicitly so subject/session filters apply there too.
@@ -157,10 +63,10 @@ def _filter_files(
             derivative_sub = next((p for p in parts if p.startswith("sub-")), None)
             derivative_ses = next((p for p in parts if p.startswith("ses-")), None)
 
-            # Derivative files without subject/session (e.g. dataset_description,
-            # shared lookup tables) are always included.
+            # Derivative files without subject/session (e.g. dataset_description, shared
+            # lookup tables) are always included.
             if derivative_sub is None:
-                filtered[path] = osf_id
+                filtered[path] = file_info
                 continue
 
             sub_id = derivative_sub.removeprefix("sub-")
@@ -172,12 +78,12 @@ def _filter_files(
                 if sessions is not None and ses_id not in sessions:
                     continue
 
-            filtered[path] = osf_id
+            filtered[path] = file_info
             continue
 
         # Always include top-level BIDS files (no subject folder).
         if not parts[0].startswith("sub-"):
-            filtered[path] = osf_id
+            filtered[path] = file_info
             continue
 
         # Subject filter.
@@ -187,7 +93,7 @@ def _filter_files(
 
         # Subject-level files (e.g. sub-CR020_sessions.tsv).
         if len(parts) == 1 or not parts[1].startswith("ses-"):
-            filtered[path] = osf_id
+            filtered[path] = file_info
             continue
 
         # Session filter.
@@ -207,17 +113,17 @@ def _filter_files(
             if match is None or match.group(1) not in acqs:
                 continue
 
-        filtered[path] = osf_id
+        filtered[path] = file_info
 
     return filtered
 
 
 def fetch_nunez_elizalde_2022(
     data_dir: str | Path | None = None,
-    subjects: list[str] | None = None,
-    sessions: list[str] | None = None,
-    tasks: list[str] | None = None,
-    acqs: list[str] | None = None,
+    subjects: str | list[str] | None = None,
+    sessions: str | list[str] | None = None,
+    tasks: str | list[str] | None = None,
+    acqs: str | list[str] | None = None,
     refresh: bool = False,
 ) -> Path:
     """Fetch the Nunez-Elizalde 2022 fUSI-BIDS dataset.
@@ -237,19 +143,23 @@ def fetch_nunez_elizalde_2022(
         `~/Library/Caches/confusius` on macOS,
         `%LOCALAPPDATA%\\confusius\\Cache` on Windows),
         overridable via the `CONFUSIUS_DATA` environment variable.
-    subjects : list[str], optional
-        Subject IDs to download (without "sub-" prefix), e.g. `["CR020"]`. If not
-        provided, all subjects are downloaded.
-    sessions : list[str], optional
-        Session IDs to download (without "ses-" prefix), e.g. `["20191122"]`. If not
-        provided, all sessions are downloaded.
-    tasks : list[str], optional
-        Task names to download, e.g. `["kalatsky", "spontaneous"]`. If not provided, all
-        tasks are downloaded. Angiography files are always included regardless of this
-        filter.
-    acqs : list[str], optional
-        Acquisition labels to download (without `acq-`), e.g. `["slice03"]`. If not
-        provided, all acquisitions are downloaded. Only applies to `fusi/` files;
+    subjects : str or list[str], optional
+        Subject IDs to download (without "sub-" prefix), e.g. "CR020" or
+        `["CR020"]`. Accepts a single string or a list. If not provided, all
+        subjects are downloaded.
+    sessions : str or list[str], optional
+        Session IDs to download (without "ses-" prefix), e.g. "20191122" or
+        `["20191122"]`. Accepts a single string or a list. If not provided,
+        all sessions are downloaded.
+    tasks : str or list[str], optional
+        Task names to download, e.g. "kalatsky" or
+        `["kalatsky", "spontaneous"]`. Accepts a single string or a list. If
+        not provided, all tasks are downloaded. Angiography files are always
+        included regardless of this filter.
+    acqs : str or list[str], optional
+        Acquisition labels to download (without `acq-`), e.g. "slice03" or
+        `["slice03"]`. Accepts a single string or a list. If not provided,
+        all acquisitions are downloaded. Only applies to `fusi/` files;
         angiography files are always included.
     refresh : bool, default: False
         Whether to re-fetch the dataset index from OSF and download any files that are
@@ -274,61 +184,28 @@ def fetch_nunez_elizalde_2022(
     bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
     bids_dir.mkdir(parents=True, exist_ok=True)
 
-    index = _get_index(bids_dir, refresh=refresh)
+    # Normalize str to list.
+    if isinstance(subjects, str):
+        subjects = [subjects]
+    if isinstance(sessions, str):
+        sessions = [sessions]
+    if isinstance(tasks, str):
+        tasks = [tasks]
+    if isinstance(acqs, str):
+        acqs = [acqs]
+
+    index = cast(
+        "dict[str, OsfFileInfo]",
+        get_index(
+            bids_dir,
+            _OSF_PROJECT_ID,
+            _BIDS_ROOT,
+            refresh=refresh,
+            missing_index_hint=_MISSING_INDEX_HINT,
+        ),
+    )
     files = _filter_files(index, subjects, sessions, tasks, acqs)
 
-    missing = {p: i for p, i in files.items() if not (bids_dir / p).exists()}
-    if not missing:
-        return bids_dir
-
-    # Suppress pooch's INFO-level messages (SHA256 suggestions, download URLs) and route
-    # any warnings/errors through rich so they don't break the progress bar layout.
-    # Pooch uses logging.Logger("pooch") directly rather than
-    # logging.getLogger("pooch"), so we must go through pooch.get_logger().
-    pooch_logger = pooch.get_logger()
-    original_handlers = pooch_logger.handlers[:]
-    original_level = pooch_logger.level
-
-    for handler in original_handlers:
-        pooch_logger.removeHandler(handler)
-    pooch_logger.addHandler(
-        RichHandler(level=logging.WARNING, show_time=False, show_path=False)
-    )
-    pooch_logger.setLevel(logging.WARNING)
-
-    try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            MofNCompleteColumn(),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task("Downloading dataset...", total=len(missing))
-
-            for rel_path, osf_id in missing.items():
-                dest = bids_dir / rel_path
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                progress.update(
-                    task,
-                    description=f"Downloading [bold]{Path(rel_path).name}[/bold]",
-                )
-                pooch.retrieve(
-                    url=_OSF_DOWNLOAD_BASE.format(osf_id.lstrip("/")),
-                    known_hash=None,
-                    fname=dest.name,
-                    path=dest.parent,
-                    progressbar=False,
-                )
-                progress.advance(task)
-
-            progress.update(task, description="Download complete.")
-    finally:
-        for handler in pooch_logger.handlers[:]:
-            pooch_logger.removeHandler(handler)
-        for handler in original_handlers:
-            pooch_logger.addHandler(handler)
-        pooch_logger.setLevel(original_level)
+    download_missing_osf_files(bids_dir, files)
 
     return bids_dir

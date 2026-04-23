@@ -9,31 +9,6 @@ import pooch
 
 _ENV_VAR = "CONFUSIUS_DATA"
 
-_SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
-
-
-def format_bytes(size_bytes: int) -> str:
-    """Format a byte count as a human-readable string.
-
-    Uses SI (base-1000) units.
-
-    Parameters
-    ----------
-    size_bytes : int
-        Size in bytes.
-
-    Returns
-    -------
-    str
-        Human-readable size string, e.g. ``"6.4 GB"``.
-    """
-    size = float(size_bytes)
-    for unit in _SIZE_UNITS[:-1]:
-        if abs(size) < 1000:
-            return f"{size:.4g} {unit}"
-        size /= 1024
-    return f"{size:.4g} {_SIZE_UNITS[-1]}"
-
 
 def get_datasets_dir(data_dir: str | Path | None = None) -> Path:
     """Return the confusius data directory.

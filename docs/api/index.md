@@ -84,6 +84,12 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Signal processing tools for fUSI time series including denoising and motion artifact
     correction.
+  
+- **[:lucide-layers: Decomposition](decomposition.md)**
+
+    ---
+
+    Matrix decomposition algorithms for fUSI time series (e.g. PCA, NMF, ICA).
 
 - **[:lucide-brain-circuit: Functional Connectivity](connectivity.md)**
 

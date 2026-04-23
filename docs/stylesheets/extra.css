@@ -1,3 +1,25 @@
+/* Supplement Google-Fonts JetBrains Mono with box-drawing + block glyphs.
+   Google Fonts ships only latin/cyrillic/greek/vietnamese subsets, so chars in
+   U+2500–25FF (used by Rich tables, etc.) otherwise fall back to system mono
+   with mismatched metrics. Served via jsDelivr's GitHub mirror, pinned to a
+   tagged release for reproducibility. */
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@v2.304/fonts/webfonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("https://cdn.jsdelivr.net/gh/JetBrains/JetBrainsMono@v2.304/fonts/webfonts/JetBrainsMono-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+2500-257F, U+2580-259F, U+25A0-25FF;
+}
+
 /* Light mode: medium gold — brighter than dark gold, still readable on white. */
 [data-md-color-scheme="default"] {
   --md-primary-fg-color: #c49a0a;
