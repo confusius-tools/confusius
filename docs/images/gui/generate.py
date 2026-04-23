@@ -1,8 +1,15 @@
 """Generate documentation images for the GUI guide.
 
-Data is fetched automatically from the Nunez-Elizalde et al. (2022) fUSI-BIDS
-dataset on OSF (https://osf.io/43skw/) via `confusius.datasets`.  The first run
-downloads ~30 MB; subsequent runs use the local cache.
+Two datasets are fetched automatically via `confusius.datasets`:
+
+- **Nunez-Elizalde et al. (2022)** fUSI-BIDS dataset on OSF
+  (https://osf.io/43skw/) — used for the Data I/O, Signals, and QC
+  screenshots. First run downloads ~30 MB.
+- **Cybis Pereira et al. (2026)** fUSI-BIDS dataset on OSF
+  (https://osf.io/2v6f7/) — used for the Video panel GIF. First run
+  downloads ~200 MB (raw fUSI + DLC video).
+
+Subsequent runs use the local cache.
 
 Usage
 -----
@@ -10,7 +17,14 @@ Run from the project root::
 
     uv run docs/images/gui/generate.py
 
-All images are saved to docs/images/gui/.
+Outputs (all saved to docs/images/gui/):
+
+- `plugin-data-io.png` — Data I/O panel with a scan loaded.
+- `plugin-signals.png` — Signals panel in hover mode.
+- `plugin-signals-points.png` — Signals panel in points mode.
+- `plugin-signals-labels.png` — Signals panel in labels mode.
+- `plugin-qc.png` — QC panel with DVARS, carpet, and CV computed.
+- `plugin-video.gif` — Video panel with video synced to the fUSI acquisition.
 
 Notes
 -----
@@ -26,12 +40,13 @@ from pathlib import Path
 
 import napari
 import numpy as np
+from napari.layers import Image
 from napari.qt import get_qapp
 from qtpy.QtCore import QEventLoop, Qt, QTimer
 from rich.console import Console
 
 import confusius as cf  # noqa: F401  # Register xarray accessors.
-from confusius.datasets import fetch_nunez_elizalde_2022
+from confusius.datasets import fetch_cybis_pereira_2026, fetch_nunez_elizalde_2022
 
 HERE = Path(__file__).parent
 
@@ -297,6 +312,50 @@ console.print(
     f"({len(GUI_LABEL_IDS)} labels)"
 )
 
+# ---------------------------------------------------------------------------
+# Video dataset (Cybis-Pereira 2026) — used for the time-scrubbing plugin GIF.
+# Scan is already in display orientation upstream; no preprocessing needed.
+# ---------------------------------------------------------------------------
+
+_VIDEO_DATASETS = ["rawdata", "dlc-videos"]
+_VIDEO_SUBJECT = "rat75"
+_VIDEO_SESSION = "20220525"
+_VIDEO_ACQ_SLICE = "slice37"
+
+console.print("Fetching Cybis-Pereira 2026 dataset (for video GIF)")
+video_bids_root = fetch_cybis_pereira_2026(
+    datasets=_VIDEO_DATASETS,
+    subjects=[_VIDEO_SUBJECT],
+    sessions=[_VIDEO_SESSION],
+    acqs=[_VIDEO_ACQ_SLICE],
+)
+
+_VIDEO_FUSI_PATH = (
+    video_bids_root
+    / f"sub-{_VIDEO_SUBJECT}/ses-{_VIDEO_SESSION}/fusi"
+    / f"sub-{_VIDEO_SUBJECT}_ses-{_VIDEO_SESSION}_task-openfield_acq-{_VIDEO_ACQ_SLICE}_pwd.nii.gz"
+)
+if not _VIDEO_FUSI_PATH.is_file():
+    raise FileNotFoundError(f"Video-dataset fUSI not found at {_VIDEO_FUSI_PATH}")
+
+_VIDEO_MP4_PATH = (
+    video_bids_root
+    / "derivatives/dlc-videos"
+    / f"sub-{_VIDEO_SUBJECT}/ses-{_VIDEO_SESSION}/video"
+    / f"sub-{_VIDEO_SUBJECT}_ses-{_VIDEO_SESSION}_task-openfield_tracksys-DLC_acq-{_VIDEO_ACQ_SLICE}_video.mp4"
+)
+if not _VIDEO_MP4_PATH.is_file():
+    raise FileNotFoundError(f"Video not found at {_VIDEO_MP4_PATH}")
+
+console.print("Computing video-dataset display contrast")
+_video_pwd = cf.load(_VIDEO_FUSI_PATH)
+VIDEO_TIME_AXIS = list(_video_pwd.dims).index("time")
+VIDEO_DISPLAY_CONTRAST = (
+    float(_video_pwd.min()),
+    float(_video_pwd.quantile(0.9995)),
+)
+del _video_pwd
+
 
 def _napari_screenshot(viewer: napari.Viewer, path: str) -> None:
     """Take a full-window napari screenshot without displaying the window.
@@ -403,12 +462,12 @@ try:
     viewer2.window.add_dock_widget(widget2, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 1).
-    _open_accordion(widget2, 1)
+    # Open Signals panel (index 2).
+    _open_accordion(widget2, 2)
 
     # Retrieve the Signals panel from the accordion container layout.
     _container2 = widget2._accordion_btns[0][0].parent()
-    ts_panel = _container2.layout().itemAt(2 * 1 + 1).widget()
+    ts_panel = _container2.layout().itemAt(2 * 2 + 1).widget()
 
     # Open the bottom dock with the signals plotter.
     plotter = ts_panel._ensure_plotter()
@@ -452,13 +511,13 @@ try:
     viewer3.window.add_dock_widget(widget3, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open QC panel (index 2).
-    _open_accordion(widget3, 2)
+    # Open QC panel (index 3).
+    _open_accordion(widget3, 3)
 
     # Retrieve the QCPanel widget from the accordion container layout.
     # Layout interleaves buttons and panels: btn0, panel0, btn1, panel1, …
     _container3 = widget3._accordion_btns[0][0].parent()
-    qc_panel = _container3.layout().itemAt(2 * 2 + 1).widget()
+    qc_panel = _container3.layout().itemAt(2 * 3 + 1).widget()
 
     # Select the layer in the QC panel.
     idx = qc_panel._layer_combo.findText(layer_name)
@@ -508,10 +567,10 @@ try:
     viewer4.window.add_dock_widget(widget4, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 1).
-    _open_accordion(widget4, 1)
+    # Open Signals panel (index 2).
+    _open_accordion(widget4, 2)
     _container4 = widget4._accordion_btns[0][0].parent()
-    ts_panel4 = _container4.layout().itemAt(2 * 1 + 1).widget()
+    ts_panel4 = _container4.layout().itemAt(2 * 2 + 1).widget()
 
     layer4 = viewer4.layers[0]
     shape4 = layer4.data.shape[1:]  # (z, y, x)
@@ -574,10 +633,10 @@ try:
     viewer5.window.add_dock_widget(widget5, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 1).
-    _open_accordion(widget5, 1)
+    # Open Signals panel (index 2).
+    _open_accordion(widget5, 2)
     _container5 = widget5._accordion_btns[0][0].parent()
-    ts_panel5 = _container5.layout().itemAt(2 * 1 + 1).widget()
+    ts_panel5 = _container5.layout().itemAt(2 * 2 + 1).widget()
 
     layer5 = viewer5.layers[0]
     shape5 = layer5.data.shape[1:]  # (z, y, x)
@@ -618,6 +677,104 @@ try:
     _ok("Saved plugin-signals-labels.png")
 except Exception as exc:
     _warn(f"plugin-signals-labels.png failed: {exc}")
+
+# ---------------------------------------------------------------------------
+# 6. Video panel — time-scrubbing GIF via the plugin
+# ---------------------------------------------------------------------------
+
+try:
+    from PIL import Image as _PILImage
+
+    from confusius._napari._data._load_panel import DataPanel
+    from confusius._napari._video._video_panel import VideoPanel
+
+    viewer6 = napari.Viewer(show=False)
+    widget6 = ConfUSIusWidget(viewer6)
+    viewer6.window.add_dock_widget(widget6, name="ConfUSIus", area="right")
+    _qt_sleep(200)
+
+    # Load fUSI via the Data I/O panel (scan already in display orientation).
+    data_panel = widget6.findChild(DataPanel)
+    if data_panel is None:
+        raise RuntimeError("DataPanel not found in ConfUSIusWidget")
+    data_panel._path_edit.setText(str(_VIDEO_FUSI_PATH))
+    data_panel._compute_check.setChecked(False)  # Load eagerly.
+
+    _load_loop = QEventLoop()
+    viewer6.layers.events.inserted.connect(lambda _e: _load_loop.quit())
+    data_panel._load()
+    _load_loop.exec()
+
+    fusi_layer = viewer6.layers[-1]
+    assert isinstance(fusi_layer, Image)
+    fusi_layer.gamma = DISPLAY_GAMMA
+    fusi_layer.contrast_limits = VIDEO_DISPLAY_CONTRAST
+    _qt_sleep(100)
+
+    # Attach video via the Video panel, using the fUSI layer as reference.
+    video_panel = widget6.findChild(VideoPanel)
+    if video_panel is None:
+        raise RuntimeError("VideoPanel not found in ConfUSIusWidget")
+    ref_idx = video_panel._ref_combo.findText(fusi_layer.name)
+    if ref_idx >= 0:
+        video_panel._ref_combo.setCurrentIndex(ref_idx)
+    video_panel._path_edit.setText(str(_VIDEO_MP4_PATH))
+    video_panel._load_from_path()
+    _qt_sleep(200)
+
+    # Open the Video accordion section (index 1).
+    _open_accordion(widget6, 1)
+
+    # Size the window, then refit camera to layers (napari "home" button).
+    win6 = viewer6.window._qt_window
+    win6.setAttribute(Qt.WA_DontShowOnScreen)
+    win6.show()
+    win6.resize(1400, 900)
+    get_qapp().processEvents()
+    viewer6.reset_view()
+    _qt_sleep(100)
+
+    # --- GIF: scrub the time slider so the grid viewers animate. ---
+    # Follows the 3D-orbit GIF pattern in docs/images/visualization/generate.py:
+    # capture full-window frames, shared-palette quantize, save as animated GIF.
+    N_GIF_FRAMES = 60
+    GIF_FPS = 12
+    GIF_WIDTH = 1100
+    # Scrub from 2 s to 17 s of scan world time. Use `set_point` (world
+    # coordinate) instead of `set_current_step` (index), because fUSI and
+    # video layers have different time scales in the shared grid.
+    GIF_T_START_S, GIF_T_STOP_S = 2.0, 17.0
+    step_times = np.linspace(GIF_T_START_S, GIF_T_STOP_S, N_GIF_FRAMES)
+
+    frames_pil: list = []
+    for t in step_times:
+        viewer6.dims.set_point(VIDEO_TIME_AXIS, float(t))
+        get_qapp().processEvents()
+        get_qapp().processEvents()
+        raw = viewer6.screenshot(canvas_only=False)[..., :3]
+        h, w = raw.shape[:2]
+        scale = GIF_WIDTH / w
+        frames_pil.append(
+            _PILImage.fromarray(raw).resize(
+                (GIF_WIDTH, int(h * scale)), _PILImage.Resampling.LANCZOS
+            )
+        )
+
+    palette_src = frames_pil[0].quantize(colors=256, dither=0)
+    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
+
+    gif_path = str(HERE / "plugin-video.gif")
+    quantized[0].save(
+        gif_path,
+        save_all=True,
+        append_images=quantized[1:],
+        duration=1000 // GIF_FPS,
+        loop=0,
+    )
+    viewer6.close()
+    _ok("Saved plugin-video.gif")
+except Exception as exc:
+    _warn(f"plugin-video.gif failed: {exc}")
 
 # ---------------------------------------------------------------------------
 

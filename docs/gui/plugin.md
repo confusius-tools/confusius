@@ -4,9 +4,14 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains three collapsible panels. Each panel operates
+The ConfUSIus sidebar contains four collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
+
+- [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, SCAN).
+- [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
+- [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
+- [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
 
 ## Data I/O Panel
 
@@ -52,6 +57,59 @@ Three save modes are applied automatically depending on what is available:
 | **Direct** | The layer was loaded via ConfUSIus (DataArray in metadata). Saved verbatim, all coordinates and attributes preserved. |
 | **Template** | A template layer is selected. Coordinates are borrowed from the template DataArray. |
 | **Reconstruct** | No template and no DataArray in metadata (e.g. a freshly drawn labels layer). Coordinates are reconstructed from the napari layer state (`scale`, `translate`, `axis_labels`). |
+
+## Video Panel
+
+The Video Panel loads one or more videos (`.mp4`, `.mov`, `.avi`) and
+overlays them beside a fUSI scan in a synchronized grid. Each video becomes its own
+napari Image layer whose time axis is locked to the reference scan, so scrubbing the
+time slider plays every video in lockstep with the fUSI recording.
+
+### Loading a video
+
+1. Pick the fUSI image layer to synchronize against in the **Reference layer**
+   dropdown. The reference must have ConfUSIus coordinate metadata, so load it
+   through the [Data I/O Panel](#data-io-panel) or the [`confusius`
+   CLI](overview.md#recommended-data-panel-and-cli) command.
+2. Insert a path or click **Browse** to pick a video file.
+3. Click **Add video**. The video appears as a new Image layer, grid mode is
+   enabled with a single-row layout, and the viewer shows the reference scan and
+   the video side by side.
+
+Repeat to add more videos (each will get its own cell). All videos share the
+reference layer's axis labels, time index, and dimensionality; their spatial scale
+is chosen so the video height matches the fUSI height, with isotropic pixels and
+the frame centered on the scan.
+
+!!! tip "Launch with a video from the CLI"
+    Pass both a data file and `--video` to open them together:
+    ```bash
+    confusius path/to/scan.nii.gz --video path/to/camera.mp4
+    ```
+
+![ConfUSIus Video panel — playback](../images/gui/plugin-video.gif)
+
+### Playback
+
+
+| Option | Description |
+|--------|-------------|
+| **Frame step** | Show every *N*-th frame of the video. Higher values skip frames for lighter playback of long or high-frame-rate recordings. The effective frame rate becomes `fps / N`. Changes apply to every loaded video. |
+
+
+!!! tip "Napari playback performance"
+    Napari handles animations quite smoothly up to around 30 to 50 FPS (even higher
+    depending on user hardware and operating system). Use **Frame step** to reduce the
+    effective frame rate if playback is choppy or buffering.
+
+The time scale of each video layer is `frame_step / fps` seconds, so the napari
+time slider and the time overlay continue to report physical seconds regardless
+of the chosen step.
+
+!!! note "Time axis is kept out of the displayed dims"
+    The panel installs a guard that prevents napari from ever placing the time
+    axis in the 2D display. If you reorder dimensions such that time would become
+    a display dimension, the order is silently corrected.
 
 ## Signals Panel
 
