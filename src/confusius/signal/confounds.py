@@ -136,7 +136,7 @@ def _regress_confounds_numpy(
         confounds = _standardize_confounds(confounds)
 
     qr_result = scipy.linalg.qr(confounds, mode="economic", pivoting=True)
-    Q, R, pivot = cast(tuple[np.ndarray, np.ndarray, np.ndarray], qr_result)
+    Q, R, _ = cast(tuple[np.ndarray, np.ndarray, np.ndarray], qr_result)
 
     tol = np.finfo(np.float64).eps * 100.0
     rank = np.sum(np.abs(np.diag(R)) > tol)
@@ -148,6 +148,8 @@ def _regress_confounds_numpy(
     else:
         signals_2d = signals
 
+    # Parentheses enforce the low-cost order: compute (rank, n_voxels) first,
+    # then map back to (time, n_voxels), avoiding a large (time, time) product.
     projection = Q @ (Q.T @ signals_2d)
     residuals_2d = signals_2d - projection
 

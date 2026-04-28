@@ -174,8 +174,10 @@ def _apply_clutter_filter(
         Filtered signals with clutter components removed.
     """
     if clutter_vectors.size > 0:
-        filtered_signals = (
-            signals - clutter_vectors @ clutter_vectors.conj().T @ signals
+        # Parentheses enforce projection through component space first, avoiding
+        # construction of a dense (time, time) projector matrix.
+        filtered_signals = signals - clutter_vectors @ (
+            clutter_vectors.conj().T @ signals
         )
     else:
         filtered_signals = signals
