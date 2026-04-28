@@ -2,6 +2,7 @@
 
 import warnings
 from collections import defaultdict
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import napari
@@ -243,9 +244,7 @@ def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
 
 
 def _extract_slices(
-    data: xr.DataArray,
-    slice_mode: str,
-    slice_coords: Sequence[float],
+    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[float]
 ) -> tuple[list[xr.DataArray], list[float]]:
     """Extract 2D slices from `data` along `slice_mode`.
 
@@ -264,6 +263,25 @@ def _extract_slices(
         slices.append(slice_da)
         actual_coords.append(actual_coord)
     return slices, actual_coords
+
+
+def _sort_coords_for_plot(
+    data: xr.DataArray,
+    dims: Sequence[Hashable],
+) -> xr.DataArray:
+    """Sort non-monotonic coordinate axes before plotting.
+
+    Sorting avoids ambiguous geometry in plotting backends that assume ordered
+    coordinates (e.g. `pcolormesh` edge construction, contour interpolation, and napari
+    array indexing with scale/translate).
+    """
+    sorted_data = data
+    for dim in dims:
+        if dim not in sorted_data.coords:
+            continue
+        if not sorted_data.get_index(dim).is_monotonic_increasing:
+            sorted_data = sorted_data.sortby(dim)
+    return sorted_data
 
 
 class VolumePlotter:
@@ -566,6 +584,8 @@ class VolumePlotter:
                 f"Available dimensions: {list(data.dims)}."
             )
 
+        data = _sort_coords_for_plot(data, data.dims)
+
         if data.ndim != 3:
             raise ValueError(
                 f"Data must be 3D, but got shape {data.shape} with dims "
@@ -863,6 +883,8 @@ class VolumePlotter:
 
         if mask.ndim != 3:
             raise ValueError(f"mask must be 3D, got shape {mask.shape}")
+
+        mask = _sort_coords_for_plot(mask, mask.dims)
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -1467,6 +1489,8 @@ def plot_napari(
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
+
+    data = _sort_coords_for_plot(data, spatial_dims)
 
     if dim_order is not None and set(dim_order) != set(spatial_dims):
         raise ValueError(
