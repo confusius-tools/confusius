@@ -57,6 +57,20 @@ _PROBE_TO_LAB_ROTATED = np.array(
     dtype=np.float64,
 )
 
+# BrainToLab: identity rotation, translation in metres on the Iconeus lab side
+# (xyz = lateral, elevation, axial). Used to build a synthetic .bps fixture.
+_BRAIN_TO_LAB = np.eye(4, dtype=np.float64)
+_BRAIN_TO_LAB[:3, 3] = [0.010, 0.020, 0.030]
+
+
+@pytest.fixture
+def bps_path(tmp_path: Path) -> Path:
+    """Create a synthetic BPS HDF5 file with a known BrainToLab affine."""
+    path = tmp_path / "test.bps"
+    with h5py.File(path, "w") as f:
+        f.create_dataset("BrainToLab", data=_BRAIN_TO_LAB)
+    return path
+
 
 def _end_referenced_times(n: int, duration: float) -> np.ndarray:
     """Return regularly spaced end-referenced timestamps."""
@@ -573,3 +587,74 @@ class TestPhysicalToLab:
         expected[:3, 3] *= 1e3
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Tests: BPS sidecar (physical_to_brain affine)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadScanWithBPS:
+    """Tests for load_scan when a BPS file is provided via `bps_path`."""
+
+    def test_no_bps_omits_physical_to_brain(self, scan_2d: xr.DataArray) -> None:
+        """Loading without `bps_path` does not add physical_to_brain to attrs."""
+        assert "physical_to_brain" not in scan_2d.attrs["affines"]
+
+    def test_bps_adds_physical_to_brain(
+        self, scan_2d_path: Path, bps_path: Path
+    ) -> None:
+        """Loading with `bps_path` adds physical_to_brain alongside physical_to_lab."""
+        da = load_scan(scan_2d_path, bps_path=bps_path)
+        assert "physical_to_brain" in da.attrs["affines"]
+        assert "physical_to_lab" in da.attrs["affines"]
+
+    def test_physical_to_brain_shape_2d(
+        self, scan_2d_path: Path, bps_path: Path
+    ) -> None:
+        """physical_to_brain has shape (4, 4) for 2Dscan."""
+        da = load_scan(scan_2d_path, bps_path=bps_path)
+        A = np.asarray(da.attrs["affines"]["physical_to_brain"])
+        assert A.shape == (4, 4)
+
+    def test_physical_to_brain_shape_multipose(
+        self, scan_3d_path: Path, scan_4d_path: Path, bps_path: Path
+    ) -> None:
+        """physical_to_brain has shape (npose, 4, 4) for 3Dscan and 4Dscan."""
+        for scan_path in (scan_3d_path, scan_4d_path):
+            da = load_scan(scan_path, bps_path=bps_path)
+            A = np.asarray(da.attrs["affines"]["physical_to_brain"])
+            assert A.shape == (_NPOSE, 4, 4)
+
+    def test_physical_to_brain_maps_origin_to_expected_brain_point(
+        self, scan_2d_path: Path, bps_path: Path
+    ) -> None:
+        """Physical origin (0, 0, 0) mm maps to the analytically expected brain point.
+
+        With BrainToLab = I + translation t (in metres, on the Iconeus xyz lab
+        side), the chain unwinds as:
+
+        - physical (z, y, x) = (0, 0, 0) mm -> ConfUSIus-ordered lab equals the
+          translation column of physical_to_lab in mm.
+        - Convert that lab point to Iconeus-ordered xyz metres, then subtract t to
+          get the brain coordinate (BrainToLab is identity-plus-translation).
+        """
+        da = load_scan(scan_2d_path, bps_path=bps_path)
+        A = np.asarray(da.attrs["affines"]["physical_to_brain"])
+
+        # Lab point corresponding to physical origin, in ConfUSIus zyx mm.
+        lab_zyx_mm = np.asarray(da.attrs["affines"]["physical_to_lab"])[:3, 3]
+        # Convert to Iconeus xyz metres: x_lab=x_conf, y_lab=z_conf, z_lab=-y_conf.
+        lab_xyz_m = (
+            np.array([lab_zyx_mm[2], lab_zyx_mm[0], -lab_zyx_mm[1]], dtype=np.float64)
+            * 1e-3
+        )
+        expected_brain = lab_xyz_m - _BRAIN_TO_LAB[:3, 3]
+
+        result = A @ np.array([0.0, 0.0, 0.0, 1.0])
+        np.testing.assert_allclose(result[:3], expected_brain, rtol=1e-10, atol=1e-12)
+
+    def test_missing_bps_path_raises(self, scan_2d_path: Path, tmp_path: Path) -> None:
+        """A non-existent `bps_path` raises ValueError before opening the SCAN."""
+        with pytest.raises(ValueError):
+            load_scan(scan_2d_path, bps_path=tmp_path / "nonexistent.bps")

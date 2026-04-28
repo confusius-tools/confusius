@@ -181,8 +181,63 @@ def _build_physical_to_lab(
     return physical_to_lab
 
 
+def _load_bps(bps_path: Path) -> npt.NDArray[np.float64]:
+    """Load a `.bps` file and return a `brain_to_lab` affine in ConfUSIus lab space.
+
+    BPS files are HDF5 sidecars produced by Iconeus' brain positioning system. They
+    store a `BrainToLab` affine that maps Iconeus brain coordinates `(x_brain, y_brain,
+    z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in metres.
+    Iconeus' lab axes are aligned with the probe: `x_lab = lateral`, `y_lab =
+    elevation`, `z_lab = axial`.
+
+    To compose this affine with the rest of the ConfUSIus pipeline we re-express
+    the lab side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)`
+    (elevation, depth, lateral) in millimetres, matching the convention used by
+    `physical_to_lab` (see `_build_physical_to_lab`). The brain side is left in
+    its original axis order (the brain coordinate units are not declared by the
+    BPS format and are therefore not converted).
+
+    The change of basis from ConfUSIus-ordered millimetre lab coordinates to
+    Iconeus-ordered metre lab coordinates is
+
+    ```
+    confusius_lab_to_iconeus_lab = mm_to_m @ P
+    ```
+
+    where `P = _PHYSICAL_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus
+    order `(z, y, x)` to probe / Iconeus-lab order `(x, y, z)`, and
+    `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)` rescales the translation column. The
+    returned affine is then
+
+    ```
+    brain_to_confusius_lab = inv(confusius_lab_to_iconeus_lab) @ BrainToLab
+    ```
+
+    Parameters
+    ----------
+    bps_path : pathlib.Path
+        Path to the BPS file (`.bps`).
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Affine mapping Iconeus brain coordinates to ConfUSIus-ordered Iconeus lab
+        coordinates `(z_lab, y_lab, x_lab, 1)` in millimetres.
+    """
+    with h5py.File(bps_path, "r") as f:
+        brain_to_lab = f["BrainToLab"][:]
+
+    P = _PHYSICAL_TO_PROBE_PERMUTATION
+    mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
+    confusius_lab_to_iconeus_lab = mm_to_m @ P
+
+    brain_to_confusius_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+    return brain_to_confusius_lab
+
+
 def load_scan(
     path: str | Path,
+    bps_path: str | Path | None = None,
     chunks: int | tuple[int, ...] | str | None = "auto",
 ) -> xr.DataArray:
     """Load an Iconeus SCAN file as a lazy Xarray DataArray.
@@ -199,6 +254,9 @@ def load_scan(
     ----------
     path : str or pathlib.Path
         Path to the SCAN file (`.scan`).
+    bps_path : str or pathlib.Path, optional
+        Path to the corresponding BPS file (`.bps`). If provided, the BPS transformation
+        matrix will be added as an affine attribute to the returned DataArray.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
 
@@ -231,10 +289,15 @@ def load_scan(
     Notes
     -----
     The `physical_to_lab` affine stored in `da.attrs["affines"]` maps ConfUSIus physical
-    coordinates `(z, y, x)` to Iconeus lab coordinates (mm). Apply as
-    `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`. For multi-pose
-    files the shape is `(npose, 4, 4)`; index with `da.coords["pose"].values` after
-    `isel`.
+    coordinates `(z, y, x)` to **ConfUSIus-ordered** Iconeus lab coordinates (mm). Apply
+    as `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`. For
+    multi-pose files the shape is `(npose, 4, 4)`; index with `da.coords["pose"].values`
+    after `isel`.
+
+    If `bps_path` is provided, a `physical_to_brain` affine is stored in
+    `da.attrs["affines"]["physical_to_brain"]` that maps ConfUSIus physical coordinates
+    `(z, y, x)` to Iconeus' brain coordinates. Apply as
+    `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
@@ -242,6 +305,9 @@ def load_scan(
     `iconeus_project`, `iconeus_date`).
     """
     path = check_path(path, type="file")
+    # validate bps path here so we fail early
+    if bps_path is not None:
+        bps_path = check_path(bps_path, label="bps_path", type="file")
 
     h5 = h5py.File(path, "r")
 
@@ -298,6 +364,11 @@ def load_scan(
     except Exception:
         h5.close()
         raise
+
+    if bps_path is not None:
+        brain_to_lab = _load_bps(bps_path)
+        physical_to_brain = np.linalg.inv(brain_to_lab) @ physical_to_lab
+        data_array.attrs["affines"]["physical_to_brain"] = physical_to_brain
 
     return data_array
 

@@ -344,6 +344,30 @@ scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
 Provenance metadata from the file is stored in `da.attrs`: `scan_mode`, `subject`,
 `session`, `scan`, `project`, `date`, `neuroscan_version`, and `machine_sn`.
 
+#### Loading a `.bps` File
+
+If you have an Iconeus `.bps` sidecar (a Brain Positioning System file produced
+alongside the SCAN), pass it via the `bps_path` argument so the resulting DataArray
+carries an extra `physical_to_brain` affine in `da.attrs["affines"]`:
+
+```python
+import confusius as cf
+
+da = cf.load(
+    "sub-01_task-awake_pwd.scan",
+    bps_path="sub-01_task-awake_pwd.bps",
+)
+
+physical_to_brain = da.attrs["affines"]["physical_to_brain"]
+```
+
+`physical_to_brain` maps ConfUSIus physical coordinates `(z, y, x, 1)` (mm) to
+Iconeus brain coordinates `(x_brain, y_brain, z_brain, 1)`. Compose it with
+brain-side affines (e.g. brain-to-CCFv3 from a brain atlas) to register fUSI data
+into atlas space without going through the Iconeus lab frame explicitly. For
+multi-pose files (`3Dscan`, `4Dscan`) the affine has shape `(npose, 4, 4)` and is
+indexed by pose, the same way `physical_to_lab` is.
+
 #### Converting SCAN Data to NIfTI
 
 Since [`load_scan`][confusius.io.load_scan] returns a standard Xarray DataArray with
