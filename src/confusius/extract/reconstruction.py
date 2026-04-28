@@ -94,9 +94,10 @@ def unmask(
     >>> spatial_pose.dims
     ("component", "pose", "z", "y", "x")
     """
-    if isinstance(signals, np.ndarray):
-        n_voxels_mask = int(mask.sum().values)
+    mask_values = mask.values
+    n_voxels_mask = int(np.count_nonzero(mask_values))
 
+    if isinstance(signals, np.ndarray):
         if signals.shape[-1] != n_voxels_mask:
             raise ValueError(
                 f"Last dimension of signals ({signals.shape[-1]}) doesn't match "
@@ -145,6 +146,11 @@ def unmask(
             raise ValueError(
                 f"'space' must be the last dimension, got dims={signals.dims}"
             )
+        if signals.sizes["space"] != n_voxels_mask:
+            raise ValueError(
+                f"Size of 'space' dimension ({signals.sizes['space']}) doesn't match "
+                f"number of masked voxels ({n_voxels_mask})"
+            )
     else:
         raise TypeError(
             f"'signals' must be Numpy array or DataArray, got {type(signals)}"
@@ -160,7 +166,7 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        mask_flat = mask.values.flatten()
+        mask_flat = (mask_values != 0).flatten()
         n_extra = int(np.prod([signals.sizes[d] for d in extra_dims]))
         output_flat = output_data.reshape(n_extra, -1)
         signals_flat = signals.values.reshape(n_extra, -1)
@@ -175,7 +181,7 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        mask_flat = mask.values.flatten()
+        mask_flat = (mask_values != 0).flatten()
         output_data.flat[mask_flat] = signals.values
 
         coords = {d: mask.coords[d] for d in spatial_dims}
