@@ -165,6 +165,48 @@ class TestUnmask:
         assert result.values[2, 0, 1, 2] == 29.0
         assert result.values[0, 3, 3, 3] == 0.0
 
+    def test_integer_mask_with_dataarray_signals(self):
+        """Test unmasking DataArray signals with integer mask values."""
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4 * 5).reshape(2, 3, 4, 5),
+            dims=["time", "z", "y", "x"],
+        )
+
+        bool_mask_data = np.zeros((3, 4, 5), dtype=bool)
+        bool_mask_data.flat[[0, 3, 7, 10, 18, 29, 41]] = True
+        int_mask = xr.DataArray(
+            bool_mask_data.astype(np.int32) * 385,
+            dims=["z", "y", "x"],
+        )
+
+        signals = extract.extract_with_mask(data, int_mask)
+        restored = extract.unmask(signals, int_mask)
+
+        mask_flat = bool_mask_data.ravel()
+        original_masked = data.values.reshape(2, -1)[:, mask_flat]
+        restored_masked = restored.values.reshape(2, -1)[:, mask_flat]
+
+        np.testing.assert_array_equal(original_masked, restored_masked)
+
+    def test_integer_mask_with_numpy_signals(self):
+        """Test unmasking NumPy signals with integer mask values."""
+        bool_mask_data = np.zeros((2, 3, 4), dtype=bool)
+        bool_mask_data.flat[[0, 2, 5, 7, 11]] = True
+        int_mask = xr.DataArray(
+            bool_mask_data.astype(np.int32) * 9,
+            dims=["z", "y", "x"],
+        )
+
+        signals = np.arange(15).reshape(3, 5)
+        result = extract.unmask(signals, int_mask, new_dims=["component"])
+
+        assert result.shape == (3, 2, 3, 4)
+        assert result.dims == ("component", "z", "y", "x")
+
+        mask_flat = bool_mask_data.ravel()
+        restored_masked = result.values.reshape(3, -1)[:, mask_flat]
+        np.testing.assert_array_equal(restored_masked, signals)
+
     def test_shape_validation(self):
         """Test that shape mismatches raise errors."""
         mask_data = np.zeros((5, 6, 7), dtype=bool)
@@ -174,6 +216,36 @@ class TestUnmask:
         signals = np.arange(5)
 
         with pytest.raises(ValueError, match="doesn't match"):
+            extract.unmask(signals, mask)
+
+    def test_dataarray_space_size_validation(self):
+        """Test that DataArray space size mismatches raise errors."""
+        mask_data = np.zeros((2, 3, 4), dtype=bool)
+        mask_data.flat[:5] = True
+        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
+
+        signals = xr.DataArray(
+            np.arange(8).reshape(2, 4),
+            dims=["time", "space"],
+        )
+
+        with pytest.raises(ValueError, match="Size of 'space' dimension"):
+            extract.unmask(signals, mask)
+
+    def test_float_mask_rejected(self):
+        """Test that float masks are rejected by unmask."""
+        mask = xr.DataArray(np.array([0.0, 1.0, 0.0]), dims=["space"])
+        signals = np.array([1.0])
+
+        with pytest.raises(TypeError, match="single-label integer dtype"):
+            extract.unmask(signals, mask)
+
+    def test_multi_label_integer_mask_rejected(self):
+        """Test that multi-label integer masks are rejected by unmask."""
+        mask = xr.DataArray(np.array([0, 1, 2], dtype=np.int32), dims=["space"])
+        signals = np.array([1.0, 2.0])
+
+        with pytest.raises(TypeError, match="multiple distinct non-zero values"):
             extract.unmask(signals, mask)
 
     def test_fill_value(self):

@@ -28,9 +28,10 @@ def unmask(
           coordinates.
 
     mask : xarray.DataArray
-        Boolean mask used for the original extraction. Provides spatial dimensions
-        and coordinates for reconstruction. Must have the same spatial dimensions
-        and coordinates as the original data.
+        Mask used for the original extraction. Provides spatial dimensions and
+        coordinates for reconstruction. Must be either boolean dtype, or integer dtype
+        with exactly one non-zero value (0 = background, one region id = foreground).
+        Spatial dimensions and coordinates must match the original data.
     new_dims : list of str, optional
         Names for leading dimensions when `signals` is a Numpy array. Must match the
         number of leading dimensions `(ndim - 1)`. If not provided, uses `["dim_0",
@@ -94,9 +95,25 @@ def unmask(
     >>> spatial_pose.dims
     ("component", "pose", "z", "y", "x")
     """
-    if isinstance(signals, np.ndarray):
-        n_voxels_mask = int(mask.sum().values)
+    mask_values = mask.values
+    if np.issubdtype(mask_values.dtype, np.bool_):
+        pass
+    elif np.issubdtype(mask_values.dtype, np.integer):
+        non_zero = np.unique(mask_values[mask_values != 0])
+        if len(non_zero) > 1:
+            raise TypeError(
+                "mask has integer dtype with multiple distinct non-zero values. "
+                "A mask must be boolean or have exactly one non-zero label "
+                "(0 = background, one region id = foreground)."
+            )
+    else:
+        raise TypeError(
+            f"mask must be boolean dtype or a single-label integer dtype, got {mask_values.dtype}."
+        )
 
+    n_voxels_mask = int(np.count_nonzero(mask_values))
+
+    if isinstance(signals, np.ndarray):
         if signals.shape[-1] != n_voxels_mask:
             raise ValueError(
                 f"Last dimension of signals ({signals.shape[-1]}) doesn't match "
@@ -145,6 +162,11 @@ def unmask(
             raise ValueError(
                 f"'space' must be the last dimension, got dims={signals.dims}"
             )
+        if signals.sizes["space"] != n_voxels_mask:
+            raise ValueError(
+                f"Size of 'space' dimension ({signals.sizes['space']}) doesn't match "
+                f"number of masked voxels ({n_voxels_mask})"
+            )
     else:
         raise TypeError(
             f"'signals' must be Numpy array or DataArray, got {type(signals)}"
@@ -160,7 +182,7 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        mask_flat = mask.values.flatten()
+        mask_flat = (mask_values != 0).flatten()
         n_extra = int(np.prod([signals.sizes[d] for d in extra_dims]))
         output_flat = output_data.reshape(n_extra, -1)
         signals_flat = signals.values.reshape(n_extra, -1)
@@ -175,7 +197,7 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        mask_flat = mask.values.flatten()
+        mask_flat = (mask_values != 0).flatten()
         output_data.flat[mask_flat] = signals.values
 
         coords = {d: mask.coords[d] for d in spatial_dims}
