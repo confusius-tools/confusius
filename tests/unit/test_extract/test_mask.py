@@ -212,6 +212,20 @@ class TestUnmask:
         with pytest.raises(ValueError, match="doesn't match"):
             extract.unmask(signals, mask)
 
+    def test_dataarray_space_size_validation(self):
+        """Test that DataArray space size mismatches raise errors."""
+        mask_data = np.zeros((2, 3, 4), dtype=bool)
+        mask_data.flat[:5] = True
+        mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
+
+        signals = xr.DataArray(
+            np.arange(8).reshape(2, 4),
+            dims=["time", "space"],
+        )
+
+        with pytest.raises(ValueError, match="Size of 'space' dimension"):
+            extract.unmask(signals, mask)
+
     def test_fill_value(self):
         """Test custom fill value."""
         mask_data = np.zeros((3, 4, 5), dtype=bool)
