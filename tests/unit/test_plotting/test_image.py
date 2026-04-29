@@ -477,6 +477,25 @@ class TestPlotContours:
         with pytest.raises(ValueError, match="3D"):
             plot_contours(mask, slice_mode="y")
 
+    def test_single_axes_object_accepted(self, matplotlib_pyplot):
+        """plot_contours accepts a bare Axes object, not only an ndarray of Axes.
+
+        Regression test for issue #66: previously raised
+        AttributeError: 'Axes' object has no attribute 'flat'.
+        """
+        import matplotlib.pyplot as plt
+
+        mask = xr.DataArray(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        )
+        fig, ax = plt.subplots()
+
+        plotter = plot_contours(mask, slice_mode="z", axes=ax)
+
+        assert plotter.figure is fig
+
     def test_all_zero_mask_returns_without_figure(self, matplotlib_pyplot):
         """plot_contours returns early without creating a figure for all-zero mask."""
         mask = xr.DataArray(
