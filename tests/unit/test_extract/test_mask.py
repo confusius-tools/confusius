@@ -110,6 +110,40 @@ class TestWithMask:
             [[0, 2, 3], [5, 7, 8], [10, 12, 13], [15, 17, 18]],
         )
 
+    def test_unstack_coords_are_ordered_after_extract(self):
+        """Test unstack produces ordered spatial coordinates after extract."""
+        data = xr.DataArray(
+            np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [2.0, 0.0, 1.0],
+                "x": [3.0, 1.0, 2.0, 0.0],
+            },
+        )
+        mask = xr.DataArray(
+            np.array(
+                [
+                    [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 0, 0]],
+                    [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 1]],
+                ],
+                dtype=bool,
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [2.0, 0.0, 1.0],
+                "x": [3.0, 1.0, 2.0, 0.0],
+            },
+        )
+
+        signals = extract.extract_with_mask(data, mask)
+        unstacked = signals.unstack("space")
+
+        assert np.all(np.diff(unstacked.coords["z"].values) > 0)
+        assert np.all(np.diff(unstacked.coords["y"].values) > 0)
+        assert np.all(np.diff(unstacked.coords["x"].values) > 0)
+
 
 class TestUnmask:
     """Tests for extract.unmask function."""
@@ -288,3 +322,40 @@ class TestRoundTrip:
 
         non_mask_flat = ~mask_flat
         assert np.all(restored.values.reshape(10, -1)[:, non_mask_flat] == 0.0)
+
+    def test_unmask_dataarray_and_ndarray_match(self):
+        """Test DataArray and ndarray unmask paths reconstruct the same volume."""
+        data = xr.DataArray(
+            np.random.randn(3, 2, 3, 4),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [2.0, 0.0, 1.0],
+                "x": [3.0, 1.0, 2.0, 0.0],
+            },
+        )
+        mask = xr.DataArray(
+            np.array(
+                [
+                    [[1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 0, 0]],
+                    [[0, 1, 0, 0], [0, 0, 1, 0], [1, 0, 0, 1]],
+                ],
+                dtype=bool,
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [2.0, 0.0, 1.0],
+                "x": [3.0, 1.0, 2.0, 0.0],
+            },
+        )
+
+        signals = extract.extract_with_mask(data, mask)
+        restored_da = extract.unmask(signals, mask, fill_value=np.nan)
+        restored_np = extract.unmask(signals.values, mask, fill_value=np.nan)
+
+        np.testing.assert_allclose(
+            restored_da.values,
+            restored_np.values,
+            equal_nan=True,
+        )

@@ -96,5 +96,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         return data.isel(space=mask_flat)
 
     data_flat = data.stack(space=spatial_dims)
-    mask_flat = mask_aligned.values.flatten().astype(bool)
-    return data_flat.isel(space=mask_flat)
+    mask_flat = mask_aligned.values.ravel().astype(bool)
+    # Rebuild the space index from the selected voxel coordinates so unstack() uses the
+    # reduced grid implied by the extracted mask.
+    return data_flat.isel(space=mask_flat).set_xindex(spatial_dims)
