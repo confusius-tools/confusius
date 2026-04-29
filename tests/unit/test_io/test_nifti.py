@@ -170,6 +170,42 @@ class TestLoadNifti:
             + np.array([0.0, 0.1, 0.2, 0.3]),
         )
 
+    def test_load_nifti_reconstructs_scalar_time_and_slice_time_from_sidecar(
+        self, tmp_path: Path
+    ) -> None:
+        """3D payloads with timing sidecar metadata reconstruct scalar temporal coords."""
+        data = np.random.default_rng(0).random((5, 4, 3)).astype(np.float32)
+        path = tmp_path / "scalar_time_sidecar.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with open(tmp_path / "scalar_time_sidecar.json", "w") as f:
+            json.dump(
+                {
+                    "VolumeTiming": [2.05],
+                    "FrameAcquisitionDuration": 0.4,
+                    "SliceTiming": [0.0, 0.1, 0.2],
+                    "SliceEncodingDirection": "k",
+                },
+                f,
+            )
+
+        loaded = load_nifti(path)
+
+        assert loaded.coords["time"].dims == ()
+        assert loaded.coords["time"].item() == pytest.approx(2.05)
+        assert loaded.coords["time"].attrs["volume_acquisition_reference"] == "start"
+        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+            0.4
+        )
+        assert "volume_timing" not in loaded.attrs
+        assert "volume_acquisition_duration" not in loaded.attrs
+
+        assert loaded.coords["slice_time"].dims == ("z",)
+        np.testing.assert_allclose(
+            loaded.coords["slice_time"].values,
+            np.array([2.05, 2.15, 2.25]),
+        )
+
     def test_load_nifti_derives_volume_duration_from_repetition_time_and_delay_time(
         self, tmp_path: Path
     ) -> None:
@@ -828,6 +864,37 @@ class TestSaveNifti:
         assert sidecar["VolumeTiming"] == [10.0]
         assert "FrameAcquisitionDuration" not in sidecar
 
+    def test_save_scalar_time_coordinate_without_time_dim(
+        self, tmp_path, sample_4d_volume
+    ) -> None:
+        """Saving a 3D slice with scalar `time` coord writes single-volume timing."""
+        da = sample_4d_volume.isel(time=0).copy()
+        output_path = tmp_path / "scalar_time_coord.nii.gz"
+
+        with pytest.warns(UserWarning, match="FrameAcquisitionDuration is REQUIRED"):
+            save_nifti(da, output_path)
+
+        sidecar_path = tmp_path / "scalar_time_coord.json"
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+
+        assert sidecar["VolumeTiming"] == [10.0]
+        assert "RepetitionTime" not in sidecar
+
+    def test_save_boolean_data_writes_uint8(self, tmp_path, sample_3d_volume) -> None:
+        """Boolean payloads are stored as uint8 because NIfTI does not support bool."""
+        threshold = float(sample_3d_volume.mean().item())
+        da = sample_3d_volume.drop_vars("time") > threshold
+        output_path = tmp_path / "bool_payload.nii.gz"
+
+        save_nifti(da, output_path)
+
+        loaded = nib.load(output_path)
+        assert loaded.get_data_dtype() == np.dtype(np.uint8)
+        np.testing.assert_array_equal(
+            np.asarray(loaded.dataobj), da.values.transpose(2, 1, 0).astype(np.uint8)
+        )
+
     def test_save_nifti2_writes_nifti2_image(self, tmp_path, sample_3d_volume) -> None:
         """Saving with `nifti_version=2` produces a NIfTI-2 image."""
         da = sample_3d_volume.drop_vars("time")
@@ -990,6 +1057,30 @@ class TestSaveNifti:
 
         assert "SliceTiming" not in sidecar
         assert "SliceEncodingDirection" not in sidecar
+
+    def test_save_serializes_1d_slice_time_with_scalar_time_coordinate(
+        self, tmp_path, sample_4d_volume
+    ) -> None:
+        """A 1D absolute `slice_time` is exported for scalar-time 3D snapshots."""
+        da = sample_4d_volume.isel(time=0).copy()
+        da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
+        da.coords["time"].attrs["volume_acquisition_reference"] = "start"
+        da = da.assign_coords(
+            slice_time=xr.DataArray(
+                da.coords["time"].item() + np.array([0.0, 0.1, 0.2, 0.3]),
+                dims=("z",),
+                attrs={"units": "s"},
+            )
+        )
+
+        output_path = tmp_path / "slice_time_1d_scalar_time.nii.gz"
+        save_nifti(da, output_path)
+
+        with open(tmp_path / "slice_time_1d_scalar_time.json") as f:
+            sidecar = json.load(f)
+
+        assert sidecar["SliceTiming"] == pytest.approx([0.0, 0.1, 0.2, 0.3])
+        assert sidecar["SliceEncodingDirection"] == "k"
 
     def test_save_nifti_validation_runtime_error_warns(
         self, tmp_path, sample_4d_volume

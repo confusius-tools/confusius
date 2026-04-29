@@ -71,6 +71,16 @@ _CONFUSIUS_TO_NIFTI_TIME_UNITS: dict[str, str] = {
 _SLICE_TIME_DIM_TO_DIRECTION: dict[str, str] = {"x": "i", "y": "j", "z": "k"}
 """Mapping from slice-time spatial dimension names to BIDS directions."""
 
+_SLICE_TIME_DIRECTION_TO_DIM: dict[str, str] = {
+    "i": "x",
+    "i-": "x",
+    "j": "y",
+    "j-": "y",
+    "k": "z",
+    "k-": "z",
+}
+"""Mapping from BIDS slice-time directions to spatial dimension names."""
+
 _TIME_ATTRS_TO_SECONDS: frozenset[str] = frozenset(
     {
         "clutter_filter_window_duration",
@@ -501,6 +511,102 @@ def _create_temporal_coords_from_nifti(
     return coords, attrs
 
 
+def _create_scalar_temporal_coords_from_nifti(
+    extractor: "_NiftiHeaderExtractor",
+    attrs: dict[str, Any],
+) -> tuple[dict[str, xr.DataArray], dict[str, Any]]:
+    """Create scalar temporal coordinates for non-temporal NIfTI payloads.
+
+    When a NIfTI payload has no `time` dimension but the sidecar still carries timing
+    metadata (for example after saving a 3D snapshot with a scalar `time`
+    coordinate), this helper reconstructs scalar temporal coordinates and removes the
+    consumed timing fields from attrs.
+
+    Parameters
+    ----------
+    extractor : _NiftiHeaderExtractor
+        Header extractor for the loaded image.
+    attrs : dict[str, Any]
+        DataArray attributes, typically merged from the NIfTI header and sidecar.
+
+    Returns
+    -------
+    coords : dict[str, xarray.DataArray]
+        Scalar temporal coordinate DataArrays keyed by name. Empty dict when no scalar
+        timing can be reconstructed.
+    remaining_attrs : dict[str, Any]
+        Copy of `attrs` with consumed temporal fields removed.
+    """
+    attrs = dict(attrs)
+    _, time_unit = extractor.get_unit_strings()
+
+    time_attrs: dict[str, Any] = {"volume_acquisition_reference": "start"}
+    if time_unit is not None:
+        time_attrs["units"] = time_unit
+    if "volume_acquisition_duration" in attrs:
+        time_attrs["volume_acquisition_duration"] = attrs.pop(
+            "volume_acquisition_duration"
+        )
+
+    time_value: float | None = None
+    if "volume_timing" in attrs:
+        volume_timing = np.asarray(attrs.pop("volume_timing"), dtype=np.float64)
+        if volume_timing.ndim != 1 or volume_timing.size == 0:
+            warnings.warn(
+                "`volume_timing` metadata is not a non-empty 1D array. Omitting scalar "
+                "`time` coordinate reconstruction.",
+                stacklevel=find_stack_level(),
+            )
+            return {}, attrs
+        if volume_timing.size > 1:
+            warnings.warn(
+                "`volume_timing` has multiple entries but the image has no `time` "
+                "dimension. Using the first timestamp for scalar `time`.",
+                stacklevel=find_stack_level(),
+            )
+        time_value = float(volume_timing[0])
+    elif "repetition_time" in attrs:
+        attrs.pop("repetition_time")
+        time_value = float(attrs.pop("delay_after_trigger", 0.0))
+        attrs.pop("delay_time", None)
+    elif "delay_after_trigger" in attrs:
+        time_value = float(attrs.pop("delay_after_trigger"))
+        attrs.pop("delay_time", None)
+
+    if time_value is None:
+        return {}, attrs
+
+    coords: dict[str, xr.DataArray] = {
+        "time": xr.DataArray(np.float64(time_value), attrs=time_attrs)
+    }
+
+    if "slice_timing" in attrs and "slice_encoding_direction" in attrs:
+        slice_encoding_direction = str(attrs.pop("slice_encoding_direction"))
+        if slice_encoding_direction not in _SLICE_TIME_DIRECTION_TO_DIM:
+            return coords, attrs
+
+        slice_timing = convert_time_values(
+            attrs.pop("slice_timing"),
+            from_unit="s",
+            to_unit=coords["time"].attrs.get("units", "s"),
+            raise_on_unknown=True,
+        )
+        slice_timing = np.asarray(slice_timing, dtype=np.float64)
+        if slice_timing.ndim != 1:
+            return coords, attrs
+        if slice_encoding_direction.endswith("-"):
+            slice_timing = slice_timing[::-1]
+
+        spatial_dim = _SLICE_TIME_DIRECTION_TO_DIM[slice_encoding_direction]
+        coords["slice_time"] = xr.DataArray(
+            time_value + slice_timing,
+            dims=[spatial_dim],
+            attrs={"units": coords["time"].attrs.get("units", "s")},
+        )
+
+    return coords, attrs
+
+
 def _get_volume_acquisition_reference(
     attrs: dict[str, Any], *, coord_name: str, warn_on_missing: bool = False
 ) -> Literal["start", "center", "end"]:
@@ -659,7 +765,10 @@ def load_nifti(
         )
         coords = {**spatial_coords, **temporal_coords}
     else:
-        coords = spatial_coords
+        scalar_temporal_coords, attrs = _create_scalar_temporal_coords_from_nifti(
+            extractor=extractor, attrs=attrs
+        )
+        coords = {**spatial_coords, **scalar_temporal_coords}
 
     nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
     data_array = xr.DataArray(
@@ -677,7 +786,7 @@ def _infer_repetition_time(
     Parameters
     ----------
     timings : ndarray
-        Time values, at least one element.
+        Time values. Scalars are treated as a single-element coordinate.
 
     Returns
     -------
@@ -685,8 +794,9 @@ def _infer_repetition_time(
         Uniform repetition time (spacing between volumes) when sampling is regular
         within `rtol=1e-5`, or `None` for a single volume or irregular sampling.
     delay : float
-        Onset time of the first volume (`times[0]`).
+        Onset time of the first volume (`timings[0]`).
     """
+    timings = np.atleast_1d(np.asarray(timings, dtype=np.float64))
     delay = float(timings[0])
     if len(timings) < 2:
         return None, delay
@@ -738,9 +848,14 @@ def _infer_frame_acquisition_duration(
 def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, Any]:
     """Extract BIDS slice timing metadata from a `slice_time` coordinate.
 
-    `SliceTiming` is exported only when the 2D absolute slice timestamps are consistent
-    across volumes after converting to onset-relative offsets, since BIDS cannot
-    represent per-volume variation.
+    `SliceTiming` is exported from either:
+
+    - a 2D absolute `slice_time` coordinate with dims `(time, spatial_dim)` when
+      onset-relative offsets are constant across volumes, or
+    - a 1D absolute `slice_time` coordinate with dim `(spatial_dim,)` when a scalar
+      `time` coordinate is available.
+
+    BIDS cannot represent per-volume variation in slice offsets.
 
     Parameters
     ----------
@@ -758,9 +873,94 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         return {}
 
     slice_time_coord = data_array.coords["slice_time"]
+    if len(slice_time_coord.dims) == 1:
+        spatial_dim = slice_time_coord.dims[0]
+        if spatial_dim not in _SLICE_TIME_DIM_TO_DIRECTION:
+            return {}
+
+        if "time" not in data_array.coords:
+            warnings.warn(
+                "Cannot infer onset-relative SliceTiming from a 1D `slice_time` "
+                "coordinate without a `time` coordinate. Omitting BIDS SliceTiming "
+                "export.",
+                stacklevel=find_stack_level(),
+            )
+            return {}
+
+        time_values_seconds = np.atleast_1d(
+            np.asarray(
+                convert_time_values(
+                    data_array.coords["time"].values,
+                    data_array.coords["time"].attrs.get("units"),
+                    "s",
+                    raise_on_unknown=True,
+                ),
+                dtype=np.float64,
+            )
+        )
+        if time_values_seconds.size != 1:
+            warnings.warn(
+                "A 1D `slice_time` coordinate can only be exported when `time` is "
+                "scalar. Use a 2D `(time, spatial_dim)` coordinate for time series "
+                "data. Omitting BIDS SliceTiming export.",
+                stacklevel=find_stack_level(),
+            )
+            return {}
+
+        frame_acquisition_duration = _infer_frame_acquisition_duration(
+            data_array.coords["time"].attrs,
+            time_values_seconds,
+        )
+        time_reference = _get_volume_acquisition_reference(
+            data_array.coords["time"].attrs,
+            coord_name="time",
+        )
+        if frame_acquisition_duration is None:
+            warnings.warn(
+                "Cannot infer frame acquisition duration for a 1D `slice_time` "
+                "coordinate. Omitting BIDS SliceTiming export.",
+                stacklevel=find_stack_level(),
+            )
+            return {}
+
+        volume_onset_seconds = float(
+            convert_time_reference(
+                time_values_seconds,
+                frame_acquisition_duration,
+                from_reference=time_reference,
+                to_reference="start",
+            )[0]
+        )
+        slice_time_seconds = np.asarray(
+            convert_time_values(
+                slice_time_coord.values,
+                slice_time_coord.attrs.get("units"),
+                "s",
+                raise_on_unknown=True,
+            ),
+            dtype=np.float64,
+        )
+        slice_duration = slice_time_coord.attrs.get("volume_acquisition_duration")
+        slice_reference = slice_time_coord.attrs.get(
+            "volume_acquisition_reference", "start"
+        )
+        if isinstance(slice_duration, int | float) and slice_duration > 0:
+            slice_time_seconds = convert_time_reference(
+                slice_time_seconds,
+                float(slice_duration),
+                from_reference=slice_reference,
+                to_reference="start",
+            )
+
+        return {
+            "SliceTiming": (slice_time_seconds - volume_onset_seconds).tolist(),
+            "SliceEncodingDirection": _SLICE_TIME_DIM_TO_DIRECTION[spatial_dim],
+        }
+
     if len(slice_time_coord.dims) != 2 or "time" not in slice_time_coord.dims:
         warnings.warn(
-            "`slice_time` must be a 2D coordinate with dims `(time, spatial_dim)` to "
+            "`slice_time` must be either a 2D coordinate with dims `(time, "
+            "spatial_dim)` or a 1D spatial coordinate paired with scalar `time` to "
             "be exported as BIDS SliceTiming. Omitting SliceTiming export.",
             stacklevel=find_stack_level(),
         )
@@ -906,7 +1106,8 @@ def _prepare_data_for_nifti(
     -------
     data : numpy.ndarray
         Array reordered to NIfTI axis order `(x, y, z, time, ...)`, with singleton
-        spatial axes inserted for any missing spatial dimensions.
+        spatial axes inserted for any missing spatial dimensions. Boolean arrays are
+        cast to `uint8` because NIfTI does not support `bool` payload dtypes.
     current_dims : tuple[str, ...]
         Original dimension names from `data_array`, preserved so later header logic can
         decide whether a time zoom should be written and where extra dimensions belong.
@@ -928,6 +1129,9 @@ def _prepare_data_for_nifti(
     for insert_pos, dim in enumerate(("x", "y", "z")):
         if dim not in current_dims:
             data = np.expand_dims(data, axis=insert_pos)
+
+    if np.issubdtype(data.dtype, np.bool_):
+        data = data.astype(np.uint8, copy=False)
 
     return data, current_dims
 
@@ -1021,6 +1225,9 @@ def _build_nifti_timing_metadata(
             time_unit,
             "s",
             raise_on_unknown=True,
+        )
+        time_values_seconds = np.atleast_1d(
+            np.asarray(time_values_seconds, dtype=np.float64)
         )
         frame_acquisition_duration = _infer_frame_acquisition_duration(
             time_attrs, time_values_seconds
