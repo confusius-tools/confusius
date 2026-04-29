@@ -496,6 +496,20 @@ class TestPlotContours:
 
         assert plotter.figure is fig
 
+    def test_axes_count_mismatch_raises(self, matplotlib_pyplot):
+        """plot_contours raises ValueError when axes count doesn't match slices."""
+        import matplotlib.pyplot as plt
+
+        mask = xr.DataArray(
+            np.ones((3, 4, 4), dtype=int),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0, 1.0, 2.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        )
+        fig, ax = plt.subplots()
+
+        with pytest.raises(ValueError, match="must match number of axes"):
+            plot_contours(mask, slice_mode="z", axes=ax)
+
     def test_all_zero_mask_returns_without_figure(self, matplotlib_pyplot):
         """plot_contours returns early without creating a figure for all-zero mask."""
         mask = xr.DataArray(
