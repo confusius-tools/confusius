@@ -236,3 +236,27 @@ class TestWithLabels:
         data_eager = xr.DataArray(data_vals, dims=["time", "z", "y", "x"])
         expected = extract.extract_with_labels(data_eager, labels)
         np.testing.assert_allclose(result.values, expected.values)
+
+    def test_dask_backed_labels(self):
+        """Test that Dask-backed labels do not raise and produce correct results.
+
+        Regression test for: flox raises ValueError when the groupby array is a
+        Dask array and expected_groups is not provided.
+        """
+        rng = np.random.default_rng(0)
+        data_vals = rng.random((10, 3, 4, 5))
+        labels_data = np.zeros((3, 4, 5), dtype=int)
+        labels_data[0, :, :] = 1
+        labels_data[1, :, :] = 2
+
+        data = xr.DataArray(data_vals, dims=["time", "z", "y", "x"])
+        labels_dask = xr.DataArray(
+            da.from_array(labels_data, chunks=(1, 2, 3)),
+            dims=["z", "y", "x"],
+        )
+
+        result = extract.extract_with_labels(data, labels_dask)
+
+        labels_eager = xr.DataArray(labels_data, dims=["z", "y", "x"])
+        expected = extract.extract_with_labels(data, labels_eager)
+        np.testing.assert_allclose(result.values, expected.values)
