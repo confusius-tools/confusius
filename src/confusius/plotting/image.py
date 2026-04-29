@@ -301,9 +301,10 @@ class VolumePlotter:
         The figure containing the axes. If not provided, a new figure will be created
         on the first call to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume].
-    axes : numpy.ndarray, optional
-        2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes]. If not provided,
-        axes will be created on the first call to
+    axes : numpy.ndarray[matplotlib.axes.Axes] or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or an array of them. If not
+        provided, axes will be created on the first call to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume].
     black_bg : bool, default: True
         Whether to set the figure background to black.
@@ -312,19 +313,36 @@ class VolumePlotter:
         upward.
     xincrease : bool, default: True
         Whether the x-axis increases to the right.
+
+    Attributes
+    ----------
+    slice_mode : str
+        The dimension along which slices are taken.
+    figure : matplotlib.figure.Figure or None
+        The figure. `None` until the first call to
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume] when no figure
+        is provided at construction time.
+    axes : numpy.ndarray or None
+        Array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes]. `None` until the
+        first call to [`add_volume`][confusius.plotting.VolumePlotter.add_volume]
+        when no axes are provided at construction time.
     """
+
+    axes: "npt.NDArray[Any] | None"
 
     def __init__(
         self,
         slice_mode: str = "z",
         figure: "Figure | None" = None,
-        axes: "npt.NDArray[Any] | None" = None,
+        axes: "npt.NDArray[Any] | Axes | None" = None,
         *,
         black_bg: bool = True,
         yincrease: bool = False,
         xincrease: bool = True,
     ):
         self.slice_mode = slice_mode
+        if axes is not None and not isinstance(axes, np.ndarray):
+            axes = np.asarray([axes])
         self.axes = axes
         self._user_provided_axes = axes is not None
         if figure is None and axes is not None:
@@ -1089,7 +1107,7 @@ def plot_contours(
     xincrease: bool = True,
     black_bg: bool = True,
     figure: "Figure | None" = None,
-    axes: "npt.NDArray[Any] | None" = None,
+    axes: "npt.NDArray[Any] | Axes | None" = None,
     **kwargs,
 ) -> VolumePlotter:
     """Plot mask contours as a grid of 2D slice panels.
@@ -1136,9 +1154,11 @@ def plot_contours(
         Whether to set the figure background to black.
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
-    axes : numpy.ndarray, optional
-        Existing 2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes] to draw
-        into. If not provided, new axes are created inside `figure`.
+    axes : numpy.ndarray or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them. A single
+        `Axes` is wrapped automatically. If not provided, new axes are created inside
+        `figure`.
     **kwargs
         Additional keyword arguments passed to
         [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
@@ -1224,7 +1244,7 @@ def plot_volume(
     xincrease: bool = True,
     black_bg: bool = True,
     figure: "Figure | None" = None,
-    axes: "npt.NDArray[Any] | None" = None,
+    axes: "npt.NDArray[Any] | Axes | None" = None,
     nrows: int | None = None,
     ncols: int | None = None,
     dpi: int | None = None,
@@ -1293,10 +1313,12 @@ def plot_volume(
         Whether to set the figure background to black.
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
-    axes : numpy.ndarray, optional
-        Existing 2D array of [`matplotlib.axes.Axes`][matplotlib.axes.Axes] to draw
-        into. Must contain at least as many elements as there are slices. If not
-        provided, new axes are created inside `figure`.
+    axes : numpy.ndarray or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them. Must
+        contain at least as many elements as there are slices. A single `Axes` is
+        wrapped automatically and limits the plot to one slice. If not provided, new
+        axes are created inside `figure`.
     nrows : int, optional
         Number of rows in the subplot grid. If not provided, computed automatically.
     ncols : int, optional

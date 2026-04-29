@@ -180,6 +180,28 @@ class TestPlotVolume:
         assert plotter.axes is axes
         assert plotter.figure is fig
 
+    def test_single_axes_object_accepted(self, sample_3d_volume, matplotlib_pyplot):
+        """plot_volume accepts a bare Axes object, not only an ndarray of Axes.
+
+        Regression test for issue #66: previously raised
+        AttributeError: 'Axes' object has no attribute 'flat'.
+        """
+        import matplotlib.pyplot as plt
+
+        fig, ax = plt.subplots()
+        z_coord = sample_3d_volume.coords["z"].values[0]
+
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            axes=ax,
+            show_colorbar=False,
+        )
+
+        assert plotter.figure is fig
+        assert len(ax.collections) == 1
+
     def test_axes_count_mismatch_raises(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume raises ValueError when axes count doesn't match slices."""
         import matplotlib.pyplot as plt
