@@ -22,6 +22,8 @@ from confusius._utils import (
     get_representative_step,
 )
 from confusius.bids import (
+    DIM_TO_SLICE_ENCODING_DIRECTION,
+    SLICE_ENCODING_DIRECTION_TO_DIM,
     create_bids_slice_timing_from_coordinate,
     create_slice_time_coordinate_from_bids,
     from_bids,
@@ -67,19 +69,6 @@ _CONFUSIUS_TO_NIFTI_TIME_UNITS: dict[str, str] = {
     v: k for k, v in _NIFTI_TO_CONFUSIUS_TIME_UNITS.items()
 }
 """Mapping from ConfUSIus time unit strings to NIfTI conventions."""
-
-_SLICE_TIME_DIM_TO_DIRECTION: dict[str, str] = {"x": "i", "y": "j", "z": "k"}
-"""Mapping from slice-time spatial dimension names to BIDS directions."""
-
-_SLICE_TIME_DIRECTION_TO_DIM: dict[str, str] = {
-    "i": "x",
-    "i-": "x",
-    "j": "y",
-    "j-": "y",
-    "k": "z",
-    "k-": "z",
-}
-"""Mapping from BIDS slice-time directions to spatial dimension names."""
 
 _TIME_ATTRS_TO_SECONDS: frozenset[str] = frozenset(
     {
@@ -582,7 +571,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
     if "slice_timing" in attrs and "slice_encoding_direction" in attrs:
         slice_encoding_direction = str(attrs.pop("slice_encoding_direction"))
-        if slice_encoding_direction not in _SLICE_TIME_DIRECTION_TO_DIM:
+        if slice_encoding_direction not in SLICE_ENCODING_DIRECTION_TO_DIM:
             return coords, attrs
 
         slice_timing = convert_time_values(
@@ -597,7 +586,7 @@ def _create_scalar_temporal_coords_from_nifti(
         if slice_encoding_direction.endswith("-"):
             slice_timing = slice_timing[::-1]
 
-        spatial_dim = _SLICE_TIME_DIRECTION_TO_DIM[slice_encoding_direction]
+        spatial_dim = SLICE_ENCODING_DIRECTION_TO_DIM[slice_encoding_direction]
         coords["slice_time"] = xr.DataArray(
             time_value + slice_timing,
             dims=[spatial_dim],
@@ -875,7 +864,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
     slice_time_coord = data_array.coords["slice_time"]
     if len(slice_time_coord.dims) == 1:
         spatial_dim = slice_time_coord.dims[0]
-        if spatial_dim not in _SLICE_TIME_DIM_TO_DIRECTION:
+        if spatial_dim not in DIM_TO_SLICE_ENCODING_DIRECTION:
             return {}
 
         if "time" not in data_array.coords:
@@ -954,7 +943,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
 
         return {
             "SliceTiming": (slice_time_seconds - volume_onset_seconds).tolist(),
-            "SliceEncodingDirection": _SLICE_TIME_DIM_TO_DIRECTION[spatial_dim],
+            "SliceEncodingDirection": DIM_TO_SLICE_ENCODING_DIRECTION[spatial_dim],
         }
 
     if len(slice_time_coord.dims) != 2 or "time" not in slice_time_coord.dims:
@@ -967,7 +956,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         return {}
 
     spatial_dims = [dim for dim in slice_time_coord.dims if dim != "time"]
-    if len(spatial_dims) != 1 or spatial_dims[0] not in _SLICE_TIME_DIM_TO_DIRECTION:
+    if len(spatial_dims) != 1 or spatial_dims[0] not in DIM_TO_SLICE_ENCODING_DIRECTION:
         return {}
 
     if "time" not in data_array.coords:

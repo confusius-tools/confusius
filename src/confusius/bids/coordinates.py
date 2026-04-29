@@ -10,7 +10,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-_SLICE_ENCODING_DIRECTION_TO_DIM: Final[dict[str, str]] = {
+SLICE_ENCODING_DIRECTION_TO_DIM: Final[dict[str, str]] = {
     "i": "x",
     "i-": "x",
     "j": "y",
@@ -20,12 +20,16 @@ _SLICE_ENCODING_DIRECTION_TO_DIM: Final[dict[str, str]] = {
 }
 """Mapping from fUSI-BIDS `SliceEncodingDirection` values to ConfUSIus dimension names."""
 
-_DIM_TO_SLICE_ENCODING_DIRECTION: Final[dict[str, str]] = {
+DIM_TO_SLICE_ENCODING_DIRECTION: Final[dict[str, str]] = {
     "x": "i",
     "y": "j",
     "z": "k",
 }
 """Mapping from ConfUSIus dimension names to fUSI-BIDS `SliceEncodingDirection` values."""
+
+# Backward-compatible aliases for internal/private usage.
+_SLICE_ENCODING_DIRECTION_TO_DIM = SLICE_ENCODING_DIRECTION_TO_DIM
+_DIM_TO_SLICE_ENCODING_DIRECTION = DIM_TO_SLICE_ENCODING_DIRECTION
 
 
 def create_slice_time_coordinate_from_bids(
