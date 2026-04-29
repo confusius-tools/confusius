@@ -310,6 +310,31 @@ class TestPlotVolume:
         # Verify the slice was plotted
         assert len(plotter.axes[0, 0].collections) == 1
 
+    def test_non_monotonic_coords_are_sorted_before_plotting(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """plot_volume sorts non-monotonic spatial coordinates before plotting."""
+        data = sample_3d_volume.copy().isel(y=[2, 0, 1], x=[3, 1, 2, 0])
+
+        z_coord = float(data.coords["z"].values[0])
+        plotter = plot_volume(
+            data, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
+        )
+        ax = plotter.axes[0, 0]
+
+        y_sorted = np.sort(data.coords["y"].values.astype(float))
+        x_sorted = np.sort(data.coords["x"].values.astype(float))
+
+        dy = y_sorted[1] - y_sorted[0]
+        dx = x_sorted[1] - x_sorted[0]
+
+        assert ax.get_xlim() == pytest.approx(
+            (x_sorted[0] - dx / 2, x_sorted[-1] + dx / 2)
+        )
+        assert ax.get_ylim() == pytest.approx(
+            (y_sorted[-1] + dy / 2, y_sorted[0] - dy / 2)
+        )
+
 
 class TestCentersToEdges:
     """Tests for _centers_to_edges helper function."""
@@ -614,6 +639,29 @@ class TestPlotNapari:
         npt.assert_allclose(
             np.asarray(layer.data), np.abs(sample_4d_volume_complex.data)
         )
+        viewer.close()
+
+    def test_non_monotonic_coords_are_sorted_before_napari(
+        self, sample_3d_volume, make_napari_viewer
+    ) -> None:
+        """plot_napari sorts non-monotonic spatial coordinates before display."""
+        data = sample_3d_volume.copy().isel(y=[2, 0, 1], x=[3, 1, 2, 0])
+
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            data,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+
+        y_sorted = np.sort(data.coords["y"].values.astype(float))
+        x_sorted = np.sort(data.coords["x"].values.astype(float))
+        npt.assert_allclose(
+            layer.translate, [1.0, float(y_sorted[0]), float(x_sorted[0])], rtol=1e-5
+        )
+        assert np.all(np.diff(layer.metadata["xarray"].coords["y"].values) > 0)
+        assert np.all(np.diff(layer.metadata["xarray"].coords["x"].values) > 0)
         viewer.close()
 
 

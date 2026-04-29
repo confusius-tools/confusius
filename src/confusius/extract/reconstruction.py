@@ -176,13 +176,14 @@ def unmask(
     spatial_shape = tuple(mask.sizes[d] for d in spatial_dims)
     extra_dims = [d for d in signals.dims if d != "space"]
 
+    mask_flat = (mask_values != 0).flatten()
+
     if extra_dims:
         output_shape = tuple(signals.sizes[d] for d in extra_dims) + spatial_shape
         output_dims = extra_dims + spatial_dims
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        mask_flat = (mask_values != 0).flatten()
         n_extra = int(np.prod([signals.sizes[d] for d in extra_dims]))
         output_flat = output_data.reshape(n_extra, -1)
         signals_flat = signals.values.reshape(n_extra, -1)
@@ -197,7 +198,6 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        mask_flat = (mask_values != 0).flatten()
         output_data.flat[mask_flat] = signals.values
 
         coords = {d: mask.coords[d] for d in spatial_dims}
