@@ -92,7 +92,10 @@ def _flox_reduce(
 
     # flox names the output groupby dimension after the variable name of the `by` array.
     data_stacked = data.stack(space=spatial_dims)
-    labels_stacked = labels_aligned.stack(space=spatial_dims).rename("region")
+    # Compute labels eagerly: flox cannot determine unique group values from a
+    # Dask-backed array without expected_groups. Labels are spatial-only and
+    # always small enough to materialise.
+    labels_stacked = labels_aligned.stack(space=spatial_dims).rename("region").compute()
     result = flox.xarray.xarray_reduce(data_stacked, labels_stacked, func=reduction)
     return result.isel(region=result.region.values != 0)  # Drop background.
 
