@@ -110,6 +110,47 @@ class TestWithMask:
             [[0, 2, 3], [5, 7, 8], [10, 12, 13], [15, 17, 18]],
         )
 
+    def test_near_equal_coords_extract_expected_voxels(self):
+        """Test near-equal coordinates still extract the expected masked voxels."""
+        data = xr.DataArray(
+            np.random.default_rng(0).normal(size=(3, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "z": np.array([0.0, 1.0]),
+                "y": np.array([0.0, 1.0, 2.0]),
+                "x": np.array([0.0, 1.0, 2.0, 3.0]),
+            },
+        )
+
+        mask = xr.DataArray(
+            np.array(
+                [
+                    [[1, 0, 1, 0], [0, 1, 0, 0], [1, 0, 0, 0]],
+                    [[0, 1, 0, 1], [0, 0, 1, 0], [0, 0, 0, 1]],
+                ],
+                dtype=np.int32,
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": np.array([0.0, np.nextafter(1.0, 2.0)]),
+                "y": np.array(
+                    [0.0, np.nextafter(1.0, 2.0), np.nextafter(2.0, 3.0)]
+                ),
+                "x": np.array(
+                    [
+                        0.0,
+                        np.nextafter(1.0, 2.0),
+                        np.nextafter(2.0, 3.0),
+                        np.nextafter(3.0, 4.0),
+                    ]
+                ),
+            },
+        )
+
+        signals = extract.extract_with_mask(data, mask)
+
+        assert signals.sizes["space"] == int(np.count_nonzero(mask.values))
+
     def test_unstack_coords_are_ordered_after_extract(self):
         """Test unstack produces ordered spatial coordinates after extract."""
         data = xr.DataArray(
