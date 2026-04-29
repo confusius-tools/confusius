@@ -533,9 +533,20 @@ def _create_scalar_temporal_coords_from_nifti(
     if time_unit is not None:
         time_attrs["units"] = time_unit
     if "volume_acquisition_duration" in attrs:
-        time_attrs["volume_acquisition_duration"] = attrs.pop(
-            "volume_acquisition_duration"
-        )
+        frame_duration = float(attrs.pop("volume_acquisition_duration"))
+        if time_unit is not None:
+            frame_duration = float(
+                np.asarray(
+                    convert_time_values(
+                        frame_duration,
+                        from_unit="s",
+                        to_unit=time_unit,
+                        raise_on_unknown=True,
+                    ),
+                    dtype=np.float64,
+                )
+            )
+        time_attrs["volume_acquisition_duration"] = frame_duration
 
     time_value: float | None = None
     if "volume_timing" in attrs:
@@ -565,14 +576,28 @@ def _create_scalar_temporal_coords_from_nifti(
     if time_value is None:
         return {}, attrs
 
+    if time_unit is not None:
+        time_value = float(
+            np.asarray(
+                convert_time_values(
+                    time_value,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
+                ),
+                dtype=np.float64,
+            )
+        )
+
     coords: dict[str, xr.DataArray] = {
         "time": xr.DataArray(np.float64(time_value), attrs=time_attrs)
     }
 
     if "slice_timing" in attrs and "slice_encoding_direction" in attrs:
-        slice_encoding_direction = str(attrs.pop("slice_encoding_direction"))
+        slice_encoding_direction = str(attrs["slice_encoding_direction"])
         if slice_encoding_direction not in SLICE_ENCODING_DIRECTION_TO_DIM:
             return coords, attrs
+        attrs.pop("slice_encoding_direction")
 
         slice_timing = convert_time_values(
             attrs.pop("slice_timing"),

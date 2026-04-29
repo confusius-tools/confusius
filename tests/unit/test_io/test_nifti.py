@@ -206,6 +206,65 @@ class TestLoadNifti:
             np.array([2.05, 2.15, 2.25]),
         )
 
+    def test_load_nifti_scalar_time_sidecar_converts_to_header_time_units(
+        self, tmp_path: Path
+    ) -> None:
+        """Scalar sidecar timings are converted from seconds to header time units."""
+        data = np.random.default_rng(0).random((5, 4, 3)).astype(np.float32)
+        path = tmp_path / "scalar_time_ms_units.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_xyzt_units(xyz="mm", t="msec")
+        img.to_filename(path)
+
+        with open(tmp_path / "scalar_time_ms_units.json", "w") as f:
+            json.dump(
+                {
+                    "VolumeTiming": [2.05],
+                    "FrameAcquisitionDuration": 0.4,
+                    "SliceTiming": [0.0, 0.1, 0.2],
+                    "SliceEncodingDirection": "k",
+                },
+                f,
+            )
+
+        loaded = load_nifti(path)
+
+        assert loaded.coords["time"].attrs["units"] == "ms"
+        assert loaded.coords["time"].item() == pytest.approx(2050.0)
+        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+            400.0
+        )
+        np.testing.assert_allclose(
+            loaded.coords["slice_time"].values,
+            np.array([2050.0, 2150.0, 2250.0]),
+        )
+
+    def test_load_nifti_scalar_time_invalid_slice_direction_preserves_fields(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid scalar `SliceEncodingDirection` leaves slice fields untouched."""
+        data = np.random.default_rng(0).random((5, 4, 3)).astype(np.float32)
+        path = tmp_path / "scalar_time_invalid_slice_direction.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(path)
+
+        with open(tmp_path / "scalar_time_invalid_slice_direction.json", "w") as f:
+            json.dump(
+                {
+                    "VolumeTiming": [2.05],
+                    "SliceTiming": [0.0, 0.1, 0.2],
+                    "SliceEncodingDirection": "invalid",
+                },
+                f,
+            )
+
+        with pytest.warns(UserWarning, match="SliceEncodingDirection"):
+            loaded = load_nifti(path)
+
+        assert loaded.coords["time"].item() == pytest.approx(2.05)
+        assert "slice_time" not in loaded.coords
+        assert "slice_timing" in loaded.attrs
+        assert "slice_encoding_direction" in loaded.attrs
+
     def test_load_nifti_derives_volume_duration_from_repetition_time_and_delay_time(
         self, tmp_path: Path
     ) -> None:
