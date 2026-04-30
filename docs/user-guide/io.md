@@ -344,9 +344,9 @@ scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
 Provenance metadata from the file is stored in `da.attrs`: `scan_mode`, `subject`,
 `session`, `scan`, `project`, `date`, `neuroscan_version`, and `machine_sn`.
 
-#### Loading a `.bps` File
+#### Loading a BPS File
 
-Iconeus' `.bps` files are HDF5 containers produced by Iconeus' Brain Positioning System.
+Iconeus' BPS files are HDF5 containers produced by Iconeus' Brain Positioning System.
 They contain an affine matrix that maps Iconeus brain coordinates `(x_brain, y_brain,
 z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters. Iconeus'
 lab space axes are aligned with the probe: `x_lab = lateral`, `y_lab = elevation`,
@@ -354,7 +354,7 @@ lab space axes are aligned with the probe: `x_lab = lateral`, `y_lab = elevation
 `(z_lab, y_lab, x_lab)` (elevation, depth, lateral) in millimeters, matching the
 convention used throughout the rest of the package.
 
-The affine matrix in the `.bps` file can be loaded with [`confusius.io.load_bps`][confusius.io.load_bps].
+The affine matrix in the BPS file can be loaded with [`confusius.io.load_bps`][confusius.io.load_bps].
 
 ```python
 import confusius as cf
@@ -376,8 +376,8 @@ physical_to_lab = da.attrs["affines"]["physical_to_lab"]
 physical_to_brain = np.linalg.inv(bps) @ physical_to_lab
 ```
 
-In fact, if you pass the `.bps` file using the `bps_path` argument when loading a
-`.scan` file with [`confusius.load`][confusius.load], the `physical_to_brain` affine
+In fact, if you pass the BPS file using the `bps_path` argument when loading a
+SCAN file with [`confusius.load`][confusius.load], the `physical_to_brain` affine
 will be computed automatically and stored in the resulting DataArray's attributes
 `affines` alongside the `physical_to_lab` affines:
 
