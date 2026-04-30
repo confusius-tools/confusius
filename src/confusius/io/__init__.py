@@ -12,6 +12,7 @@ __all__ = [
     "load_echoframe_dat",
     "load_echoframe_metadata",
     "load_nifti",
+    "load_bps",
     "load_scan",
     "save_nifti",
 ]
@@ -25,5 +26,5 @@ from confusius.io.echoframe import (
 )
 from confusius.io.loadsave import load, save
 from confusius.io.nifti import load_nifti, save_nifti
-from confusius.io.scan import load_scan
+from confusius.io.scan import load_bps, load_scan
 from confusius.io.utils import check_path

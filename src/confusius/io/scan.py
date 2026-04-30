@@ -181,18 +181,18 @@ def _build_physical_to_lab(
     return physical_to_lab
 
 
-def _load_bps(bps_path: Path) -> npt.NDArray[np.float64]:
+def load_bps(bps_path: Path) -> npt.NDArray[np.float64]:
     """Load a `.bps` file and return a `brain_to_lab` affine in ConfUSIus lab space.
 
     BPS files are HDF5 sidecars produced by Iconeus' brain positioning system. They
     store a `BrainToLab` affine that maps Iconeus brain coordinates `(x_brain, y_brain,
-    z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in metres.
+    z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters.
     Iconeus' lab axes are aligned with the probe: `x_lab = lateral`, `y_lab =
     elevation`, `z_lab = axial`.
 
     To compose this affine with the rest of the ConfUSIus pipeline we re-express
     the lab side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)`
-    (elevation, depth, lateral) in millimetres, matching the convention used by
+    (elevation, depth, lateral) in millimeters, matching the convention used by
     `physical_to_lab` (see `_build_physical_to_lab`). The brain side is left in
     its original axis order (the brain coordinate units are not declared by the
     BPS format and are therefore not converted).
@@ -366,7 +366,7 @@ def load_scan(
         raise
 
     if bps_path is not None:
-        brain_to_lab = _load_bps(bps_path)
+        brain_to_lab = load_bps(bps_path)
         physical_to_brain = np.linalg.inv(brain_to_lab) @ physical_to_lab
         data_array.attrs["affines"]["physical_to_brain"] = physical_to_brain
 
