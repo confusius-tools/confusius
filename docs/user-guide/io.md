@@ -363,7 +363,8 @@ bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
 ```
 
 A `physical_to_brain` matrix between Iconeus' brain space and ConfUSIus' physical space
-can be established by using the `physical_to_lab` affines from the SCAN file:
+can be established and added to the DataArray's attributes by using the
+`physical_to_lab` affines from the SCAN file:
 
 ```python
 import confusius as cf
@@ -374,6 +375,7 @@ bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
 
 physical_to_lab = da.attrs["affines"]["physical_to_lab"]
 physical_to_brain = np.linalg.inv(bps) @ physical_to_lab
+da.attrs["affines"]["physical_to_brain"] = physical_to_brain
 ```
 
 In fact, if you pass the BPS file using the `bps_path` argument when loading a
