@@ -11,6 +11,7 @@ from sklearn.base import BaseEstimator
 
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
+from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation import validate_labels, validate_time_series
 
 
@@ -56,12 +57,12 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
         )
 
     if "time" in seed_signals.coords and "time" in data.coords:
-        if not np.array_equal(
-            seed_signals.coords["time"].values, data.coords["time"].values
-        ):
+        try:
+            validate_matching_coordinates(seed_signals, data, "time")
+        except ValueError as exc:
             raise ValueError(
                 "seed_signals time coordinates do not match data time coordinates."
-            )
+            ) from exc
 
 
 class SeedBasedMaps(BaseEstimator):

@@ -196,6 +196,17 @@ class TestSeedSignalsValidation:
         with pytest.raises(ValueError, match="time coordinates"):
             mapper.fit(data_2d)
 
+    def test_time_coord_small_drift_is_accepted(self, data_2d):
+        """fit accepts small numeric drift in seed signal time coordinates."""
+        n = data_2d.sizes["time"]
+        signal = xr.DataArray(
+            np.ones(n),
+            dims=["time"],
+            coords={"time": data_2d.coords["time"].values + 1e-10},
+        )
+
+        SeedBasedMaps(seed_signals=signal).fit(data_2d)
+
     def test_no_time_coord_on_either_skips_coord_check(self, data_2d):
         """fit succeeds when neither seed_signals nor data has a time coordinate."""
         data_no_coord = xr.DataArray(

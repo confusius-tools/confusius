@@ -7,6 +7,7 @@ import xarray as xr
 from xarray.core.types import InterpOptions
 
 from confusius._utils import find_stack_level
+from confusius.validation.coordinates import validate_matching_coordinates
 
 
 def _validate_sample_mask(
@@ -49,10 +50,12 @@ def _validate_sample_mask(
     mask_values = np.asarray(mask_values)
 
     if "time" in signals.coords and "time" in sample_mask.coords:
-        if not signals.coords["time"].equals(sample_mask.coords["time"]):
+        try:
+            validate_matching_coordinates(signals, sample_mask, "time")
+        except ValueError as exc:
             raise ValueError(
                 "sample_mask time coordinates do not match signals time coordinates"
-            )
+            ) from exc
 
     if mask_values.dtype != bool:
         raise ValueError(

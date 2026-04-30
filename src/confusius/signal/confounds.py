@@ -13,6 +13,7 @@ import xarray as xr
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
+from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation import validate_mask, validate_time_series
 
 
@@ -46,12 +47,12 @@ def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.nd
     if "time" not in confounds.dims:
         raise ValueError("confounds DataArray must have a 'time' dimension")
     if "time" in signals.coords and "time" in confounds.coords:
-        if not np.array_equal(
-            signals.coords["time"].values, confounds.coords["time"].values
-        ):
+        try:
+            validate_matching_coordinates(signals, confounds, "time")
+        except ValueError as exc:
             raise ValueError(
                 "confounds time coordinates do not match signals time coordinates"
-            )
+            ) from exc
 
     confounds_da = confounds.transpose("time", ...)
     confounds_values = confounds_da.values

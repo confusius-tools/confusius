@@ -3,6 +3,8 @@
 import numpy as np
 import xarray as xr
 
+from confusius.validation.coordinates import validate_matching_coordinates
+
 
 def _validate_spatial_coords(
     spatial_da: xr.DataArray,
@@ -71,23 +73,17 @@ def _validate_spatial_coords(
                     f"  {name} {dim} shape: {da_coord_vals.shape}"
                 )
 
-            if data_coord_vals.dtype == object:
-                # Object dtype (e.g., MultiIndex tuples) - use exact equality.
-                if not np.array_equal(da_coord_vals, data_coord_vals):
-                    raise ValueError(
-                        f"{name} coordinates for dimension '{dim}' do not match "
-                        f"data coordinates.\n"
-                        f"  Data {dim}: {data_coord_vals}\n"
-                        f"  {name} {dim}: {da_coord_vals}"
-                    )
-            elif not np.allclose(da_coord_vals, data_coord_vals, rtol=rtol, atol=atol):
-                # Numeric dtype - allow numerical tolerance (e.g., for float coords).
+            try:
+                validate_matching_coordinates(
+                    spatial_da, template, dim, rtol=rtol, atol=atol
+                )
+            except ValueError as exc:
                 raise ValueError(
                     f"{name} coordinates for dimension '{dim}' do not match "
                     f"data coordinates (within rtol={rtol}, atol={atol}).\n"
                     f"  Data {dim}: {data_coord_vals}\n"
                     f"  {name} {dim}: {da_coord_vals}"
-                )
+                ) from exc
 
 
 def validate_mask(

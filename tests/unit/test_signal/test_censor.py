@@ -6,6 +6,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
+from confusius.extract import extract_with_labels
 from confusius.signal import censor_samples, interpolate_samples
 
 # ===========================
@@ -158,6 +159,52 @@ def test_interpolate_4d_data(sample_4d_volume):
     )
 
 
+def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_4d_volume):
+    """Test time matching ignores unrelated scalar coordinates on signals."""
+    mask_data = np.zeros((2, *sample_4d_volume.shape[1:]), dtype=int)
+    mask_data[0, 0, :, :] = 1
+    mask_data[1, 1, :, :] = 2
+    labels = xr.DataArray(
+        mask_data,
+        dims=["mask", "z", "y", "x"],
+        coords={
+            "mask": ["VISp", "AUDp"],
+            "z": sample_4d_volume.coords["z"],
+            "y": sample_4d_volume.coords["y"],
+            "x": sample_4d_volume.coords["x"],
+        },
+    )
+    signals = extract_with_labels(sample_4d_volume, labels.isel(mask=0))
+    mask_values = np.ones(signals.sizes["time"], dtype=bool)
+    mask_values[3] = False
+    sample_mask = xr.DataArray(
+        mask_values,
+        dims=["time"],
+        coords={"time": sample_4d_volume.coords["time"]},
+    )
+
+    result = interpolate_samples(signals, sample_mask)
+
+    assert result.shape == signals.shape
+    assert result.dims == signals.dims
+
+
+def test_interpolate_accepts_small_time_coordinate_drift(sample_timeseries):
+    """Test interpolation accepts small numeric drift in time coordinates."""
+    signals = sample_timeseries(n_time=100)
+    mask_values = np.ones(100, dtype=bool)
+    mask_values[10] = False
+    sample_mask = xr.DataArray(
+        mask_values,
+        dims=["time"],
+        coords={"time": signals.coords["time"].values + 1e-10},
+    )
+
+    result = interpolate_samples(signals, sample_mask)
+
+    assert result.shape == signals.shape
+
+
 def test_interpolate_dask(sample_timeseries, sample_mask_with_gaps):
     """Test interpolation works with Dask-backed arrays."""
     signals = sample_timeseries(n_time=100)
@@ -220,6 +267,51 @@ def test_censor_4d_data(sample_4d_volume):
     # Data correct.
     expected_data = sample_4d_volume.values[mask_values, ...]
     assert_allclose(result.values, expected_data, rtol=1e-14)
+
+
+def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_4d_volume):
+    """Test censoring ignores unrelated scalar coordinates on signals."""
+    mask_data = np.zeros((2, *sample_4d_volume.shape[1:]), dtype=int)
+    mask_data[0, 0, :, :] = 1
+    mask_data[1, 1, :, :] = 2
+    labels = xr.DataArray(
+        mask_data,
+        dims=["mask", "z", "y", "x"],
+        coords={
+            "mask": ["VISp", "AUDp"],
+            "z": sample_4d_volume.coords["z"],
+            "y": sample_4d_volume.coords["y"],
+            "x": sample_4d_volume.coords["x"],
+        },
+    )
+    signals = extract_with_labels(sample_4d_volume, labels.isel(mask=0))
+    mask_values = np.ones(signals.sizes["time"], dtype=bool)
+    mask_values[[2, 5, 8]] = False
+    sample_mask = xr.DataArray(
+        mask_values,
+        dims=["time"],
+        coords={"time": sample_4d_volume.coords["time"]},
+    )
+
+    result = censor_samples(signals, sample_mask)
+
+    assert_allclose(result.values, signals.values[mask_values], rtol=1e-14)
+
+
+def test_censor_accepts_small_time_coordinate_drift(sample_timeseries):
+    """Test censoring accepts small numeric drift in time coordinates."""
+    signals = sample_timeseries(n_time=100)
+    mask_values = np.ones(100, dtype=bool)
+    mask_values[[10, 25, 60]] = False
+    sample_mask = xr.DataArray(
+        mask_values,
+        dims=["time"],
+        coords={"time": signals.coords["time"].values + 1e-10},
+    )
+
+    result = censor_samples(signals, sample_mask)
+
+    assert result.sizes["time"] == np.sum(mask_values)
 
 
 def test_censor_all_censored_error(sample_timeseries):

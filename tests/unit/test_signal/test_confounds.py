@@ -246,6 +246,20 @@ def test_regress_confounds_xarray_confounds(sample_timeseries):
     assert cleaned.shape == signals.shape
 
 
+def test_regress_confounds_accepts_small_time_coordinate_drift(sample_timeseries):
+    """Small numeric drift in time coordinates is tolerated."""
+    signals = sample_timeseries(n_time=100, n_voxels=50)
+    confounds = xr.DataArray(
+        np.random.randn(100, 3),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"].values + 1e-10},
+    )
+
+    cleaned = regress_confounds(signals, confounds)
+
+    assert cleaned.shape == signals.shape
+
+
 def test_regress_confounds_xarray_time_mismatch(sample_timeseries):
     """Test error when xarray confounds time coordinates mismatch signals."""
     signals = sample_timeseries(n_time=100, n_voxels=50)
