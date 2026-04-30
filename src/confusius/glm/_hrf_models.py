@@ -9,13 +9,25 @@ License. See `NOTICE` file for details.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 import scipy.stats as sps
 
 if TYPE_CHECKING:
     import numpy.typing as npt
+
+
+class HRFModel(Protocol):
+    """Protocol for HRF model callables.
+
+    Any callable matching this signature can be used as a custom `hrf_model` argument
+    in [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix].
+    """
+
+    def __call__(
+        self, dt: float, oversampling: int = ...
+    ) -> npt.NDArray[np.floating]: ...
 
 
 def _gamma_difference_hrf(
@@ -216,7 +228,7 @@ def claron2021_hrf(
 
 
 def _hrf_kernel(
-    hrf_model: str | None,
+    hrf_model: str | HRFModel | None,
     dt: float,
     oversampling: int = 50,
     fir_delays: list[int] | None = None,
@@ -225,8 +237,11 @@ def _hrf_kernel(
 
     Parameters
     ----------
-    hrf_model : {"glover", "spm", "claron2021", "fir"} or None
-        HRF model. If None, an impulse kernel is returned (no smoothing).
+    hrf_model : {"glover", "spm", "claron2021", "fir"}, callable, or None
+        HRF model. A callable matching the
+        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol is invoked with
+        `dt` and `oversampling` to produce the kernel. If None, an impulse kernel
+        is returned (no smoothing).
     dt : float
         Sampling interval in seconds.
     oversampling : int, default: 50
@@ -247,20 +262,24 @@ def _hrf_kernel(
     if fir_delays is None:
         fir_delays = [0]
 
-    if hrf_model == "spm":
-        return [spm_hrf(dt, oversampling=oversampling)]
-    if hrf_model == "glover":
-        return [glover_hrf(dt, oversampling=oversampling)]
-    if hrf_model == "claron2021":
-        return [claron2021_hrf(dt, oversampling=oversampling)]
-    if hrf_model == "fir":
-        return [
-            np.hstack(
-                (np.zeros(delay * oversampling), np.ones(oversampling) / oversampling)
-            )
-            for delay in fir_delays
-        ]
     if hrf_model is None:
         return [np.hstack((1.0, np.zeros(oversampling - 1)))]
-
-    raise ValueError(f"Unknown hrf_model: {hrf_model}")
+    if isinstance(hrf_model, str):
+        if hrf_model == "spm":
+            return [spm_hrf(dt, oversampling=oversampling)]
+        if hrf_model == "glover":
+            return [glover_hrf(dt, oversampling=oversampling)]
+        if hrf_model == "claron2021":
+            return [claron2021_hrf(dt, oversampling=oversampling)]
+        if hrf_model == "fir":
+            return [
+                np.hstack(
+                    (
+                        np.zeros(delay * oversampling),
+                        np.ones(oversampling) / oversampling,
+                    )
+                )
+                for delay in fir_delays
+            ]
+        raise ValueError(f"Unknown hrf_model: {hrf_model}")
+    return [hrf_model(dt, oversampling=oversampling)]

@@ -19,7 +19,7 @@ import scipy.linalg as spla
 from scipy.interpolate import interp1d
 
 from confusius._utils import find_stack_level
-from confusius.glm._hrf_models import _hrf_kernel
+from confusius.glm._hrf_models import HRFModel, _hrf_kernel
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -413,7 +413,9 @@ def _resample_regressor(
 
 
 def _regressor_names(
-    condition_name: str, hrf_model: str | None, fir_delays: list[int] | None = None
+    condition_name: str,
+    hrf_model: str | HRFModel | None,
+    fir_delays: list[int] | None = None,
 ) -> list[str]:
     """Return column names for regressors derived from one condition.
 
@@ -421,8 +423,9 @@ def _regressor_names(
     ----------
     condition_name : str
         Name of the experimental condition.
-    hrf_model : {"glover", "spm", "claron2021", "fir"} or None
-        HRF model. FIR models generate one column name per delay.
+    hrf_model : {"glover", "spm", "claron2021", "fir"}, callable, or None
+        HRF model. FIR models generate one column name per delay; all other models
+        produce a single column.
     fir_delays : list of int, optional
         FIR delays in volumes (required when `hrf_model="fir"`).
 
@@ -443,7 +446,7 @@ def _compute_condition_regressors(
     durations: npt.NDArray[np.floating],
     amplitudes: npt.NDArray[np.floating],
     volume_times: npt.NDArray[np.floating],
-    hrf_model: str | None,
+    hrf_model: str | HRFModel | None,
     fir_delays: list[int] | None = None,
     oversampling: int = 50,
     min_onset: float = -24.0,
@@ -463,7 +466,7 @@ def _compute_condition_regressors(
         Stimulus amplitudes (modulations).
     volume_times : (n_volumes,) numpy.ndarray
         Acquisition times in seconds.
-    hrf_model : {"glover", "spm", "claron2021", "fir"} or None
+    hrf_model : {"glover", "spm", "claron2021", "fir"}, callable, or None
         HRF model.
     fir_delays : list of int, optional
         FIR delays in volumes (required when `hrf_model="fir"`).
@@ -579,7 +582,7 @@ def _prepare_confounds(
 def make_first_level_design_matrix(
     volume_times: npt.NDArray[np.floating],
     events: pd.DataFrame | None = None,
-    hrf_model: str | None = "glover",
+    hrf_model: str | HRFModel | None = "glover",
     drift_model: str | None = "cosine",
     high_pass: float = 0.01,
     drift_order: int = 1,
@@ -597,8 +600,11 @@ def make_first_level_design_matrix(
         Acquisition time of each volume in seconds.
     events : pandas.DataFrame, optional
         Events table with `onset`, `duration`, and `trial_type` columns.
-    hrf_model : {"glover", "spm", "claron2021", "fir"} or None, default: "glover"
-        Hemodynamic response function model.
+    hrf_model : {"glover", "spm", "claron2021", "fir"}, callable, or None, default: "glover"
+        Hemodynamic response function model. A callable matching the
+        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (i.e. a function
+        taking `dt` and `oversampling` and returning a 1D array) is invoked to
+        produce a custom HRF kernel.
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
     high_pass : float, default: 0.01

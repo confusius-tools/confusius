@@ -10,7 +10,7 @@ from confusius.glm._design import (
     _make_drift_regressors,
     make_first_level_design_matrix,
 )
-from confusius.glm._hrf_models import glover_hrf, spm_hrf
+from confusius.glm._hrf_models import claron2021_hrf, glover_hrf, spm_hrf
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -318,6 +318,24 @@ class TestDesignMatrix:
         # Should have stim and control columns
         assert "stim" in design.columns
         assert "control" in design.columns
+
+    def test_design_matrix_callable_hrf(self, frame_times, basic_events):
+        """Custom callable HRF is invoked to build the regressors."""
+        design = make_first_level_design_matrix(
+            frame_times,
+            basic_events,
+            hrf_model=claron2021_hrf,
+            drift_model=None,
+        )
+
+        reference = make_first_level_design_matrix(
+            frame_times,
+            basic_events,
+            hrf_model="claron2021",
+            drift_model=None,
+        )
+
+        assert_allclose(design["stim"].to_numpy(), reference["stim"].to_numpy())
 
     def test_design_matrix_hrf_none(self, frame_times, basic_events):
         """Design matrix with hrf_model=None creates stick functions."""
