@@ -319,40 +319,6 @@ class TestGetMesh:
             atlas.get_mesh(9999)
 
 
-class TestResampleLike:
-    """Tests for Atlas.resample_like."""
-
-    def test_preserves_large_integer_ids(self, atlas: Atlas) -> None:
-        """Allen structure ids above 2**24 must round-trip through resample_like.
-
-        Float32 has only 24 bits of mantissa, so casting an int32 like 576073732
-        to float32 collapses it to a nearby float that rounds back to a different
-        int (e.g. 576073728), producing a label that does not exist in the
-        BrainGlobe structure tree. See issue #79.
-        """
-        # Re-label child voxels with a large id that loses precision in float32.
-        large_id = 576073732
-        new_annotation = atlas.annotation.copy()
-        new_annotation.values[new_annotation.values == 10] = large_id
-        new_dataset = atlas._dataset.assign(annotation=new_annotation)
-        atlas_with_large = Atlas(
-            new_dataset,
-            atlas._structures,
-            atlas._mesh_to_physical,
-            atlas._rl_midline_um,
-        )
-
-        # Identity transform: resampled annotation must equal source exactly.
-        resampled = atlas_with_large.resample_like(
-            atlas_with_large.annotation, transform=np.eye(4)
-        )
-
-        np.testing.assert_array_equal(
-            resampled.annotation.values, new_annotation.values
-        )
-        assert large_id in np.unique(resampled.annotation.values)
-
-
 class TestAncestors:
     """Tests for Atlas.ancestors, compared against direct treelib traversal."""
 

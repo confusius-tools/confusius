@@ -555,10 +555,6 @@ class Atlas:
             default_value=0.0,
             sitk_threads=sitk_threads,
         )
-        # Pass integer dtypes through unchanged. Casting to float32 first would
-        # collapse Allen structure ids above 2**24 (e.g. 576073732) onto nearby
-        # representable floats, producing ids that no longer exist in the
-        # BrainGlobe structure tree and breaking `get_masks` lookups. See #79.
         resampled_ann = resample_like_da(
             self.annotation,
             reference,
