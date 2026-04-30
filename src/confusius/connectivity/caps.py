@@ -346,8 +346,8 @@ def _find_elbow(cluster_range: list[int], scores: list[float]) -> int:
     return cluster_range[int(np.argmax(distances))]
 
 
-class CoactivationPatterns(BaseEstimator):
-    """Estimate co-activation patterns (CAPs) by clustering volumes.
+class CAP(BaseEstimator):
+    """Co-activation pattern (CAP) analysis for fUSI data.
 
     CAP analysis consists in clustering all volumes in one or more recording using
     *k*-means. Note that classical k-means minimizes within-cluster deviations from
@@ -420,7 +420,7 @@ class CoactivationPatterns(BaseEstimator):
     caps_ : (cap, ...) xarray.DataArray
         CAP spatial maps, one per cluster. `cap` is the leading dimension; the remaining
         dimensions match the spatial dimensions of the data passed to
-        [`fit`][confusius.connectivity.CoactivationPatterns.fit]. For `"correlation"`
+        [`fit`][confusius.connectivity.CAP.fit]. For `"correlation"`
         and `"cosine"` metrics, maps are unit-norm vectors in the preprocessed space.
         `attrs["long_name"]` is set to `"Co-activation patterns"` and `attrs["cmap"]` to
         `"coolwarm"` so that plotting functions pick up sensible defaults automatically.
@@ -432,7 +432,7 @@ class CoactivationPatterns(BaseEstimator):
     --------
     >>> import numpy as np
     >>> import xarray as xr
-    >>> from confusius.connectivity import CoactivationPatterns
+    >>> from confusius.connectivity import CAP
     >>>
     >>> rng = np.random.default_rng(0)
     >>> data = xr.DataArray(
@@ -440,9 +440,9 @@ class CoactivationPatterns(BaseEstimator):
     ...     dims=["time", "y", "x"],
     ... )
     >>>
-    >>> caps = CoactivationPatterns(n_clusters=5, random_state=0)
+    >>> caps = CAP(n_clusters=5, random_state=0)
     >>> caps.fit(data)
-    CoactivationPatterns(n_clusters=5, random_state=0)
+    CAP(n_clusters=5, random_state=0)
     >>> caps.caps_.dims
     ('cap', 'y', 'x')
     >>> caps.caps_.sizes["cap"]
@@ -480,7 +480,7 @@ class CoactivationPatterns(BaseEstimator):
         self.random_state = random_state
         self.clean_kwargs = clean_kwargs
 
-    def fit(self, X: xr.DataArray, y: None = None) -> "CoactivationPatterns":
+    def fit(self, X: xr.DataArray, y: None = None) -> "CAP":
         """Fit co-activation patterns by clustering volumes.
 
         Parameters
@@ -500,7 +500,7 @@ class CoactivationPatterns(BaseEstimator):
 
         Returns
         -------
-        CoactivationPatterns
+        CAP
             Fitted estimator.
 
         Raises
@@ -519,7 +519,7 @@ class CoactivationPatterns(BaseEstimator):
                 f"got {self.update_rule!r}."
             )
 
-        validate_time_series(X, operation_name="CoactivationPatterns.fit")
+        validate_time_series(X, operation_name="CAP.fit")
 
         X_proc, X_stacked = self._prepare_data(X)
 
@@ -622,7 +622,7 @@ class CoactivationPatterns(BaseEstimator):
         ----------
         X : (time, ...) xarray.DataArray
             Same data that will later be passed to
-            [`fit`][confusius.connectivity.CoactivationPatterns.fit].
+            [`fit`][confusius.connectivity.CAP.fit].
         cluster_range : range or list[int]
             Values of `n_clusters` to evaluate. Must contain at least 2
             entries, each ≥ 2.
@@ -682,7 +682,7 @@ class CoactivationPatterns(BaseEstimator):
         if any(k < 2 for k in cluster_list):
             raise ValueError("All values in cluster_range must be >= 2.")
 
-        validate_time_series(X, operation_name="CoactivationPatterns.select_n_clusters")
+        validate_time_series(X, operation_name="CAP.select_n_clusters")
         X_proc, _ = self._prepare_data(X)
 
         sil_metric = (
