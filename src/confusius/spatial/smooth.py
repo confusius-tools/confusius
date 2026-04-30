@@ -1,7 +1,6 @@
 """Spatial smoothing functions for fUSI volumetric data."""
 
 import warnings
-from collections.abc import Sequence
 
 import numpy as np
 import scipy.ndimage
@@ -34,7 +33,6 @@ def _gaussian_smooth(
 def smooth_volume(
     data: xr.DataArray,
     fwhm: float | dict[str, float],
-    dims: Sequence[str] | None = None,
     ensure_finite: bool = False,
 ) -> xr.DataArray:
     """Smooth a DataArray spatially using a Gaussian kernel.
@@ -47,21 +45,18 @@ def smooth_volume(
     ----------
     data : xarray.DataArray
         Input data to smooth. Can have any number of dimensions, including a `time`
-        dimension (which is never smoothed by default).
+        dimension.
 
         !!! warning "Chunking along smoothed dimensions is not supported"
-            Dimensions in `dims` must NOT be chunked. Chunk only along other dimensions,
-            e.g. `data.chunk({"time": 10})`.
+            Dimensions selected for smoothing must NOT be chunked. Chunk only along other
+            dimensions, e.g. `data.chunk({"time": 10})` when smoothing spatial axes.
 
     fwhm : float or dict[str, float]
         Full width at half maximum of the Gaussian kernel in physical unit. A scalar
-        applies the same FWHM to all smoothed dimensions. A dict maps dimension names to
-        per-dimension FWHM values, e.g. `{"z": 0.5, "y": 0.2, "x": 0.2}`. All keys must
-        be present in the set of smoothed dimensions.
-    dims : sequence of str, optional
-        Dimensions to smooth. Defaults to all dimensions except `"time"`. All specified
-        dimensions must have uniform coordinate spacing; a `ValueError` is raised
-        otherwise.
+        applies the same FWHM to all dimensions except `"time"`. A dict maps dimension
+        names to per-dimension FWHM values, e.g. `{"z": 0.5, "y": 0.2, "x": 0.2}`;
+        only the listed dimensions are smoothed. Dimensions of length 1 are left
+        untouched.
     ensure_finite : bool, default: False
         Whether to replace non-finite values (`NaN`, `Inf`) with zero before filtering.
         This prevents `NaN`s from propagating to neighbouring voxels through the
@@ -76,10 +71,9 @@ def smooth_volume(
     Raises
     ------
     ValueError
-        If any dimension in `dims` is not present in the DataArray, had non-uniform or
-        undefined coordinate spacing, or is chunked (for Dask-backed arrays).
-    ValueError
-        If `fwhm` is a dict and any key is not in the set of smoothed dims.
+        If `fwhm` is a dict and any key is not present in the DataArray, or if any
+        smoothed dimension has non-uniform or undefined coordinate spacing, or is
+        chunked (for Dask-backed arrays).
 
     Notes
     -----
@@ -122,7 +116,7 @@ def smooth_volume(
 
     Smooth only selected dimensions:
 
-    >>> smoothed = smooth_volume(data, fwhm=0.3, dims=["z", "x"])
+    >>> smoothed = smooth_volume(data, fwhm={"z": 0.3, "x": 0.3})
 
     Suppress NaN propagation when some voxels are masked:
 
@@ -130,25 +124,19 @@ def smooth_volume(
     """
     all_dims = [str(d) for d in data.dims]
 
-    if dims is None:
-        smooth_dims = [d for d in all_dims if d != "time"]
-    else:
-        smooth_dims = list(dims)
-        invalid = [d for d in smooth_dims if d not in all_dims]
-        if invalid:
-            raise ValueError(
-                f"Dimensions {invalid} are not present in the DataArray. "
-                f"Available dimensions: {all_dims}."
-            )
-
     if isinstance(fwhm, dict):
-        unknown = [k for k in fwhm if k not in smooth_dims]
-        if unknown:
-            raise ValueError(
-                f"FWHM keys {unknown} are not in the set of smoothed dimensions "
-                f"{smooth_dims}. Either add them to 'dims' or remove them from "
-                f"'fwhm'."
-            )
+        smooth_dims = list(fwhm)
+    else:
+        smooth_dims = [d for d in all_dims if d != "time"]
+
+    invalid = [d for d in smooth_dims if d not in all_dims]
+    if invalid:
+        raise ValueError(
+            f"Dimensions {invalid} are not present in the DataArray. "
+            f"Available dimensions: {all_dims}."
+        )
+
+    smooth_dims = [dim for dim in smooth_dims if data.sizes[dim] > 1]
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
@@ -162,7 +150,7 @@ def smooth_volume(
                 f"Dimension '{dim}' has non-uniform or undefined coordinate spacing. "
                 "Gaussian smoothing requires regularly sampled coordinates. "
                 "Check that the coordinate spacing is uniform, or exclude this "
-                "dimension from 'dims'."
+                "dimension from 'fwhm'."
             )
         smooth_spacing[dim] = s
 
@@ -176,16 +164,11 @@ def smooth_volume(
                     f"dimensions are not split: data.chunk({{'{dim}': -1}})."
                 )
 
-    if isinstance(fwhm, dict):
-        fwhm_per_dim = {dim: fwhm.get(dim, 0.0) for dim in smooth_dims}
-    else:
-        fwhm_per_dim = {dim: float(fwhm) for dim in smooth_dims}
-
     # Non-smoothed dims get sigma=0 (identity, no filtering applied).
     sigmas = []
     for dim in all_dims:
         if dim in smooth_dims:
-            fwhm_val = fwhm_per_dim[dim]
+            fwhm_val = float(fwhm[dim]) if isinstance(fwhm, dict) else float(fwhm)
             sigma_vox = fwhm_val * _FWHM_TO_SIGMA / smooth_spacing[dim]
             sigmas.append(sigma_vox)
         else:

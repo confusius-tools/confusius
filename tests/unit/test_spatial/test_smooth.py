@@ -62,17 +62,52 @@ class TestSmoothVolume:
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
     def test_selected_dims_only(self, sample_3d_volume):
-        """Smoothing only selected dims should leave the rest unchanged."""
+        """A dict FWHM should smooth only the listed dimensions."""
         vol = sample_3d_volume
         fwhm = 0.4
 
-        smoothed = smooth_volume(vol, fwhm=fwhm, dims=["z", "x"])
+        smoothed = smooth_volume(vol, fwhm={"z": fwhm, "x": fwhm})
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
             fwhm * fwhm_to_sigma / _spacing(vol, "z"),
             0.0,  # y not smoothed.
             fwhm * fwhm_to_sigma / _spacing(vol, "x"),
+        ]
+        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+
+        np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
+
+    def test_fwhm_dict_infers_smoothed_dims(self, sample_3d_volume):
+        """A dict FWHM should define the smoothed dimensions."""
+        vol = sample_3d_volume
+        fwhm_dict = {"z": 0.6, "x": 0.4}
+
+        smoothed = smooth_volume(vol, fwhm=fwhm_dict)
+
+        fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        expected_sigmas = [
+            fwhm_dict["z"] * fwhm_to_sigma / _spacing(vol, "z"),
+            0.0,
+            fwhm_dict["x"] * fwhm_to_sigma / _spacing(vol, "x"),
+        ]
+        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+
+        np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
+
+    def test_fwhm_dict_can_smooth_time(self, sample_4d_volume):
+        """A dict FWHM should be able to target non-spatial dimensions like time."""
+        vol = sample_4d_volume
+        fwhm_dict = {"time": 1.0}
+
+        smoothed = smooth_volume(vol, fwhm=fwhm_dict)
+
+        fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        expected_sigmas = [
+            fwhm_dict["time"] * fwhm_to_sigma / _spacing(vol, "time"),
+            0.0,
+            0.0,
+            0.0,
         ]
         expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
 
@@ -94,6 +129,32 @@ class TestSmoothVolume:
         vol = sample_3d_volume
         smoothed = smooth_volume(vol, fwhm=0.0)
         np.testing.assert_allclose(smoothed.values, vol.values, rtol=1e-10)
+
+    def test_singleton_dim_is_not_smoothed(self):
+        """Length-1 dimensions should be ignored instead of requiring spacing."""
+        data = np.zeros((5, 1, 7))
+        data[2, 0, 3] = 1.0
+        vol = xr.DataArray(
+            data,
+            dims=["z", "y", "x"],
+            coords={
+                "z": np.arange(5) * 0.2,
+                "y": [0.0],
+                "x": np.arange(7) * 0.1,
+            },
+        )
+
+        smoothed = smooth_volume(vol, fwhm=0.4)
+
+        fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
+        expected_sigmas = [
+            0.4 * fwhm_to_sigma / _spacing(vol, "z"),
+            0.0,
+            0.4 * fwhm_to_sigma / _spacing(vol, "x"),
+        ]
+        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+
+        np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
     def test_fwhm_correct_on_impulse(self):
         """Smoothing a Dirac delta should produce a blob with the requested FWHM.
@@ -161,7 +222,7 @@ class TestSmoothVolume:
     def test_raises_invalid_dim(self, sample_3d_volume):
         """Should raise ValueError for dimensions not in the DataArray."""
         with pytest.raises(ValueError, match="not present in the DataArray"):
-            smooth_volume(sample_3d_volume, fwhm=0.3, dims=["z", "nonexistent"])
+            smooth_volume(sample_3d_volume, fwhm={"z": 0.3, "nonexistent": 0.3})
 
     def test_raises_nonuniform_spacing(self):
         """Should raise ValueError if a smoothed dim has non-uniform spacing."""
@@ -181,8 +242,8 @@ class TestSmoothVolume:
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_unknown_fwhm_key(self, sample_3d_volume):
-        """Should raise ValueError if fwhm dict contains unknown dim names."""
-        with pytest.raises(ValueError, match="not in the set of smoothed dimensions"):
+        """Should raise ValueError if fwhm dict contains dim names not in the array."""
+        with pytest.raises(ValueError, match="not present in the DataArray"):
             smooth_volume(sample_3d_volume, fwhm={"z": 0.3, "w": 0.2})
 
     def test_raises_chunked_spatial_dim(self, sample_3d_volume):
