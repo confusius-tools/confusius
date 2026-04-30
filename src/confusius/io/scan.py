@@ -181,7 +181,7 @@ def _build_physical_to_lab(
     return physical_to_lab
 
 
-def load_bps(bps_path: Path) -> npt.NDArray[np.float64]:
+def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     """Load a `.bps` file and return a `brain_to_lab` affine in ConfUSIus lab space.
 
     BPS files are HDF5 sidecars produced by Iconeus' brain positioning system. They
@@ -215,7 +215,7 @@ def load_bps(bps_path: Path) -> npt.NDArray[np.float64]:
 
     Parameters
     ----------
-    bps_path : pathlib.Path
+    bps_path : str or pathlib.Path
         Path to the BPS file (`.bps`).
 
     Returns
@@ -224,6 +224,8 @@ def load_bps(bps_path: Path) -> npt.NDArray[np.float64]:
         Affine mapping Iconeus brain coordinates to ConfUSIus-ordered Iconeus lab
         coordinates `(z_lab, y_lab, x_lab, 1)` in millimetres.
     """
+    bps_path = check_path(bps_path, label="bps_path", type="file")
+
     with h5py.File(bps_path, "r") as f:
         brain_to_lab = f["BrainToLab"][:]
 
@@ -297,7 +299,7 @@ def load_scan(
     If `bps_path` is provided, a `physical_to_brain` affine is stored in
     `da.attrs["affines"]["physical_to_brain"]` that maps ConfUSIus physical coordinates
     `(z, y, x)` to Iconeus' brain coordinates. Apply as
-    `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`.
+    `da.attrs["affines"]["physical_to_brain"] @ np.array([z, y, x, 1.0])`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
@@ -305,9 +307,6 @@ def load_scan(
     `iconeus_project`, `iconeus_date`).
     """
     path = check_path(path, type="file")
-    # validate bps path here so we fail early
-    if bps_path is not None:
-        bps_path = check_path(bps_path, label="bps_path", type="file")
 
     h5 = h5py.File(path, "r")
 
@@ -361,14 +360,13 @@ def load_scan(
             )
 
         data_array.name = attrs["iconeus_scan"] or path.stem
+        if bps_path is not None:
+            brain_to_lab = load_bps(bps_path)
+            physical_to_brain = np.linalg.inv(brain_to_lab) @ physical_to_lab
+            data_array.attrs["affines"]["physical_to_brain"] = physical_to_brain
     except Exception:
         h5.close()
         raise
-
-    if bps_path is not None:
-        brain_to_lab = load_bps(bps_path)
-        physical_to_brain = np.linalg.inv(brain_to_lab) @ physical_to_lab
-        data_array.attrs["affines"]["physical_to_brain"] = physical_to_brain
 
     return data_array
 

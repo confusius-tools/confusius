@@ -367,6 +367,7 @@ can be established by using the `physical_to_lab` affines from the SCAN file:
 
 ```python
 import confusius as cf
+import numpy as np
 
 da = cf.load("sub-01_task-awake_pwd.scan")
 bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
