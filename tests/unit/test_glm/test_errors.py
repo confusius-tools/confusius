@@ -8,12 +8,12 @@ from numpy.testing import assert_array_equal
 from confusius.glm._contrasts import Contrast
 from confusius.glm._design import (
     _compute_sampling_interval,
-    _hrf_kernel,
     _make_drift_regressors,
     _orthogonalize,
     _regressor_names,
     make_first_level_design_matrix,
 )
+from confusius.glm._hrf_models import _hrf_kernel
 from confusius.glm._models import ARModel, OLSModel
 from confusius.glm._utils import estimate_ar_coeffs, expression_to_contrast_vector
 

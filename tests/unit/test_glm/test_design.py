@@ -8,10 +8,9 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius.glm._design import (
     _compute_sampling_interval,
     _make_drift_regressors,
-    glover_hrf,
     make_first_level_design_matrix,
-    spm_hrf,
 )
+from confusius.glm._hrf_models import glover_hrf, spm_hrf
 
 # -----------------------------------------------------------------------------
 # Fixtures
