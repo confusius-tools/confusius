@@ -344,6 +344,60 @@ scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
 Provenance metadata from the file is stored in `da.attrs`: `scan_mode`, `subject`,
 `session`, `scan`, `project`, `date`, `neuroscan_version`, and `machine_sn`.
 
+#### Loading a BPS File
+
+Iconeus' BPS files are HDF5 containers produced by Iconeus' Brain Positioning System.
+They contain an affine matrix that maps Iconeus brain coordinates `(x_brain, y_brain,
+z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters. The
+Iconeus lab frame is a fixed scanner frame; `probeToLab` carries any rotation of the
+probe within it. ConfUSIus re-expresses this space as **ConfUSIus-ordered** lab space
+`(z_lab, y_lab, x_lab)` in millimeters, matching the convention used throughout the
+rest of the package.
+
+The affine matrix in the BPS file can be loaded with [`confusius.io.load_bps`][confusius.io.load_bps].
+
+```python
+import confusius as cf
+
+bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
+```
+
+Compute `physical_to_brain` (Iconeus brain space from ConfUSIus physical space) from
+the SCAN file `physical_to_lab` affine and store it in the DataArray attributes:
+
+```python
+import confusius as cf
+import numpy as np
+
+da = cf.load("sub-01_task-awake_pwd.source.scan")
+bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
+
+physical_to_lab = da.attrs["affines"]["physical_to_lab"]
+physical_to_brain = np.linalg.inv(bps) @ physical_to_lab
+da.attrs["affines"]["physical_to_brain"] = physical_to_brain
+```
+
+In fact, if you pass the BPS file using the `bps_path` argument when loading a
+SCAN file with [`confusius.load`][confusius.load], the `physical_to_brain` affine
+will be computed automatically and stored in the resulting DataArray's attributes
+`affines` alongside the `physical_to_lab` affines:
+
+```python
+import confusius as cf
+
+da = cf.load(
+    "sub-01_task-awake_pwd.source.scan",
+    bps_path="sub-01_task-awake_pwd.bps",
+)
+
+physical_to_brain = da.attrs["affines"]["physical_to_brain"]
+```
+
+Compose it with brain-side affines (e.g. brain-to-CCFv3 from a brain atlas) to register
+fUSI data into atlas space directly. For multi-pose files (`3Dscan`, `4Dscan`) the
+affine has shape `(npose, 4, 4)` and is indexed by pose, the same way `physical_to_lab`
+is.
+
 #### Converting SCAN Data to NIfTI
 
 Since [`load_scan`][confusius.io.load_scan] returns a standard Xarray DataArray with

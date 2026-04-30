@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.io.scan import load_scan
+from confusius.io.scan import PHYSICAL_TO_PROBE_PERMUTATION, load_bps, load_scan
 
 _RNG = np.random.default_rng(42)
 
@@ -573,3 +573,78 @@ class TestPhysicalToLab:
         expected[:3, 3] *= 1e3
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# Tests: BPS sidecar (physical_to_brain affine)
+# ---------------------------------------------------------------------------
+
+
+class TestLoadScanWithBPS:
+    """Tests for load_scan when a BPS file is provided via `bps_path`."""
+
+    @staticmethod
+    def _expected_brain_to_confusius_lab(
+        brain_to_lab: np.ndarray,
+    ) -> np.ndarray:
+        """Re-express a BrainToLab affine on the lab side in ConfUSIus zyx mm."""
+        mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
+        confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
+        return np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+
+    @classmethod
+    def _expected_physical_to_brain(
+        cls,
+        probe_to_lab: np.ndarray,
+        brain_to_lab: np.ndarray,
+    ) -> np.ndarray:
+        """Compose fixture-space probe and BPS affines into the expected result."""
+        physical_to_lab = (
+            PHYSICAL_TO_PROBE_PERMUTATION.T
+            @ probe_to_lab
+            @ PHYSICAL_TO_PROBE_PERMUTATION
+        )
+        physical_to_lab[..., :3, 3] *= 1e3
+        brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)
+        return np.linalg.inv(brain_to_confusius_lab) @ physical_to_lab
+
+    def test_load_bps_reexpresses_lab_side(self, bps_path: Path, brain_to_lab: np.ndarray) -> None:
+        """load_bps converts BrainToLab to ConfUSIus-ordered lab coordinates."""
+        expected = self._expected_brain_to_confusius_lab(brain_to_lab)
+        result = load_bps(bps_path)
+        np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
+
+    def test_physical_to_brain_matches_expected_2d_affine(
+        self, scan_2d_path: Path, bps_path: Path, brain_to_lab: np.ndarray
+    ) -> None:
+        """2Dscan physical_to_brain matches the expected affine from fixture metadata."""
+        da = load_scan(scan_2d_path, bps_path=bps_path)
+        expected = self._expected_physical_to_brain(_PROBE_TO_LAB_SINGLE, brain_to_lab)
+        result = np.asarray(da.attrs["affines"]["physical_to_brain"])
+        np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
+
+    @pytest.mark.parametrize(
+        ("scan_path", "probe_to_lab"),
+        [
+            ("scan_3d_path", _PROBE_TO_LAB_MULTI),
+            ("scan_4d_path", _PROBE_TO_LAB_MULTI),
+        ],
+    )
+    def test_physical_to_brain_matches_expected_multipose_affines(
+        self,
+        request: pytest.FixtureRequest,
+        scan_path: str,
+        probe_to_lab: np.ndarray,
+        bps_path: Path,
+        brain_to_lab: np.ndarray,
+    ) -> None:
+        """3Dscan and 4Dscan physical_to_brain stacks match fixture-derived affines."""
+        da = load_scan(request.getfixturevalue(scan_path), bps_path=bps_path)
+        expected = self._expected_physical_to_brain(probe_to_lab, brain_to_lab)
+        result = np.asarray(da.attrs["affines"]["physical_to_brain"])
+        np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
+
+    def test_missing_bps_path_raises(self, scan_2d_path: Path, tmp_path: Path) -> None:
+        """A non-existent `bps_path` raises ValueError before opening the SCAN."""
+        with pytest.raises(ValueError):
+            load_scan(scan_2d_path, bps_path=tmp_path / "nonexistent.bps")

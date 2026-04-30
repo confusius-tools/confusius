@@ -130,6 +130,62 @@ class TestConsolidatePoses:
         result = consolidate_poses(scan_3d)
         assert "slice_time" not in result.coords
 
+    def test_physical_to_brain_consolidated_with_bps(
+        self, scan_3d_path: Path, bps_path: Path
+    ) -> None:
+        """Consolidating a 3Dscan loaded with BPS preserves the brain link.
+
+        Per pose, `physical_to_brain[p] = inv(brain_to_lab) @ physical_to_lab[p]`
+        with `inv(brain_to_lab)` constant across poses. After consolidation, the
+        same relationship must hold against the consolidated `physical_to_lab`,
+        i.e. `consolidated_physical_to_brain = inv(brain_to_lab) @
+        consolidated_physical_to_lab`.
+        """
+        da = load_scan(scan_3d_path, bps_path=bps_path)
+        affines = da.attrs["affines"]
+        # Recover the constant `inv(brain_to_lab)` link from any pose.
+        link = affines["physical_to_brain"][0] @ np.linalg.inv(
+            affines["physical_to_lab"][0]
+        )
+
+        result = consolidate_poses(da)
+
+        assert "physical_to_brain" in result.attrs["affines"]
+        expected = link @ result.attrs["affines"]["physical_to_lab"]
+        np.testing.assert_allclose(
+            result.attrs["affines"]["physical_to_brain"], expected, rtol=1e-10
+        )
+
+    def test_unlinked_extra_per_pose_affine_raises(self, scan_3d: xr.DataArray) -> None:
+        """An extra per-pose affine that is not a constant left-link of the main
+        affine must raise ``ValueError`` rather than silently producing a wrong
+        consolidated affine.
+        """
+        ptl = np.asarray(scan_3d.attrs["affines"]["physical_to_lab"]).copy()
+        # Perturb pose 1 only: link derived from pose 0 is identity, so the chain
+        # `link @ physical_to_lab` cannot reproduce the perturbed pose.
+        unlinked = ptl.copy()
+        unlinked[1, :3, 3] += np.array([0.5, 0.0, 0.0])
+        scan_3d.attrs["affines"]["physical_to_unlinked"] = unlinked
+
+        with pytest.raises(
+            ValueError, match="not a constant left-link of 'physical_to_lab'"
+        ):
+            consolidate_poses(scan_3d)
+
+    def test_static_affine_passed_through(self, scan_3d: xr.DataArray) -> None:
+        """A static `(4, 4)` affine is carried through consolidation unchanged."""
+        static = np.eye(4, dtype=np.float64)
+        static[:3, 3] = [1.0, 2.0, 3.0]
+        scan_3d.attrs["affines"]["physical_to_static"] = static
+
+        result = consolidate_poses(scan_3d)
+
+        assert "physical_to_static" in result.attrs["affines"]
+        np.testing.assert_array_equal(
+            result.attrs["affines"]["physical_to_static"], static
+        )
+
     def test_no_pose_dim_raises(self, scan_2d: xr.DataArray) -> None:
         """consolidate_poses raises ValueError when there is no pose dimension."""
         with pytest.raises(ValueError, match="no 'pose' dimension"):

@@ -55,7 +55,7 @@ _PROBE_TO_LAB_MULTI = np.stack(
 )
 
 # probeToLab for a single pose with a non-trivial (90° rotation around probe Y-axis)
-# rotation matrix.  Used to verify that _PHYSICAL_TO_PROBE_PERMUTATION permutes columns
+# rotation matrix.  Used to verify that PHYSICAL_TO_PROBE_PERMUTATION permutes columns
 # correctly even when the rotation block is not the identity.
 #
 #   R_y90 = [[ 0, 0, 1, 0],   # x_lab =  z_probe
@@ -856,10 +856,3 @@ def scan_3d_2d_sweep_path(tmp_path: Path) -> Path:
             time_data=time_data,
         )
     return path
-
-
-# ---------------------------------------------------------------------------
-# Tests: consolidate_poses
-# ---------------------------------------------------------------------------
-
-
