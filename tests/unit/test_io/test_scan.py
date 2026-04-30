@@ -57,20 +57,6 @@ _PROBE_TO_LAB_ROTATED = np.array(
     dtype=np.float64,
 )
 
-# BrainToLab: identity rotation, translation in metres on the Iconeus lab side
-# (xyz = lateral, elevation, axial). Used to build a synthetic .bps fixture.
-_BRAIN_TO_LAB = np.eye(4, dtype=np.float64)
-_BRAIN_TO_LAB[:3, 3] = [0.010, 0.020, 0.030]
-
-
-@pytest.fixture
-def bps_path(tmp_path: Path) -> Path:
-    """Create a synthetic BPS HDF5 file with a known BrainToLab affine."""
-    path = tmp_path / "test.bps"
-    with h5py.File(path, "w") as f:
-        f.create_dataset("BrainToLab", data=_BRAIN_TO_LAB)
-    return path
-
 
 def _end_referenced_times(n: int, duration: float) -> np.ndarray:
     """Return regularly spaced end-referenced timestamps."""
@@ -627,7 +613,7 @@ class TestLoadScanWithBPS:
             assert A.shape == (_NPOSE, 4, 4)
 
     def test_physical_to_brain_maps_origin_to_expected_brain_point(
-        self, scan_2d_path: Path, bps_path: Path
+        self, scan_2d_path: Path, bps_path: Path, brain_to_lab: np.ndarray
     ) -> None:
         """Physical origin (0, 0, 0) mm maps to the analytically expected brain point.
 
@@ -649,7 +635,7 @@ class TestLoadScanWithBPS:
             np.array([lab_zyx_mm[2], lab_zyx_mm[0], -lab_zyx_mm[1]], dtype=np.float64)
             * 1e-3
         )
-        expected_brain = lab_xyz_m - _BRAIN_TO_LAB[:3, 3]
+        expected_brain = lab_xyz_m - brain_to_lab[:3, 3]
 
         result = A @ np.array([0.0, 0.0, 0.0, 1.0])
         np.testing.assert_allclose(result[:3], expected_brain, rtol=1e-10, atol=1e-12)

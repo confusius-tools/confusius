@@ -95,6 +95,65 @@ def _build_consolidated_time_coordinate(
     return xr.DataArray(volume_times, dims=["time"], attrs=time_attrs)
 
 
+def _consolidate_linked_affines(
+    affines: dict[str, Any],
+    affines_key: str,
+    main_per_pose: npt.NDArray[np.float64],
+    main_consolidated: npt.NDArray[np.float64],
+) -> dict[str, npt.NDArray[np.float64]]:
+    """Propagate per-pose affines through pose consolidation.
+
+    The main affine (`affines[affines_key]`) is replaced by `main_consolidated`.
+    Any other affine in `affines` that is shaped like the main per-pose stack is
+    assumed to be a constant left-link of the main affine, i.e. there exists a
+    constant `(4, 4)` matrix `L` such that `A[p] = L @ main_per_pose[p]` for all
+    poses. The consolidated counterpart is then `L @ main_consolidated`. Affines
+    that already have shape `(4, 4)` are passed through unchanged.
+
+    Parameters
+    ----------
+    affines : dict[str, Any]
+        Original `da.attrs["affines"]` mapping.
+    affines_key : str
+        Key of the affine driving the consolidation.
+    main_per_pose : (npose, 4, 4) numpy.ndarray
+        Per-pose stack of the main affine, prior to consolidation.
+    main_consolidated : (4, 4) numpy.ndarray
+        Consolidated form of the main affine.
+
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        Updated `affines` mapping with the main key replaced by
+        `main_consolidated` and every other linked per-pose affine consolidated
+        accordingly.
+
+    Raises
+    ------
+    ValueError
+        If a per-pose affine other than `affines_key` does not satisfy
+        `A[p] = L @ main_per_pose[p]` for a constant `L` to within numerical
+        tolerance.
+    """
+    new_affines: dict[str, npt.NDArray[np.float64]] = {affines_key: main_consolidated}
+    main_inv0 = np.linalg.inv(main_per_pose[0])
+    for key, value in affines.items():
+        if key == affines_key:
+            continue
+        arr = np.asarray(value)
+        if arr.shape == main_per_pose.shape:
+            link = arr[0] @ main_inv0
+            if not np.allclose(arr, link @ main_per_pose, rtol=1e-6, atol=1e-12):
+                raise ValueError(
+                    f"Affine {key!r} is not a constant left-link of "
+                    f"{affines_key!r}; cannot consolidate."
+                )
+            new_affines[key] = link @ main_consolidated
+        else:
+            new_affines[key] = arr
+    return new_affines
+
+
 def consolidate_poses(
     da: xr.DataArray,
     affines_key: str = "physical_to_lab",
@@ -297,7 +356,10 @@ def consolidate_poses(
     new_affine[:3, 3] = t_perp
 
     other_dims = [d for d in spatial_dims if d != sweep_dim]
-    new_attrs = {**da.attrs, "affines": {affines_key: new_affine}}
+    new_affines = _consolidate_linked_affines(
+        da.attrs.get("affines", {}), affines_key, affine, new_affine
+    )
+    new_attrs = {**da.attrs, "affines": new_affines}
     base_coords: dict[str, Any] = {
         str(sweep_dim): new_sweep,
         **{str(d): da.coords[d] for d in other_dims},
