@@ -149,8 +149,9 @@ def smooth_volume(
             raise ValueError(
                 f"Dimension '{dim}' has non-uniform or undefined coordinate spacing. "
                 "Gaussian smoothing requires regularly sampled coordinates. "
-                "Check that the coordinate spacing is uniform, or exclude this "
-                "dimension from 'fwhm'."
+                "Check that the coordinate spacing is uniform, or pass 'fwhm' as a "
+                "dict to explicitly select only the dimensions to smooth, e.g. "
+                f"fwhm={{'{dim}': value}} to include or omit '{dim}'."
             )
         smooth_spacing[dim] = s
 
