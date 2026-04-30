@@ -173,6 +173,19 @@ class TestConsolidatePoses:
         ):
             consolidate_poses(scan_3d)
 
+    def test_static_affine_passed_through(self, scan_3d: xr.DataArray) -> None:
+        """A static `(4, 4)` affine is carried through consolidation unchanged."""
+        static = np.eye(4, dtype=np.float64)
+        static[:3, 3] = [1.0, 2.0, 3.0]
+        scan_3d.attrs["affines"]["physical_to_static"] = static
+
+        result = consolidate_poses(scan_3d)
+
+        assert "physical_to_static" in result.attrs["affines"]
+        np.testing.assert_array_equal(
+            result.attrs["affines"]["physical_to_static"], static
+        )
+
     def test_no_pose_dim_raises(self, scan_2d: xr.DataArray) -> None:
         """consolidate_poses raises ValueError when there is no pose dimension."""
         with pytest.raises(ValueError, match="no 'pose' dimension"):
