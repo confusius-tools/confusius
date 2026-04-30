@@ -97,6 +97,11 @@ _SCAN_PROBE_TO_LAB_2D_SWEEP = np.stack(
     ]
 )
 
+# Synthetic BPS BrainToLab: identity rotation + translation in metres on the Iconeus
+# lab side (xyz = lateral, elevation, axial).
+_SCAN_BRAIN_TO_LAB = np.eye(4, dtype=np.float64)
+_SCAN_BRAIN_TO_LAB[:3, 3] = [0.010, 0.020, 0.030]
+
 
 def _scan_end_referenced_times(n: int, duration: float) -> npt.NDArray[np.float64]:
     """Return regularly spaced end-referenced timestamps."""
@@ -494,6 +499,21 @@ def scan_3d_2d_sweep_path(tmp_path: Path) -> Path:
             probe_to_lab=_SCAN_PROBE_TO_LAB_2D_SWEEP,
             time_data=time_data,
         )
+    return path
+
+
+@pytest.fixture
+def brain_to_lab() -> npt.NDArray[np.float64]:
+    """BrainToLab matrix written into the synthetic `bps_path` fixture."""
+    return _SCAN_BRAIN_TO_LAB.copy()
+
+
+@pytest.fixture
+def bps_path(tmp_path: Path, brain_to_lab: npt.NDArray[np.float64]) -> Path:
+    """Create a synthetic BPS HDF5 file with a known BrainToLab affine."""
+    path = tmp_path / "test.bps"
+    with h5py.File(path, "w") as f:
+        f.create_dataset("BrainToLab", data=brain_to_lab)
     return path
 
 

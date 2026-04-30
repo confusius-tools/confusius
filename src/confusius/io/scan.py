@@ -15,22 +15,26 @@ import xarray as xr
 
 from confusius.io.utils import check_path
 
-# Permutation matrix P that maps ConfUSIus physical input (z_conf, y_conf, x_conf, 1)
-# to probe physical (x_probe, y_probe, z_probe, 1):
-#
-#   x_probe =  x_conf      (lateral, same direction)
-#   y_probe =  z_conf      (elevation, same direction)
-#   z_probe = -y_conf      (axial depth, sign flip: y_conf = -z_probe > 0)
-#
-# Its transpose P^T maps probe physical (x_probe, y_probe, z_probe, 1) back to
-# ConfUSIus physical (z_conf, y_conf, x_conf, 1):
-#
-#   z_conf =  y_probe      (elevation)
-#   y_conf = -z_probe      (depth, sign flip)
-#   x_conf =  x_probe      (lateral)
-_PHYSICAL_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
+PHYSICAL_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
 )
+"""Permutation matrix that maps ConfUSIus physical to probe physical.
+
+ConfUSIus input (z_conf, y_conf, x_conf, 1) is mapped to the probe physical (x_probe,
+y_probe, z_probe, 1):
+
+  x_probe =  x_conf      (lateral, same direction)
+  y_probe =  z_conf      (elevation, same direction)
+  z_probe = -y_conf      (axial depth, sign flip: y_conf = -z_probe > 0)
+
+Its transpose maps probe physical (x_probe, y_probe, z_probe, 1) back to ConfUSIus
+physical (z_conf, y_conf, x_conf, 1):
+
+  z_conf =  y_probe      (elevation)
+  y_conf = -z_probe      (depth, sign flip)
+  x_conf =  x_probe      (lateral)
+
+"""
 
 
 def _read_scan_str(h5: h5py.File, path: str) -> str:
@@ -148,21 +152,21 @@ def _build_physical_to_lab(
     """Convert `probeToLab` to a ConfUSIus `physical_to_lab` affine in mm.
 
     `probeToLab` maps probe physical `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
-    space in metres. The Iconeus lab frame is aligned with the probe axes:
-    `x_lab = lateral`, `y_lab = elevation`, `z_lab = axial`.
+    space `(x_lab, y_lab, z_lab, 1)` in metres. The Iconeus lab frame is a fixed scanner
+    frame; `probeToLab` carries any rotation of the probe within it.
 
     We want `physical_to_lab` to map ConfUSIus physical `(z_conf, y_conf, x_conf, 1)`
-    to **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` (elevation, depth,
-    lateral) in millimetres, using the same permutation `P` that maps between the two
+    (elevation, depth, lateral) to **ConfUSIus-ordered** lab space `(z_lab, y_lab,
+    x_lab)` in millimetres, using the same permutation `P` that maps between the two
     physical spaces:
 
-    ```
-    physical_to_lab = P^T @ probeToLab @ P
+    ```python
+    physical_to_lab = PHYSICAL_TO_PROBE_PERMUTATION^T @ probeToLab @ PHYSICAL_TO_PROBE_PERMUTATION
     ```
 
-    where `P = _PHYSICAL_TO_PROBE_PERMUTATION`. This produces a ConfUSIus-ordered affine
-    whose rotation block is identity for a non-rotated probe, making it directly usable
-    in napari and other tools that expect `(z, y, x)` axis order.
+    This produces a ConfUSIus-ordered affine whose rotation block is identity for a
+    non-rotated probe, making it directly usable in napari and other tools that expect
+    `(z, y, x)` axis order.
 
     Parameters
     ----------
@@ -175,14 +179,70 @@ def _build_physical_to_lab(
         `physical_to_lab` affine(s) in millimetres. Shape matches input: `(4, 4)` for
         `2Dscan` or `(npose, 4, 4)` for `3Dscan`/`4Dscan`.
     """
-    P = _PHYSICAL_TO_PROBE_PERMUTATION
-    physical_to_lab = P.T @ probe_to_lab @ P
+    physical_to_lab = (
+        PHYSICAL_TO_PROBE_PERMUTATION.T @ probe_to_lab @ PHYSICAL_TO_PROBE_PERMUTATION
+    )
     physical_to_lab[..., :3, 3] *= 1e3
     return physical_to_lab
 
 
+def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
+    """Load a BPS file and return an affine from Iconeus' brain space to ConfUSIus lab space.
+
+    BPS files are HDF5 sidecars produced by Iconeus' brain positioning system. They
+    store a `BrainToLab` affine that maps Iconeus brain coordinates `(x_brain, y_brain,
+    z_brain, 1)` to Iconeus lab coordinates `(x_lab, y_lab, z_lab, 1)` in meters.
+    The Iconeus lab frame is a fixed scanner frame; `probeToLab` carries any rotation
+    of the probe within it.
+
+    To compose this affine with the rest of the ConfUSIus pipeline we re-express
+    the lab side as **ConfUSIus-ordered** lab space `(z_lab, y_lab, x_lab)` in
+    millimeters, matching the convention used by `physical_to_lab` (see
+    `_build_physical_to_lab`). The brain side is left in its original axis order
+    (the brain coordinate units are not declared by the BPS format and are
+    therefore not converted).
+
+    The change of basis from ConfUSIus-ordered millimetre lab coordinates to
+    Iconeus-ordered metre lab coordinates is
+
+    ```
+    confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
+    ```
+
+    `PHYSICAL_TO_PROBE_PERMUTATION` permutes the axes from ConfUSIus order `(z, y, x)`
+    to probe / Iconeus-lab order `(x, y, z)`, and `mm_to_m = diag(1e-3, 1e-3, 1e-3, 1)`
+    rescales the translation column. The returned affine is then
+
+    ```
+    brain_to_confusius_lab = inv(confusius_lab_to_iconeus_lab) @ BrainToLab
+    ```
+
+    Parameters
+    ----------
+    bps_path : str or pathlib.Path
+        Path to the BPS file (`.bps`).
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Affine mapping Iconeus brain coordinates to ConfUSIus-ordered Iconeus lab
+        coordinates `(z_lab, y_lab, x_lab, 1)` in millimetres.
+    """
+    bps_path = check_path(bps_path, label="bps_path", type="file")
+
+    with h5py.File(bps_path, "r") as f:
+        brain_to_lab = f["BrainToLab"][:]
+
+    mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
+    confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
+
+    brain_to_confusius_lab = np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
+    return brain_to_confusius_lab
+
+
 def load_scan(
     path: str | Path,
+    bps_path: str | Path | None = None,
     chunks: int | tuple[int, ...] | str | None = "auto",
 ) -> xr.DataArray:
     """Load an Iconeus SCAN file as a lazy Xarray DataArray.
@@ -199,6 +259,9 @@ def load_scan(
     ----------
     path : str or pathlib.Path
         Path to the SCAN file (`.scan`).
+    bps_path : str or pathlib.Path, optional
+        Path to the corresponding BPS file (`.bps`). If provided, the BPS transformation
+        matrix will be added as an affine attribute to the returned DataArray.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
 
@@ -231,10 +294,15 @@ def load_scan(
     Notes
     -----
     The `physical_to_lab` affine stored in `da.attrs["affines"]` maps ConfUSIus physical
-    coordinates `(z, y, x)` to Iconeus lab coordinates (mm). Apply as
-    `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`. For multi-pose
-    files the shape is `(npose, 4, 4)`; index with `da.coords["pose"].values` after
-    `isel`.
+    coordinates `(z, y, x)` to **ConfUSIus-ordered** Iconeus lab coordinates (mm). Apply
+    as `da.attrs["affines"]["physical_to_lab"] @ np.array([z, y, x, 1.0])`. For
+    multi-pose files the shape is `(npose, 4, 4)`; index with `da.coords["pose"].values`
+    after `isel`.
+
+    If `bps_path` is provided, a `physical_to_brain` affine is stored in
+    `da.attrs["affines"]["physical_to_brain"]` that maps ConfUSIus physical coordinates
+    `(z, y, x)` to Iconeus' brain coordinates. Apply as
+    `da.attrs["affines"]["physical_to_brain"] @ np.array([z, y, x, 1.0])`.
 
     Provenance attributes are stored in `da.attrs`: BIDS-compatible fields
     (`device_serial_number`, `software_version`) and Iconeus-specific fields
@@ -295,6 +363,10 @@ def load_scan(
             )
 
         data_array.name = attrs["iconeus_scan"] or path.stem
+        if bps_path is not None:
+            brain_to_lab = load_bps(bps_path)
+            physical_to_brain = np.linalg.inv(brain_to_lab) @ physical_to_lab
+            data_array.attrs["affines"]["physical_to_brain"] = physical_to_brain
     except Exception:
         h5.close()
         raise
