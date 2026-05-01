@@ -1,6 +1,6 @@
 [project]
 name = "confusius"
-version = "0.0.1-a25"
+version = "0.0.1-a26"
 description = "Python package for analysis and visualization of functional ultrasound imaging data."
 readme = "README.md"
 license = "BSD-3-Clause AND Apache-2.0 AND BSD-2-Clause"
