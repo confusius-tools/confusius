@@ -27,6 +27,8 @@ Examples
 """
 
 from confusius.bids.coordinates import (
+    DIM_TO_SLICE_ENCODING_DIRECTION,
+    SLICE_ENCODING_DIRECTION_TO_DIM,
     create_bids_slice_timing_from_coordinate,
     create_slice_time_coordinate_from_bids,
 )
@@ -51,6 +53,8 @@ __all__ = [
     "FUSIBIDSMetadata",
     "validate_metadata",
     # Coordinates
+    "SLICE_ENCODING_DIRECTION_TO_DIM",
+    "DIM_TO_SLICE_ENCODING_DIRECTION",
     "create_bids_slice_timing_from_coordinate",
     "create_slice_time_coordinate_from_bids",
 ]
