@@ -445,29 +445,23 @@ def _create_temporal_coords_from_nifti(
         volume_duration = float(attrs.pop("volume_acquisition_duration"))
         if time_unit is not None:
             volume_duration = float(
-                np.asarray(
-                    convert_time_values(
-                        volume_duration,
-                        from_unit="s",
-                        to_unit=time_unit,
-                        raise_on_unknown=True,
-                    ),
-                    dtype=np.float64,
+                convert_time_values(
+                    volume_duration,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
                 )
             )
         time_attrs["volume_acquisition_duration"] = volume_duration
 
     if "volume_timing" in attrs:
-        time_values = np.asarray(attrs.pop("volume_timing"), dtype=np.float64)
+        time_values = np.asarray(attrs.pop("volume_timing"))
         if time_unit is not None:
-            time_values = np.asarray(
-                convert_time_values(
-                    time_values,
-                    from_unit="s",
-                    to_unit=time_unit,
-                    raise_on_unknown=True,
-                ),
-                dtype=np.float64,
+            time_values = convert_time_values(
+                time_values,
+                from_unit="s",
+                to_unit=time_unit,
+                raise_on_unknown=True,
             )
     elif "repetition_time" in attrs:
         sampling_period_sidecar = float(attrs.pop("repetition_time"))
@@ -475,36 +469,27 @@ def _create_temporal_coords_from_nifti(
         delay_time = float(attrs.pop("delay_time", 0.0))
         if time_unit is not None:
             sampling_period_sidecar = float(
-                np.asarray(
-                    convert_time_values(
-                        sampling_period_sidecar,
-                        from_unit="s",
-                        to_unit=time_unit,
-                        raise_on_unknown=True,
-                    ),
-                    dtype=np.float64,
+                convert_time_values(
+                    sampling_period_sidecar,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
                 )
             )
             delay = float(
-                np.asarray(
-                    convert_time_values(
-                        delay,
-                        from_unit="s",
-                        to_unit=time_unit,
-                        raise_on_unknown=True,
-                    ),
-                    dtype=np.float64,
+                convert_time_values(
+                    delay,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
                 )
             )
             delay_time = float(
-                np.asarray(
-                    convert_time_values(
-                        delay_time,
-                        from_unit="s",
-                        to_unit=time_unit,
-                        raise_on_unknown=True,
-                    ),
-                    dtype=np.float64,
+                convert_time_values(
+                    delay_time,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
                 )
             )
         if (
@@ -592,21 +577,18 @@ def _create_scalar_temporal_coords_from_nifti(
         frame_duration = float(attrs.pop("volume_acquisition_duration"))
         if time_unit is not None:
             frame_duration = float(
-                np.asarray(
-                    convert_time_values(
-                        frame_duration,
-                        from_unit="s",
-                        to_unit=time_unit,
-                        raise_on_unknown=True,
-                    ),
-                    dtype=np.float64,
+                convert_time_values(
+                    frame_duration,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
                 )
             )
         time_attrs["volume_acquisition_duration"] = frame_duration
 
     time_value: float | None = None
     if "volume_timing" in attrs:
-        volume_timing = np.asarray(attrs.pop("volume_timing"), dtype=np.float64)
+        volume_timing = np.asarray(attrs.pop("volume_timing"))
         if volume_timing.ndim != 1 or volume_timing.size == 0:
             warnings.warn(
                 "`volume_timing` metadata is not a non-empty 1D array. Omitting scalar "
@@ -634,14 +616,11 @@ def _create_scalar_temporal_coords_from_nifti(
 
     if time_unit is not None:
         time_value = float(
-            np.asarray(
-                convert_time_values(
-                    time_value,
-                    from_unit="s",
-                    to_unit=time_unit,
-                    raise_on_unknown=True,
-                ),
-                dtype=np.float64,
+            convert_time_values(
+                time_value,
+                from_unit="s",
+                to_unit=time_unit,
+                raise_on_unknown=True,
             )
         )
 
@@ -661,7 +640,6 @@ def _create_scalar_temporal_coords_from_nifti(
             to_unit=coords["time"].attrs.get("units", "s"),
             raise_on_unknown=True,
         )
-        slice_timing = np.asarray(slice_timing, dtype=np.float64)
         if slice_timing.ndim != 1:
             return coords, attrs
         if slice_encoding_direction.endswith("-"):
@@ -866,7 +844,7 @@ def _infer_repetition_time(
     delay : float
         Onset time of the first volume (`timings[0]`).
     """
-    timings = np.atleast_1d(np.asarray(timings, dtype=np.float64))
+    timings = np.atleast_1d(timings)
     delay = float(timings[0])
     if len(timings) < 2:
         return None, delay
@@ -958,14 +936,11 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
             return {}
 
         time_values_seconds = np.atleast_1d(
-            np.asarray(
-                convert_time_values(
-                    data_array.coords["time"].values,
-                    data_array.coords["time"].attrs.get("units"),
-                    "s",
-                    raise_on_unknown=True,
-                ),
-                dtype=np.float64,
+            convert_time_values(
+                data_array.coords["time"].values,
+                data_array.coords["time"].attrs.get("units"),
+                "s",
+                raise_on_unknown=True,
             )
         )
         if time_values_seconds.size != 1:
@@ -1001,14 +976,11 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
                 to_reference="start",
             )[0]
         )
-        slice_time_seconds = np.asarray(
-            convert_time_values(
-                slice_time_coord.values,
-                slice_time_coord.attrs.get("units"),
-                "s",
-                raise_on_unknown=True,
-            ),
-            dtype=np.float64,
+        slice_time_seconds = convert_time_values(
+            slice_time_coord.values,
+            slice_time_coord.attrs.get("units"),
+            "s",
+            raise_on_unknown=True,
         )
         slice_duration = slice_time_coord.attrs.get("volume_acquisition_duration")
         slice_reference = slice_time_coord.attrs.get(
@@ -1296,9 +1268,7 @@ def _build_nifti_timing_metadata(
             "s",
             raise_on_unknown=True,
         )
-        time_values_seconds = np.atleast_1d(
-            np.asarray(time_values_seconds, dtype=np.float64)
-        )
+        time_values_seconds = np.atleast_1d(time_values_seconds)
         frame_acquisition_duration = _infer_frame_acquisition_duration(
             time_attrs, time_values_seconds
         )
@@ -1637,10 +1607,7 @@ def _build_nifti_sidecar_metadata(
         for key in _TIME_ATTRS_TO_SECONDS:
             value = sidecar_attrs.get(key)
             if isinstance(value, int | float | np.integer | np.floating):
-                converted_value = convert_time_values(value, from_unit, "s")
-                sidecar_attrs[key] = float(
-                    np.asarray(converted_value, dtype=np.float64)
-                )
+                sidecar_attrs[key] = float(convert_time_values(value, from_unit, "s"))
 
     extra_affines = {
         k: np.asarray(v).tolist()
