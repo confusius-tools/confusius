@@ -430,15 +430,6 @@ def _create_temporal_coords_from_nifti(
         Copy of `attrs` with all consumed temporal fields removed.
     """
 
-    def _convert_sidecar_seconds_to_time_unit(value: Any) -> npt.NDArray[np.floating]:
-        converted = convert_time_values(
-            value,
-            from_unit="s",
-            to_unit=time_unit,
-            raise_on_unknown=True,
-        )
-        return np.asarray(converted, dtype=np.float64)
-
     attrs = dict(attrs)
     n_time = img.shape[3]
     sampling_period_nifti = extractor.get_repetition_time()
@@ -454,24 +445,68 @@ def _create_temporal_coords_from_nifti(
         volume_duration = float(attrs.pop("volume_acquisition_duration"))
         if time_unit is not None:
             volume_duration = float(
-                _convert_sidecar_seconds_to_time_unit(volume_duration)
+                np.asarray(
+                    convert_time_values(
+                        volume_duration,
+                        from_unit="s",
+                        to_unit=time_unit,
+                        raise_on_unknown=True,
+                    ),
+                    dtype=np.float64,
+                )
             )
         time_attrs["volume_acquisition_duration"] = volume_duration
 
     if "volume_timing" in attrs:
         time_values = np.asarray(attrs.pop("volume_timing"), dtype=np.float64)
         if time_unit is not None:
-            time_values = _convert_sidecar_seconds_to_time_unit(time_values)
+            time_values = np.asarray(
+                convert_time_values(
+                    time_values,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
+                ),
+                dtype=np.float64,
+            )
     elif "repetition_time" in attrs:
         sampling_period_sidecar = float(attrs.pop("repetition_time"))
         delay = float(attrs.pop("delay_after_trigger", 0.0))
         delay_time = float(attrs.pop("delay_time", 0.0))
         if time_unit is not None:
             sampling_period_sidecar = float(
-                _convert_sidecar_seconds_to_time_unit(sampling_period_sidecar)
+                np.asarray(
+                    convert_time_values(
+                        sampling_period_sidecar,
+                        from_unit="s",
+                        to_unit=time_unit,
+                        raise_on_unknown=True,
+                    ),
+                    dtype=np.float64,
+                )
             )
-            delay = float(_convert_sidecar_seconds_to_time_unit(delay))
-            delay_time = float(_convert_sidecar_seconds_to_time_unit(delay_time))
+            delay = float(
+                np.asarray(
+                    convert_time_values(
+                        delay,
+                        from_unit="s",
+                        to_unit=time_unit,
+                        raise_on_unknown=True,
+                    ),
+                    dtype=np.float64,
+                )
+            )
+            delay_time = float(
+                np.asarray(
+                    convert_time_values(
+                        delay_time,
+                        from_unit="s",
+                        to_unit=time_unit,
+                        raise_on_unknown=True,
+                    ),
+                    dtype=np.float64,
+                )
+            )
         if (
             sampling_period_nifti is not None
             and sampling_period_nifti > 0
