@@ -8,6 +8,8 @@ from ._cybis_pereira_2026 import _BIDS_ROOT as _cybis_pereira_2026_bids_root
 from ._cybis_pereira_2026 import _TOTAL_SIZE_BYTES as _cybis_pereira_2026_size
 from ._nunez_elizalde_2022 import _BIDS_ROOT as _nunez_elizalde_2022_bids_root
 from ._nunez_elizalde_2022 import _TOTAL_SIZE_BYTES as _nunez_elizalde_2022_size
+from ._pepe_mariani_2026 import _TEMPLATE_ROOT as _pepe_mariani_2026_template_root
+from ._pepe_mariani_2026 import _TOTAL_SIZE_BYTES as _pepe_mariani_2026_size
 from ._utils import get_datasets_dir
 
 _SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
@@ -25,8 +27,13 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         _nunez_elizalde_2022_size,
         _nunez_elizalde_2022_bids_root,
     ),
+    (
+        "fetch_template_pepe_mariani_2026",
+        _pepe_mariani_2026_size,
+        _pepe_mariani_2026_template_root,
+    ),
 )
-"""Registry of (fetcher_name, total_size_bytes, bids_root_dirname) per dataset."""
+"""Registry of (fetcher_name, total_size_bytes, root_dirname) per dataset."""
 
 
 def _format_bytes(size_bytes: int) -> str:
@@ -80,8 +87,8 @@ def list_datasets(data_dir: str | Path | None = None) -> None:
     table.add_column("Size", justify="right")
     table.add_column("On disk", justify="center")
 
-    for fetcher_name, size_bytes, bids_root in _REGISTRY:
-        path = datasets_dir / bids_root
+    for fetcher_name, size_bytes, root_dirname in _REGISTRY:
+        path = datasets_dir / root_dirname
         is_cached = path.exists() and any(path.iterdir())
         table.add_row(
             fetcher_name,

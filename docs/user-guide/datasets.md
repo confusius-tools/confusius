@@ -8,8 +8,8 @@ The [`confusius.datasets`][confusius.datasets] module provides fetchers for publ
 available atlases, templates, and fUSI datasets distributed in
 [fUSI-BIDS](https://bids.neuroimaging.io/) format. Each fetcher downloads the dataset
 on first call, caches it locally for offline reuse, and returns either the path to the
-root directory, or a more specific object (e.g., an [`Atlas`][confusius.atlas.Atlas]
-instance for atlases]).
+root directory, or a more specific object (e.g., a DataArray for templates or an
+[`Atlas`][confusius.atlas.Atlas] instance for atlases]).
 
 !!! tip "Try before you buy"
     Fetchers generally accept filters (subjects, sessions, tasks, derivatives, etc.) so
@@ -81,18 +81,19 @@ list_datasets()
 
 ```text
                 Available Datasets
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
-┃ Fetch function            ┃     Size ┃ On disk ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
-│ fetch_cybis_pereira_2026  │    12 GB │    ✗    │
-│ fetch_nunez_elizalde_2022 │ 6.503 GB │    ✗    │
-└───────────────────────────┴──────────┴─────────┘
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
+┃ Fetch function                   ┃     Size ┃ On disk ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
+│ fetch_cybis_pereira_2026         │    12 GB │    ✗    │
+│ fetch_nunez_elizalde_2022        │ 6.503 GB │    ✗    │
+│ fetch_template_pepe_mariani_2026 │ 5.252 MB │    ✗    │
+└──────────────────────────────────┴──────────┴─────────┘
 ```
 
 The sizes shown are for the **full** dataset. Filtered fetches are typically a small
 fraction of this (see the examples below).
 
-## Available Datasets
+## Available fUSI-BIDS Datasets
 
 === "Nunez-Elizalde 2022"
 
@@ -203,6 +204,29 @@ bids_root = fetch_nunez_elizalde_2022(subjects=["CR020"], refresh=True)
 
 Existing local files are never re-downloaded—`refresh=True` only adds what is missing.
 
+## Available Templates
+
+=== "Pepe Mariani 2026"
+
+    A mouse fUSI template derived from Pepe, Mariani et al. (2026)[^pepe_mariani2026] and
+    distributed as a single ConfUSIus-compatible NIfTI on
+    [OSF (43tu9)](https://osf.io/43tu9/). Total size: **~5.5 MB**.
+
+    Use [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026] to
+    download and load the template directly:
+
+    ```python
+    from confusius.atlas import Atlas
+    from confusius.datasets import fetch_template_pepe_mariani_2026
+
+    template = fetch_template_pepe_mariani_2026()
+    atlas = Atlas.from_brainglobe("allen_mouse_100um")
+    resampled_atlas = atlas.resample_like(
+        template,
+        template.attrs["affines"]["physical_to_sform"],
+    )
+    ```
+
 ## API Reference
 
 See the [`confusius.datasets` API reference][confusius.datasets] for the full list of
@@ -217,3 +241,8 @@ parameters and return types.
     Cybis Pereira, F. et al. (2026). A vascular code for speed in the spatial
     navigation system. *Cell Reports*, 45(1).
     <https://doi.org/10.1016/j.celrep.2025.116791>
+
+[^pepe_mariani2026]:
+    Pepe, C. et al. (2026). Structural and dynamic embedding of the mouse
+    functional connectome revealed by functional ultrasound imaging (fUSI).
+    <https://doi.org/10.64898/2026.02.05.704055>
