@@ -287,6 +287,20 @@ class TestRegisterVolumeThinDims:
             )
         assert result.shape == da.shape
 
+    def test_float32_moving_float64_fixed_does_not_crash(
+        self, sample_2d_dataarray_spatial
+    ):
+        """float32 moving and float64 fixed register without a dtype mismatch error.
+
+        Regression test: CenteredTransformInitializer requires both images to share the
+        same pixel type. Mixed dtypes (e.g. float32 template vs. float64 mean of NIfTI
+        data) previously raised a RuntimeError.
+        """
+        moving = sample_2d_dataarray_spatial  # float32
+        fixed = sample_2d_dataarray_spatial.astype(np.float64)
+        result, _ = register_volume(moving, fixed, transform_type="translation")
+        assert result.shape == fixed.shape
+
     def test_3d_volume_with_depth_2_does_not_crash(self):
         """3D volume with depth=2 (below the 4-voxel threshold) registers without error."""
         arr = np.zeros((2, 16, 16), dtype=np.float32)
