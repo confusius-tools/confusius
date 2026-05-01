@@ -417,6 +417,63 @@ class TestLoadNifti:
             "volume_acquisition_duration"
         ] == pytest.approx(1.75)
 
+    def test_load_nifti_sidecar_timing_converts_to_header_time_units(
+        self, tmp_path: Path
+    ) -> None:
+        """Sidecar `RepetitionTime`/`DelayAfterTrigger` follow header time units."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "time_units_sidecar_rt.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 1000.0))
+        img.header.set_xyzt_units(xyz="mm", t="msec")
+        img.to_filename(path)
+
+        with open(tmp_path / "time_units_sidecar_rt.json", "w") as f:
+            json.dump(
+                {
+                    "RepetitionTime": 1.0,
+                    "DelayAfterTrigger": 0.25,
+                    "DelayTime": 0.5,
+                },
+                f,
+            )
+
+        loaded = load_nifti(path)
+
+        assert loaded.coords["time"].attrs["units"] == "ms"
+        np.testing.assert_allclose(
+            loaded.coords["time"].values,
+            [250.0, 1250.0, 2250.0, 3250.0, 4250.0],
+        )
+        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+            500.0
+        )
+
+    def test_load_nifti_volume_timing_sidecar_converts_to_header_time_units(
+        self, tmp_path: Path
+    ) -> None:
+        """Sidecar `VolumeTiming` follows header time units when present."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "time_units_sidecar_volume_timing.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_xyzt_units(xyz="mm", t="msec")
+        img.to_filename(path)
+
+        with open(tmp_path / "time_units_sidecar_volume_timing.json", "w") as f:
+            json.dump({"VolumeTiming": [0.0, 1.5, 2.8, 4.6, 6.0]}, f)
+
+        with pytest.warns(
+            UserWarning,
+            match="FrameAcquisitionDuration is REQUIRED when VolumeTiming is used",
+        ):
+            loaded = load_nifti(path)
+
+        assert loaded.coords["time"].attrs["units"] == "ms"
+        np.testing.assert_allclose(
+            loaded.coords["time"].values,
+            [0.0, 1500.0, 2800.0, 4600.0, 6000.0],
+        )
+
     def test_load_nifti_validation_runtime_error_warns(self, tmp_path: Path) -> None:
         """Unexpected sidecar validation failures degrade to a warning when loading."""
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
