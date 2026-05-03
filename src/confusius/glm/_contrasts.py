@@ -134,7 +134,7 @@ class Contrast:
 
         self.effect: npt.NDArray[np.floating] = effect
         self.variance = variance
-        self.dof = float(dof)
+        self.dof = dof
         self.tiny = tiny
         self.dofmax = dofmax
 
