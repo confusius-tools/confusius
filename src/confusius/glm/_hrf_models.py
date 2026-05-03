@@ -30,7 +30,49 @@ class HRFModel(Protocol):
     ) -> npt.NDArray[np.floating]: ...
 
 
-def _gamma_difference_hrf(
+def _hrf_time_grid(
+    dt: float,
+    oversampling: int,
+    time_length: float,
+    onset: float,
+) -> tuple[npt.NDArray[np.floating], float]:
+    """Build the oversampled time grid used to sample an HRF kernel.
+
+    Parameters
+    ----------
+    dt : float
+        Native sampling interval in seconds.
+    oversampling : int
+        Oversampling factor.
+    time_length : float
+        Total HRF duration in seconds.
+    onset : float
+        Onset shift applied to the grid in seconds.
+
+    Returns
+    -------
+    time_stamps : (n_samples,) numpy.ndarray
+        Onset-shifted time grid sampled at `dt / oversampling`.
+    high_res_dt : float
+        Oversampled sampling interval `dt / oversampling`. Returned because some
+        callers reuse it (e.g. as the `loc` of a gamma pdf).
+
+    Raises
+    ------
+    ValueError
+        If `oversampling` is less than 1.
+    """
+    if oversampling < 1:
+        raise ValueError("oversampling must be >= 1.")
+    high_res_dt = dt / oversampling
+    time_stamps = np.linspace(
+        0, time_length, np.rint(time_length / high_res_dt).astype(int)
+    )
+    time_stamps -= onset
+    return time_stamps, high_res_dt
+
+
+def gamma_difference_hrf(
     dt: float,
     oversampling: int = 50,
     time_length: float = 32.0,
@@ -42,6 +84,10 @@ def _gamma_difference_hrf(
     ratio: float = 1.0 / 6.0,
 ) -> npt.NDArray[np.floating]:
     """Return an HRF modeled as the difference of two gamma functions.
+
+    The general parameterization underlying [glover_hrf][confusius.glm.glover_hrf]
+    and [spm_hrf][confusius.glm.spm_hrf]; expose the parameters directly to build
+    custom double-gamma HRFs.
 
     Parameters
     ----------
@@ -69,16 +115,7 @@ def _gamma_difference_hrf(
     (n_timepoints,) numpy.ndarray
         Normalized HRF sampled on an oversampled time grid.
     """
-    if oversampling < 1:
-        raise ValueError("oversampling must be >= 1.")
-
-    high_res_dt = dt / oversampling
-    time_stamps = np.linspace(
-        0,
-        time_length,
-        np.rint(time_length / high_res_dt).astype(int),
-    )
-    time_stamps -= onset
+    time_stamps, high_res_dt = _hrf_time_grid(dt, oversampling, time_length, onset)
 
     peak_gamma = sps.gamma.pdf(
         time_stamps,
@@ -122,7 +159,7 @@ def glover_hrf(
     (n_samples,) numpy.ndarray
         HRF values on the oversampled time grid, normalized to sum to 1.
     """
-    return _gamma_difference_hrf(
+    return gamma_difference_hrf(
         dt,
         oversampling=oversampling,
         time_length=time_length,
@@ -159,7 +196,7 @@ def spm_hrf(
     (n_samples,) numpy.ndarray
         HRF values on the oversampled time grid, normalized to sum to 1.
     """
-    return _gamma_difference_hrf(
+    return gamma_difference_hrf(
         dt,
         oversampling=oversampling,
         time_length=time_length,
@@ -202,20 +239,12 @@ def gamma_hrf(
     (n_samples,) numpy.ndarray
         HRF values on the oversampled time grid, normalized to sum to 1.
     """
-    if oversampling < 1:
-        raise ValueError("oversampling must be >= 1.")
     if dispersion <= 0:
         raise ValueError("dispersion must be > 0.")
     if peak_delay < 0:
         raise ValueError("peak_delay must be >= 0.")
 
-    high_res_dt = dt / oversampling
-    time_stamps = np.linspace(
-        0,
-        time_length,
-        np.rint(time_length / high_res_dt).astype(int),
-    )
-    time_stamps -= onset
+    time_stamps, _ = _hrf_time_grid(dt, oversampling, time_length, onset)
 
     shape = peak_delay / dispersion + 1.0
     hrf = sps.gamma.pdf(time_stamps, shape, loc=0, scale=dispersion)
@@ -258,17 +287,7 @@ def inverse_gamma_hrf(
     (n_samples,) numpy.ndarray
         HRF values on the oversampled time grid, normalized to sum to 1.
     """
-    if oversampling < 1:
-        raise ValueError("oversampling must be >= 1.")
-
-    high_res_dt = dt / oversampling
-    time_stamps = np.linspace(
-        0,
-        time_length,
-        np.rint(time_length / high_res_dt).astype(int),
-    )
-    time_stamps -= onset
-
+    time_stamps, _ = _hrf_time_grid(dt, oversampling, time_length, onset)
     hrf = sps.invgamma.pdf(time_stamps, alpha, loc=0, scale=beta)
     hrf /= hrf.sum()
     return hrf
