@@ -72,7 +72,9 @@ class _RegionHoverManager:
         """
         self._cid = figure.canvas.mpl_connect("motion_notify_event", self._on_hover)
         toolbar = figure.canvas.toolbar
-        if toolbar is not None and hasattr(toolbar, "_mouse_event_to_message"):
+        if toolbar is not None and hasattr(
+            toolbar, "_mouse_event_to_message"
+        ):  # pragma: no cover
             # Avoid the duplicated "x=..., y=..., [value]" toolbar message
             # so our format_coord output is shown verbatim.
             toolbar._mouse_event_to_message = (  # type: ignore[method-assign]
@@ -186,7 +188,7 @@ def _format_volume(value: float, layer: _SliceLayer) -> str:
     return f"{layer.name}={rendered}"
 
 
-def _custom_mouse_event_to_message(event):
+def _custom_mouse_event_to_message(event):  # pragma: no cover
     """Custom `_mouse_event_to_message` returning only `format_coord`'s output.
 
     Mirrors the matplotlib default at
