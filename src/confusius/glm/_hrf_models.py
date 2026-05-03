@@ -61,7 +61,7 @@ def _gamma_difference_hrf(
         Dispersion of the peak gamma.
     undershoot_dispersion : float, default: 1.0
         Dispersion of the undershoot gamma.
-    ratio : float, default: 1/6
+    ratio : float, default: 1.0/6.0
         Ratio of undershoot to peak amplitude.
 
     Returns
@@ -168,15 +168,62 @@ def spm_hrf(
     )
 
 
+def inverse_gamma_hrf(
+    dt: float,
+    oversampling: int = 50,
+    time_length: float = 32.0,
+    alpha: float = 2.5,
+    beta: float = 12.7,
+    onset: float = 0.0,
+) -> npt.NDArray[np.floating]:
+    """Return an HRF modeled as an inverse gamma distribution.
+
+    Parameters
+    ----------
+    dt : float
+        Sampling interval of the original data in seconds.
+    oversampling : int, default: 50
+        Oversampling factor for the HRF time grid.
+    time_length : float, default: 32.0
+        Total length of the HRF in seconds.
+    alpha : float, default: 2.5
+        Shape parameter of the inverse gamma distribution.
+    beta : float, default: 12.7
+        Scale parameter of the inverse gamma distribution.
+    onset : float, default: 0.0
+        Onset of the HRF in seconds.
+
+    Returns
+    -------
+    (n_samples,) numpy.ndarray
+        HRF values on the oversampled time grid, normalized to sum to 1.
+    """
+    oversampling = int(oversampling)
+    if oversampling < 1:
+        raise ValueError("oversampling must be >= 1.")
+
+    high_res_dt = float(dt) / oversampling
+    time_stamps = np.linspace(
+        0,
+        time_length,
+        np.rint(float(time_length) / high_res_dt).astype(int),
+    )
+    time_stamps -= onset
+
+    hrf = sps.invgamma.pdf(time_stamps, alpha, loc=0, scale=beta)
+    hrf /= hrf.sum()
+    return hrf
+
+
 def claron2021_hrf(
     dt: float,
     oversampling: int = 50,
     time_length: float = 32.0,
     alpha: float = 2.5,
-    beta: float = 6.7,
+    beta: float = 12.7,
     onset: float = 0.0,
 ) -> npt.NDArray[np.floating]:
-    """Return a fUSI HRF modeled as an inverse gamma distribution.
+    """Return the Claron et al. (2021) inverse-gamma fUSI HRF preset.
 
     HRF model proposed for functional ultrasound imaging of the rodent spinal cord
     in Claron _et al._ (2021).
@@ -210,21 +257,14 @@ def claron2021_hrf(
         circuits in both normal and inflammatory states. Pain, 162(4), 1047-1059.
         https://doi.org/10.1097/j.pain.0000000000002078
     """
-    oversampling = int(oversampling)
-    if oversampling < 1:
-        raise ValueError("oversampling must be >= 1.")
-
-    high_res_dt = float(dt) / oversampling
-    time_stamps = np.linspace(
-        0,
-        time_length,
-        np.rint(float(time_length) / high_res_dt).astype(int),
+    return inverse_gamma_hrf(
+        dt,
+        oversampling=oversampling,
+        time_length=time_length,
+        alpha=alpha,
+        beta=beta,
+        onset=onset,
     )
-    time_stamps -= onset
-
-    hrf = sps.invgamma.pdf(time_stamps / beta, alpha, loc=0)
-    hrf /= hrf.sum()
-    return hrf
 
 
 def _hrf_kernel(

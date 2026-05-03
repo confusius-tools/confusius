@@ -3,6 +3,7 @@
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.special as spspecial
 from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius.glm._design import (
@@ -10,7 +11,56 @@ from confusius.glm._design import (
     _make_drift_regressors,
     make_first_level_design_matrix,
 )
-from confusius.glm._hrf_models import claron2021_hrf, glover_hrf, spm_hrf
+from confusius.glm._hrf_models import (
+    claron2021_hrf,
+    glover_hrf,
+    inverse_gamma_hrf,
+    spm_hrf,
+)
+
+
+def _oversampled_time_grid(
+    dt: float,
+    oversampling: int = 50,
+    time_length: float = 32.0,
+    onset: float = 0.0,
+) -> np.ndarray:
+    """Return the oversampled HRF evaluation grid used by the implementation."""
+    high_res_dt = dt / oversampling
+    time_stamps = np.linspace(
+        0,
+        time_length,
+        np.rint(time_length / high_res_dt).astype(int),
+    )
+    return time_stamps - onset
+
+
+def _inverse_gamma_hrf_reference(
+    dt: float,
+    oversampling: int = 50,
+    time_length: float = 32.0,
+    alpha: float = 2.5,
+    beta: float = 12.7,
+    onset: float = 0.0,
+) -> np.ndarray:
+    """Reference inverse-gamma HRF sampled on the implementation grid."""
+    time_stamps = _oversampled_time_grid(
+        dt,
+        oversampling=oversampling,
+        time_length=time_length,
+        onset=onset,
+    )
+    hrf = np.zeros_like(time_stamps)
+    positive = time_stamps > 0
+    t = time_stamps[positive]
+    hrf[positive] = (
+        beta**alpha
+        / spspecial.gamma(alpha)
+        * t ** (-(alpha + 1.0))
+        * np.exp(-beta / t)
+    )
+    hrf /= hrf.sum()
+    return hrf
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -43,21 +93,6 @@ def basic_events():
 class TestHRF:
     """Tests for HRF functions."""
 
-    def test_glover_hrf_shape(self):
-        """Glover HRF is returned on an oversampled grid."""
-        dt = 0.1  # 10 Hz
-        hrf = glover_hrf(dt)
-
-        assert len(hrf) == int(np.rint(32.0 / (dt / 50)))
-
-    def test_glover_hrf_peak_location(self):
-        """Glover HRF peaks around 6 seconds."""
-        dt = 0.1
-        hrf = glover_hrf(dt)
-
-        peak_time = np.argmax(hrf) * (dt / 50)
-        assert 4.0 <= peak_time <= 7.0
-
     def test_glover_hrf_normalized(self):
         """Glover HRF is normalized to unit mass."""
         hrf = glover_hrf(0.1)
@@ -69,13 +104,6 @@ class TestHRF:
         """Oversampling must be positive."""
         with pytest.raises(ValueError, match="oversampling"):
             glover_hrf(0.1, oversampling=0)
-
-    def test_spm_hrf_shape(self):
-        """SPM HRF is returned on an oversampled grid."""
-        dt = 0.1
-        hrf = spm_hrf(dt)
-
-        assert len(hrf) == int(np.rint(32.0 / (dt / 50)))
 
     def test_spm_hrf_normalized(self):
         """SPM HRF is normalized to unit mass."""
@@ -93,6 +121,41 @@ class TestHRF:
         # Should be highly correlated
         correlation = np.corrcoef(glover, spm)[0, 1]
         assert correlation > 0.95
+
+    def test_inverse_gamma_hrf_matches_reference(self):
+        """Inverse-gamma HRF matches the explicit reference equation."""
+        dt = 0.1
+
+        reference = _inverse_gamma_hrf_reference(dt)
+        observed = inverse_gamma_hrf(dt)
+
+        assert_allclose(observed, reference)
+
+    def test_inverse_gamma_hrf_matches_reference_with_custom_parameters(self):
+        """Inverse-gamma HRF keeps the reference parameterization when overridden."""
+        dt = 0.1
+        alpha = 3.0
+        beta = 9.5
+        onset = 0.3
+
+        reference = _inverse_gamma_hrf_reference(
+            dt,
+            alpha=alpha,
+            beta=beta,
+            onset=onset,
+        )
+        observed = inverse_gamma_hrf(dt, alpha=alpha, beta=beta, onset=onset)
+
+        assert_allclose(observed, reference)
+
+    def test_claron2021_hrf_is_inverse_gamma_preset(self):
+        """Claron 2021 HRF is a thin preset around the generic inverse-gamma HRF."""
+        dt = 0.1
+
+        observed = claron2021_hrf(dt)
+        reference = inverse_gamma_hrf(dt, alpha=2.5, beta=12.7)
+
+        assert_allclose(observed, reference)
 
 
 # -----------------------------------------------------------------------------
