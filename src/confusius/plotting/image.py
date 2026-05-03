@@ -188,9 +188,20 @@ def _resolve_cmap(
             gray_band_high = []
         new_colors = gray_band_low + colors_middle + gray_band_high
 
-    return mcolors.LinearSegmentedColormap.from_list(
-        f"{cmap.name}_thresholded", new_colors
+    # Preserve the source colormap's resolution. The default N=256 of
+    # `LinearSegmentedColormap.from_list` collapses larger discrete cmaps such as
+    # the atlas `ListedColormap` (N == number of regions, often >256), aliasing
+    # high indices to wrong (or out-of-range) colours.
+    new_cmap = mcolors.LinearSegmentedColormap.from_list(
+        f"{cmap.name}_thresholded", new_colors, N=cmap.N
     )
+    # Propagate under/over/bad colours so the atlas's transparent under-colour
+    # for label 0 (background) survives the rebuild. Cast to tuple because the
+    # getters return numpy arrays but the setters expect a color-like.
+    new_cmap.set_under(tuple(cmap.get_under()))
+    new_cmap.set_over(tuple(cmap.get_over()))
+    new_cmap.set_bad(tuple(cmap.get_bad()))
+    return new_cmap
 
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
