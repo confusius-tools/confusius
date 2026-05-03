@@ -657,8 +657,11 @@ def make_first_level_design_matrix(
 
     Returns
     -------
-    (n_volumes, n_confounds) pandas.DataFrame
-        Design matrix with indexed by `volume_times`.
+    (n_volumes, n_columns) pandas.DataFrame
+        Design matrix indexed by `volume_times`. Columns are, in order: one
+        regressor per condition in `events` (or per FIR delay when
+        `hrf_model="fir"`), then any confounds, then the drift regressors and
+        the constant column.
     """
     n_volumes = len(volume_times)
     dt = _compute_sampling_interval(

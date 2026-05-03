@@ -20,6 +20,7 @@ from confusius.glm._contrasts import Contrast
 from confusius.glm._design import (
     make_first_level_design_matrix,
 )
+from confusius.glm._hrf_models import HRFModel
 from confusius.glm._models import ARModel, OLSModel, RegressionResults
 from confusius.glm._utils import (
     consensus_attrs,
@@ -73,8 +74,11 @@ class FirstLevelModel(BaseEstimator):
 
     Parameters
     ----------
-    hrf_model : {"glover", "spm", "fir"} or None, default: "glover"
-        Hemodynamic response function model.
+    hrf_model : {"glover", "spm", "claron2021", "fir"}, callable, or None, default: "glover"
+        Hemodynamic response function model. A callable matching the
+        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (a function
+        taking `dt` and `oversampling` and returning a 1-D array) is invoked
+        to produce a custom HRF kernel.
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
     high_pass : float, default: 0.01
@@ -130,7 +134,7 @@ class FirstLevelModel(BaseEstimator):
     def __init__(
         self,
         *,
-        hrf_model: str | None = "glover",
+        hrf_model: str | HRFModel | None = "glover",
         drift_model: str | None = "cosine",
         high_pass: float = 0.01,
         drift_order: int = 1,
@@ -213,14 +217,17 @@ class FirstLevelModel(BaseEstimator):
                         f"All runs must have the same spatial shape. "
                         f"Run 0 has {ref_spatial}, run {i} has {spatial}."
                     )
-                shared_coord_dims = [
-                    d for d in ref_spatial if d in ref_run.coords and d in run.coords
+                # Validate every spatial dim where at least one side carries a
+                # coord. validate_matching_coordinates raises if the coord is
+                # missing from one side, catching asymmetric coord drops.
+                checkable = [
+                    d for d in ref_spatial if d in ref_run.coords or d in run.coords
                 ]
-                if shared_coord_dims:
+                if checkable:
                     validate_matching_coordinates(
                         ref_run,
                         run,
-                        shared_coord_dims,
+                        checkable,
                         left_name="run 0",
                         right_name=f"run {i}",
                     )
@@ -228,6 +235,22 @@ class FirstLevelModel(BaseEstimator):
         design_matrices_list = self._resolve_design_matrices(
             run_data, events, confounds, design_matrices
         )
+
+        # Numeric contrast vectors are applied positionally per run and
+        # `make_first_level_design_matrix` orders condition columns by each
+        # run's `trial_type` appearance order, so two runs with different
+        # event tables can produce designs whose columns mean different
+        # things at the same index. Reject that here.
+        if n_runs > 1:
+            ref_columns = list(design_matrices_list[0].columns)
+            for i, dm in enumerate(design_matrices_list[1:], start=1):
+                cols = list(dm.columns)
+                if cols != ref_columns:
+                    raise ValueError(
+                        f"All runs must share the same design-matrix columns "
+                        f"in the same order. Run 0 columns: {ref_columns}; "
+                        f"run {i} columns: {cols}."
+                    )
 
         ar_order = self._parse_noise_model()
 
@@ -384,6 +407,15 @@ class FirstLevelModel(BaseEstimator):
                 raise ValueError(
                     f"Got {len(design_matrices)} design matrices for {n_runs} runs."
                 )
+            # Catch shape mismatches at the API boundary; otherwise they
+            # surface as opaque matmul errors deep in the OLS/AR fit.
+            for i, dm in enumerate(design_matrices):
+                n_volumes = int(run_data[i].sizes["time"])
+                if len(dm) != n_volumes:
+                    raise ValueError(
+                        f"Design matrix for run {i} has {len(dm)} rows but the "
+                        f"run has {n_volumes} timepoints."
+                    )
             return list(design_matrices)
 
         if events is None:

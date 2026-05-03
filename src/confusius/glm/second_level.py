@@ -75,6 +75,21 @@ def make_second_level_design_matrix(
             raise ValueError(
                 f"confounds has {len(confounds)} rows but n_subjects={n_subjects}."
             )
+        # Reject duplicates inside `confounds` and any collision with the
+        # auto-added intercept: a duplicate column makes string contrasts
+        # like "intercept" silently target only the first match.
+        confound_columns = list(confounds.columns)
+        duplicates = sorted(
+            {c for c in confound_columns if confound_columns.count(c) > 1}
+        )
+        if duplicates:
+            raise ValueError(f"confounds has duplicate column names: {duplicates}.")
+        if "intercept" in confound_columns:
+            raise ValueError(
+                "confounds contains an 'intercept' column, which collides "
+                "with the auto-added intercept regressor. Rename it before "
+                "passing it in."
+            )
         return pd.concat([confounds.reset_index(drop=True), intercept], axis=1)
 
     return intercept
@@ -189,14 +204,15 @@ class SecondLevelModel(BaseEstimator):
                     f"All maps must have the same shape. "
                     f"Map 0 has shape {ref_shape}, map {i} has {da.shape}."
                 )
-            shared_coord_dims = [
-                d for d in ref_dims if d in ref.coords and d in da.coords
-            ]
-            if shared_coord_dims:
+            # Include dims where at least one side carries a coord:
+            # validate_matching_coordinates raises if it's missing on one
+            # side, catching asymmetric coord drops.
+            checkable = [d for d in ref_dims if d in ref.coords or d in da.coords]
+            if checkable:
                 validate_matching_coordinates(
                     ref,
                     da,
-                    shared_coord_dims,
+                    checkable,
                     left_name="map 0",
                     right_name=f"map {i}",
                 )
@@ -263,6 +279,18 @@ class SecondLevelModel(BaseEstimator):
             ]
 
         if all(isinstance(m, xr.DataArray) for m in second_level_input):
+            # Group-level inputs are spatial contrast maps; a stray time
+            # dimension would be silently flattened with the spatial axes,
+            # turning a 4D timeseries into nonsensical "subject" rows.
+            for i, m in enumerate(second_level_input):
+                assert isinstance(m, xr.DataArray)  # for ty
+                if "time" in m.dims:
+                    raise ValueError(
+                        f"second_level_input[{i}] has a 'time' dimension. "
+                        "SecondLevelModel expects spatial contrast maps "
+                        "(e.g. FirstLevelModel.compute_contrast(..., "
+                        'output_type="effect")), not raw time series.'
+                    )
             return list(second_level_input)  # type: ignore[arg-type]
 
         raise TypeError(

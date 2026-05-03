@@ -510,6 +510,57 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="design matrices"):
             model.fit([fusi_data, fusi_data], design_matrices=[dm])
 
+    def test_design_matrix_row_mismatch_raises(self, fusi_data, frame_times, events):
+        """Pre-built design matrix row count must match the run length."""
+        dm = make_first_level_design_matrix(frame_times[:100], events=events)
+        model = FirstLevelModel(noise_model="ols")
+        with pytest.raises(ValueError, match="rows but the run has"):
+            model.fit(fusi_data, design_matrices=dm)
+
+    def test_design_matrix_columns_mismatch_raises(self, rng, frame_times, events):
+        """Multi-run designs with different column orders are rejected."""
+        events_swapped = pd.DataFrame(
+            {
+                "trial_type": ["B"] * 5 + ["A"] * 5,
+                "onset": np.concatenate(
+                    [np.arange(5) * 20.0 + 10.0, np.arange(5) * 20.0]
+                ),
+                "duration": [1.0] * 10,
+            }
+        )
+        data1 = xr.DataArray(
+            rng.standard_normal((200, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={"time": frame_times},
+        )
+        data2 = xr.DataArray(
+            rng.standard_normal((200, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={"time": frame_times},
+        )
+        model = FirstLevelModel(noise_model="ols")
+        with pytest.raises(ValueError, match="design-matrix columns"):
+            model.fit([data1, data2], events=[events, events_swapped])
+
+    def test_dropped_spatial_coord_raises(self, rng, frame_times, events):
+        """A run that drops a spatial coord present on the reference run is rejected."""
+        data1 = xr.DataArray(
+            rng.standard_normal((200, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": frame_times,
+                "z": np.arange(2) * 0.5,
+                "y": np.arange(3) * 0.1,
+                "x": np.arange(4) * 0.1,
+            },
+        )
+        data2 = data1.drop_vars("z")
+        model = FirstLevelModel(noise_model="ols")
+        with pytest.raises(
+            ValueError, match=r"Coordinate 'z' is missing from run 1"
+        ):
+            model.fit([data1, data2], events=[events, events])
+
     def test_spatial_shape_mismatch_raises(self, rng, frame_times, events):
         """Multi-run fit raises if runs have different spatial shapes."""
         data1 = xr.DataArray(

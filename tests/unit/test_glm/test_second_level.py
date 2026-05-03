@@ -373,6 +373,42 @@ class TestSecondLevelModelErrors:
         with pytest.raises(ValueError, match="design_matrix"):
             model.fit(maps, design_matrix=dm)
 
+    def test_dataarray_with_time_dim_raises(self):
+        """Raw DataArray inputs with a `time` dim are rejected."""
+        maps = [
+            xr.DataArray(np.zeros((10, 2, 3)), dims=["time", "y", "x"])
+            for _ in range(5)
+        ]
+        model = SecondLevelModel()
+        with pytest.raises(ValueError, match="time' dimension"):
+            model.fit(maps)
+
+    def test_dropped_spatial_coord_raises(self, spatial_maps):
+        """A subject map missing a spatial coord present on the reference is rejected."""
+        maps = [spatial_maps[0], spatial_maps[1].drop_vars("z")]
+        model = SecondLevelModel()
+        with pytest.raises(
+            ValueError, match=r"Coordinate 'z' is missing from map 1"
+        ):
+            model.fit(maps)
+
+    def test_duplicate_confound_columns_raises(self, spatial_maps):
+        """Duplicate column names in confounds are rejected."""
+        confounds = pd.DataFrame(
+            np.zeros((10, 2)),
+            columns=["age", "age"],  # duplicate
+        )
+        model = SecondLevelModel()
+        with pytest.raises(ValueError, match="duplicate column"):
+            model.fit(spatial_maps, confounds=confounds)
+
+    def test_intercept_in_confounds_raises(self, spatial_maps):
+        """A confounds 'intercept' column collides with the auto-added one."""
+        confounds = pd.DataFrame({"intercept": np.ones(10)})
+        model = SecondLevelModel()
+        with pytest.raises(ValueError, match="intercept"):
+            model.fit(spatial_maps, confounds=confounds)
+
     def test_contrast_before_fit_raises(self):
         model = SecondLevelModel()
         with pytest.raises(ValueError, match="not fitted"):
