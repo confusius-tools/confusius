@@ -68,6 +68,8 @@ def _compute_sampling_interval(
     step, approximate = get_representative_step(
         volume_times, uniformity_tolerance=uniformity_tolerance
     )
+    # `step` is only None when len(values) < 2, already excluded above.
+    assert step is not None
     if approximate:
         intervals = np.diff(volume_times)
         raise ValueError(
@@ -78,7 +80,7 @@ def _compute_sampling_interval(
             "`uniformity_tolerance` if the jitter is acceptable."
         )
 
-    return step  # type: ignore[return-value]
+    return step
 
 
 def _orthogonalize(X: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
