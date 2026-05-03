@@ -91,7 +91,7 @@ class SecondLevelModel(BaseEstimator):
     [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] objects or a list of
     spatial `xarray.DataArray` maps (e.g. output of
     [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast] with
-    `output_type="effect_size"`). When `FirstLevelModel` objects are passed,
+    `output_type="effect"`). When `FirstLevelModel` objects are passed,
     `first_level_contrast` must be provided so the effect map can be extracted
     automatically from each model.
 
@@ -258,7 +258,7 @@ class SecondLevelModel(BaseEstimator):
                     "is a list of FirstLevelModel."
                 )
             return [
-                m.compute_contrast(first_level_contrast, output_type="effect_size")  # type: ignore[union-attr]
+                m.compute_contrast(first_level_contrast, output_type="effect")  # type: ignore[union-attr]
                 for m in second_level_input
             ]
 
@@ -275,8 +275,9 @@ class SecondLevelModel(BaseEstimator):
         second_level_contrast: str | npt.NDArray[np.floating] = "intercept",
         stat_type: Literal["t", "F"] | None = None,
         output_type: Literal[
-            "z_score", "stat", "p_value", "effect_size", "effect_variance"
-        ] = "z_score",
+            "zscore", "statistic", "pvalue", "effect", "variance"
+        ] = "zscore",
+        baseline: float = 0.0,
     ) -> xr.DataArray:
         """Compute a group-level contrast and return a statistical map.
 
@@ -290,8 +291,12 @@ class SecondLevelModel(BaseEstimator):
         stat_type : {"t", "F"}, optional
             Force the contrast type. By default inferred from the shape of the contrast
             (1-D → *t*, 2-D → *F*).
-        output_type : {"z_score", "stat", "p_value", "effect_size", "effect_variance"}, default: "z_score"
+        output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}, default: "zscore"
             Which statistical map to return.
+        baseline : float, default: 0.0
+            Null-hypothesis value tested against. The statistic is
+            `(effect - baseline) / sqrt(variance)` for *t*-contrasts and
+            `sum((effect - baseline)**2) / dim / variance` for *F*-contrasts.
 
         Returns
         -------
@@ -316,22 +321,24 @@ class SecondLevelModel(BaseEstimator):
 
         if resolved_stat_type == "t":
             t_res = self.results_.t_contrast(contrast_vec)
-            contrast_obj = Contrast(
+            contrast_obj = Contrast.from_estimate(
                 effect=np.atleast_1d(t_res["effect"]),
                 variance=np.atleast_1d(t_res["sd"]) ** 2,
                 dof=float(t_res["df_den"]),
                 stat_type="t",
+                baseline=baseline,
             )
         else:
             f_res = self.results_.f_contrast(contrast_vec)
             q = int(f_res["df_num"])
             variance = f_res["covariance"][:, np.arange(q), np.arange(q)].mean(axis=1)
-            contrast_obj = Contrast(
+            contrast_obj = Contrast.from_estimate(
                 effect=f_res["effect"],
                 variance=variance,
                 dof=float(f_res["df_den"]),
                 stat_type="F",
                 dim=int(q),
+                baseline=baseline,
             )
 
         flat = self._contrast_output(contrast_obj, output_type)
@@ -403,8 +410,8 @@ class SecondLevelModel(BaseEstimator):
         ----------
         contrast : Contrast
             Fitted contrast object.
-        output_type : {"z_score", "stat", "p_value", "effect_size", "effect_variance"}
-            Requested output.
+        output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}
+            Requested output. Each value names a `Contrast` attribute.
 
         Returns
         -------
@@ -416,20 +423,12 @@ class SecondLevelModel(BaseEstimator):
         ValueError
             If `output_type` is not recognized.
         """
-        if output_type == "z_score":
-            return contrast.z_score()
-        if output_type == "stat":
-            return contrast.stat()
-        if output_type == "p_value":
-            return contrast.p_value()
-        if output_type == "effect_size":
-            return contrast.effect_size()
-        if output_type == "effect_variance":
-            return contrast.effect_variance()
-        raise ValueError(
-            f"output_type must be one of 'z_score', 'stat', 'p_value', "
-            f"'effect_size', 'effect_variance', got '{output_type}'."
-        )
+        valid = {"zscore", "statistic", "pvalue", "effect", "variance"}
+        if output_type not in valid:
+            raise ValueError(
+                f"output_type must be one of {sorted(valid)}, got '{output_type}'."
+            )
+        return getattr(contrast, output_type)
 
     def _to_dataarray(
         self,

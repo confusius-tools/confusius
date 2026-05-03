@@ -127,7 +127,7 @@ class TestSecondLevelModelFit:
         assert z_map.attrs["task"] == "stim"
         assert z_map.attrs["contrast"] == "A-B"
         assert "subject_id" not in z_map.attrs
-        assert z_map.attrs["long_name"] == "z_score"
+        assert z_map.attrs["long_name"] == "zscore"
         assert z_map.attrs["cmap"] == "coolwarm"
 
     def test_sklearn_is_fitted(self, spatial_maps):
@@ -194,21 +194,21 @@ class TestSecondLevelModelContrast:
         z_map = self.model.compute_contrast(vec)
         assert z_map.shape == (2, 3, 4)
 
-    def test_output_type_stat(self):
-        t_map = self.model.compute_contrast(output_type="stat")
-        assert t_map.attrs["long_name"] == "stat"
+    def test_output_type_statistic(self):
+        t_map = self.model.compute_contrast(output_type="statistic")
+        assert t_map.attrs["long_name"] == "statistic"
 
-    def test_output_type_p_value(self):
-        p_map = self.model.compute_contrast(output_type="p_value")
+    def test_output_type_pvalue(self):
+        p_map = self.model.compute_contrast(output_type="pvalue")
         assert np.all(p_map.values >= 0)
         assert np.all(p_map.values <= 1)
 
-    def test_output_type_effect_size(self):
-        e_map = self.model.compute_contrast(output_type="effect_size")
+    def test_output_type_effect(self):
+        e_map = self.model.compute_contrast(output_type="effect")
         assert e_map.shape == (2, 3, 4)
 
-    def test_output_type_effect_variance(self):
-        v_map = self.model.compute_contrast(output_type="effect_variance")
+    def test_output_type_variance(self):
+        v_map = self.model.compute_contrast(output_type="variance")
         assert np.all(v_map.values >= 0)
 
     def test_explicit_stat_type_t(self):
@@ -236,13 +236,13 @@ class TestSecondLevelModelFContrast:
         assert z_map.shape == (2, 3, 4)
         assert np.all(np.isfinite(z_map.values))
 
-    def test_f_contrast_effect_size_has_contrast_dim(self, spatial_maps, rng):
-        """F-contrast effect_size output has a contrast_dim dimension."""
+    def test_f_contrast_effect_has_contrast_dim(self, spatial_maps, rng):
+        """F-contrast effect output has a contrast_dim dimension."""
         confounds = pd.DataFrame({"group": [0.0] * 5 + [1.0] * 5})
         model = SecondLevelModel()
         model.fit(spatial_maps, confounds=confounds)
         c = np.eye(2)
-        e_map = model.compute_contrast(c, stat_type="F", output_type="effect_size")
+        e_map = model.compute_contrast(c, stat_type="F", output_type="effect")
         assert e_map.dims[0] == "contrast_dim"
         assert e_map.shape[0] == 2
 
@@ -269,13 +269,13 @@ class TestSecondLevelModelReference:
 
         from confusius.glm._contrasts import Contrast
 
-        contrast = Contrast(
+        contrast = Contrast.from_estimate(
             effect=np.atleast_1d(t_res["effect"]),
             variance=np.atleast_1d(t_res["sd"]) ** 2,
             dof=float(t_res["df_den"]),
             stat_type="t",
         )
-        z_manual = contrast.z_score().reshape(2, 3, 4)
+        z_manual = contrast.zscore.reshape(2, 3, 4)
 
         assert_allclose(z_map_auto.values, z_manual, rtol=1e-10)
 

@@ -299,7 +299,7 @@ class TestContrastErrors:
         variance = np.ones((5, 2))
 
         with pytest.raises(ValueError, match="1D"):
-            Contrast(effect, variance)
+            Contrast.from_estimate(effect, variance)
 
     def test_contrast_effect_not_1d_or_2d(self):
         """Effect must be 1D or 2D."""
@@ -307,7 +307,7 @@ class TestContrastErrors:
         variance = np.ones(4)
 
         with pytest.raises(ValueError, match="1D or 2D"):
-            Contrast(effect, variance)
+            Contrast.from_estimate(effect, variance)
 
     def test_contrast_invalid_stat_type(self):
         """stat_type must be 't' or 'F'."""
@@ -315,20 +315,24 @@ class TestContrastErrors:
         variance = np.ones(5)
 
         with pytest.raises(ValueError, match="'t' or 'F'"):
-            Contrast(effect, variance, stat_type="chi2")
+            Contrast.from_estimate(effect, variance, stat_type="chi2")
 
     def test_contrast_add_different_stat_types(self):
         """Cannot add contrasts with different stat types."""
-        con1 = Contrast(np.ones(5), np.ones(5), stat_type="t")
-        con2 = Contrast(np.ones((2, 5)), np.ones(5), stat_type="F")
+        con1 = Contrast.from_estimate(np.ones(5), np.ones(5), stat_type="t")
+        con2 = Contrast.from_estimate(np.ones((2, 5)), np.ones(5), stat_type="F")
 
         with pytest.raises(ValueError, match="stat types"):
             con1 + con2
 
     def test_contrast_add_different_dimensions(self):
         """Cannot add contrasts with different dimensions."""
-        con1 = Contrast(np.ones(5), np.ones(5), dim=1, stat_type="F")
-        con2 = Contrast(np.ones((2, 5)), np.ones(5), dim=2, stat_type="F")
+        con1 = Contrast.from_estimate(
+            np.ones(5), np.ones(5), dim=1, stat_type="F"
+        )
+        con2 = Contrast.from_estimate(
+            np.ones((2, 5)), np.ones(5), dim=2, stat_type="F"
+        )
 
         with pytest.raises(ValueError, match="dimensions"):
             con1 + con2

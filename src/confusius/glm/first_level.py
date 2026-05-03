@@ -281,8 +281,9 @@ class FirstLevelModel(BaseEstimator):
         contrast_def: str | npt.NDArray[np.floating],
         stat_type: Literal["t", "F"] | None = None,
         output_type: Literal[
-            "z_score", "stat", "p_value", "effect_size", "effect_variance"
-        ] = "z_score",
+            "zscore", "statistic", "pvalue", "effect", "variance"
+        ] = "zscore",
+        baseline: float = 0.0,
     ) -> xr.DataArray:
         """Compute a contrast and return a statistical map.
 
@@ -296,8 +297,12 @@ class FirstLevelModel(BaseEstimator):
         stat_type : {"t", "F"}, optional
             Force the contrast type. By default inferred from the shape of
             the contrast vector (1-D → t, 2-D → F).
-        output_type : {"z_score", "stat", "p_value", "effect_size", "effect_variance"}, default: "z_score"
+        output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}, default: "zscore"
             Which statistical map to return.
+        baseline : float, default: 0.0
+            Null-hypothesis value tested against. The statistic is
+            `(effect - baseline) / sqrt(variance)` for *t*-contrasts and
+            `sum((effect - baseline)**2) / dim / variance` for *F*-contrasts.
 
         Returns
         -------
@@ -312,7 +317,9 @@ class FirstLevelModel(BaseEstimator):
         """
         self._check_is_fitted()
 
-        contrast_obj = self._compute_contrast_across_runs(contrast_def, stat_type)
+        contrast_obj = self._compute_contrast_across_runs(
+            contrast_def, stat_type, baseline=baseline
+        )
 
         output_map = self._contrast_output(contrast_obj, output_type)
 
@@ -453,6 +460,8 @@ class FirstLevelModel(BaseEstimator):
         self,
         contrast_def: str | npt.NDArray[np.floating],
         stat_type: Literal["t", "F"] | None,
+        *,
+        baseline: float = 0.0,
     ) -> Contrast:
         """Compute and combine contrasts across all runs using fixed effects.
 
@@ -465,6 +474,8 @@ class FirstLevelModel(BaseEstimator):
             Contrast definition (expression string or numeric vector/matrix).
         stat_type : {"t", "F"} or None
             Statistic type. Inferred from contrast shape if `None` (1D → `t`, 2D → `F`).
+        baseline : float, default: 0.0
+            Null-hypothesis value passed through to each per-run `Contrast`.
 
         Returns
         -------
@@ -486,11 +497,12 @@ class FirstLevelModel(BaseEstimator):
 
             if run_stat_type == "t":
                 t_res = results.t_contrast(contrast_vec)
-                run_contrast = Contrast(
+                run_contrast = Contrast.from_estimate(
                     effect=np.atleast_1d(t_res["effect"]),
                     variance=np.atleast_1d(t_res["sd"]) ** 2,
                     dof=float(t_res["df_den"]),
                     stat_type="t",
+                    baseline=baseline,
                 )
             else:
                 f_res = results.f_contrast(contrast_vec)
@@ -500,12 +512,13 @@ class FirstLevelModel(BaseEstimator):
                 variance = f_res["covariance"][:, np.arange(q), np.arange(q)].mean(
                     axis=1
                 )  # (V,)
-                run_contrast = Contrast(
+                run_contrast = Contrast.from_estimate(
                     effect=f_res["effect"],
                     variance=variance,
                     dof=float(f_res["df_den"]),
                     stat_type="F",
                     dim=int(q),
+                    baseline=baseline,
                 )
 
             combined = run_contrast if combined is None else combined + run_contrast
@@ -589,8 +602,8 @@ class FirstLevelModel(BaseEstimator):
         ----------
         contrast : Contrast
             Fitted contrast object.
-        output_type : {"z_score", "stat", "p_value", "effect_size", "effect_variance"}
-            Requested output.
+        output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}
+            Requested output. Each value names a `Contrast` attribute.
 
         Returns
         -------
@@ -602,20 +615,12 @@ class FirstLevelModel(BaseEstimator):
         ValueError
             If `output_type` is not recognized.
         """
-        if output_type == "z_score":
-            return contrast.z_score()
-        if output_type == "stat":
-            return contrast.stat()
-        if output_type == "p_value":
-            return contrast.p_value()
-        if output_type == "effect_size":
-            return contrast.effect_size()
-        if output_type == "effect_variance":
-            return contrast.effect_variance()
-        raise ValueError(
-            f"output_type must be one of 'z_score', 'stat', 'p_value', "
-            f"'effect_size', 'effect_variance', got '{output_type}'."
-        )
+        valid = {"zscore", "statistic", "pvalue", "effect", "variance"}
+        if output_type not in valid:
+            raise ValueError(
+                f"output_type must be one of {sorted(valid)}, got '{output_type}'."
+            )
+        return getattr(contrast, output_type)
 
     def _to_dataarray(self, flat: npt.NDArray[np.floating], name: str) -> xr.DataArray:
         """Reshape a flat voxel array into a spatial DataArray.

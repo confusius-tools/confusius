@@ -1,8 +1,17 @@
 """Contrast computation and statistical testing for GLM results.
 
-This module provides the Contrast class for computing t-statistics, F-statistics,
-p-values, and z-scores from GLM contrast results. It also supports fixed-effects
-combination across multiple runs.
+This module provides the [`Contrast`][confusius.glm._contrasts.Contrast] result
+container — a passive dataclass holding a contrast's effect/variance estimates and
+the associated test statistics (t or F), p-values, and z-scores. The math
+(adapted from Nilearn) lives in
+[`Contrast.from_estimate`][confusius.glm._contrasts.Contrast.from_estimate],
+which is the canonical way to construct a `Contrast`. Direct instantiation is
+reserved for tests and downstream code that already has all fields precomputed.
+
+The result-object/factory split mirrors statsmodels'
+`ContrastResults` + `RegressionResults.t_test()` pattern, and the test-output
+attribute names (`statistic`, `pvalue`, `zscore`) follow scipy/statsmodels
+conventions.
 
 Portions of this file are derived from Nilearn, which is licensed under the BSD-3-Clause
 License. See `NOTICE` file for details.
@@ -11,7 +20,8 @@ License. See `NOTICE` file for details.
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import scipy.stats as sps
@@ -23,7 +33,7 @@ if TYPE_CHECKING:
 
 
 def _pvalues_to_zscore(
-    p_value: npt.NDArray[np.float64],
+    pvalue: npt.NDArray[np.float64],
     one_minus_pvalue: npt.NDArray[np.float64] | None = None,
 ) -> npt.NDArray[np.float64]:
     """Convert p-values to z-scores.
@@ -32,24 +42,23 @@ def _pvalues_to_zscore(
 
     Parameters
     ----------
-    p_value : (n,) numpy.ndarray
+    pvalue : (n,) numpy.ndarray
         p-values to convert.
     one_minus_pvalue : (n,) numpy.ndarray, optional
-        1 - p-values for numerical stability. If `None`, computed as `1 - p_value`.
+        1 - p-values for numerical stability. If `None`, computed as `1 - pvalue`.
 
     Returns
     -------
     (n,) numpy.ndarray
         z-scores corresponding to the p-values.
-
     """
-    p_value = np.clip(p_value, 1.0e-300, 1.0 - 1.0e-16)
-    z_scores_sf = sps.norm.isf(p_value)
+    pvalue = np.clip(pvalue, 1.0e-300, 1.0 - 1.0e-16)
+    z_scores_sf = sps.norm.isf(pvalue)
 
     if one_minus_pvalue is not None:
         one_minus_pvalue = np.clip(one_minus_pvalue, 1.0e-300, 1.0 - 1.0e-16)
         z_scores_cdf = sps.norm.ppf(one_minus_pvalue)
-        z_scores = np.empty(p_value.size)
+        z_scores = np.empty(pvalue.size)
         use_cdf = z_scores_sf < 0
         use_sf = np.logical_not(use_cdf)
         z_scores[np.atleast_1d(use_cdf)] = z_scores_cdf[use_cdf]
@@ -60,93 +69,126 @@ def _pvalues_to_zscore(
     return z_scores
 
 
+@dataclass(eq=False)
 class Contrast:
-    """Contrast results with statistical inference.
+    """Passive container for contrast results.
 
-    Container for contrast effect estimates and variance, providing methods to compute
-    *t*-statistics, *F*-statistics, *p*-values, and *z*-scores. Supports addition for
-    fixed-effects combination across runs.
+    Holds a contrast's effect/variance estimates and the precomputed test
+    statistics. To construct one from raw `(effect, variance, dof)`, use
+    [`from_estimate`][confusius.glm._contrasts.Contrast.from_estimate]; that is
+    where the t/F statistic, p-value, and z-score are computed.
 
-    This implementation is adapted from [`nilearn.glm.Contrast`][nilearn.glm.Contrast].
-
-    Parameters
-    ----------
-    effect : (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
-        Contrast effect estimates.
-    variance : (n_voxels,) numpy.ndarray
-        Contrast variance estimates.
-    dim : int, optional
-        Contrast dimension (1 for *t*-statistic, >1 for *F*-statistic). If `None`,
-        inferred from effect.
-    dof : float, default: 1e10
-        Degrees of freedom of the residuals.
-    stat_type : {"t", "F"}, default: "t"
-        Type of contrast statistic.
-    tiny : float, default: 1e-50
-        Small value to avoid division by zero.
-    dofmax : float, default: 1e10
-        Maximum degrees of freedom.
+    Supports addition for fixed-effects combination across runs, and scalar
+    multiplication / division for rescaling.
 
     Attributes
     ----------
     effect : numpy.ndarray
-        Contrast effect estimates.
+        Contrast effect estimates, shape `(n_voxels,)` or `(contrast_dim,
+        n_voxels)`.
     variance : numpy.ndarray
-        Contrast variance estimates.
+        Contrast variance estimates, shape `(n_voxels,)`.
     dim : int
-        Contrast dimension.
+        Contrast dimension (1 for *t*, >1 for *F*).
     dof : float
-        Degrees of freedom.
+        Degrees of freedom of the residuals.
     stat_type : {"t", "F"}
-        Type of statistic (`"t"` or `"F"`).
-    stat_ : numpy.ndarray or None
-        Computed statistic (set after calling stat()).
-    p_value_ : numpy.ndarray or None
-        Computed p-values (set after calling p_value()).
-
-    Examples
-    --------
-    >>> import numpy as np
-    >>> effect = np.random.randn(100)
-    >>> variance = np.abs(np.random.randn(100))
-    >>> contrast = Contrast(effect, variance, dof=98)
-    >>> t_vals = contrast.stat()
-    >>> p_vals = contrast.p_value()
-    >>> z_vals = contrast.z_score()
+        Type of contrast statistic.
+    baseline : float
+        Null-hypothesis value used to compute the statistic.
+    statistic : numpy.ndarray
+        Test statistic (*t* or *F*), one value per voxel.
+    pvalue : numpy.ndarray
+        One-sided *p*-values (upper tail).
+    one_minus_pvalue : numpy.ndarray
+        `1 - pvalue`, computed via the CDF for numerical stability in the lower
+        tail.
+    zscore : numpy.ndarray
+        *z*-scores derived from `pvalue` / `one_minus_pvalue`.
+    tiny : float
+        Small value used to guard against division by zero.
+    dofmax : float
+        Cap on degrees of freedom used when computing p-values.
     """
 
-    def __init__(
-        self,
+    effect: npt.NDArray[np.floating]
+    variance: npt.NDArray[np.floating]
+    dim: int
+    dof: float
+    stat_type: Literal["t", "F"]
+    baseline: float
+    statistic: npt.NDArray[np.float64]
+    pvalue: npt.NDArray[np.float64]
+    one_minus_pvalue: npt.NDArray[np.float64]
+    zscore: npt.NDArray[np.float64]
+    tiny: float = 1e-50
+    dofmax: float = 1e10
+
+    @classmethod
+    def from_estimate(
+        cls,
         effect: npt.NDArray[np.floating],
         variance: npt.NDArray[np.floating],
+        *,
         dim: int | None = None,
         dof: float = 1e10,
-        stat_type: str = "t",
+        stat_type: Literal["t", "F"] = "t",
+        baseline: float = 0.0,
         tiny: float = 1e-50,
         dofmax: float = 1e10,
-    ) -> None:
-        """Initialize contrast container."""
+    ) -> Contrast:
+        """Build a `Contrast` from raw effect/variance estimates.
+
+        Computes the test statistic, p-values, and z-scores for the supplied
+        `baseline` and packs everything into a `Contrast` result object.
+
+        Parameters
+        ----------
+        effect : (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
+            Contrast effect estimates.
+        variance : (n_voxels,) numpy.ndarray
+            Contrast variance estimates.
+        dim : int, optional
+            Contrast dimension. If `None`, inferred from `effect`.
+        dof : float, default: 1e10
+            Degrees of freedom of the residuals.
+        stat_type : {"t", "F"}, default: "t"
+            Type of contrast statistic.
+        baseline : float, default: 0.0
+            Null-hypothesis value tested against. The statistic is computed as
+            `(effect - baseline) / sqrt(variance)` (t) or
+            `sum((effect - baseline)**2) / dim / variance` (F). To test a
+            different null, call `from_estimate` again with a new `baseline`.
+        tiny : float, default: 1e-50
+            Small value to guard against division by zero.
+        dofmax : float, default: 1e10
+            Maximum degrees of freedom used when computing p-values.
+
+        Returns
+        -------
+        Contrast
+            Contrast result with statistic, pvalue, one_minus_pvalue, and
+            zscore precomputed.
+
+        Raises
+        ------
+        ValueError
+            If `effect` is not 1-D or 2-D, `variance` is not 1-D, or `stat_type`
+            is not `"t"` or `"F"`.
+        """
         if variance.ndim != 1:
             raise ValueError(f"variance must be 1D, got shape {variance.shape}")
-
         if effect.ndim not in (1, 2):
             raise ValueError(f"effect must be 1D or 2D, got shape {effect.shape}")
 
-        self.effect: npt.NDArray[np.floating] = effect
-        self.variance = variance
-        self.dof = dof
-        self.tiny = tiny
-        self.dofmax = dofmax
+        resolved_dim = effect.shape[0] if (dim is None and effect.ndim == 2) else dim
+        if resolved_dim is None:
+            resolved_dim = 1
 
-        if dim is None:
-            self.dim = effect.shape[0] if effect.ndim == 2 else 1
-        else:
-            self.dim = dim
-
-        if self.dim > 1 and stat_type == "t":
+        if resolved_dim > 1 and stat_type == "t":
             warnings.warn(
-                f"stat_type='t' is incompatible with a {self.dim}-dimensional contrast; "
-                "switching to 'F'.",
+                f"stat_type='t' is incompatible with a {resolved_dim}-dimensional "
+                "contrast; switching to 'F'.",
                 stacklevel=find_stack_level(),
             )
             stat_type = "F"
@@ -154,219 +196,101 @@ class Contrast:
         if stat_type not in ("t", "F"):
             raise ValueError(f"stat_type must be 't' or 'F', got {stat_type}")
 
-        self.stat_type = stat_type
-
-        self.stat_: npt.NDArray[np.float64] | None = None
-        self.p_value_: npt.NDArray[np.float64] | None = None
-        self.one_minus_pvalue_: npt.NDArray[np.float64] | None = None
-        self.baseline = 0.0
-
-    def effect_size(self) -> npt.NDArray[np.floating]:
-        """Return contrast effect estimates.
-
-        Returns
-        -------
-        (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
-            Contrast effect estimates.
-        """
-        return self.effect
-
-    def effect_variance(self) -> npt.NDArray[np.floating]:
-        """Return contrast variance estimates.
-
-        Returns
-        -------
-        (n_voxels,) numpy.ndarray
-            Contrast variance estimates.
-        """
-        return self.variance
-
-    def stat(self, baseline: float = 0.0) -> npt.NDArray[np.float64]:
-        """Compute test statistic (*t* or *F*).
-
-        Parameters
-        ----------
-        baseline : float, default: 0.0
-            Baseline value for null hypothesis test.
-
-        Returns
-        -------
-        (n_voxels,) numpy.ndarray
-            *t*-statistics or *F*-statistics per voxel.
-        """
-        if self.stat_ is not None and self.baseline == baseline:
-            return self.stat_
-
-        self.baseline = baseline
-
-        if self.stat_type == "F":
-            # F = (1/dim) * sum((effect - baseline)^2) / variance
-            stat = (
-                np.sum((self.effect - baseline) ** 2, axis=0)
-                / self.dim
-                / np.maximum(self.variance, self.tiny)
+        # Test statistic.
+        if stat_type == "F":
+            raw = (
+                np.sum((effect - baseline) ** 2, axis=0)
+                / resolved_dim
+                / np.maximum(variance, tiny)
             )
-        else:  # t-statistic
-            # t = (effect - baseline) / sqrt(variance)
-            stat = (self.effect - baseline) / np.sqrt(
-                np.maximum(self.variance, self.tiny)
-            )
+        else:
+            raw = (effect - baseline) / np.sqrt(np.maximum(variance, tiny))
+        statistic = np.squeeze(raw)
 
-        self.stat_ = np.squeeze(stat)
-        return self.stat_
+        # p-value family. We compute both `pvalue = sf(statistic)` and
+        # `one_minus_pvalue = cdf(statistic)` directly from scipy: each is
+        # accurate where the other would suffer from catastrophic cancellation
+        # (cdf in the upper tail; sf in the lower tail).
+        effective_dof = min(dof, dofmax)
+        if stat_type == "t":
+            pvalue = sps.t.sf(statistic, effective_dof)
+            one_minus_pvalue = sps.t.cdf(statistic, effective_dof)
+        else:
+            pvalue = sps.f.sf(statistic, resolved_dim, effective_dof)
+            one_minus_pvalue = sps.f.cdf(statistic, resolved_dim, effective_dof)
 
-    def p_value(self, baseline: float = 0.0) -> npt.NDArray[np.float64]:
-        """Compute *p*-values from test statistic.
+        zscore = _pvalues_to_zscore(pvalue, one_minus_pvalue)
 
-        Parameters
-        ----------
-        baseline : float, default: 0.0
-            Baseline value for null hypothesis test.
+        return cls(
+            effect=effect,
+            variance=variance,
+            dim=resolved_dim,
+            dof=dof,
+            stat_type=stat_type,
+            baseline=baseline,
+            statistic=statistic,
+            pvalue=pvalue,
+            one_minus_pvalue=one_minus_pvalue,
+            zscore=zscore,
+            tiny=tiny,
+            dofmax=dofmax,
+        )
 
-        Returns
-        -------
-        (n_voxels,) numpy.ndarray
-            P-values per voxel.
-        """
-        if self.stat_ is None or self.baseline != baseline:
-            self.stat(baseline)
+    def __add__(self, other: Contrast) -> Contrast:
+        """Combine two contrasts via fixed-effects (independent runs).
 
-        dof = min(self.dof, self.dofmax)
-
-        if self.stat_type == "t":
-            self.p_value_ = sps.t.sf(self.stat_, dof)
-        else:  # F-statistic
-            self.p_value_ = sps.f.sf(self.stat_, self.dim, dof)
-
-        return self.p_value_
-
-    def one_minus_pvalue(self, baseline: float = 0.0) -> npt.NDArray[np.float64]:
-        """Compute 1 - *p*-values for numerical stability.
-
-        Parameters
-        ----------
-        baseline : float, default :0.0
-            Baseline value for null hypothesis test.
-
-        Returns
-        -------
-        (n_voxels,) numpy.ndarray
-            1 - *p*-values per voxel.
-        """
-        if self.stat_ is None or self.baseline != baseline:
-            self.stat(baseline)
-
-        dof = min(self.dof, self.dofmax)
-
-        if self.stat_type == "t":
-            self.one_minus_pvalue_ = sps.t.cdf(self.stat_, dof)
-        else:  # F-statistic
-            self.one_minus_pvalue_ = sps.f.cdf(self.stat_, self.dim, dof)
-
-        return self.one_minus_pvalue_
-
-    def z_score(self, baseline: float = 0.0) -> npt.NDArray[np.float64]:
-        """Compute *z*-scores from *p*-values.
-
-        Parameters
-        ----------
-        baseline : float, default: 0.0
-            Baseline value for null hypothesis test.
-
-        Returns
-        -------
-        (n_voxels,) numpy.ndarray
-            *z*-scores per voxel.
-        """
-        if self.p_value_ is None or self.baseline != baseline:
-            self.p_value(baseline)
-
-        if self.one_minus_pvalue_ is None or self.baseline != baseline:
-            self.one_minus_pvalue(baseline)
-
-        assert self.p_value_ is not None
-        assert self.one_minus_pvalue_ is not None
-        self.z_score_ = _pvalues_to_zscore(self.p_value_, self.one_minus_pvalue_)
-        return self.z_score_
-
-    def __add__(self, other: "Contrast") -> "Contrast":
-        """Add two contrasts for fixed-effects combination.
-
-        Combines effects and variances assuming independent contrasts. Used for
-        combining results across multiple runs.
-
-        Parameters
-        ----------
-        other : Contrast
-            Another contrast to add.
-
-        Returns
-        -------
-        Contrast
-            Combined contrast.
+        Effects, variances, and degrees of freedom are summed. The combined
+        result inherits `stat_type` and `baseline` from the operands, which
+        must match.
 
         Raises
         ------
         ValueError
-            If contrasts have incompatible types or dimensions.
-
+            If the operands have different `stat_type`, `dim`, or `baseline`.
         """
         if self.stat_type != other.stat_type:
             raise ValueError(
-                f"Cannot add contrasts with different stat types: "
+                "Cannot add contrasts with different stat types: "
                 f"{self.stat_type} vs {other.stat_type}"
             )
-
         if self.dim != other.dim:
             raise ValueError(
-                f"Cannot add contrasts with different dimensions: "
+                "Cannot add contrasts with different dimensions: "
                 f"{self.dim} vs {other.dim}"
             )
+        if self.baseline != other.baseline:
+            raise ValueError(
+                "Cannot add contrasts with different baselines: "
+                f"{self.baseline} vs {other.baseline}"
+            )
 
-        # Fixed effects combination.
-        effect = self.effect + other.effect
-        variance = self.variance + other.variance
-        dof = self.dof + other.dof
-
-        return Contrast(
-            effect=effect,
-            variance=variance,
+        return Contrast.from_estimate(
+            effect=self.effect + other.effect,
+            variance=self.variance + other.variance,
             dim=self.dim,
-            dof=dof,
+            dof=self.dof + other.dof,
             stat_type=self.stat_type,
+            baseline=self.baseline,
             tiny=self.tiny,
             dofmax=self.dofmax,
         )
 
-    def __rmul__(self, scalar: float) -> "Contrast":
-        """Multiply contrast by a scalar.
-
-        Parameters
-        ----------
-        scalar : float
-            Scalar multiplier.
-
-        Returns
-        -------
-        Contrast
-            Scaled contrast.
-        """
+    def __rmul__(self, scalar: float) -> Contrast:
+        """Scale the contrast by a scalar (effect by *s*, variance by *s*²)."""
         scalar = float(scalar)
-        effect = self.effect * scalar
-        variance = self.variance * scalar**2
-
-        return Contrast(
-            effect=effect,
-            variance=variance,
+        return Contrast.from_estimate(
+            effect=self.effect * scalar,
+            variance=self.variance * scalar**2,
             dim=self.dim,
             dof=self.dof,
             stat_type=self.stat_type,
+            baseline=self.baseline,
             tiny=self.tiny,
             dofmax=self.dofmax,
         )
 
     __mul__ = __rmul__
 
-    def __truediv__(self, scalar: float) -> "Contrast":
-        """Divide contrast by a scalar."""
+    def __truediv__(self, scalar: float) -> Contrast:
+        """Divide the contrast by a scalar."""
         return self.__rmul__(1.0 / float(scalar))
