@@ -4,7 +4,7 @@ The manager attaches to a Figure's `motion_notify_event` and, for any
 registered axes, samples the underlying 2D arrays at the cursor position to
 build a single status-bar string of the form
 
-    x=..., y=...; <value_label>=<v>; ROI: <name> (<id>)
+    x=..., y=...; <value_label>=<v>; <label_name>=<id> (<roi_name>)
 
 Each axes can have several registered layers (one volume + one label map, for
 instance), so an atlas overlaid on a power-Doppler scan shows both the data

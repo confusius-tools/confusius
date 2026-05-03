@@ -585,7 +585,7 @@ class VolumePlotter:
         roi_labels : dict[int, str], optional
             Mapping from integer label to display name. When provided (or when
             `data.attrs["roi_labels"]` is populated), hovering the cursor over a
-            voxel shows `ROI: <name> (<id>)` in the matplotlib status bar.
+            voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
         show_titles : bool, default: True
             Whether to display subplot titles.
         show_axis_labels : bool, default: True
@@ -873,7 +873,7 @@ class VolumePlotter:
         roi_labels : dict[int, str], optional
             Mapping from integer label to display name. When provided (or when
             `mask.attrs["roi_labels"]` is populated), hovering the cursor over a
-            voxel shows `ROI: <name> (<id>)` in the matplotlib status bar. The
+            voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar. The
             cursor samples the underlying label map directly, so hovering inside
             a closed contour is sufficient — there is no need to be on the line.
         **kwargs
@@ -1235,7 +1235,7 @@ def plot_contours(
     roi_labels : dict[int, str], optional
         Mapping from integer label to display name. When provided (or when
         `mask.attrs["roi_labels"]` is populated), hovering the cursor over a
-        voxel shows `ROI: <name> (<id>)` in the matplotlib status bar.
+        voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
     **kwargs
         Additional keyword arguments passed to
         [`matplotlib.axes.Axes.plot`][matplotlib.axes.Axes.plot].
@@ -1378,7 +1378,7 @@ def plot_volume(
     roi_labels : dict[int, str], optional
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
-        voxel shows `ROI: <name> (<id>)` in the matplotlib status bar.
+        voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
     show_titles : bool, default: True
         Whether to display subplot titles showing the slice coordinate.
     show_axis_labels : bool, default: True
@@ -1411,7 +1411,7 @@ def plot_volume(
     roi_labels : dict[int, str], optional
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
-        voxel shows `ROI: <name> (<id>)` in the matplotlib status bar.
+        voxel shows `<data_name>=<id> (<roi_name>)` in the matplotlib status bar.
 
     Returns
     -------
