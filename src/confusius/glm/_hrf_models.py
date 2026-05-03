@@ -69,15 +69,14 @@ def _gamma_difference_hrf(
     (n_timepoints,) numpy.ndarray
         Normalized HRF sampled on an oversampled time grid.
     """
-    oversampling = int(oversampling)
     if oversampling < 1:
         raise ValueError("oversampling must be >= 1.")
 
-    high_res_dt = float(dt) / oversampling
+    high_res_dt = dt / oversampling
     time_stamps = np.linspace(
         0,
         time_length,
-        np.rint(float(time_length) / high_res_dt).astype(int),
+        np.rint(time_length / high_res_dt).astype(int),
     )
     time_stamps -= onset
 
@@ -203,7 +202,6 @@ def gamma_hrf(
     (n_samples,) numpy.ndarray
         HRF values on the oversampled time grid, normalized to sum to 1.
     """
-    oversampling = int(oversampling)
     if oversampling < 1:
         raise ValueError("oversampling must be >= 1.")
     if dispersion <= 0:
@@ -211,11 +209,11 @@ def gamma_hrf(
     if peak_delay < 0:
         raise ValueError("peak_delay must be >= 0.")
 
-    high_res_dt = float(dt) / oversampling
+    high_res_dt = dt / oversampling
     time_stamps = np.linspace(
         0,
         time_length,
-        np.rint(float(time_length) / high_res_dt).astype(int),
+        np.rint(time_length / high_res_dt).astype(int),
     )
     time_stamps -= onset
 
@@ -260,15 +258,14 @@ def inverse_gamma_hrf(
     (n_samples,) numpy.ndarray
         HRF values on the oversampled time grid, normalized to sum to 1.
     """
-    oversampling = int(oversampling)
     if oversampling < 1:
         raise ValueError("oversampling must be >= 1.")
 
-    high_res_dt = float(dt) / oversampling
+    high_res_dt = dt / oversampling
     time_stamps = np.linspace(
         0,
         time_length,
-        np.rint(float(time_length) / high_res_dt).astype(int),
+        np.rint(time_length / high_res_dt).astype(int),
     )
     time_stamps -= onset
 
