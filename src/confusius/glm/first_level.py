@@ -94,6 +94,10 @@ class FirstLevelModel(BaseEstimator):
         Oversampling factor for HRF convolution.
     min_onset : float, default: -24.0
         Minimum onset time in seconds for event regressors.
+    uniformity_tolerance : float, default: 1e-5
+        Maximum allowed relative range of consecutive intervals in the run `time`
+        coordinate, defined as `(max_interval - min_interval) / median_interval`.
+        Increase this value to tolerate slight timestamp jitter.
 
     Attributes
     ----------
@@ -134,6 +138,7 @@ class FirstLevelModel(BaseEstimator):
         minimize_memory: bool = True,
         oversampling: int = 50,
         min_onset: float = -24.0,
+        uniformity_tolerance: float = 1e-5,
     ) -> None:
         self.hrf_model = hrf_model
         self.drift_model = drift_model
@@ -144,6 +149,7 @@ class FirstLevelModel(BaseEstimator):
         self.minimize_memory = minimize_memory
         self.oversampling = oversampling
         self.min_onset = min_onset
+        self.uniformity_tolerance = uniformity_tolerance
 
     def fit(
         self,
@@ -404,6 +410,7 @@ class FirstLevelModel(BaseEstimator):
                 confounds=confounds_list[run_idx],
                 oversampling=self.oversampling,
                 min_onset=self.min_onset,
+                uniformity_tolerance=self.uniformity_tolerance,
             )
             dm_list.append(dm)
         return dm_list

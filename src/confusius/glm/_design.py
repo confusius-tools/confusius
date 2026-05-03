@@ -18,7 +18,7 @@ import pandas as pd
 import scipy.linalg as spla
 from scipy.interpolate import interp1d
 
-from confusius._utils import find_stack_level
+from confusius._utils import find_stack_level, get_representative_step
 from confusius.glm._hrf_models import HRFModel, _hrf_kernel
 
 if TYPE_CHECKING:
@@ -28,7 +28,11 @@ if TYPE_CHECKING:
 VALID_EVENT_COLUMNS = {"onset", "duration", "trial_type", "modulation"}
 
 
-def _compute_sampling_interval(volume_times: npt.NDArray[np.floating]) -> float:
+def _compute_sampling_interval(
+    volume_times: npt.NDArray[np.floating],
+    *,
+    uniformity_tolerance: float = 1e-5,
+) -> float:
     """Compute the sampling interval from uniformly spaced volume times.
 
     Parameters
@@ -36,6 +40,10 @@ def _compute_sampling_interval(volume_times: npt.NDArray[np.floating]) -> float:
     volume_times : (n_volumes,) numpy.ndarray
         Volume acquisition times in seconds. Must be strictly increasing and
         uniformly spaced.
+    uniformity_tolerance : float, default: 1e-5
+        Maximum allowed relative range of consecutive intervals, defined as
+        `(max_interval - min_interval) / median_interval`. Increase this value to
+        tolerate slight timestamp jitter (e.g. from acquisition clocks).
 
     Returns
     -------
@@ -46,26 +54,29 @@ def _compute_sampling_interval(volume_times: npt.NDArray[np.floating]) -> float:
     ------
     ValueError
         If `volume_times` is not 1D, has fewer than 2 elements, is not strictly
-        increasing, or is not uniformly spaced.
+        increasing, or is not uniformly spaced within `uniformity_tolerance`.
     """
     if volume_times.ndim != 1:
         raise ValueError("volume_times must be a 1D array.")
     if len(volume_times) < 2:
         raise ValueError("Need at least 2 timepoints to compute sampling interval.")
-
-    intervals = np.diff(volume_times)
-    dt = float(intervals[0])
-
-    if dt <= 0:
+    if not np.all(np.diff(volume_times) > 0):
         raise ValueError("volume_times must be strictly increasing.")
-    if not np.allclose(intervals, dt, rtol=1e-5, atol=1e-8):
+
+    step, approximate = get_representative_step(
+        volume_times, uniformity_tolerance=uniformity_tolerance
+    )
+    if approximate:
+        intervals = np.diff(volume_times)
         raise ValueError(
-            "Volume times must be uniformly spaced to compute sampling interval. "
+            "volume_times must be uniformly spaced to compute sampling interval. "
             f"Found varying intervals: min={intervals.min():.6f}, "
-            f"max={intervals.max():.6f}."
+            f"max={intervals.max():.6f}, median={step:.6f}. "
+            "Consider interpolating events to a uniform grid first, or relax "
+            "`uniformity_tolerance` if the jitter is acceptable."
         )
 
-    return dt
+    return step  # type: ignore[return-value]
 
 
 def _orthogonalize(X: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
@@ -450,6 +461,8 @@ def _compute_condition_regressors(
     fir_delays: list[int] | None = None,
     oversampling: int = 50,
     min_onset: float = -24.0,
+    *,
+    uniformity_tolerance: float = 1e-5,
 ) -> npt.NDArray[np.floating]:
     """Compute design matrix regressors for one experimental condition.
 
@@ -474,6 +487,9 @@ def _compute_condition_regressors(
         Temporal oversampling factor for HRF convolution.
     min_onset : float, default: -24.0
         Earliest onset relative to the first volume that will be modeled.
+    uniformity_tolerance : float, default: 1e-5
+        Maximum allowed relative range of consecutive intervals in `volume_times`,
+        defined as `(max_interval - min_interval) / median_interval`.
 
     Returns
     -------
@@ -493,7 +509,12 @@ def _compute_condition_regressors(
     )
 
     kernels = _hrf_kernel(
-        hrf_model, _compute_sampling_interval(volume_times), oversampling, fir_delays
+        hrf_model,
+        _compute_sampling_interval(
+            volume_times, uniformity_tolerance=uniformity_tolerance
+        ),
+        oversampling,
+        fir_delays,
     )
     convolved = np.array(
         [
@@ -591,6 +612,7 @@ def make_first_level_design_matrix(
     confound_names: list[str] | None = None,
     oversampling: int = 50,
     min_onset: float = -24.0,
+    uniformity_tolerance: float = 1e-5,
 ) -> pd.DataFrame:
     """Create a first-level design matrix from events and confounds.
 
@@ -621,6 +643,11 @@ def make_first_level_design_matrix(
         Oversampling factor for HRF convolution.
     min_onset : float, default: -24.0
         Minimum onset time in seconds for event regressors.
+    uniformity_tolerance : float, default: 1e-5
+        Maximum allowed relative range of consecutive intervals in `volume_times`,
+        defined as `(max_interval - min_interval) / median_interval`. Raise a
+        `ValueError` if the time coordinate exceeds this threshold. Increase this
+        value to tolerate slight timestamp jitter (e.g. from acquisition clocks).
 
     Returns
     -------
@@ -628,7 +655,9 @@ def make_first_level_design_matrix(
         Design matrix with indexed by `volume_times`.
     """
     n_volumes = len(volume_times)
-    dt = _compute_sampling_interval(volume_times)
+    dt = _compute_sampling_interval(
+        volume_times, uniformity_tolerance=uniformity_tolerance
+    )
 
     if isinstance(hrf_model, str):
         hrf_model = hrf_model.lower()
@@ -654,6 +683,7 @@ def make_first_level_design_matrix(
                 fir_delays=fir_delays,
                 oversampling=oversampling,
                 min_onset=min_onset,
+                uniformity_tolerance=uniformity_tolerance,
             )
             regressors.extend(
                 condition_regressors[:, i] for i in range(condition_regressors.shape[1])
