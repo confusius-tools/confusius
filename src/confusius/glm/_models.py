@@ -310,11 +310,13 @@ class ARModel:
         Q = np.einsum("itk,tv->ikv", L, whitened_Y)  # (order, K, V)
         XtY = P.T - np.einsum("iv,ikv->vk", self.rho, Q)  # (V, K)
 
+        # Per-voxel normalized covariance and beta via pseudoinverse, so a
+        # rank-deficient user-supplied design produces a min-norm solution
+        # instead of a `LinAlgError` (matches `OLSModel`'s `spl.pinv` and
+        # nilearn's single-rho `ARModel`, which inherits OLS's pinv).
+        cov_beta = np.linalg.pinv(XtX)  # (V, K, K)
         # beta: (V, K) transposed to (K, V) to match convention.
-        beta = np.linalg.solve(XtX, XtY[..., np.newaxis])[..., 0].T
-
-        # Per-voxel normalized covariance: (V, K, K) = (XtX)^{-1}
-        cov_beta = np.linalg.inv(XtX)
+        beta = np.einsum("vij,vj->vi", cov_beta, XtY).T
 
         # Whitened residuals: wresid = wY - wX @ beta, computed without wX.
         # wX[v] @ beta[:,v] = X @ beta[:,v] - sum_i rho[i,v] * L[i] @ beta[:,v]
