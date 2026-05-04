@@ -29,7 +29,7 @@ def _is_h5py_backed(data: xr.DataArray) -> bool:
             for v in layer.values():
                 if isinstance(v, h5py.Dataset):
                     return True
-    except (AttributeError, ImportError):
+    except (AttributeError, ImportError):  # pragma: no cover
         pass
     return False
 
