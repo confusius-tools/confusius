@@ -211,7 +211,7 @@ def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
         np.ones(30, dtype=bool), dims=["space"], coords={"space": np.arange(30)}
     )
 
-    with pytest.raises(ValueError, match="do not match"):
+    with pytest.raises(ValueError, match="does not match"):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
 
 

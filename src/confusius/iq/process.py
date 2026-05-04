@@ -154,7 +154,7 @@ def _summarize_window_duration(
     durations: npt.NDArray,
     *,
     description: str,
-    uniformity_tolerance: float = 1e-5,
+    uniformity_tolerance: float = 1e-2,
 ) -> float:
     """Return a representative window duration for metadata.
 
@@ -169,8 +169,9 @@ def _summarize_window_duration(
     description : str
         Description of the duration being summarized, used in the warning message if
         durations are not uniform.
-    uniformity_tolerance : float, default: 1e-5
-        Maximum allowed relative range `(max_duration - min_duration) / median_duration`
+    uniformity_tolerance : float, default: 1e-2
+        Maximum allowed per-interval relative deviation from the median duration. Each
+        duration must satisfy `|duration - median| <= uniformity_tolerance * |median|`
         for the durations to be considered uniform.
 
     Returns
@@ -184,9 +185,9 @@ def _summarize_window_duration(
         return float(durations[0])
 
     median = float(np.median(durations))
-    is_uniform = (np.max(durations) - np.min(durations)) / abs(
-        median
-    ) <= uniformity_tolerance
+    is_uniform = bool(
+        np.allclose(durations, median, rtol=uniformity_tolerance, atol=0.0)
+    )
 
     if not is_uniform:
         warnings.warn(

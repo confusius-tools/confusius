@@ -54,6 +54,8 @@ def validate_matching_coordinates(
     right: xr.DataArray,
     coord_names: Hashable | Iterable[Hashable] | None = None,
     *,
+    left_name: str = "left array",
+    right_name: str = "right array",
     rtol: float = 1e-5,
     atol: float = 1e-8,
 ) -> None:
@@ -74,6 +76,11 @@ def validate_matching_coordinates(
     coord_names : Hashable | Iterable[Hashable] | None, default: None
         Coordinate names to compare. If not specified, all shared dimension coordinates
         are checked.
+    left_name : str, default: "left array"
+        Label used for `left` in error messages. Override with a context-specific name
+        (e.g. `"run 0"`, `"map 0"`) for more actionable errors.
+    right_name : str, default: "right array"
+        Label used for `right` in error messages.
     rtol : float, default: 1e-5
         Relative tolerance used for numeric coordinate comparison.
     atol : float, default: 1e-8
@@ -93,9 +100,9 @@ def validate_matching_coordinates(
 
     for name in names:
         if name not in left.coords:
-            raise ValueError(f"Left array is missing coordinate '{name}'.")
+            raise ValueError(f"Coordinate '{name}' is missing from {left_name}.")
         if name not in right.coords:
-            raise ValueError(f"Right array is missing coordinate '{name}'.")
+            raise ValueError(f"Coordinate '{name}' is missing from {right_name}.")
         left_coord = left.coords[name]
         right_coord = right.coords[name]
         if not _coordinates_match(left_coord, right_coord, rtol=rtol, atol=atol):
@@ -108,7 +115,8 @@ def validate_matching_coordinates(
                 else "with exact equality"
             )
             raise ValueError(
-                f"Coordinate '{name}' does not match between arrays ({comparison}).\n"
-                f"  Left {name}: {left_coord.values}\n"
-                f"  Right {name}: {right_coord.values}"
+                f"Coordinate '{name}' does not match between {left_name} and "
+                f"{right_name} ({comparison}).\n"
+                f"  {left_name}: {left_coord.values}\n"
+                f"  {right_name}: {right_coord.values}"
             )

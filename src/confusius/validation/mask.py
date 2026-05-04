@@ -15,6 +15,10 @@ def _validate_spatial_coords(
 ) -> None:
     """Validate spatial dimensions and coordinates of `spatial_da` against `data`.
 
+    Asserts that `spatial_da.dims` is a subset of `data.dims`, then delegates
+    coordinate comparison to
+    [`validate_matching_coordinates`][confusius.validation.coordinates.validate_matching_coordinates].
+
     Parameters
     ----------
     spatial_da : xarray.DataArray
@@ -22,7 +26,7 @@ def _validate_spatial_coords(
     data : xarray.DataArray
         Reference data array.
     name : str
-        Name used in error messages.
+        Label used for `spatial_da` in error messages.
     rtol : float
         Relative tolerance for coordinate comparison.
     atol : float
@@ -43,47 +47,25 @@ def _validate_spatial_coords(
         )
 
     non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
-    if non_spatial_dims:
-        sel_dict = {d: 0 for d in non_spatial_dims}
-        template = data.isel(sel_dict)
-    else:
-        template = data
+    template = data.isel({d: 0 for d in non_spatial_dims}) if non_spatial_dims else data
 
-    for dim in spatial_dims:
-        data_has_coord = dim in template.coords
-        da_has_coord = dim in spatial_da.coords
+    # Skip dims that have no coord on either side (bare-dim arrays). When exactly
+    # one side has a coord, validate_matching_coordinates raises informatively.
+    checkable = [
+        d for d in spatial_dims if d in spatial_da.coords or d in template.coords
+    ]
+    if not checkable:
+        return
 
-        if data_has_coord and not da_has_coord:
-            raise ValueError(
-                f"{name} is missing coordinate '{dim}' that exists in data."
-            )
-
-        if da_has_coord and not data_has_coord:
-            raise ValueError(f"{name} has coordinate '{dim}' but data does not.")
-
-        if data_has_coord and da_has_coord:
-            da_coord_vals = spatial_da.coords[dim].values
-            data_coord_vals = template.coords[dim].values
-
-            if da_coord_vals.shape != data_coord_vals.shape:
-                raise ValueError(
-                    f"{name} coordinates for dimension '{dim}' do not match "
-                    f"data coordinates (different shapes).\n"
-                    f"  Data {dim} shape: {data_coord_vals.shape}\n"
-                    f"  {name} {dim} shape: {da_coord_vals.shape}"
-                )
-
-            try:
-                validate_matching_coordinates(
-                    spatial_da, template, dim, rtol=rtol, atol=atol
-                )
-            except ValueError as exc:
-                raise ValueError(
-                    f"{name} coordinates for dimension '{dim}' do not match "
-                    f"data coordinates (within rtol={rtol}, atol={atol}).\n"
-                    f"  Data {dim}: {data_coord_vals}\n"
-                    f"  {name} {dim}: {da_coord_vals}"
-                ) from exc
+    validate_matching_coordinates(
+        spatial_da,
+        template,
+        checkable,
+        left_name=name,
+        right_name="data",
+        rtol=rtol,
+        atol=atol,
+    )
 
 
 def validate_mask(

@@ -5,52 +5,10 @@ License 2.0. See `NOTICE` file for details.
 """
 
 import numpy as np
-import numpy.typing as npt
 import xarray as xr
 
+from confusius.glm._utils import estimate_ar_coeffs
 from confusius.validation import validate_time_series
-
-
-def _ar1_yule_walker(signal: npt.NDArray) -> float:
-    """Estimate AR(1) coefficient using Yule-Walker equations.
-
-    The Yule-Walker equations estimate the autoregressive coefficients of a process by
-    solving a system of linear equations involving the autocorrelation sequence.
-
-    For an AR(1) process `x(n) = a(1) * x(n-1) + e(n)`, the Yule-Walker equation
-    is: `R(1) = a(1) * R(0)`, where `R(k)` is the autocorrelation at lag `k`.
-
-    Parameters
-    ----------
-    signal : (t,) numpy.ndarray
-        Array of signal values.
-
-    Returns
-    -------
-    float
-        The AR(1) coefficient `a(1)`.
-
-    Notes
-    -----
-    For AR(1), we only need autocorrelation at lags 0 and 1, so we use direct
-    computation (`O(n)`) rather than FFT-based methods (`O(n log n)`).
-    """
-    signal = np.asarray(signal, dtype=np.float64)
-    signal = signal - signal.mean()
-
-    n = len(signal)
-
-    # Direct computation of autocorrelation at lags 0 and 1.
-    # For AR(1), we only need these two values, so full FFT is unnecessary.
-    r0 = np.dot(signal, signal) / n  # lag 0
-    r1 = np.dot(signal[:-1], signal[1:]) / n  # lag 1
-
-    # AR(1) coefficient: R(1) / R(0).
-    # Add small regularization to avoid division by zero.
-    if r0 < 1e-15:
-        return 0.0
-
-    return np.clip(r1 / r0, -1.0, 1.0)
 
 
 def compute_dvars(
@@ -222,15 +180,13 @@ def compute_dvars(
 
     signals_np = signals.values
     # This isn't a robust estimator of AR(1).
-    ar1 = np.array(
-        [_ar1_yule_walker(signals_np[:, i]) for i in range(signals_np.shape[1])]
-    )
+    ar1, _ = estimate_ar_coeffs(signals_np, order=1)
 
     # For an AR(1) process, the variance of temporal differences is:
     # Var(diff) = Var(x) * (2 * (1 - rho)) = 2 * (1 - rho) * sigma^2
     # where rho is the AR(1) coefficient and sigma^2 is the process variance. See
     # Nichols (2017).
-    diff_sdhat = np.sqrt(2 * (1 - ar1)) * signals_sd
+    diff_sdhat = np.sqrt(2 * (1 - ar1.squeeze())) * signals_sd
 
     dvars_stdz = dvars_nstd / np.mean(diff_sdhat)
 

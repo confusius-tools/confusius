@@ -171,7 +171,7 @@ def get_representative_time_step(
     data: xr.DataArray,
     *,
     unit: str | None = None,
-    uniformity_tolerance: float = 1e-5,
+    uniformity_tolerance: float = 1e-2,
 ) -> tuple[float | None, bool]:
     """Return a representative time step for the time coordinate.
 
@@ -182,9 +182,10 @@ def get_representative_time_step(
     unit : str or None, default: None
         Unit in which to evaluate the representative step. If `None`, use the native
         units of the time coordinate.
-    uniformity_tolerance : float, default: 1e-5
-        Maximum allowed relative range `(max_diff - min_diff) / median_diff` for the
-        time coordinate to be considered uniform.
+    uniformity_tolerance : float, default: 1e-2
+        Maximum allowed per-interval relative deviation from the median consecutive
+        difference for the time coordinate to be considered uniform (see
+        [`get_representative_step`][confusius._utils.get_representative_step]).
 
     Returns
     -------

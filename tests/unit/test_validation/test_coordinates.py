@@ -102,7 +102,9 @@ def test_validate_matching_coordinates_raises_for_missing_left_coordinate():
     left = xr.DataArray(np.arange(3), dims=["time"])
     right = xr.DataArray(np.arange(3), dims=["time"], coords={"time": np.arange(3)})
 
-    with pytest.raises(ValueError, match="Left array is missing coordinate 'time'"):
+    with pytest.raises(
+        ValueError, match="Coordinate 'time' is missing from left array"
+    ):
         validate_matching_coordinates(left, right, "time")
 
 
@@ -111,8 +113,30 @@ def test_validate_matching_coordinates_raises_for_missing_right_coordinate():
     left = xr.DataArray(np.arange(3), dims=["time"], coords={"time": np.arange(3)})
     right = xr.DataArray(np.arange(3), dims=["time"])
 
-    with pytest.raises(ValueError, match="Right array is missing coordinate 'time'"):
+    with pytest.raises(
+        ValueError, match="Coordinate 'time' is missing from right array"
+    ):
         validate_matching_coordinates(left, right, "time")
+
+
+def test_validate_matching_coordinates_uses_custom_array_names_in_errors():
+    """Custom left/right names propagate into error messages."""
+    left = xr.DataArray(np.arange(3), dims=["time"], coords={"time": np.arange(3)})
+    right = xr.DataArray(np.arange(3), dims=["time"], coords={"time": np.arange(3) + 1})
+
+    with pytest.raises(
+        ValueError,
+        match=r"Coordinate 'time' does not match between run 0 and run 3",
+    ):
+        validate_matching_coordinates(
+            left, right, "time", left_name="run 0", right_name="run 3"
+        )
+
+    missing = xr.DataArray(np.arange(3), dims=["time"])
+    with pytest.raises(
+        ValueError, match="Coordinate 'time' is missing from run 3"
+    ):
+        validate_matching_coordinates(left, missing, "time", right_name="run 3")
 
 
 def test_validate_matching_coordinates_raises_on_shape_mismatch():

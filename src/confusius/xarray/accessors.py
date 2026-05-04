@@ -157,8 +157,8 @@ class FUSIAccessor:
         """Coordinate spacing for all dimensions.
 
         Spacing is computed as the median of consecutive coordinate differences.
-        A coordinate is considered uniform if its relative interval range
-        `(max_diff - min_diff) / median_diff` is below 1%.
+        A coordinate is considered uniform if every interval is within 1% of the
+        median interval (per-interval `|diff - median| <= 0.01 * |median|`).
 
         Returns
         -------

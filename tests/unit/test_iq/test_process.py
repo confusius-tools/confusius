@@ -1001,7 +1001,10 @@ class TestDataArrayClutterMask:
             },
         )
 
-        with pytest.raises(ValueError, match="do not match data coordinates"):
+        with pytest.raises(
+            ValueError,
+            match=r"does not match between clutter_mask and data",
+        ):
             process_iq_to_power_doppler(
                 iq,
                 clutter_mask=mask_dataarray,
@@ -1025,7 +1028,7 @@ class TestDataArrayClutterMask:
             },
         )
 
-        with pytest.raises(ValueError, match="missing coordinate"):
+        with pytest.raises(ValueError, match=r"is missing from clutter_mask"):
             process_iq_to_power_doppler(
                 iq,
                 clutter_mask=mask_dataarray,
@@ -1049,7 +1052,10 @@ class TestDataArrayClutterMask:
             },
         )
 
-        with pytest.raises(ValueError, match="do not match data coordinates"):
+        with pytest.raises(
+            ValueError,
+            match=r"does not match between clutter_mask and data",
+        ):
             process_iq_to_power_doppler(
                 iq,
                 clutter_mask=mask_dataarray,
