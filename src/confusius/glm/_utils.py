@@ -158,10 +158,11 @@ def estimate_ar_coeffs(
     sigma : float or (n_voxels,) numpy.ndarray
         Residual standard deviation. Scalar for 1D input, array for 2D.
 
-    Raises
-    ------
-    LinAlgError
-        If the Toeplitz autocorrelation matrix is singular.
+    Warns
+    -----
+    UserWarning
+        If the Toeplitz autocorrelation matrix is singular for some voxels;
+        the affected voxels fall back to a pseudoinverse solve.
 
     Examples
     --------
