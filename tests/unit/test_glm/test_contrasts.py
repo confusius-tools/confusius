@@ -270,26 +270,47 @@ class TestContrastArithmetic:
         with pytest.raises(ValueError, match="dimensions"):
             con1 + con2
 
-    def test_add_different_baselines_raises(self):
-        """Cannot add contrasts with different baselines."""
-        con1 = Contrast.from_estimate(np.ones(5), np.ones(5), baseline=0.0)
-        con2 = Contrast.from_estimate(np.ones(5), np.ones(5), baseline=1.0)
+    def test_add_sums_baselines(self):
+        """Adding contrasts sums their baselines so the combined null `Σ E = Σ b`
+        stays unbiased (each operand contributes its own `b_i` to the joint mean
+        of the sum)."""
+        con1 = Contrast.from_estimate(np.ones(5), np.ones(5), baseline=0.5)
+        con2 = Contrast.from_estimate(np.ones(5), np.ones(5), baseline=2.0)
 
-        with pytest.raises(ValueError, match="baselines"):
-            con1 + con2
+        combined = con1 + con2
+
+        assert combined.baseline == 2.5
 
     def test_multiply_by_scalar(self):
-        """Multiplying contrast by scalar scales effect and variance."""
+        """Multiplying contrast by scalar scales effect, variance, and baseline."""
         effect = np.ones(5)
         variance = np.ones(5) * 4
 
-        contrast = Contrast.from_estimate(effect, variance)
+        contrast = Contrast.from_estimate(effect, variance, baseline=0.5)
         scaled = contrast * 2
 
-        # Effect multiplied by 2.
         assert_array_equal(scaled.effect, effect * 2)
-        # Variance multiplied by 4 (2^2).
         assert_array_equal(scaled.variance, variance * 4)
+        assert scaled.baseline == 1.0
+
+    def test_multiply_preserves_statistic_with_nonzero_baseline(self):
+        """Statistic is invariant (up to sign) under scalar rescaling, even
+        when the baseline is non-zero.
+
+        This is the property that makes multi-run averaging via
+        `combined * (1 / n_runs)` correct: the test statistic for the same
+        null hypothesis is preserved regardless of the rescaling factor.
+        """
+        contrast = Contrast.from_estimate(
+            effect=np.array([2.0, 4.0, 6.0]),
+            variance=np.array([1.0, 1.0, 1.0]),
+            baseline=1.5,
+            dof=20,
+        )
+        scaled = contrast * 3.0
+
+        # Statistic preserved up to sign (positive scalar → no sign flip).
+        assert_allclose(scaled.statistic, contrast.statistic, rtol=1e-12)
 
     def test_multiply_commutative(self):
         """Scalar multiplication is commutative."""

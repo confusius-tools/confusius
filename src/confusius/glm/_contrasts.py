@@ -232,13 +232,18 @@ class Contrast:
     def __add__(self, other: Contrast) -> Contrast:
         """Combine two contrasts via fixed-effects (independent runs).
 
-        Effects, variances, and degrees of freedom are summed. The combined result
-        inherits `stat_type` and `baseline` from the operands, which must match.
+        Effects, variances, baselines, and degrees of freedom are summed.
+        Baselines sum because the combined null is `Σ E_i = Σ b_i`: under
+        per-run nulls `E_i ~ N(b_i, V_i)`, the sum `Σ E_i` has mean `Σ b_i`,
+        so the combined statistic `(Σ E_i − Σ b_i) / sqrt(Σ V_i)` is
+        unbiased. Inverse-scaling via `__rmul__` then recovers the per-run
+        baseline (e.g. summing `n` runs at `b` and dividing by `n` returns
+        baseline `b`, the desired pooled estimate).
 
         Raises
         ------
         ValueError
-            If the operands have different `stat_type`, `dim`, or `baseline`.
+            If the operands have different `stat_type` or `dim`.
         """
         if self.stat_type != other.stat_type:
             raise ValueError(
@@ -250,11 +255,6 @@ class Contrast:
                 "Cannot add contrasts with different dimensions: "
                 f"{self.dim} vs {other.dim}"
             )
-        if self.baseline != other.baseline:
-            raise ValueError(
-                "Cannot add contrasts with different baselines: "
-                f"{self.baseline} vs {other.baseline}"
-            )
 
         return Contrast.from_estimate(
             effect=self.effect + other.effect,
@@ -262,13 +262,19 @@ class Contrast:
             dim=self.dim,
             dof=self.dof + other.dof,
             stat_type=self.stat_type,
-            baseline=self.baseline,
+            baseline=self.baseline + other.baseline,
             tiny=self.tiny,
             dofmax=self.dofmax,
         )
 
     def __rmul__(self, scalar: float) -> Contrast:
-        """Scale the contrast by a scalar (effect by *s*, variance by *s*²)."""
+        """Scale the contrast by a scalar (effect/baseline by *s*, variance by *s*²).
+
+        Baseline scales with the effect so that the test statistic is preserved
+        up to sign: `(s·E - s·b) / sqrt(s²·V) = sign(s) · (E - b) / sqrt(V)`.
+        Leaving `baseline` unchanged would silently break tests with non-zero
+        baselines (e.g. multi-run averaging via `combined * (1/n_runs)`).
+        """
         scalar = float(scalar)
         return Contrast.from_estimate(
             effect=self.effect * scalar,
@@ -276,7 +282,7 @@ class Contrast:
             dim=self.dim,
             dof=self.dof,
             stat_type=self.stat_type,
-            baseline=self.baseline,
+            baseline=self.baseline * scalar,
             tiny=self.tiny,
             dofmax=self.dofmax,
         )
