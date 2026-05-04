@@ -1,5 +1,10 @@
 """Unit tests for volumewise registration functions."""
 
+import tempfile
+from pathlib import Path
+
+import dask.array as da
+import h5py
 import numpy as np
 import pytest
 import xarray as xr
@@ -16,6 +21,57 @@ class TestRegisterVolumewise:
         data = xr.DataArray(np.zeros((10, 10)), dims=("y", "x"))
         with pytest.raises(ValueError, match="Time dimension 'time' not found"):
             register_volumewise(data)
+
+    def test_h5py_backed_raises_with_parallel_jobs(self, sample_2d_image):
+        """h5py-backed DataArray raises TypeError when n_jobs != 1."""
+        n_frames = 3
+        data = np.stack([sample_2d_image] * n_frames, axis=0).astype(np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            with h5py.File(tmp_path, "w") as f:
+                f.create_dataset("data", data=data)
+            with h5py.File(tmp_path, "r") as f:
+                raw_lazy = da.from_array(f["data"], chunks=n_frames, asarray=False)
+                h5py_da = xr.DataArray(
+                    raw_lazy,
+                    dims=("time", "y", "x"),
+                    coords={
+                        "time": np.arange(n_frames) * 0.1,
+                        "y": np.arange(32) * 0.1,
+                        "x": np.arange(32) * 0.1,
+                    },
+                )
+                with pytest.raises(TypeError, match="h5py dataset"):
+                    register_volumewise(h5py_da, n_jobs=2)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_h5py_backed_works_with_n_jobs_1(self, sample_2d_image):
+        """h5py-backed DataArray with n_jobs=1 does not raise."""
+        n_frames = 3
+        data = np.stack([sample_2d_image] * n_frames, axis=0).astype(np.float32)
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            with h5py.File(tmp_path, "w") as f:
+                f.create_dataset("data", data=data)
+            with h5py.File(tmp_path, "r") as h5:
+                raw_lazy = da.from_array(h5["data"], chunks=n_frames, asarray=False)
+                h5py_da = xr.DataArray(
+                    raw_lazy,
+                    dims=("time", "y", "x"),
+                    coords={
+                        "time": np.arange(n_frames) * 0.1,
+                        "y": np.arange(32) * 0.1,
+                        "x": np.arange(32) * 0.1,
+                    },
+                )
+                # n_jobs=1 (serial) should not raise for h5py-backed data.
+                result = register_volumewise(h5py_da, n_jobs=1, transform="translation")
+            assert result.shape == h5py_da.shape
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
     def test_wrong_dimensionality_raises(self):
         """Data that is neither 2D+t nor 3D+t raises ValueError."""
