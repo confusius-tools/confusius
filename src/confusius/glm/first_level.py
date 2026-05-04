@@ -439,18 +439,16 @@ class FirstLevelModel(BaseEstimator):
         elif not isinstance(confounds, list):
             confounds_list = [confounds] * n_runs
         else:
-            confounds_list = list(confounds)
+            confounds_list = confounds
 
         if len(confounds_list) != n_runs:
             raise ValueError(
                 f"Got {len(confounds_list)} confound entries for {n_runs} runs."
             )
 
-        dm_list: list[pd.DataFrame] = []
-        for run_idx in range(n_runs):
-            volume_times = run_data[run_idx].coords["time"].values
-            dm = make_first_level_design_matrix(
-                volume_times,
+        return [
+            make_first_level_design_matrix(
+                run_data[run_idx].coords["time"].values,
                 events=events_list[run_idx],
                 hrf_model=self.hrf_model,
                 drift_model=self.drift_model,
@@ -462,8 +460,8 @@ class FirstLevelModel(BaseEstimator):
                 min_onset=self.min_onset,
                 uniformity_tolerance=self.uniformity_tolerance,
             )
-            dm_list.append(dm)
-        return dm_list
+            for run_idx in range(n_runs)
+        ]
 
     def _parse_noise_model(self) -> int:
         """Parse `self.noise_model` and return the AR order.
