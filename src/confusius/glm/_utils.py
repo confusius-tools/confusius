@@ -6,14 +6,21 @@ import warnings
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import xarray as xr
 
 from confusius._utils import find_stack_level
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     import numpy.typing as npt
-    import xarray as xr
+
+    from confusius.glm._contrasts import Contrast
+
+
+CONTRAST_OUTPUT_TYPES = ("zscore", "statistic", "pvalue", "effect", "variance")
+"""Valid `output_type` values for
+[`select_contrast_map`][confusius.glm._utils.select_contrast_map]."""
 
 
 def _attrs_equal(a: Any, b: Any) -> bool:
@@ -240,3 +247,153 @@ def expression_to_contrast_vector(
             f"Make sure all column names are valid Python identifiers. "
             f"Original error: {e}"
         ) from e
+
+
+def select_contrast_map(
+    contrast: Contrast, output_type: str
+) -> npt.NDArray[np.floating]:
+    """Return the named statistical map from a [`Contrast`][confusius.glm.Contrast].
+
+    Parameters
+    ----------
+    contrast : Contrast
+        Fitted contrast object.
+    output_type : str
+        One of `"zscore"`, `"statistic"`, `"pvalue"`, `"effect"`, `"variance"`. Each
+        value names a `Contrast` attribute.
+
+    Returns
+    -------
+    numpy.ndarray
+        The requested map (1D for scalar contrasts, 2D for *F*-contrast effect maps).
+
+    Raises
+    ------
+    ValueError
+        If `output_type` is not recognized.
+    """
+    if output_type not in CONTRAST_OUTPUT_TYPES:
+        raise ValueError(
+            f"output_type must be one of {sorted(CONTRAST_OUTPUT_TYPES)}, "
+            f"got '{output_type}'."
+        )
+    return getattr(contrast, output_type)
+
+
+def resolve_contrast_vector(
+    contrast_def: str | npt.NDArray[np.floating],
+    columns: list[str],
+    *,
+    context: str = "",
+) -> npt.NDArray[np.floating]:
+    """Resolve a contrast definition to a numeric vector or matrix.
+
+    String expressions are parsed via
+    [`expression_to_contrast_vector`][confusius.glm._utils.expression_to_contrast_vector].
+    Numeric arrays shorter than `len(columns)` are zero-padded; arrays wider than
+    `len(columns)` raise.
+
+    Parameters
+    ----------
+    contrast_def : str or numpy.ndarray
+        Contrast definition.
+    columns : list of str
+        Design matrix column names.
+    context : str, default: ""
+        Suffix included in error messages, e.g. `"for run 0"`.
+
+    Returns
+    -------
+    (n_columns,) or (q, n_columns) numpy.ndarray
+        Numeric contrast vector or matrix.
+
+    Raises
+    ------
+    ValueError
+        If the contrast exceeds the number of design columns or has invalid
+        dimensionality.
+    """
+    if isinstance(contrast_def, str):
+        return expression_to_contrast_vector(contrast_def, columns)
+
+    contrast_def = np.asarray(contrast_def)
+    n_cols = len(columns)
+    suffix = f" {context}" if context else ""
+
+    if contrast_def.ndim == 1:
+        if contrast_def.shape[0] > n_cols:
+            raise ValueError(
+                f"Contrast vector length ({contrast_def.shape[0]}) exceeds "
+                f"number of design columns ({n_cols}){suffix}."
+            )
+        if contrast_def.shape[0] < n_cols:
+            # Zero-pad e.g. when the user only specifies condition regressors.
+            padded = np.zeros(n_cols)
+            padded[: contrast_def.shape[0]] = contrast_def
+            return padded
+        return contrast_def
+
+    if contrast_def.ndim == 2:
+        if contrast_def.shape[1] > n_cols:
+            raise ValueError(
+                f"Contrast matrix width ({contrast_def.shape[1]}) exceeds "
+                f"number of design columns ({n_cols}){suffix}."
+            )
+        if contrast_def.shape[1] < n_cols:
+            padded = np.zeros((contrast_def.shape[0], n_cols))
+            padded[:, : contrast_def.shape[1]] = contrast_def
+            return padded
+        return contrast_def
+
+    raise ValueError("Contrast must be a string, 1D, or 2D array.")
+
+
+def to_spatial_dataarray(
+    flat: npt.NDArray[np.floating],
+    *,
+    spatial_dims: tuple[str, ...],
+    spatial_shape: tuple[int, ...],
+    coords: Mapping[str, xr.Variable],
+    attrs: Mapping[str, object],
+    name: str,
+) -> xr.DataArray:
+    """Reshape a flat voxel array into a spatial [`xarray.DataArray`][xarray.DataArray].
+
+    Handles both scalar maps `(n_voxels,)` and *F*-contrast effect maps
+    `(contrast_dim, n_voxels)`; in the second case a leading `contrast_dim` axis is
+    added.
+
+    Parameters
+    ----------
+    flat : (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
+        Flat statistical map.
+    spatial_dims : tuple of str
+        Names of the spatial dimensions in their array layout order.
+    spatial_shape : tuple of int
+        Sizes of the spatial dimensions, matching `spatial_dims`.
+    coords : Mapping[str, xarray.Variable]
+        Spatial coordinates for any subset of `spatial_dims`. Missing dims have no
+        coordinate on the output.
+    attrs : Mapping[str, object]
+        Base attributes; merged with `long_name=name` and `cmap="coolwarm"`.
+    name : str
+        Value for the `long_name` DataArray attribute.
+
+    Returns
+    -------
+    xarray.DataArray
+        Map reshaped to the given spatial dimensions.
+    """
+    if flat.ndim == 2:
+        volume = flat.reshape((-1, *spatial_shape))
+        dims: tuple[str, ...] = ("contrast_dim", *spatial_dims)
+    else:
+        volume = flat.reshape(spatial_shape)
+        dims = spatial_dims
+
+    return xr.DataArray(
+        volume,
+        dims=dims,
+        coords={d: coords[d] for d in spatial_dims if d in coords},
+        attrs={**attrs, "long_name": name, "cmap": "coolwarm"},
+    )

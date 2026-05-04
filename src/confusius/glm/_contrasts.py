@@ -26,6 +26,8 @@ from confusius._utils import find_stack_level
 if TYPE_CHECKING:
     import numpy.typing as npt
 
+    from confusius.glm._models import RegressionResults
+
 
 def _pvalues_to_zscore(
     pvalue: npt.NDArray[np.float64],
@@ -227,6 +229,69 @@ class Contrast:
             zscore=zscore,
             tiny=tiny,
             dofmax=dofmax,
+        )
+
+    @classmethod
+    def from_results(
+        cls,
+        results: RegressionResults,
+        contrast_vec: npt.NDArray[np.floating],
+        *,
+        stat_type: Literal["t", "F"] | None = None,
+        baseline: float = 0.0,
+    ) -> Contrast:
+        """Build a [`Contrast`][confusius.glm.Contrast] from regression results.
+
+        Dispatches to a *t* or *F* contrast based on the shape of `contrast_vec`
+        (or `stat_type` when provided), then packages the per-voxel effect, variance,
+        and degrees of freedom into a [`Contrast`][confusius.glm.Contrast]. For
+        *F*-contrasts, the whitened-effect representation is used so that the standard
+        `sum(effect²) / dim / variance` formula in
+        [`from_estimate`][confusius.glm.Contrast.from_estimate] recovers the proper
+        quadratic-form *F* statistic — see
+        [`compute_f_contrast`][confusius.glm._models.RegressionResults.compute_f_contrast]
+        for the whitening derivation.
+
+        Parameters
+        ----------
+        results : RegressionResults
+            Fitted GLM results.
+        contrast_vec : (n_columns,) or (q, n_columns) numpy.ndarray
+            Numeric contrast vector (1D → *t*) or matrix (2D → *F*).
+        stat_type : {"t", "F"}, optional
+            Force the contrast type. By default, inferred from the shape of
+            `contrast_vec`.
+        baseline : float, default: 0.0
+            Null-hypothesis value tested against.
+
+        Returns
+        -------
+        Contrast
+            Result with `statistic`, `pvalue`, `one_minus_pvalue`, and `zscore`
+            precomputed.
+        """
+        c = np.atleast_2d(contrast_vec)
+        if stat_type is None:
+            stat_type = "F" if c.shape[0] > 1 else "t"
+
+        if stat_type == "t":
+            t_res = results.compute_t_contrast(contrast_vec)
+            return cls.from_estimate(
+                effect=np.atleast_1d(t_res["effect"]),
+                variance=np.atleast_1d(t_res["sd"]) ** 2,
+                dof=float(t_res["df_den"]),
+                stat_type="t",
+                baseline=baseline,
+            )
+
+        f_res = results.compute_f_contrast(contrast_vec)
+        return cls.from_estimate(
+            effect=f_res["whitened_effect"],
+            variance=f_res["dispersion"],
+            dof=float(f_res["df_den"]),
+            stat_type="F",
+            dim=int(f_res["df_num"]),
+            baseline=baseline,
         )
 
     def __add__(self, other: Contrast) -> Contrast:

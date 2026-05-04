@@ -19,7 +19,12 @@ from sklearn.base import BaseEstimator
 
 from confusius.glm._contrasts import Contrast
 from confusius.glm._models import OLSModel, RegressionResults
-from confusius.glm._utils import consensus_attrs, expression_to_contrast_vector
+from confusius.glm._utils import (
+    consensus_attrs,
+    resolve_contrast_vector,
+    select_contrast_map,
+    to_spatial_dataarray,
+)
 from confusius.glm.first_level import FirstLevelModel
 from confusius.validation.coordinates import validate_matching_coordinates
 
@@ -342,10 +347,10 @@ class SecondLevelModel(BaseEstimator):
         Parameters
         ----------
         second_level_contrast : str or numpy.ndarray, default: "intercept"
-            Contrast definition. A string is parsed as an expression over
-            design-matrix column names (e.g. `"group_A - group_B"`). A 1D array
-            specifies a *t*-contrast vector; a 2D array specifies an *F*-contrast
-            matrix. Defaults to `"intercept"` for a one-sample *t*-test.
+            Contrast definition. A string is parsed as an expression over design-matrix
+            column names (e.g. `"group_A - group_B"`). A 1D array specifies a
+            *t*-contrast vector; a 2D array specifies an *F*-contrast matrix. Defaults
+            to `"intercept"` for a one-sample *t*-test.
         stat_type : {"t", "F"}, optional
             Force the contrast type. By default inferred from the shape of the contrast
             (1D → *t*, 2D → *F*).
@@ -368,163 +373,20 @@ class SecondLevelModel(BaseEstimator):
         """
         self._check_is_fitted()
 
-        columns = list(self.design_matrix_.columns)
-        contrast_vec = self._resolve_contrast_vector(second_level_contrast, columns)
-
-        c = np.atleast_2d(contrast_vec)
-        if stat_type is None:
-            resolved_stat_type: Literal["t", "F"] = "F" if c.shape[0] > 1 else "t"
-        else:
-            resolved_stat_type = stat_type
-
-        if resolved_stat_type == "t":
-            t_res = self.results_.compute_t_contrast(contrast_vec)
-            contrast_obj = Contrast.from_estimate(
-                effect=np.atleast_1d(t_res["effect"]),
-                variance=np.atleast_1d(t_res["sd"]) ** 2,
-                dof=float(t_res["df_den"]),
-                stat_type="t",
-                baseline=baseline,
-            )
-        else:
-            f_res = self.results_.compute_f_contrast(contrast_vec)
-            q = int(f_res["df_num"])
-            # Whitened-effect + per-voxel residual variance form the F-contrast
-            # so that `Contrast` can recover the correct quadratic-form F via
-            # `sum(effect²) / dim / variance` — see
-            # [`compute_f_contrast`][confusius.glm._models.RegressionResults.compute_f_contrast].
-            contrast_obj = Contrast.from_estimate(
-                effect=f_res["whitened_effect"],
-                variance=f_res["dispersion"],
-                dof=float(f_res["df_den"]),
-                stat_type="F",
-                dim=int(q),
-                baseline=baseline,
-            )
-
-        flat = self._contrast_output(contrast_obj, output_type)
-        return self._to_dataarray(flat, output_type)
-
-    @staticmethod
-    def _resolve_contrast_vector(
-        contrast_def: str | npt.NDArray[np.floating],
-        columns: list[str],
-    ) -> npt.NDArray[np.floating]:
-        """Resolve a contrast definition to a numeric vector or matrix.
-
-        Parameters
-        ----------
-        contrast_def : str or numpy.ndarray
-            Contrast definition.
-        columns : list of str
-            Design matrix column names.
-
-        Returns
-        -------
-        numpy.ndarray
-            Numeric contrast vector or matrix.
-
-        Raises
-        ------
-        ValueError
-            If the contrast array is wider than the design or not 1D/2D.
-        """
-        if isinstance(contrast_def, str):
-            return expression_to_contrast_vector(contrast_def, columns)
-
-        contrast_def = np.asarray(contrast_def)
-
-        if contrast_def.ndim == 1:
-            if contrast_def.shape[0] > len(columns):
-                raise ValueError(
-                    f"Contrast vector length ({contrast_def.shape[0]}) exceeds "
-                    f"number of design columns ({len(columns)})."
-                )
-            if contrast_def.shape[0] < len(columns):
-                padded = np.zeros(len(columns))
-                padded[: contrast_def.shape[0]] = contrast_def
-                return padded
-            return contrast_def
-
-        if contrast_def.ndim == 2:
-            if contrast_def.shape[1] > len(columns):
-                raise ValueError(
-                    f"Contrast matrix width ({contrast_def.shape[1]}) exceeds "
-                    f"number of design columns ({len(columns)})."
-                )
-            if contrast_def.shape[1] < len(columns):
-                padded = np.zeros((contrast_def.shape[0], len(columns)))
-                padded[:, : contrast_def.shape[1]] = contrast_def
-                return padded
-            return contrast_def
-
-        raise ValueError("Contrast must be a string, 1D, or 2D array.")
-
-    @staticmethod
-    def _contrast_output(
-        contrast: Contrast,
-        output_type: str,
-    ) -> npt.NDArray[np.floating]:
-        """Extract the requested statistical map from a Contrast object.
-
-        Parameters
-        ----------
-        contrast : Contrast
-            Fitted contrast object.
-        output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}
-            Requested output. Each value names a `Contrast` attribute.
-
-        Returns
-        -------
-        (n_voxels,) numpy.ndarray
-            Flat statistical map.
-
-        Raises
-        ------
-        ValueError
-            If `output_type` is not recognized.
-        """
-        valid = {"zscore", "statistic", "pvalue", "effect", "variance"}
-        if output_type not in valid:
-            raise ValueError(
-                f"output_type must be one of {sorted(valid)}, got '{output_type}'."
-            )
-        return getattr(contrast, output_type)
-
-    def _to_dataarray(
-        self,
-        flat: npt.NDArray[np.floating],
-        name: str,
-    ) -> xr.DataArray:
-        """Reshape a flat voxel array into a spatial DataArray.
-
-        Parameters
-        ----------
-        flat : (n_voxels,) or (contrast_dim, n_voxels) numpy.ndarray
-            Flat statistical map.
-        name : str
-            Value for the `long_name` DataArray attribute.
-
-        Returns
-        -------
-        xarray.DataArray
-            Map reshaped to the spatial dimensions of the input maps.
-        """
-        if flat.ndim == 2:
-            volume = flat.reshape((-1, *self._spatial_shape))
-            dims = ("contrast_dim", *self._spatial_dims)
-        else:
-            volume = flat.reshape(self._spatial_shape)
-            dims = self._spatial_dims
-
-        attrs = {**self._input_attrs, "long_name": name, "cmap": "coolwarm"}
-        return xr.DataArray(
-            volume,
-            dims=dims,
-            coords={
-                d: self._coords[d] for d in self._spatial_dims if d in self._coords
-            },
-            attrs=attrs,
+        contrast_vec = resolve_contrast_vector(
+            second_level_contrast, list(self.design_matrix_.columns)
+        )
+        contrast_obj = Contrast.from_results(
+            self.results_, contrast_vec, stat_type=stat_type, baseline=baseline
+        )
+        flat = select_contrast_map(contrast_obj, output_type)
+        return to_spatial_dataarray(
+            flat,
+            spatial_dims=self._spatial_dims,
+            spatial_shape=self._spatial_shape,
+            coords=self._coords,
+            attrs=self._input_attrs,
+            name=output_type,
         )
 
     def _check_is_fitted(self) -> None:
