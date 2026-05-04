@@ -18,9 +18,10 @@ from sklearn.base import BaseEstimator
 
 from confusius.glm._contrasts import Contrast
 from confusius.glm._design import (
+    DriftModelSpec,
+    HrfModelSpec,
     make_first_level_design_matrix,
 )
-from confusius.glm._hrf_models import HRFModel
 from confusius.glm._models import ARModel, OLSModel, RegressionResults
 from confusius.glm._utils import (
     consensus_attrs,
@@ -81,8 +82,8 @@ class FirstLevelModel(BaseEstimator):
         to produce a custom HRF kernel.
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
-    high_pass : float, default: 0.01
-        High-pass filter cutoff in Hz (used with `drift_model="cosine"`).
+    low_cutoff : float, default: 0.01
+        Low cutoff frequency in hertz (used with `drift_model="cosine"`).
     drift_order : int, default: 1
         Polynomial order when `drift_model="polynomial"`.
     fir_delays : list of int, optional
@@ -134,9 +135,9 @@ class FirstLevelModel(BaseEstimator):
     def __init__(
         self,
         *,
-        hrf_model: str | HRFModel | None = "glover",
-        drift_model: str | None = "cosine",
-        high_pass: float = 0.01,
+        hrf_model: HrfModelSpec = "glover",
+        drift_model: DriftModelSpec = "cosine",
+        low_cutoff: float = 0.01,
         drift_order: int = 1,
         fir_delays: list[int] | None = None,
         noise_model: str = "ar1",
@@ -147,7 +148,7 @@ class FirstLevelModel(BaseEstimator):
     ) -> None:
         self.hrf_model = hrf_model
         self.drift_model = drift_model
-        self.high_pass = high_pass
+        self.low_cutoff = low_cutoff
         self.drift_order = drift_order
         self.fir_delays = fir_delays
         self.noise_model = noise_model
@@ -451,7 +452,7 @@ class FirstLevelModel(BaseEstimator):
                 events=events_list[run_idx],
                 hrf_model=self.hrf_model,
                 drift_model=self.drift_model,
-                high_pass=self.high_pass,
+                low_cutoff=self.low_cutoff,
                 drift_order=self.drift_order,
                 fir_delays=self.fir_delays,
                 confounds=confounds_list[run_idx],

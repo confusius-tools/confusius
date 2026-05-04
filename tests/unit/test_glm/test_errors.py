@@ -52,8 +52,8 @@ class TestDesignErrors:
         with pytest.raises(ValueError, match="drift_model"):
             _make_drift_regressors(100, "invalid", 0.01, 1, 0.1)
 
-    def test_make_drift_regressors_high_pass_warning(self):
-        """Large cosine high-pass triggers warning."""
+    def test_make_drift_regressors_low_cutoff_warning(self):
+        """Large cosine low cutoff triggers warning."""
         with pytest.warns(UserWarning, match="saturate the design matrix"):
             _make_drift_regressors(10, "cosine", 10.0, 1, 0.1)
 
@@ -434,4 +434,3 @@ class TestUtils:
         """3D array input raises ValueError."""
         with pytest.raises(ValueError, match="Expected 1D or 2D"):
             estimate_ar_coeffs(np.zeros((5, 5, 5)))
-

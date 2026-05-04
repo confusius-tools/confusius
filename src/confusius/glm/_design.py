@@ -11,7 +11,7 @@ License. See `NOTICE` file for details.
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -38,14 +38,13 @@ def _compute_sampling_interval(
     Parameters
     ----------
     volume_times : (n_volumes,) numpy.ndarray
-        Volume acquisition times in seconds. Must be strictly increasing and
-        uniformly spaced.
+        Volume acquisition times in seconds. Must be strictly increasing and uniformly
+        spaced.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed per-interval relative deviation from the median consecutive
         interval (see
-        [`get_representative_step`][confusius._utils.get_representative_step]).
-        Increase this value to tolerate slight timestamp jitter (e.g. from
-        acquisition clocks).
+        [`get_representative_step`][confusius._utils.get_representative_step]). Increase
+        this value to tolerate slight timestamp jitter (e.g. from acquisition clocks).
 
     Returns
     -------
@@ -60,9 +59,9 @@ def _compute_sampling_interval(
     """
     if volume_times.ndim != 1:
         raise ValueError("volume_times must be a 1D array.")
-    if len(volume_times) < 2:
+    elif len(volume_times) < 2:
         raise ValueError("Need at least 2 timepoints to compute sampling interval.")
-    if not np.all(np.diff(volume_times) > 0):
+    elif not np.all(np.diff(volume_times) > 0):
         raise ValueError("volume_times must be strictly increasing.")
 
     step, approximate = get_representative_step(
@@ -102,15 +101,15 @@ def _orthogonalize(X: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
         return X
 
     for i in range(1, X.shape[1]):
-        X[:, i] -= np.dot(np.dot(X[:, i], X[:, :i]), spla.pinv(X[:, :i]))
+        X[:, i] -= (X[:, i] @ X[:, :i]) @ spla.pinv(X[:, :i])
 
     return X
 
 
 def _make_drift_regressors(
     n_volumes: int,
-    drift_model: str | None,
-    high_pass: float,
+    drift_model: Literal["cosine", "polynomial"] | None,
+    low_cutoff: float,
     drift_order: int,
     dt: float,
 ) -> tuple[npt.NDArray[np.floating], list[str]]:
@@ -121,9 +120,9 @@ def _make_drift_regressors(
     n_volumes : int
         Number of volumes (timepoints).
     drift_model : {"cosine", "polynomial"} or None
-        Type of drift model. If None, only a constant regressor is returned.
-    high_pass : float
-        High-pass filter cutoff in Hz (used with `drift_model="cosine"`).
+        Type of drift model. If not specified, only a constant regressor is returned.
+    low_cutoff : float
+        Low cutoff frequency in hertz (used with `drift_model="cosine"`).
     drift_order : int
         Polynomial order (used with `drift_model="polynomial"`).
     dt : float
@@ -132,8 +131,7 @@ def _make_drift_regressors(
     Returns
     -------
     regressors : (n_volumes, n_drift_regressors) numpy.ndarray
-        Drift regressor matrix. Always includes a constant column as the last
-        column.
+        Drift regressor matrix. Always includes a constant column as the last column.
     names : list of str
         Names for each regressor column.
 
@@ -142,23 +140,19 @@ def _make_drift_regressors(
     ValueError
         If `drift_model` is not recognized.
     """
-    if isinstance(drift_model, str):
-        drift_model = drift_model.lower()
-
     volume_times = np.arange(n_volumes, dtype=np.float64) * dt
 
     if drift_model is None:
         return np.ones((n_volumes, 1)), ["constant"]
-
-    if drift_model == "cosine":
-        if high_pass * dt >= 0.5:
+    elif drift_model == "cosine":
+        if low_cutoff * dt >= 0.5:
             warnings.warn(
                 "High-pass filter will span all accessible frequencies and saturate "
-                f"the design matrix. The provided value is {high_pass} Hz.",
+                f"the design matrix. The provided value is {low_cutoff} Hz.",
                 stacklevel=find_stack_level(),
             )
 
-        order = min(n_volumes - 1, int(np.floor(2 * n_volumes * high_pass * dt)))
+        order = min(n_volumes - 1, int(np.floor(2 * n_volumes * low_cutoff * dt)))
         drift_regressors = np.zeros((n_volumes, order + 1))
         normalizer = np.sqrt(2.0 / n_volumes)
         n_times = np.arange(n_volumes, dtype=np.float64)
@@ -171,8 +165,7 @@ def _make_drift_regressors(
         drift_regressors[:, -1] = 1.0
         drift_names = [f"cosine_{k}" for k in range(1, order + 1)] + ["constant"]
         return drift_regressors, drift_names
-
-    if drift_model == "polynomial":
+    elif drift_model == "polynomial":
         drift_order = int(drift_order)
         if drift_order < 0:
             raise ValueError("drift_order must be >= 0.")
@@ -191,10 +184,10 @@ def _make_drift_regressors(
         drift_regressors = np.hstack((drift_regressors[:, 1:], drift_regressors[:, :1]))
         drift_names = [f"poly_{k}" for k in range(1, drift_order + 1)] + ["constant"]
         return drift_regressors, drift_names
-
-    raise ValueError(
-        f"drift_model must be 'cosine', 'polynomial', or None, got {drift_model}."
-    )
+    else:
+        raise ValueError(
+            f"drift_model must be 'cosine', 'polynomial', or None, got {drift_model}."
+        )
 
 
 def _validate_events(events: pd.DataFrame) -> pd.DataFrame:
@@ -300,7 +293,7 @@ def _validate_events(events: pd.DataFrame) -> pd.DataFrame:
 
 def _compute_n_volumes_high_res(
     volume_times: npt.NDArray[np.floating], min_onset: float, oversampling: int
-) -> float:
+) -> int:
     """Compute the length of the oversampled temporal grid.
 
     Parameters
@@ -315,8 +308,8 @@ def _compute_n_volumes_high_res(
 
     Returns
     -------
-    float
-        Number of timepoints in the high-resolution grid (before rounding).
+    int
+        Number of timepoints in the high-resolution grid.
     """
     n_volumes = volume_times.size
     volume_min = float(volume_times.min())
@@ -325,7 +318,7 @@ def _compute_n_volumes_high_res(
     n_volumes_high_res *= (
         volume_max * (1.0 + 1.0 / (n_volumes - 1)) - volume_min - min_onset
     ) * oversampling
-    return n_volumes_high_res + 1
+    return int(np.rint(n_volumes_high_res).item()) + 1
 
 
 def _sample_condition(
@@ -370,7 +363,7 @@ def _sample_condition(
     volume_times_high_res = np.linspace(
         volume_times.min() + min_onset,
         volume_times.max() * (1.0 + 1.0 / (n_volumes - 1)),
-        np.rint(n_volumes_high_res).astype(int),
+        n_volumes_high_res,
     )
 
     if (onsets < volume_times[0] + min_onset).any():
@@ -427,10 +420,15 @@ def _resample_regressor(
     return interp1d(volume_times_high_res, high_res_regressor)(volume_times).T
 
 
+HrfModelSpec: TypeAlias = (
+    Literal["glover", "spm", "verhoef2025", "claron2021", "fir"] | HRFModel | None
+)
+
+DriftModelSpec: TypeAlias = Literal["cosine", "polynomial"] | None
+
+
 def _regressor_names(
-    condition_name: str,
-    hrf_model: str | HRFModel | None,
-    fir_delays: list[int] | None = None,
+    condition_name: str, hrf_model: HrfModelSpec, fir_delays: list[int] | None = None
 ) -> list[str]:
     """Return column names for regressors derived from one condition.
 
@@ -438,7 +436,7 @@ def _regressor_names(
     ----------
     condition_name : str
         Name of the experimental condition.
-    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None
+    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"} or callable or None
         HRF model. FIR models generate one column name per delay; all other models
         produce a single column.
     fir_delays : list of int, optional
@@ -461,7 +459,7 @@ def _compute_condition_regressors(
     durations: npt.NDArray[np.floating],
     amplitudes: npt.NDArray[np.floating],
     volume_times: npt.NDArray[np.floating],
-    hrf_model: str | HRFModel | None,
+    hrf_model: HrfModelSpec,
     fir_delays: list[int] | None = None,
     oversampling: int = 50,
     min_onset: float = -24.0,
@@ -483,7 +481,7 @@ def _compute_condition_regressors(
         Stimulus amplitudes (modulations).
     volume_times : (n_volumes,) numpy.ndarray
         Acquisition times in seconds.
-    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None
+    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"} or callable or None
         HRF model.
     fir_delays : list of int, optional
         FIR delays in volumes (required when `hrf_model="fir"`).
@@ -551,11 +549,11 @@ def _prepare_confounds(
 
     Parameters
     ----------
-    confounds : (n_volumes, n_confounds) numpy.ndarray, pandas.DataFrame, or None
+    confounds : (n_volumes, n_confounds) numpy.ndarray or pandas.DataFrame or None
         Confound regressors.
     n_volumes : int
         Expected number of volumes (timepoints).
-    confound_names : list of str or None
+    confound_names : list[str] or None
         Column names when `confounds` is a numpy array. Ignored for DataFrames.
 
     Returns
@@ -608,9 +606,9 @@ def _prepare_confounds(
 def make_first_level_design_matrix(
     volume_times: npt.NDArray[np.floating],
     events: pd.DataFrame | None = None,
-    hrf_model: str | HRFModel | None = "glover",
-    drift_model: str | None = "cosine",
-    high_pass: float = 0.01,
+    hrf_model: HrfModelSpec = None,
+    drift_model: DriftModelSpec = "cosine",
+    low_cutoff: float = 0.01,
     drift_order: int = 1,
     fir_delays: list[int] | None = None,
     confounds: npt.NDArray[np.floating] | pd.DataFrame | None = None,
@@ -627,15 +625,15 @@ def make_first_level_design_matrix(
         Acquisition time of each volume in seconds.
     events : pandas.DataFrame, optional
         Events table with `onset`, `duration`, and `trial_type` columns.
-    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None, default: "glover"
+    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"} or callable or None, default: None
         Hemodynamic response function model. A callable matching the
-        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (i.e. a function
-        taking `dt` and `oversampling` and returning a 1D array) is invoked to
-        produce a custom HRF kernel.
+        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (i.e., a function taking
+        `dt` and `oversampling` and returning a 1D array) is invoked to produce a custom
+        HRF kernel.
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
-    high_pass : float, default: 0.01
-        High-pass filter cutoff in Hz (used with `drift_model="cosine"`).
+    low_cutoff : float, default: 0.01
+        Low cutoff frequency in hertz (used with `drift_model="cosine"`).
     drift_order : int, default: 1
         Polynomial order when `drift_model="polynomial"`.
     fir_delays : list of int, optional
@@ -667,11 +665,6 @@ def make_first_level_design_matrix(
     dt = _compute_sampling_interval(
         volume_times, uniformity_tolerance=uniformity_tolerance
     )
-
-    if isinstance(hrf_model, str):
-        hrf_model = hrf_model.lower()
-    if isinstance(drift_model, str):
-        drift_model = drift_model.lower()
 
     regressors: list[npt.NDArray[np.floating]] = []
     regressor_names: list[str] = []
@@ -713,7 +706,7 @@ def make_first_level_design_matrix(
     drift_regressors, drift_names = _make_drift_regressors(
         n_volumes=n_volumes,
         drift_model=drift_model,
-        high_pass=high_pass,
+        low_cutoff=low_cutoff,
         drift_order=drift_order,
         dt=dt,
     )

@@ -274,7 +274,7 @@ class SecondLevelModel(BaseEstimator):
                     "is a list of FirstLevelModel."
                 )
             return [
-                m.compute_contrast(first_level_contrast, output_type="effect")  # type: ignore[union-attr]
+                m.compute_contrast(first_level_contrast, output_type="effect")
                 for m in second_level_input
             ]
 
