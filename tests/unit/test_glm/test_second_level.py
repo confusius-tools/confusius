@@ -410,6 +410,26 @@ class TestSecondLevelModelErrors:
         with pytest.raises(ValueError, match="time' dimension"):
             model.fit(maps)
 
+    def test_first_level_f_contrast_effect_rejected(self):
+        """First-level F-contrast effect maps (with leading `contrast_dim`)
+        are rejected at the second-level boundary.
+
+        `FirstLevelModel.compute_contrast(F_matrix, output_type="effect")`
+        returns `(contrast_dim, *spatial)` arrays whose components are not
+        interchangeable subjects. Passing them as group-level inputs would
+        silently flatten contrast components into the spatial axes.
+        """
+        maps = [
+            xr.DataArray(
+                np.zeros((2, 3, 4)),
+                dims=["contrast_dim", "y", "x"],
+            )
+            for _ in range(5)
+        ]
+        model = SecondLevelModel()
+        with pytest.raises(ValueError, match="contrast_dim"):
+            model.fit(maps)
+
     def test_dropped_spatial_coord_raises(self, spatial_maps):
         """A subject map missing a spatial coord present on the reference is rejected."""
         maps = [spatial_maps[0], spatial_maps[1].drop_vars("z")]

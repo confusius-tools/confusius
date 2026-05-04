@@ -95,6 +95,46 @@ def make_second_level_design_matrix(
     return intercept
 
 
+def _validate_second_level_maps(maps: list[xr.DataArray]) -> None:
+    """Reject second-level inputs that aren't purely spatial contrast maps.
+
+    A stray `time` dimension would be flattened together with the spatial
+    axes, and an F-contrast effect map (extracted from a `FirstLevelModel`
+    via `output_type="effect"`) carries a leading `contrast_dim` axis whose
+    components are not interchangeable subjects.
+
+    Parameters
+    ----------
+    maps : list of xarray.DataArray
+        Per-subject contrast maps to validate.
+
+    Raises
+    ------
+    ValueError
+        If any map carries a `time` or `contrast_dim` axis. F-contrasts at
+        the group level should be requested through
+        `SecondLevelModel.compute_contrast(..., stat_type="F")` on
+        scalar-effect maps (e.g. first-level *t*-contrasts), not by feeding
+        first-level F-contrast effect maps as input.
+    """
+    for i, m in enumerate(maps):
+        if "time" in m.dims:
+            raise ValueError(
+                f"second_level_input[{i}] has a 'time' dimension. "
+                "SecondLevelModel expects spatial contrast maps "
+                "(e.g. FirstLevelModel.compute_contrast(..., "
+                'output_type="effect")), not raw time series.'
+            )
+        if "contrast_dim" in m.dims:
+            raise ValueError(
+                f"second_level_input[{i}] has a 'contrast_dim' axis, which "
+                "indicates a multi-row first-level F-contrast effect map. "
+                "SecondLevelModel expects scalar-effect maps; pass "
+                "first-level *t*-contrasts and request F at the group "
+                'level via `compute_contrast(..., stat_type="F")`.'
+            )
+
+
 class SecondLevelModel(BaseEstimator):
     """Second-level GLM estimator for group-level fUSI analysis.
 
@@ -273,25 +313,17 @@ class SecondLevelModel(BaseEstimator):
                     "first_level_contrast must be provided when second_level_input "
                     "is a list of FirstLevelModel."
                 )
-            return [
+            maps = [
                 m.compute_contrast(first_level_contrast, output_type="effect")
                 for m in second_level_input
             ]
+            _validate_second_level_maps(maps)
+            return maps
 
         if all(isinstance(m, xr.DataArray) for m in second_level_input):
-            # Group-level inputs are spatial contrast maps; a stray time
-            # dimension would be silently flattened with the spatial axes,
-            # turning a 4D timeseries into nonsensical "subject" rows.
-            for i, m in enumerate(second_level_input):
-                assert isinstance(m, xr.DataArray)  # for ty
-                if "time" in m.dims:
-                    raise ValueError(
-                        f"second_level_input[{i}] has a 'time' dimension. "
-                        "SecondLevelModel expects spatial contrast maps "
-                        "(e.g. FirstLevelModel.compute_contrast(..., "
-                        'output_type="effect")), not raw time series.'
-                    )
-            return list(second_level_input)  # type: ignore[arg-type]
+            maps = [m for m in second_level_input if isinstance(m, xr.DataArray)]
+            _validate_second_level_maps(maps)
+            return maps
 
         raise TypeError(
             "second_level_input must be a list of FirstLevelModel or "
