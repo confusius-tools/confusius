@@ -32,7 +32,7 @@ class TestRegisterVolumewise:
             with h5py.File(tmp_path, "w") as f:
                 f.create_dataset("data", data=data)
             with h5py.File(tmp_path, "r") as f:
-                raw_lazy = da.from_array(f["data"], chunks=n_frames, asarray=False)
+                raw_lazy = da.from_array(f["data"], chunks=(1, -1, -1), asarray=False)
                 h5py_da = xr.DataArray(
                     raw_lazy,
                     dims=("time", "y", "x"),
@@ -57,7 +57,7 @@ class TestRegisterVolumewise:
             with h5py.File(tmp_path, "w") as f:
                 f.create_dataset("data", data=data)
             with h5py.File(tmp_path, "r") as h5:
-                raw_lazy = da.from_array(h5["data"], chunks=n_frames, asarray=False)
+                raw_lazy = da.from_array(h5["data"], chunks=(1, -1, -1), asarray=False)
                 h5py_da = xr.DataArray(
                     raw_lazy,
                     dims=("time", "y", "x"),
