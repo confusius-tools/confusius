@@ -349,6 +349,8 @@ scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
     parallel operation:
 
     ```python
+    import confusius as cf
+
     fusi = cf.load("recording.scan").compute()  # materialize first
     fusi = cf.registration.register_volumewise(fusi)
     ```

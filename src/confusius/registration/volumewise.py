@@ -147,6 +147,8 @@ def register_volumewise(
     processing. Materialize the data before calling this function:
 
     ```python
+    import confusius as cf
+
     fusi = cf.load("recording.scan").compute()  # load into memory first
     fusi = cf.registration.register_volumewise(fusi)
     ```

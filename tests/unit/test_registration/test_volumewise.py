@@ -69,7 +69,7 @@ class TestRegisterVolumewise:
                 )
                 # n_jobs=1 (serial) should not raise for h5py-backed data.
                 result = register_volumewise(h5py_da, n_jobs=1, transform="translation")
-            assert result.shape == h5py_da.shape
+                assert result.shape == h5py_da.shape
         finally:
             tmp_path.unlink(missing_ok=True)
 
