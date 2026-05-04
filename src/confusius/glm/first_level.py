@@ -75,11 +75,13 @@ class FirstLevelModel(BaseEstimator):
 
     Parameters
     ----------
-    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None, default: "glover"
+    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None, optional
         Hemodynamic response function model. A callable matching the
         [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (a function
         taking `dt` and `oversampling` and returning a 1-D array) is invoked
-        to produce a custom HRF kernel.
+        to produce a custom HRF kernel. If not specified, skips HRF convolution and uses
+        the raw block regressors, matching
+        [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix].
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
     low_cutoff : float, default: 0.01
@@ -135,7 +137,7 @@ class FirstLevelModel(BaseEstimator):
     def __init__(
         self,
         *,
-        hrf_model: HrfModelSpec = "glover",
+        hrf_model: HrfModelSpec = None,
         drift_model: DriftModelSpec = "cosine",
         low_cutoff: float = 0.01,
         drift_order: int = 1,
