@@ -576,7 +576,25 @@ class TestFirstLevelModelErrors:
             coords={"time": frame_times},
         )
         model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(ValueError, match="spatial shape"):
+        with pytest.raises(ValueError, match="spatial dimensions"):
+            model.fit([data1, data2], events=[events, events])
+
+    def test_spatial_axis_order_mismatch_raises(self, rng, frame_times, events):
+        """Multi-run fit rejects runs that share spatial sizes but in
+        different axis orders.
+
+        `_flatten_spatial` stacks voxels in each run's own dim order, so
+        accepting transposed runs would silently mix voxel locations during
+        fixed-effects combination.
+        """
+        data1 = xr.DataArray(
+            rng.standard_normal((200, 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={"time": frame_times},
+        )
+        data2 = data1.transpose("time", "y", "z", "x")
+        model = FirstLevelModel(noise_model="ols")
+        with pytest.raises(ValueError, match="same order"):
             model.fit([data1, data2], events=[events, events])
 
     def test_spatial_coord_mismatch_raises(self, rng, frame_times, events):

@@ -212,19 +212,27 @@ class FirstLevelModel(BaseEstimator):
 
         if n_runs > 1:
             ref_run = run_data[0]
-            ref_spatial = {d: s for d, s in ref_run.sizes.items() if d != "time"}
+            # Compare ordered tuples so a transposed run (same dim sizes but
+            # different axis order) is rejected: `_flatten_spatial` stacks
+            # voxels in each run's own dim order, so a permutation would
+            # silently mix voxel locations during fixed-effects combination.
+            ref_spatial = tuple(
+                (str(d), int(ref_run.sizes[d])) for d in ref_run.dims if d != "time"
+            )
             for i, run in enumerate(run_data[1:], start=1):
-                spatial = {d: s for d, s in run.sizes.items() if d != "time"}
+                spatial = tuple(
+                    (str(d), int(run.sizes[d])) for d in run.dims if d != "time"
+                )
                 if spatial != ref_spatial:
                     raise ValueError(
-                        f"All runs must have the same spatial shape. "
-                        f"Run 0 has {ref_spatial}, run {i} has {spatial}."
+                        f"All runs must have the same spatial dimensions in the "
+                        f"same order. Run 0 has {ref_spatial}, run {i} has {spatial}."
                     )
                 # Validate every spatial dim where at least one side carries a
                 # coord. validate_matching_coordinates raises if the coord is
                 # missing from one side, catching asymmetric coord drops.
                 checkable = [
-                    d for d in ref_spatial if d in ref_run.coords or d in run.coords
+                    d for d, _ in ref_spatial if d in ref_run.coords or d in run.coords
                 ]
                 if checkable:
                     validate_matching_coordinates(
