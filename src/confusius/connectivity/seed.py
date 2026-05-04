@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, cast
+from typing import Literal
 
 import numpy as np
 import xarray as xr
@@ -11,8 +11,8 @@ from sklearn.base import BaseEstimator
 
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
-from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation import validate_labels, validate_time_series
+from confusius.validation.coordinates import validate_matching_coordinates
 
 
 def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> None:
@@ -31,7 +31,7 @@ def _validate_seed_signals(seed_signals: xr.DataArray, data: xr.DataArray) -> No
     Parameters
     ----------
     seed_signals : xarray.DataArray
-        Pre-computed seed region signal(s). Must be 1-D `(time,)` or 2-D
+        Pre-computed seed region signal(s). Must be 1D `(time,)` or 2D
         `(time, region)`.
     data : xarray.DataArray
         Reference fUSI data array that `seed_signals` will be correlated against.
@@ -276,14 +276,8 @@ class SeedBasedMaps(BaseEstimator):
             X_clean = X
 
         if self.seed_masks is not None:
-            reduction = cast(
-                Literal["mean", "sum", "median", "min", "max", "var", "std"],
-                self.labels_reduction,
-            )
             extracted: xr.DataArray = extract_with_labels(
-                X_clean,
-                self.seed_masks,
-                reduction=reduction,
+                X_clean, self.seed_masks, reduction=self.labels_reduction
             )
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -294,7 +288,7 @@ class SeedBasedMaps(BaseEstimator):
         if extracted.dims[0] != "time":
             extracted = extracted.transpose("time", ...)
 
-        # _compute_correlation_maps must always receive a 2-D input.
+        # _compute_correlation_maps must always receive a 2D input.
         if extracted.ndim == 1:
             extracted = extracted.expand_dims("region", axis=1)
 

@@ -72,7 +72,7 @@ def apply_affine(
     Only axis-aligned transforms are supported: the rotation block of `affine` must be
     diagonal (each output axis maps to exactly one input axis, possibly with a sign flip
     and a scale factor).  Transforms that mix axes (e.g. a 45° rotation) cannot be
-    represented as independent 1-D coordinate arrays and therefore raise `ValueError`.
+    represented as independent 1D coordinate arrays and therefore raise `ValueError`.
     For such cases, resample the data instead.
 
     All stored affines in `da.attrs["affines"]` are updated by composing `affine` on the
@@ -84,7 +84,7 @@ def apply_affine(
     ----------
     da : xarray.DataArray
         Input scan.  Must have at least one of `"z"`, `"y"`, `"x"` as dimensions with
-        associated 1-D coordinates.
+        associated 1D coordinates.
     affine : numpy.ndarray, shape (4, 4)
         Homogeneous affine matrix to apply.  The rotation block `affine[:3, :3]` must be
         diagonal.
@@ -129,7 +129,7 @@ def apply_affine(
     if np.any(np.abs(rotation[off_diag_mask]) > 1e-9):
         raise ValueError(
             "The rotation block of affine is not diagonal: this transform "
-            "mixes spatial axes and cannot be represented as independent 1-D "
+            "mixes spatial axes and cannot be represented as independent 1D "
             "coordinate arrays.  Use resampling for non-axis-aligned "
             "transforms.\n"
             f"Rotation block:\n{rotation}"

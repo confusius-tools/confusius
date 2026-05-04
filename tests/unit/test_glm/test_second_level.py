@@ -6,9 +6,12 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius.glm import FirstLevelModel, SecondLevelModel, make_second_level_design_matrix
+from confusius.glm import (
+    FirstLevelModel,
+    SecondLevelModel,
+    make_second_level_design_matrix,
+)
 from confusius.glm._models import OLSModel
-
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -225,9 +228,7 @@ class TestSecondLevelModelFContrast:
 
     def test_f_contrast_2d_array(self, spatial_maps, rng):
         """F-contrast with a 2D matrix produces a spatial z-map."""
-        confounds = pd.DataFrame(
-            {"group": [0.0] * 5 + [1.0] * 5}
-        )
+        confounds = pd.DataFrame({"group": [0.0] * 5 + [1.0] * 5})
         model = SecondLevelModel()
         model.fit(spatial_maps, confounds=confounds)
         # 2-row contrast over group and intercept.
@@ -247,7 +248,7 @@ class TestSecondLevelModelFContrast:
         assert e_map.shape[0] == 2
 
     def test_short_contrast_vector_is_zero_padded(self, spatial_maps):
-        """A 1-D contrast shorter than the design is zero-padded on the right.
+        """A 1D contrast shorter than the design is zero-padded on the right.
 
         The result must equal the corresponding manually-padded contrast,
         not just match in shape.
@@ -263,7 +264,7 @@ class TestSecondLevelModelFContrast:
         assert_allclose(z_short, z_padded, rtol=1e-12, atol=1e-12)
 
     def test_short_contrast_matrix_is_zero_padded(self, spatial_maps):
-        """A 2-D contrast narrower than the design is zero-padded on the right."""
+        """A 2D contrast narrower than the design is zero-padded on the right."""
         confounds = pd.DataFrame({"group": [0.0] * 5 + [1.0] * 5})
         model = SecondLevelModel()
         model.fit(spatial_maps, confounds=confounds)
@@ -333,9 +334,7 @@ class TestSecondLevelModelErrors:
     def test_first_level_models_without_contrast_raises(self, rng):
         """Passing FirstLevelModel list without first_level_contrast raises."""
         frame_times = np.arange(50) * 0.5
-        events = pd.DataFrame(
-            {"trial_type": ["A"], "onset": [5.0], "duration": [1.0]}
-        )
+        events = pd.DataFrame({"trial_type": ["A"], "onset": [5.0], "duration": [1.0]})
         data = xr.DataArray(
             rng.standard_normal((50, 2, 3)),
             dims=["time", "y", "x"],
@@ -350,9 +349,7 @@ class TestSecondLevelModelErrors:
     def test_mixed_input_types_raises(self, spatial_maps):
         """Mix of FirstLevelModel and DataArray raises TypeError."""
         frame_times = np.arange(50) * 0.5
-        events = pd.DataFrame(
-            {"trial_type": ["A"], "onset": [5.0], "duration": [1.0]}
-        )
+        events = pd.DataFrame({"trial_type": ["A"], "onset": [5.0], "duration": [1.0]})
         data = xr.DataArray(
             np.zeros((50, 2, 3)),
             dims=["time", "y", "x"],
@@ -434,9 +431,7 @@ class TestSecondLevelModelErrors:
         """A subject map missing a spatial coord present on the reference is rejected."""
         maps = [spatial_maps[0], spatial_maps[1].drop_vars("z")]
         model = SecondLevelModel()
-        with pytest.raises(
-            ValueError, match=r"Coordinate 'z' is missing from map 1"
-        ):
+        with pytest.raises(ValueError, match=r"Coordinate 'z' is missing from map 1"):
             model.fit(maps)
 
     def test_duplicate_confound_columns_raises(self, spatial_maps):
@@ -479,5 +474,5 @@ class TestSecondLevelModelErrors:
         maps = [xr.DataArray(np.ones((2, 3)), dims=["y", "x"]) for _ in range(5)]
         model = SecondLevelModel()
         model.fit(maps)
-        with pytest.raises(ValueError, match="string, 1-D, or 2-D"):
+        with pytest.raises(ValueError, match="string, 1D, or 2D"):
             model.compute_contrast(np.ones((2, 3, 4)))

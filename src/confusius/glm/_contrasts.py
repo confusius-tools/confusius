@@ -167,7 +167,7 @@ class Contrast:
         Raises
         ------
         ValueError
-            If `effect` is not 1D or 2D, `variance` is not 1-D, or `stat_type` is not
+            If `effect` is not 1D or 2D, `variance` is not 1D, or `stat_type` is not
             `"t"` or `"F"`.
         """
         if variance.ndim != 1:

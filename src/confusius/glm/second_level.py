@@ -34,8 +34,8 @@ def make_second_level_design_matrix(
     """Build a second-level design matrix.
 
     Creates a design matrix for group-level analysis. By default, includes only an
-    intercept column (one-sample *t*-test / group mean). If confounds are provided,
-    they are prepended as additional regressors.
+    intercept column (one-sample *t*-test / group mean). If confounds are provided, they
+    are prepended as additional regressors.
 
     Parameters
     ----------
@@ -76,8 +76,7 @@ def make_second_level_design_matrix(
                 f"confounds has {len(confounds)} rows but n_subjects={n_subjects}."
             )
         # Reject duplicates inside `confounds` and any collision with the
-        # auto-added intercept: a duplicate column makes string contrasts
-        # like "intercept" silently target only the first match.
+        # auto-added intercept.
         confound_columns = list(confounds.columns)
         duplicates = sorted(
             {c for c in confound_columns if confound_columns.count(c) > 1}
@@ -98,10 +97,10 @@ def make_second_level_design_matrix(
 def _validate_second_level_maps(maps: list[xr.DataArray]) -> None:
     """Reject second-level inputs that aren't purely spatial contrast maps.
 
-    A stray `time` dimension would be flattened together with the spatial
-    axes, and an F-contrast effect map (extracted from a `FirstLevelModel`
-    via `output_type="effect"`) carries a leading `contrast_dim` axis whose
-    components are not interchangeable subjects.
+    A stray `time` dimension would be flattened together with the spatial axes, and an
+    F-contrast effect map (extracted from a `FirstLevelModel` via
+    `output_type="effect"`) carries a leading `contrast_dim` axis whose components are
+    not interchangeable subjects.
 
     Parameters
     ----------
@@ -111,11 +110,10 @@ def _validate_second_level_maps(maps: list[xr.DataArray]) -> None:
     Raises
     ------
     ValueError
-        If any map carries a `time` or `contrast_dim` axis. F-contrasts at
-        the group level should be requested through
-        `SecondLevelModel.compute_contrast(..., stat_type="F")` on
-        scalar-effect maps (e.g. first-level *t*-contrasts), not by feeding
-        first-level F-contrast effect maps as input.
+        If any map carries a `time` or `contrast_dim` axis. *F*-contrasts at the group
+        level should be requested through `SecondLevelModel.compute_contrast(...,
+        stat_type="F")` on scalar-effect maps (e.g. first-level *t*-contrasts), not by
+        feeding first-level F-contrast effect maps as input.
     """
     for i, m in enumerate(maps):
         if "time" in m.dims:
@@ -145,8 +143,8 @@ class SecondLevelModel(BaseEstimator):
     `second_level_input` accepts either a list of fitted
     [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] objects or a list of
     spatial `xarray.DataArray` maps (e.g. output of
-    [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast] with
-    `output_type="effect"`). When `FirstLevelModel` objects are passed,
+    [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast]
+    with `output_type="effect"`). When `FirstLevelModel` objects are passed,
     `first_level_contrast` must be provided so the effect map can be extracted
     automatically from each model.
 
@@ -345,12 +343,12 @@ class SecondLevelModel(BaseEstimator):
         ----------
         second_level_contrast : str or numpy.ndarray, default: "intercept"
             Contrast definition. A string is parsed as an expression over
-            design-matrix column names (e.g. `"group_A - group_B"`). A 1-D array
-            specifies a *t*-contrast vector; a 2-D array specifies an *F*-contrast
+            design-matrix column names (e.g. `"group_A - group_B"`). A 1D array
+            specifies a *t*-contrast vector; a 2D array specifies an *F*-contrast
             matrix. Defaults to `"intercept"` for a one-sample *t*-test.
         stat_type : {"t", "F"}, optional
             Force the contrast type. By default inferred from the shape of the contrast
-            (1-D → *t*, 2-D → *F*).
+            (1D → *t*, 2D → *F*).
         output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}, default: "zscore"
             Which statistical map to return.
         baseline : float, default: 0.0
@@ -429,7 +427,7 @@ class SecondLevelModel(BaseEstimator):
         Raises
         ------
         ValueError
-            If the contrast array is wider than the design or not 1-D/2-D.
+            If the contrast array is wider than the design or not 1D/2D.
         """
         if isinstance(contrast_def, str):
             return expression_to_contrast_vector(contrast_def, columns)
@@ -460,7 +458,7 @@ class SecondLevelModel(BaseEstimator):
                 return padded
             return contrast_def
 
-        raise ValueError("Contrast must be a string, 1-D, or 2-D array.")
+        raise ValueError("Contrast must be a string, 1D, or 2D array.")
 
     @staticmethod
     def _contrast_output(

@@ -10,7 +10,6 @@ from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
 from confusius.glm.first_level import _flatten_spatial
 
-
 # -----------------------------------------------------------------------------
 # Fixtures
 # -----------------------------------------------------------------------------
@@ -70,7 +69,6 @@ def fusi_data_2d(rng, frame_times):
 # -----------------------------------------------------------------------------
 # Helper function tests
 # -----------------------------------------------------------------------------
-
 
 
 class TestFlattenSpatial:
@@ -428,9 +426,7 @@ class TestFirstLevelModelFContrast:
         f_expected = np.einsum("qv,qp,pv->v", ctheta, invcov, ctheta) / (
             2 * results.dispersion
         )
-        assert_allclose(
-            stat_map.values.ravel(), f_expected, rtol=1e-10, atol=1e-12
-        )
+        assert_allclose(stat_map.values.ravel(), f_expected, rtol=1e-10, atol=1e-12)
 
 
 # -----------------------------------------------------------------------------
@@ -558,9 +554,7 @@ class TestFirstLevelModelErrors:
         )
         data2 = data1.drop_vars("z")
         model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(
-            ValueError, match=r"Coordinate 'z' is missing from run 1"
-        ):
+        with pytest.raises(ValueError, match=r"Coordinate 'z' is missing from run 1"):
             model.fit([data1, data2], events=[events, events])
 
     def test_spatial_shape_mismatch_raises(self, rng, frame_times, events):
@@ -643,7 +637,7 @@ class TestFirstLevelModelErrors:
         """3D contrast array raises ValueError."""
         model = FirstLevelModel(noise_model="ols")
         model.fit(fusi_data, events=events)
-        with pytest.raises(ValueError, match="string, 1-D, or 2-D"):
+        with pytest.raises(ValueError, match="string, 1D, or 2D"):
             model.compute_contrast(np.zeros((2, 3, 4)))
 
 

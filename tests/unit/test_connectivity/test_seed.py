@@ -8,7 +8,6 @@ from scipy.stats import pearsonr
 
 from confusius.connectivity import SeedBasedMaps
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -347,7 +346,7 @@ class TestSeedSignals:
     """Tests for the seed_signals (pre-computed signal) code path."""
 
     def test_seed_signals_1d_matches_mask_based(self, data_2d, single_region_labels):
-        """1-D seed_signals produces the same map as the equivalent seed_masks path."""
+        """1D seed_signals produces the same map as the equivalent seed_masks path."""
         mapper_mask = SeedBasedMaps(seed_masks=single_region_labels).fit(data_2d)
 
         # Use the extracted signal from the mask-based fit as the pre-computed signal.
@@ -361,7 +360,7 @@ class TestSeedSignals:
         )
 
     def test_seed_signals_2d_matches_mask_based(self, data_2d, flat_labels):
-        """2-D (time, regions) seed_signals produces the same maps as seed_masks."""
+        """2D (time, regions) seed_signals produces the same maps as seed_masks."""
         mapper_mask = SeedBasedMaps(seed_masks=flat_labels).fit(data_2d)
 
         mapper_sig = SeedBasedMaps(seed_signals=mapper_mask.seed_signals_).fit(data_2d)

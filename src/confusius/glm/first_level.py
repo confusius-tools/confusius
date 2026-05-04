@@ -65,10 +65,9 @@ def _flatten_spatial(
 class FirstLevelModel(BaseEstimator):
     """First-level GLM estimator for voxel-wise fUSI analysis.
 
-    Fits a General Linear Model to `(time, ...)` DataArrays and computes
-    statistical contrasts. Supports multiple runs (fixed-effects combination),
-    autoregressive noise modelling, and automatic sampling-interval inference
-    from the `time` coordinate.
+    Fits a General Linear Model to fUSI DataArrays and computes statistical contrasts.
+    Supports multiple runs (fixed-effects combination) and autoregressive noise
+    modelling.
 
     This implementation is adapted from
     [`nilearn.glm.first_level.FirstLevelModel`][nilearn.glm.first_level.FirstLevelModel].
@@ -77,10 +76,10 @@ class FirstLevelModel(BaseEstimator):
     ----------
     hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"}, callable, or None, optional
         Hemodynamic response function model. A callable matching the
-        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (a function
-        taking `dt` and `oversampling` and returning a 1-D array) is invoked
-        to produce a custom HRF kernel. If not specified, skips HRF convolution and uses
-        the raw block regressors, matching
+        [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (a function taking `dt`
+        and `oversampling` and returning a 1D array) is invoked to produce a custom HRF
+        kernel. If not specified, skips HRF convolution and uses the raw block
+        regressors, matching
         [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix].
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
@@ -130,8 +129,8 @@ class FirstLevelModel(BaseEstimator):
     ...      "duration": [2.0] * 10}
     ... )
     >>> model = FirstLevelModel(noise_model="ols")
-    >>> model.fit(data, events=events)  # doctest: +SKIP
-    >>> z_map = model.compute_contrast("A - B")  # doctest: +SKIP
+    >>> model.fit(data, events=events)
+    >>> z_map = model.compute_contrast("A - B")
     """
 
     def __init__(
@@ -212,10 +211,10 @@ class FirstLevelModel(BaseEstimator):
 
         if n_runs > 1:
             ref_run = run_data[0]
-            # Compare ordered tuples so a transposed run (same dim sizes but
-            # different axis order) is rejected: `_flatten_spatial` stacks
-            # voxels in each run's own dim order, so a permutation would
-            # silently mix voxel locations during fixed-effects combination.
+            # Compare ordered tuples so a transposed run (same dim sizes but different
+            # axis order) is rejected: `_flatten_spatial` stacks voxels in each run's
+            # own dim order, so a permutation would silently mix voxel locations during
+            # fixed-effects combination.
             ref_spatial = tuple(
                 (str(d), int(ref_run.sizes[d])) for d in ref_run.dims if d != "time"
             )
@@ -228,9 +227,9 @@ class FirstLevelModel(BaseEstimator):
                         f"All runs must have the same spatial dimensions in the "
                         f"same order. Run 0 has {ref_spatial}, run {i} has {spatial}."
                     )
-                # Validate every spatial dim where at least one side carries a
-                # coord. validate_matching_coordinates raises if the coord is
-                # missing from one side, catching asymmetric coord drops.
+                # Validate every spatial dim where at least one side carries a coord.
+                # validate_matching_coordinates raises if the coord is missing from one
+                # side, catching asymmetric coord drops.
                 checkable = [
                     d for d, _ in ref_spatial if d in ref_run.coords or d in run.coords
                 ]
@@ -248,10 +247,10 @@ class FirstLevelModel(BaseEstimator):
         )
 
         # Numeric contrast vectors are applied positionally per run and
-        # `make_first_level_design_matrix` orders condition columns by each
-        # run's `trial_type` appearance order, so two runs with different
-        # event tables can produce designs whose columns mean different
-        # things at the same index. Reject that here.
+        # `make_first_level_design_matrix` orders condition columns by each run's
+        # `trial_type` appearance order, so two runs with different event tables can
+        # produce designs whose columns mean different things at the same index. Reject
+        # that here.
         if n_runs > 1:
             ref_columns = list(design_matrices_list[0].columns)
             for i, dm in enumerate(design_matrices_list[1:], start=1):
@@ -303,19 +302,15 @@ class FirstLevelModel(BaseEstimator):
                 results = ar_model.fit(data_2d)
 
             if self.minimize_memory:
-                # Drop large per-run arrays (Y, whitened_Y, whitened_residuals
-                # and the model reference) once the contrast-relevant fields
-                # are computed. Diagnostic accessors (residuals/predicted/sse/
-                # mse) raise after this; contrasts keep working.
+                # Drop large per-run arrays (Y, whitened_Y, whitened_residuals and the
+                # model reference) once the contrast-relevant fields are computed.
+                # Diagnostic accessors (residuals/predicted/sse/ mse) raise after this;
+                # contrasts keep working.
                 results._strip_heavy_fields()
 
             self.results_.append(results)
 
         return self
-
-    # ------------------------------------------------------------------
-    # Contrasts
-    # ------------------------------------------------------------------
 
     def compute_contrast(
         self,
@@ -331,19 +326,18 @@ class FirstLevelModel(BaseEstimator):
         Parameters
         ----------
         contrast_def : str or numpy.ndarray
-            Contrast definition. A string is parsed as an expression over
-            design-matrix column names (e.g. `"A - B"`). A 1-D array
-            specifies a t-contrast vector; a 2-D array specifies an
-            F-contrast matrix.
+            Contrast definition. A string is parsed as an expression over design-matrix
+            column names (e.g. `"A - B"`). A 1D array specifies a *t*-contrast vector; a
+            2D array specifies an *F*-contrast matrix.
         stat_type : {"t", "F"}, optional
-            Force the contrast type. By default inferred from the shape of
-            the contrast vector (1-D → t, 2-D → F).
+            Force the contrast type. By default inferred from the shape of the contrast
+            vector (1D → *t*, 2D → *F*).
         output_type : {"zscore", "statistic", "pvalue", "effect", "variance"}, default: "zscore"
             Which statistical map to return.
         baseline : float, default: 0.0
-            Null-hypothesis value tested against. The statistic is
-            `(effect - baseline) / sqrt(variance)` for *t*-contrasts and
-            `sum((effect - baseline)**2) / dim / variance` for *F*-contrasts.
+            Null-hypothesis value tested against. The statistic is `(effect - baseline)
+            / sqrt(variance)` for *t*-contrasts and `sum((effect - baseline)**2) / dim /
+            variance` for *F*-contrasts.
 
         Returns
         -------
@@ -573,10 +567,11 @@ class FirstLevelModel(BaseEstimator):
             combined = run_contrast if combined is None else combined + run_contrast
 
         assert combined is not None  # At least one run guaranteed.
-        # Average across runs: sum-then-scale gives the pooled fixed-effects
-        # estimate (effect / n, variance / n²). The test statistic is invariant
-        # to this scaling; only the readable effect/variance change. This is
-        # the same pattern as `nilearn.glm.contrasts.compute_fixed_effect_contrast`.
+
+        # Average across runs: sum-then-scale gives the pooled fixed-effects estimate
+        # (effect / n, variance / n²). The test statistic is invariant to this scaling;
+        # only the readable effect/variance change. This is the same pattern as
+        # `nilearn.glm.contrasts.compute_fixed_effect_contrast`.
         n_runs = len(self.results_)
         return combined * (1.0 / n_runs) if n_runs > 1 else combined
 
@@ -615,9 +610,7 @@ class FirstLevelModel(BaseEstimator):
 
         if isinstance(contrast_def, str):
             return expression_to_contrast_vector(contrast_def, columns)
-
-        # Pad or validate length.
-        if contrast_def.ndim == 1:
+        elif contrast_def.ndim == 1:
             if contrast_def.shape[0] > len(columns):
                 raise ValueError(
                     f"Contrast vector length ({contrast_def.shape[0]}) exceeds "
@@ -630,8 +623,7 @@ class FirstLevelModel(BaseEstimator):
                 padded[: contrast_def.shape[0]] = contrast_def
                 return padded
             return contrast_def
-
-        if contrast_def.ndim == 2:
+        elif contrast_def.ndim == 2:
             if contrast_def.shape[1] > len(columns):
                 raise ValueError(
                     f"Contrast matrix width ({contrast_def.shape[1]}) exceeds "
@@ -642,13 +634,12 @@ class FirstLevelModel(BaseEstimator):
                 padded[:, : contrast_def.shape[1]] = contrast_def
                 return padded
             return contrast_def
-
-        raise ValueError("Contrast must be a string, 1-D, or 2-D array.")
+        else:
+            raise ValueError("Contrast must be a string, 1D, or 2D array.")
 
     @staticmethod
     def _contrast_output(
-        contrast: Contrast,
-        output_type: str,
+        contrast: Contrast, output_type: str
     ) -> npt.NDArray[np.floating]:
         """Extract the requested statistical map from a Contrast object.
 

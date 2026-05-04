@@ -48,7 +48,7 @@ def _compute_grid_dims(
 
 
 def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
-    """Convert 1-D coordinate centers to cell edge positions for `pcolormesh`.
+    """Convert 1D coordinate centers to cell edge positions for `pcolormesh`.
 
     Handles non-uniform spacing by using midpoints between adjacent centers as interior
     edges, and extrapolating half a step at each end.
