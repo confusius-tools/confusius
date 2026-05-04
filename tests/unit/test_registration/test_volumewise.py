@@ -17,6 +17,17 @@ class TestRegisterVolumewise:
         with pytest.raises(ValueError, match="Time dimension 'time' not found"):
             register_volumewise(data)
 
+    def test_h5py_backed_raises_with_parallel_jobs(self, scan_2d):
+        """h5py-backed DataArray (from a .scan file) raises TypeError when n_jobs != 1."""
+        with pytest.raises(TypeError, match="h5py dataset"):
+            register_volumewise(scan_2d, n_jobs=2)
+
+    def test_h5py_backed_works_with_n_jobs_1(self, scan_2d):
+        """h5py-backed DataArray (from a .scan file) with n_jobs=1 does not raise."""
+        # n_jobs=1 (serial) should not raise for h5py-backed data.
+        result = register_volumewise(scan_2d, n_jobs=1, transform="translation")
+        assert result.shape == scan_2d.shape
+
     def test_wrong_dimensionality_raises(self):
         """Data that is neither 2D+t nor 3D+t raises ValueError."""
         # 1D+time = 2D total.
