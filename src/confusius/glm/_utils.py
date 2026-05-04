@@ -41,10 +41,9 @@ def _attrs_equal(a: Any, b: Any) -> bool:
 def consensus_attrs(arrays: Sequence[xr.DataArray]) -> dict[str, Any]:
     """Return DataArray attributes shared and equal across all `arrays`.
 
-    Used to propagate consistent provenance/metadata through reductions that
-    combine several inputs (e.g. multi-run first-level GLMs, second-level
-    group analyses). Keys whose values differ across inputs, or that are
-    missing from any input, are dropped.
+    Used to propagate consistent provenance/metadata through reductions that combine
+    several inputs (e.g. multi-run first-level GLMs, second-level group analyses). Keys
+    whose values differ across inputs, or that are missing from any input, are dropped.
 
     Parameters
     ----------
@@ -54,8 +53,8 @@ def consensus_attrs(arrays: Sequence[xr.DataArray]) -> dict[str, Any]:
     Returns
     -------
     dict
-        Attributes present and equal in every array's `attrs`. Empty if
-        `arrays` is empty.
+        Attributes present and equal in every array's `attrs`. Empty if `arrays` is
+        empty.
     """
     if not arrays:
         return {}
