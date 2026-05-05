@@ -66,6 +66,12 @@ guide](../user-guide/index.md) for more detailed explanations and usage examples
 
     Brain atlas integration for anatomical labeling and region-of-interest extraction.
 
+- **[:lucide-clock: Temporal Resampling](timing.md)**
+
+    ---
+
+    Timing utilities for resampling fUSI time series onto uniform time grids.
+
 - **[:lucide-cuboid: Spatial Processing](spatial.md)**
 
     ---
