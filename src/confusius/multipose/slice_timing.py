@@ -1,60 +1,11 @@
 """Slice timing correction for multi-pose fUSI data."""
 
-import warnings
-from typing import Any, Literal
+from typing import Literal
 
-import numpy as np
-import numpy.typing as npt
 import xarray as xr
-from scipy.interpolate import interp1d
 
+from confusius._utils import interpolate_timeseries
 from confusius.validation.time_series import validate_time_series
-
-
-def _interpolate_timeseries(
-    ts: npt.NDArray[np.floating],
-    acq_times: npt.NDArray[np.floating],
-    *,
-    target_times: npt.NDArray[np.floating],
-    method: str,
-    fill_value: Any,
-) -> npt.NDArray[np.floating]:
-    """Interpolate a 1D time series from acquisition times to target times.
-
-    Parameters
-    ----------
-    ts : (time,) numpy.ndarray
-        Signal values at acquisition times.
-    acq_times : (time,) numpy.ndarray
-        Acquisition timestamps for this sweep position.
-    target_times : (time,) numpy.ndarray
-        Target timestamps to interpolate to.
-    method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}
-        Interpolation kind passed to
-        [`scipy.interpolate.interp1d`][scipy.interpolate.interp1d].
-    fill_value : float or tuple[float, float] or {"extrapolate"}
-        Fill value for out-of-range targets, passed to
-        [`scipy.interpolate.interp1d`][scipy.interpolate.interp1d].
-
-    Returns
-    -------
-    (time,) numpy.ndarray
-        Interpolated signal at `target_times`.
-    """
-    try:
-        return interp1d(
-            acq_times, ts, kind=method, bounds_error=False, fill_value=fill_value
-        )(target_times)
-    except ValueError as e:
-        if "derivatives at boundaries" in str(e):
-            warnings.warn(
-                f"{e}; falling back to 'linear'.",
-                stacklevel=2,
-            )
-            return interp1d(
-                acq_times, ts, kind="linear", bounds_error=False, fill_value=fill_value
-            )(target_times)
-        raise
 
 
 def correct_slice_timings(
@@ -103,15 +54,22 @@ def correct_slice_timings(
         `(time, <sweep_dim>)`.
     method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
         Interpolation method passed to `scipy.interpolate.interp1d`:
+
         - `"linear"`: linear interpolation.
-        - `"nearest"`: nearest-neighbour interpolation.
-        - `"quadratic"`: spline of degree 2.
-        - `"cubic"`: spline of degree 3.
-    fill_value : float or tuple[float, float] or {"extrapolate"}, default: "extrapolate"
+        - `"nearest"`: nearest-neighbour interpolation; rounds down at half-integers.
+        - `"nearest-up"`: nearest-neighbour interpolation; rounds up at half-integers.
+        - `"zero"`: zeroth-order spline (step function).
+        - `"slinear"`: first-order spline.
+        - `"quadratic"`: second-order spline.
+        - `"cubic"`: third-order spline.
+        - `"previous"`: use previous point's value.
+        - `"next"`: use next point's value.
+
+    fill_value : float or tuple[float, float] or {"extrapolate", "nan"}, default: "extrapolate"
         How to handle target times that fall outside the range of a position's
-        acquisition times. `"extrapolate"` allows linear extrapolation. Use a float for
-        a constant fill value, or a tuple `(left, right)` for different values on each
-        side.
+        acquisition times. `"extrapolate"` allows linear extrapolation. `"nan"`
+        inserts NaNs out of bounds. Use a float for a constant fill value, or a tuple
+        `(left, right)` for different values on each side.
 
     Returns
     -------
@@ -155,12 +113,12 @@ def correct_slice_timings(
     target_times = da.coords["time"].values
 
     # apply_ufunc vectorizes over all dims except "time" (the core dim), calling
-    # _interpolate_timeseries once per (sweep_pos, *other_dims) element.
+    # interpolate_timeseries once per (sweep_pos, *other_dims) element.
     # dask="parallelized" keeps the computation lazy when da is dask-backed. The time
     # dimension must not be chunked for interp1d to receive full series;
     # validate_time_series enforces this above.
     result = xr.apply_ufunc(
-        _interpolate_timeseries,
+        interpolate_timeseries,
         da,
         timing_coord,
         input_core_dims=[["time"], ["time"]],

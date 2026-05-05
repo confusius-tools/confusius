@@ -42,7 +42,7 @@ def validate_time_series(
     if "time" not in time_series.dims:
         raise ValueError("time_series must have a 'time' dimension")
 
-    if time_series.sizes["time"] == 1:
+    if time_series.sizes["time"] <= 1:
         raise ValueError(
             f"{operation_name.capitalize()} requires more than 1 timepoint, "
             f"got {time_series.sizes['time']}"

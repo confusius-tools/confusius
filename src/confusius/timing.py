@@ -7,7 +7,13 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils import find_stack_level, get_representative_step
+from confusius._dims import TIME_DIM
+from confusius._utils import (
+    find_stack_level,
+    get_representative_step,
+    interpolate_timeseries,
+)
+from confusius.validation.time_series import validate_time_series
 
 _TIME_UNIT_TO_SECONDS: dict[str, float] = {
     "s": 1.0,
@@ -122,7 +128,7 @@ def get_time_coord_to_seconds_factor(data: xr.DataArray) -> float:
     return _get_time_unit_to_seconds_factor(normalized_unit, raise_on_unknown=True)
 
 
-def convert_time_values(
+def convert_time_units(
     values: npt.ArrayLike,
     from_unit: str | None,
     to_unit: str | None = "s",
@@ -184,8 +190,7 @@ def get_representative_time_step(
         units of the time coordinate.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed per-interval relative deviation from the median consecutive
-        difference for the time coordinate to be considered uniform (see
-        [`get_representative_step`][confusius._utils.get_representative_step]).
+        difference for the time coordinate to be considered uniform.
 
     Returns
     -------
@@ -206,7 +211,7 @@ def get_representative_time_step(
             time_values = time_values * get_time_coord_to_seconds_factor(data)
         else:
             source_in_seconds = get_time_coord_to_seconds_factor(data)
-            time_values = convert_time_values(
+            time_values = convert_time_units(
                 time_values * source_in_seconds,
                 "s",
                 unit,
@@ -262,3 +267,215 @@ def convert_time_reference(
     offset = (to_factor - from_factor) * volume_duration_values
 
     return time_values + offset
+
+
+def resample_time(
+    data: xr.DataArray,
+    new_time: npt.ArrayLike,
+    *,
+    method: Literal[
+        "linear",
+        "nearest",
+        "nearest-up",
+        "zero",
+        "slinear",
+        "quadratic",
+        "cubic",
+        "previous",
+        "next",
+    ] = "linear",
+    fill_value: float
+    | tuple[float, float]
+    | Literal["extrapolate", "nan"] = "extrapolate",
+) -> xr.DataArray:
+    """Resample data to new time coordinates.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` coordinate.
+    new_time : array_like
+        New time coordinates to resample to.
+    method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
+        Interpolation method passed to `scipy.interpolate.interp1d`:
+
+        - `"linear"`: linear interpolation.
+        - `"nearest"`: nearest-neighbour interpolation; rounds down at half-integers.
+        - `"nearest-up"`: nearest-neighbour interpolation; rounds up at half-integers.
+        - `"zero"`: zeroth-order spline (step function).
+        - `"slinear"`: first-order spline.
+        - `"quadratic"`: second-order spline.
+        - `"cubic"`: third-order spline.
+        - `"previous"`: use previous point's value.
+        - `"next"`: use next point's value.
+
+    fill_value : float or tuple[float, float] or {"extrapolate", "nan"}, default: "extrapolate"
+        How to handle target times that fall outside the range of the input time
+        coordinates. `"extrapolate"` allows linear extrapolation. Use a float for
+        a constant fill value, or a tuple `(left, right)` for different values on each
+        side.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray resampled to `new_time` coordinates.
+
+    Raises
+    ------
+    ValueError
+        If `data` does not have a `time` dimension or has only 1 timepoint.
+    """
+    validate_time_series(data, "time resampling")
+
+    time_coord = data.coords[TIME_DIM].values
+    new_time_arr = np.asarray(new_time)
+    output_dtype = np.result_type(data.dtype, np.float64)
+
+    result = xr.apply_ufunc(
+        interpolate_timeseries,
+        data,
+        time_coord,
+        input_core_dims=[[TIME_DIM], [TIME_DIM]],
+        output_core_dims=[[TIME_DIM]],
+        exclude_dims={TIME_DIM},
+        dask="parallelized",
+        dask_gufunc_kwargs={"output_sizes": {TIME_DIM: new_time_arr.size}},
+        output_dtypes=[output_dtype],
+        keep_attrs=True,
+        kwargs={
+            "target_times": new_time_arr,
+            "method": method,
+            "fill_value": fill_value,
+        },
+    )
+
+    time_coord_attrs = dict(data.coords[TIME_DIM].attrs)
+    new_time_coord = xr.DataArray(
+        new_time_arr,
+        dims=(TIME_DIM,),
+        attrs=time_coord_attrs,
+    )
+    result = result.assign_coords({TIME_DIM: new_time_coord})
+    result = result.transpose(*data.dims)
+    result.attrs.update(data.attrs)
+
+    return result
+
+
+def resample_to_uniform_time(
+    data: xr.DataArray,
+    *,
+    start: float | None = None,
+    stop: float | None = None,
+    step: float | None = None,
+    method: Literal[
+        "linear",
+        "nearest",
+        "nearest-up",
+        "zero",
+        "slinear",
+        "quadratic",
+        "cubic",
+        "previous",
+        "next",
+    ] = "linear",
+    fill_value: float
+    | tuple[float, float]
+    | Literal["extrapolate", "nan"] = "extrapolate",
+) -> xr.DataArray:
+    """Resample data to a uniform time grid.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` coordinate.
+    start : float or None, default: None
+        Start of the new time grid. If not provided, use the first time point.
+    stop : float or None, default: None
+        Stop of the new time grid. If not provided, use the last time point.
+    step : float or None, default: None
+        Time step for the uniform grid. If not provided, derive it from the input
+        coordinate by estimating a representative interval from consecutive time
+        differences. For non-uniform input, the median interval is used and a warning is
+        emitted. The generated grid always starts at `start` and includes `stop` only
+        when it falls on the `start + n * step` lattice.
+    method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
+        Interpolation method passed to `scipy.interpolate.interp1d`:
+
+        - `"linear"`: linear interpolation.
+        - `"nearest"`: nearest-neighbour interpolation; rounds down at half-integers.
+        - `"nearest-up"`: nearest-neighbour interpolation; rounds up at half-integers.
+        - `"zero"`: zeroth-order spline (step function).
+        - `"slinear"`: first-order spline.
+        - `"quadratic"`: second-order spline.
+        - `"cubic"`: third-order spline.
+        - `"previous"`: use previous point's value.
+        - `"next"`: use next point's value.
+
+    fill_value : float or tuple[float, float] or {"extrapolate", "nan"}, default: "extrapolate"
+        How to handle target times that fall outside the range of the input time
+        coordinates. `"extrapolate"` allows linear extrapolation. Use a float for
+        a constant fill value, or a tuple `(left, right)` for different values on each
+        side.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray resampled to a uniform time grid.
+
+    Raises
+    ------
+    ValueError
+        If `data` does not have a `time` dimension or has only 1 timepoint.
+    ValueError
+        If `start` is greater than or equal to `stop`, if `step` is not positive,
+        or if no valid representative step can be derived.
+
+    Warns
+    -----
+    UserWarning
+        If the original time coordinate is not uniform and `step` is not provided.
+        In that case the median step is used.
+    """
+    validate_time_series(data, "uniform time resampling")
+
+    time_values = data.coords[TIME_DIM].values
+
+    if start is None:
+        new_start = time_values[0]
+    else:
+        new_start = start
+
+    if stop is None:
+        new_stop = time_values[-1]
+    else:
+        new_stop = stop
+
+    if new_start >= new_stop:
+        raise ValueError(f"start ({new_start}) must be less than stop ({new_stop}).")
+
+    if step is None:
+        step, approximate = get_representative_step(time_values)
+        if step is None or not np.isfinite(step) or step <= 0.0:
+            raise ValueError(
+                "Cannot compute representative time step from data. "
+                "Provide `step` explicitly."
+            )
+        if approximate:
+            warnings.warn(
+                "Time coordinate is non-uniform; using the median step to build "
+                "a uniform target grid.",
+                stacklevel=find_stack_level(),
+            )
+    else:
+        step = float(step)
+        if not np.isfinite(step) or step <= 0.0:
+            raise ValueError(f"step must be a finite positive value, got {step!r}.")
+
+    span = float(new_stop - new_start)
+    n_steps = int(np.floor(span / step + 1e-12)) + 1
+    new_time_values = new_start + float(step) * np.arange(n_steps)
+
+    result = resample_time(data, new_time_values, method=method, fill_value=fill_value)
+
+    return result

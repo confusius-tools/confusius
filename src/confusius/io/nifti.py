@@ -32,7 +32,7 @@ from confusius.bids import (
 from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
 from confusius.registration.affines import decompose_affine
-from confusius.timing import convert_time_reference, convert_time_values
+from confusius.timing import convert_time_reference, convert_time_units
 
 if TYPE_CHECKING:
     import nibabel as nib
@@ -445,7 +445,7 @@ def _create_temporal_coords_from_nifti(
         volume_duration = float(attrs.pop("volume_acquisition_duration"))
         if time_unit is not None:
             volume_duration = float(
-                convert_time_values(
+                convert_time_units(
                     volume_duration,
                     from_unit="s",
                     to_unit=time_unit,
@@ -457,7 +457,7 @@ def _create_temporal_coords_from_nifti(
     if "volume_timing" in attrs:
         time_values = np.asarray(attrs.pop("volume_timing"))
         if time_unit is not None:
-            time_values = convert_time_values(
+            time_values = convert_time_units(
                 time_values,
                 from_unit="s",
                 to_unit=time_unit,
@@ -469,7 +469,7 @@ def _create_temporal_coords_from_nifti(
         delay_time = float(attrs.pop("delay_time", 0.0))
         if time_unit is not None:
             sampling_period_sidecar = float(
-                convert_time_values(
+                convert_time_units(
                     sampling_period_sidecar,
                     from_unit="s",
                     to_unit=time_unit,
@@ -477,7 +477,7 @@ def _create_temporal_coords_from_nifti(
                 )
             )
             delay = float(
-                convert_time_values(
+                convert_time_units(
                     delay,
                     from_unit="s",
                     to_unit=time_unit,
@@ -485,7 +485,7 @@ def _create_temporal_coords_from_nifti(
                 )
             )
             delay_time = float(
-                convert_time_values(
+                convert_time_units(
                     delay_time,
                     from_unit="s",
                     to_unit=time_unit,
@@ -528,7 +528,7 @@ def _create_temporal_coords_from_nifti(
     if "slice_timing" in attrs and "slice_encoding_direction" in attrs:
         coords["slice_time"] = create_slice_time_coordinate_from_bids(
             volume_times=coords["time"].values,
-            slice_timing=convert_time_values(
+            slice_timing=convert_time_units(
                 attrs.pop("slice_timing"),
                 from_unit="s",
                 to_unit=coords["time"].attrs.get("units", "s"),
@@ -577,7 +577,7 @@ def _create_scalar_temporal_coords_from_nifti(
         frame_duration = float(attrs.pop("volume_acquisition_duration"))
         if time_unit is not None:
             frame_duration = float(
-                convert_time_values(
+                convert_time_units(
                     frame_duration,
                     from_unit="s",
                     to_unit=time_unit,
@@ -616,7 +616,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
     if time_unit is not None:
         time_value = float(
-            convert_time_values(
+            convert_time_units(
                 time_value,
                 from_unit="s",
                 to_unit=time_unit,
@@ -634,7 +634,7 @@ def _create_scalar_temporal_coords_from_nifti(
             return coords, attrs
         attrs.pop("slice_encoding_direction")
 
-        slice_timing = convert_time_values(
+        slice_timing = convert_time_units(
             attrs.pop("slice_timing"),
             from_unit="s",
             to_unit=coords["time"].attrs.get("units", "s"),
@@ -936,7 +936,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
             return {}
 
         time_values_seconds = np.atleast_1d(
-            convert_time_values(
+            convert_time_units(
                 data_array.coords["time"].values,
                 data_array.coords["time"].attrs.get("units"),
                 "s",
@@ -976,7 +976,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
                 to_reference="start",
             )[0]
         )
-        slice_time_seconds = convert_time_values(
+        slice_time_seconds = convert_time_units(
             slice_time_coord.values,
             slice_time_coord.attrs.get("units"),
             "s",
@@ -1020,7 +1020,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         )
         return {}
 
-    time_values_seconds = convert_time_values(
+    time_values_seconds = convert_time_units(
         data_array.coords["time"].values,
         data_array.coords["time"].attrs.get("units"),
         "s",
@@ -1048,7 +1048,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         from_reference=time_reference,
         to_reference="start",
     )
-    slice_time_seconds = convert_time_values(
+    slice_time_seconds = convert_time_units(
         slice_time_coord.transpose("time", spatial_dims[0]).values,
         slice_time_coord.attrs.get("units"),
         "s",
@@ -1262,7 +1262,7 @@ def _build_nifti_timing_metadata(
             warn_on_missing=warn_on_missing_reference,
         )
 
-        time_values_seconds = convert_time_values(
+        time_values_seconds = convert_time_units(
             time_values_raw,
             time_unit,
             "s",
@@ -1607,7 +1607,7 @@ def _build_nifti_sidecar_metadata(
         for key in _TIME_ATTRS_TO_SECONDS:
             value = sidecar_attrs.get(key)
             if isinstance(value, int | float | np.integer | np.floating):
-                sidecar_attrs[key] = float(convert_time_values(value, from_unit, "s"))
+                sidecar_attrs[key] = float(convert_time_units(value, from_unit, "s"))
 
     extra_affines = {
         k: np.asarray(v).tolist()
