@@ -167,7 +167,7 @@ Group them by conventional commit prefix, omitting empty sections:
 
 Strip the prefix from each bullet in the generated summary.
 
-### Step 3 — Create annotated tag
+### Step 3 — Draft annotated tag message
 
 Use this tag message template:
 
@@ -179,7 +179,7 @@ SUMMARY
 
 Where `SUMMARY` is the grouped bullet list from the previous step.
 
-Create the annotated tag with:
+Prepare the annotated tag command using:
 
 ```bash
 git tag -a vVERSION -m "$(cat <<'EOF'
@@ -190,6 +190,8 @@ EOF
 )"
 ```
 
+Do not run the command yet.
+
 ### Step 4 — Review and confirm
 
 Show the user:
@@ -199,11 +201,17 @@ Show the user:
 
 Then ask whether to create and push the tag.
 
-### Step 5 — Push tag
+### Step 5 — Create and push tag
 
-Create and push only the tag:
+After the user confirms, create the annotated tag and push only the tag:
 
 ```bash
+git tag -a vVERSION -m "$(cat <<'EOF'
+ConfUSIus vVERSION
+
+SUMMARY
+EOF
+)"
 git push origin vVERSION
 ```
 
