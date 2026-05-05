@@ -63,8 +63,8 @@ nav = [
         { "Datasets" = "api/datasets.md" },
     ]},
     { "Examples" = "examples/index.md" },
-    { "Contributing" = "contributing.md" },
-    { "Contributors" = "contributors.md" },
+    { "Changelog" = "changelog.md" },
+    { "Community" = "contributing.md" },
     { "Citing" = "citing.md" },
 ]
 

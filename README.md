@@ -6,9 +6,9 @@
 # ConfUSIus <img src="docs/images/confusius-logo.svg" width="200" title="ConfUSIus" alt="ConfUSIus" align="right">
 
 > [!NOTE]
-> **Pre-Alpha Status** — ConfUSIus is in pre-alpha and under active development—the API
-> may change between releases and some features may be incomplete. We are happy to help
-> you get started: join our [weekly drop-in hours](https://confusius.tools/latest/user-guide/getting-started/#getting-help)
+> **Beta Status** — ConfUSIus is now in beta and under active development. Core
+> functionality is in place, but APIs may still evolve between releases as we improve
+> stability and user experience. We are happy to help you get started: join our [weekly drop-in hours](https://confusius.tools/latest/user-guide/getting-started/#getting-help)
 > on Discord or open an [issue on GitHub](https://github.com/confusius-tools/confusius/issues)
 > for questions and feature requests.
 

@@ -3,11 +3,35 @@ hide:
     - navigation
 ---
 
-# Contributing
+# Community
 
-We welcome contributions to ConfUSIus! This guide will help you get started.
+ConfUSIus is developed in the open. This page gathers ways to contribute, report
+issues, and connect with the people maintaining the project.
 
-## Getting Started
+## Core Developers
+
+<div class="grid cards" markdown>
+
+-   [:fontawesome-brands-github: **Samuel Le Meur-Diebolt**](https://github.com/sdiebolt)
+
+    ---
+
+    Postdoctoral researcher,
+    [Cortexlab](https://www.ucl.ac.uk/brain-sciences/cortexlab).
+
+-   [:fontawesome-brands-github: **Felipe Cybis Pereira**](https://github.com/FelipeCybis)
+
+    ---
+
+    Independent researcher.
+
+</div>
+
+## Contributing
+
+We welcome contributions to ConfUSIus. This guide will help you get started.
+
+### Getting Started
 
 1. Open an issue to discuss your idea or bug fix.
 2. Fork the repository on GitHub.
@@ -16,7 +40,7 @@ We welcome contributions to ConfUSIus! This guide will help you get started.
 5. Make your changes.
 6. Submit a pull request.
 
-## Development Setup
+### Development Installation
 
 ```bash
 # Clone your fork
@@ -33,7 +57,7 @@ just test
 just pre-commit
 ```
 
-## Code Style
+### Code Style
 
 - Use [ruff](https://docs.astral.sh/ruff/) for linting and formatting.
 - Run pre-commits (e.g., using [prek](https://prek.j178.dev/)) and tests before
@@ -41,7 +65,7 @@ just pre-commit
 - Add tests for new functionality.
 - Update documentation as needed.
 
-## Reporting Issues
+### Reporting Issues
 
 If you find a bug or have a feature request:
 
@@ -50,6 +74,6 @@ If you find a bug or have a feature request:
 3. Include steps to reproduce (for bugs).
 4. Include code examples if applicable.
 
-## Code of Conduct
+### Code of Conduct
 
 Be respectful and constructive in all interactions.

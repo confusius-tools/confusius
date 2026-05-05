@@ -1,177 +1,316 @@
 ---
 name: release
-description: Create a new ConfUSIus release (version bump, commit, tag, push, release notes)
-argument-hint: <new-version>
+description: Prepare, publish, or post-bump a ConfUSIus release
+argument-hint: <prepare|publish|post-bump> <version>
 disable-model-invocation: true
 ---
 
-Perform a full ConfUSIus release. The new version string is: `$ARGUMENTS`
+Perform one step of the ConfUSIus release workflow. The command arguments are:
+`$ARGUMENTS`
 
-Follow these steps in order. **Do not push or take irreversible action until explicitly
-confirmed by the user.**
+This skill supports three modes:
+
+- `prepare VERSION`: create a release-preparation branch and PR.
+- `publish VERSION`: tag the merged release commit on `main` and prepare release notes.
+- `post-bump VERSION`: create a post-release development-version branch and PR.
+
+Always ask for explicit confirmation before pushing, creating a PR, tagging, or taking any
+other irreversible action.
 
 ---
 
-## Step 1 — Validate input
+## Shared validation
 
-If no version was provided, ask the user for the version string (e.g. `0.0.1-a16`).
-
-Read the current version from `pyproject.toml`. Find the most recent tag:
+1. Parse the first argument as `MODE` and the second as `VERSION`.
+2. If either is missing, ask the user.
+3. Validate that `MODE` is one of `prepare`, `publish`, or `post-bump`.
+4. Read the current version from `pyproject.toml`.
+5. Find the most recent tag:
 
 ```bash
 git describe --tags --abbrev=0
 ```
 
-Store both for use in later steps.
+6. Use today's date in ISO format (`YYYY-MM-DD`) whenever a release date is needed.
+
+Version conventions:
+
+- `prepare` should normally target a final release version such as `0.2.0`.
+- `publish` should target the same final release version.
+- `post-bump` should normally target a development version such as `0.3.0.dev0`.
 
 ---
 
-## Step 2 — Update version references
+## Mode: `prepare VERSION`
 
-Edit the following files. Use the current year (from today's date) for any year fields.
+Use this mode to prepare the release PR. This happens before tagging.
+
+### Step 1 — Create a release branch
+
+Create a branch named:
+
+```text
+release/VERSION
+```
+
+Do not switch branches or push until the user confirms.
+
+### Step 2 — Update release files
+
+Edit the following files.
 
 ### `pyproject.toml`
-Replace `version = "OLD"` with `version = "NEW"`.
+- Replace `version = "OLD"` with `version = "VERSION"`.
+
+### `docs/changelog.md`
+- Replace the development heading for this release with the final release heading.
+  Example: `## 0.2.0.dev0` -> `## 0.2.0`.
+- Add a release line directly under the version heading:
+
+```md
+Released YYYY-MM-DD.
+```
+
+- Keep the rest of the entry intact unless the user asked for content edits.
 
 ### `CITATION.cff`
-- Replace `version: OLD` with `version: NEW`.
-- Replace `date-released: 'OLD_DATE'` with `date-released: 'TODAY'` (ISO format: YYYY-MM-DD).
+- Replace `version: OLD` with `version: VERSION`.
+- Replace `date-released: 'OLD_DATE'` with `date-released: 'TODAY'`.
 
 ### `README.md`
-In the citation section only (do **not** touch badge URLs or Zenodo DOI links):
-- Replace the prose citation version: `ConfUSIus (vOLD)` → `ConfUSIus (vNEW)`.
-- Replace the BibTeX version field: `version   = {vOLD}` → `version   = {vNEW}`.
-- Replace the BibTeX year field if the current year differs: `year      = {OLD_YEAR}` → `year      = {CURRENT_YEAR}`.
+In the citation section only:
+
+- Replace `ConfUSIus (vOLD)` with `ConfUSIus (vVERSION)`.
+- Replace `version   = {vOLD}` with `version   = {vVERSION}`.
+- Replace the citation year if needed.
 
 ### `docs/citing.md`
-Same replacements as `README.md`.
+Apply the same citation replacements as in `README.md`.
 
----
+Update any other release/version/date files only if they actually exist and clearly need to
+track the release version.
 
-## Step 3 — Sync lock file
+### Step 3 — Sync and verify
+
+Run:
 
 ```bash
 uv sync
-```
-
----
-
-## Step 4 — Run pre-commit checks
-
-```bash
 just pre-commit
 ```
 
-Fix any failures before continuing.
+Fix failures before continuing.
+
+### Step 4 — Commit release prep
+
+Stage only the files relevant to the release preparation.
+
+Use commit message:
+
+```text
+chore: prepare vVERSION release
+```
+
+### Step 5 — Open the PR
+
+Push the branch and create a PR targeting `main`.
+
+Recommended PR title:
+
+```text
+chore: prepare vVERSION release
+```
+
+Recommended PR body:
+
+```markdown
+## Summary
+- finalize version metadata for `vVERSION`
+- convert the changelog entry from development to released form
+- update release citation metadata and docs references
+```
+
+When done, return the PR URL and remind the user that tagging must happen only after this
+PR is merged.
 
 ---
 
-## Step 5 — Create version bump commit
+## Mode: `publish VERSION`
 
-Stage only these files: `pyproject.toml`, `CITATION.cff`, `README.md`,
-`docs/citing.md`, `uv.lock`.
+Use this mode only after the release PR has been merged.
 
-Commit message:
+### Step 1 — Verify merged `main`
 
-```
-chore: bump version to vNEW
-```
+1. Check out the latest `main` state locally.
+2. Confirm that `pyproject.toml` now reports `VERSION` exactly, not a `.dev0` version.
+3. Confirm that `docs/changelog.md` contains `## VERSION` and a release date.
 
----
+Do not tag a PR branch or any commit that is not the merged `main` release commit.
 
-## Step 6 — Create annotated tag
+### Step 2 — Build release summary
 
-Collect the commit list since the previous tag (excluding the version bump commit itself):
-
-```bash
-git log vPREV..HEAD~1 --oneline
-```
-
-Group by prefix into sections (omit empty sections):
-
-| Commit prefix        | Section heading     |
-|----------------------|---------------------|
-| `feat`               | **New features**    |
-| `fix`                | **Bug fixes**       |
-| `docs`               | **Documentation**   |
-| `refactor`, `perf`   | **Improvements**    |
-| `test`, `chore`, `style` | **Other**       |
-
-Use the grouped list as SUMMARY in the tag message below:
-
-```
-ConfUSIus vNEW
-
-SUMMARY (bullet list, one line per commit, strip the conventional commit prefix)
-```
-
-Create the tag:
+Collect commits since the previous tag:
 
 ```bash
-git tag -a vNEW -m "$(cat <<'EOF'
-<the message above>
+git log vPREV..HEAD --oneline
+```
+
+Group them by conventional commit prefix, omitting empty sections:
+
+| Commit prefix              | Section heading   |
+|----------------------------|-------------------|
+| `feat`                     | New features      |
+| `fix`                      | Bug fixes         |
+| `docs`                     | Documentation     |
+| `refactor`, `perf`         | Improvements      |
+| `test`, `chore`, `style`   | Other             |
+
+Strip the prefix from each bullet in the generated summary.
+
+### Step 3 — Create annotated tag
+
+Use this tag message template:
+
+```text
+ConfUSIus vVERSION
+
+SUMMARY
+```
+
+Where `SUMMARY` is the grouped bullet list from the previous step.
+
+Create the annotated tag with:
+
+```bash
+git tag -a vVERSION -m "$(cat <<'EOF'
+ConfUSIus vVERSION
+
+SUMMARY
 EOF
 )"
 ```
 
----
-
-## Step 7 — Review and confirm
+### Step 4 — Review and confirm
 
 Show the user:
 
-1. The full commit diff: `git show HEAD`
-2. The tag message: `git tag -n99 vNEW`
+1. `git show HEAD`
+2. The tag message draft
 
-Then ask: **"Ready to push commit and tag to origin? (yes / no)"**
+Then ask whether to create and push the tag.
 
-Do **not** push until the user explicitly says yes.
+### Step 5 — Push tag
 
----
-
-## Step 8 — Push
+Create and push only the tag:
 
 ```bash
-git push origin main
-git push origin vNEW
+git push origin vVERSION
 ```
+
+Do not create a new commit in this mode unless the user explicitly asks for one.
+
+### Step 6 — Release notes and announcement
+
+Generate for the user:
+
+1. A GitHub release body in Markdown.
+2. A short Discord announcement.
+
+Use the grouped commit summary. Omit `Other` unless it contains notable user-facing work.
 
 ---
 
-## Step 9 — GitHub release message
+## Mode: `post-bump VERSION`
 
-Generate and display the following for the user to paste into the GitHub release UI.
-Use the same grouped commit list from Step 7 (omit **Other** unless notable).
+Use this mode immediately after the tagged release to move the repository back to a
+development version.
+
+### Step 1 — Create a post-release branch
+
+Create a branch named:
+
+```text
+release/VERSION
+```
+
+Examples:
+
+- `release/0.3.0.dev0`
+- `release/0.2.1.dev0`
+
+### Step 2 — Update development version files
+
+Edit the following files.
+
+### `pyproject.toml`
+- Replace `version = "OLD"` with `version = "VERSION"`.
+
+### `docs/changelog.md`
+- Add a new top section:
+
+```md
+## VERSION
+
+Current development version for the next ConfUSIus release.
+```
+
+- Place it above the most recent released version section.
+
+### `CITATION.cff`
+- Replace `version: OLD` with `version: VERSION`.
+- Do not invent a new release date for a development version.
+- If the file already contains a release date for the last release, preserve it unless the
+  user asks for a different convention.
+
+### `README.md` and `docs/citing.md`
+- Update citation version strings only if the repository convention is to keep them aligned
+  with the in-repo development version.
+- If updating them would make the citation text misleading for users, stop and ask the
+  user before changing those files.
+
+### Step 3 — Sync and verify
+
+Run:
+
+```bash
+uv sync
+just pre-commit
+```
+
+Fix failures before continuing.
+
+### Step 4 — Commit and open PR
+
+Use commit message:
+
+```text
+chore: start VERSION development
+```
+
+Create a PR targeting `main`.
+
+Recommended PR title:
+
+```text
+chore: start VERSION development
+```
+
+Recommended PR body:
 
 ```markdown
-## What's new in vNEW
-
-### New features
-- ...
-
-### Bug fixes
-- ...
-
-### Documentation
-- ...
-
-### Improvements
-- ...
-
+## Summary
+- bump the repository version to `VERSION`
+- start the next changelog section
+- restore development-version metadata after the release
 ```
+
+Return the PR URL when done.
 
 ---
 
-## Step 10 — Discord announcement
+## Notes
 
-Generate and display the following for the user to post in Discord.
-Write ONE_OR_TWO_SENTENCE_HIGHLIGHT as a plain-English summary of the most
-notable changes (no jargon, no commit hashes).
-
-```
-🎉 **ConfUSIus vNEW** is out!
-
-ONE_OR_TWO_SENTENCE_HIGHLIGHT
-
-📋 **Changelog:** https://github.com/sdiebolt/confusius/releases/tag/vNEW
-```
+- Prefer `0.2.0.dev0` style versions over non-standard forms such as `0.2.0.dev`.
+- The release tag must always point to the merged `main` commit that represents the final
+  released state.
+- If the merge strategy was squash or rebase, never tag the PR branch commit.

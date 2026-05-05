@@ -22,7 +22,7 @@ uv add confusius
 ## Development Installation
 
 Please find all development installation instructions in the [Contributing
-Guide](contributing.md#development-installation).
+Guide](../contributing.md#development-installation).
 
 ## Verify Installation
 

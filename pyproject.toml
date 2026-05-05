@@ -1,6 +1,6 @@
 [project]
 name = "confusius"
-version = "0.0.1-a26"
+version = "0.2.0.dev0"
 description = "Python package for analysis and visualization of functional ultrasound imaging data."
 readme = "README.md"
 license = "BSD-3-Clause AND Apache-2.0 AND BSD-2-Clause"
@@ -8,7 +8,7 @@ license-files = ["LICENSE", "licenses/*"]
 authors = [{ name = "ConfUSIus developers" }]
 requires-python = ">=3.11,<3.14"
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
