@@ -1,4 +1,6 @@
 ---
+hide:
+    - navigation
 icon: lucide/quote
 ---
 
