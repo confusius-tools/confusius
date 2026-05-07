@@ -27,3 +27,8 @@ pandas
 Copyright (c) 2008-2011, AQR Capital Management, LLC, Lambda Foundry, Inc. and PyData Development Team
 Licensed under the BSD-3-Clause License
 Source: https://github.com/pandas-dev/pandas
+
+brainglobe-atlasapi
+Copyright (c) 2020, BrainGlobe
+Licensed under the BSD-3-Clause License
+Source: https://github.com/brainglobe/brainglobe-atlasapi
