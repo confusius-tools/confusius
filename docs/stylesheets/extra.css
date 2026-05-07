@@ -365,6 +365,7 @@
    logo. line-height:1 eliminates half-leading at large sizes. */
 .md-typeset .hero-title {
   font-size: clamp(2.5rem, 10.5vw, 5.1rem);
+  font-weight: 550;
   line-height: 1;
   white-space: nowrap;
   margin: 0.15rem auto 0.3rem;
