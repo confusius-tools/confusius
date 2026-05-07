@@ -1,6 +1,6 @@
-/* Outfit — used for the hero title and navbar site name only.
+/* DM Sans — used for the hero title and navbar site name only.
    Weights 500 (navbar) and 600 (hero display). */
-@import url("https://fonts.googleapis.com/css2?family=Outfit:wght@500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@500;600&display=swap");
 
 /* Supplement Google-Fonts JetBrains Mono with box-drawing + block glyphs.
    Google Fonts ships only latin/cyrillic/greek/vietnamese subsets, so chars in
@@ -81,7 +81,7 @@
 
 /* Increase the site name font size to match the 2rem logo visually. */
 .md-header__title {
-  font-family: "Outfit", sans-serif;
+  font-family: "DM Sans", sans-serif;
   font-size: 1.15rem;
   font-weight: 500;
 }
@@ -370,7 +370,7 @@
    on narrow screens — which would break text-align:center relative to the
    logo. line-height:1 eliminates half-leading at large sizes. */
 .md-typeset .hero-title {
-  font-family: "Outfit", sans-serif;
+  font-family: "DM Sans", sans-serif;
   font-size: clamp(2.5rem, 10.5vw, 5.1rem);
   font-weight: 600;
   line-height: 1;
