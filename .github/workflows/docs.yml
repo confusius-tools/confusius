@@ -24,7 +24,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: uv sync --frozen --all-extras
+        run: uv sync --frozen --all-extras --group docs
 
       - name: Install system dependencies for napari screenshots
         run: |
@@ -73,6 +73,21 @@ jobs:
           xvfb-run -a uv run docs/images/gui/generate.py
           xvfb-run -a uv run docs/images/qc/generate.py
           xvfb-run -a uv run docs/images/visualization/generate.py
+
+      - name: Cache gallery artifacts
+        uses: actions/cache@v5
+        with:
+          path: .cache/gallery
+          key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-gallery-
+
+      - name: Build example gallery
+        env:
+          QT_QPA_PLATFORM: "xcb"
+          PYOPENGL_PLATFORM: "glx"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a uv run python tools/build_gallery.py
 
       - name: Build documentation
         run: uv run zensical build --clean --strict
