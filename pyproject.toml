@@ -68,6 +68,12 @@ dev = [
     "mkdocstrings[python]>=1.0.3",
     "pytest-qt>=4.5.0",
 ]
+docs = [
+    "jupytext>=1.16.0",
+    "nbclient>=0.10.0",
+    "nbformat>=5.10.0",
+    "ipykernel>=6.29.0",
+]
 
 [tool.uv]
 # Ensure the lock file resolves wheels compatible with Windows (win_amd64).
