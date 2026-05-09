@@ -21,6 +21,7 @@ build:
         - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" QT_QPA_PLATFORM="xcb" PYOPENGL_PLATFORM="glx" LIBGL_ALWAYS_SOFTWARE="1" xvfb-run -a uv run --frozen docs/images/gui/generate.py
         - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" QT_QPA_PLATFORM="xcb" PYOPENGL_PLATFORM="glx" LIBGL_ALWAYS_SOFTWARE="1" xvfb-run -a uv run --frozen docs/images/qc/generate.py
         - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" QT_QPA_PLATFORM="xcb" PYOPENGL_PLATFORM="glx" LIBGL_ALWAYS_SOFTWARE="1" xvfb-run -a uv run --frozen docs/images/visualization/generate.py
+        - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" QT_QPA_PLATFORM="xcb" PYOPENGL_PLATFORM="glx" LIBGL_ALWAYS_SOFTWARE="1" xvfb-run -a uv run --frozen python tools/build_gallery.py
         - UV_PROJECT_ENVIRONMENT="${READTHEDOCS_VIRTUALENV_PATH}" uv run --frozen zensical build --strict
     post_build:
       - mkdir -p $READTHEDOCS_OUTPUT/html/

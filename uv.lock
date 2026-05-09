@@ -656,7 +656,11 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "codespell" },
+    { name = "ipykernel" },
+    { name = "jupytext" },
     { name = "mkdocstrings", extra = ["python"] },
+    { name = "nbclient" },
+    { name = "nbformat" },
     { name = "numpydoc" },
     { name = "prek" },
     { name = "pytest" },
@@ -666,12 +670,6 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
     { name = "zensical" },
-]
-docs = [
-    { name = "ipykernel" },
-    { name = "jupytext" },
-    { name = "nbclient" },
-    { name = "nbformat" },
 ]
 
 [package.metadata]
@@ -701,7 +699,11 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "codespell", specifier = ">=2.3.0" },
+    { name = "ipykernel", specifier = ">=6.29.0" },
+    { name = "jupytext", specifier = ">=1.16.0" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.3" },
+    { name = "nbclient", specifier = ">=0.10.0" },
+    { name = "nbformat", specifier = ">=5.10.0" },
     { name = "numpydoc", specifier = ">=1.9.0" },
     { name = "prek", specifier = ">=0.2.0,<0.3.0" },
     { name = "pytest", specifier = ">=8.4.2" },
@@ -711,12 +713,6 @@ dev = [
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.10,<0.1.0" },
     { name = "zensical", specifier = ">=0.0.40" },
-]
-docs = [
-    { name = "ipykernel", specifier = ">=6.29.0" },
-    { name = "jupytext", specifier = ">=1.16.0" },
-    { name = "nbclient", specifier = ">=0.10.0" },
-    { name = "nbformat", specifier = ">=5.10.0" },
 ]
 
 [[package]]

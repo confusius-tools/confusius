@@ -2,7 +2,7 @@
 
 Run as::
 
-    uv run --group docs python tools/build_gallery.py
+    uv run python tools/build_gallery.py
 """
 
 from __future__ import annotations

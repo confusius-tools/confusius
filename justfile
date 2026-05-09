@@ -16,7 +16,7 @@ serve-docs:
 
 # Build the examples gallery from docs/examples/*.py.
 gallery:
-    uv run --group docs python tools/build_gallery.py
+    uv run python tools/build_gallery.py
 
 # Remove generated gallery artifacts and the gallery cache.
 gallery-clean:
