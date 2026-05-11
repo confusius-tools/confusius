@@ -62,11 +62,12 @@ data = cf.load(pwd_path)
 data
 
 # %% [markdown]
-# ConfUSIus also registers a `.fusi` accessor on every DataArray, which exposes
-# fUSI-specific helpers and methods. For example, we can inspect the sampling step along
-# each dimension. Note that for this recording, the temporal step isn't defined
-# because the time coordinate isn't regularly sampled. See the [Working with
-# Xarray](../../../user-guide/xarray.md) guide for a broader overview of the accessor.
+# ConfUSIus also registers a [`.fusi`][confusius.xarray.FUSIAccessor] accessor on every
+# DataArray, which exposes fUSI-specific helpers and methods. For example, we can
+# inspect the sampling step along each dimension. Note that for this recording, the
+# temporal step isn't defined because the time coordinate isn't regularly sampled. See
+# the [Working with Xarray](../../../user-guide/xarray.md) guide for a broader overview
+# of the accessor.
 
 # %%
 data.fusi.spacing
@@ -81,9 +82,9 @@ data.fusi.spacing
 # ideal for processing volume-by-volume (such as when visualizing a recording in
 # napari), but it will make temporal operations (e.g., averaging over time, frequency
 # filtering, etc.) less efficient. Thus, when working with smaller recordings that do
-# fit in memory, it is often simpler to call `.compute()` right after loading to get a
-# regular in-memory array. This is not required, but it is recommended to make
-# subsequent operations more straightforward.
+# fit in memory, it is often simpler to call [`.compute`][xarray.DataArray.compute]
+# right after loading to get a regular in-memory array. This is not required, but it is
+# recommended to make subsequent operations more straightforward.
 
 # %%
 data = data.compute()
@@ -164,9 +165,9 @@ plotter.figure.patch.set_alpha(0)
 # %% [markdown]
 # ## Mask low-intensity pixels with `where`
 #
-# Xarray's `.where()` keeps the same coordinates and dimensions while masking values that
-# do not satisfy a condition. Here we suppress low-intensity pixels in the mean image
-# before plotting it again.
+# Xarray's [`.where`][xarray.DataArray.where] keeps the same coordinates and dimensions
+# while masking values that do not satisfy a condition. Here we suppress low-intensity
+# pixels in the mean image before plotting it again.
 
 # %%
 mean_db_masked = mean_db.where(mean_db > -20)
@@ -182,8 +183,9 @@ plotter.figure.patch.set_alpha(0)
 # %% [markdown]
 # ## Save a processed result
 #
-# ConfUSIus can also save DataArrays back to disk through the `.fusi.save()` accessor.
-# For example, we can save the masked mean image as a NIfTI file.
+# ConfUSIus can also save DataArrays back to disk through the
+# [`.fusi.save`][confusius.xarray.FUSIAccessor.save] method. For example, we can save
+# the masked mean image as a NIfTI file.
 
 # %%
 mean_db_masked.fusi.save(
