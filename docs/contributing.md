@@ -76,5 +76,5 @@ If you find a bug or have a feature request:
 
 ### Code of Conduct
 
-This project follows the [Contributor Covenant Code of Conduct](../CODE_OF_CONDUCT.md).
+This project follows the [Contributor Covenant Code of Conduct](https://github.com/confusius-tools/confusius/blob/main/CODE_OF_CONDUCT.md).
 By participating, you are expected to uphold it.
