@@ -1515,7 +1515,7 @@ class SignalPlotter(QWidget):
         if self._show_cursor and show_cursor:
             self._vline = self._axes.axvline(
                 cast(float, self._world_to_xaxis(self._cursor_world)),
-                color=colors["cursor"],
+                color=colors["accent"],
                 linewidth=1.2,
                 alpha=0.85,
                 zorder=10,

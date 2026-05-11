@@ -295,7 +295,7 @@ class QCPlotsWidget(QWidget):
         )
         self._dvars_vline = ax.axvline(
             t0,
-            color=colors["cursor"],
+            color=colors["accent"],
             linewidth=1.2,
             alpha=0.85,
             zorder=10,
@@ -347,7 +347,7 @@ class QCPlotsWidget(QWidget):
             t0 = float(time_coord[0]) if time_coord is not None else 0.0
         self._carpet_vline = ax.axvline(
             t0,
-            color=colors["cursor"],
+            color=colors["accent"],
             linewidth=1.2,
             alpha=0.85,
             zorder=10,

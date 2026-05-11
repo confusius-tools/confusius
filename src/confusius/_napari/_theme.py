@@ -32,9 +32,7 @@ def get_napari_colors(theme_name: str) -> dict:
         `"fg"`
             Foreground (text) hex color string.
         `"accent"`
-            Accent hex color string for plot lines.
-        `"cursor"`
-            Hex color string for the time cursor line.
+            Accent hex color string for plot lines and cursors.
         `"is_dark"`
             `True` when the background luminance is below 50 %.
     """
@@ -62,7 +60,6 @@ def get_napari_colors(theme_name: str) -> dict:
         "bg": bg,
         "fg": fg,
         "accent": "#e94b5f" if is_dark else "#d93a54",
-        "cursor": "#e94b5f" if is_dark else "#d93a54",
         "is_dark": is_dark,
     }
 
