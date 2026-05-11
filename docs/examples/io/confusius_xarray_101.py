@@ -64,7 +64,7 @@ data
 # %% [markdown]
 # ConfUSIus also registers a `.fusi` accessor on every DataArray, which exposes
 # fUSI-specific helpers and methods. For example, we can inspect the sampling step along
-# each dimension. Notice that for this recording, the temporal step isn't defined
+# each dimension. Note that for this recording, the temporal step isn't defined
 # because the time coordinate isn't regularly sampled. See the [Working with
 # Xarray](../../../user-guide/xarray.md) guide for a broader overview of the accessor.
 
