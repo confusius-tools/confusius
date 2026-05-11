@@ -63,7 +63,7 @@ def test_build_gallery_uses_cache_on_second_run(tmp_path: Path) -> None:
         "h",
         (
             "# %%\nimport time, pathlib\n"
-            "pathlib.Path('marker.txt').write_text(str(time.time()))\n"
+            f"pathlib.Path({str((tmp_path / 'marker.txt').as_posix())!r}).write_text(str(time.time()))\n"
         ),
     )
 
