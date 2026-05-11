@@ -976,8 +976,10 @@ class SignalPlotter(QWidget):
         if not data_lines:
             return None
         try:
+            # orig=False applies matplotlib's unit conversion so categorical
+            # string labels become the numeric indices used for plotting.
             all_x = np.concatenate(
-                [np.asarray(ln.get_xdata(), dtype=float) for ln in data_lines]
+                [np.asarray(ln.get_xdata(orig=False), dtype=float) for ln in data_lines]
             )
         except (ValueError, TypeError):
             return None
