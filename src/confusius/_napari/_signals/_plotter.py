@@ -967,16 +967,29 @@ class SignalPlotter(QWidget):
         return not np.allclose(self._axes.get_xlim(), auto_xlim, rtol=0.0, atol=1e-9)
 
     def _plotted_x_extent(self) -> tuple[float, float] | None:
-        """Return the overall x extent across all currently plotted lines."""
-        if not self._axes.get_lines():
-            return None
+        """Return the overall x extent across all currently plotted lines.
 
-        self._axes.relim()
-        x0 = float(self._axes.dataLim.x0)
-        x1 = float(self._axes.dataLim.x1)
+        The x-axis cursor vline is excluded so its position (which may be 0
+        before any cursor event) does not shift the data range.
+        """
+        data_lines = [ln for ln in self._axes.get_lines() if ln is not self._vline]
+        if not data_lines:
+            return None
+        try:
+            # orig=False applies matplotlib's unit conversion so categorical
+            # string labels become the numeric indices used for plotting.
+            all_x = np.concatenate(
+                [np.asarray(ln.get_xdata(orig=False), dtype=float) for ln in data_lines]
+            )
+        except (ValueError, TypeError):
+            return None
+        if len(all_x) == 0:
+            return None
+        x0 = float(np.nanmin(all_x))
+        x1 = float(np.nanmax(all_x))
         if not (np.isfinite(x0) and np.isfinite(x1)):
             return None
-        return min(x0, x1), max(x0, x1)
+        return x0, x1
 
     def _set_export_signals(self, signals: list[ExportSignal]) -> None:
         """Store the currently plotted signals for export."""
@@ -1502,7 +1515,7 @@ class SignalPlotter(QWidget):
         if self._show_cursor and show_cursor:
             self._vline = self._axes.axvline(
                 cast(float, self._world_to_xaxis(self._cursor_world)),
-                color=colors["cursor"],
+                color=colors["accent"],
                 linewidth=1.2,
                 alpha=0.85,
                 zorder=10,
