@@ -10,7 +10,7 @@ gallery:
     uv run python tools/build_gallery.py
 
 # Remove generated gallery artifacts and the gallery cache.
-gallery-clean:
+clean-gallery:
     rm -rf docs/examples/_built docs/examples/index.md .cache/gallery
 
 # Build documentation.
@@ -22,7 +22,7 @@ serve-docs: gallery
     uv run zensical serve
 
 # Clean documentation build artifacts.
-clean-docs: gallery-clean
+clean-docs: clean-gallery
     rm -rf .cache/
     rm -rf site/
 
@@ -54,7 +54,7 @@ pre-commit:
 alias d := docs
 alias cd := clean-docs
 alias g := gallery
-alias gc := gallery-clean
+alias cg := clean-gallery
 alias gdi := generate-doc-images
 alias sd := serve-docs
 alias t := test
