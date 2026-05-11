@@ -9,12 +9,13 @@ import pytest
 # Use the offscreen Qt backend when no display is available (e.g. CI).
 # Must be set before any Qt import so that QApplication does not try to
 # connect to an X server and abort.
-# There is a mismatch between QT offscreen support and vispy OpenGL support on Windows
+# QT offscreen + vispy OpenGL crashes on Windows and macOS:
 # https://github.com/napari/napari/issues/5355
 # https://github.com/napari/napari/issues/804
-# On Windows CI, we setup the headless display on the GitHub Actions workflow
-if sys.platform != "win32":
-    # Linux/macOS CI usually has no display; use the offscreen Qt backend.
+# Windows: real headless display is set up via GitHub Actions (Mesa3D).
+# macOS: the runner already has a window server, so no offscreen needed.
+if sys.platform not in ("win32", "darwin"):
+    # Linux CI usually has no display; use the offscreen Qt backend.
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
