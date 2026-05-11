@@ -65,8 +65,8 @@ nav = [
     ]},
     { "Examples" = [
         { "Overview" = "examples/index.md" },
-        { "Input/Output" = [
-            { "Load and plot a Nunez-Elizalde recording" = "examples/_built/io/nunez_quickstart.md" },
+        { "Getting Started" = [
+            { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },

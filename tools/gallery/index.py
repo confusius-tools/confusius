@@ -60,10 +60,10 @@ def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
 
     parts: list[str] = [
         "# Examples\n\n"
-        "This section collects runnable example workflows for ConfUSIus, organized by analysis\n"
-        "task and learning level.\n\n"
-        "Examples are authored as plain Python files, executed during docs generation, and\n"
-        "rendered as notebook-style pages with outputs included.\n\n"
+        "These examples show how to use ConfUSIus on real data, with an emphasis on\n"
+        "workflows you can run and adapt in your own analyses.\n\n"
+        "Each example starts from a plain Python script and is rendered as a notebook-style\n"
+        "page with code, outputs, and downloadable source files.\n\n"
     ]
 
     for section in sorted(by_section):

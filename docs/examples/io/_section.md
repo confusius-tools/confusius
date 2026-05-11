@@ -1,3 +1,4 @@
-# Input/Output
+# Getting Started
 
-Loading and visualizing small fUS dataset snippets with ConfUSIus.
+First steps with ConfUSIus: loading a recording, working with Xarray-backed data,
+and building simple summaries and visualizations.

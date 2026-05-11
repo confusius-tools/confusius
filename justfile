@@ -22,7 +22,7 @@ serve-docs: gallery
     uv run zensical serve
 
 # Clean documentation build artifacts.
-clean-docs:
+clean-docs: gallery-clean
     rm -rf .cache/
     rm -rf site/
 
