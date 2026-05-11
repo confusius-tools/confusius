@@ -27,7 +27,7 @@ Or in BibTeX format:
 
 ---
 
-## Citing Third-Party Projects
+## Third-Party Libraries
 
 ConfUSIus stands on the shoulders of giants. It is built on top of many excellent
 open-source projects, without which it could not exist. If you use the features listed
@@ -129,5 +129,35 @@ Or in BibTeX format:
   pages   = {1--35},
   doi     = {10.18637/jss.v086.i08},
   url     = {https://doi.org/10.18637/jss.v086.i08}
+}
+```
+
+## Templates
+
+### Pepe, Mariani et al. (2026)
+
+The [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
+function provides a mouse fUSI template derived from Pepe, Mariani et al. (2026). If you use
+this template in your research, please also cite the corresponding article:
+
+> Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., Galbusera, A.,
+> Iurilli, G., & Gozzi, A. (2026). Structural and dynamic embedding of the mouse functional
+> connectome revealed by functional ultrasound imaging (fUSI). *bioRxiv*.
+> https://doi.org/10.64898/2026.02.05.704055
+
+Or in BibTeX format:
+
+```bibtex
+@article{pepe2026fusi,
+  author    = {Pepe, Chiara and Mariani, Jean-Charles and Urosevic, Mila and Gini, Silvia and
+               Stuefer, Alexia and Ricci, Fabio and Galbusera, Alberto and Iurilli, Giuliano and
+               Gozzi, Alessandro},
+  title     = {Structural and dynamic embedding of the mouse functional connectome revealed by
+               functional ultrasound imaging ({fUSI})},
+  journal   = {bioRxiv},
+  year      = {2026},
+  publisher = {Cold Spring Harbor Laboratory},
+  doi       = {10.64898/2026.02.05.704055},
+  url       = {https://doi.org/10.64898/2026.02.05.704055}
 }
 ```
