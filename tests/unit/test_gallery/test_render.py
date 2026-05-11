@@ -114,3 +114,42 @@ def test_render_handles_notebook_without_images(tmp_path: Path) -> None:
         runtime_seconds=0.1,
     )
     assert thumbnail is None
+
+
+def test_render_uses_outputs_from_light_and_dark_notebooks(tmp_path: Path) -> None:
+    """Image bytes come from light_notebook / dark_notebook, not the un-executed source."""
+    import base64
+
+    light_b64 = base64.b64encode(b"light_pixel").decode()
+    dark_b64 = base64.b64encode(b"dark_pixel").decode()
+
+    source_nb = nbformat.v4.new_notebook()
+    source_nb.cells.append(nbformat.v4.new_code_cell("plt.plot([1])"))
+
+    def _nb_with_png(b64: str) -> nbformat.NotebookNode:
+        nb = nbformat.v4.new_notebook()
+        cell = nbformat.v4.new_code_cell("plt.plot([1])")
+        cell.outputs = [
+            nbformat.v4.new_output(
+                output_type="display_data",
+                data={"image/png": b64},
+                metadata={},
+            )
+        ]
+        nb.cells.append(cell)
+        return nb
+
+    render_notebook(
+        source_nb,
+        _nb_with_png(light_b64),
+        _nb_with_png(dark_b64),
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+    )
+
+    light_bytes = (tmp_path / "ex_output_light" / "cell_01_0_light.png").read_bytes()
+    dark_bytes = (tmp_path / "ex_output_dark" / "cell_01_0_dark.png").read_bytes()
+    assert light_bytes == b"light_pixel"
+    assert dark_bytes == b"dark_pixel"
+    assert light_bytes != dark_bytes

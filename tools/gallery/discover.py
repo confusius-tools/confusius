@@ -13,7 +13,9 @@ def discover(root: Path) -> list[ExampleSpec]:
     if not root.is_dir():
         return specs
 
-    for section_dir in sorted(p for p in root.iterdir() if p.is_dir() and not p.name.startswith("_")):
+    for section_dir in sorted(
+        p for p in root.iterdir() if p.is_dir() and not p.name.startswith("_")
+    ):
         intro_path = section_dir / "_section.md"
         intro = intro_path.read_text(encoding="utf-8") if intro_path.is_file() else ""
 

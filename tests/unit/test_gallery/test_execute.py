@@ -32,15 +32,14 @@ def test_execute_uses_current_python_interpreter(tmp_path: Path) -> None:
     src = tmp_path / "ex.py"
     src.write_text(f"# %%\nimport sys\nassert sys.executable == {sys.executable!r}\n")
     # Will raise if the kernel is some other interpreter.
-    nb, _ = execute_example(src, timeout=60)
-    assert nb is not None
+    execute_example(src, timeout=60)
 
 
 def test_execute_re_raises_with_example_path(tmp_path: Path) -> None:
     src = tmp_path / "broken.py"
     src.write_text("# %%\nraise RuntimeError('boom')\n")
 
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(RuntimeError) as excinfo:
         execute_example(src, timeout=60)
 
     assert "broken.py" in str(excinfo.value)

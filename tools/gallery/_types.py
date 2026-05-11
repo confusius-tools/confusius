@@ -23,3 +23,15 @@ class ExampleSpec:
     source: Path
     section: str
     section_intro: str
+
+
+@dataclass(frozen=True)
+class RenderedExample:
+    """An example after the renderer has produced its artifacts."""
+
+    spec: ExampleSpec
+    title: str
+    summary: str
+    md_path: Path
+    thumbnail_light: Path | None
+    thumbnail_dark: Path | None

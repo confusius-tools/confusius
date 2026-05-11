@@ -40,11 +40,7 @@ def _image_tag(*, src: str, alt: str) -> str:
 
 def _html_block(html: str) -> str:
     """Return a raw HTML block for Markdown output."""
-    return (
-        '<div class="gallery-rich-output">'
-        + html.rstrip()
-        + "</div>\n"
-    )
+    return '<div class="gallery-rich-output">' + html.rstrip() + "</div>\n"
 
 
 def _normalize_html_output(html: str) -> str:
@@ -60,8 +56,12 @@ def _normalize_html_output(html: str) -> str:
             html,
             flags=re.S,
         )
-        html = html.replace("<div class='xr-wrap' style='display:none'>", "<div class='xr-wrap'>")
-        html = html.replace('<div class="xr-wrap" style="display:none">', '<div class="xr-wrap">')
+        html = html.replace(
+            "<div class='xr-wrap' style='display:none'>", "<div class='xr-wrap'>"
+        )
+        html = html.replace(
+            '<div class="xr-wrap" style="display:none">', '<div class="xr-wrap">'
+        )
         html += (
             "\n<style>"
             ".xr-array-preview,.xr-array-preview span,.xr-preview,.xr-var-preview,.xr-var-dtype,.xr-var-dims,.xr-var-name,.xr-obj-type,.xr-obj-name{color:var(--xr-font-color0)!important;}"
@@ -144,14 +144,18 @@ def render_notebook(
     parts: list[str] = []
     thumbnail: tuple[Path, Path] | None = None
     light_cells = [
-        cell for cell in light_notebook.cells if "_gallery_internal" not in _cell_tags(cell)
+        cell
+        for cell in light_notebook.cells
+        if "_gallery_internal" not in _cell_tags(cell)
     ]
     dark_cells = [
-        cell for cell in dark_notebook.cells if "_gallery_internal" not in _cell_tags(cell)
+        cell
+        for cell in dark_notebook.cells
+        if "_gallery_internal" not in _cell_tags(cell)
     ]
 
     for cell_index, (cell, light_cell, dark_cell) in enumerate(
-        zip(source_notebook.cells, light_cells, dark_cells, strict=False),
+        zip(source_notebook.cells, light_cells, dark_cells, strict=True),
         start=1,
     ):
         if cell.cell_type == "markdown":
@@ -163,7 +167,9 @@ def render_notebook(
         parts.append("```python\n" + cell.source.rstrip() + "\n```\n")
 
         for output_index, (light_output, dark_output) in enumerate(
-            zip(light_cell.get("outputs", []), dark_cell.get("outputs", []), strict=True)
+            zip(
+                light_cell.get("outputs", []), dark_cell.get("outputs", []), strict=True
+            )
         ):
             output_type = light_output.get("output_type")
             if output_type == "stream":
@@ -213,9 +219,7 @@ def render_notebook(
                     continue
                 if isinstance(light_data, dict) and "text/plain" in light_data:
                     parts.append(
-                        "```\n"
-                        + str(light_data["text/plain"]).rstrip("\n")
-                        + "\n```\n"
+                        "```\n" + str(light_data["text/plain"]).rstrip("\n") + "\n```\n"
                     )
                 continue
 

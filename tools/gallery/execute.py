@@ -13,42 +13,42 @@ from jupyter_client.manager import KernelManager
 from nbclient import NotebookClient
 from nbclient.exceptions import CellExecutionError
 
-_THEME_SETUP = {
+_THEME_COMMON_PRE: list[str] = [
+    "import warnings",
+    "import matplotlib as mpl",
+    "from matplotlib import style as mpl_style",
+    "warnings.filterwarnings('ignore', message='IProgress not found.*')",
+]
+_THEME_COMMON_MID: list[str] = [
+    "mpl.rcParams['figure.dpi'] = 160",
+    "mpl.rcParams['savefig.dpi'] = 200",
+    "mpl.rcParams['figure.figsize'] = (7, 4)",
+]
+_THEME_COMMON_POST: list[str] = [
+    "try:",
+    "    from matplotlib_inline.backend_inline import set_matplotlib_formats",
+    "    set_matplotlib_formats('retina')",
+    "except Exception:",
+    "    pass",
+]
+_THEME_SETUP: dict[str, list[str]] = {
     "light": [
-        "import warnings",
-        "import matplotlib as mpl",
-        "from matplotlib import style as mpl_style",
-        "warnings.filterwarnings('ignore', message='IProgress not found.*')",
+        *_THEME_COMMON_PRE,
         "mpl_style.use('default')",
-        "mpl.rcParams['figure.dpi'] = 160",
-        "mpl.rcParams['savefig.dpi'] = 200",
-        "mpl.rcParams['figure.figsize'] = (7, 4)",
+        *_THEME_COMMON_MID,
         "mpl.rcParams['figure.facecolor'] = '#ffffff'",
         "mpl.rcParams['axes.facecolor'] = '#ffffff'",
         "mpl.rcParams['savefig.facecolor'] = '#ffffff'",
-        "try:",
-        "    from matplotlib_inline.backend_inline import set_matplotlib_formats",
-        "    set_matplotlib_formats('retina')",
-        "except Exception:",
-        "    pass",
+        *_THEME_COMMON_POST,
     ],
     "dark": [
-        "import warnings",
-        "import matplotlib as mpl",
-        "from matplotlib import style as mpl_style",
-        "warnings.filterwarnings('ignore', message='IProgress not found.*')",
+        *_THEME_COMMON_PRE,
         "mpl_style.use('dark_background')",
-        "mpl.rcParams['figure.dpi'] = 160",
-        "mpl.rcParams['savefig.dpi'] = 200",
-        "mpl.rcParams['figure.figsize'] = (7, 4)",
+        *_THEME_COMMON_MID,
         "mpl.rcParams['figure.facecolor'] = '#111720'",
         "mpl.rcParams['axes.facecolor'] = '#111720'",
         "mpl.rcParams['savefig.facecolor'] = '#111720'",
-        "try:",
-        "    from matplotlib_inline.backend_inline import set_matplotlib_formats",
-        "    set_matplotlib_formats('retina')",
-        "except Exception:",
-        "    pass",
+        *_THEME_COMMON_POST,
     ],
 }
 

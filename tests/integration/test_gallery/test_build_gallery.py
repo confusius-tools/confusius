@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -25,7 +26,8 @@ def test_build_gallery_produces_expected_artifacts(tmp_path: Path) -> None:
     cache_root = tmp_path / ".cache" / "gallery"
     examples_root.mkdir(parents=True)
     (examples_root / "_assets").mkdir()
-    (examples_root / "_assets" / "default_thumb.png").write_bytes(b"\x89PNG\r\n")
+    (examples_root / "_assets" / "default_thumb.svg").write_text("<svg/>")
+    (examples_root / "_assets" / "default_thumb_dark.svg").write_text("<svg/>")
 
     _seed_example(
         examples_root,
@@ -56,7 +58,8 @@ def test_build_gallery_uses_cache_on_second_run(tmp_path: Path) -> None:
     cache_root = tmp_path / ".cache" / "gallery"
     examples_root.mkdir(parents=True)
     (examples_root / "_assets").mkdir()
-    (examples_root / "_assets" / "default_thumb.png").write_bytes(b"\x89PNG\r\n")
+    (examples_root / "_assets" / "default_thumb.svg").write_text("<svg/>")
+    (examples_root / "_assets" / "default_thumb_dark.svg").write_text("<svg/>")
     _seed_example(
         examples_root,
         "io",
@@ -77,8 +80,6 @@ def test_build_gallery_uses_cache_on_second_run(tmp_path: Path) -> None:
 
     # Wipe the built dir but keep the cache. A second run must restore it
     # without re-executing.
-    import shutil
-
     shutil.rmtree(built_dir)
 
     build_gallery(

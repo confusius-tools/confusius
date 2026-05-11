@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.gallery._types import ExampleSpec
-from tools.gallery.index import RenderedExample, build_index
+from tools.gallery._types import ExampleSpec, RenderedExample
+from tools.gallery.index import build_index
 
 
 def _spec(source: Path, section: str) -> ExampleSpec:

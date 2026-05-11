@@ -4,23 +4,9 @@ from __future__ import annotations
 
 import html as html_lib
 from collections import defaultdict
-from dataclasses import dataclass
 from pathlib import Path
 
-from ._types import ExampleSpec
-
-
-@dataclass(frozen=True)
-class RenderedExample:
-    """An example after the renderer has produced its artifacts."""
-
-    spec: ExampleSpec
-    title: str
-    summary: str
-    md_path: Path
-    thumbnail_light: Path | None
-    thumbnail_dark: Path | None
-
+from ._types import RenderedExample
 
 _DEFAULT_THUMB_LIGHT = "_assets/default_thumb.svg"
 _DEFAULT_THUMB_DARK = "_assets/default_thumb_dark.svg"
@@ -30,7 +16,8 @@ def _demote_h1(text: str) -> str:
     """Demote a leading H1 heading to H2 so the index has a single page title."""
     lines = text.split("\n", 1)
     first = lines[0]
-    if first.startswith("# ") and not first.startswith("## "):
+    # "# " matches only true H1s; "## " starts with "#" not "# ", so no extra guard needed.
+    if first.startswith("# "):
         first = "#" + first
     return first + ("\n" + lines[1] if len(lines) > 1 else "")
 
@@ -74,7 +61,9 @@ def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
         for rendered_example in sorted(items, key=lambda item: item.spec.source.name):
             href = rendered_example.md_path.relative_to(root).as_posix()
             image = _card_image_markdown(rendered_example, root=root, href=href)
-            card = f"-   {image}\n\n    ---\n\n    **[{rendered_example.title}]({href})**"
+            card = (
+                f"-   {image}\n\n    ---\n\n    **[{rendered_example.title}]({href})**"
+            )
             if rendered_example.summary:
                 card += f"\n\n    {rendered_example.summary}"
             parts.append(card + "\n\n")
