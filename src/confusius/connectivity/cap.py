@@ -178,12 +178,23 @@ def _run_single_cosine_kmeans(
 
     # Initialize to -1 so the first iteration always triggers an update.
     labels = np.full(n_samples, -1, dtype=np.intp)
+    # Track which cluster centers are empty (zero-norm) from the previous update.
+    # An empty center has raw similarity 0 with all unit-norm inputs, which can
+    # beat valid centers whose similarity is negative — hence the masking below.
+    empty: npt.NDArray[np.bool_] = np.zeros(n_clusters, dtype=bool)
 
     for _ in range(max_iter):
         similarities = X @ centers.T  # (n_samples, n_clusters)
 
         # Hard assignment: nearest center = max cosine similarity.
-        new_labels = similarities.argmax(axis=1).astype(np.intp)
+        # Compute argmax on a masked copy so empty centers cannot win.
+        if empty.any():
+            masked = similarities.copy()
+            masked[:, empty] = -np.inf
+            new_labels = masked.argmax(axis=1).astype(np.intp)
+        else:
+            new_labels = similarities.argmax(axis=1).astype(np.intp)
+
         if np.array_equal(new_labels, labels):
             break
         labels = new_labels
@@ -208,13 +219,15 @@ def _run_single_cosine_kmeans(
 
         norms = np.linalg.norm(new_centers, axis=1, keepdims=True)
         centers = new_centers / np.where(norms == 0.0, 1.0, norms)
-        # Zero out empty cluster centers so they never win argmax.
-        centers[norms.ravel() == 0.0] = 0.0
+        empty = norms.ravel() == 0.0
+        centers[empty] = 0.0
 
     # Final assignment and inertia.
     similarities = X @ centers.T
+    if empty.any():
+        similarities[:, empty] = -np.inf
     labels = similarities.argmax(axis=1).astype(np.intp)
-    inertia = float(n_samples - similarities.max(axis=1).sum())
+    inertia = float(n_samples - similarities[np.arange(n_samples), labels].sum())
     return centers, labels, inertia
 
 
@@ -377,8 +390,8 @@ def _segments(
     return binary, n_segments
 
 
-def _frame_durations(lbl: xr.DataArray) -> npt.NDArray[np.floating]:
-    """Compute per-frame durations from the `time` coordinate of `lbl`.
+def _volume_durations(lbl: xr.DataArray) -> npt.NDArray[np.floating]:
+    """Compute per-volume durations from the `time` coordinate of `lbl`.
 
     Parameters
     ----------
@@ -388,11 +401,11 @@ def _frame_durations(lbl: xr.DataArray) -> npt.NDArray[np.floating]:
     Returns
     -------
     (time,) numpy.ndarray
-        Frame durations. When a `time` coordinate is present, durations are
-        derived from consecutive time differences; the last frame is assigned
+        Volume durations. When a `time` coordinate is present, durations are
+        derived from consecutive time differences; the last volume is assigned
         the same duration as the penultimate interval. Returns all-ones (in
-        frames) when no `time` coordinate is present or when the recording
-        has fewer than 2 frames.
+        volumes) when no `time` coordinate is present or when the recording
+        has fewer than 2 volumes.
     """
     n = lbl.sizes["time"]
     if "time" not in lbl.coords or n < 2:
@@ -470,7 +483,7 @@ class CAP(BaseEstimator):
         dimensions match the spatial dimensions of the data passed to
         [`fit`][confusius.connectivity.CAP.fit]. For `"correlation"`
         and `"cosine"` metrics, maps are unit-norm vectors in the preprocessed space.
-        `attrs["long_name"]` is set to `"Co-activation patterns"` and `attrs["cmap"]` to
+        `attrs["long_name"]` is set to `"CAP"` and `attrs["cmap"]` to
         `"coolwarm"` so that plotting functions pick up sensible defaults automatically.
     labels_ : list[xarray.DataArray]
         Per-recording CAP index sequences (0-based integer). Each element has
@@ -609,6 +622,9 @@ class CAP(BaseEstimator):
         caps = caps_stacked.unstack("space")
         caps.attrs.update({"long_name": "CAP", "cmap": "coolwarm"})
         self.caps_: xr.DataArray = caps
+        self._spatial_dims: tuple[str, ...] = tuple(
+            str(d) for d in caps.dims if d != "cap"
+        )
 
         # Split the flat label array back into per-recording sequences.
         self.labels_: list[xr.DataArray] = []
@@ -649,12 +665,16 @@ class CAP(BaseEstimator):
 
         recordings = [X] if isinstance(X, xr.DataArray) else list(X)
 
-        spatial_dims = [str(d) for d in self.caps_.dims if d != "cap"]
-        caps_flat = self.caps_.stack(space=spatial_dims).values  # (cap, space)
+        caps_flat = self.caps_.stack(
+            space=list(self._spatial_dims)
+        ).values  # (cap, space)
 
         result = []
         for rec in recordings:
             validate_time_series(rec, operation_name="CAP.predict")
+            # Ensure spatial dims match the order used during fit so that
+            # the flattened feature vectors align with caps_flat.
+            rec = rec.transpose("time", *self._spatial_dims)
             X_proc, _ = self._prepare_data(rec)
 
             if self.metric in ("correlation", "cosine"):
@@ -673,8 +693,8 @@ class CAP(BaseEstimator):
         """Compute temporal dynamics metrics for each recording.
 
         Persistence is expressed in the time units of the recording when the `labels_`
-        DataArrays carry a `time` coordinate; otherwise in frames. The temporal
-        resolution need not be constant: frame durations are derived from consecutive
+        DataArrays carry a `time` coordinate; otherwise in volumes. The temporal
+        resolution need not be constant: volume durations are derived from consecutive
         differences of the time coordinate, so irregular sampling is handled correctly.
 
         Returns
@@ -682,13 +702,13 @@ class CAP(BaseEstimator):
         xarray.Dataset
             Dataset indexed by `recording` (0-based) and `cap` with variables:
 
-            - `temporal_fraction` `(recording, cap)`: fraction of frames assigned
+            - `temporal_fraction` `(recording, cap)`: fraction of volumes assigned
               to each CAP.
             - `counts` `(recording, cap)`: number of contiguous episodes of each CAP.
             - `persistence` `(recording, cap)`: mean episode duration. Zero when the
               CAP never appears. Units are inherited from the `time` coordinate's
               `units` attribute, or `"time"` when no such attribute exists, or
-              `"frames"` when no `time` coordinate is present.
+              `"volumes"` when no `time` coordinate is present.
             - `transition_frequency` `(recording,)`: total number of CAP switches.
             - `transition_matrix` `(recording, cap_from, cap_to)`: row-normalized
               transition probability matrix. Rows sum to 1 when the corresponding
@@ -714,12 +734,12 @@ class CAP(BaseEstimator):
 
         for i, lbl in enumerate(self.labels_):
             arr = lbl.values
-            n_frames = len(arr)
-            durations = _frame_durations(lbl)
+            n_volumes = len(arr)
+            durations = _volume_durations(lbl)
 
             for j, cap_id in enumerate(cap_ids):
                 binary, n_segs = _segments(arr, int(cap_id))
-                tf[i, j] = float(binary.sum()) / n_frames
+                tf[i, j] = float(binary.sum()) / n_volumes
                 cnt[i, j] = n_segs
                 # Floor n_segs at 1 to avoid 0/0; the binary.sum()==0 case
                 # yields 0.0, correctly reflecting a CAP that never appears.
@@ -727,7 +747,7 @@ class CAP(BaseEstimator):
 
             trans_freq[i] = int(np.sum(np.diff(arr) != 0))
 
-            if n_frames > 1:
+            if n_volumes > 1:
                 trans_from = arr[:-1]
                 trans_to = arr[1:]
                 for fi, from_id in enumerate(cap_ids):
@@ -743,7 +763,7 @@ class CAP(BaseEstimator):
         rec_coords = np.arange(n_recordings)
 
         # Infer persistence units from the time coordinate of the first recording.
-        pers_units = "frames"
+        pers_units = "volumes"
         if self.labels_ and "time" in self.labels_[0].coords:
             time_units = self.labels_[0].coords["time"].attrs.get("units")
             pers_units = str(time_units) if time_units is not None else "time"
