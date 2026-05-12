@@ -120,7 +120,7 @@ def _make_drift_regressors(
     n_volumes : int
         Number of volumes (timepoints).
     drift_model : {"cosine", "polynomial"} or None
-        Type of drift model. If not specified, only a constant regressor is returned.
+        Type of drift model. If not provided, only a constant regressor is returned.
     low_cutoff : float
         Low cutoff frequency in hertz (used with `drift_model="cosine"`).
     drift_order : int
@@ -625,11 +625,12 @@ def make_first_level_design_matrix(
         Acquisition time of each volume in seconds.
     events : pandas.DataFrame, optional
         Events table with `onset`, `duration`, and `trial_type` columns.
-    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"} or callable or None, default: None
+    hrf_model : {"glover", "spm", "verhoef2025", "claron2021", "fir"} or callable, optional
         Hemodynamic response function model. A callable matching the
         [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (i.e., a function taking
         `dt` and `oversampling` and returning a 1D array) is invoked to produce a custom
-        HRF kernel.
+        HRF kernel. If not provided, no convolution is performed and the design matrix
+        will contain boxcar regressors sampled at the acquisition times.
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"
         Drift model for low-frequency confounds.
     low_cutoff : float, default: 0.01
