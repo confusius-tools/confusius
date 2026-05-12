@@ -31,7 +31,6 @@ from confusius.signal import standardize
 
 bg_color = "none"
 fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
-
 xr.set_options(display_expand_data=False)
 
 bids_root = fetch_nunez_elizalde_2022(

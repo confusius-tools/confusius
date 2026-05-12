@@ -47,7 +47,6 @@ _THEME_SETUP: dict[str, list[str]] = {
         "mpl.rcParams['figure.facecolor'] = 'none'",
         "mpl.rcParams['axes.facecolor'] = '#ffffff'",
         "mpl.rcParams['savefig.facecolor'] = 'none'",
-        "_gallery_dark_theme = False",
         *_THEME_COMMON_POST,
     ],
     "dark": [
@@ -57,7 +56,6 @@ _THEME_SETUP: dict[str, list[str]] = {
         "mpl.rcParams['figure.facecolor'] = 'none'",
         "mpl.rcParams['axes.facecolor'] = '#111720'",
         "mpl.rcParams['savefig.facecolor'] = 'none'",
-        "_gallery_dark_theme = True",
         *_THEME_COMMON_POST,
     ],
 }
