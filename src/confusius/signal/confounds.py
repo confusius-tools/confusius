@@ -85,9 +85,9 @@ def _regress_confounds_numpy(
 
     Notes
     -----
-    Based on nilearn.signal.clean implementation which follows
-    Friston et al. (1994) for confound removal via projection onto
-    the orthogonal of the signal space.
+    Based on [`nilearn.signal.clean`][nilearn.signal.clean] implementation which follows
+    Friston et al. (1994) for confound removal via projection onto the orthogonal of the
+    signal space.
     """
     confounds = _prepare_confounds_for_regression(confounds, standardize_confounds)
 
@@ -158,7 +158,7 @@ def regress_confounds(
     orthogonal complement of the confound space. This removes variance in the signals
     that can be explained by the confounds.
 
-    This function was adapted from `nilearn.signal.clean`.
+    This function was adapted from [`nilearn.signal.clean`][nilearn.signal.clean].
 
     Parameters
     ----------
