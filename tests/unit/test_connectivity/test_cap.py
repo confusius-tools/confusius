@@ -147,6 +147,25 @@ class TestFit:
             cap.fit([rec])
         assert cap.caps_.sizes["cap"] < 3
 
+    def test_best_restart_selected(self):
+        """n_init=2 uses the better of two restarts when they differ.
+
+        With n_clusters=10 and random_state=0, restart 1 has lower cosine
+        inertia than restart 0, so the two-restart result differs from the
+        single-restart result. This test would fail if the best-restart
+        update were dropped. Data is created locally so the RNG state is
+        independent of the session-scoped rng fixture.
+        """
+        local_rng = np.random.default_rng(42)
+        ny, nx = 5, 8
+        recs = [
+            xr.DataArray(local_rng.standard_normal((n_t, ny, nx)), dims=["time", "y", "x"])
+            for n_t in (50, 60, 40)
+        ]
+        cap_1 = CAP(n_clusters=10, n_init=1, random_state=0).fit(recs)
+        cap_2 = CAP(n_clusters=10, n_init=2, random_state=0).fit(recs)
+        assert not np.array_equal(cap_1.labels_[0].values, cap_2.labels_[0].values)
+
     def test_n_init_integer(self, sample_4d_volume):
         """Integer n_init runs multiple restarts without error."""
         cap = CAP(n_clusters=4, metric="cosine", n_init=2, random_state=0)
