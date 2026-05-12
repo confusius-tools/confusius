@@ -1,6 +1,6 @@
 """Functional connectivity analysis for fUSI data."""
 
-from confusius.connectivity.caps import CAP
+from confusius.connectivity.cap import CAP
 from confusius.connectivity.matrix import (
     ConnectivityMatrix,
     covariance_to_correlation,
