@@ -584,8 +584,25 @@ class CAP(BaseEstimator):
         for rec in recordings:
             validate_time_series(rec, operation_name="CAP.fit")
 
-        X_concat = xr.concat(recordings, dim="time")
-        X_proc, X_stacked = self._prepare_data(X_concat)
+        # Stack spatial dims to (time, space) and concatenate across recordings.
+        # Using np.concatenate instead of xr.concat avoids a redundant full-data
+        # copy: np.concatenate always allocates fresh memory, so the subsequent
+        # in-place preprocessing step requires no additional allocation.
+        spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
+        stacks = [rec.stack(space=spatial_dims) for rec in recordings]
+        space_coords = stacks[0].coords["space"]
+        X_raw = np.concatenate([s.values for s in stacks], axis=0)
+        del stacks
+
+        if np.isnan(X_raw).any():
+            raise ValueError(
+                "Input data contains NaN values. A common cause is z-score "
+                "standardization of constant (zero-variance) voxels outside a brain "
+                "mask. Fill or mask background voxels before calling fit(), e.g. "
+                "`data.fillna(0)` or `data.where(mask > 0, 0)`."
+            )
+
+        X_proc = self._preprocess(X_raw, in_place=True)
 
         if self.metric in ("correlation", "cosine"):
             n_init = _resolve_n_init(self.n_init)
@@ -616,7 +633,7 @@ class CAP(BaseEstimator):
             dims=["cap", "space"],
             coords={
                 "cap": np.arange(n_caps),
-                "space": X_stacked.coords["space"],
+                "space": space_coords,
             },
         )
         caps = caps_stacked.unstack("space")
@@ -680,9 +697,16 @@ class CAP(BaseEstimator):
             if self.metric in ("correlation", "cosine"):
                 labels = (X_proc @ caps_flat.T).argmax(axis=1).astype(np.intp)
             else:
-                # Nearest centroid by squared Euclidean distance.
-                diffs = X_proc[:, np.newaxis, :] - caps_flat[np.newaxis, :, :]
-                labels = np.sum(diffs**2, axis=-1).argmin(axis=1).astype(np.intp)
+                # ||x - c||² = ||x||² + ||c||² - 2x·c avoids allocating an
+                # (n_samples × n_caps × n_features) tensor.
+                cross = X_proc @ caps_flat.T
+                X_sq = np.einsum("ij,ij->i", X_proc, X_proc)
+                caps_sq = np.einsum("ij,ij->i", caps_flat, caps_flat)
+                labels = (
+                    (X_sq[:, np.newaxis] + caps_sq[np.newaxis, :] - 2.0 * cross)
+                    .argmin(axis=1)
+                    .astype(np.intp)
+                )
 
             time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
             result.append(xr.DataArray(labels, dims=["time"], coords=time_coords))
@@ -810,10 +834,42 @@ class CAP(BaseEstimator):
             }
         )
 
+    def _preprocess(
+        self, X: npt.NDArray[np.floating], in_place: bool = False
+    ) -> npt.NDArray[np.floating]:
+        """Apply metric-specific normalization to a (n_samples, n_features) array.
+
+        Parameters
+        ----------
+        X : (n_samples, n_features) numpy.ndarray
+            Raw (stacked) volumes.
+        in_place : bool, default: False
+            Whether to modify `X` in place. When `True`, no extra copy is
+            allocated; the caller must ensure `X` is already a fresh array (e.g.
+            freshly allocated by `numpy.concatenate`).
+
+        Returns
+        -------
+        (n_samples, n_features) numpy.ndarray
+            Normalized volumes. Same object as `X` when `in_place=True`.
+        """
+        if self.metric == "correlation":
+            if not in_place:
+                X = X.copy()
+            X -= X.mean(axis=1, keepdims=True)
+            norms = np.linalg.norm(X, axis=1, keepdims=True)
+            X /= np.where(norms == 0.0, 1.0, norms)
+        elif self.metric == "cosine":
+            if not in_place:
+                X = X.copy()
+            norms = np.linalg.norm(X, axis=1, keepdims=True)
+            X /= np.where(norms == 0.0, 1.0, norms)
+        return X
+
     def _prepare_data(
         self, X: xr.DataArray
     ) -> tuple[npt.NDArray[np.floating], xr.DataArray]:
-        """Apply metric preprocessing to a single DataArray.
+        """Stack and preprocess a single DataArray for prediction.
 
         Parameters
         ----------
@@ -830,9 +886,9 @@ class CAP(BaseEstimator):
         """
         spatial_dims = [str(d) for d in X.dims if d != "time"]
         X_stacked = X.stack(space=spatial_dims)
-        X_proc = X_stacked.values
+        X_raw = X_stacked.values
 
-        if np.isnan(X_proc).any():
+        if np.isnan(X_raw).any():
             raise ValueError(
                 "Input data contains NaN values. A common cause is z-score "
                 "standardization of constant (zero-variance) voxels outside a brain "
@@ -840,17 +896,7 @@ class CAP(BaseEstimator):
                 "`data.fillna(0)` or `data.where(mask > 0, 0)`."
             )
 
-        if self.metric == "correlation":
-            X_proc = X_proc.copy()
-            X_proc -= X_proc.mean(axis=1, keepdims=True)
-            norms = np.linalg.norm(X_proc, axis=1, keepdims=True)
-            X_proc /= np.where(norms == 0.0, 1.0, norms)
-        elif self.metric == "cosine":
-            X_proc = X_proc.copy()
-            norms = np.linalg.norm(X_proc, axis=1, keepdims=True)
-            X_proc /= np.where(norms == 0.0, 1.0, norms)
-
-        return X_proc, X_stacked
+        return self._preprocess(X_raw, in_place=False), X_stacked
 
     def select_n_clusters(
         self,
@@ -937,8 +983,20 @@ class CAP(BaseEstimator):
         for rec in recordings:
             validate_time_series(rec, operation_name="CAP.select_n_clusters")
 
-        X_concat = xr.concat(recordings, dim="time")
-        X_proc, _ = self._prepare_data(X_concat)
+        spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
+        stacks = [rec.stack(space=spatial_dims) for rec in recordings]
+        X_raw = np.concatenate([s.values for s in stacks], axis=0)
+        del stacks
+
+        if np.isnan(X_raw).any():
+            raise ValueError(
+                "Input data contains NaN values. A common cause is z-score "
+                "standardization of constant (zero-variance) voxels outside a brain "
+                "mask. Fill or mask background voxels before calling fit(), e.g. "
+                "`data.fillna(0)` or `data.where(mask > 0, 0)`."
+            )
+
+        X_proc = self._preprocess(X_raw, in_place=True)
 
         sil_metric = (
             "cosine" if self.metric in ("correlation", "cosine") else "euclidean"
