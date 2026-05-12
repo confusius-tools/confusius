@@ -20,8 +20,8 @@ from sklearn.metrics import (
     davies_bouldin_score,
     silhouette_score,
 )
+from sklearn.utils.validation import check_is_fitted
 
-from confusius.signal import clean
 from confusius.validation import validate_time_series
 
 _ALLOWED_METRICS = ("correlation", "cosine", "euclidean")
@@ -289,7 +289,11 @@ def _run_multi_cosine_kmeans(
             best_labels = labels
             best_inertia = inertia
 
-    assert best_centers is not None and best_labels is not None
+    if best_centers is None or best_labels is None:
+        raise RuntimeError(
+            "Cosine k-means produced no valid solution across all restarts. "
+            "The input data likely contains NaN or Inf values."
+        )
 
     valid = np.linalg.norm(best_centers, axis=1) > 0.0
     if not valid.all():
@@ -346,6 +350,58 @@ def _find_elbow(cluster_range: list[int], scores: list[float]) -> int:
     return cluster_range[int(np.argmax(distances))]
 
 
+def _segments(
+    labels: npt.NDArray[np.intp], cap_id: int
+) -> tuple[npt.NDArray[np.bool_], int]:
+    """Count contiguous episodes of `cap_id` in `labels`.
+
+    Parameters
+    ----------
+    labels : (time,) numpy.ndarray
+        Sequence of CAP indices.
+    cap_id : int
+        Target CAP index.
+
+    Returns
+    -------
+    binary : (time,) numpy.ndarray
+        Boolean mask where `labels == cap_id`.
+    n_segments : int
+        Number of contiguous episodes. Zero when the CAP never appears.
+    """
+    binary = labels == cap_id
+    indices = np.where(binary)[0]
+    if len(indices) == 0:
+        return binary, 0
+    n_segments = int(np.sum(np.diff(indices) > 1)) + 1
+    return binary, n_segments
+
+
+def _frame_durations(lbl: xr.DataArray) -> npt.NDArray[np.floating]:
+    """Compute per-frame durations from the `time` coordinate of `lbl`.
+
+    Parameters
+    ----------
+    lbl : xarray.DataArray
+        Per-recording label sequence with optional `time` coordinate.
+
+    Returns
+    -------
+    (time,) numpy.ndarray
+        Frame durations. When a `time` coordinate is present, durations are
+        derived from consecutive time differences; the last frame is assigned
+        the same duration as the penultimate interval. Returns all-ones (in
+        frames) when no `time` coordinate is present or when the recording
+        has fewer than 2 frames.
+    """
+    n = lbl.sizes["time"]
+    if "time" not in lbl.coords or n < 2:
+        return np.ones(n)
+    times = lbl.coords["time"].values.astype(float)
+    diffs = np.diff(times)
+    return np.append(diffs, diffs[-1])
+
+
 class CAP(BaseEstimator):
     """Co-activation pattern (CAP) analysis for fUSI data.
 
@@ -363,9 +419,10 @@ class CAP(BaseEstimator):
     [`KMeans`][sklearn.cluster.KMeans] is used.
 
     !!! warning "Preprocessing matters"
-        Strong global structure (e.g., unfiltered fUSI) can produce very similar CAPs
-        across clusters. Temporally standardizing each voxel via `clean_kwargs` is often
-        helpful (e.g., `clean_kwargs={"standardize_method": "zscore"}`).
+        Strong global structure can produce very similar CAPs across clusters.
+        Temporally standardizing each voxel via [`clean`][confusius.signal.clean] before
+        calling [`fit`][confusius.connectivity.CAP.fit] is often helpful (e.g.,
+        `standardize_method="zscore"`).
 
     Parameters
     ----------
@@ -385,11 +442,11 @@ class CAP(BaseEstimator):
     update_rule : {"weighted", "mean"}, default: "weighted"
         Center update rule for cosine/correlation clustering:
 
-        - `"mean"`: standard k-means, where centers are updated as the unweighted mean
-          of assigned volumes then L2-normalized.
         - `"weighted"`: centers updated as the cosine-similarity-weighted mean
           of assigned volumes, giving more influence to volumes strongly matching
           the current center.
+        - `"mean"`: standard k-means, where centers are updated as the unweighted mean
+          of assigned volumes then L2-normalized.
 
     max_iter : int, default: 300
         Maximum assignment-update iterations per run. Stops early if labels
@@ -405,15 +462,6 @@ class CAP(BaseEstimator):
         Applies to all metrics.
     random_state : int or None, default: 0
         Seed for the random number generator.
-    clean_kwargs : dict, optional
-        Keyword arguments forwarded to [`clean`][confusius.signal.clean].
-        Cleaning is applied to the full data array before clustering. If not
-        provided, no cleaning is applied.
-
-        !!! warning "Chunking along time"
-            Any operation in `clean_kwargs` that involves detrending or
-            filtering requires the `time` dimension to be un-chunked.
-            Rechunk your data before calling `fit`: `data.chunk({'time': -1})`.
 
     Attributes
     ----------
@@ -424,9 +472,11 @@ class CAP(BaseEstimator):
         and `"cosine"` metrics, maps are unit-norm vectors in the preprocessed space.
         `attrs["long_name"]` is set to `"Co-activation patterns"` and `attrs["cmap"]` to
         `"coolwarm"` so that plotting functions pick up sensible defaults automatically.
-    labels_ : (time,) xarray.DataArray
-        CAP index assigned to each volume (0-based integer). Time coordinates are
-        preserved from the input data when present.
+    labels_ : list[xarray.DataArray]
+        Per-recording CAP index sequences (0-based integer). Each element has
+        `dims=["time"]` and, when present, the time coordinates of the corresponding
+        input recording. The list length equals the number of recordings passed to
+        [`fit`][confusius.connectivity.CAP.fit].
 
     Examples
     --------
@@ -441,15 +491,17 @@ class CAP(BaseEstimator):
     ... )
     >>>
     >>> caps = CAP(n_clusters=5, random_state=0)
-    >>> caps.fit(data)
+    >>> caps.fit([data])
     CAP(n_clusters=5, random_state=0)
     >>> caps.caps_.dims
     ('cap', 'y', 'x')
     >>> caps.caps_.sizes["cap"]
     5
-    >>> caps.labels_.dims
+    >>> len(caps.labels_)
+    1
+    >>> caps.labels_[0].dims
     ('time',)
-    >>> caps.labels_.sizes["time"]
+    >>> caps.labels_[0].sizes["time"]
     200
 
     References
@@ -464,12 +516,11 @@ class CAP(BaseEstimator):
         *,
         n_clusters: int = 10,
         metric: Literal["correlation", "cosine", "euclidean"] = "correlation",
-        update_rule: Literal["mean", "weighted"] = "mean",
+        update_rule: Literal["weighted", "mean"] = "weighted",
         max_iter: int = 300,
         n_local_trials: int | None = None,
         n_init: int | Literal["auto"] = "auto",
         random_state: int | None = 0,
-        clean_kwargs: dict | None = None,
     ) -> None:
         self.n_clusters = n_clusters
         self.metric = metric
@@ -478,22 +529,17 @@ class CAP(BaseEstimator):
         self.n_local_trials = n_local_trials
         self.n_init = n_init
         self.random_state = random_state
-        self.clean_kwargs = clean_kwargs
 
-    def fit(self, X: xr.DataArray, y: None = None) -> "CAP":
-        """Fit co-activation patterns by clustering volumes.
+    def fit(self, X: list[xr.DataArray] | xr.DataArray, y: None = None) -> "CAP":
+        """Fit co-activation patterns by clustering volumes across all recordings.
 
         Parameters
         ----------
-        X : (time, ...) xarray.DataArray
-            A fUSI DataArray to extract CAPs from. Must have a `time` dimension with at
-            least 2 timepoints. All remaining dimensions are treated as spatial and
-            flattened into a feature vector per volume.
-
-            !!! warning "Chunking along time"
-                The `time` dimension must NOT be chunked when `clean_kwargs`
-                includes detrending or filtering steps. Rechunk first:
-                `X.chunk({'time': -1})`.
+        X : list[xarray.DataArray] or xarray.DataArray
+            One or more fUSI recordings to extract CAPs from. Each DataArray must have
+            a `time` dimension with at least 2 timepoints. All remaining dimensions are
+            treated as spatial and flattened into a feature vector per volume. A single
+            DataArray is treated as a single recording.
 
         y : None, optional
             Ignored. Present for sklearn API compatibility.
@@ -506,8 +552,8 @@ class CAP(BaseEstimator):
         Raises
         ------
         ValueError
-            If `metric` or `update_rule` is invalid, or if `X` has no `time`
-            dimension or fewer than 2 timepoints.
+            If `metric` or `update_rule` is invalid, if `X` is an empty list, or if
+            any recording has no `time` dimension or fewer than 2 timepoints.
         """
         if self.metric not in _ALLOWED_METRICS:
             raise ValueError(
@@ -519,9 +565,14 @@ class CAP(BaseEstimator):
                 f"got {self.update_rule!r}."
             )
 
-        validate_time_series(X, operation_name="CAP.fit")
+        recordings = [X] if isinstance(X, xr.DataArray) else list(X)
+        if not recordings:
+            raise ValueError("X must contain at least one recording.")
+        for rec in recordings:
+            validate_time_series(rec, operation_name="CAP.fit")
 
-        X_proc, X_stacked = self._prepare_data(X)
+        X_concat = xr.concat(recordings, dim="time")
+        X_proc, X_stacked = self._prepare_data(X_concat)
 
         if self.metric in ("correlation", "cosine"):
             n_init = _resolve_n_init(self.n_init)
@@ -543,6 +594,7 @@ class CAP(BaseEstimator):
             )
             km.fit(X_proc)
             centers = km.cluster_centers_
+            assert km.labels_ is not None
             labels = km.labels_
 
         n_caps = len(centers)
@@ -558,19 +610,190 @@ class CAP(BaseEstimator):
         caps.attrs.update({"long_name": "CAP", "cmap": "coolwarm"})
         self.caps_: xr.DataArray = caps
 
-        time_coords = {"time": X.coords["time"]} if "time" in X.coords else {}
-        self.labels_: xr.DataArray = xr.DataArray(
-            labels,
-            dims=["time"],
-            coords=time_coords,
-        )
+        # Split the flat label array back into per-recording sequences.
+        self.labels_: list[xr.DataArray] = []
+        start = 0
+        for rec in recordings:
+            size = rec.sizes["time"]
+            lbl = labels[start : start + size]
+            time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
+            self.labels_.append(xr.DataArray(lbl, dims=["time"], coords=time_coords))
+            start += size
 
         return self
+
+    def predict(self, X: list[xr.DataArray] | xr.DataArray) -> list[xr.DataArray]:
+        """Assign recordings to CAPs using the fitted cluster centers.
+
+        Parameters
+        ----------
+        X : list[xarray.DataArray] or xarray.DataArray
+            One or more fUSI recordings to assign. Each must have the same spatial
+            dimensions as the data passed to [`fit`][confusius.connectivity.CAP.fit].
+            A single DataArray is treated as a single recording.
+
+        Returns
+        -------
+        list[xarray.DataArray]
+            Per-recording CAP label sequences (0-based integer), one `(time,)`
+            DataArray per input recording. Time coordinates are preserved when present.
+
+        Raises
+        ------
+        sklearn.exceptions.NotFittedError
+            If the estimator has not been fitted yet.
+        ValueError
+            If any recording has no `time` dimension or fewer than 2 timepoints.
+        """
+        check_is_fitted(self)
+
+        recordings = [X] if isinstance(X, xr.DataArray) else list(X)
+
+        spatial_dims = [str(d) for d in self.caps_.dims if d != "cap"]
+        caps_flat = self.caps_.stack(space=spatial_dims).values  # (cap, space)
+
+        result = []
+        for rec in recordings:
+            validate_time_series(rec, operation_name="CAP.predict")
+            X_proc, _ = self._prepare_data(rec)
+
+            if self.metric in ("correlation", "cosine"):
+                labels = (X_proc @ caps_flat.T).argmax(axis=1).astype(np.intp)
+            else:
+                # Nearest centroid by squared Euclidean distance.
+                diffs = X_proc[:, np.newaxis, :] - caps_flat[np.newaxis, :, :]
+                labels = np.sum(diffs**2, axis=-1).argmin(axis=1).astype(np.intp)
+
+            time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
+            result.append(xr.DataArray(labels, dims=["time"], coords=time_coords))
+
+        return result
+
+    def compute_temporal_metrics(self) -> xr.Dataset:
+        """Compute temporal dynamics metrics for each recording.
+
+        Persistence is expressed in the time units of the recording when the `labels_`
+        DataArrays carry a `time` coordinate; otherwise in frames. The temporal
+        resolution need not be constant: frame durations are derived from consecutive
+        differences of the time coordinate, so irregular sampling is handled correctly.
+
+        Returns
+        -------
+        xarray.Dataset
+            Dataset indexed by `recording` (0-based) and `cap` with variables:
+
+            - `temporal_fraction` `(recording, cap)`: fraction of frames assigned
+              to each CAP.
+            - `counts` `(recording, cap)`: number of contiguous episodes of each CAP.
+            - `persistence` `(recording, cap)`: mean episode duration. Zero when the
+              CAP never appears. Units are inherited from the `time` coordinate's
+              `units` attribute, or `"time"` when no such attribute exists, or
+              `"frames"` when no `time` coordinate is present.
+            - `transition_frequency` `(recording,)`: total number of CAP switches.
+            - `transition_matrix` `(recording, cap_from, cap_to)`: row-normalized
+              transition probability matrix. Rows sum to 1 when the corresponding
+              CAP appears; zero rows indicate CAPs that never appear as the origin
+              of a transition.
+
+        Raises
+        ------
+        sklearn.exceptions.NotFittedError
+            If the estimator has not been fitted yet.
+        """
+        check_is_fitted(self)
+
+        cap_ids = self.caps_.coords["cap"].values
+        n_caps = len(cap_ids)
+        n_recordings = len(self.labels_)
+
+        tf = np.zeros((n_recordings, n_caps))
+        cnt = np.zeros((n_recordings, n_caps), dtype=np.intp)
+        pers = np.zeros((n_recordings, n_caps))
+        trans_freq = np.zeros(n_recordings, dtype=np.intp)
+        trans_mat = np.zeros((n_recordings, n_caps, n_caps))
+
+        for i, lbl in enumerate(self.labels_):
+            arr = lbl.values
+            n_frames = len(arr)
+            durations = _frame_durations(lbl)
+
+            for j, cap_id in enumerate(cap_ids):
+                binary, n_segs = _segments(arr, int(cap_id))
+                tf[i, j] = float(binary.sum()) / n_frames
+                cnt[i, j] = n_segs
+                # Floor n_segs at 1 to avoid 0/0; the binary.sum()==0 case
+                # yields 0.0, correctly reflecting a CAP that never appears.
+                pers[i, j] = float((binary * durations).sum()) / max(n_segs, 1)
+
+            trans_freq[i] = int(np.sum(np.diff(arr) != 0))
+
+            if n_frames > 1:
+                trans_from = arr[:-1]
+                trans_to = arr[1:]
+                for fi, from_id in enumerate(cap_ids):
+                    mask_from = trans_from == from_id
+                    total = int(mask_from.sum())
+                    if total == 0:
+                        continue
+                    for ti, to_id in enumerate(cap_ids):
+                        trans_mat[i, fi, ti] = (
+                            float((mask_from & (trans_to == to_id)).sum()) / total
+                        )
+
+        rec_coords = np.arange(n_recordings)
+
+        # Infer persistence units from the time coordinate of the first recording.
+        pers_units = "frames"
+        if self.labels_ and "time" in self.labels_[0].coords:
+            time_units = self.labels_[0].coords["time"].attrs.get("units")
+            pers_units = str(time_units) if time_units is not None else "time"
+
+        return xr.Dataset(
+            {
+                "temporal_fraction": xr.DataArray(
+                    tf,
+                    dims=["recording", "cap"],
+                    coords={"recording": rec_coords, "cap": cap_ids},
+                    attrs={"long_name": "Temporal fraction"},
+                ),
+                "counts": xr.DataArray(
+                    cnt,
+                    dims=["recording", "cap"],
+                    coords={"recording": rec_coords, "cap": cap_ids},
+                    attrs={"long_name": "Episode counts"},
+                ),
+                "persistence": xr.DataArray(
+                    pers,
+                    dims=["recording", "cap"],
+                    coords={"recording": rec_coords, "cap": cap_ids},
+                    attrs={
+                        "long_name": "Persistence",
+                        "units": pers_units,
+                    },
+                ),
+                "transition_frequency": xr.DataArray(
+                    trans_freq,
+                    dims=["recording"],
+                    coords={"recording": rec_coords},
+                    attrs={"long_name": "Transition frequency"},
+                ),
+                "transition_matrix": xr.DataArray(
+                    trans_mat,
+                    dims=["recording", "cap_from", "cap_to"],
+                    coords={
+                        "recording": rec_coords,
+                        "cap_from": cap_ids,
+                        "cap_to": cap_ids,
+                    },
+                    attrs={"long_name": "Transition probability matrix"},
+                ),
+            }
+        )
 
     def _prepare_data(
         self, X: xr.DataArray
     ) -> tuple[npt.NDArray[np.floating], xr.DataArray]:
-        """Apply cleaning and metric preprocessing.
+        """Apply metric preprocessing to a single DataArray.
 
         Parameters
         ----------
@@ -580,16 +803,22 @@ class CAP(BaseEstimator):
         Returns
         -------
         X_proc : (time, space) numpy.ndarray
-            Preprocessed volumes ready for clustering.
+            Preprocessed volumes ready for clustering or prediction.
         X_stacked : (time, space) xarray.DataArray
-            Stacked version of the (optionally cleaned) input, used to recover spatial
-            coordinates when building `caps_`.
+            Stacked version of the input, used to recover spatial coordinates
+            when building `caps_`.
         """
-        if self.clean_kwargs is not None:
-            X = clean(X, **self.clean_kwargs)
         spatial_dims = [str(d) for d in X.dims if d != "time"]
         X_stacked = X.stack(space=spatial_dims)
         X_proc = X_stacked.values
+
+        if np.isnan(X_proc).any():
+            raise ValueError(
+                "Input data contains NaN values. A common cause is z-score "
+                "standardization of constant (zero-variance) voxels outside a brain "
+                "mask. Fill or mask background voxels before calling fit(), e.g. "
+                "`data.fillna(0)` or `data.where(mask > 0, 0)`."
+            )
 
         if self.metric == "correlation":
             X_proc = X_proc.copy()
@@ -605,7 +834,7 @@ class CAP(BaseEstimator):
 
     def select_n_clusters(
         self,
-        X: xr.DataArray,
+        X: list[xr.DataArray] | xr.DataArray,
         cluster_range: range | list[int],
         method: Literal[
             "elbow", "silhouette", "davies_bouldin", "variance_ratio"
@@ -620,7 +849,7 @@ class CAP(BaseEstimator):
 
         Parameters
         ----------
-        X : (time, ...) xarray.DataArray
+        X : list[xarray.DataArray] or xarray.DataArray
             Same data that will later be passed to
             [`fit`][confusius.connectivity.CAP.fit].
         cluster_range : range or list[int]
@@ -682,8 +911,14 @@ class CAP(BaseEstimator):
         if any(k < 2 for k in cluster_list):
             raise ValueError("All values in cluster_range must be >= 2.")
 
-        validate_time_series(X, operation_name="CAP.select_n_clusters")
-        X_proc, _ = self._prepare_data(X)
+        recordings = [X] if isinstance(X, xr.DataArray) else list(X)
+        if not recordings:
+            raise ValueError("X must contain at least one recording.")
+        for rec in recordings:
+            validate_time_series(rec, operation_name="CAP.select_n_clusters")
+
+        X_concat = xr.concat(recordings, dim="time")
+        X_proc, _ = self._prepare_data(X_concat)
 
         sil_metric = (
             "cosine" if self.metric in ("correlation", "cosine") else "euclidean"
