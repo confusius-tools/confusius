@@ -541,15 +541,16 @@ def compute_compcor_confounds(
 
     if noise_mask is not None:
         validate_mask(noise_mask, signals, "noise_mask")
-        noise_mask_flat = noise_mask.values.flatten()
-
-        if noise_mask_flat.shape[0] != n_voxels:
-            raise ValueError(
-                f"Noise mask size ({noise_mask_flat.shape[0]}) does not match "
-                f"signals spatial size ({n_voxels})."
-            )
-
-        selected_voxels = selected_voxels & noise_mask_flat
+        # Stack the mask using the same spatial dimension order as the signals
+        # so positional indexing is consistent. Using .values.flatten() instead
+        # would silently select wrong voxels when the mask's dim order differs
+        # from spatial_dims.
+        noise_mask_aligned = (
+            noise_mask
+            if "space" in noise_mask.dims
+            else noise_mask.stack(space=spatial_dims)
+        )
+        selected_voxels = selected_voxels & noise_mask_aligned.values.astype(bool)
 
     if variance_threshold is not None:
         if not (0 < variance_threshold < 1):
