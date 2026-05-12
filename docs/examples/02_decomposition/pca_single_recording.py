@@ -29,8 +29,11 @@ from confusius.datasets import fetch_nunez_elizalde_2022
 from confusius.decomposition import PCA
 from confusius.signal import standardize
 
+# Keep figure backgrounds transparent in docs and standalone notebooks.
 bg_color = "none"
+# Match text and axes styling to the active Matplotlib theme.
 fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
+# Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
 bids_root = fetch_nunez_elizalde_2022(
@@ -119,7 +122,6 @@ plotter = cf.plotting.plot_volume(
     cbar_label="Component weight",
 )
 plotter.figure.suptitle("Principal component maps (first 12)", fontsize=11)
-plotter.figure.patch.set_alpha(0)
 # %% [markdown]
 # ## Component time courses
 #
@@ -159,7 +161,7 @@ denoised = pca.inverse_transform(denoised_signals)
 # %%
 frame_idx = 100
 
-fig, axes = plt.subplots(1, 3, figsize=(13, 4), constrained_layout=True)
+fig, axes = plt.subplots(1, 3, figsize=(13, 4), constrained_layout=True, facecolor="none")
 
 for ax, (title, vol, cmap) in zip(
     axes,
@@ -180,4 +182,3 @@ for ax, (title, vol, cmap) in zip(
         axes=ax,
     )
     ax.set_title(title, fontsize=9)
-fig.patch.set_alpha(0)
