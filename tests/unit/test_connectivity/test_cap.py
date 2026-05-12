@@ -36,6 +36,26 @@ def recordings(rng):
 
 
 @pytest.fixture
+def clustered_recording():
+    """Recording with 2 well-separated clusters alternating every volume.
+
+    Even volumes cluster around +1, odd volumes around -1.
+    Noise is small (0.01) so cluster assignment is deterministic.
+    """
+    rng = np.random.default_rng(0)
+    ny, nx = 3, 3
+    center_0 = np.ones((ny, nx))
+    center_1 = -np.ones((ny, nx))
+    noise = 0.01
+    seq = [0, 1, 0, 1, 0, 1, 0, 1]
+    frames = [
+        (center_0 if s == 0 else center_1) + rng.standard_normal((ny, nx)) * noise
+        for s in seq
+    ]
+    return xr.DataArray(np.stack(frames), dims=["time", "y", "x"])
+
+
+@pytest.fixture
 def fitted_cap(recordings):
     """CAP fitted on three recordings with correlation metric."""
     cap = CAP(n_clusters=4, random_state=0)
@@ -59,6 +79,25 @@ class TestFit:
             assert lbl.min() >= 0
             assert lbl.max() < n_caps
 
+    def test_mean_update_rule_correctness(self, clustered_recording):
+        """update_rule='mean' correctly partitions well-separated clusters."""
+        cap = CAP(n_clusters=2, metric="euclidean", update_rule="mean", random_state=0)
+        cap.fit([clustered_recording])
+        labels = cap.labels_[0].values
+        # Even volumes → one CAP, odd volumes → the other.
+        assert labels[0] == labels[2] == labels[4] == labels[6]
+        assert labels[1] == labels[3] == labels[5] == labels[7]
+        assert labels[0] != labels[1]
+
+    def test_cosine_metric_correctness(self, clustered_recording):
+        """metric='cosine' correctly partitions volumes by orientation."""
+        cap = CAP(n_clusters=2, metric="cosine", random_state=0)
+        cap.fit([clustered_recording])
+        labels = cap.labels_[0].values
+        assert labels[0] == labels[2] == labels[4] == labels[6]
+        assert labels[1] == labels[3] == labels[5] == labels[7]
+        assert labels[0] != labels[1]
+
     def test_empty_list_raises(self):
         cap = CAP(n_clusters=3)
         with pytest.raises(ValueError, match="at least one recording"):
@@ -68,6 +107,18 @@ class TestFit:
         cap = CAP(n_clusters=3, metric="manhattan")  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="metric"):
             cap.fit([sample_4d_volume])
+
+    def test_invalid_update_rule_raises(self, sample_4d_volume):
+        cap = CAP(n_clusters=3, update_rule="invalid")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="update_rule"):
+            cap.fit([sample_4d_volume])
+
+    def test_nan_input_raises(self, rng):
+        data = rng.standard_normal((20, 3, 3))
+        data[5, 1, 1] = np.nan
+        rec = xr.DataArray(data, dims=["time", "y", "x"])
+        with pytest.raises(ValueError, match="NaN"):
+            CAP(n_clusters=2).fit([rec])
 
     def test_reproducibility(self, sample_4d_volume):
         cap1 = CAP(n_clusters=4, random_state=42).fit([sample_4d_volume])
@@ -85,6 +136,13 @@ class TestPredict:
         predicted = fitted_cap.predict(recordings)
         for lbl_fit, lbl_pred in zip(fitted_cap.labels_, predicted):
             npt.assert_array_equal(lbl_fit.values, lbl_pred.values)
+
+    def test_predict_euclidean(self, clustered_recording):
+        """Euclidean predict assigns same-data recordings to the fitted CAPs."""
+        cap = CAP(n_clusters=2, metric="euclidean", random_state=0)
+        cap.fit([clustered_recording])
+        predicted = cap.predict([clustered_recording])
+        npt.assert_array_equal(predicted[0].values, cap.labels_[0].values)
 
     def test_predict_within_range(self, fitted_cap, recordings):
         n_caps = fitted_cap.caps_.sizes["cap"]
@@ -128,7 +186,7 @@ class TestComputeMetrics:
         center_1 = -np.ones((ny, nx))
         noise = 0.01
 
-        # [0, 0, 1, 1] at 0.5 s intervals → each frame duration = 0.5 s.
+        # [0, 0, 1, 1] at 0.5 s intervals → each volume duration = 0.5 s.
         seq = [0, 0, 1, 1]
         frames = [
             (center_0 if s == 0 else center_1) + rng.standard_normal((ny, nx)) * noise
@@ -229,7 +287,7 @@ class TestComputeMetrics:
         lbl0 = cap.labels_[0].values
         lbl1 = cap.labels_[1].values
 
-        # Verify that each frame is assigned to the correct CAP.
+        # Verify that each volume is assigned to the correct CAP.
         expected_raw0 = [label_for_center0 if s == 0 else label_for_center1 for s in seq0]
         expected_raw1 = [label_for_center1] * 4
         npt.assert_array_equal(lbl0, expected_raw0)
@@ -259,3 +317,50 @@ class TestComputeMetrics:
         npt.assert_allclose(pers[0, i1], 3.0, atol=1e-10)
         npt.assert_allclose(pers[1, i0], 0.0, atol=1e-10)
         npt.assert_allclose(pers[1, i1], 4.0, atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# select_n_clusters()
+# ---------------------------------------------------------------------------
+
+
+class TestSelectNClusters:
+    def test_silhouette_returns_value_in_range(self, recordings):
+        cap = CAP(random_state=0)
+        best_k = cap.select_n_clusters(recordings, range(2, 5), show_progress=False)
+        assert best_k in range(2, 5)
+
+    def test_elbow_method(self, recordings):
+        cap = CAP(random_state=0)
+        best_k = cap.select_n_clusters(
+            recordings, range(2, 5), method="elbow", show_progress=False
+        )
+        assert best_k in range(2, 5)
+
+    def test_davies_bouldin_method(self, recordings):
+        cap = CAP(random_state=0)
+        best_k = cap.select_n_clusters(
+            recordings, range(2, 5), method="davies_bouldin", show_progress=False
+        )
+        assert best_k in range(2, 5)
+
+    def test_variance_ratio_method(self, recordings):
+        cap = CAP(random_state=0)
+        best_k = cap.select_n_clusters(
+            recordings, range(2, 5), method="variance_ratio", show_progress=False
+        )
+        assert best_k in range(2, 5)
+
+    def test_cluster_range_too_short_raises(self, recordings):
+        with pytest.raises(ValueError, match="at least 2"):
+            CAP().select_n_clusters(recordings, [3], show_progress=False)
+
+    def test_cluster_range_below_2_raises(self, recordings):
+        with pytest.raises(ValueError, match=">= 2"):
+            CAP().select_n_clusters(recordings, [1, 2], show_progress=False)
+
+    def test_invalid_method_raises(self, recordings):
+        with pytest.raises(ValueError, match="method"):
+            CAP().select_n_clusters(
+                recordings, range(2, 4), method="invalid", show_progress=False  # type: ignore[arg-type]
+            )
