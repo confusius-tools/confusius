@@ -284,11 +284,15 @@ def _run_multi_cosine_kmeans(
         0, np.iinfo(np.int64).max, size=n_init
     )
 
-    best_centers: npt.NDArray[np.floating] | None = None
-    best_labels: npt.NDArray[np.intp] | None = None
-    best_inertia = np.inf
-
-    for seed in seeds:
+    best_centers, best_labels, best_inertia = _run_single_cosine_kmeans(
+        X,
+        n_clusters,
+        max_iter,
+        n_local_trials,
+        update_rule,
+        np.random.default_rng(int(seeds[0])),
+    )
+    for seed in seeds[1:]:
         centers, labels, inertia = _run_single_cosine_kmeans(
             X,
             n_clusters,
@@ -298,15 +302,7 @@ def _run_multi_cosine_kmeans(
             np.random.default_rng(int(seed)),
         )
         if inertia < best_inertia:
-            best_centers = centers
-            best_labels = labels
-            best_inertia = inertia
-
-    if best_centers is None or best_labels is None:
-        raise RuntimeError(
-            "Cosine k-means produced no valid solution across all restarts. "
-            "The input data likely contains NaN or Inf values."
-        )
+            best_centers, best_labels, best_inertia = centers, labels, inertia
 
     valid = np.linalg.norm(best_centers, axis=1) > 0.0
     if not valid.all():
@@ -345,9 +341,6 @@ def _find_elbow(cluster_range: list[int], scores: list[float]) -> int:
         Cluster count at the elbow.
     """
     n = len(scores)
-    if n == 1:
-        return cluster_range[0]
-
     x = np.linspace(0.0, 1.0, n)
     y = np.asarray(scores, dtype=float)
     y_range = y.max() - y.min()
