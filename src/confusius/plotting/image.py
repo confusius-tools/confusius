@@ -37,7 +37,23 @@ subplot_size * nrows)` and then constrained to a maximum size.
 
 
 def _relative_luminance(color: str) -> float:
-    """Compute WCAG 2.1 relative luminance for any matplotlib color string."""
+    """Compute WCAG 2.1 relative luminance for any matplotlib color string.
+
+    Parameters
+    ----------
+    color : str
+        Any matplotlib-compatible color string (e.g. `"black"`, `"#1a1a2e"`).
+
+    Returns
+    -------
+    float
+        Relative luminance in [0, 1], where 0 is darkest and 1 is lightest.
+
+    Notes
+    -----
+    Implements the WCAG 2.1 relative luminance definition:
+    https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+    """
     import matplotlib.colors as mcolors
 
     def _linearize(c: float) -> float:
@@ -48,7 +64,19 @@ def _relative_luminance(color: str) -> float:
 
 
 def _auto_fg_color(bg_color: str) -> str:
-    """Return white or black for maximum WCAG contrast against `bg_color`."""
+    """Return white or black for maximum WCAG contrast against `bg_color`.
+
+    Parameters
+    ----------
+    bg_color : str
+        Any matplotlib-compatible background color string.
+
+    Returns
+    -------
+    str
+        `"white"` when the background is dark (relative luminance < 0.179),
+        `"black"` otherwise.
+    """
     return "white" if _relative_luminance(bg_color) < 0.179 else "black"
 
 

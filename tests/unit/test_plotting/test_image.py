@@ -1116,7 +1116,13 @@ class TestPlotContoursVisualRegression:
 
 
 def _create_deterministic_time_series() -> xr.DataArray:
-    """Create deterministic 3D time-series for visual regression tests."""
+    """Create a deterministic 3D (time, y, x) time-series for visual regression tests.
+
+    Returns
+    -------
+    xarray.DataArray
+        Array with dims `(time, y, x)` and a fixed seed for reproducible baseline images.
+    """
     rng = np.random.default_rng(42)
     data = rng.standard_normal((20, 3, 4))
     return xr.DataArray(
