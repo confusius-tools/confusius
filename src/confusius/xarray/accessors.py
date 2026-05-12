@@ -1,18 +1,18 @@
 """Xarray accessor for fUSI-specific operations."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import xarray as xr
 
-from confusius._utils import get_coordinate_origins, get_coordinate_spacings
-from confusius.xarray.affine import FUSIAffineAccessor
-from confusius.xarray.connectivity import FUSIConnectivityAccessor
-from confusius.xarray.extract import FUSIExtractAccessor
-from confusius.xarray.iq import FUSIIQAccessor
-from confusius.xarray.plotting import FUSIPlotAccessor
-from confusius.xarray.registration import FUSIRegistrationAccessor
-from confusius.xarray.scale import FUSIScaleAccessor
+if TYPE_CHECKING:
+    from confusius.xarray.affine import FUSIAffineAccessor
+    from confusius.xarray.connectivity import FUSIConnectivityAccessor
+    from confusius.xarray.extract import FUSIExtractAccessor
+    from confusius.xarray.iq import FUSIIQAccessor
+    from confusius.xarray.plotting import FUSIPlotAccessor
+    from confusius.xarray.registration import FUSIRegistrationAccessor
+    from confusius.xarray.scale import FUSIScaleAccessor
 
 
 @xr.register_dataarray_accessor("fusi")
@@ -58,6 +58,8 @@ class FUSIAccessor:
         >>> seed_masks = xr.open_zarr("seed_masks.zarr")["masks"]
         >>> mapper = data.fusi.connectivity.seed_map(seed_masks=seed_masks)
         """
+        from confusius.xarray.connectivity import FUSIConnectivityAccessor
+
         return FUSIConnectivityAccessor(self._obj)
 
     @property
@@ -76,6 +78,8 @@ class FUSIAccessor:
         <xarray.DataArray (dim_0: 4)>
         array([-30., -20., -10.,   0.])
         """
+        from confusius.xarray.scale import FUSIScaleAccessor
+
         return FUSIScaleAccessor(self._obj)
 
     @property
@@ -93,6 +97,8 @@ class FUSIAccessor:
         >>> data = xr.open_zarr("output.zarr")["iq"]
         >>> viewer, layer = data.fusi.plot.napari()
         """
+        from confusius.xarray.plotting import FUSIPlotAccessor
+
         return FUSIPlotAccessor(self._obj)
 
     @property
@@ -110,6 +116,8 @@ class FUSIAccessor:
         >>> data = xr.open_zarr("output.zarr")["power_doppler"]
         >>> registered = data.fusi.register.volumewise(reference_time=0)
         """
+        from confusius.xarray.registration import FUSIRegistrationAccessor
+
         return FUSIRegistrationAccessor(self._obj)
 
     @property
@@ -129,6 +137,8 @@ class FUSIAccessor:
         >>> pwd = iq.fusi.iq.process_to_power_doppler()
         >>> velocity = iq.fusi.iq.process_to_axial_velocity()
         """
+        from confusius.xarray.iq import FUSIIQAccessor
+
         return FUSIIQAccessor(self._obj)
 
     @property
@@ -150,6 +160,8 @@ class FUSIAccessor:
         >>> # ... process signals ...
         >>> restored = signals.fusi.extract.unmask(mask)
         """
+        from confusius.xarray.extract import FUSIExtractAccessor
+
         return FUSIExtractAccessor(self._obj)
 
     @property
@@ -179,6 +191,8 @@ class FUSIAccessor:
         >>> data.fusi.spacing
         {'y': 0.2, 'x': 0.1}
         """
+        from confusius._utils import get_coordinate_spacings
+
         return get_coordinate_spacings(self._obj)
 
     @property
@@ -206,6 +220,8 @@ class FUSIAccessor:
         >>> data.fusi.origin
         {'y': 0.0, 'x': 0.0}
         """
+        from confusius._utils import get_coordinate_origins
+
         return get_coordinate_origins(self._obj)
 
     @property
@@ -229,6 +245,8 @@ class FUSIAccessor:
         >>> np.allclose(a.fusi.affine.to(b, via="to_world"), np.eye(4))
         True
         """
+        from confusius.xarray.affine import FUSIAffineAccessor
+
         return FUSIAffineAccessor(self._obj)
 
     def save(self, path: str | Path, **kwargs: Any) -> None:
