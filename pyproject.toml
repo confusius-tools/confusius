@@ -58,6 +58,10 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "codespell>=2.3.0",
+    "ipykernel>=6.29.0",
+    "jupytext>=1.16.0",
+    "nbclient>=0.10.0",
+    "nbformat>=5.10.0",
     "numpydoc>=1.9.0",
     "prek>=0.2.0,<0.3.0",
     "pytest>=8.4.2",
@@ -102,13 +106,18 @@ exclude = ["benchmark/*"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
+pythonpath = ["."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "slow: tests that are slow (start kernels, do disk I/O, etc.).",
+]
 addopts = [
     "-ra",                    # Show summary of all test outcomes.
     "--strict-markers",       # Raise error on unknown markers.
     "--strict-config",        # Raise error on config issues.
+    "--import-mode=importlib", # Avoid sys.path collisions between same-named test packages.
     "--showlocals",           # Show local variables in tracebacks.
     "--cov=confusius",        # Enable coverage for confusius module.
     "--cov-report=term-missing",  # Show missing lines in terminal.

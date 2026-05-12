@@ -5,16 +5,24 @@ set windows-shell := ["pwsh.exe", "-c"]
     echo "Usage: just [RECIPE]\n"
     just --list
 
+# Build the examples gallery from docs/examples/*.py.
+gallery:
+    uv run python tools/build_gallery.py
+
+# Remove generated gallery artifacts and the gallery cache.
+clean-gallery:
+    rm -rf docs/examples/_built docs/examples/index.md .cache/gallery
+
 # Build documentation.
-docs:
+docs: gallery
     uv run zensical build --strict
 
 # Serve documentation locally for development.
-serve-docs:
+serve-docs: gallery
     uv run zensical serve
 
 # Clean documentation build artifacts.
-clean-docs:
+clean-docs: clean-gallery
     rm -rf .cache/
     rm -rf site/
 
@@ -45,6 +53,8 @@ pre-commit:
 # Aliases
 alias d := docs
 alias cd := clean-docs
+alias g := gallery
+alias cg := clean-gallery
 alias gdi := generate-doc-images
 alias sd := serve-docs
 alias t := test

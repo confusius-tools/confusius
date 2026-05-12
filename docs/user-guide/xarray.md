@@ -37,15 +37,15 @@ shallow = pwd.sel(y=slice(0, 2.5))
 shallow.coords["y"]  # [0.0, 0.1, ..., 2.5] mm
 ```
 
-ConfUSIus builds on this by storing all fUSI recordings as `DataArray` objects, and by
+ConfUSIus builds on this by storing all fUSI recordings as DataArray objects, and by
 extending the Xarray API with fUSI-specific operations through a custom accessor.
 
 ## Datasets and DataArrays
 
-Xarray has two core data structures: `Dataset` and `DataArray`.
+Xarray has two core data structures: Dataset and DataArray.
 
-A **`Dataset`** is a dictionary-like container of multiple named arrays that share
-the same coordinate system. When you open a Zarr archive, you get a `Dataset`:
+A **[Dataset][xarray.Dataset]** is a dictionary-like container of multiple named arrays that share
+the same coordinate system. When you open a Zarr archive, you get a Dataset:
 
 ```python
 import xarray as xr
@@ -67,10 +67,10 @@ Data variables:
     power_doppler  (time, z, y, x) float64 76MB dask.array<chunksize=(215, 1, 32, 22), meta=np.ndarray>
 ```
 
-A **`DataArray`** is a single variable from that collection—one array with its own
-dimensions, coordinates, and attributes. You would get a `DataArray` if you opened a
-NIfTI file through [`load_nifti`][confusius.io.load_nifti], or if you extract a
-variable from a `Dataset`:
+A **[DataArray][xarray.DataArray]** is a single variable from that collection—one array with its own
+dimensions, coordinates, and attributes. You would get a DataArray if you opened a
+NIfTI file through [`confusius.load`][confusius.load], or if you extract a variable from
+a Dataset:
 
 ```python
 pwd = ds["power_doppler"]
@@ -100,7 +100,7 @@ Attributes: (11/16)
     clutter_low_cutoff:             40
 ```
 
-Reading the output from top to bottom, a `DataArray` has four components:
+Reading the output from top to bottom, a DataArray has four components:
 
 - **Dimensions** `(time, z, y, x)`: named axes in the order they appear in the
   underlying array. `time` is the temporal axis, `z` is elevation, `y` is depth (axial),
@@ -115,7 +115,7 @@ Reading the output from top to bottom, a `DataArray` has four components:
   preserved through most ConfUSIus operations, and some are required for certain
   functions (e.g., `transmit_frequency` is needed for velocity calculations).
 
-ConfUSIus operates on `DataArray` objects. The `Dataset` is only used as an entry point
+ConfUSIus operates on DataArray objects. The Dataset is only used as an entry point
 when loading data, or to store multiple related variables together (e.g.,
 `power_doppler` for the power Doppler signals and `brain_mask` for a corresponding brain
 mask).
@@ -128,7 +128,7 @@ mask).
 
 ## The `.fusi` Accessor
 
-Importing ConfUSIus registers the `.fusi` accessor on every `DataArray`:
+Importing ConfUSIus registers the `.fusi` accessor on every DataArray:
 
 ```python
 import xarray as xr
@@ -148,7 +148,7 @@ properties:
 | [`.fusi.save`][confusius.xarray.FUSIAccessor.save] | Save data to file (NIfTI or Zarr), dispatching by extension. |
 
 The sub-accessors offer the same functions as the module-level API, but with an
-intuitive syntax that allows quick operations directly on `DataArray` objects. They are
+intuitive syntax that allows quick operations directly on DataArray objects. They are
 designed to be used for easy exploration and quick analyses, while the module-level
 functions are available for more complex workflows where you might prefer explicit
 function calls for readability.
@@ -187,7 +187,7 @@ Currently, two global helpers are available:
 The [`.fusi.iq`][confusius.xarray.FUSIIQAccessor] accessor lets you access the
 [`process_iq_to_power_doppler`][confusius.iq.process_iq_to_power_doppler] and
 [`process_iq_to_axial_velocity`][confusius.iq.process_iq_to_axial_velocity] functions
-directly on a `DataArray` containing beamformed IQ data. Refer to the [Beamformed IQ
+directly on a DataArray containing beamformed IQ data. Refer to the [Beamformed IQ
 guide](beamformed-iq.md) for background IQ processing.
 
 ```python
@@ -230,7 +230,7 @@ pwd_log = pwd.fusi.scale.log()
 pwd_sqrt = pwd.fusi.scale.power(exponent=0.5)
 ```
 
-Because the accessor returns a `DataArray`, it chains naturally with standard Xarray
+Because the accessor returns a DataArray, it chains naturally with standard Xarray
 operations:
 
 ```python
@@ -282,17 +282,16 @@ original mask:
 reconstructed = signals.fusi.extract.unmask(mask)
 ```
 
-For processed signals that are NumPy arrays (e.g., obtained from scikit-learn), use the
-functional API instead:
+For decomposition workflows, use [`PCA`][confusius.decomposition.PCA] to keep component
+signals and component maps as DataArray objects:
 
 ```python
-from sklearn.decomposition import PCA
-from confusius.extract import unmask
+from confusius.decomposition import PCA
 
-pca = PCA(n_components=5).fit(signals)
-components = pca.components_  # (5, voxels)
+pca = PCA(n_components=5, random_state=0)
+component_signals = pca.fit_transform(signals)  # (time, component)
+spatial_components = pca.components_.fusi.extract.unmask(mask)
 
-spatial_components = unmask(components, mask, new_dims=["component"])
 # spatial_components has dims (component, z, y, x).
 ```
 
@@ -342,8 +341,8 @@ is always written alongside, storing converted metadata fields, custom attribute
 timing fields derived from the `time` coordinate when available:
 
 ```python
+# Creates sub-01_task-awake_pwd.nii.gz and sub-01_task-awake_pwd.json
 registered.fusi.save("sub-01_task-awake_pwd.nii.gz")
-# Creates: sub-01_task-awake_pwd.nii.gz and sub-01_task-awake_pwd.json
 ```
 
 ## Complete Workflow Example
@@ -352,9 +351,8 @@ The following example shows a typical fUSI analysis from raw IQ to saved results
 
 ```python
 import xarray as xr
-import confusius
-from sklearn.decomposition import PCA
-from confusius.extract import unmask
+import confusius as cf
+from confusius.decomposition import PCA
 
 # 1. Load beamformed IQ data and corresponding brain mask.
 iq = cf.load("iq.zarr")
@@ -380,12 +378,18 @@ fig, ax = registered.fusi.plot.carpet(mask=brain_mask)
 # 6. Save registered power Doppler to NIfTI with a fUSI-BIDS JSON sidecar.
 registered.fusi.save("sub-01_task-awake_pwd.nii.gz")
 
-# 7. Extract brain voxel time-series.
-signals = registered.fusi.extract.with_mask(brain_mask)
+# 7. Extract global signal using the brain mask.
+global_signal = registered.fusi.extract.with_labels(brain_mask)
 
-# 8. Decompose brain signals with PCA and map components back to brain space.
-pca = PCA(n_components=5).fit(signals)
-spatial_components = unmask(pca.components_, brain_mask, new_dims=["component"])
+# 8. Denoise and standardize power Doppler signals.
+pwd_denoised = cf.signal.clean(
+    registered, low_cutoff=0.01, confounds=global_signal, standardize_method="zscore"
+)
+
+# 9. Decompose brain signals with PCA.
+pca = PCA(n_components=5, random_state=0)
+component_signals = pca.fit_transform(pwd_denoised)
+spatial_maps = pca.components_
 ```
 
 ## API Reference

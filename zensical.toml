@@ -63,7 +63,12 @@ nav = [
         { "Xarray Integration" = "api/xarray.md" },
         { "Datasets" = "api/datasets.md" },
     ]},
-    { "Examples" = "examples/index.md" },
+    { "Examples" = [
+        { "Overview" = "examples/index.md" },
+        { "Getting Started" = [
+            { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
+        ]},
+    ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },
     { "Citing" = "citing.md" },
@@ -182,7 +187,7 @@ summary = true
 auto = true
 auto_themed = true
 auto_caption = true
-skip_classes = ["hero-logo", "md-logo"]
+skip_classes = ["hero-logo", "md-logo", "skip-lightbox"]
 
 [project.markdown_extensions.admonition]
 

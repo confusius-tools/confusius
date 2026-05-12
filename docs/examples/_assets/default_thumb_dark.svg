@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240" role="img" aria-labelledby="title desc">
+  <title id="title">Default example thumbnail (dark)</title>
+  <desc id="desc">Minimal placeholder thumbnail for examples without an explicit image.</desc>
+  <rect width="320" height="240" rx="18" fill="#111720"/>
+  <rect x="30" y="28" width="260" height="160" rx="12" fill="#1a2030" stroke="#2a3347"/>
+  <path d="M52 160 C84 122 110 92 140 96 C172 100 188 146 215 152 C238 157 258 124 282 104" fill="none" stroke="#e94b5f" stroke-width="8" stroke-linecap="round"/>
+  <g fill="#f3f5fa" font-family="Inter, Arial, sans-serif" text-anchor="middle">
+    <text x="160" y="214" font-size="24" font-weight="700">Example</text>
+  </g>
+</svg>

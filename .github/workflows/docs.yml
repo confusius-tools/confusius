@@ -74,6 +74,22 @@ jobs:
           xvfb-run -a uv run docs/images/qc/generate.py
           xvfb-run -a uv run docs/images/visualization/generate.py
 
+      - name: Cache gallery artifacts
+        uses: actions/cache@v5
+        with:
+          path: .cache/gallery
+          key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
+          restore-keys: |
+            ${{ runner.os }}-gallery-
+
+      - name: Build example gallery
+        env:
+          QT_QPA_PLATFORM: "xcb"
+          PYOPENGL_PLATFORM: "glx"
+          LIBGL_ALWAYS_SOFTWARE: "1"
+          CONFUSIUS_BINDER_REF: ${{ github.head_ref || github.ref_name }}
+        run: xvfb-run -a uv run python tools/build_gallery.py
+
       - name: Build documentation
         run: uv run zensical build --clean --strict
 
