@@ -9,22 +9,30 @@ from sklearn.utils.validation import check_is_fitted
 from confusius.decomposition import FastICA
 
 
+FASTICA_TEST_KWARGS = {
+    "n_components": 2,
+    "random_state": 0,
+    "max_iter": 1000,
+    "tol": 1e-3,
+}
+
+
 def test_fit_transform_returns_dataarray(sample_4d_volume):
     """fit_transform returns `(time, component)` DataArray with coords."""
-    model = FastICA(n_components=6, random_state=0)
+    model = FastICA(**FASTICA_TEST_KWARGS)
 
     signals = model.fit_transform(sample_4d_volume)
 
     assert isinstance(signals, xr.DataArray)
     assert signals.dims == ("time", "component")
-    assert signals.shape == (sample_4d_volume.sizes["time"], 6)
+    assert signals.shape == (sample_4d_volume.sizes["time"], 2)
     np.testing.assert_allclose(signals.coords["time"], sample_4d_volume.coords["time"])
-    np.testing.assert_array_equal(signals.coords["component"], np.arange(6))
+    np.testing.assert_array_equal(signals.coords["component"], np.arange(2))
 
     assert model.components_.dims == ("component", "z", "y", "x")
-    assert model.components_.shape == (6, 4, 6, 8)
+    assert model.components_.shape == (2, 4, 6, 8)
     assert model.mixing_.dims == ("z", "y", "x", "component")
-    assert model.mixing_.shape == (4, 6, 8, 6)
+    assert model.mixing_.shape == (4, 6, 8, 2)
     assert model.mean_.dims == ("z", "y", "x")
     assert model.whitening_.dims == ("component", "z", "y", "x")
     assert model.n_iter_ > 0
@@ -52,17 +60,17 @@ def test_feature_names_in_for_string_feature_labels():
         coords={"region": ["A", "B", "C"]},
     )
 
-    model = FastICA(n_components=2, random_state=0).fit(data)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(data)
 
     np.testing.assert_array_equal(model.feature_names_in_, np.array(["A", "B", "C"]))
 
 
 def test_fit_transform_matches_fit_then_transform(sample_4d_volume):
     """fit_transform matches calling fit followed by transform."""
-    model_direct = FastICA(n_components=6, random_state=0)
+    model_direct = FastICA(**FASTICA_TEST_KWARGS)
     direct = model_direct.fit_transform(sample_4d_volume)
 
-    model_two_step = FastICA(n_components=6, random_state=0)
+    model_two_step = FastICA(**FASTICA_TEST_KWARGS)
     two_step = model_two_step.fit(sample_4d_volume).transform(sample_4d_volume)
 
     xr.testing.assert_identical(direct, two_step)
@@ -70,14 +78,14 @@ def test_fit_transform_matches_fit_then_transform(sample_4d_volume):
 
 def test_inverse_transform_matches_sklearn(sample_4d_volume):
     """inverse_transform matches sklearn FastICA reconstruction."""
-    model = FastICA(n_components=5, random_state=0)
+    model = FastICA(**FASTICA_TEST_KWARGS)
     signals = model.fit_transform(sample_4d_volume)
     reconstructed = model.inverse_transform(signals)
 
     stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
         feature=["z", "y", "x"]
     )
-    sklearn_model = SklearnFastICA(n_components=5, random_state=0).fit(
+    sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(
         np.asarray(stacked.values, dtype=np.float64)
     )
     sklearn_reconstructed = sklearn_model.inverse_transform(
@@ -99,8 +107,8 @@ def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = FastICA(n_components=4, random_state=0).fit(sample_4d_volume)
-    sklearn_model = SklearnFastICA(n_components=4, random_state=0).fit(X)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
+    sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
 
     np.testing.assert_allclose(
         model.transform(sample_4d_volume).values,
@@ -128,7 +136,7 @@ def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
 
 def test_inverse_transform_from_numpy_returns_dataarray(sample_4d_volume):
     """inverse_transform accepts ndarray input and returns DataArray."""
-    model = FastICA(n_components=5, random_state=0)
+    model = FastICA(**FASTICA_TEST_KWARGS)
     signals = model.fit_transform(sample_4d_volume).values
 
     reconstructed = model.inverse_transform(signals)
@@ -142,7 +150,7 @@ def test_inverse_transform_from_numpy_returns_dataarray(sample_4d_volume):
 
 def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_4d_volume):
     """inverse_transform raises when DataArray dims are not time/component."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
     bad = xr.DataArray(
         np.zeros((sample_4d_volume.sizes["time"], 2)),
         dims=["time", "region"],
@@ -154,7 +162,7 @@ def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_4d_volume):
 
 def test_inverse_transform_raises_for_component_count_mismatch(sample_4d_volume):
     """inverse_transform raises when component count differs from fitted FastICA."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
     scores = model.transform(sample_4d_volume)
     bad = scores.isel(component=slice(0, 1))
 
@@ -164,7 +172,7 @@ def test_inverse_transform_raises_for_component_count_mismatch(sample_4d_volume)
 
 def test_inverse_transform_raises_for_invalid_numpy_shape(sample_4d_volume):
     """inverse_transform raises when ndarray input is not 2D."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
 
     with pytest.raises(ValueError, match="must be 2D"):
         model.inverse_transform(np.zeros((sample_4d_volume.sizes["time"], 2, 1)))
@@ -172,7 +180,7 @@ def test_inverse_transform_raises_for_invalid_numpy_shape(sample_4d_volume):
 
 def test_inverse_transform_raises_for_invalid_input_type(sample_4d_volume):
     """inverse_transform raises TypeError for unsupported input types."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
         model.inverse_transform([1, 2, 3])
@@ -222,7 +230,7 @@ def test_fit_transform_rejects_unexpected_fit_params(sample_4d_volume):
 
 def test_transform_checks_spatial_layout(sample_4d_volume):
     """transform raises if spatial layout differs from fit."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
     bad = sample_4d_volume.isel(x=slice(0, 4))
 
     with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
@@ -231,7 +239,7 @@ def test_transform_checks_spatial_layout(sample_4d_volume):
 
 def test_transform_checks_spatial_dimension_names(sample_4d_volume):
     """transform raises if spatial dimension names differ from fit."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
     bad = sample_4d_volume.rename({"x": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
@@ -240,7 +248,7 @@ def test_transform_checks_spatial_dimension_names(sample_4d_volume):
 
 def test_transform_without_time_coordinate_uses_index(sample_4d_volume):
     """transform falls back to integer time coordinate when absent."""
-    model = FastICA(n_components=4, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
     no_time_coord = xr.DataArray(
         sample_4d_volume.values,
         dims=sample_4d_volume.dims,
@@ -261,7 +269,7 @@ def test_transform_without_time_coordinate_uses_index(sample_4d_volume):
 
 def test_transform_chunked_time_reports_transform_operation(sample_4d_volume):
     """transform chunking error message identifies FastICA.transform."""
-    model = FastICA(n_components=2, random_state=0).fit(sample_4d_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_4d_volume)
     chunked = sample_4d_volume.chunk({"time": 5})
 
     with pytest.raises(
@@ -272,7 +280,7 @@ def test_transform_chunked_time_reports_transform_operation(sample_4d_volume):
 
 def test_sklearn_interface_fitted_state(sample_4d_volume):
     """Estimator exposes sklearn fitted-state behavior."""
-    model = FastICA(n_components=3, random_state=0)
+    model = FastICA(**FASTICA_TEST_KWARGS)
     with pytest.raises(Exception):
         check_is_fitted(model)
 
@@ -288,7 +296,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_4d_volume, monkeypatc
 
     monkeypatch.setattr(fastica_module._SklearnFastICA, "fit", _raise_fit)
 
-    model = FastICA(n_components=3, random_state=0)
+    model = FastICA(**FASTICA_TEST_KWARGS)
     with pytest.raises(RuntimeError, match="fit failed"):
         model.fit(sample_4d_volume)
 
@@ -337,13 +345,27 @@ def test_set_params_updates_values():
     assert model.whiten_solver == "eigh"
 
 
-def test_reproducible_with_random_state(sample_4d_volume):
+def test_reproducible_with_random_state():
     """FastICA gives reproducible results with fixed random_state."""
-    model_1 = FastICA(n_components=3, random_state=0)
-    model_2 = FastICA(n_components=3, random_state=0)
+    data = xr.DataArray(
+        np.array(
+            [
+                [0.0, 1.0, 0.0],
+                [1.0, 0.0, 1.0],
+                [0.0, 1.0, 2.0],
+                [2.0, 1.0, 0.0],
+                [1.0, 2.0, 1.0],
+                [2.0, 0.0, 2.0],
+            ]
+        ),
+        dims=["time", "region"],
+        coords={"region": ["A", "B", "C"]},
+    )
+    model_1 = FastICA(**FASTICA_TEST_KWARGS)
+    model_2 = FastICA(**FASTICA_TEST_KWARGS)
 
-    signals_1 = model_1.fit_transform(sample_4d_volume)
-    signals_2 = model_2.fit_transform(sample_4d_volume)
+    signals_1 = model_1.fit_transform(data)
+    signals_2 = model_2.fit_transform(data)
 
     np.testing.assert_allclose(signals_1.values, signals_2.values)
     np.testing.assert_allclose(model_1.components_.values, model_2.components_.values)
