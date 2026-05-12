@@ -464,3 +464,162 @@ class TestSelectNClusters:
         rec = xr.DataArray(data, dims=["time", "y", "x"])
         with pytest.raises(ValueError, match="NaN"):
             CAP(n_clusters=2).select_n_clusters([rec], range(2, 4), show_progress=False)
+
+
+# ---------------------------------------------------------------------------
+# scores_ and score_samples()
+# ---------------------------------------------------------------------------
+
+
+class TestScoreSamples:
+    def test_scores_shape(self, fitted_cap, recordings):
+        """scores_ is parallel to labels_ in length and time dimension."""
+        assert len(fitted_cap.scores_) == len(recordings)
+        for scr, rec in zip(fitted_cap.scores_, recordings):
+            assert scr.dims == ("time",)
+            assert scr.sizes["time"] == rec.sizes["time"]
+
+    def test_scores_time_coords_preserved(self, fitted_cap, recordings):
+        for scr, rec in zip(fitted_cap.scores_, recordings):
+            npt.assert_array_equal(
+                scr.coords["time"].values, rec.coords["time"].values
+            )
+
+    def test_scores_cosine_range(self, clustered_recording):
+        """Cosine/correlation scores lie in [-1, 1]."""
+        cap = CAP(n_clusters=2, metric="cosine", random_state=0)
+        cap.fit([clustered_recording])
+        scores = cap.scores_[0].values
+        assert scores.min() >= -1.0 - 1e-6
+        assert scores.max() <= 1.0 + 1e-6
+
+    def test_scores_well_separated_high(self, clustered_recording):
+        """Well-separated clusters yield cosine scores near 1."""
+        cap = CAP(n_clusters=2, metric="cosine", random_state=0)
+        cap.fit([clustered_recording])
+        assert cap.scores_[0].values.min() > 0.9
+
+    def test_scores_euclidean_nonpositive(self, clustered_recording):
+        """Euclidean scores (negative L2 distance) are ≤ 0."""
+        cap = CAP(n_clusters=2, metric="euclidean", random_state=0)
+        cap.fit([clustered_recording])
+        assert (cap.scores_[0].values <= 1e-10).all()
+
+    def test_score_samples_matches_scores_(self, fitted_cap, recordings):
+        """score_samples on training data matches scores_ from fit."""
+        scores = fitted_cap.score_samples(recordings)
+        for scr_fit, scr_pred in zip(fitted_cap.scores_, scores):
+            npt.assert_allclose(scr_fit.values, scr_pred.values, rtol=1e-5)
+
+    def test_score_samples_euclidean(self, clustered_recording):
+        """Euclidean score_samples on same data reproduces scores_."""
+        cap = CAP(n_clusters=2, metric="euclidean", random_state=0)
+        cap.fit([clustered_recording])
+        scores = cap.score_samples([clustered_recording])
+        npt.assert_allclose(scores[0].values, cap.scores_[0].values, rtol=1e-5)
+
+    def test_score_samples_unfitted_raises(self, recordings):
+        cap = CAP(n_clusters=4)
+        with pytest.raises(NotFittedError):
+            cap.score_samples(recordings)
+
+
+# ---------------------------------------------------------------------------
+# compute_temporal_metrics(score_threshold=...)
+# ---------------------------------------------------------------------------
+
+
+class TestScoreThreshold:
+    def test_none_matches_default(self, fitted_cap):
+        """score_threshold=None is identical to calling with no argument."""
+        ds_none = fitted_cap.compute_temporal_metrics(score_threshold=None)
+        ds_default = fitted_cap.compute_temporal_metrics()
+        npt.assert_array_equal(
+            ds_none["temporal_fraction"].values, ds_default["temporal_fraction"].values
+        )
+        npt.assert_array_equal(
+            ds_none["transition_frequency"].values,
+            ds_default["transition_frequency"].values,
+        )
+
+    def test_impossible_threshold_censors_all(self, fitted_cap):
+        """A threshold above the maximum possible score excludes all volumes."""
+        # Cosine similarity ≤ 1.0, so 2.0 is always above every score.
+        ds = fitted_cap.compute_temporal_metrics(score_threshold=2.0)
+        npt.assert_array_equal(ds["temporal_fraction"].values, 0.0)
+        npt.assert_array_equal(ds["counts"].values, 0)
+        npt.assert_array_equal(ds["transition_frequency"].values, 0)
+
+    def test_fixed_denominator_convention(self):
+        """Excluded volumes reduce the tf numerator but not the denominator."""
+        rng = np.random.default_rng(0)
+        ny, nx = 3, 3
+        c0, c1 = np.ones((ny, nx)), -np.ones((ny, nx))
+        frames = [
+            (c0 if s == 0 else c1) + rng.standard_normal((ny, nx)) * 0.01
+            for s in [0, 0, 1, 1]
+        ]
+        rec = xr.DataArray(np.stack(frames), dims=["time", "y", "x"])
+        cap = CAP(n_clusters=2, metric="euclidean", random_state=0)
+        cap.fit([rec])
+
+        # Force exactly one volume to have an artificially low score.
+        scores = cap.scores_[0].values.copy()
+        scores[0] = -1e9
+        cap.scores_[0] = xr.DataArray(scores, dims=["time"])
+
+        # Threshold that excludes only the injected outlier.
+        ds = cap.compute_temporal_metrics(score_threshold=-1.0)
+        # 3 of 4 volumes pass: tf sum over all CAPs = 3/4.
+        npt.assert_allclose(ds["temporal_fraction"].values[0].sum(), 3 / 4, atol=1e-10)
+
+    def test_censored_volumes_break_episodes(self):
+        """A censored volume between two same-CAP runs creates two episodes."""
+        rng = np.random.default_rng(0)
+        ny, nx = 3, 3
+        c0 = np.ones((ny, nx))
+        # Four volumes all assigned to CAP 0, one will be censored in the middle.
+        frames = [c0 + rng.standard_normal((ny, nx)) * 0.01 for _ in range(4)]
+        rec = xr.DataArray(np.stack(frames), dims=["time", "y", "x"])
+        cap = CAP(n_clusters=1, metric="euclidean", random_state=0)
+        cap.fit([rec])
+
+        # Without threshold: one episode of 4 volumes.
+        ds_all = cap.compute_temporal_metrics()
+        assert int(ds_all["counts"].values[0, 0]) == 1
+
+        # Censor volume 1 (middle of the run) → should split into 2 episodes.
+        scores = cap.scores_[0].values.copy()
+        scores[1] = -1e9
+        cap.scores_[0] = xr.DataArray(scores, dims=["time"])
+        ds = cap.compute_temporal_metrics(score_threshold=-1.0)
+        assert int(ds["counts"].values[0, 0]) == 2
+
+    def test_transitions_across_censored_gap_not_counted(self):
+        """Transitions that cross a censored volume are not counted."""
+        rng = np.random.default_rng(0)
+        ny, nx = 3, 3
+        c0, c1 = np.ones((ny, nx)), -np.ones((ny, nx))
+        # Sequence: CAP0, CAP1, then one volume that will be censored, then CAP0.
+        # Real transitions: CAP0→CAP1 (1). The CAP1→CAP0 crossing the censored
+        # volume should be dropped, leaving transition_frequency=1.
+        frames = [
+            c0 + rng.standard_normal((ny, nx)) * 0.01,
+            c1 + rng.standard_normal((ny, nx)) * 0.01,
+            c0 + rng.standard_normal((ny, nx)) * 0.01,
+            c0 + rng.standard_normal((ny, nx)) * 0.01,
+        ]
+        rec = xr.DataArray(np.stack(frames), dims=["time", "y", "x"])
+        cap = CAP(n_clusters=2, metric="euclidean", random_state=0)
+        cap.fit([rec])
+
+        # Without threshold: CAP0→CAP1 and CAP1→CAP0 are both counted.
+        ds_all = cap.compute_temporal_metrics()
+        assert int(ds_all["transition_frequency"].values[0]) == 2
+
+        # Censor volume 2: the CAP1→CAP0 pair is dropped.
+        scores = cap.scores_[0].values.copy()
+        scores[2] = -1e9
+        cap.scores_[0] = xr.DataArray(scores, dims=["time"])
+        ds = cap.compute_temporal_metrics(score_threshold=-1.0)
+        assert int(ds["transition_frequency"].values[0]) == 1
