@@ -120,6 +120,44 @@ class TestFit:
         with pytest.raises(ValueError, match="NaN"):
             CAP(n_clusters=2).fit([rec])
 
+    def test_mean_update_rule_cosine(self, clustered_recording):
+        """update_rule='mean' in the cosine k-means loop correctly partitions volumes."""
+        cap = CAP(n_clusters=2, metric="cosine", update_rule="mean", random_state=0)
+        cap.fit([clustered_recording])
+        labels = cap.labels_[0].values
+        assert labels[0] == labels[2] == labels[4] == labels[6]
+        assert labels[1] == labels[3] == labels[5] == labels[7]
+        assert labels[0] != labels[1]
+
+    def test_empty_cluster_warns(self):
+        """More clusters than separable directions triggers an empty-cluster warning.
+
+        With 2 samples and 3 clusters, k-means++ must reuse an existing center
+        for the third seed (pot==0), leaving one empty cluster after convergence.
+        update_rule='mean' uses argmax assignment, so the duplicate center gets
+        zero samples → zero norm → warning. This exercises the coincident-center
+        branch in _cosine_kmeans_init, the empty-mask branch in the Lloyd loop,
+        and the empty-cluster cleanup path.
+        """
+        ny, nx = 2, 2
+        data = np.stack([np.ones((ny, nx)), -np.ones((ny, nx))])
+        rec = xr.DataArray(data, dims=["time", "y", "x"])
+        cap = CAP(n_clusters=3, metric="cosine", update_rule="mean", random_state=0)
+        with pytest.warns(UserWarning, match="empty cluster"):
+            cap.fit([rec])
+        assert cap.caps_.sizes["cap"] < 3
+
+    def test_n_init_integer(self, sample_4d_volume):
+        """Integer n_init runs multiple restarts without error."""
+        cap = CAP(n_clusters=4, metric="cosine", n_init=2, random_state=0)
+        cap.fit([sample_4d_volume])
+        assert cap.caps_.sizes["cap"] == 4
+
+    def test_invalid_n_init_raises(self, sample_4d_volume):
+        cap = CAP(n_clusters=2, metric="cosine", n_init=0)  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="n_init"):
+            cap.fit([sample_4d_volume])
+
     def test_reproducibility(self, sample_4d_volume):
         cap1 = CAP(n_clusters=4, random_state=42).fit([sample_4d_volume])
         cap2 = CAP(n_clusters=4, random_state=42).fit([sample_4d_volume])
@@ -149,6 +187,20 @@ class TestPredict:
         for lbl in fitted_cap.predict(recordings):
             assert lbl.min() >= 0
             assert lbl.max() < n_caps
+
+    def test_predict_cosine_preserves_labels(self, clustered_recording):
+        """Cosine predict on the same data reproduces fit labels."""
+        cap = CAP(n_clusters=2, metric="cosine", random_state=0)
+        cap.fit([clustered_recording])
+        predicted = cap.predict([clustered_recording])
+        npt.assert_array_equal(predicted[0].values, cap.labels_[0].values)
+
+    def test_predict_nan_raises(self, fitted_cap, rng):
+        data = rng.standard_normal((20, 5, 8))
+        data[0, 2, 3] = np.nan
+        bad_rec = xr.DataArray(data, dims=["time", "y", "x"])
+        with pytest.raises(ValueError, match="NaN"):
+            fitted_cap.predict([bad_rec])
 
     def test_predict_unfitted_raises(self, recordings):
         cap = CAP(n_clusters=4)
@@ -364,3 +416,32 @@ class TestSelectNClusters:
             CAP().select_n_clusters(
                 recordings, range(2, 4), method="invalid", show_progress=False  # type: ignore[arg-type]
             )
+
+    def test_euclidean_elbow(self, recordings):
+        """Euclidean metric + elbow method exercises the KMeans path."""
+        cap = CAP(random_state=0, metric="euclidean")
+        best_k = cap.select_n_clusters(
+            recordings, range(2, 5), method="elbow", show_progress=False
+        )
+        assert best_k in range(2, 5)
+
+    def test_invalid_metric_raises(self, recordings):
+        cap = CAP(metric="manhattan")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="metric"):
+            cap.select_n_clusters(recordings, range(2, 4), show_progress=False)
+
+    def test_invalid_update_rule_raises(self, recordings):
+        cap = CAP(update_rule="invalid")  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="update_rule"):
+            cap.select_n_clusters(recordings, range(2, 4), show_progress=False)
+
+    def test_empty_list_raises(self):
+        with pytest.raises(ValueError, match="at least one recording"):
+            CAP().select_n_clusters([], range(2, 4), show_progress=False)
+
+    def test_nan_raises(self, rng):
+        data = rng.standard_normal((20, 3, 3))
+        data[5, 1, 1] = np.nan
+        rec = xr.DataArray(data, dims=["time", "y", "x"])
+        with pytest.raises(ValueError, match="NaN"):
+            CAP(n_clusters=2).select_n_clusters([rec], range(2, 4), show_progress=False)
