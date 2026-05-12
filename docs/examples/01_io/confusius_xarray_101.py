@@ -161,8 +161,6 @@ plotter = cf.plotting.plot_volume(
     bg_color=bg_color,
     fg_color=fg_color,
 )
-# A transparent background looks better in the rendered notebook.
-plotter.figure.patch.set_alpha(0)
 
 # %% [markdown]
 # ## Mask low-intensity pixels with `where`
@@ -180,8 +178,6 @@ plotter = mean_db_masked.fusi.plot.volume(
     bg_color=bg_color,
     fg_color=fg_color,
 )
-# A transparent background looks better in the rendered notebook.
-plotter.figure.patch.set_alpha(0)
 
 # %% [markdown]
 # ## Save a processed result

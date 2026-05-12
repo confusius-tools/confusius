@@ -119,8 +119,6 @@ plotter = cf.plotting.plot_volume(
     cbar_label="Component weight",
 )
 plotter.figure.suptitle("Principal component maps (first 12)", fontsize=11)
-plotter.figure.patch.set_alpha(0)
-
 # %% [markdown]
 # ## Component time courses
 #
