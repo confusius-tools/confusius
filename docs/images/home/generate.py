@@ -41,14 +41,14 @@ data = cf.load(
 print("Computing mean and converting to dB …")
 mean_db = data.mean("time").compute().fusi.scale.db()
 
-for black_bg, suffix in [(True, "dark"), (False, "light")]:
+for bg_color, suffix in [("black", "dark"), ("white", "light")]:
     plotter = mean_db.fusi.plot.volume(
         slice_mode="z",
         cmap="gray",
         vmin=_DB_LIMITS[0],
         vmax=_DB_LIMITS[1],
         cbar_label="Power Doppler (dB)",
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     out = HERE / f"quickstart-{suffix}.png"
     plotter.savefig(str(out), dpi=150, bbox_inches="tight", transparent=True)

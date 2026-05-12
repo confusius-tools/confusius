@@ -336,7 +336,7 @@ class QCPlotsWidget(QWidget):
         self._carpet_fig.patch.set_facecolor(colors["bg"])
 
         ax = self._carpet_fig.add_subplot(111)
-        _draw_carpet(carpet_data, ax=ax, black_bg=colors["is_dark"])
+        _draw_carpet(carpet_data, ax=ax, bg_color=colors["bg"], fg_color=colors["fg"])
 
         if self._carpet_layer_name:
             ax.set_title(self._carpet_layer_name, color=colors["fg"], fontsize=10)

@@ -36,6 +36,50 @@ subplot_size * nrows)` and then constrained to a maximum size.
 """
 
 
+def _relative_luminance(color: str) -> float:
+    """Compute WCAG 2.1 relative luminance for any matplotlib color string.
+
+    Parameters
+    ----------
+    color : str
+        Any matplotlib-compatible color string (e.g. `"black"`, `"#1a1a2e"`).
+
+    Returns
+    -------
+    float
+        Relative luminance in [0, 1], where 0 is darkest and 1 is lightest.
+
+    Notes
+    -----
+    Implements the WCAG 2.1 relative luminance definition:
+    https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+    """
+    import matplotlib.colors as mcolors
+
+    def _linearize(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = mcolors.to_rgb(color)
+    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
+
+
+def _auto_fg_color(bg_color: str) -> str:
+    """Return white or black for maximum WCAG contrast against `bg_color`.
+
+    Parameters
+    ----------
+    bg_color : str
+        Any matplotlib-compatible background color string.
+
+    Returns
+    -------
+    str
+        `"white"` when the background is dark (relative luminance < 0.179),
+        `"black"` otherwise.
+    """
+    return "white" if _relative_luminance(bg_color) < 0.179 else "black"
+
+
 def _compute_grid_dims(
     n_slices: int, nrows: int | None, ncols: int | None
 ) -> tuple[int, int]:
@@ -321,8 +365,13 @@ class VolumePlotter:
         [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or an array of them. If not
         provided, axes will be created on the first call to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume].
-    black_bg : bool, default: True
-        Whether to set the figure background to black.
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     yincrease : bool, default: False
         Whether the y-axis increases upward. When `False`, y coordinates decrease
         upward.
@@ -351,7 +400,8 @@ class VolumePlotter:
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | Axes | None" = None,
         *,
-        black_bg: bool = True,
+        bg_color: str = "black",
+        fg_color: str | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
     ):
@@ -364,7 +414,8 @@ class VolumePlotter:
             self.figure = axes.flat[0].figure
         else:
             self.figure = figure
-        self._black_bg = black_bg
+        self._bg_color = bg_color
+        self._fg_color = fg_color
         self._yincrease = yincrease
         self._xincrease = xincrease
         self._coord_to_axis: dict[float, int] = {}
@@ -414,7 +465,7 @@ class VolumePlotter:
             axes_array = self.figure.subplots(_nrows, _ncols, squeeze=False)
 
         self.axes = np.array(axes_array)
-        self.figure.patch.set_facecolor("black" if self._black_bg else "white")
+        self.figure.patch.set_facecolor(self._bg_color)
 
     def _attach_or_update_hover_manager(self, roi_labels: dict[int, str]) -> None:
         """Ensure hover manager is attached to figure and update its ROI labels.
@@ -461,13 +512,15 @@ class VolumePlotter:
 
     @property
     def _text_color(self) -> str:
-        """White for dark backgrounds, black for light ones."""
-        return "white" if self._black_bg else "black"
+        """Foreground color: explicit fg_color or WCAG-derived contrast color."""
+        if self._fg_color is not None:
+            return self._fg_color
+        return _auto_fg_color(self._bg_color)
 
     def _style_ax(self, ax: "Axes") -> None:
         """Apply background and spine/tick styling to an axes."""
         color = self._text_color
-        ax.set_facecolor("black" if self._black_bg else "white")
+        ax.set_facecolor(self._bg_color)
         for spine in ax.spines.values():
             spine.set_edgecolor(color)
         ax.tick_params(colors=color, which="both")
@@ -1189,7 +1242,8 @@ def plot_contours(
     slice_coords: list[float] | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
-    black_bg: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
     figure: "Figure | None" = None,
     axes: "npt.NDArray[Any] | Axes | None" = None,
     roi_labels: dict[int, str] | None = None,
@@ -1235,8 +1289,13 @@ def plot_contours(
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
         Whether the x-axis increases to the right (`True`) or left (`False`).
-    black_bg : bool, default: True
-        Whether to set the figure background to black.
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
     axes : numpy.ndarray or matplotlib.axes.Axes, optional
@@ -1295,7 +1354,8 @@ def plot_contours(
         slice_mode=slice_mode,
         figure=figure,
         axes=axes,
-        black_bg=black_bg,
+        bg_color=bg_color,
+        fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
     )
@@ -1333,7 +1393,8 @@ def plot_volume(
     show_axes: bool = True,
     yincrease: bool = False,
     xincrease: bool = True,
-    black_bg: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
     figure: "Figure | None" = None,
     axes: "npt.NDArray[Any] | Axes | None" = None,
     nrows: int | None = None,
@@ -1404,8 +1465,13 @@ def plot_volume(
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
         Whether the x-axis increases to the right (`True`) or left (`False`).
-    black_bg : bool, default: True
-        Whether to set the figure background to black.
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
     axes : numpy.ndarray or matplotlib.axes.Axes, optional
@@ -1483,7 +1549,8 @@ def plot_volume(
         slice_mode=slice_mode,
         figure=figure,
         axes=axes,
-        black_bg=black_bg,
+        bg_color=bg_color,
+        fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
     )
@@ -2082,7 +2149,8 @@ def _draw_carpet(
     cmap: "str | Colormap" = "gray",
     figsize: tuple[float, float] = (10, 5),
     title: str | None = None,
-    black_bg: bool = False,
+    bg_color: str = "white",
+    fg_color: str | None = None,
     ax: "Axes | None" = None,
 ) -> tuple["Figure | SubFigure", "Axes"]:
     """Draw a carpet plot from pre-computed data.
@@ -2100,8 +2168,12 @@ def _draw_carpet(
         Figure size in inches, used only when *ax* is `None`.
     title : str, optional
         Plot title.
-    black_bg : bool, default: False
-        Whether to use a black background with white foreground elements.
+    bg_color : str, default: "white"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula.
     ax : matplotlib.axes.Axes, optional
         Axes to draw on. A new figure is created when `None`.
 
@@ -2119,8 +2191,7 @@ def _draw_carpet(
     vmax = prep["vmax"]
     xlabel = prep["xlabel"]
 
-    text_color = "white" if black_bg else "black"
-    bg_color = "black" if black_bg else "white"
+    text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
 
     if ax is None:
         figure, ax = plt.subplots(figsize=figsize)
@@ -2171,7 +2242,8 @@ def plot_carpet(
     decimation_threshold: int | None = 800,
     figsize: tuple[float, float] = (10, 5),
     title: str | None = None,
-    black_bg: bool = False,
+    bg_color: str = "white",
+    fg_color: str | None = None,
     ax: "Axes | None" = None,
 ) -> tuple["Figure | SubFigure", "Axes"]:
     """Plot voxel intensities across time as a raster image.
@@ -2213,9 +2285,13 @@ def plot_carpet(
         Figure size in inches `(width, height)`.
     title : str, optional
         Plot title.
-    black_bg : bool, default: False
-        Whether to use a black figure background with white foreground elements
-        (spines, ticks, labels). Use `True` for dark-themed figures.
+    bg_color : str, default: "white"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If not provided, creates new figure and axes.
 
@@ -2261,5 +2337,11 @@ def plot_carpet(
         data, mask, detrend_order, standardize, vmin, vmax, decimation_threshold
     )
     return _draw_carpet(
-        prep, cmap=cmap, figsize=figsize, title=title, black_bg=black_bg, ax=ax
+        prep,
+        cmap=cmap,
+        figsize=figsize,
+        title=title,
+        bg_color=bg_color,
+        fg_color=fg_color,
+        ax=ax,
     )

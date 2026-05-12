@@ -243,7 +243,8 @@ class FUSIPlotAccessor:
         decimation_threshold: int | None = 800,
         figsize: tuple[float, float] = (10, 5),
         title: str | None = None,
-        black_bg: bool = False,
+        bg_color: str = "white",
+        fg_color: str | None = None,
         ax: "Axes | None" = None,
     ) -> tuple["Figure | SubFigure", "Axes"]:
         """Plot voxel intensities across time as a raster image.
@@ -283,9 +284,13 @@ class FUSIPlotAccessor:
             Figure size in inches `(width, height)`.
         title : str, optional
             Plot title.
-        black_bg : bool, default: False
-            Whether to use a black figure background with white foreground elements
-            (spines, ticks, labels). Use `True` for dark-themed figures.
+        bg_color : str, default: "white"
+            Background color for the figure and axes. Any matplotlib-compatible color
+            string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+        fg_color : str, optional
+            Color for text, labels, ticks, and spines. If not provided, derived
+            automatically from `bg_color` using the WCAG relative luminance formula
+            (white on dark backgrounds, black on light ones).
         ax : matplotlib.axes.Axes, optional
             Axes to plot on. If not provided, creates new figure and axes.
 
@@ -333,7 +338,8 @@ class FUSIPlotAccessor:
             decimation_threshold=decimation_threshold,
             figsize=figsize,
             title=title,
-            black_bg=black_bg,
+            bg_color=bg_color,
+            fg_color=fg_color,
             ax=ax,
         )
 
@@ -358,7 +364,8 @@ class FUSIPlotAccessor:
         show_axes: bool = True,
         yincrease: bool = False,
         xincrease: bool = True,
-        black_bg: bool = True,
+        bg_color: str = "black",
+        fg_color: str | None = None,
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | None" = None,
         dpi: int | None = None,
@@ -427,8 +434,13 @@ class FUSIPlotAccessor:
         xincrease : bool, default: True
             Whether the x-axis increases to the right (`True`) or left
             (`False`).
-        black_bg : bool, default: True
-            Whether to set the figure background to black.
+        bg_color : str, default: "black"
+            Background color for the figure and axes. Any matplotlib-compatible color
+            string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+        fg_color : str, optional
+            Color for text, labels, ticks, and spines. If not provided, derived
+            automatically from `bg_color` using the WCAG relative luminance formula
+            (white on dark backgrounds, black on light ones).
         figure : matplotlib.figure.Figure, optional
             Existing figure to draw into. If not provided, a new figure is
             created.
@@ -467,7 +479,7 @@ class FUSIPlotAccessor:
         ...     threshold=-60,
         ...     threshold_mode="upper",
         ...     cmap="hot",
-        ...     black_bg=True,
+        ...     bg_color="black",
         ... )
         """
         return plot_volume(
@@ -491,7 +503,8 @@ class FUSIPlotAccessor:
             show_axes=show_axes,
             yincrease=yincrease,
             xincrease=xincrease,
-            black_bg=black_bg,
+            bg_color=bg_color,
+            fg_color=fg_color,
             figure=figure,
             axes=axes,
             dpi=dpi,
@@ -506,7 +519,8 @@ class FUSIPlotAccessor:
         slice_coords: list[float] | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
-        black_bg: bool = True,
+        bg_color: str = "black",
+        fg_color: str | None = None,
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | None" = None,
         **kwargs,
@@ -540,8 +554,13 @@ class FUSIPlotAccessor:
             Whether the y-axis increases upward (`True`) or downward (`False`).
         xincrease : bool, default: True
             Whether the x-axis increases to the right (`True`) or left (`False`).
-        black_bg : bool, default: True
-            Whether to set the figure background to black.
+        bg_color : str, default: "black"
+            Background color for the figure and axes. Any matplotlib-compatible color
+            string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+        fg_color : str, optional
+            Color for text, labels, ticks, and spines. If not provided, derived
+            automatically from `bg_color` using the WCAG relative luminance formula
+            (white on dark backgrounds, black on light ones).
         figure : matplotlib.figure.Figure, optional
             Existing figure to draw into. If not provided, a new figure is created.
         axes : numpy.ndarray, optional
@@ -578,7 +597,8 @@ class FUSIPlotAccessor:
             slice_coords=slice_coords,
             yincrease=yincrease,
             xincrease=xincrease,
-            black_bg=black_bg,
+            bg_color=bg_color,
+            fg_color=fg_color,
             figure=figure,
             axes=axes,
             **kwargs,
