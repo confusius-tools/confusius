@@ -7,6 +7,13 @@ import sys
 from pathlib import Path
 
 import nbformat
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TextColumn,
+    TimeElapsedColumn,
+)
 
 from . import cache, discover, execute, index, render
 from ._types import ExampleSpec, RenderedExample
@@ -68,12 +75,38 @@ def _write_cached_artifacts(
     return None
 
 
+def _make_progress() -> Progress:
+    """Return a rich Progress configured for the gallery builder."""
+    return Progress(
+        TextColumn("  {task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total} cells"),
+        TimeElapsedColumn(),
+    )
+
+
+def _advance_on_cell(progress: Progress, task_id: TaskID):
+    """Return an ``on_cell_executed`` hook that advances ``task_id`` by one.
+
+    The injected theme-setup cell (always at ``cell_index == 0``) is skipped so the
+    bar's totals reflect only the cells the user wrote.
+    """
+
+    def hook(**kwargs: object) -> None:
+        if kwargs.get("cell_index") == 0:
+            return
+        progress.update(task_id, advance=1)
+
+    return hook
+
+
 def _build_one(
     spec: ExampleSpec,
     *,
     built_dir: Path,
     cache_root: Path,
     deps_fingerprint: str,
+    progress: Progress,
     binder_url: str | None = None,
 ) -> RenderedExample:
     """Build one example and return its rendered metadata."""
@@ -90,9 +123,12 @@ def _build_one(
 
     source_notebook = execute.read_example(spec.source)
     title, summary = _extract_title_and_summary(source_notebook, spec.source.stem)
+    # nbclient only invokes `on_cell_executed` for code cells, so the bar's
+    # total has to match that — counting markdown cells would leave it stuck.
+    n_cells = sum(1 for c in source_notebook.cells if c.cell_type == "code")
 
     if cache_entry.is_dir():
-        print(f"  [cached]  {spec.section}/{base_name}", flush=True)
+        progress.add_task(f"{spec.section}/{base_name} [cached]", total=1, completed=1)
         thumb = _write_cached_artifacts(cache_entry, out_dir, base_name)
         return RenderedExample(
             spec=spec,
@@ -103,9 +139,18 @@ def _build_one(
             thumbnail_dark=thumb[1] if thumb is not None else None,
         )
 
-    print(f"  [build]   {spec.section}/{base_name}", flush=True)
-    light_notebook, light_seconds = execute.execute_example(spec.source, theme="light")
-    dark_notebook, _ = execute.execute_example(spec.source, theme="dark")
+    light_task = progress.add_task(f"{spec.section}/{base_name} (light)", total=n_cells)
+    light_notebook, light_seconds = execute.execute_example(
+        spec.source,
+        theme="light",
+        on_cell_executed=_advance_on_cell(progress, light_task),
+    )
+    dark_task = progress.add_task(f"{spec.section}/{base_name} (dark)", total=n_cells)
+    dark_notebook, _ = execute.execute_example(
+        spec.source,
+        theme="dark",
+        on_cell_executed=_advance_on_cell(progress, dark_task),
+    )
 
     scratch = cache_root / "_scratch" / spec.section / base_name
     if scratch.exists():
@@ -166,26 +211,28 @@ def build_gallery(
     cache_root.mkdir(parents=True, exist_ok=True)
 
     rendered: list[RenderedExample] = []
-    for spec in specs:
-        binder_url = (
-            _binder_url(
-                spec.source,
-                repo_root=repo_root,
-                binder_repo=binder_repo,
-                binder_ref=binder_ref,
+    with _make_progress() as progress:
+        for spec in specs:
+            binder_url = (
+                _binder_url(
+                    spec.source,
+                    repo_root=repo_root,
+                    binder_repo=binder_repo,
+                    binder_ref=binder_ref,
+                )
+                if binder_repo is not None and repo_root is not None
+                else None
             )
-            if binder_repo is not None and repo_root is not None
-            else None
-        )
-        rendered.append(
-            _build_one(
-                spec,
-                built_dir=built_dir,
-                cache_root=cache_root,
-                deps_fingerprint=deps_fingerprint,
-                binder_url=binder_url,
+            rendered.append(
+                _build_one(
+                    spec,
+                    built_dir=built_dir,
+                    cache_root=cache_root,
+                    deps_fingerprint=deps_fingerprint,
+                    progress=progress,
+                    binder_url=binder_url,
+                )
             )
-        )
 
     index_markdown = index.build_index(rendered, root=examples_root)
     (examples_root / "index.md").write_text(index_markdown, encoding="utf-8")

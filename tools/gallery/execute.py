@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +13,13 @@ import nbformat
 from jupyter_client.manager import KernelManager
 from nbclient import NotebookClient
 from nbclient.exceptions import CellExecutionError
+
+OnCellExecuted = Callable[..., None]
+"""Hook invoked after each cell finishes.
+
+nbclient calls it as ``hook(cell=..., cell_index=..., execute_reply=...)``; the
+callable must accept those keyword arguments (typically via ``**kwargs``).
+"""
 
 _THEME_COMMON_PRE: list[str] = [
     "import warnings",
@@ -71,6 +79,7 @@ def execute_example(
     *,
     timeout: int = 600,
     theme: Literal["light", "dark"] | None = None,
+    on_cell_executed: OnCellExecuted | None = None,
 ) -> tuple[nbformat.NotebookNode, float]:
     """Execute one percent-format ``.py`` example end-to-end."""
     notebook = read_example(source)
@@ -86,7 +95,12 @@ def execute_example(
         "{connection_file}",
     ]
 
-    client = NotebookClient(notebook, km=kernel_manager, timeout=timeout)
+    client = NotebookClient(
+        notebook,
+        km=kernel_manager,
+        timeout=timeout,
+        on_cell_executed=on_cell_executed,
+    )
     client.owns_km = True
 
     start = time.perf_counter()
