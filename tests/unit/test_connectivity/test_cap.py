@@ -149,7 +149,7 @@ class TestComputeMetrics:
         ds = cap.compute_temporal_metrics()
         pers = ds["persistence"].values[0]
 
-        # Each CAP: 2 frames × 0.5 s = 1.0 s total, 1 episode → persistence = 1.0 s.
+        # Each CAP: 2 volumes × 0.5 s = 1.0 s total, 1 episode → persistence = 1.0 s.
         npt.assert_allclose(pers[i0], 1.0, atol=1e-10)
         npt.assert_allclose(pers[i1], 1.0, atol=1e-10)
 
@@ -178,7 +178,7 @@ class TestComputeMetrics:
             rng.standard_normal((20, ny, nx)), dims=["time", "y", "x"]
         )
         cap = CAP(n_clusters=2, random_state=0).fit([rec])
-        assert cap.compute_temporal_metrics()["persistence"].attrs["units"] == "frames"
+        assert cap.compute_temporal_metrics()["persistence"].attrs["units"] == "volumes"
 
     def test_transition_frequency_non_negative(self, fitted_cap):
         ds = fitted_cap.compute_temporal_metrics()
@@ -254,7 +254,7 @@ class TestComputeMetrics:
         assert cnt[1, i0] == 0
         assert cnt[1, i1] == 1
 
-        # Persistence (in frames)
+        # Persistence (in volumes)
         npt.assert_allclose(pers[0, i0], 1.5, atol=1e-10)
         npt.assert_allclose(pers[0, i1], 3.0, atol=1e-10)
         npt.assert_allclose(pers[1, i0], 0.0, atol=1e-10)
