@@ -445,14 +445,15 @@ class CAP(BaseEstimator):
         - `"euclidean"`: cluster preprocessed volumes with Euclidean k-means (sklearn
           [`KMeans`][sklearn.cluster.KMeans].
 
-    update_rule : {"weighted", "mean"}, default: "weighted"
+    update_rule : {"mean", "weighted"}, default: "mean"
         Center update rule for cosine/correlation clustering:
 
-        - `"weighted"`: centers updated as the cosine-similarity-weighted mean
-          of assigned volumes, giving more influence to volumes strongly matching
-          the current center.
-        - `"mean"`: standard k-means, where centers are updated as the unweighted mean
-          of assigned volumes then L2-normalized.
+        - `"mean"`: standard spherical k-means — centers are the L2-normalized
+          sum of assigned volumes. This is the theoretically correct update that
+          minimizes the sum of cosine distances and is recommended.
+        - `"weighted"`: weights each volume by its cosine similarity to the
+          current center before averaging, reducing the influence of
+          low-confidence volumes on center updates.
 
     max_iter : int, default: 300
         Maximum assignment-update iterations per run. Stops early if labels
@@ -483,6 +484,16 @@ class CAP(BaseEstimator):
         `dims=["time"]` and, when present, the time coordinates of the corresponding
         input recording. The list length equals the number of recordings passed to
         [`fit`][confusius.connectivity.CAP.fit].
+    scores_ : list[xarray.DataArray]
+        Per-recording quality score sequences, parallel to `labels_`. Each element has
+        `dims=["time"]` (float64) and carries the same time coordinates as the
+        corresponding entry in `labels_`. Higher scores always indicate stronger
+        assignment to the nearest CAP:
+
+        - `"correlation"` / `"cosine"`: cosine similarity to the assigned center,
+          in the range [-1, 1].
+        - `"euclidean"`: negative L2 distance to the assigned center (≤ 0, with 0
+          meaning the volume lies exactly on the center).
 
     Examples
     --------
@@ -522,7 +533,7 @@ class CAP(BaseEstimator):
         *,
         n_clusters: int = 10,
         metric: Literal["correlation", "cosine", "euclidean"] = "correlation",
-        update_rule: Literal["weighted", "mean"] = "weighted",
+        update_rule: Literal["mean", "weighted"] = "mean",
         max_iter: int = 300,
         n_local_trials: int | None = None,
         n_init: int | Literal["auto"] = "auto",
@@ -636,14 +647,35 @@ class CAP(BaseEstimator):
             str(d) for d in caps.dims if d != "cap"
         )
 
-        # Split the flat label array back into per-recording sequences.
+        # Compute per-volume quality scores (higher = stronger assignment).
+        n_total = X_proc.shape[0]
+        _labels_intp = labels.astype(np.intp)
+        if self.metric in ("correlation", "cosine"):
+            # Cosine similarity of each volume to its assigned center.
+            scores_flat = (X_proc @ centers.T)[np.arange(n_total), _labels_intp].astype(
+                float
+            )
+        else:
+            # Negative L2 distance: ||x - c||² = ||x||² + ||c||² - 2x·c
+            cross = X_proc @ centers.T
+            X_sq = np.einsum("ij,ij->i", X_proc, X_proc)
+            caps_sq = np.einsum("ij,ij->i", centers, centers)
+            sq_dists = X_sq[:, np.newaxis] + caps_sq[np.newaxis, :] - 2.0 * cross
+            scores_flat = -np.sqrt(
+                np.maximum(sq_dists[np.arange(n_total), _labels_intp], 0.0)
+            ).astype(float)
+
+        # Split the flat label and score arrays back into per-recording sequences.
         self.labels_: list[xr.DataArray] = []
+        self.scores_: list[xr.DataArray] = []
         start = 0
         for rec in recordings:
             size = rec.sizes["time"]
             lbl = labels[start : start + size]
+            scr = scores_flat[start : start + size]
             time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
             self.labels_.append(xr.DataArray(lbl, dims=["time"], coords=time_coords))
+            self.scores_.append(xr.DataArray(scr, dims=["time"], coords=time_coords))
             start += size
 
         return self
@@ -706,7 +738,75 @@ class CAP(BaseEstimator):
 
         return result
 
-    def compute_temporal_metrics(self) -> xr.Dataset:
+    def score_samples(self, X: list[xr.DataArray] | xr.DataArray) -> list[xr.DataArray]:
+        """Compute per-volume quality scores for recordings.
+
+        The score for each volume reflects how strongly it is assigned to its
+        nearest CAP. Higher scores always indicate stronger assignment:
+
+        - `"correlation"` / `"cosine"`: cosine similarity to the assigned center,
+          in the range [-1, 1].
+        - `"euclidean"`: negative L2 distance to the assigned center (≤ 0, with 0
+          meaning the volume lies exactly on the center).
+
+        Parameters
+        ----------
+        X : list[xarray.DataArray] or xarray.DataArray
+            One or more fUSI recordings to score. Each must have the same spatial
+            dimensions as the data passed to [`fit`][confusius.connectivity.CAP.fit].
+            A single DataArray is treated as a single recording.
+
+        Returns
+        -------
+        list[xarray.DataArray]
+            Per-recording quality score sequences, one `(time,)` DataArray per
+            input recording. Time coordinates are preserved when present.
+
+        Raises
+        ------
+        sklearn.exceptions.NotFittedError
+            If the estimator has not been fitted yet.
+        ValueError
+            If any recording has no `time` dimension or fewer than 2 timepoints.
+        """
+        check_is_fitted(self)
+
+        recordings = [X] if isinstance(X, xr.DataArray) else list(X)
+
+        caps_flat = self.caps_.stack(
+            space=list(self._spatial_dims)
+        ).values  # (cap, space)
+
+        result = []
+        for rec in recordings:
+            validate_time_series(rec, operation_name="CAP.score_samples")
+            rec = rec.transpose("time", *self._spatial_dims)
+            X_proc, _ = self._prepare_data(rec)
+            n_samples = X_proc.shape[0]
+
+            if self.metric in ("correlation", "cosine"):
+                similarities = X_proc @ caps_flat.T  # (n_samples, n_caps)
+                labels = similarities.argmax(axis=1).astype(np.intp)
+                scores = similarities[np.arange(n_samples), labels].astype(float)
+            else:
+                # ||x - c||² = ||x||² + ||c||² - 2x·c
+                cross = X_proc @ caps_flat.T
+                X_sq = np.einsum("ij,ij->i", X_proc, X_proc)
+                caps_sq = np.einsum("ij,ij->i", caps_flat, caps_flat)
+                sq_dists = X_sq[:, np.newaxis] + caps_sq[np.newaxis, :] - 2.0 * cross
+                labels = sq_dists.argmin(axis=1).astype(np.intp)
+                scores = -np.sqrt(
+                    np.maximum(sq_dists[np.arange(n_samples), labels], 0.0)
+                ).astype(float)
+
+            time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
+            result.append(xr.DataArray(scores, dims=["time"], coords=time_coords))
+
+        return result
+
+    def compute_temporal_metrics(
+        self, score_threshold: float | None = None
+    ) -> xr.Dataset:
         """Compute temporal dynamics metrics for each recording.
 
         Persistence is expressed in the time units of the recording when the `labels_`
@@ -714,19 +814,34 @@ class CAP(BaseEstimator):
         resolution need not be constant: volume durations are derived from consecutive
         differences of the time coordinate, so irregular sampling is handled correctly.
 
+        Parameters
+        ----------
+        score_threshold : float or None, default: None
+            Minimum per-volume quality score for inclusion. Volumes with
+            `scores_[i][t] < score_threshold` are treated as unassigned and do not
+            contribute to any metric numerator (temporal fraction, episode counts,
+            persistence, or transitions). The total-volume denominator used for
+            `temporal_fraction` is kept fixed regardless of how many volumes are
+            excluded. Censored volumes act as natural episode breaks: two runs of the
+            same CAP separated only by censored volumes are counted as separate
+            episodes. When `None`, all volumes are included.
+
         Returns
         -------
         xarray.Dataset
             Dataset indexed by `recording` (0-based) and `cap` with variables:
 
-            - `temporal_fraction` `(recording, cap)`: fraction of volumes assigned
-              to each CAP.
+            - `temporal_fraction` `(recording, cap)`: fraction of total volumes
+              assigned to each CAP (denominator is always the total number of volumes,
+              even when some are censored by `score_threshold`).
             - `counts` `(recording, cap)`: number of contiguous episodes of each CAP.
             - `persistence` `(recording, cap)`: mean episode duration. Zero when the
               CAP never appears. Units are inherited from the `time` coordinate's
               `units` attribute, or `"time"` when no such attribute exists, or
               `"volumes"` when no `time` coordinate is present.
-            - `transition_frequency` `(recording,)`: total number of CAP switches.
+            - `transition_frequency` `(recording,)`: total number of CAP switches
+              (censored volumes are skipped; transitions across censored gaps are not
+              counted).
             - `transition_matrix` `(recording, cap_from, cap_to)`: row-normalized
               transition probability matrix. Rows sum to 1 when the corresponding
               CAP appears; zero rows indicate CAPs that never appear as the origin
@@ -754,6 +869,12 @@ class CAP(BaseEstimator):
             n_volumes = len(arr)
             durations = _volume_durations(lbl)
 
+            # Censored volumes are replaced with -1. _segments() treats them as
+            # natural episode breaks (a run of CAP k interrupted by -1 becomes
+            # two separate episodes). The denominator n_volumes stays fixed.
+            if score_threshold is not None:
+                arr = np.where(self.scores_[i].values >= score_threshold, arr, -1)
+
             for j, cap_id in enumerate(cap_ids):
                 binary, n_segs = _segments(arr, int(cap_id))
                 tf[i, j] = float(binary.sum()) / n_volumes
@@ -762,11 +883,16 @@ class CAP(BaseEstimator):
                 # yields 0.0, correctly reflecting a CAP that never appears.
                 pers[i, j] = float((binary * durations).sum()) / max(n_segs, 1)
 
-            trans_freq[i] = int(np.sum(np.diff(arr) != 0))
-
             if n_volumes > 1:
                 trans_from = arr[:-1]
                 trans_to = arr[1:]
+                if score_threshold is not None:
+                    # Skip pairs where either endpoint is censored.
+                    valid = (trans_from != -1) & (trans_to != -1)
+                    trans_from = trans_from[valid]
+                    trans_to = trans_to[valid]
+                trans_freq[i] = int((trans_from != trans_to).sum())
+
                 for fi, from_id in enumerate(cap_ids):
                     mask_from = trans_from == from_id
                     total = int(mask_from.sum())
