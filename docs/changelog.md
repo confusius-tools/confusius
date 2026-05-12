@@ -17,6 +17,10 @@ Current development version for the next ConfUSIus release.
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
 - Replaced plotting `black_bg` with explicit `bg_color` and `fg_color` controls for
   clearer visual customization ([#124](https://github.com/confusius-tools/confusius/pull/124)).
+- Added [`FastICA`][confusius.decomposition.FastICA] transformer for independent
+  component analysis of fUSI recordings, with the same xarray-aware `fit` /
+  `transform` / `inverse_transform` API as [`PCA`][confusius.decomposition.PCA]
+  ([#118](https://github.com/confusius-tools/confusius/pull/118)).
 - Added example gallery helper utilities to streamline writing and maintaining docs
   examples ([#102](https://github.com/confusius-tools/confusius/pull/102)).
 
