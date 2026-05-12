@@ -2417,8 +2417,7 @@ def plot_carpet(
     -----
     Complex-valued data is converted to magnitude before processing.
 
-    This function was inspired by Nilearn's
-    [`nilearn.plotting.plot_carpet`][nilearn.plotting.plot_carpet].
+    This function was inspired by Nilearn's `nilearn.plotting.plot_carpet`.
 
     References
     ----------
