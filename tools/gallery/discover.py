@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from ._types import ExampleSpec
+
+# Strip leading "01_", "02_" etc. from section directory names so the built
+# output uses clean names ("io", "decomposition") while the source directories
+# can be prefixed for explicit ordering.
+_NUMERIC_PREFIX_RE = re.compile(r"^\d+_")
 
 
 def discover(root: Path) -> list[ExampleSpec]:
@@ -18,6 +24,7 @@ def discover(root: Path) -> list[ExampleSpec]:
     ):
         intro_path = section_dir / "_section.md"
         intro = intro_path.read_text(encoding="utf-8") if intro_path.is_file() else ""
+        section_name = _NUMERIC_PREFIX_RE.sub("", section_dir.name)
 
         for source in sorted(section_dir.glob("*.py")):
             if source.name.startswith("_"):
@@ -25,7 +32,7 @@ def discover(root: Path) -> list[ExampleSpec]:
             specs.append(
                 ExampleSpec(
                     source=source,
-                    section=section_dir.name,
+                    section=section_name,
                     section_intro=intro,
                 )
             )

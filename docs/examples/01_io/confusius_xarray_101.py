@@ -27,7 +27,8 @@ import confusius as cf
 from confusius.datasets import fetch_nunez_elizalde_2022
 
 # A transparent background looks better in the rendered notebook.
-bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
+bg_color = "none"
+fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
 
 # Don't expand the data values in the notebook since these arrays can be large.
 xr.set_options(display_expand_data=False)
@@ -158,6 +159,7 @@ plotter = cf.plotting.plot_volume(
     cmap="gray",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
+    fg_color=fg_color,
 )
 # A transparent background looks better in the rendered notebook.
 plotter.figure.patch.set_alpha(0)
@@ -176,6 +178,7 @@ plotter = mean_db_masked.fusi.plot.volume(
     cmap="gray",
     cbar_label="Power Doppler (dB)",
     bg_color=bg_color,
+    fg_color=fg_color,
 )
 # A transparent background looks better in the rendered notebook.
 plotter.figure.patch.set_alpha(0)

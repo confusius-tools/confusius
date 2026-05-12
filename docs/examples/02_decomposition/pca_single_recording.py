@@ -14,7 +14,7 @@
 # [Nunez-Elizalde 2022 dataset](https://doi.org/10.1016/j.neuron.2022.02.012).
 
 # %% [markdown]
-# ## Load the recording
+# ## Load and standardize the recording
 
 # %%
 from pathlib import Path
@@ -27,8 +27,11 @@ import xarray as xr
 import confusius as cf
 from confusius.datasets import fetch_nunez_elizalde_2022
 from confusius.decomposition import PCA
+from confusius.signal import standardize
 
-dark_theme = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"]).lower() != "#ffffff"
+bg_color = "none"
+fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
+
 xr.set_options(display_expand_data=False)
 
 bids_root = fetch_nunez_elizalde_2022(
@@ -49,6 +52,16 @@ data = cf.load(pwd_path).compute()
 data
 
 # %% [markdown]
+# Before fitting PCA, we standardize the recording to z-scores with
+# [`standardize`][confusius.signal.standardize]. This removes the DC offset and
+# normalizes the scale across voxels so the decomposition is driven by temporal dynamics
+# rather than differences in mean intensity.
+
+# %%
+data_std = standardize(data)
+data_std
+
+# %% [markdown]
 # ## Fit PCA
 #
 # [PCA][confusius.decomposition.PCA] expects a `(time, ...)` DataArray. Here we retain
@@ -58,7 +71,7 @@ data
 
 # %%
 pca = PCA(n_components=30, random_state=0)
-signals = pca.fit_transform(data)
+signals = pca.fit_transform(data_std)
 signals
 
 # %% [markdown]
@@ -95,23 +108,19 @@ axes[1].legend()
 # distribution of one principal component — the regions that vary most together along
 # that direction in data space.
 
-# %%
-n_show = 12
-n_cols = 4
-n_rows = n_show // n_cols
-
-fig, axes = plt.subplots(n_rows, n_cols, figsize=(12, 6), constrained_layout=True)
-for ax, comp in zip(axes.flat, range(n_show)):
-    pca.components_.sel(component=comp).plot(
-        ax=ax,
-        cmap="coolwarm",
-        add_colorbar=False,
-    )
-    var = float(pca.explained_variance_ratio_.sel(component=comp)) * 100
-    ax.set_title(f"PC {comp}  ({var:.1f} %)", fontsize=8)
-    ax.set_aspect("equal")
-    ax.axis("off")
-plt.suptitle("Principal component maps (first 12)", fontsize=11)
+# %% tags=["thumbnail"]
+plotter = cf.plotting.plot_volume(
+    pca.components_.isel(component=slice(0, 12)),
+    slice_mode="component",
+    cmap="coolwarm",
+    ncols=4,
+    show_axes=False,
+    bg_color=bg_color,
+    fg_color=fg_color,
+    cbar_label="Component weight",
+)
+plotter.figure.suptitle("Principal component maps (first 12)", fontsize=11)
+plotter.figure.patch.set_alpha(0)
 
 # %% [markdown]
 # ## Component time courses
@@ -139,7 +148,7 @@ plt.suptitle("PCA time courses (first 6 components)", fontsize=11)
 # components do not explain.
 #
 # Here we keep the components that together account for at least 90 % of the total
-# variance and compare the result to the original data.
+# variance and compare the result to the original data on a single frame.
 
 # %%
 k = min(int(np.searchsorted(cumvar, 0.90)) + 1, pca.n_components_)
@@ -149,21 +158,25 @@ denoised_signals.loc[dict(component=slice(k, None))] = 0.0
 
 denoised = pca.inverse_transform(denoised_signals)
 
-fig, axes = plt.subplots(1, 3, figsize=(13, 4), constrained_layout=True)
+# %%
+frame_idx = 100
 
-data.mean("time").plot(ax=axes[0], cmap="viridis", add_colorbar=True)
-axes[0].set_title("Original (time mean)")
-
-denoised.mean("time").plot(ax=axes[1], cmap="viridis", add_colorbar=True)
-axes[1].set_title(f"Denoised ({k} components, time mean)")
-
-(data - denoised).mean("time").plot(ax=axes[2], cmap="coolwarm", add_colorbar=True)
-axes[2].set_title("Residual (time mean)")
-
-for ax in axes:
-    ax.set_aspect("equal")
-plt.suptitle(
-    f"Reconstruction with {k} components "
-    f"({cumvar[k - 1] * 100:.1f} % variance explained)",
-    fontsize=11,
-)
+for title, vol, cmap in [
+    ("Original", data_std, "viridis"),
+    (f"Denoised ({k} components)", denoised, "viridis"),
+    ("Residual", data_std - denoised, "coolwarm"),
+]:
+    plotter = cf.plotting.plot_volume(
+        vol.isel(time=[frame_idx]),
+        slice_mode="time",
+        cmap=cmap,
+        bg_color=bg_color,
+        fg_color=fg_color,
+        show_titles=False,
+    )
+    plotter.figure.suptitle(
+        title
+        + (f"  ({cumvar[k - 1] * 100:.1f} % variance explained)" if "Denoised" in title else ""),
+        fontsize=11,
+    )
+    plotter.figure.patch.set_alpha(0)

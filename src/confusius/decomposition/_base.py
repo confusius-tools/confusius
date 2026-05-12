@@ -28,12 +28,12 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
 
     _signals_long_name: str
 
-    # Fitted attributes — set by subclasses in fit()
+    # Fitted attributes, set by subclasses in fit.
     _estimator: Any
     components_: xr.DataArray
     n_components_: int
 
-    # Set by _store_fit_metadata()
+    # Set by _store_fit_metadata.
     spatial_dims_: tuple[str, ...]
     _spatial_sizes_: dict[str, int]
     _feature_coord_: xr.DataArray
