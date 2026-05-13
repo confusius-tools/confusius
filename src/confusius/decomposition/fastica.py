@@ -12,7 +12,9 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class FastICA(_BaseFUSIDecomposer):
-    """Fast independent component analysis for fUSI data.
+    """Fast independent component analysis (ICA) for fUSI data.
+
+    The FastICA algorithm is based on Hyvarinen *et al.* (2000).
 
     This estimator wraps
     [`sklearn.decomposition.FastICA`][sklearn.decomposition.FastICA] while keeping
@@ -118,6 +120,12 @@ class FastICA(_BaseFUSIDecomposer):
     >>> reconstructed = ica.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'z', 'y', 'x')
+
+    References
+    ----------
+    [^1]:
+        Hyvarinen, A., and Oja, E. (2000). "Independent component analysis: Algorithms
+        and applications". Neural Networks, 13(4-5), 411-430.
     """
 
     _signals_long_name = "FastICA signals"

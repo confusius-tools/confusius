@@ -10,7 +10,15 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class PCA(_BaseFUSIDecomposer):
-    """Principal component analysis for fUSI data.
+    """Principal component analysis (PCA) for fUSI data.
+
+    Linear dimensionality reduction using singular value decomposition (SVD) of the data
+    to project it to a lower dimensional space. The input data is centered but not
+    scaled for each feature before applying the SVD.
+
+    It uses the LAPACK implementation of the full SVD or a randomized truncated SVD by
+    the method of Halko *et al.* (2009), depending on the shape of the input data and
+    the number of components to extract.
 
     This estimator wraps [`sklearn.decomposition.PCA`][sklearn.decomposition.PCA] while
     keeping xarray metadata through [`transform`][confusius.decomposition.PCA.transform]
@@ -151,6 +159,13 @@ class PCA(_BaseFUSIDecomposer):
     >>> reconstructed = pca.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'z', 'y', 'x')
+
+    References
+    ----------
+    [^1]:
+        Halko, N., Martinsson, P. G., and Tropp, J. A. (2011). "Finding structure with
+        randomness: Probabilistic algorithms for constructing approximate matrix
+        decompositions". SIAM Review, 53(2), 217-288.
     """
 
     _signals_long_name = "PCA signals"
