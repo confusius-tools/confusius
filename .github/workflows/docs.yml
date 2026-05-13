@@ -9,8 +9,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   build:
@@ -93,6 +91,16 @@ jobs:
       - name: Build documentation
         run: uv run zensical build --clean --strict
 
-      - uses: actions/upload-pages-artifact@v5
+      - name: Upload site artifact
+        uses: actions/upload-artifact@v4
         with:
-          path: site
+          name: docs-site-${{ github.sha }}
+          path: site/
+          retention-days: 14
+
+      - name: Trigger Read the Docs build
+        if: github.event_name != 'pull_request'
+        run: |
+          curl -fsSX POST \
+            -d "token=${{ secrets.READTHEDOCS_WEBHOOK_TOKEN }}" \
+            "${{ secrets.READTHEDOCS_WEBHOOK_URL }}"
