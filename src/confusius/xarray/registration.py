@@ -166,6 +166,7 @@ class FUSIRegistrationAccessor:
         shrink_factors: Sequence[int] = (6, 2, 1),
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
         resample_interpolation: Literal["linear", "bspline"] = "linear",
+        show_progress: bool = True,
     ) -> xr.DataArray:
         """Register all volumes to a reference time point.
 
@@ -211,6 +212,8 @@ class FUSIRegistrationAccessor:
             coarsest to finest. Only used when `use_multi_resolution=True`.
         resample_interpolation : {"linear", "bspline"}, default: "linear"
             Interpolation method used for the final resample step.
+        show_progress : bool, default: True
+            Whether to display a progress bar while registering volumes.
 
         Returns
         -------
@@ -239,4 +242,5 @@ class FUSIRegistrationAccessor:
             shrink_factors=shrink_factors,
             smoothing_sigmas=smoothing_sigmas,
             resample_interpolation=resample_interpolation,
+            show_progress=show_progress,
         )

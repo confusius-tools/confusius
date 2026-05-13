@@ -42,6 +42,32 @@ class TestRegisterVolumewise:
         result = register_volumewise(dask_data, n_jobs=2, transform="translation")
         assert result.shape == sample_2d_dataarray.shape
 
+    def test_show_progress_false_skips_joblib_progress_import(
+        self, sample_2d_dataarray, monkeypatch
+    ):
+        """show_progress=False does not import joblib_progress."""
+        import builtins
+
+        original_import = builtins.__import__
+
+        def _guarded_import(name, *args, **kwargs):
+            if name == "joblib_progress":
+                raise AssertionError(
+                    "joblib_progress should not be imported when show_progress=False"
+                )
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _guarded_import)
+
+        result = register_volumewise(
+            sample_2d_dataarray,
+            n_jobs=1,
+            transform="translation",
+            show_progress=False,
+        )
+
+        assert result.shape == sample_2d_dataarray.shape
+
     def test_wrong_dimensionality_raises(self):
         """Data that is neither 2D+t nor 3D+t raises ValueError."""
         # 1D+time = 2D total.

@@ -1,6 +1,7 @@
 """Volumewise registration for fUSI data."""
 
 from collections.abc import Sequence
+from contextlib import nullcontext
 from typing import Literal, cast
 
 import numpy as np
@@ -30,6 +31,7 @@ def register_volumewise(
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample_interpolation: Literal["linear", "bspline"] = "linear",
+    show_progress: bool = True,
 ) -> xr.DataArray:
     """Register all volumes in a fUSI recording to a reference volume.
 
@@ -102,6 +104,8 @@ def register_volumewise(
         `"linear"` is fast and appropriate for motion correction.
         `"bspline"` (3rd-order B-spline) produces smoother results at the
         cost of speed.
+    show_progress : bool, default: True
+        Whether to display a progress bar while registering volumes.
 
     Returns
     -------
@@ -131,7 +135,6 @@ def register_volumewise(
     SCAN data).
     """
     from joblib import Parallel, delayed
-    from joblib_progress import joblib_progress
 
     if "time" not in data.dims:
         raise ValueError("Time dimension 'time' not found in data")
@@ -152,7 +155,13 @@ def register_volumewise(
     n_frames = data_moved.sizes["time"]
     ref_da = data_moved.isel(time=reference_time)
 
-    with joblib_progress("Registering volumes...", total=n_frames):
+    progress_context = nullcontext()
+    if show_progress:
+        from joblib_progress import joblib_progress
+
+        progress_context = joblib_progress("Registering volumes...", total=n_frames)
+
+    with progress_context:
         results = cast(
             "list[tuple[xr.DataArray, npt.NDArray[np.floating] | None]]",
             Parallel(n_jobs=n_jobs)(
