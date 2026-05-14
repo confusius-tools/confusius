@@ -3,16 +3,16 @@ name: Docs
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
@@ -94,13 +94,102 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-artifact@v4
         with:
-          name: docs-site-${{ github.sha }}
+          name: site-${{ github.sha }}
           path: site/
           retention-days: 14
 
-      - name: Trigger Read the Docs build
-        if: github.event_name != 'pull_request'
+      - name: Upload gallery artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-built-${{ github.sha }}
+          path: docs/examples/_built/
+          retention-days: 14
+
+      - name: Upload generated images artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-images-${{ github.sha }}
+          path: docs/images/
+          retention-days: 14
+
+  deploy-preview:
+    needs: build
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download site artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: site-${{ github.sha }}
+          path: site/
+
+      - name: Deploy PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: site/
+
+  deploy-docs:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-extras
+
+      - name: Download gallery artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gallery-built-${{ github.sha }}
+          path: docs/examples/_built/
+
+      - name: Download generated images artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-images-${{ github.sha }}
+          path: docs/images/
+
+      - name: Configure git
         run: |
-          curl -fsSX POST \
-            -d "token=${{ secrets.READTHEDOCS_WEBHOOK_TOKEN }}" \
-            "${{ secrets.READTHEDOCS_WEBHOOK_URL }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Deploy dev docs
+        if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+        run: |
+          uv run mike deploy --push --update-aliases dev latest
+          uv run mike list | grep -q "^stable " || uv run mike set-default --push latest
+
+      - name: Deploy release docs
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          uv run mike deploy --push --update-aliases "$VERSION" stable
+          uv run mike set-default --push stable
+
+      - name: Ensure CNAME on gh-pages
+        run: |
+          git fetch origin gh-pages
+          git checkout gh-pages
+          if [ "$(cat CNAME 2>/dev/null)" != "confusius.tools" ]; then
+            echo "confusius.tools" > CNAME
+            git add CNAME
+            git commit -m "chore: add CNAME for custom domain"
+            git push origin gh-pages
+          fi
+          git checkout -
