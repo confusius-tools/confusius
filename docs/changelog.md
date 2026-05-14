@@ -6,6 +6,33 @@ icon: lucide/history
 
 # Changelog
 
+## 0.3.0.dev0
+
+Current development version for the next ConfUSIus release.
+
+### :sparkles: Enhancements
+
+- Added `show_progress` to volumewise registration so joblib progress output can be
+  disabled in scripted or quiet workflows
+  ([#126](https://github.com/confusius-tools/confusius/pull/126)).
+- Replaced plotting `black_bg` with explicit `bg_color` and `fg_color` controls for
+  clearer visual customization ([#124](https://github.com/confusius-tools/confusius/pull/124)).
+- Added example gallery helper utilities to streamline writing and maintaining docs
+  examples ([#102](https://github.com/confusius-tools/confusius/pull/102)).
+
+### :bug: Fixes
+
+- Fixed napari x-axis extent computation to ignore the interactive cursor guide line,
+  preventing incorrect plot bounds
+  ([#111](https://github.com/confusius-tools/confusius/pull/111)).
+
+### :zap: Performance
+
+- Top-level `confusius` and `confusius.xarray` namespaces now use
+  [SPEC-0001](https://scientific-python.org/specs/spec-0001/) PEP 562 lazy loading.
+  Submodules and exported functions are only imported on first access, reducing `import
+  confusius` overhead for workflows that use a subset of the package.
+
 ## 0.2.0
 
 Released 2026-05-05.

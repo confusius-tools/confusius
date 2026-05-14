@@ -21,7 +21,65 @@ This project uses [uv](https://docs.astral.sh/uv/) for dependency management and
 
 ### Documentation
 - `just docs` (or `just d`) - Build documentation using Zensical
+- `just serve-docs` (or `just sd`) - Build and serve documentation locally with live reload
 - `just clean-docs` (or `just cd`) - Clean documentation build directory and generated API files
+- `just generate-doc-images` (or `just gdi`) - Run all documentation image generators locally
+
+#### CI pipeline
+
+Documentation is built entirely on GitHub Actions and deployed to
+[confusius-tools/confusius-docs](https://github.com/confusius-tools/confusius-docs)
+(a separate public repo served via GitHub Pages at `https://confusius.tools/`).
+The workflow (`.github/workflows/docs.yml`) has three jobs:
+
+- **`build`** (every push and PR): generates all documentation images, builds the
+  example gallery, runs `zensical build`, and uploads `site/`, `docs/examples/_built/`,
+  and `docs/images/` as artifacts.
+- **`deploy-preview`** (PRs only): downloads the `site/` artifact and deploys it to
+  `pr-preview/pr-N/` in the docs repo. Posts a sticky comment on the PR with the preview
+  URL and maintains `pr-preview/versions.json` for the mike version switcher.
+- **`deploy-docs`** (pushes to `main` and version tags): downloads the pre-built
+  artifacts and runs `mike deploy`. `main` → `dev` + `latest` alias; `v*` tags →
+  `<version>` + `stable` alias.
+
+A companion workflow (`.github/workflows/docs-cleanup-preview.yml`) removes the preview
+directory and its `versions.json` entry when a PR is closed.
+
+Deployment requires a `DOCS_DEPLOY_TOKEN` secret: a fine-grained PAT with **Contents:
+Read and write** on `confusius-tools/confusius-docs`.
+
+#### Adding a new documentation image generator
+
+Image generators live in `docs/images/<topic>/generate.py`. Each one is gitignored
+(only `generate.py` is committed; the outputs are not). To add a new generator:
+
+1. Create `docs/images/<topic>/generate.py` and a matching `.gitignore` (copy an
+   existing one as a template).
+2. Add `uv run docs/images/<topic>/generate.py` to the `just generate-doc-images`
+   recipe in `justfile`.
+3. Add the script to the **Generate documentation images** step in
+   `.github/workflows/docs.yml`:
+   ```yaml
+   xvfb-run -a uv run docs/images/<topic>/generate.py
+   ```
+4. **Cache**: if the script uses an already-cached dataset (e.g. Nunez-Elizalde), add
+   `docs/images/<topic>/generate.py` to the `hashFiles(...)` call of that dataset's
+   cache step — this ensures the cache is invalidated when the script changes. If it
+   fetches a different dataset, add a dedicated `actions/cache` step for it (see the
+   existing cache steps as a template).
+
+#### Adding new example scripts
+
+Examples live in `docs/examples/` as Jupytext notebooks (`.py` files with a
+`# %% [markdown]` header). The gallery builder (`tools/build_gallery.py`) discovers
+and executes them automatically. To add a new example:
+
+1. Place the script under the appropriate subdirectory in `docs/examples/`.
+2. Add the built output path (`docs/examples/_built/<subdir>/<name>.md`) to the `nav`
+   in `zensical.toml`.
+3. **Cache**: no manual update needed. The gallery cache key in
+   `.github/workflows/docs.yml` already uses `docs/examples/**/*.py`, so it
+   invalidates automatically when any example script changes.
 
 ### Linting, Formatting & Type Checking
 - `just pre-commit` (or `just pc`) - Run all pre-commit hooks (recommended)

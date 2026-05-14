@@ -265,16 +265,14 @@ Current development version for the next ConfUSIus release.
 - Place it above the most recent released version section.
 
 ### `CITATION.cff`
-- Replace `version: OLD` with `version: VERSION`.
-- Do not invent a new release date for a development version.
-- If the file already contains a release date for the last release, preserve it unless the
-  user asks for a different convention.
+- **Do not modify.** Citation metadata must keep pointing at the last tagged release so
+  users cite the released version, not an unreleased development snapshot. `CITATION.cff`
+  is only updated in `prepare` mode.
 
 ### `README.md` and `docs/citing.md`
-- Update citation version strings only if the repository convention is to keep them aligned
-  with the in-repo development version.
-- If updating them would make the citation text misleading for users, stop and ask the
-  user before changing those files.
+- **Do not modify** the citation section. Same reason as `CITATION.cff`: the rendered
+  citation must reference the last tagged release, not a development version. These files
+  are only updated in `prepare` mode.
 
 ### Step 3 — Sync and verify
 

@@ -36,6 +36,50 @@ subplot_size * nrows)` and then constrained to a maximum size.
 """
 
 
+def _relative_luminance(color: str) -> float:
+    """Compute WCAG 2.1 relative luminance for any matplotlib color string.
+
+    Parameters
+    ----------
+    color : str
+        Any matplotlib-compatible color string (e.g. `"black"`, `"#1a1a2e"`).
+
+    Returns
+    -------
+    float
+        Relative luminance in [0, 1], where 0 is darkest and 1 is lightest.
+
+    Notes
+    -----
+    Implements the WCAG 2.1 relative luminance definition:
+    https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
+    """
+    import matplotlib.colors as mcolors
+
+    def _linearize(c: float) -> float:
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    r, g, b = mcolors.to_rgb(color)
+    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
+
+
+def _auto_fg_color(bg_color: str) -> str:
+    """Return white or black for maximum WCAG contrast against `bg_color`.
+
+    Parameters
+    ----------
+    bg_color : str
+        Any matplotlib-compatible background color string.
+
+    Returns
+    -------
+    str
+        `"white"` when the background is dark (relative luminance < 0.179),
+        `"black"` otherwise.
+    """
+    return "white" if _relative_luminance(bg_color) < 0.179 else "black"
+
+
 def _compute_grid_dims(
     n_slices: int, nrows: int | None, ncols: int | None
 ) -> tuple[int, int]:
@@ -218,6 +262,30 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     return label
 
 
+def _resolve_font_sizes(
+    fontsize: float | None,
+) -> tuple[float | None, float | None, float | None]:
+    """Resolve title, label, and tick font sizes from a base size.
+
+    Parameters
+    ----------
+    fontsize : float, optional
+        Base font size for plot text elements.
+
+    Returns
+    -------
+    title_fontsize : float, optional
+        Font size for subplot titles.
+    label_fontsize : float, optional
+        Font size for axis and colorbar labels.
+    tick_fontsize : float, optional
+        Font size for tick labels.
+    """
+    if fontsize is None:
+        return None, None, None
+    return fontsize, fontsize * 0.9, fontsize * 0.85
+
+
 def _coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray:
     """Convert complex-valued arrays to magnitude for plotting.
 
@@ -321,8 +389,13 @@ class VolumePlotter:
         [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or an array of them. If not
         provided, axes will be created on the first call to
         [`add_volume`][confusius.plotting.VolumePlotter.add_volume].
-    black_bg : bool, default: True
-        Whether to set the figure background to black.
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     yincrease : bool, default: False
         Whether the y-axis increases upward. When `False`, y coordinates decrease
         upward.
@@ -351,7 +424,8 @@ class VolumePlotter:
         figure: "Figure | None" = None,
         axes: "npt.NDArray[Any] | Axes | None" = None,
         *,
-        black_bg: bool = True,
+        bg_color: str = "black",
+        fg_color: str | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
     ):
@@ -364,7 +438,8 @@ class VolumePlotter:
             self.figure = axes.flat[0].figure
         else:
             self.figure = figure
-        self._black_bg = black_bg
+        self._bg_color = bg_color
+        self._fg_color = fg_color
         self._yincrease = yincrease
         self._xincrease = xincrease
         self._coord_to_axis: dict[float, int] = {}
@@ -414,7 +489,7 @@ class VolumePlotter:
             axes_array = self.figure.subplots(_nrows, _ncols, squeeze=False)
 
         self.axes = np.array(axes_array)
-        self.figure.patch.set_facecolor("black" if self._black_bg else "white")
+        self.figure.patch.set_facecolor(self._bg_color)
 
     def _attach_or_update_hover_manager(self, roi_labels: dict[int, str]) -> None:
         """Ensure hover manager is attached to figure and update its ROI labels.
@@ -461,13 +536,15 @@ class VolumePlotter:
 
     @property
     def _text_color(self) -> str:
-        """White for dark backgrounds, black for light ones."""
-        return "white" if self._black_bg else "black"
+        """Foreground color: explicit fg_color or WCAG-derived contrast color."""
+        if self._fg_color is not None:
+            return self._fg_color
+        return _auto_fg_color(self._bg_color)
 
     def _style_ax(self, ax: "Axes") -> None:
         """Apply background and spine/tick styling to an axes."""
         color = self._text_color
-        ax.set_facecolor("black" if self._black_bg else "white")
+        ax.set_facecolor(self._bg_color)
         for spine in ax.spines.values():
             spine.set_edgecolor(color)
         ax.tick_params(colors=color, which="both")
@@ -550,6 +627,7 @@ class VolumePlotter:
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
         show_axes: bool = True,
+        fontsize: float | None = None,
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
@@ -606,6 +684,11 @@ class VolumePlotter:
         show_axes : bool, default: True
             Whether to show all axis decorations (spines, ticks, labels). When `False`,
             overrides `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels and the colorbar label use `0.9 * fontsize`; tick
+            labels use `0.85 * fontsize`. If not provided, uses the active Matplotlib
+            defaults.
         nrows : int, optional
             Number of rows in the subplot grid when creating a new figure.
             If not provided, computed automatically.
@@ -738,7 +821,8 @@ class VolumePlotter:
         assert (self.axes is not None) and (self.figure is not None)
 
         text_color = self._text_color
-        im = None
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+        plotted_quadmesh = None
 
         axes_flat = self.axes.ravel()
 
@@ -762,7 +846,7 @@ class VolumePlotter:
                 hover_y = np.arange(slice_da.sizes[dim_row], dtype=float)
                 y_vals = np.arange(slice_da.sizes[dim_row] + 1, dtype=float)
 
-            im = ax.pcolormesh(
+            plotted_quadmesh = ax.pcolormesh(
                 x_vals,
                 y_vals,
                 np.ma.masked_invalid(arr),
@@ -785,12 +869,23 @@ class VolumePlotter:
             ax.set_title(
                 self._build_slice_title(data, coord) if show_titles else "",
                 color=text_color,
+                fontsize=title_fontsize,
             )
 
             if show_axes:
                 if show_axis_labels:
-                    ax.set_xlabel(_build_axis_label(data, dim_col), color=text_color)
-                    ax.set_ylabel(_build_axis_label(data, dim_row), color=text_color)
+                    ax.set_xlabel(
+                        _build_axis_label(data, dim_col),
+                        color=text_color,
+                        fontsize=label_fontsize,
+                    )
+                    ax.set_ylabel(
+                        _build_axis_label(data, dim_row),
+                        color=text_color,
+                        fontsize=label_fontsize,
+                    )
+                if show_axis_ticks:
+                    ax.tick_params(labelsize=tick_fontsize)
                 if not show_axis_ticks:
                     ax.set_xticklabels([])
                     ax.set_yticklabels([])
@@ -810,11 +905,11 @@ class VolumePlotter:
             for ax in axes_flat[n_slices:]:
                 ax.set_visible(False)
 
-        if show_colorbar and im is not None:
+        if show_colorbar and plotted_quadmesh is not None:
             non_cbar_axes = [
                 ax for ax in self.figure.axes if not hasattr(ax, "_colorbar")
             ]
-            cbar = self.figure.colorbar(im, ax=non_cbar_axes)
+            cbar = self.figure.colorbar(plotted_quadmesh, ax=non_cbar_axes)
             if cbar_label is None:
                 long_name = data.attrs.get("long_name")
                 units = data.attrs.get("units")
@@ -825,10 +920,12 @@ class VolumePlotter:
                 elif units:
                     cbar_label = f"({units})"
             if cbar_label is not None:
-                cbar.set_label(cbar_label, color=text_color)
+                cbar.set_label(cbar_label, color=text_color, fontsize=label_fontsize)
 
-            cbar.ax.yaxis.set_tick_params(color=text_color)
-            plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
+            cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
+            plt.setp(
+                cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+            )
             cbar.outline.set_edgecolor(text_color)  # type: ignore
 
         return self
@@ -842,6 +939,7 @@ class VolumePlotter:
         linestyles: str = "solid",
         match_coordinates: bool = True,
         slice_coords: list[float] | None = None,
+        fontsize: float | None = None,
         roi_labels: dict[int, str] | None = None,
         **kwargs,
     ) -> "VolumePlotter":
@@ -881,6 +979,11 @@ class VolumePlotter:
             Coordinate values along the plotter's `slice_mode` at which to draw
             contours. Slices are selected by nearest-neighbour lookup. If not
             provided, all coordinate values along `slice_mode` are used.
+        fontsize : float, optional
+            Base font size for text elements when a standalone contour figure is created
+            (`match_coordinates=False`). Subplot titles use `fontsize` directly;
+            axis labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`.
+            If not provided, uses the active Matplotlib defaults.
         roi_labels : dict[int, str], optional
             Mapping from integer label to display name. When provided (or when
             `mask.attrs["roi_labels"]` is populated), hovering the cursor over a
@@ -949,6 +1052,7 @@ class VolumePlotter:
                     linestyles=linestyles,
                     match_coordinates=match_coordinates,
                     slice_coords=slice_coords,
+                    fontsize=fontsize,
                     roi_labels=resolved_roi_labels or None,
                     **kwargs,
                 )
@@ -1047,6 +1151,7 @@ class VolumePlotter:
             raise RuntimeError("No axes available")
 
         axes_flat = self.axes.ravel()
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
         for axis_idx, slice_idx in plot_indices:
             ax = axes_flat[axis_idx]
@@ -1124,12 +1229,22 @@ class VolumePlotter:
                 ylim = (float(y_edges.min()), float(y_edges.max()))
                 self._set_ax_lims(ax, xlim, ylim)
                 self._style_ax(ax)
-                ax.set_xlabel(_build_axis_label(mask, dim_col), color=self._text_color)
-                ax.set_ylabel(_build_axis_label(mask, dim_row), color=self._text_color)
+                ax.set_xlabel(
+                    _build_axis_label(mask, dim_col),
+                    color=self._text_color,
+                    fontsize=label_fontsize,
+                )
+                ax.set_ylabel(
+                    _build_axis_label(mask, dim_row),
+                    color=self._text_color,
+                    fontsize=label_fontsize,
+                )
                 ax.set_title(
                     self._build_slice_title(mask, actual_coords[slice_idx]),
                     color=self._text_color,
+                    fontsize=title_fontsize,
                 )
+                ax.tick_params(labelsize=tick_fontsize)
 
         return self
 
@@ -1187,9 +1302,11 @@ def plot_contours(
     linestyles: str = "solid",
     slice_mode: str = "z",
     slice_coords: list[float] | None = None,
+    fontsize: float | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
-    black_bg: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
     figure: "Figure | None" = None,
     axes: "npt.NDArray[Any] | Axes | None" = None,
     roi_labels: dict[int, str] | None = None,
@@ -1231,12 +1348,21 @@ def plot_contours(
         Coordinate values along `slice_mode` at which to extract slices. Slices are
         selected by nearest-neighbour lookup. If not provided, all coordinate values
         along `slice_mode` are used.
+    fontsize : float, optional
+        Base font size for text elements. Subplot titles use `fontsize` directly; axis
+        labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not provided,
+        uses the active Matplotlib defaults.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
         Whether the x-axis increases to the right (`True`) or left (`False`).
-    black_bg : bool, default: True
-        Whether to set the figure background to black.
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
     axes : numpy.ndarray or matplotlib.axes.Axes, optional
@@ -1295,7 +1421,8 @@ def plot_contours(
         slice_mode=slice_mode,
         figure=figure,
         axes=axes,
-        black_bg=black_bg,
+        bg_color=bg_color,
+        fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
     )
@@ -1307,6 +1434,7 @@ def plot_contours(
         linestyles=linestyles,
         match_coordinates=False,
         slice_coords=slice_coords,
+        fontsize=fontsize,
         roi_labels=roi_labels,
         **kwargs,
     )
@@ -1331,9 +1459,11 @@ def plot_volume(
     show_axis_labels: bool = True,
     show_axis_ticks: bool = True,
     show_axes: bool = True,
+    fontsize: float | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
-    black_bg: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
     figure: "Figure | None" = None,
     axes: "npt.NDArray[Any] | Axes | None" = None,
     nrows: int | None = None,
@@ -1400,12 +1530,21 @@ def plot_volume(
     show_axes : bool, default: True
         Whether to show all axis decorations (spines, ticks, labels). When `False`,
         overrides `show_axis_labels` and `show_axis_ticks`.
+    fontsize : float, optional
+        Base font size for all text elements. Subplot titles use `fontsize` directly;
+        axis labels and the colorbar label use `0.9 * fontsize`; tick labels use `0.85 *
+        fontsize`. If not provided, uses the active Matplotlib defaults.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
         Whether the x-axis increases to the right (`True`) or left (`False`).
-    black_bg : bool, default: True
-        Whether to set the figure background to black.
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
     axes : numpy.ndarray or matplotlib.axes.Axes, optional
@@ -1483,7 +1622,8 @@ def plot_volume(
         slice_mode=slice_mode,
         figure=figure,
         axes=axes,
-        black_bg=black_bg,
+        bg_color=bg_color,
+        fg_color=fg_color,
         yincrease=yincrease,
         xincrease=xincrease,
     )
@@ -1505,6 +1645,7 @@ def plot_volume(
         show_axis_labels=show_axis_labels,
         show_axis_ticks=show_axis_ticks,
         show_axes=show_axes,
+        fontsize=fontsize,
         nrows=nrows,
         ncols=ncols,
         dpi=dpi,
@@ -2023,7 +2164,7 @@ def _prepare_carpet_data(
     Returns
     -------
     dict
-        Keys: `signals` (DataArray, voxels × time), `vmin` (float),
+        Keys: `signals` (DataArray with shape `(time, voxels)`), `vmin` (float),
         `vmax` (float), `xlabel` (str), `time_coord` (DataArray | None).
     """
     if np.iscomplexobj(data):
@@ -2082,7 +2223,9 @@ def _draw_carpet(
     cmap: "str | Colormap" = "gray",
     figsize: tuple[float, float] = (10, 5),
     title: str | None = None,
-    black_bg: bool = False,
+    fontsize: float | None = None,
+    bg_color: str = "white",
+    fg_color: str | None = None,
     ax: "Axes | None" = None,
 ) -> tuple["Figure | SubFigure", "Axes"]:
     """Draw a carpet plot from pre-computed data.
@@ -2100,8 +2243,16 @@ def _draw_carpet(
         Figure size in inches, used only when *ax* is `None`.
     title : str, optional
         Plot title.
-    black_bg : bool, default: False
-        Whether to use a black background with white foreground elements.
+    fontsize : float, optional
+        Base font size for text elements. Title uses `fontsize` directly; axis labels
+        and colorbar label use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If
+        not provided, uses the active Matplotlib defaults.
+    bg_color : str, default: "white"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula.
     ax : matplotlib.axes.Axes, optional
         Axes to draw on. A new figure is created when `None`.
 
@@ -2119,8 +2270,8 @@ def _draw_carpet(
     vmax = prep["vmax"]
     xlabel = prep["xlabel"]
 
-    text_color = "white" if black_bg else "black"
-    bg_color = "black" if black_bg else "white"
+    text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
     if ax is None:
         figure, ax = plt.subplots(figsize=figsize)
@@ -2130,24 +2281,30 @@ def _draw_carpet(
 
     ax.set_facecolor(bg_color)
 
-    quad = signals.T.plot(cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, yincrease=False)
+    plotted_quadmesh = signals.T.plot(
+        cmap=cmap, vmin=vmin, vmax=vmax, ax=ax, yincrease=False
+    )
 
-    if quad.colorbar is not None:
-        cbar = quad.colorbar
-        cbar.ax.yaxis.set_tick_params(color=text_color)
-        plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color)
+    if plotted_quadmesh.colorbar is not None:
+        cbar = plotted_quadmesh.colorbar
+        cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
+        plt.setp(
+            cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+        )
         cbar.ax.yaxis.label.set_color(text_color)
+        if label_fontsize is not None:
+            cbar.ax.yaxis.label.set_fontsize(label_fontsize)
         cbar.outline.set_edgecolor(text_color)
         cbar.ax.set_facecolor(bg_color)
 
     ax.grid(False)
     ax.set_yticks([])
-    ax.set_ylabel("Voxels", color=text_color)
-    ax.set_xlabel(xlabel, color=text_color)
-    ax.tick_params(colors=text_color)
+    ax.set_ylabel("Voxels", color=text_color, fontsize=label_fontsize)
+    ax.set_xlabel(xlabel, color=text_color, fontsize=label_fontsize)
+    ax.tick_params(colors=text_color, labelsize=tick_fontsize)
 
     if title:
-        ax.set_title(title, color=text_color)
+        ax.set_title(title, color=text_color, fontsize=title_fontsize)
 
     for side in ["top", "right"]:
         ax.spines[side].set_visible(False)
@@ -2171,7 +2328,9 @@ def plot_carpet(
     decimation_threshold: int | None = 800,
     figsize: tuple[float, float] = (10, 5),
     title: str | None = None,
-    black_bg: bool = False,
+    fontsize: float | None = None,
+    bg_color: str = "white",
+    fg_color: str | None = None,
     ax: "Axes | None" = None,
 ) -> tuple["Figure | SubFigure", "Axes"]:
     """Plot voxel intensities across time as a raster image.
@@ -2213,9 +2372,17 @@ def plot_carpet(
         Figure size in inches `(width, height)`.
     title : str, optional
         Plot title.
-    black_bg : bool, default: False
-        Whether to use a black figure background with white foreground elements
-        (spines, ticks, labels). Use `True` for dark-themed figures.
+    fontsize : float, optional
+        Base font size for text elements. Title uses `fontsize` directly; axis labels
+        and colorbar label use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If
+        not provided, uses the active Matplotlib defaults.
+    bg_color : str, default: "white"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If not provided, creates new figure and axes.
 
@@ -2261,5 +2428,12 @@ def plot_carpet(
         data, mask, detrend_order, standardize, vmin, vmax, decimation_threshold
     )
     return _draw_carpet(
-        prep, cmap=cmap, figsize=figsize, title=title, black_bg=black_bg, ax=ax
+        prep,
+        cmap=cmap,
+        figsize=figsize,
+        title=title,
+        fontsize=fontsize,
+        bg_color=bg_color,
+        fg_color=fg_color,
+        ax=ax,
     )

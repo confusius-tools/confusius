@@ -27,3 +27,8 @@ coverage.*
 design/
 eda.py
 *.zarr/
+
+# Examples gallery (generated)
+docs/examples/_built/
+docs/examples/index.md
+.cache/gallery/

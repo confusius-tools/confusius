@@ -434,3 +434,18 @@
 /* Light/dark image switching for non-markdown HTML contexts. */
 [data-md-color-scheme="slate"] img[src$="#only-light"] { display: none; }
 [data-md-color-scheme="default"] img[src$="#only-dark"] { display: none; }
+
+/* Keep example tiles compact instead of stretching full-width when few are present. */
+.grid.cards.examples-cards > ul {
+  grid-template-columns: repeat(auto-fit, minmax(12.5rem, 14.5rem));
+  justify-content: start;
+}
+
+.grid.cards.examples-cards > ul > li {
+  max-width: 14.5rem;
+}
+
+.grid.cards.examples-cards img {
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+}

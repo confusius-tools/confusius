@@ -111,11 +111,11 @@ console.print("Computing DVARS")
 dvars = compute_dvars(signals)
 threshold = 2.5
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
-    bg_color = "#1a1a1a" if black_bg else "white"
-    fg_color = "white" if black_bg else "black"
-    line_color = "#4c9be8" if black_bg else "#1f6fbf"
-    threshold_color = "#e05c5c" if black_bg else "#c0392b"
+for is_dark, suffix in [(False, "light"), (True, "dark")]:
+    bg_color = "#1a1a1a" if is_dark else "white"
+    fg_color = "white" if is_dark else "black"
+    line_color = "#4c9be8" if is_dark else "#1f6fbf"
+    threshold_color = "#e05c5c" if is_dark else "#c0392b"
 
     fig, ax = plt.subplots(figsize=(10, 3), facecolor=bg_color)
     ax.set_facecolor(bg_color)
@@ -161,8 +161,8 @@ _ok("Saved qc-dvars-light.png and qc-dvars-dark.png")
 
 _section("Carpet Plot")
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
-    fig, ax = plot_carpet(pwd, mask=brain_mask, black_bg=black_bg)
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
+    fig, ax = plot_carpet(pwd, mask=brain_mask, bg_color=bg_color)
     fig.savefig(str(HERE / f"qc-carpet-{suffix}.png"), **_SAVEFIG_KWARGS)
     plt.close(fig)
 
@@ -176,12 +176,12 @@ _section("Mean Power Doppler")
 console.print("Computing mean (dB scale)")
 mean_pwd = pwd.mean("time").fusi.scale.db()
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter = mean_pwd.fusi.plot.volume(
         slice_mode="z",
         vmin=_MEAN_DB_LIMITS[0],
         vmax=_MEAN_DB_LIMITS[1],
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     plotter.savefig(str(HERE / f"qc-mean-pwd-{suffix}.png"), **_SAVEFIG_KWARGS)
     plotter.close()
@@ -196,12 +196,12 @@ _section("CV Map")
 console.print("Computing CV")
 cv = compute_cv(pwd)
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter = cv.fusi.plot.volume(
         slice_mode="z",
         vmin=_CV_LIMITS[0],
         vmax=_CV_LIMITS[1],
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     plotter.savefig(str(HERE / f"qc-cv-{suffix}.png"), **_SAVEFIG_KWARGS)
     plotter.close()
@@ -216,8 +216,8 @@ _section("tSNR Map")
 console.print("Computing tSNR")
 tsnr = compute_tsnr(pwd)
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
-    plotter = tsnr.fusi.plot.volume(slice_mode="z", black_bg=black_bg)
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
+    plotter = tsnr.fusi.plot.volume(slice_mode="z", bg_color=bg_color)
     plotter.savefig(str(HERE / f"qc-tsnr-{suffix}.png"), **_SAVEFIG_KWARGS)
     plotter.close()
 

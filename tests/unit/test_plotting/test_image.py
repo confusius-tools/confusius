@@ -9,7 +9,13 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius.plotting import VolumePlotter, plot_contours, plot_napari, plot_volume
+from confusius.plotting import (
+    VolumePlotter,
+    plot_carpet,
+    plot_contours,
+    plot_napari,
+    plot_volume,
+)
 
 
 class TestPlotVolume:
@@ -165,6 +171,31 @@ class TestPlotVolume:
         extra_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
         assert len(extra_axes) == 1
         assert extra_axes[0].get_ylabel() == "Power (dB)"
+
+    def test_fontsize_scales_volume_text_elements(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """plot_volume scales title, label, tick, and colorbar text from fontsize."""
+        z_coord = sample_3d_volume.coords["z"].values[0]
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            fontsize=20,
+            cbar_label="Power (dB)",
+        )
+
+        ax = plotter.axes[0, 0]
+        assert ax.title.get_fontsize() == pytest.approx(20)
+        assert ax.xaxis.label.get_fontsize() == pytest.approx(18)
+        assert ax.yaxis.label.get_fontsize() == pytest.approx(18)
+        assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(17)
+
+        plot_axes = set(plotter.axes.ravel())
+        cbar_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
+        assert len(cbar_axes) == 1
+        assert cbar_axes[0].yaxis.label.get_fontsize() == pytest.approx(18)
+        assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(17)
 
     def test_existing_axes_used(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume uses provided axes without creating new ones."""
@@ -527,6 +558,21 @@ class TestPlotContours:
         )
         plotter = plot_contours(mask, slice_mode="z")
         assert plotter.figure is None
+
+    def test_fontsize_scales_contour_text_elements(self, matplotlib_pyplot):
+        """plot_contours scales title, label, and tick text from fontsize."""
+        mask = xr.DataArray(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        )
+        plotter = plot_contours(mask, slice_mode="z", fontsize=16)
+        ax = plotter.axes[0, 0]
+
+        assert ax.title.get_fontsize() == pytest.approx(16)
+        assert ax.xaxis.label.get_fontsize() == pytest.approx(14.4)
+        assert ax.yaxis.label.get_fontsize() == pytest.approx(14.4)
+        assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(13.6)
 
 
 class TestVolumePlotterAddContours:
@@ -924,17 +970,6 @@ class TestPlotVolumeVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_volume_white_bg(self, matplotlib_pyplot):
-        """Baseline test for white background."""
-        volume = _create_deterministic_volume()
-        plotter = plot_volume(volume, slice_mode="z", black_bg=False)
-        return plotter.figure
-
-    @pytest.mark.mpl_image_compare(
-        baseline_dir="baseline",
-        tolerance=0,
-        savefig_kwargs={"facecolor": "auto"},
-    )
     def test_plot_volume_single_slice(self, matplotlib_pyplot):
         """Baseline test for single slice."""
         volume = _create_deterministic_volume()
@@ -996,6 +1031,37 @@ class TestPlotVolumeVisualRegression:
         plotter = plot_volume(volume, slice_mode="z", show_colorbar=False)
         return plotter.figure
 
+    @pytest.mark.parametrize(
+        "bg_color",
+        [
+            pytest.param("#1a1a2e", id="dark"),  # WCAG luminance < 0.179 → white fg
+            pytest.param("white", id="light"),  # WCAG luminance = 1.0 → black fg
+        ],
+    )
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_volume_custom_bg_color(self, matplotlib_pyplot, bg_color):
+        """Baseline test for custom bg_color — WCAG auto-derives white or black fg."""
+        volume = _create_deterministic_volume()
+        plotter = plot_volume(volume, slice_mode="z", bg_color=bg_color)
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_volume_explicit_fg_color(self, matplotlib_pyplot):
+        """Baseline test for explicit fg_color override."""
+        volume = _create_deterministic_volume()
+        plotter = plot_volume(
+            volume, slice_mode="z", bg_color="black", fg_color="#aaaaaa"
+        )
+        return plotter.figure
+
 
 class TestPlotContoursVisualRegression:
     """Visual regression tests for plot_contours using pytest-mpl."""
@@ -1023,6 +1089,32 @@ class TestPlotContoursVisualRegression:
             },
         )
         plotter = plot_contours(mask, slice_mode="z", colors={1: "red", 2: "blue"})
+        return plotter.figure
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_contours_white_bg(self, matplotlib_pyplot):
+        """Baseline test for plot_contours on a white background."""
+        mask = xr.DataArray(
+            np.array(
+                [
+                    [[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]],
+                    [[0, 0, 0, 0], [0, 2, 2, 0], [0, 2, 2, 0], [0, 0, 0, 0]],
+                ]
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": [0.0, 1.0],
+                "y": [0.0, 0.5, 1.0, 1.5],
+                "x": [0.0, 0.5, 1.0, 1.5],
+            },
+        )
+        plotter = plot_contours(
+            mask, slice_mode="z", colors={1: "red", 2: "blue"}, bg_color="white"
+        )
         return plotter.figure
 
     @pytest.mark.mpl_image_compare(
@@ -1061,3 +1153,90 @@ class TestPlotContoursVisualRegression:
         plotter = plot_volume(volume, slice_mode="z", show_colorbar=False)
         plotter.add_contours(mask, colors={1: "red", 2: "blue"})
         return plotter.figure
+
+
+def _create_deterministic_time_series() -> xr.DataArray:
+    """Create a deterministic 3D (time, y, x) time-series for visual regression tests.
+
+    Returns
+    -------
+    xarray.DataArray
+        Array with dims `(time, y, x)` and a fixed seed for reproducible baseline images.
+    """
+    rng = np.random.default_rng(42)
+    data = rng.standard_normal((20, 3, 4))
+    return xr.DataArray(
+        data,
+        dims=["time", "y", "x"],
+        coords={
+            "time": xr.DataArray(
+                np.arange(20) * 0.1,
+                dims=["time"],
+                attrs={"units": "s"},
+            ),
+            "y": [0.0, 0.5, 1.0],
+            "x": [0.0, 0.5, 1.0, 1.5],
+        },
+    )
+
+
+class TestPlotCarpet:
+    """Tests for non-visual plot_carpet behaviour."""
+
+    def test_fontsize_scales_carpet_text_elements(self, matplotlib_pyplot):
+        """plot_carpet scales title, label, tick, and colorbar text from fontsize."""
+        data = _create_deterministic_time_series()
+        fig, ax = plot_carpet(
+            data,
+            standardize=False,
+            title="Carpet",
+            fontsize=18,
+        )
+
+        assert ax.title.get_fontsize() == pytest.approx(18)
+        assert ax.xaxis.label.get_fontsize() == pytest.approx(16.2)
+        assert ax.yaxis.label.get_fontsize() == pytest.approx(16.2)
+        assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(15.3)
+
+        cbar_axes = [axis for axis in fig.axes if axis is not ax]
+        assert len(cbar_axes) == 1
+        assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(15.3)
+
+
+class TestPlotCarpetVisualRegression:
+    """Visual regression tests for plot_carpet using pytest-mpl."""
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_carpet_default(self, matplotlib_pyplot):
+        """Baseline test for default plot_carpet appearance (white background)."""
+        data = _create_deterministic_time_series()
+        fig, _ = plot_carpet(data, standardize=False)
+        return fig
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_carpet_dark_bg(self, matplotlib_pyplot):
+        """Baseline test for plot_carpet with dark background."""
+        data = _create_deterministic_time_series()
+        fig, _ = plot_carpet(data, standardize=False, bg_color="black")
+        return fig
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_carpet_explicit_fg_color(self, matplotlib_pyplot):
+        """Baseline test for plot_carpet with explicit fg_color."""
+        data = _create_deterministic_time_series()
+        fig, _ = plot_carpet(
+            data, standardize=False, bg_color="black", fg_color="#aaaaaa"
+        )
+        return fig

@@ -1,0 +1,189 @@
+"""Tests for tools.gallery.render."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import nbformat
+
+from tools.gallery.render import render_notebook
+
+
+def _make_nb(*, thumbnail: bool = False) -> nbformat.NotebookNode:
+    nb = nbformat.v4.new_notebook()
+    nb.cells.append(nbformat.v4.new_markdown_cell("# Hello\n\nIntro text."))
+    code = nbformat.v4.new_code_cell("print('hi')")
+    code.outputs = [
+        nbformat.v4.new_output(
+            output_type="stream",
+            name="stdout",
+            text="hi\n",
+        ),
+    ]
+    nb.cells.append(code)
+
+    # 1x1 transparent PNG.
+    png_b64 = (
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YA"
+        "AAAASUVORK5CYII="
+    )
+    plot_cell = nbformat.v4.new_code_cell("plt.plot([1, 2, 3])")
+    if thumbnail:
+        plot_cell.metadata["tags"] = ["thumbnail"]
+
+    plot_cell.outputs = [
+        nbformat.v4.new_output(
+            output_type="display_data",
+            data={"image/png": png_b64},
+            metadata={},
+        ),
+    ]
+    nb.cells.append(plot_cell)
+    return nb
+
+
+def test_render_writes_markdown_with_code_and_output(tmp_path: Path) -> None:
+    nb = _make_nb()
+    md_path, _ = render_notebook(
+        nb,
+        nb,
+        nb,
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=4.3,
+    )
+
+    md = md_path.read_text()
+    assert md.startswith("# Hello")
+    assert "```python\nprint('hi')\n```" in md
+    assert "```\nhi\n```" in md
+    assert "ex_output_light/cell_03_0_light.png#only-light" in md
+    assert "ex_output_dark/cell_03_0_dark.png#only-dark" in md
+    assert "**Total running time:** 4.3 s" in md
+    assert "[Download .py](ex.py)" in md
+    assert "[Download .ipynb](ex.ipynb)" in md
+
+
+def test_render_writes_image_files_into_output_folder(tmp_path: Path) -> None:
+    nb = _make_nb()
+    render_notebook(
+        nb,
+        nb,
+        nb,
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+    )
+
+    light_img = tmp_path / "ex_output_light" / "cell_03_0_light.png"
+    dark_img = tmp_path / "ex_output_dark" / "cell_03_0_dark.png"
+    assert light_img.is_file()
+    assert light_img.stat().st_size > 0
+    assert dark_img.is_file()
+    assert dark_img.stat().st_size > 0
+
+
+def test_render_returns_thumbnail_paths_for_tagged_output(tmp_path: Path) -> None:
+    nb = _make_nb(thumbnail=True)
+    _, thumbnail = render_notebook(
+        nb,
+        nb,
+        nb,
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+    )
+    assert thumbnail == (
+        tmp_path / "ex_thumb_light.png",
+        tmp_path / "ex_thumb_dark.png",
+    )
+    assert (tmp_path / "ex_thumb_light.png").is_file()
+    assert (tmp_path / "ex_thumb_dark.png").is_file()
+
+
+def test_render_handles_notebook_without_images(tmp_path: Path) -> None:
+    nb = nbformat.v4.new_notebook()
+    nb.cells.append(nbformat.v4.new_code_cell("x = 1"))
+
+    _, thumbnail = render_notebook(
+        nb,
+        nb,
+        nb,
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=0.1,
+    )
+    assert thumbnail is None
+
+
+def test_render_adds_binder_button_when_url_given(tmp_path: Path) -> None:
+    nb = _make_nb()
+    url = "https://mybinder.org/v2/gh/owner/repo/main?urlpath=lab/tree/foo/ex.py"
+    md_path, _ = render_notebook(
+        nb,
+        nb,
+        nb,
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+        binder_url=url,
+    )
+
+    md = md_path.read_text()
+    assert f"[Launch in Binder]({url})" in md
+    assert ".md-button--primary" in md
+
+
+def test_render_omits_binder_button_when_url_missing(tmp_path: Path) -> None:
+    nb = _make_nb()
+    md_path, _ = render_notebook(
+        nb,
+        nb,
+        nb,
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+    )
+
+    md = md_path.read_text()
+    assert "Launch in Binder" not in md
+    assert ".md-button--primary" not in md
+
+
+def test_render_uses_outputs_from_light_and_dark_notebooks(tmp_path: Path) -> None:
+    """Image bytes come from light_notebook / dark_notebook, not the un-executed source."""
+    import base64
+
+    light_b64 = base64.b64encode(b"light_pixel").decode()
+    dark_b64 = base64.b64encode(b"dark_pixel").decode()
+
+    source_nb = nbformat.v4.new_notebook()
+    source_nb.cells.append(nbformat.v4.new_code_cell("plt.plot([1])"))
+
+    def _nb_with_png(b64: str) -> nbformat.NotebookNode:
+        nb = nbformat.v4.new_notebook()
+        cell = nbformat.v4.new_code_cell("plt.plot([1])")
+        cell.outputs = [
+            nbformat.v4.new_output(
+                output_type="display_data",
+                data={"image/png": b64},
+                metadata={},
+            )
+        ]
+        nb.cells.append(cell)
+        return nb
+
+    render_notebook(
+        source_nb,
+        _nb_with_png(light_b64),
+        _nb_with_png(dark_b64),
+        out_dir=tmp_path,
+        base_name="ex",
+        runtime_seconds=1.0,
+    )
+
+    light_bytes = (tmp_path / "ex_output_light" / "cell_01_0_light.png").read_bytes()
+    dark_bytes = (tmp_path / "ex_output_dark" / "cell_01_0_dark.png").read_bytes()
+    assert light_bytes == b"light_pixel"
+    assert dark_bytes == b"dark_pixel"
+    assert light_bytes != dark_bytes

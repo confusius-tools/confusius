@@ -1,5 +1,7 @@
 """Unit tests for xarray accessor."""
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -30,6 +32,21 @@ class TestFUSIAccessor:
         from confusius.xarray.scale import FUSIScaleAccessor
 
         assert isinstance(sample_data.fusi.scale, FUSIScaleAccessor)
+
+    def test_extract_accessor_is_available(self, sample_data):
+        """Extract accessor is available as a property."""
+        from confusius.xarray.extract import FUSIExtractAccessor
+
+        assert isinstance(sample_data.fusi.extract, FUSIExtractAccessor)
+
+    def test_save_dispatches_to_io_loadsave(self, sample_data, tmp_path):
+        """save delegates to `confusius.io.loadsave.save`."""
+        out = tmp_path / "recording.nii.gz"
+
+        with patch("confusius.io.loadsave.save") as mock_save:
+            sample_data.fusi.save(out)
+
+        mock_save.assert_called_once_with(sample_data, out)
 
     def test_db_scale_factor_20(self, sample_data):
         """db_scale with factor=20 (amplitude)."""
@@ -170,7 +187,7 @@ class TestOrigin:
         assert origin["y"] == pytest.approx(0.0)
         assert origin["x"] == pytest.approx(0.0)
 
-    def test_dim_order_preserved(self):
+    def test_spacing_dim_order_preserved(self):
         """Returned dict keys follow DataArray dimension order."""
         data = xr.DataArray(
             np.zeros((5, 10, 20)),

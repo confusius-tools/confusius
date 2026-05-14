@@ -552,14 +552,14 @@ except Exception as exc:
 
 _section("Matplotlib images")
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter = mean_vol.fusi.scale.db().fusi.plot.volume(
         slice_mode="z",
         cmap="gray",
         vmin=_MEAN_DB_LIMITS[0],
         vmax=_MEAN_DB_LIMITS[1],
         cbar_label="Power Doppler (dB)",
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     plotter.savefig(str(HERE / f"plot-volume-grid-{suffix}.png"), **_SAVEFIG_KWARGS)
     plotter.close()
@@ -569,14 +569,14 @@ _ok("Saved plot-volume-grid-light.png and plot-volume-grid-dark.png")
 # 5. Volume grid — true 3D volume (matplotlib)
 # ---------------------------------------------------------------------------
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter_3d = vol_3d.fusi.scale.db().fusi.plot.volume(
         slice_mode="z",
         cmap="gray",
         vmin=_ANGIO_DB_LIMITS[0],
         vmax=_ANGIO_DB_LIMITS[1],
         show_colorbar=False,
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     plotter_3d.savefig(str(HERE / f"plot-volume-3d-{suffix}.png"), **_SAVEFIG_KWARGS)
     plotter_3d.close()
@@ -586,7 +586,7 @@ _ok("Saved plot-volume-3d-light.png and plot-volume-3d-dark.png")
 # 6. Volume grid — sliced 3D volume (matplotlib)
 # ---------------------------------------------------------------------------
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter_3d = vol_3d.fusi.scale.db().fusi.plot.volume(
         nrows=1,
         slice_mode="z",
@@ -595,7 +595,7 @@ for black_bg, suffix in [(False, "light"), (True, "dark")]:
         vmin=_ANGIO_DB_LIMITS[0],
         vmax=_ANGIO_DB_LIMITS[1],
         show_colorbar=False,
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     plotter_3d.savefig(
         str(HERE / f"plot-sliced-volume-3d-{suffix}.png"), **_SAVEFIG_KWARGS
@@ -609,14 +609,14 @@ _ok("Saved plot-sliced-volume-3d-light.png and plot-sliced-volume-3d-dark.png")
 
 if atlas_mask is not None:
     overlay_colors = id_to_rgb if id_to_rgb else "white"
-    for black_bg, suffix in [(False, "light"), (True, "dark")]:
+    for bg_color, suffix in [("white", "light"), ("black", "dark")]:
         plotter_overlay = mean_vol.fusi.scale.db().fusi.plot.volume(
             slice_mode="z",
             cmap="gray",
             vmin=_MEAN_DB_LIMITS[0],
             vmax=_MEAN_DB_LIMITS[1],
             cbar_label="Power Doppler (dB)",
-            black_bg=black_bg,
+            bg_color=bg_color,
         )
         plotter_overlay.add_contours(atlas_mask, colors=overlay_colors)
         plotter_overlay.savefig(
@@ -675,14 +675,14 @@ except Exception as exc:
 # 9. Carpet plot (matplotlib)
 # ---------------------------------------------------------------------------
 
-for black_bg, suffix in [(False, "light"), (True, "dark")]:
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     fig, _ax = pwd.fusi.plot.carpet(
         mask=brain_mask,
         detrend_order=1,
         standardize=True,
         cmap="gray",
         figsize=(12, 4),
-        black_bg=black_bg,
+        bg_color=bg_color,
     )
     fig.savefig(str(HERE / f"carpet-plot-{suffix}.png"), **_SAVEFIG_KWARGS)
     plt.close(fig)
