@@ -19,16 +19,22 @@ _FAKE_INDEX = {
     "participants.tsv": {"osf_path": "/file002", "size": 200},
     # Rawdata — requires "rawdata" in datasets filter. Two sessions, two
     # acquisitions per session for sub-rat83; sub-rat84 has a single
-    # session with no acquisition entity.
-    "sub-rat83/ses-20220523/fus/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz": {
+    # session with no acquisition entity. Each session carries both fusi
+    # and angio datatypes, plus a session-level scans.tsv with no
+    # datatype layer.
+    "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz": {
         "osf_path": "/file003",
         "size": 1000,
     },
-    "sub-rat83/ses-20220523/fus/sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz": {
+    "sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice42_pwd.nii.gz": {
         "osf_path": "/file004",
         "size": 1000,
     },
-    "sub-rat83/ses-20220524/fus/sub-rat83_ses-20220524_task-openfield_acq-slice32_pwd.nii.gz": {
+    "sub-rat83/ses-20220523/angio/sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz": {
+        "osf_path": "/file004a",
+        "size": 800,
+    },
+    "sub-rat83/ses-20220524/fusi/sub-rat83_ses-20220524_task-openfield_acq-slice32_pwd.nii.gz": {
         "osf_path": "/file005",
         "size": 1000,
     },
@@ -36,9 +42,13 @@ _FAKE_INDEX = {
         "osf_path": "/file006",
         "size": 50,
     },
-    "sub-rat84/ses-20210407/fus/sub-rat84_ses-20210407_task-openfield_pwd.nii.gz": {
+    "sub-rat84/ses-20210407/fusi/sub-rat84_ses-20210407_task-openfield_pwd.nii.gz": {
         "osf_path": "/file007",
         "size": 1000,
+    },
+    "sub-rat84/ses-20210407/angio/sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz": {
+        "osf_path": "/file007a",
+        "size": 800,
     },
     # Derivatives — filtered by derivative name and subject.
     "derivatives/glm-speed/dataset_description.json": {
@@ -54,8 +64,8 @@ _FAKE_INDEX = {
         "osf_path": "/file010",
         "size": 500,
     },
-    # Session-level derivative file (has both ses and acq).
-    "derivatives/glm-speed/sub-rat83/ses-20220523/fus/sub-rat83_ses-20220523_task-openfield_acq-slice32_dm.tsv": {
+    # Session-level derivative file (has both ses and acq, under fusi).
+    "derivatives/glm-speed/sub-rat83/ses-20220523/fusi/sub-rat83_ses-20220523_task-openfield_acq-slice32_dm.tsv": {
         "osf_path": "/file011",
         "size": 200,
     },
@@ -249,9 +259,47 @@ def test_fetch_combined_session_and_acq_filters(
     )
 
 
+def test_fetch_datatype_filter_fusi_only(tmp_path, mock_get_index, mock_retrieve):
+    """`datatypes=["fusi"]` excludes angio files but keeps files without a datatype."""
+    fetch_cybis_pereira_2026(data_dir=tmp_path, datatypes=["fusi"])
+
+    downloaded = _downloaded_paths(mock_retrieve)
+    # fusi files included.
+    assert "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" in downloaded
+    # angio files excluded.
+    assert (
+        "sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz" not in downloaded
+    )
+    assert "sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz" not in downloaded
+    # Files with no datatype layer pass through (session-level, subject-level).
+    assert "sub-rat83_ses-20220523_scans.tsv" in downloaded
+    assert "sub-rat83_acq-slice32_stat-t_statmap.nii.gz" in downloaded
+    # Top-level metadata always included.
+    assert "dataset_description.json" in downloaded
+
+
+def test_fetch_datatype_filter_angio_only(tmp_path, mock_get_index, mock_retrieve):
+    """`datatypes=["angio"]` keeps angio files and excludes fusi files."""
+    fetch_cybis_pereira_2026(data_dir=tmp_path, datatypes=["angio"])
+
+    downloaded = _downloaded_paths(mock_retrieve)
+    assert "sub-rat83_ses-20220523_acq-slice32_rec-minframe2d_pwd.nii.gz" in downloaded
+    assert "sub-rat84_ses-20210407_rec-minframe2d_pwd.nii.gz" in downloaded
+    assert (
+        "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz" not in downloaded
+    )
+    # Files with no datatype layer still pass through.
+    assert "sub-rat83_ses-20220523_scans.tsv" in downloaded
+
+
 def test_fetch_invalid_dataset_raises(tmp_path):
     with pytest.raises(ValueError, match="Unknown dataset"):
         fetch_cybis_pereira_2026(data_dir=tmp_path, datasets=["nonexistent"])
+
+
+def test_fetch_invalid_datatype_raises(tmp_path):
+    with pytest.raises(ValueError, match="Unknown datatype"):
+        fetch_cybis_pereira_2026(data_dir=tmp_path, datatypes=["nonexistent"])
 
 
 def test_fetch_accepts_string_datasets(tmp_path, mock_get_index, mock_retrieve):
@@ -296,7 +344,7 @@ def test_fetch_retries_on_transient_failure(tmp_path, mock_get_index):
 
     # Pre-create every file except one so only that file goes through retrieve.
     target_rel = (
-        "sub-rat83/ses-20220523/fus/"
+        "sub-rat83/ses-20220523/fusi/"
         "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz"
     )
     for rel in _FAKE_INDEX:
@@ -334,7 +382,7 @@ def test_fetch_raises_after_max_retries(tmp_path, mock_get_index):
     bids_dir = tmp_path / _BIDS_ROOT
 
     target_rel = (
-        "sub-rat83/ses-20220523/fus/"
+        "sub-rat83/ses-20220523/fusi/"
         "sub-rat83_ses-20220523_task-openfield_acq-slice32_pwd.nii.gz"
     )
     for rel in _FAKE_INDEX:

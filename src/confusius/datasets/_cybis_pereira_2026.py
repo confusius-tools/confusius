@@ -27,20 +27,26 @@ _VALID_DATASETS = frozenset(
 """Valid values for the `datasets` parameter of `fetch_cybis_pereira_2026`."""
 
 
+_VALID_DATATYPES = frozenset({"fusi", "angio", "motion"})
+"""Valid values for the `datatypes` parameter of `fetch_cybis_pereira_2026`."""
+
+
 def _filter_files(
     index: dict[str, OsfFileInfo],
     datasets: list[str] | None,
     subjects: list[str] | None,
     sessions: list[str] | None,
     acqs: list[str] | None,
+    datatypes: list[str] | None,
 ) -> dict[str, OsfFileInfo]:
     """Filter the index to files matching the requested datasets and subjects.
 
     Top-level BIDS metadata files (dataset_description.json, participants.*,
-    etc.) are always included. The `sessions` and `acqs` filters only
-    exclude files that carry the corresponding BIDS entity; subject- or
-    dataset-level aggregate files (e.g. `sub-rat73_acq-slice32_statmap.nii`
-    in derivatives, or `decode-speed/sub-rat73/...`) are kept when they
+    etc.) are always included. The `sessions`, `acqs`, and `datatypes`
+    filters only exclude files that carry the corresponding BIDS entity
+    or live under a datatype directory; subject- or dataset-level
+    aggregate files (e.g. `sub-rat73_acq-slice32_statmap.nii` in
+    derivatives, or `decode-speed/sub-rat73/...`) are kept when they
     match every entity they do declare.
 
     Parameters
@@ -63,6 +69,11 @@ def _filter_files(
         Acquisition labels to include (without "acq-" prefix), e.g.
         `["slice32"]`. If `None`, all acquisitions are included. Files
         with no `acq-` entity are passed through.
+    datatypes : list[str] or None
+        BIDS datatype directories to include (e.g. `["fusi", "angio"]`).
+        If `None`, all datatypes are included. Files that do not sit
+        under a datatype directory (e.g. session-level `scans.tsv`,
+        subject-level derivative aggregates) are passed through.
 
     Returns
     -------
@@ -89,7 +100,7 @@ def _filter_files(
                 if subjects is not None and sub_id not in subjects:
                     continue
 
-            if not _matches_entities(parts, sessions, acqs):
+            if not _matches_entities(parts, sessions, acqs, datatypes):
                 continue
 
             filtered[path] = file_info
@@ -108,7 +119,7 @@ def _filter_files(
         if subjects is not None and sub_id not in subjects:
             continue
 
-        if not _matches_entities(parts, sessions, acqs):
+        if not _matches_entities(parts, sessions, acqs, datatypes):
             continue
 
         filtered[path] = file_info
@@ -120,14 +131,16 @@ def _matches_entities(
     parts: tuple[str, ...],
     sessions: list[str] | None,
     acqs: list[str] | None,
+    datatypes: list[str] | None,
 ) -> bool:
-    """Return True when the path satisfies the session and acquisition filters.
+    """Return True when the path satisfies the entity filters.
 
-    A file matches when, for each of `sessions` and `acqs`, it either
-    omits the corresponding BIDS entity entirely or declares a value
-    that is in the requested list. The session is read from any
+    A file matches when, for each of `sessions`, `acqs`, and `datatypes`,
+    it either omits the corresponding BIDS entity entirely or declares a
+    value that is in the requested list. The session is read from any
     `ses-*` directory in `parts`; the acquisition is read from the
-    `acq-*` entity in the filename.
+    `acq-*` entity in the filename; the datatype is read from the
+    directory component immediately following the `ses-*` directory.
     """
     if sessions is not None:
         ses_dir = next((p for p in parts if p.startswith("ses-")), None)
@@ -141,7 +154,29 @@ def _matches_entities(
         if match is not None and match.group(1) not in acqs:
             return False
 
+    if datatypes is not None:
+        datatype = _datatype_from_parts(parts)
+        if datatype is not None and datatype not in datatypes:
+            return False
+
     return True
+
+
+def _datatype_from_parts(parts: tuple[str, ...]) -> str | None:
+    """Return the BIDS datatype directory in `parts`, or None if absent.
+
+    The datatype is the directory component immediately following the
+    `ses-*` directory, provided it is not itself the file name and is
+    one of the known datatypes ([_VALID_DATATYPES][]). Returns `None`
+    for paths without a session directory or with no datatype layer
+    (e.g. session-level `scans.tsv`, subject-level aggregates).
+    """
+    for i, part in enumerate(parts):
+        if part.startswith("ses-") and i + 1 < len(parts) - 1:
+            candidate = parts[i + 1]
+            if candidate in _VALID_DATATYPES:
+                return candidate
+    return None
 
 
 def fetch_cybis_pereira_2026(
@@ -150,6 +185,7 @@ def fetch_cybis_pereira_2026(
     subjects: str | list[str] | None = None,
     sessions: str | list[str] | None = None,
     acqs: str | list[str] | None = None,
+    datatypes: str | list[str] | None = None,
     refresh: bool = False,
 ) -> Path:
     """Fetch the Cybis Pereira 2026 fUSI-BIDS dataset.
@@ -188,6 +224,13 @@ def fetch_cybis_pereira_2026(
         `"slice32"` or `["slice32", "slice42"]`. If not provided, all
         acquisitions are downloaded. Files with no acquisition entity
         are always included.
+    datatypes : str or list[str], optional
+        BIDS datatype directories to download, e.g. `"fusi"`, `"angio"`,
+        `["fusi", "angio"]`. Valid values are `"fusi"`, `"angio"`
+        and `"motion"`. If not provided, all datatypes are
+        downloaded. Files that do not sit under a datatype directory
+        (e.g. session-level `scans.tsv`, subject-level derivative
+        aggregates) are always included.
     refresh : bool, default: False
         Whether to re-fetch the dataset index from OSF and download any files
         that are missing locally. If `False` and all requested files are
@@ -202,7 +245,8 @@ def fetch_cybis_pereira_2026(
     Raises
     ------
     ValueError
-        If an unknown dataset name is passed in `datasets`.
+        If an unknown dataset name is passed in `datasets`, or an
+        unknown datatype is passed in `datatypes`.
 
     References
     ----------
@@ -226,6 +270,8 @@ def fetch_cybis_pereira_2026(
         sessions = [sessions]
     if isinstance(acqs, str):
         acqs = [acqs]
+    if isinstance(datatypes, str):
+        datatypes = [datatypes]
 
     if datasets is not None:
         invalid = set(datasets) - _VALID_DATASETS
@@ -235,11 +281,19 @@ def fetch_cybis_pereira_2026(
                 f"Valid options: {sorted(_VALID_DATASETS)}"
             )
 
+    if datatypes is not None:
+        invalid = set(datatypes) - _VALID_DATATYPES
+        if invalid:
+            raise ValueError(
+                f"Unknown datatype(s): {invalid}. "
+                f"Valid options: {sorted(_VALID_DATATYPES)}"
+            )
+
     index = cast(
         "dict[str, OsfFileInfo]",
         get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh),
     )
-    files = _filter_files(index, datasets, subjects, sessions, acqs)
+    files = _filter_files(index, datasets, subjects, sessions, acqs, datatypes)
 
     download_missing_osf_files(bids_dir, files)
 
