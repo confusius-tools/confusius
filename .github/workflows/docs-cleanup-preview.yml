@@ -7,6 +7,9 @@ on:
 jobs:
   cleanup:
     runs-on: ubuntu-latest
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
     permissions:
       pull-requests: write
     steps:

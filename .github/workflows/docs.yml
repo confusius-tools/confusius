@@ -106,7 +106,9 @@ jobs:
         uses: actions/upload-artifact@v7.0.1
         with:
           name: gallery-built-${{ github.sha }}
-          path: docs/examples/_built/
+          path: |
+            docs/examples/_built/
+            docs/examples/index.md
           retention-days: 14
 
       - name: Upload generated images artifact
@@ -204,19 +206,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: gallery-built-${{ github.sha }}
-          path: docs/examples/_built/
-
-      - name: Download site artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: site-${{ github.sha }}
-          path: site/
+          path: docs/examples/
 
       - name: Download generated images artifact
         uses: actions/download-artifact@v4
         with:
           name: docs-images-${{ github.sha }}
           path: docs/images/
+
+      - name: Verify gallery artifacts
+        run: |
+          if [ ! -f "docs/examples/_built/io/confusius_xarray_101.md" ]; then
+            echo "Gallery files missing after artifact download:"
+            ls -la docs/examples/_built/ 2>/dev/null || echo "(directory does not exist)"
+            exit 1
+          fi
+          if [ ! -f "docs/examples/index.md" ]; then
+            echo "Gallery index missing after artifact download"
+            exit 1
+          fi
 
       - name: Clone confusius-docs
         run: |
@@ -229,32 +237,11 @@ jobs:
       - name: Deploy dev docs
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         working-directory: /tmp/confusius-docs
-        run: |
-          SITE_EXAMPLES_INDEX="${{ github.workspace }}/site/examples/index.html"
-          if [ ! -f "$SITE_EXAMPLES_INDEX" ]; then
-            SITE_EXAMPLES_INDEX="${{ github.workspace }}/site/site/examples/index.html"
-          fi
-          cp "$SITE_EXAMPLES_INDEX" /tmp/confusius-examples-index.html
-          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --update-aliases dev latest
-          cp /tmp/confusius-examples-index.html dev/examples/index.html
-          git add dev/examples/index.html
-          git diff --cached --quiet || git commit --amend --no-edit
-          uv run --project ${{ github.workspace }} mike list --config-file ${{ github.workspace }}/zensical.toml --branch main | grep -q "^stable " || uv run --project ${{ github.workspace }} mike set-default --config-file ${{ github.workspace }}/zensical.toml --branch main latest
-          git push origin main
+        run: uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push --update-aliases dev latest
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')
         working-directory: /tmp/confusius-docs
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          SITE_EXAMPLES_INDEX="${{ github.workspace }}/site/examples/index.html"
-          if [ ! -f "$SITE_EXAMPLES_INDEX" ]; then
-            SITE_EXAMPLES_INDEX="${{ github.workspace }}/site/site/examples/index.html"
-          fi
-          cp "$SITE_EXAMPLES_INDEX" /tmp/confusius-examples-index.html
-          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --update-aliases "$VERSION" stable
-          cp /tmp/confusius-examples-index.html "$VERSION"/examples/index.html
-          git add "$VERSION"/examples/index.html
-          git diff --cached --quiet || git commit --amend --no-edit
-          uv run --project ${{ github.workspace }} mike set-default --config-file ${{ github.workspace }}/zensical.toml --branch main stable
-          git push origin main
+          uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --push "$VERSION"

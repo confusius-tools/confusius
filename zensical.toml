@@ -76,7 +76,7 @@ nav = [
 
 [project.extra.version]
 provider = "mike"
-default = "stable"
+default = "latest"
 alias = true
 
 [[project.extra.social]]
