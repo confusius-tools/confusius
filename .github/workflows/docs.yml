@@ -238,9 +238,23 @@ jobs:
           uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --update-aliases dev latest
           cp /tmp/confusius-examples-index.html dev/examples/index.html
           git add dev/examples/index.html
-          git diff --cached --quiet || git commit --amend --no-edit
+          if ! git diff --cached --quiet; then
+            if ! git commit --amend --no-edit 2>/tmp/amend.err; then
+              if grep -q "make it empty" /tmp/amend.err; then
+                echo "Amend would be empty (no effective doc changes); dropping commit"
+                git reset --hard HEAD~1
+              else
+                cat /tmp/amend.err >&2
+                exit 1
+              fi
+            fi
+          fi
           uv run --project ${{ github.workspace }} mike list --config-file ${{ github.workspace }}/zensical.toml --branch main | grep -q "^stable " || uv run --project ${{ github.workspace }} mike set-default --config-file ${{ github.workspace }}/zensical.toml --branch main latest
-          git push origin main
+          if git diff --quiet origin/main HEAD; then
+            echo "No changes vs origin/main; skipping push"
+          else
+            git push origin main
+          fi
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')
@@ -255,6 +269,20 @@ jobs:
           uv run --project ${{ github.workspace }} mike deploy --config-file ${{ github.workspace }}/zensical.toml --branch main --update-aliases "$VERSION" stable
           cp /tmp/confusius-examples-index.html "$VERSION"/examples/index.html
           git add "$VERSION"/examples/index.html
-          git diff --cached --quiet || git commit --amend --no-edit
+          if ! git diff --cached --quiet; then
+            if ! git commit --amend --no-edit 2>/tmp/amend.err; then
+              if grep -q "make it empty" /tmp/amend.err; then
+                echo "Amend would be empty (no effective doc changes); dropping commit"
+                git reset --hard HEAD~1
+              else
+                cat /tmp/amend.err >&2
+                exit 1
+              fi
+            fi
+          fi
           uv run --project ${{ github.workspace }} mike set-default --config-file ${{ github.workspace }}/zensical.toml --branch main stable
-          git push origin main
+          if git diff --quiet origin/main HEAD; then
+            echo "No changes vs origin/main; skipping push"
+          else
+            git push origin main
+          fi
