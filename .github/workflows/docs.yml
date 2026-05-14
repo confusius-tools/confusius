@@ -172,24 +172,23 @@ jobs:
       - name: Deploy dev docs
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         run: |
-          uv run mike deploy --push --update-aliases dev latest
-          uv run mike list | grep -q "^stable " || uv run mike set-default --push latest
+          uv run mike deploy --update-aliases dev latest
+          uv run mike list | grep -q "^stable " || uv run mike set-default latest
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          uv run mike deploy --push --update-aliases "$VERSION" stable
-          uv run mike set-default --push stable
+          uv run mike deploy --update-aliases "$VERSION" stable
+          uv run mike set-default stable
 
-      - name: Ensure CNAME on gh-pages
+      - name: Push gh-pages as single commit
         run: |
-          git fetch origin gh-pages
           git checkout gh-pages
-          if [ "$(cat CNAME 2>/dev/null)" != "confusius.tools" ]; then
-            echo "confusius.tools" > CNAME
-            git add CNAME
-            git commit -m "chore: add CNAME for custom domain"
-            git push origin gh-pages
-          fi
+          echo "confusius.tools" > CNAME
+          git add CNAME
+          git diff --cached --quiet || git commit -m "chore: add CNAME"
+          TREE=$(git rev-parse gh-pages^{tree})
+          ORPHAN=$(git commit-tree "$TREE" -m "Deploy docs [ci skip]")
+          git push --force origin "$ORPHAN:refs/heads/gh-pages"
           git checkout -
