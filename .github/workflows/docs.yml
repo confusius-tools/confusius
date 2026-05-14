@@ -177,7 +177,7 @@ jobs:
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           message: |
-            📖 Doc preview: https://confusius-tools.github.io/confusius-docs/pr-preview/pr-${{ github.event.number }}/
+            📖 Doc preview: https://confusius.tools/pr-preview/pr-${{ github.event.number }}/
 
   deploy-docs:
     needs: build
