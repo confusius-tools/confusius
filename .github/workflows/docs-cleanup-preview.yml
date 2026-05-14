@@ -1,0 +1,30 @@
+name: Clean up doc preview
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove preview from docs repo
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
+            docs-repo
+          cd docs-repo
+          if [ -d "pr-preview/pr-${{ github.event.number }}" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm -rf "pr-preview/pr-${{ github.event.number }}"
+            git commit -m "docs: remove preview for PR #${{ github.event.number }}"
+            git push
+          fi
+
+      - name: Delete preview comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          delete: true

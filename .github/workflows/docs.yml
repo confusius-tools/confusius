@@ -117,7 +117,7 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v6
@@ -129,16 +129,27 @@ jobs:
           path: site/
 
       - name: Deploy PR preview
-        uses: rossjrw/pr-preview-action@v1
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          source-dir: site/
+          personal_token: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+          external_repository: confusius-tools/confusius-docs
+          publish_branch: main
+          publish_dir: site/
+          destination_dir: pr-preview/pr-${{ github.event.number }}
+          keep_files: true
+
+      - name: Post preview URL comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          message: |
+            📖 Doc preview: https://confusius.tools/pr-preview/pr-${{ github.event.number }}/
 
   deploy-docs:
     needs: build
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
@@ -168,27 +179,17 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add docs-repo "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git"
 
       - name: Deploy dev docs
         if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
         run: |
-          uv run mike deploy --update-aliases dev latest
-          uv run mike list | grep -q "^stable " || uv run mike set-default latest
+          uv run mike deploy --remote docs-repo --branch main --push --update-aliases dev latest
+          uv run mike list --remote docs-repo --branch main | grep -q "^stable " || uv run mike set-default --remote docs-repo --branch main --push latest
 
       - name: Deploy release docs
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           VERSION="${GITHUB_REF#refs/tags/v}"
-          uv run mike deploy --update-aliases "$VERSION" stable
-          uv run mike set-default stable
-
-      - name: Push gh-pages as single commit
-        run: |
-          git checkout gh-pages
-          echo "confusius.tools" > CNAME
-          git add CNAME
-          git diff --cached --quiet || git commit -m "chore: add CNAME"
-          TREE=$(git rev-parse gh-pages^{tree})
-          ORPHAN=$(git commit-tree "$TREE" -m "Deploy docs [ci skip]")
-          git push --force origin "$ORPHAN:refs/heads/gh-pages"
-          git checkout -
+          uv run mike deploy --remote docs-repo --branch main --push --update-aliases "$VERSION" stable
+          uv run mike set-default --remote docs-repo --branch main --push stable
