@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import nbformat
+import pytest
 
 from tools.gallery.render import render_notebook
 
@@ -187,3 +188,55 @@ def test_render_uses_outputs_from_light_and_dark_notebooks(tmp_path: Path) -> No
     assert light_bytes == b"light_pixel"
     assert dark_bytes == b"dark_pixel"
     assert light_bytes != dark_bytes
+
+
+def test_render_pairs_outputs_when_light_has_extra_stream(tmp_path: Path) -> None:
+    """Light/dark output asymmetry warns and renders without crashing.
+
+    Independent kernels occasionally emit a one-time stream output (download
+    progress, warning) in only one of the two builds. The renderer must pair
+    what it can, drop the trailing extras, and emit a warning instead of
+    aborting the gallery build.
+    """
+    source_nb = nbformat.v4.new_notebook()
+    source_nb.cells.append(nbformat.v4.new_code_cell("print('a')\nx = 1\nx"))
+
+    light_nb = nbformat.v4.new_notebook()
+    light_cell = nbformat.v4.new_code_cell("print('a')\nx = 1\nx")
+    light_cell.outputs = [
+        nbformat.v4.new_output(output_type="stream", name="stdout", text="a\n"),
+        nbformat.v4.new_output(
+            output_type="execute_result",
+            data={"text/plain": "1"},
+            execution_count=1,
+            metadata={},
+        ),
+    ]
+    light_nb.cells.append(light_cell)
+
+    dark_nb = nbformat.v4.new_notebook()
+    dark_cell = nbformat.v4.new_code_cell("print('a')\nx = 1\nx")
+    # Dark missed the stream output entirely.
+    dark_cell.outputs = [
+        nbformat.v4.new_output(
+            output_type="execute_result",
+            data={"text/plain": "1"},
+            execution_count=1,
+            metadata={},
+        ),
+    ]
+    dark_nb.cells.append(dark_cell)
+
+    with pytest.warns(UserWarning, match="light outputs and"):
+        md_path, _ = render_notebook(
+            source_nb,
+            light_nb,
+            dark_nb,
+            out_dir=tmp_path,
+            base_name="ex",
+            runtime_seconds=1.0,
+        )
+
+    # The shared output (stream "a") is still rendered from the paired index 0.
+    md = md_path.read_text()
+    assert "```\na\n```" in md

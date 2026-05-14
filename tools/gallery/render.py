@@ -159,14 +159,6 @@ def render_notebook(
         if "_gallery_internal" not in _cell_tags(cell)
     ]
 
-    if len(light_cells) != len(dark_cells):
-        raise RuntimeError(
-            f"Light and dark notebooks for {base_name!r} have different cell "
-            f"counts ({len(light_cells)} vs {len(dark_cells)}) after filtering "
-            "internal gallery cells; the two executions used different source "
-            "notebooks."
-        )
-
     for cell_index, (cell, light_cell, dark_cell) in enumerate(
         zip(source_notebook.cells, light_cells, dark_cells, strict=True),
         start=1,
