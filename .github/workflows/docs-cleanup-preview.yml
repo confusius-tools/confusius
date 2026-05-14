@@ -1,0 +1,51 @@
+name: Clean up doc preview
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: docs-publish
+      cancel-in-progress: false
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Remove preview from docs repo
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+        run: |
+          git clone --depth 1 \
+            "https://x-access-token:${{ secrets.DOCS_DEPLOY_TOKEN }}@github.com/confusius-tools/confusius-docs.git" \
+            docs-repo
+          cd docs-repo
+          if [ -d "pr-preview/pr-${{ github.event.number }}" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git rm -rf "pr-preview/pr-${{ github.event.number }}"
+            git commit -m "docs: remove preview for PR #${{ github.event.number }}"
+            git push
+          fi
+
+      - name: Remove PR entry from pr-preview/versions.json
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.number }}"
+          RESPONSE=$(gh api repos/confusius-tools/confusius-docs/contents/pr-preview/versions.json 2>/dev/null || echo "")
+          if [ -z "$RESPONSE" ]; then exit 0; fi
+          SHA=$(echo "$RESPONSE" | jq -r '.sha')
+          OLD_CONTENT=$(echo "$RESPONSE" | jq -r '.content | gsub("\\n"; "") | @base64d')
+          NEW_CONTENT=$(echo "$OLD_CONTENT" | jq --arg ver "pr-${PR_NUM}" '[.[] | select(.version != $ver)]')
+          CONTENT_B64=$(printf '%s' "$NEW_CONTENT" | base64 -w 0)
+          PAYLOAD=$(jq -n --arg sha "$SHA" --arg c "$CONTENT_B64" --arg pr "$PR_NUM" \
+            '{message:"chore: remove pr-\($pr) from pr-preview/versions.json",content:$c,sha:$sha}')
+          echo "$PAYLOAD" | gh api repos/confusius-tools/confusius-docs/contents/pr-preview/versions.json \
+            -X PUT --input -
+
+      - name: Delete preview comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          delete: true

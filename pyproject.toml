@@ -69,6 +69,7 @@ dev = [
     "pytest-mpl>=0.16.0",
     "ruff>=0.8.0",
     "ty>=0.0.10,<0.1.0",
+    "mike @ git+https://github.com/squidfunk/mike.git",
     "zensical>=0.0.40",
     "mkdocstrings[python]>=1.0.3",
     "pytest-qt>=4.5.0",

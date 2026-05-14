@@ -243,6 +243,7 @@ class FUSIPlotAccessor:
         decimation_threshold: int | None = 800,
         figsize: tuple[float, float] = (10, 5),
         title: str | None = None,
+        fontsize: float | None = None,
         bg_color: str = "white",
         fg_color: str | None = None,
         ax: "Axes | None" = None,
@@ -284,6 +285,10 @@ class FUSIPlotAccessor:
             Figure size in inches `(width, height)`.
         title : str, optional
             Plot title.
+        fontsize : float, optional
+            Base font size for text elements. Title uses `fontsize` directly;
+            axis labels and colorbar label use `0.9 * fontsize`; tick labels use
+            `0.85 * fontsize`. If not provided, uses the active Matplotlib defaults.
         bg_color : str, default: "white"
             Background color for the figure and axes. Any matplotlib-compatible color
             string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
@@ -338,6 +343,7 @@ class FUSIPlotAccessor:
             decimation_threshold=decimation_threshold,
             figsize=figsize,
             title=title,
+            fontsize=fontsize,
             bg_color=bg_color,
             fg_color=fg_color,
             ax=ax,
@@ -362,6 +368,7 @@ class FUSIPlotAccessor:
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
         show_axes: bool = True,
+        fontsize: float | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
         bg_color: str = "black",
@@ -429,6 +436,11 @@ class FUSIPlotAccessor:
         show_axes : bool, default: True
             Whether to show all axis decorations (spines, ticks, labels). When
             `False`, overrides `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels and colorbar label use `0.9 * fontsize`; tick
+            labels use `0.85 * fontsize`. If not provided, uses the active Matplotlib
+            defaults.
         yincrease : bool, default: False
             Whether the y-axis increases upward (`True`) or downward (`False`).
         xincrease : bool, default: True
@@ -501,6 +513,7 @@ class FUSIPlotAccessor:
             show_axis_labels=show_axis_labels,
             show_axis_ticks=show_axis_ticks,
             show_axes=show_axes,
+            fontsize=fontsize,
             yincrease=yincrease,
             xincrease=xincrease,
             bg_color=bg_color,
@@ -517,6 +530,7 @@ class FUSIPlotAccessor:
         linestyles: str = "solid",
         slice_mode: str = "z",
         slice_coords: list[float] | None = None,
+        fontsize: float | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
         bg_color: str = "black",
@@ -550,6 +564,10 @@ class FUSIPlotAccessor:
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided, all
             coordinate values along `slice_mode` are used.
+        fontsize : float, optional
+            Base font size for text elements. Subplot titles use `fontsize`
+            directly; axis labels use `0.9 * fontsize`; tick labels use
+            `0.85 * fontsize`. If not provided, uses the active Matplotlib defaults.
         yincrease : bool, default: False
             Whether the y-axis increases upward (`True`) or downward (`False`).
         xincrease : bool, default: True
@@ -595,6 +613,7 @@ class FUSIPlotAccessor:
             linestyles=linestyles,
             slice_mode=slice_mode,
             slice_coords=slice_coords,
+            fontsize=fontsize,
             yincrease=yincrease,
             xincrease=xincrease,
             bg_color=bg_color,

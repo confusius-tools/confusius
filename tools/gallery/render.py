@@ -67,6 +67,9 @@ def _normalize_html_output(html: str) -> str:
             ".xr-array-preview,.xr-array-preview span,.xr-preview,.xr-var-preview,.xr-var-dtype,.xr-var-dims,.xr-var-name,.xr-obj-type,.xr-obj-name{color:var(--xr-font-color0)!important;}"
             ".gallery-rich-output{overflow-x:auto;}"
             ".gallery-rich-output .xr-var-list,.gallery-rich-output .xr-dim-list,.gallery-rich-output .xr-attrs{padding-left:0!important;margin:0!important;list-style:none!important;}"
+            # Zensical's `.md-typeset ul li` rule adds margin-left:1.25em to <li>
+            # elements, including those inside .xr-dim-list.
+            ".gallery-rich-output .xr-dim-list li{margin-left:0!important;}"
             # MkDocs Material's `.md-typeset ul:not([hidden])` has higher specificity
             # than xarray's `.xr-sections` and forces `display:flow-root`, collapsing
             # the grid. Force it back so each coordinate row stays on one line.

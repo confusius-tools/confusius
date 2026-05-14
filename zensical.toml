@@ -77,6 +77,11 @@ nav = [
     { "Citing" = "citing.md" },
 ]
 
+[project.extra.version]
+provider = "mike"
+default = "latest"
+alias = true
+
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
 link = "https://github.com/confusius-tools/confusius"

@@ -172,6 +172,31 @@ class TestPlotVolume:
         assert len(extra_axes) == 1
         assert extra_axes[0].get_ylabel() == "Power (dB)"
 
+    def test_fontsize_scales_volume_text_elements(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """plot_volume scales title, label, tick, and colorbar text from fontsize."""
+        z_coord = sample_3d_volume.coords["z"].values[0]
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            fontsize=20,
+            cbar_label="Power (dB)",
+        )
+
+        ax = plotter.axes[0, 0]
+        assert ax.title.get_fontsize() == pytest.approx(20)
+        assert ax.xaxis.label.get_fontsize() == pytest.approx(18)
+        assert ax.yaxis.label.get_fontsize() == pytest.approx(18)
+        assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(17)
+
+        plot_axes = set(plotter.axes.ravel())
+        cbar_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
+        assert len(cbar_axes) == 1
+        assert cbar_axes[0].yaxis.label.get_fontsize() == pytest.approx(18)
+        assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(17)
+
     def test_existing_axes_used(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume uses provided axes without creating new ones."""
         import matplotlib.pyplot as plt
@@ -533,6 +558,21 @@ class TestPlotContours:
         )
         plotter = plot_contours(mask, slice_mode="z")
         assert plotter.figure is None
+
+    def test_fontsize_scales_contour_text_elements(self, matplotlib_pyplot):
+        """plot_contours scales title, label, and tick text from fontsize."""
+        mask = xr.DataArray(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        )
+        plotter = plot_contours(mask, slice_mode="z", fontsize=16)
+        ax = plotter.axes[0, 0]
+
+        assert ax.title.get_fontsize() == pytest.approx(16)
+        assert ax.xaxis.label.get_fontsize() == pytest.approx(14.4)
+        assert ax.yaxis.label.get_fontsize() == pytest.approx(14.4)
+        assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(13.6)
 
 
 class TestVolumePlotterAddContours:
@@ -995,7 +1035,7 @@ class TestPlotVolumeVisualRegression:
         "bg_color",
         [
             pytest.param("#1a1a2e", id="dark"),  # WCAG luminance < 0.179 → white fg
-            pytest.param("white", id="light"),   # WCAG luminance = 1.0 → black fg
+            pytest.param("white", id="light"),  # WCAG luminance = 1.0 → black fg
         ],
     )
     @pytest.mark.mpl_image_compare(
@@ -1138,6 +1178,29 @@ def _create_deterministic_time_series() -> xr.DataArray:
             "x": [0.0, 0.5, 1.0, 1.5],
         },
     )
+
+
+class TestPlotCarpet:
+    """Tests for non-visual plot_carpet behaviour."""
+
+    def test_fontsize_scales_carpet_text_elements(self, matplotlib_pyplot):
+        """plot_carpet scales title, label, tick, and colorbar text from fontsize."""
+        data = _create_deterministic_time_series()
+        fig, ax = plot_carpet(
+            data,
+            standardize=False,
+            title="Carpet",
+            fontsize=18,
+        )
+
+        assert ax.title.get_fontsize() == pytest.approx(18)
+        assert ax.xaxis.label.get_fontsize() == pytest.approx(16.2)
+        assert ax.yaxis.label.get_fontsize() == pytest.approx(16.2)
+        assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(15.3)
+
+        cbar_axes = [axis for axis in fig.axes if axis is not ax]
+        assert len(cbar_axes) == 1
+        assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(15.3)
 
 
 class TestPlotCarpetVisualRegression:
