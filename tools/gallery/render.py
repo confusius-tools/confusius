@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import re
 import shutil
+import warnings
 from pathlib import Path
 
 import nbformat
@@ -158,6 +159,14 @@ def render_notebook(
         if "_gallery_internal" not in _cell_tags(cell)
     ]
 
+    if len(light_cells) != len(dark_cells):
+        raise RuntimeError(
+            f"Light and dark notebooks for {base_name!r} have different cell "
+            f"counts ({len(light_cells)} vs {len(dark_cells)}) after filtering "
+            "internal gallery cells; the two executions used different source "
+            "notebooks."
+        )
+
     for cell_index, (cell, light_cell, dark_cell) in enumerate(
         zip(source_notebook.cells, light_cells, dark_cells, strict=True),
         start=1,
@@ -170,10 +179,22 @@ def render_notebook(
 
         parts.append("```python\n" + cell.source.rstrip() + "\n```\n")
 
-        for output_index, (light_output, dark_output) in enumerate(
-            zip(
-                light_cell.get("outputs", []), dark_cell.get("outputs", []), strict=True
+        # Light and dark outputs are paired by index. The two executions
+        # run independently, so non-deterministic stream messages (download
+        # progress, one-time warnings, etc.) can occasionally make the lists
+        # different lengths. Drop the trailing outputs of the longer side
+        # and emit a warning rather than crashing the gallery build.
+        light_outputs = light_cell.get("outputs", [])
+        dark_outputs = dark_cell.get("outputs", [])
+        if len(light_outputs) != len(dark_outputs):
+            warnings.warn(
+                f"{base_name}: cell {cell_index} produced "
+                f"{len(light_outputs)} light outputs and {len(dark_outputs)} "
+                "dark outputs; pairing by index and dropping the extras.",
+                stacklevel=2,
             )
+        for output_index, (light_output, dark_output) in enumerate(
+            zip(light_outputs, dark_outputs)
         ):
             output_type = light_output.get("output_type")
             if output_type == "stream":
