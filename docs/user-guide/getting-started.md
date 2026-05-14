@@ -224,7 +224,7 @@ Ready to get started?
 2. **[I/O Guide](io.md)**: Learn how to load and convert your fUSI data.
 3. **[Graphical Interface](../gui/overview.md)**: Explore your data interactively with
    the napari plugin—no scripting required.
-4. **[Examples](../examples/index.md)**: See complete workflows for common tasks.
+4. **[Examples](../examples/)**: See complete workflows for common tasks.
 5. **[API Reference](../api/index.md)**: Explore detailed function documentation.
 
 Still have questions? Check the [GitHub
