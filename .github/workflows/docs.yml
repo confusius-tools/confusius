@@ -138,6 +138,17 @@ jobs:
           destination_dir: pr-preview/pr-${{ github.event.number }}
           keep_files: true
 
+      - name: Deploy stub versions.json for mike version switcher
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_DEPLOY_TOKEN }}
+        run: |
+          SHA=$(gh api repos/confusius-tools/confusius-docs/contents/pr-preview/versions.json \
+            --jq '.sha' 2>/dev/null || echo "")
+          PAYLOAD=$(jq -n --arg sha "$SHA" \
+            '{message:"chore: add stub versions.json",content:"W10=",sha:($sha|if .=="" then null else . end)} | del(..|nulls)')
+          echo "$PAYLOAD" | gh api repos/confusius-tools/confusius-docs/contents/pr-preview/versions.json \
+            -X PUT --input -
+
       - name: Post preview URL comment
         uses: marocchino/sticky-pull-request-comment@v2
         with:
