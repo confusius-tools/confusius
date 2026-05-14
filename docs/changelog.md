@@ -12,6 +12,9 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added `datatypes` filter to `fetch_cybis_pereira_2026`, allowing downloads to be
+  scoped to specific BIDS datatype directories (`"fusi"`, `"angio"`, `"motion"`)
+  ([#NNN](https://github.com/confusius-tools/confusius/pull/NNN)).
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
