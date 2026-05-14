@@ -11,6 +11,14 @@
 # slice `slice03`, task `spontaneous`, recorded two days apart (sessions `20191120`
 # and `20191122`).
 
+# %% [markdown]
+# ## Fetch and load both recordings
+#
+# Each recording is a 2D+t power Doppler series of a single slice. We average over
+# time to get one power Doppler image per session, then convert to decibels—both
+# for display and for the registration itself, which is more stable on the
+# log-compressed dynamic range.
+
 # %%
 from pathlib import Path
 
@@ -27,15 +35,6 @@ from confusius.registration import register_volume, resample_like
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 xr.set_options(display_expand_data=False)
 
-# %% [markdown]
-# ## Fetch and load both recordings
-#
-# Each recording is a 2D+t power Doppler series of a single slice. We average over
-# time to get one power Doppler image per session, then convert to decibels — both
-# for display and for the registration itself, which is more stable on the
-# log-compressed dynamic range.
-
-# %%
 bids_root = fetch_nunez_elizalde_2022(
     subjects="CR020",
     sessions=["20191120", "20191122"],
@@ -44,7 +43,7 @@ bids_root = fetch_nunez_elizalde_2022(
 )
 
 
-def _load_mean_pwd_db(session: str) -> xr.DataArray:
+def load_mean_pwd_db(session: str) -> xr.DataArray:
     """Load and time-average the slice03 spontaneous recording, in decibels."""
     path = (
         Path(bids_root)
@@ -56,8 +55,8 @@ def _load_mean_pwd_db(session: str) -> xr.DataArray:
     return cf.load(path).compute().mean("time").fusi.scale.db()
 
 
-fixed = _load_mean_pwd_db("20191120")
-moving = _load_mean_pwd_db("20191122")
+fixed = load_mean_pwd_db("20191120")
+moving = load_mean_pwd_db("20191122")
 
 fixed
 
@@ -122,7 +121,7 @@ plotter.figure.patch.set_alpha(0)
 #     (`use_multi_resolution`, `shrink_factors`, `smoothing_sigmas`). The default
 #     values used in this example were empirically found to work well in most
 #     cases, but you should definitely try different arguments if the result is
-#     not satisfactory — inspect the
+#     not satisfactory—inspect the
 #     [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
 #     convergence curve and the post-registration overlay, and sweep these
 #     arguments until you get a stable, well-converged result.
@@ -181,7 +180,7 @@ fig.patch.set_alpha(0)
 #     optimization in real time. A live matplotlib window opens during the call and
 #     updates at every iteration with both the similarity-metric curve and a
 #     fixed/moving composite overlay. It is the fastest way to tell whether the
-#     optimizer is making progress, stuck in a local minimum, or diverging — and to
+#     optimizer is making progress, stuck in a local minimum, or diverging—and to
 #     decide which arguments to tweak from the warning above.
 
 # ## Inspect convergence with the registration diagnostics
@@ -197,7 +196,7 @@ fig, ax = plt.subplots(figsize=(7, 3), facecolor="none")
 ax.plot(diagnostics.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
-ax.set_title(f"Convergence — stop: {diagnostics.stop_condition}")
+ax.set_title(diagnostics.stop_condition)
 fig.patch.set_alpha(0)
 
 
