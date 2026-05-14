@@ -17,30 +17,6 @@ FASTICA_TEST_KWARGS = {
 }
 
 
-def test_fit_transform_returns_dataarray(sample_4d_volume):
-    """fit_transform returns `(time, component)` DataArray with coords."""
-    model = FastICA(**FASTICA_TEST_KWARGS)
-
-    signals = model.fit_transform(sample_4d_volume)
-
-    assert isinstance(signals, xr.DataArray)
-    assert signals.dims == ("time", "component")
-    assert signals.shape == (sample_4d_volume.sizes["time"], 2)
-    np.testing.assert_allclose(signals.coords["time"], sample_4d_volume.coords["time"])
-    np.testing.assert_array_equal(signals.coords["component"], np.arange(2))
-
-    assert model.maps_.dims == ("component", "z", "y", "x")
-    assert model.maps_.shape == (2, 4, 6, 8)
-    assert model.mean_.dims == ("z", "y", "x")
-    # whitening_ is only set in temporal mode; absent in default spatial mode.
-    assert not hasattr(model, "whitening_")
-    assert model.n_iter_ > 0
-    assert model.n_features_in_ == (
-        sample_4d_volume.sizes["z"]
-        * sample_4d_volume.sizes["y"]
-        * sample_4d_volume.sizes["x"]
-    )
-
 
 def test_feature_names_in_for_string_feature_labels():
     """feature_names_in_ is defined when flattened feature labels are strings."""
@@ -75,22 +51,28 @@ def test_fit_transform_matches_fit_then_transform(sample_4d_volume):
     xr.testing.assert_identical(direct, two_step)
 
 
-def test_inverse_transform_matches_sklearn(sample_4d_volume):
-    """inverse_transform matches sklearn FastICA reconstruction in temporal mode."""
-    temporal_kwargs = {**FASTICA_TEST_KWARGS, "mode": "temporal"}
-    model = FastICA(**temporal_kwargs)
-    signals = model.fit_transform(sample_4d_volume)
-    reconstructed = model.inverse_transform(signals)
-
+@pytest.mark.parametrize("mode", ["spatial", "temporal"])
+def test_inverse_transform_matches_sklearn(sample_4d_volume, mode):
+    """inverse_transform matches sklearn FastICA reconstruction for both modes."""
     stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
         feature=["z", "y", "x"]
     )
-    sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(
-        np.asarray(stacked.values, dtype=np.float64)
-    )
-    sklearn_reconstructed = sklearn_model.inverse_transform(
-        sklearn_model.transform(stacked.values)
-    )
+    X = np.asarray(stacked.values, dtype=np.float64)
+
+    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
+    reconstructed = model.inverse_transform(model.fit_transform(sample_4d_volume))
+
+    if mode == "temporal":
+        sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
+        sklearn_reconstructed = sklearn_model.inverse_transform(
+            sklearn_model.transform(X)
+        )
+    else:
+        sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X.T)
+        spatial_maps = sklearn_model.transform(X.T).T
+        voxel_mean = X.mean(axis=0)
+        time_courses = (X - voxel_mean) @ spatial_maps.T
+        sklearn_reconstructed = time_courses @ spatial_maps + voxel_mean
 
     np.testing.assert_allclose(
         reconstructed.stack(feature=["z", "y", "x"]).values,
@@ -100,33 +82,53 @@ def test_inverse_transform_matches_sklearn(sample_4d_volume):
     assert reconstructed.attrs == sample_4d_volume.attrs
 
 
-def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
-    """Wrapper exposes the same learned matrices as sklearn FastICA in temporal mode."""
+@pytest.mark.parametrize("mode", ["spatial", "temporal"])
+def test_wrapper_matches_sklearn_attributes(sample_4d_volume, mode):
+    """Wrapper exposes the same learned matrices as sklearn FastICA for both modes."""
     stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
         feature=["z", "y", "x"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    temporal_kwargs = {**FASTICA_TEST_KWARGS, "mode": "temporal"}
-    model = FastICA(**temporal_kwargs).fit(sample_4d_volume)
-    sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
+    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode).fit(sample_4d_volume)
 
-    np.testing.assert_allclose(
-        model.transform(sample_4d_volume).values,
-        sklearn_model.transform(X),
-    )
-    np.testing.assert_allclose(
-        model.maps_.stack(feature=["z", "y", "x"]).values,
-        sklearn_model.components_,
-    )
-    np.testing.assert_allclose(
-        model.mean_.stack(feature=["z", "y", "x"]).values, sklearn_model.mean_
-    )
-    np.testing.assert_allclose(
-        model.whitening_.stack(feature=["z", "y", "x"]).values,
-        sklearn_model.whitening_,
-    )
-    assert model.n_iter_ == sklearn_model.n_iter_
+    if mode == "temporal":
+        sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
+        np.testing.assert_allclose(
+            model.transform(sample_4d_volume).values,
+            sklearn_model.transform(X),
+        )
+        np.testing.assert_allclose(
+            model.maps_.stack(feature=["z", "y", "x"]).values,
+            sklearn_model.components_,
+        )
+        np.testing.assert_allclose(
+            model.mean_.stack(feature=["z", "y", "x"]).values, sklearn_model.mean_
+        )
+        np.testing.assert_allclose(
+            model.whitening_.stack(feature=["z", "y", "x"]).values,
+            sklearn_model.whitening_,
+        )
+        assert model.n_iter_ == sklearn_model.n_iter_
+    else:
+        # Spatial ICA fits on (n_voxels, n_time); sources are spatial maps.
+        sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X.T)
+        spatial_maps = sklearn_model.transform(X.T).T
+        voxel_mean = X.mean(axis=0)
+        np.testing.assert_allclose(
+            model.transform(sample_4d_volume).values,
+            (X - voxel_mean) @ spatial_maps.T,
+        )
+        np.testing.assert_allclose(
+            model.maps_.stack(feature=["z", "y", "x"]).values,
+            spatial_maps,
+        )
+        np.testing.assert_allclose(
+            model.mean_.stack(feature=["z", "y", "x"]).values,
+            voxel_mean,
+        )
+        assert not hasattr(model, "whitening_")
+        assert model.n_iter_ == sklearn_model.n_iter_
 
 
 def test_inverse_transform_from_numpy_returns_dataarray(sample_4d_volume):

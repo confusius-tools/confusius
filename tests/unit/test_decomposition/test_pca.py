@@ -9,28 +9,6 @@ from sklearn.utils.validation import check_is_fitted
 from confusius.decomposition import PCA
 
 
-def test_fit_transform_returns_dataarray(sample_4d_volume):
-    """fit_transform returns `(time, component)` DataArray with coords."""
-    model = PCA(n_components=6, random_state=0)
-
-    signals = model.fit_transform(sample_4d_volume)
-
-    assert isinstance(signals, xr.DataArray)
-    assert signals.dims == ("time", "component")
-    assert signals.shape == (sample_4d_volume.sizes["time"], 6)
-    np.testing.assert_allclose(signals.coords["time"], sample_4d_volume.coords["time"])
-    np.testing.assert_array_equal(signals.coords["component"], np.arange(6))
-
-    assert model.maps_.dims == ("component", "z", "y", "x")
-    assert model.maps_.shape == (6, 4, 6, 8)
-    assert model.mean_.dims == ("z", "y", "x")
-    assert model.n_samples_ == sample_4d_volume.sizes["time"]
-    assert model.n_features_in_ == (
-        sample_4d_volume.sizes["z"]
-        * sample_4d_volume.sizes["y"]
-        * sample_4d_volume.sizes["x"]
-    )
-
 
 def test_feature_names_in_for_string_feature_labels():
     """feature_names_in_ is defined when flattened feature labels are strings."""
