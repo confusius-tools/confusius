@@ -16,7 +16,7 @@ Current development version for the next ConfUSIus release.
   `(registered, transform, diagnostics)` instead of a 2-tuple. Existing call sites
   that unpack the two-element return value need to add a third variable (or
   `_`)
-  ([#138](https://github.com/confusius-tools/confusius/issues/138)).
+  ([#139](https://github.com/confusius-tools/confusius/pull/139)).
 
 ### :sparkles: Enhancements
 
@@ -26,7 +26,7 @@ Current development version for the next ConfUSIus release.
   stop condition, and the metric name. `register_volumewise` propagates the per-frame
   diagnostics list under `attrs["registration_diagnostics"]` and adds
   `final_metric_value` and `n_iterations` columns to `motion_params`
-  ([#138](https://github.com/confusius-tools/confusius/issues/138)).
+  ([#139](https://github.com/confusius-tools/confusius/pull/139)).
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
@@ -41,7 +41,7 @@ Current development version for the next ConfUSIus release.
   example demonstrating `register_volume`, the new diagnostics, and confusius's
   [`plot_volume`][confusius.plotting.plot_volume] overlay pattern for inspecting
   alignment before and after registration
-  ([#138](https://github.com/confusius-tools/confusius/issues/138)).
+  ([#139](https://github.com/confusius-tools/confusius/pull/139)).
 
 ### :bug: Fixes
 
