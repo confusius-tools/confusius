@@ -185,9 +185,9 @@ def get_representative_time_step(
     ----------
     data : xarray.DataArray
         DataArray containing the time coordinate.
-    unit : str or None, default: None
-        Unit in which to evaluate the representative step. If `None`, use the native
-        units of the time coordinate.
+    unit : str, optional
+        Unit in which to evaluate the representative step. If not provided, use the
+        native units of the time coordinate.
     uniformity_tolerance : float, default: 1e-2
         Maximum allowed per-interval relative deviation from the median consecutive
         difference for the time coordinate to be considered uniform.
@@ -389,11 +389,11 @@ def resample_to_uniform_time(
     ----------
     data : xarray.DataArray
         DataArray with a `time` coordinate.
-    start : float or None, default: None
+    start : float, optional
         Start of the new time grid. If not provided, use the first time point.
-    stop : float or None, default: None
+    stop : float, optional
         Stop of the new time grid. If not provided, use the last time point.
-    step : float or None, default: None
+    step : float, optional
         Time step for the uniform grid. If not provided, derive it from the input
         coordinate by estimating a representative interval from consecutive time
         differences. For non-uniform input, the median interval is used and a warning is

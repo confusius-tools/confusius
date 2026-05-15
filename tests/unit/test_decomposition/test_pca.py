@@ -3,31 +3,11 @@
 import numpy as np
 import pytest
 import xarray as xr
+from sklearn.decomposition import PCA as SklearnPCA
 from sklearn.utils.validation import check_is_fitted
 
 from confusius.decomposition import PCA
 
-
-def test_fit_transform_returns_dataarray(sample_4d_volume):
-    """fit_transform returns `(time, component)` DataArray with coords."""
-    model = PCA(n_components=6, random_state=0)
-
-    signals = model.fit_transform(sample_4d_volume)
-
-    assert isinstance(signals, xr.DataArray)
-    assert signals.dims == ("time", "component")
-    assert signals.shape == (sample_4d_volume.sizes["time"], 6)
-    np.testing.assert_allclose(signals.coords["time"], sample_4d_volume.coords["time"])
-    np.testing.assert_array_equal(signals.coords["component"], np.arange(6))
-
-    assert model.components_.dims == ("component", "z", "y", "x")
-    assert model.components_.shape == (6, 4, 6, 8)
-    assert model.n_samples_ == sample_4d_volume.sizes["time"]
-    assert model.n_features_in_ == (
-        sample_4d_volume.sizes["z"]
-        * sample_4d_volume.sizes["y"]
-        * sample_4d_volume.sizes["x"]
-    )
 
 
 def test_feature_names_in_for_string_feature_labels():
@@ -54,6 +34,44 @@ def test_fit_transform_matches_fit_then_transform(sample_4d_volume):
     xr.testing.assert_identical(direct, two_step)
 
 
+def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
+    """Wrapper exposes the same learned quantities as sklearn PCA."""
+    stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
+        feature=["z", "y", "x"]
+    )
+    X = np.asarray(stacked.values, dtype=np.float64)
+
+    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
+    sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X)
+
+    np.testing.assert_allclose(
+        model.transform(sample_4d_volume).values,
+        sklearn_model.transform(X),
+    )
+    np.testing.assert_allclose(
+        model.maps_.stack(feature=["z", "y", "x"]).values,
+        sklearn_model.components_,
+    )
+    np.testing.assert_allclose(
+        model.mean_.stack(feature=["z", "y", "x"]).values,
+        sklearn_model.mean_,
+    )
+    np.testing.assert_allclose(
+        model.explained_variance_.values,
+        sklearn_model.explained_variance_,
+    )
+    np.testing.assert_allclose(
+        model.explained_variance_ratio_.values,
+        sklearn_model.explained_variance_ratio_,
+    )
+    np.testing.assert_allclose(
+        model.singular_values_.values,
+        sklearn_model.singular_values_,
+    )
+    assert model.n_components_ == sklearn_model.n_components_
+    assert model.noise_variance_ == sklearn_model.noise_variance_
+
+
 def test_inverse_transform_reconstructs_with_all_components(sample_4d_volume):
     """Using all components reconstructs the original data."""
     model = PCA(random_state=0)
@@ -65,7 +83,9 @@ def test_inverse_transform_reconstructs_with_all_components(sample_4d_volume):
     np.testing.assert_allclose(
         reconstructed.coords["time"], sample_4d_volume.coords["time"]
     )
-    np.testing.assert_allclose(reconstructed.values, sample_4d_volume.values, atol=1e-10)
+    np.testing.assert_allclose(
+        reconstructed.values, sample_4d_volume.values, atol=1e-10
+    )
     assert reconstructed.name == sample_4d_volume.name
     assert reconstructed.attrs == sample_4d_volume.attrs
 
@@ -283,4 +303,4 @@ def test_randomized_solver_reproducible_with_random_state(sample_4d_volume):
     signals_2 = model_2.fit_transform(sample_4d_volume)
 
     np.testing.assert_allclose(signals_1.values, signals_2.values)
-    np.testing.assert_allclose(model_1.components_.values, model_2.components_.values)
+    np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)

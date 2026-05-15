@@ -2,7 +2,8 @@
 
 ## Project Status
 
-This is a **pre-alpha package** under rapid iteration. Backward compatibility is not a concern - feel free to make breaking API changes when they improve the design.
+This is a **beta package** under rapid iteration. Backward compatibility is not a
+concern, feel free to make breaking API changes when they improve the design.
 
 ## Release Process
 
@@ -13,7 +14,8 @@ generation of the GitHub release message and Discord announcement.
 
 ## Build/Lint/Test Commands
 
-This project uses [uv](https://docs.astral.sh/uv/) for dependency management and [just](https://github.com/casey/just) as a command runner.
+This project uses [uv](https://docs.astral.sh/uv/) for dependency management and
+[just](https://github.com/casey/just) as a command runner.
 
 ### Build & Environment
 - `uv sync` - Install dependencies and sync the virtual environment
@@ -151,12 +153,19 @@ Coverage reports are generated automatically (terminal, HTML in `htmlcov/`, and 
 
 ### Documentation
 - Use Zensical for documentation generation
-- Use NumPy docstring format for all public functions
+- Use NumPy docstring format for all functions and methods, including private helpers
+  (prefixed with `_`) — they require full Parameters, Returns, and Raises sections just
+  like public ones
 - Include Parameters, Returns, Raises sections
 - Document complex algorithms with references
 - Use type hints in docstrings when helpful
 - Include default values in the type parameter as `arg : type, default: value`, or `arg
-  : type, optional` when the default is `None`
+  : type, optional` when the default is `None` — never write `arg : type or None,
+  default: None`
+- When describing the fallback behaviour of an optional parameter, write "If not
+  provided, ..." — not "If `None`, ..."
+- For boolean parameters, start the description with "Whether to ..." — not "If
+  `True`/`False`, ..."
 - Use single backticks for inline code (Zensical/MarkDocs style, not Sphinx rst)
 - Use full package names in docstrings (e.g., `xarray.DataArray` not `xr.DataArray`)
 - Use `list[...]`, `tuple[...]` syntax instead of "list of..." descriptions

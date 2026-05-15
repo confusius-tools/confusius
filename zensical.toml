@@ -68,6 +68,10 @@ nav = [
         { "Getting Started" = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
         ]},
+        { "Decomposition" = [
+            { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },
+            { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },

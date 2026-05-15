@@ -75,14 +75,14 @@ class FUSIRegistrationAccessor:
             Window size for convergence check.
         initialization : {"geometry", "moments", "none"}, default: "geometry"
             Transform initialization strategy. Ignored for bspline transforms.
-        optimizer_weights : list of float or None, default: None
+        optimizer_weights : list of float, optional
             Per-parameter weights applied on top of auto-estimated scales via
-            `SetOptimizerWeights()`. `None` applies no additional weighting.
-            The weight for each parameter is multiplied into the effective step
-            size: `0` freezes a parameter, values in `(0, 1)` slow it
-            down, `1` leaves it unchanged. For the 3D Euler transform the
-            order is `[angleX, angleY, angleZ, tx, ty, tz]`; to disable
-            rotations around x and y use `[0, 0, 1, 1, 1, 1]`.
+            `SetOptimizerWeights()`. If not provided, no additional weighting is
+            applied. The weight for each parameter is multiplied into the effective step
+            size: `0` freezes a parameter, values in `(0, 1)` slow it down, `1` leaves
+            it unchanged. For the 3D Euler transform the order is `[angleX, angleY,
+            angleZ, tx, ty, tz]`; to disable rotations around x and y use `[0, 0, 1, 1,
+            1, 1]`.
         mesh_size : tuple of int, default: (10, 10, 10)
             BSpline mesh size. Only used when `transform="bspline"`.
         use_multi_resolution : bool, default: False
@@ -194,14 +194,14 @@ class FUSIRegistrationAccessor:
             Window size for convergence check.
         initialization : {"geometry", "moments", "none"}, default: "geometry"
             Transform initialization strategy.
-        optimizer_weights : list of float or None, default: None
+        optimizer_weights : list of float, optional
             Per-parameter weights applied on top of auto-estimated scales via
-            `SetOptimizerWeights()`. `None` applies no additional weighting.
-            The weight for each parameter is multiplied into the effective step
-            size: `0` freezes a parameter, values in `(0, 1)` slow it
-            down, `1` leaves it unchanged. For the 3D Euler transform the
-            order is `[angleX, angleY, angleZ, tx, ty, tz]`; to disable
-            rotations around x and y use `[0, 0, 1, 1, 1, 1]`.
+            `SetOptimizerWeights()`. If not provided, no additional weighting is
+            applied. The weight for each parameter is multiplied into the effective step
+            size: `0` freezes a parameter, values in `(0, 1)` slow it down, `1` leaves
+            it unchanged. For the 3D Euler transform the order is `[angleX, angleY,
+            angleZ, tx, ty, tz]`; to disable rotations around x and y use `[0, 0, 1, 1,
+            1, 1]`.
         use_multi_resolution : bool, default: False
             Whether to use a multi-resolution pyramid during registration.
         shrink_factors : sequence of int, default: (6, 2, 1)
