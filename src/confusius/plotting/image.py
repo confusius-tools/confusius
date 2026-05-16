@@ -109,6 +109,32 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[left], interior, [right]])
 
 
+def _slice_edges_and_centers(
+    slice_da: xr.DataArray, dim_row: str, dim_col: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return `(x_edges, y_edges, x_centers, y_centers)` for a 2D slice.
+
+    Centers fall back to integer indices when the slice lacks coordinates along the
+    requested dimension; edges are derived from the centers via
+    [`_centers_to_edges`][confusius.plotting.image._centers_to_edges].
+    """
+    if dim_col in slice_da.coords:
+        x_centers = slice_da.coords[dim_col].values.astype(float)
+        x_edges = _centers_to_edges(x_centers)
+    else:
+        x_centers = np.arange(slice_da.sizes[dim_col], dtype=float)
+        x_edges = np.arange(slice_da.sizes[dim_col] + 1, dtype=float)
+
+    if dim_row in slice_da.coords:
+        y_centers = slice_da.coords[dim_row].values.astype(float)
+        y_edges = _centers_to_edges(y_centers)
+    else:
+        y_centers = np.arange(slice_da.sizes[dim_row], dtype=float)
+        y_edges = np.arange(slice_da.sizes[dim_row] + 1, dtype=float)
+
+    return x_edges, y_edges, x_centers, y_centers
+
+
 def _resolve_norm(
     slices: list,
     norm: "Normalize | None",
@@ -607,6 +633,148 @@ class VolumePlotter:
             }
         return [(idx, idx) for idx in range(len(actual_coords))]
 
+    def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
+        """Coerce complex, squeeze, validate `slice_mode`/3D, and sort coords."""
+        data = _coerce_complex_to_magnitude(data, caller=caller)
+        squeeze_dims = [
+            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
+        ]
+        if squeeze_dims:
+            data = data.squeeze(dim=squeeze_dims)
+        if self.slice_mode not in data.dims:
+            raise ValueError(
+                f"slice_mode '{self.slice_mode}' is not a dimension of data. "
+                f"Available dimensions: {list(data.dims)}."
+            )
+        if data.ndim != 3:
+            raise ValueError(
+                f"Data must be 3D, but got shape {data.shape} with dims "
+                f"{list(data.dims)}."
+            )
+        return _sort_coords_for_plot(data, data.dims)
+
+    def _resolve_axes_layout(
+        self,
+        data: xr.DataArray,
+        n_slices: int,
+        actual_coords: list[float],
+        dim_row: str,
+        dim_col: str,
+        *,
+        match_coordinates: bool,
+        nrows: int | None,
+        ncols: int | None,
+        dpi: int | None,
+    ) -> list[tuple[int, int]]:
+        """Resolve the per-slice axis assignment, creating the figure if needed."""
+        if match_coordinates:
+            if self.axes is None:
+                raise ValueError(
+                    "Cannot match coordinates: no existing axes. Either create a "
+                    "VolumePlotter with axes or use match_coordinates=False."
+                )
+            matched_indices = self._find_matching_axes(actual_coords)
+            matched_slice_indices = {idx for _, idx in matched_indices}
+            unmatched_slices = [
+                (idx, actual_coords[idx])
+                for idx in range(n_slices)
+                if idx not in matched_slice_indices
+            ]
+            if unmatched_slices:
+                self._warn_unmatched(unmatched_slices)
+            return matched_indices
+
+        if self.axes is None:
+            x_range = None
+            y_range = None
+            if dim_col in data.coords and dim_row in data.coords:
+                x_coords = data.coords[dim_col].values.astype(float)
+                y_coords = data.coords[dim_row].values.astype(float)
+                x_range = float(np.max(x_coords) - np.min(x_coords))
+                y_range = float(np.max(y_coords) - np.min(y_coords))
+            self._ensure_figure(
+                n_slices,
+                nrows=nrows,
+                ncols=ncols,
+                dpi=dpi,
+                x_range=x_range,
+                y_range=y_range,
+            )
+
+        if self._user_provided_axes:
+            assert self.axes is not None
+            if n_slices != self.axes.size:
+                raise ValueError(
+                    f"Number of slices ({n_slices}) must match number of axes "
+                    f"({self.axes.size}). Got {n_slices} slice_coords but axes "
+                    f"has shape {self.axes.shape}."
+                )
+
+        return self._init_sequential_layout(actual_coords)
+
+    def _style_slice_axis(
+        self,
+        ax: "Axes",
+        axis_idx: int,
+        data: xr.DataArray,
+        coord: float,
+        dim_row: str,
+        dim_col: str,
+        x_edges: np.ndarray,
+        y_edges: np.ndarray,
+        *,
+        show_titles: bool,
+        show_axis_labels: bool,
+        show_axis_ticks: bool,
+        show_axes: bool,
+        title_fontsize: float | None,
+        label_fontsize: float | None,
+        tick_fontsize: float | None,
+    ) -> None:
+        """Apply post-draw styling (aspect, spines, title, labels, lims) to a slice axis."""
+        ax.set_aspect("equal")
+        self._style_ax(ax)
+
+        text_color = self._text_color
+        ax.set_title(
+            self._build_slice_title(data, coord) if show_titles else "",
+            color=text_color,
+            fontsize=title_fontsize,
+        )
+
+        if show_axes:
+            if show_axis_labels:
+                ax.set_xlabel(
+                    _build_axis_label(data, dim_col),
+                    color=text_color,
+                    fontsize=label_fontsize,
+                )
+                ax.set_ylabel(
+                    _build_axis_label(data, dim_row),
+                    color=text_color,
+                    fontsize=label_fontsize,
+                )
+            if show_axis_ticks:
+                ax.tick_params(labelsize=tick_fontsize)
+            else:
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+        else:
+            ax.axis("off")
+
+        # Expand stored limits to encompass overlaid volumes with different extents.
+        current_xlim = self._update_stored_lim(
+            self._axis_xlims,
+            axis_idx,
+            (float(x_edges.min()), float(x_edges.max())),
+        )
+        current_ylim = self._update_stored_lim(
+            self._axis_ylims,
+            axis_idx,
+            (float(y_edges.min()), float(y_edges.max())),
+        )
+        self._set_ax_lims(ax, current_xlim, current_ylim)
+
     def add_volume(
         self,
         data: xr.DataArray,
@@ -710,38 +878,16 @@ class VolumePlotter:
         """
         import matplotlib.pyplot as plt
 
-        data = _coerce_complex_to_magnitude(data, caller="VolumePlotter.add_volume")
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
-
-        squeeze_dims = [
-            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
-        ]
-        if squeeze_dims:
-            data = data.squeeze(dim=squeeze_dims)
-
-        if self.slice_mode not in data.dims:
-            raise ValueError(
-                f"slice_mode '{self.slice_mode}' is not a dimension of data. "
-                f"Available dimensions: {list(data.dims)}."
-            )
-
-        data = _sort_coords_for_plot(data, data.dims)
-
-        if data.ndim != 3:
-            raise ValueError(
-                f"Data must be 3D, but got shape {data.shape} with dims "
-                f"{list(data.dims)}."
-            )
+        data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
 
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
 
-        has_coords = self.slice_mode in data.coords
-
         if slice_coords is None:
-            if has_coords:
+            if self.slice_mode in data.coords:
                 slice_coords = list(data.coords[self.slice_mode].values)
             else:
                 slice_coords = list(range(data.sizes[self.slice_mode]))
@@ -771,52 +917,17 @@ class VolumePlotter:
             threshold_mode=threshold_mode,
         )
 
-        if match_coordinates:
-            if self.axes is None:
-                raise ValueError(
-                    "Cannot match coordinates: no existing axes. Either create a "
-                    "VolumePlotter with axes or use match_coordinates=False."
-                )
-            matched_indices = self._find_matching_axes(actual_coords)
-
-            matched_slice_indices = {idx for _, idx in matched_indices}
-            unmatched_slices = [
-                (idx, actual_coords[idx])
-                for idx in range(n_slices)
-                if idx not in matched_slice_indices
-            ]
-            if unmatched_slices:
-                self._warn_unmatched(unmatched_slices)
-
-            plot_indices = matched_indices
-        else:
-            if self.axes is None:
-                x_range = None
-                y_range = None
-                if dim_col in data.coords and dim_row in data.coords:
-                    x_coords = data.coords[dim_col].values.astype(float)
-                    y_coords = data.coords[dim_row].values.astype(float)
-                    x_range = float(np.max(x_coords) - np.min(x_coords))
-                    y_range = float(np.max(y_coords) - np.min(y_coords))
-                self._ensure_figure(
-                    n_slices,
-                    nrows=nrows,
-                    ncols=ncols,
-                    dpi=dpi,
-                    x_range=x_range,
-                    y_range=y_range,
-                )
-
-            if self._user_provided_axes:
-                assert self.axes is not None
-                if n_slices != self.axes.size:
-                    raise ValueError(
-                        f"Number of slices ({n_slices}) must match number of axes "
-                        f"({self.axes.size}). Got {n_slices} slice_coords but axes has "
-                        f"shape {self.axes.shape}."
-                    )
-
-            plot_indices = self._init_sequential_layout(actual_coords)
+        plot_indices = self._resolve_axes_layout(
+            data,
+            n_slices,
+            actual_coords,
+            dim_row,
+            dim_col,
+            match_coordinates=match_coordinates,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
 
         assert (self.axes is not None) and (self.figure is not None)
 
@@ -829,26 +940,14 @@ class VolumePlotter:
         for axis_idx, slice_idx in plot_indices:
             ax = axes_flat[axis_idx]
             arr = thresholded_slices[slice_idx]
-            coord = actual_coords[slice_idx]
             slice_da = unthresholded_slices[slice_idx]
-
-            if dim_col in slice_da.coords:
-                hover_x = slice_da.coords[dim_col].values.astype(float)
-                x_vals = _centers_to_edges(hover_x)
-            else:
-                hover_x = np.arange(slice_da.sizes[dim_col], dtype=float)
-                x_vals = np.arange(slice_da.sizes[dim_col] + 1, dtype=float)
-
-            if dim_row in slice_da.coords:
-                hover_y = slice_da.coords[dim_row].values.astype(float)
-                y_vals = _centers_to_edges(hover_y)
-            else:
-                hover_y = np.arange(slice_da.sizes[dim_row], dtype=float)
-                y_vals = np.arange(slice_da.sizes[dim_row] + 1, dtype=float)
+            x_edges, y_edges, hover_x, hover_y = _slice_edges_and_centers(
+                slice_da, dim_row, dim_col
+            )
 
             plotted_quadmesh = ax.pcolormesh(
-                x_vals,
-                y_vals,
+                x_edges,
+                y_edges,
                 np.ma.masked_invalid(arr),
                 cmap=cmap,
                 norm=norm,
@@ -864,42 +963,24 @@ class VolumePlotter:
                 name=str(data.name) if data.name is not None else "value",
                 units=data.attrs.get("units"),
             )
-            ax.set_aspect("equal")
-            self._style_ax(ax)
-            ax.set_title(
-                self._build_slice_title(data, coord) if show_titles else "",
-                color=text_color,
-                fontsize=title_fontsize,
-            )
 
-            if show_axes:
-                if show_axis_labels:
-                    ax.set_xlabel(
-                        _build_axis_label(data, dim_col),
-                        color=text_color,
-                        fontsize=label_fontsize,
-                    )
-                    ax.set_ylabel(
-                        _build_axis_label(data, dim_row),
-                        color=text_color,
-                        fontsize=label_fontsize,
-                    )
-                if show_axis_ticks:
-                    ax.tick_params(labelsize=tick_fontsize)
-                if not show_axis_ticks:
-                    ax.set_xticklabels([])
-                    ax.set_yticklabels([])
-            else:
-                ax.axis("off")
-
-            # Expand stored limits to encompass overlaid volumes with different extents.
-            current_xlim = self._update_stored_lim(
-                self._axis_xlims, axis_idx, (float(x_vals.min()), float(x_vals.max()))
+            self._style_slice_axis(
+                ax,
+                axis_idx,
+                data,
+                actual_coords[slice_idx],
+                dim_row,
+                dim_col,
+                x_edges,
+                y_edges,
+                show_titles=show_titles,
+                show_axis_labels=show_axis_labels,
+                show_axis_ticks=show_axis_ticks,
+                show_axes=show_axes,
+                title_fontsize=title_fontsize,
+                label_fontsize=label_fontsize,
+                tick_fontsize=tick_fontsize,
             )
-            current_ylim = self._update_stored_lim(
-                self._axis_ylims, axis_idx, (float(y_vals.min()), float(y_vals.max()))
-            )
-            self._set_ax_lims(ax, current_xlim, current_ylim)
 
         if not match_coordinates:
             for ax in axes_flat[n_slices:]:
