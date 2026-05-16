@@ -4,6 +4,7 @@ __all__ = [
     "draw_napari_labels",
     "labels_from_layer",
     "plot_carpet",
+    "plot_composite",
     "plot_contours",
     "plot_napari",
     "plot_volume",
@@ -13,6 +14,7 @@ __all__ = [
 from confusius.plotting.image import (
     VolumePlotter,
     plot_carpet,
+    plot_composite,
     plot_contours,
     plot_volume,
 )

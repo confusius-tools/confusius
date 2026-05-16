@@ -7,6 +7,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.plotting import blend_red_cyan, normalize
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
 from confusius.plotting._hover import (
@@ -956,6 +957,217 @@ class VolumePlotter:
 
         return self
 
+    def add_composite(
+        self,
+        data1: xr.DataArray,
+        data2: xr.DataArray,
+        *,
+        resample: bool = True,
+        normalize_strategy: Literal["global", "per_slice"] = "global",
+        slice_coords: Sequence[float] | None = None,
+        match_coordinates: bool = False,
+        alpha: float = 1.0,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = True,
+        fontsize: float | None = None,
+        nrows: int | None = None,
+        ncols: int | None = None,
+        dpi: int | None = None,
+    ) -> "VolumePlotter":
+        """Plot a red/cyan composite of two volumes on the axes.
+
+        Each slice is rendered as an RGB image where `data1` drives the red channel
+        and `data2` drives the green and blue channels (cyan), making overlap
+        visible as desaturated grey. This is the same visual encoding used by the
+        live registration progress preview.
+
+        Parameters
+        ----------
+        data1 : xarray.DataArray
+            First volume, plotted in red. Must be 2D or 3D after squeezing unitary
+            dimensions (except `slice_mode`).
+        data2 : xarray.DataArray
+            Second volume, plotted in cyan. Must have the same dimensionality as
+            `data1` after squeezing; when `resample=True` it is resampled onto
+            `data1`'s grid before plotting, so its native shape and coordinates may
+            differ.
+        resample : bool, default: True
+            Whether to resample `data2` onto `data1`'s grid using an identity
+            transform before blending. When `False`, the two arrays must already
+            share the same dimensions, shape, and coordinates.
+        normalize_strategy : {"global", "per_slice"}, default: "global"
+            Intensity normalisation strategy. `"global"` rescales each input to
+            `[0, 1]` once over its full volume, preserving slice-to-slice contrast.
+            `"per_slice"` rescales each 2D slice independently, maximising contrast
+            on dim slices at the cost of cross-slice comparability.
+        slice_coords : sequence of float, optional
+            Coordinate values along `slice_mode` at which to extract slices. If not
+            provided, all coordinate values from `data1` are used.
+        match_coordinates : bool, default: False
+            If True, match slice coordinates to the stored coordinate mapping of an
+            existing figure (for use as an overlay). If False, plot sequentially on
+            a fresh grid of axes — the natural mode for a standalone composite plot.
+        alpha : float, default: 1.0
+            Opacity of the composite image.
+        show_titles : bool, default: True
+            Whether to display subplot titles showing the slice coordinate.
+        show_axis_labels : bool, default: True
+            Whether to display axis labels (with units when available).
+        show_axis_ticks : bool, default: True
+            Whether to display axis tick labels.
+        show_axes : bool, default: True
+            Whether to show axis decorations. When `False`, overrides
+            `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels use `0.9 * fontsize`; tick labels use
+            `0.85 * fontsize`. If not provided, uses the active Matplotlib
+            defaults.
+        nrows : int, optional
+            Number of rows in the subplot grid when creating a new figure.
+            If not provided, computed automatically.
+        ncols : int, optional
+            Number of columns in the subplot grid when creating a new figure.
+            If not provided, computed automatically.
+        dpi : int, optional
+            Figure resolution in dots per inch. Ignored when using an existing
+            figure.
+
+        Returns
+        -------
+        VolumePlotter
+            Returns self for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If either input has a `time` dimension, is not 2D or 3D, lacks
+            `slice_mode` as a dimension, or (when `resample=False`) the two
+            arrays do not share dims, shape, and coordinates.
+
+        Notes
+        -----
+        The composite is rendered with
+        [`pcolormesh`][matplotlib.axes.Axes.pcolormesh] using its RGB-`C`
+        codepath, so panels line up with overlays drawn by
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume] /
+        [`add_contours`][confusius.plotting.VolumePlotter.add_contours].
+        Hover tooltips, colormaps, colorbars, and intensity thresholds are
+        not supported on composite axes — use `add_volume` for those.
+        """
+        if normalize_strategy not in ("global", "per_slice"):
+            raise ValueError(
+                f"Invalid normalization strategy {normalize_strategy!r}. Expected 'global' or 'per_slice'."
+            )
+
+        data1 = self._prepare_slice_inputs(
+            data1, caller="VolumePlotter.add_composite (data1)"
+        )
+        data2 = self._prepare_slice_inputs(
+            data2, caller="VolumePlotter.add_composite (data2)"
+        )
+
+        if resample:
+            from confusius.registration.resampling import resample_like
+
+            data2 = resample_like(data2, data1, np.eye(data1.ndim + 1))
+        else:
+            if data1.dims != data2.dims:
+                raise ValueError(
+                    f"With resample=False, data1 and data2 must share dimensions; "
+                    f"got {data1.dims} vs {data2.dims}."
+                )
+            if data1.shape != data2.shape:
+                raise ValueError(
+                    f"With resample=False, data1 and data2 must share shape; "
+                    f"got {data1.shape} vs {data2.shape}."
+                )
+            for dim in data1.dims:
+                if dim in data1.coords and dim in data2.coords:
+                    if not np.allclose(
+                        data1.coords[dim].values, data2.coords[dim].values
+                    ):
+                        raise ValueError(
+                            f"With resample=False, data1 and data2 must share "
+                            f"coordinates along '{dim}'."
+                        )
+
+        if normalize_strategy == "global":
+            data1 = data1.copy(data=normalize(data1.values.astype(float)))
+            data2 = data2.copy(data=normalize(data2.values.astype(float)))
+
+        display_dims = [str(d) for d in data1.dims if d != self.slice_mode]
+        dim_row, dim_col = display_dims[0], display_dims[1]
+
+        if slice_coords is None:
+            if self.slice_mode in data1.coords:
+                slice_coords = list(data1.coords[self.slice_mode].values)
+            else:
+                slice_coords = list(range(data1.sizes[self.slice_mode]))
+
+        slices1, actual_coords = _extract_slices(data1, self.slice_mode, slice_coords)
+        slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
+        n_slices = len(slices1)
+
+        plot_indices = self._resolve_axes_layout(
+            data1,
+            n_slices,
+            actual_coords,
+            dim_row,
+            dim_col,
+            match_coordinates=match_coordinates,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
+
+        assert (self.axes is not None) and (self.figure is not None)
+
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+        axes_flat = self.axes.ravel()
+
+        for axis_idx, slice_idx in plot_indices:
+            ax = axes_flat[axis_idx]
+            slice1 = slices1[slice_idx]
+            slice2 = slices2[slice_idx]
+
+            arr1 = slice1.values.astype(float)
+            arr2 = slice2.values.astype(float)
+            if normalize_strategy == "per_slice":
+                arr1 = normalize(arr1)
+                arr2 = normalize(arr2)
+            rgb = blend_red_cyan(arr1, arr2)
+
+            x_edges, y_edges, _, _ = _slice_edges_and_centers(slice1, dim_row, dim_col)
+
+            ax.pcolormesh(x_edges, y_edges, rgb, alpha=alpha)
+
+            self._style_slice_axis(
+                ax,
+                axis_idx,
+                data1,
+                actual_coords[slice_idx],
+                dim_row,
+                dim_col,
+                x_edges,
+                y_edges,
+                show_titles=show_titles,
+                show_axis_labels=show_axis_labels,
+                show_axis_ticks=show_axis_ticks,
+                show_axes=show_axes,
+                title_fontsize=title_fontsize,
+                label_fontsize=label_fontsize,
+                tick_fontsize=tick_fontsize,
+            )
+
+        if not match_coordinates:
+            for ax in axes_flat[n_slices:]:
+                ax.set_visible(False)
+
+        return self
+
     def add_contours(
         self,
         mask: xr.DataArray,
@@ -1679,25 +1891,176 @@ def plot_volume(
     )
 
 
+def plot_composite(
+    data1: xr.DataArray,
+    data2: xr.DataArray,
+    *,
+    resample: bool = True,
+    normalize_strategy: Literal["global", "per_slice"] = "global",
+    slice_coords: Sequence[float] | None = None,
+    slice_mode: str = "z",
+    alpha: float = 1.0,
+    show_titles: bool = True,
+    show_axis_labels: bool = True,
+    show_axis_ticks: bool = True,
+    show_axes: bool = True,
+    fontsize: float | None = None,
+    yincrease: bool = False,
+    xincrease: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
+    figure: "Figure | None" = None,
+    axes: "npt.NDArray[Any] | Axes | None" = None,
+    nrows: int | None = None,
+    ncols: int | None = None,
+    dpi: int | None = None,
+) -> VolumePlotter:
+    """Plot a red/cyan composite of two volumes as a grid of 2D slice panels.
 
+    Each slice is rendered as an RGB image where `data1` drives the red channel
+    and `data2` drives the green and blue channels (cyan), making overlap
+    visible as desaturated grey. This is the same visual encoding used by the
+    live registration progress preview.
 
     Parameters
     ----------
+    data1 : xarray.DataArray
+        First volume, plotted in red. Must be 2D or 3D after squeezing unitary
+        dimensions (except `slice_mode`). Complex-valued data is converted to
+        magnitude before display.
+    data2 : xarray.DataArray
+        Second volume, plotted in cyan. Must have the same dimensionality as
+        `data1` after squeezing; when `resample=True` it is resampled onto
+        `data1`'s grid before plotting, so its native shape and coordinates may
+        differ.
+    resample : bool, default: True
+        Whether to resample `data2` onto `data1`'s grid using an identity
+        transform before blending. When `False`, the two arrays must already
+        share the same dimensions, shape, and coordinates.
+    normalize_strategy : {"global", "per_slice"}, default: "global"
+        Intensity normalisation strategy. `"global"` rescales each input to
+        `[0, 1]` once over its full volume, preserving slice-to-slice contrast.
+        `"per_slice"` rescales each 2D slice independently, maximising contrast
+        on dim slices at the cost of cross-slice comparability.
+    slice_coords : sequence of float, optional
+        Coordinate values along `slice_mode` at which to extract slices. Slices
+        are selected by nearest-neighbour lookup. If not provided, all
+        coordinate values from `data1` are used.
+    slice_mode : str, default: "z"
+        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
+        slicing, each panel must be 2D.
+    alpha : float, default: 1.0
+        Opacity of the composite image.
+    show_titles : bool, default: True
+        Whether to display subplot titles showing the slice coordinate.
+    show_axis_labels : bool, default: True
+        Whether to display axis labels (with units when available).
+    show_axis_ticks : bool, default: True
+        Whether to display axis tick labels.
+    show_axes : bool, default: True
+        Whether to show all axis decorations. When `False`, overrides
+        `show_axis_labels` and `show_axis_ticks`.
+    fontsize : float, optional
+        Base font size for all text elements. Subplot titles use `fontsize`
+        directly; axis labels use `0.9 * fontsize`; tick labels use
+        `0.85 * fontsize`. If not provided, uses the active Matplotlib
+        defaults.
+    yincrease : bool, default: False
+        Whether the y-axis increases upward (`True`) or downward (`False`).
+    xincrease : bool, default: True
+        Whether the x-axis increases to the right (`True`) or left (`False`).
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible
+        color string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
+    figure : matplotlib.figure.Figure, optional
+        Existing figure to draw into. If not provided, a new figure is created.
+    axes : numpy.ndarray or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them.
+        Must contain exactly as many elements as there are slices. A single
+        `Axes` is wrapped automatically. If not provided, new axes are created
+        inside `figure`.
+    nrows : int, optional
+        Number of rows in the subplot grid. If not provided, computed
+        automatically.
+    ncols : int, optional
+        Number of columns in the subplot grid. If not provided, computed
+        automatically.
+    dpi : int, optional
+        Figure resolution in dots per inch. Ignored when `figure` is provided.
 
     Returns
     -------
+    VolumePlotter
+        Object managing the figure, axes, and coordinate mapping for overlays.
 
+    Raises
+    ------
+    ValueError
+        If either input has a `time` dimension, is not 2D or 3D, lacks
+        `slice_mode` as a dimension, or (when `resample=False`) the two arrays
+        do not share dims, shape, and coordinates.
 
     Notes
     -----
+    Rendering uses [`pcolormesh`][matplotlib.axes.Axes.pcolormesh] with an RGB
+    `C` array, so panels share their cell geometry with
+    [`plot_volume`][confusius.plotting.plot_volume] /
+    [`plot_contours`][confusius.plotting.plot_contours] and overlay correctly.
+    Colormaps, colorbars, intensity thresholds, and hover tooltips are not
+    supported on composite axes — use `plot_volume` for those.
 
+    The returned [`VolumePlotter`][confusius.plotting.VolumePlotter] stores the
+    coordinate-to-axis mapping, so you can overlay further volumes or contours
+    with
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume]
+    or
+    [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours].
 
     Examples
     --------
     >>> import xarray as xr
+    >>> from confusius.plotting import plot_composite
+    >>> fixed = xr.open_zarr("fixed.zarr")["power_doppler"]
+    >>> moving = xr.open_zarr("moving.zarr")["power_doppler"]
+    >>> plotter = plot_composite(fixed, moving, slice_mode="z")
+
+    >>> # Skip resampling when the two volumes are already aligned.
+    >>> plotter = plot_composite(fixed, registered_moving, resample=False)
+
+    >>> # Maximise contrast on dim slices.
+    >>> plotter = plot_composite(fixed, moving, normalize_strategy="per_slice")
     """
+    plotter = VolumePlotter(
+        slice_mode=slice_mode,
+        figure=figure,
+        axes=axes,
+        bg_color=bg_color,
+        fg_color=fg_color,
+        yincrease=yincrease,
+        xincrease=xincrease,
     )
 
+    return plotter.add_composite(
+        data1,
+        data2,
+        resample=resample,
+        normalize_strategy=normalize_strategy,
+        slice_coords=slice_coords,
+        match_coordinates=False,
+        alpha=alpha,
+        show_titles=show_titles,
+        show_axis_labels=show_axis_labels,
+        show_axis_ticks=show_axis_ticks,
+        show_axes=show_axes,
+        fontsize=fontsize,
+        nrows=nrows,
+        ncols=ncols,
+        dpi=dpi,
     )
 
 
