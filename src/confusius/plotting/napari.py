@@ -1,4 +1,4 @@
-"""napari-based visualization utilities for fUSI data."""
+"""Napari-based visualization utilities for fUSI data."""
 
 import warnings
 from collections import defaultdict

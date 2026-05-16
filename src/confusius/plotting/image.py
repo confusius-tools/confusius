@@ -963,7 +963,8 @@ class VolumePlotter:
         data2: xr.DataArray,
         *,
         resample: bool = True,
-        normalize_strategy: Literal["global", "per_slice"] = "global",
+        ignore_data2_coordinates: bool = False,
+        normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: Sequence[float] | None = None,
         match_coordinates: bool = False,
         alpha: float = 1.0,
@@ -996,12 +997,30 @@ class VolumePlotter:
         resample : bool, default: True
             Whether to resample `data2` onto `data1`'s grid using an identity
             transform before blending. When `False`, the two arrays must already
-            share the same dimensions, shape, and coordinates.
-        normalize_strategy : {"global", "per_slice"}, default: "global"
-            Intensity normalisation strategy. `"global"` rescales each input to
-            `[0, 1]` once over its full volume, preserving slice-to-slice contrast.
-            `"per_slice"` rescales each 2D slice independently, maximising contrast
-            on dim slices at the cost of cross-slice comparability.
+            share the same dimensions, shape, and (unless
+            `ignore_data2_coordinates=True`) coordinates.
+        ignore_data2_coordinates : bool, default: False
+            When `True` and `resample=False`, `data2`'s coordinate axes are
+            replaced with `data1`'s before plotting, so the two volumes are
+            rendered on the same coordinate frame even if their stored
+            coordinate values differ. Useful when the two arrays come from
+            acquisitions on slightly offset grids that you know are
+            equivalent. Ignored when `resample=True` (the identity-transform
+            resample handles coordinate alignment automatically).
+        normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
+            Intensity normalisation strategy.
+
+            - `"per_volume"`: rescale each input to `[0, 1]` independently over its
+              full volume. Preserves slice-to-slice contrast within each array
+              but loses the absolute-intensity relationship between `data1` and
+              `data2`.
+            - `"per_slice"`: rescale each 2D slice independently. Maximises
+              contrast on dim slices at the cost of cross-slice comparability.
+            - `"shared"`: rescale both volumes together using a single shared
+              `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]`
+              range. Preserves the absolute-intensity relationship between the
+              two inputs, useful when comparing data acquired at the same
+              dynamic range.
         slice_coords : sequence of float, optional
             Coordinate values along `slice_mode` at which to extract slices. If not
             provided, all coordinate values from `data1` are used.
@@ -1045,7 +1064,8 @@ class VolumePlotter:
         ValueError
             If either input has a `time` dimension, is not 2D or 3D, lacks
             `slice_mode` as a dimension, or (when `resample=False`) the two
-            arrays do not share dims, shape, and coordinates.
+            arrays do not share dims, shape, and — unless
+            `ignore_data2_coordinates=True` — coordinates.
 
         Notes
         -----
@@ -1057,9 +1077,10 @@ class VolumePlotter:
         Hover tooltips, colormaps, colorbars, and intensity thresholds are
         not supported on composite axes — use `add_volume` for those.
         """
-        if normalize_strategy not in ("global", "per_slice"):
+        if normalize_strategy not in ("per_volume", "per_slice", "shared"):
             raise ValueError(
-                f"Invalid normalization strategy {normalize_strategy!r}. Expected 'global' or 'per_slice'."
+                f"Invalid normalization strategy {normalize_strategy!r}. "
+                f"Expected 'per_volume', 'per_slice', or 'shared'."
             )
 
         data1 = self._prepare_slice_inputs(
@@ -1084,19 +1105,43 @@ class VolumePlotter:
                     f"With resample=False, data1 and data2 must share shape; "
                     f"got {data1.shape} vs {data2.shape}."
                 )
-            for dim in data1.dims:
-                if dim in data1.coords and dim in data2.coords:
-                    if not np.allclose(
-                        data1.coords[dim].values, data2.coords[dim].values
-                    ):
-                        raise ValueError(
-                            f"With resample=False, data1 and data2 must share "
-                            f"coordinates along '{dim}'."
-                        )
+            if ignore_data2_coordinates:
+                # Explicitly opted out of coordinate-aware alignment:
+                # drop data2's coords in favour of data1's so
+                # downstream slicing treats the two arrays as living on the
+                # same grid.
+                data2 = data2.assign_coords(
+                    {d: data1.coords[d] for d in data1.dims if d in data1.coords}
+                )
+            else:
+                for dim in data1.dims:
+                    if dim in data1.coords and dim in data2.coords:
+                        if not np.allclose(
+                            data1.coords[dim].values, data2.coords[dim].values
+                        ):
+                            raise ValueError(
+                                f"With resample=False, data1 and data2 must "
+                                f"share coordinates along '{dim}' (pass "
+                                f"ignore_data2_coordinates=True to override "
+                                f"data2's coords with data1's)."
+                            )
 
-        if normalize_strategy == "global":
+        if normalize_strategy == "per_volume":
             data1 = data1.copy(data=normalize(data1.values.astype(float)))
             data2 = data2.copy(data=normalize(data2.values.astype(float)))
+        elif normalize_strategy == "shared":
+            arr1 = data1.values.astype(float)
+            arr2 = data2.values.astype(float)
+            lo = float(min(arr1.min(), arr2.min()))
+            hi = float(max(arr1.max(), arr2.max()))
+            if hi == lo:
+                arr1 = np.zeros_like(arr1)
+                arr2 = np.zeros_like(arr2)
+            else:
+                arr1 = (arr1 - lo) / (hi - lo)
+                arr2 = (arr2 - lo) / (hi - lo)
+            data1 = data1.copy(data=arr1)
+            data2 = data2.copy(data=arr2)
 
         display_dims = [str(d) for d in data1.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
@@ -1896,7 +1941,8 @@ def plot_composite(
     data2: xr.DataArray,
     *,
     resample: bool = True,
-    normalize_strategy: Literal["global", "per_slice"] = "global",
+    ignore_data2_coordinates: bool = False,
+    normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
     slice_coords: Sequence[float] | None = None,
     slice_mode: str = "z",
     alpha: float = 1.0,
@@ -1926,29 +1972,40 @@ def plot_composite(
     ----------
     data1 : xarray.DataArray
         First volume, plotted in red. Must be 2D or 3D after squeezing unitary
-        dimensions (except `slice_mode`). Complex-valued data is converted to
-        magnitude before display.
+        dimensions (except `slice_mode`). Complex-valued data is converted to magnitude
+        before display.
     data2 : xarray.DataArray
-        Second volume, plotted in cyan. Must have the same dimensionality as
-        `data1` after squeezing; when `resample=True` it is resampled onto
-        `data1`'s grid before plotting, so its native shape and coordinates may
-        differ.
+        Second volume, plotted in cyan. Must have the same dimensionality as `data1`
+        after squeezing; when `resample=True` it is resampled onto `data1`'s grid before
+        plotting, so its native shape and coordinates may differ.
     resample : bool, default: True
-        Whether to resample `data2` onto `data1`'s grid using an identity
-        transform before blending. When `False`, the two arrays must already
-        share the same dimensions, shape, and coordinates.
-    normalize_strategy : {"global", "per_slice"}, default: "global"
-        Intensity normalisation strategy. `"global"` rescales each input to
-        `[0, 1]` once over its full volume, preserving slice-to-slice contrast.
-        `"per_slice"` rescales each 2D slice independently, maximising contrast
-        on dim slices at the cost of cross-slice comparability.
+        Whether to resample `data2` onto `data1`'s grid using an identity transform
+        before blending. When `False`, the two arrays must already share the same
+        dimensions, shape, and (unless `ignore_data2_coordinates=True`) coordinates.
+    ignore_data2_coordinates : bool, default: False
+        When `True` and `resample=False`, `data2`'s coordinate axes are replaced with
+        `data1`'s before plotting, so the two volumes are rendered on the same
+        coordinate frame even if their stored coordinate values differ. Useful when the
+        two arrays come from acquisitions on slightly offset grids that you know are
+        equivalent. Ignored when `resample=True`.
+    normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
+        Intensity normalisation strategy.
+
+        - `"per_volume"`: rescale each input to `[0, 1]` independently over its full volume.
+          Preserves slice-to-slice contrast within each array but loses the
+          absolute-intensity relationship between `data1` and `data2`.
+        - `"per_slice"`: rescale each 2D slice independently. Maximises contrast on dim
+          slices at the cost of cross-slice comparability.
+        - `"shared"`: rescale both volumes together using a single shared
+          `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]` range.
+          Preserves the absolute-intensity relationship between the two inputs.
     slice_coords : sequence of float, optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices
-        are selected by nearest-neighbour lookup. If not provided, all
-        coordinate values from `data1` are used.
+        Coordinate values along `slice_mode` at which to extract slices. Slices are
+        selected by nearest-neighbour lookup. If not provided, all coordinate values
+        from `data1` are used.
     slice_mode : str, default: "z"
-        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
-        slicing, each panel must be 2D.
+        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
+        panel must be 2D.
     alpha : float, default: 1.0
         Opacity of the composite image.
     show_titles : bool, default: True
@@ -1958,38 +2015,34 @@ def plot_composite(
     show_axis_ticks : bool, default: True
         Whether to display axis tick labels.
     show_axes : bool, default: True
-        Whether to show all axis decorations. When `False`, overrides
-        `show_axis_labels` and `show_axis_ticks`.
+        Whether to show all axis decorations. When `False`, overrides `show_axis_labels`
+        and `show_axis_ticks`.
     fontsize : float, optional
-        Base font size for all text elements. Subplot titles use `fontsize`
-        directly; axis labels use `0.9 * fontsize`; tick labels use
-        `0.85 * fontsize`. If not provided, uses the active Matplotlib
-        defaults.
+        Base font size for all text elements. Subplot titles use `fontsize` directly;
+        axis labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not
+        provided, uses the active Matplotlib defaults.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
         Whether the x-axis increases to the right (`True`) or left (`False`).
     bg_color : str, default: "black"
-        Background color for the figure and axes. Any matplotlib-compatible
-        color string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+        Background color for the figure and axes. Any matplotlib-compatible color string
+        (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
     fg_color : str, optional
         Color for text, labels, ticks, and spines. If not provided, derived
-        automatically from `bg_color` using the WCAG relative luminance formula
-        (white on dark backgrounds, black on light ones).
+        automatically from `bg_color` using the WCAG relative luminance formula (white
+        on dark backgrounds, black on light ones).
     figure : matplotlib.figure.Figure, optional
         Existing figure to draw into. If not provided, a new figure is created.
     axes : numpy.ndarray or matplotlib.axes.Axes, optional
         Existing axes to draw into: either a single
-        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them.
-        Must contain exactly as many elements as there are slices. A single
-        `Axes` is wrapped automatically. If not provided, new axes are created
-        inside `figure`.
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them. Must
+        contain exactly as many elements as there are slices. A single `Axes` is wrapped
+        automatically. If not provided, new axes are created inside `figure`.
     nrows : int, optional
-        Number of rows in the subplot grid. If not provided, computed
-        automatically.
+        Number of rows in the subplot grid. If not provided, computed automatically.
     ncols : int, optional
-        Number of columns in the subplot grid. If not provided, computed
-        automatically.
+        Number of columns in the subplot grid. If not provided, computed automatically.
     dpi : int, optional
         Figure resolution in dots per inch. Ignored when `figure` is provided.
 
@@ -2001,24 +2054,22 @@ def plot_composite(
     Raises
     ------
     ValueError
-        If either input has a `time` dimension, is not 2D or 3D, lacks
-        `slice_mode` as a dimension, or (when `resample=False`) the two arrays
-        do not share dims, shape, and coordinates.
+        If either input has a `time` dimension, is not 2D or 3D, lacks `slice_mode` as a
+        dimension, or (when `resample=False`) the two arrays do not share dims, shape,
+        and — unless `ignore_data2_coordinates=True` — coordinates.
 
     Notes
     -----
-    Rendering uses [`pcolormesh`][matplotlib.axes.Axes.pcolormesh] with an RGB
-    `C` array, so panels share their cell geometry with
+    Rendering uses [`pcolormesh`][matplotlib.axes.Axes.pcolormesh] with an RGB `C`
+    array, so panels share their cell geometry with
     [`plot_volume`][confusius.plotting.plot_volume] /
     [`plot_contours`][confusius.plotting.plot_contours] and overlay correctly.
-    Colormaps, colorbars, intensity thresholds, and hover tooltips are not
-    supported on composite axes — use `plot_volume` for those.
+    Colormaps, colorbars, intensity thresholds, and hover tooltips are not supported on
+    composite axes — use `plot_volume` for those.
 
     The returned [`VolumePlotter`][confusius.plotting.VolumePlotter] stores the
-    coordinate-to-axis mapping, so you can overlay further volumes or contours
-    with
-    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume]
-    or
+    coordinate-to-axis mapping, so you can overlay further volumes or contours with
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] or
     [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours].
 
     Examples
@@ -2049,6 +2100,7 @@ def plot_composite(
         data1,
         data2,
         resample=resample,
+        ignore_data2_coordinates=ignore_data2_coordinates,
         normalize_strategy=normalize_strategy,
         slice_coords=slice_coords,
         match_coordinates=False,
