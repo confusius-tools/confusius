@@ -85,6 +85,11 @@ concise syntax; both call the same underlying functions.
         / "sub-CR022/ses-20201011/angio"
         / "sub-CR022_ses-20201011_pwd.nii.gz"
     ).compute()
+    angio_2 = cf.load(
+        bids_root
+        / "sub-CR022/ses-20201007/angio"
+        / "sub-CR022_ses-20201007_pwd.nii.gz"
+    ).compute()
     atlas_labels = cf.load(
         bids_root
         / "derivatives/allenccf_align/sub-CR022/ses-20201011/fusi"
@@ -466,67 +471,74 @@ plotter = atlas_fusi.annotation.fusi.plot.contours(slice_mode="z")
 ## Composite Plots
 
 [`plot_composite`][confusius.plotting.plot_composite] overlays two volumes as a
-**red/cyan composite**: the first volume drives the red channel, the second drives
-the cyan channel (green + blue). Voxels that are bright in both volumes appear as
-desaturated grey, voxels bright in only one volume appear in pure red or cyan, and
-voxels dim in both stay black. This is the same encoding used by the live
-[registration progress preview][confusius.registration.register_volume] and is a
-quick way to inspect how well two volumes are aligned — for example two sessions
-of the same subject, a moving image against a reference, or a registered output
-against its target.
+**red/cyan composite**: the first volume drives the red channel, the second drives the
+cyan channel (green + blue). This is the same encoding used by the live [registration
+progress preview][confusius.registration.register_volume] and is a quick way to inspect
+how well two volumes are aligned: two sessions of the same subject, a moving image
+against a reference, or a registered output against its target.
 
 ### Basic Usage
 
 === "Xarray accessor"
 
     ```python
+    # Every third elevation slice keeps the figure compact while still showing the
+    # anatomical depth range.
+    composite_slices = list(np.asarray(vol_3d["z"].values, dtype=float)[::3][:-1])
+
     # Two angiography volumes from different sessions of the same subject.
-    plotter = vol_3d.fusi.plot.composite(vol_3d_session2)
+    plotter = vol_3d.fusi.plot.composite(
+        vol_3d_2, slice_coords=composite_slices, normalize_strategy="per_slice"
+    )
     ```
 
 === "Function API"
 
     ```python
-    plotter = cf.plotting.plot_composite(vol_3d, vol_3d_session2)
+    # Every third elevation slice keeps the figure compact while still showing the
+    # anatomical depth range.
+    composite_slices = list(np.asarray(vol_3d["z"].values, dtype=float)[::3][:-1])
+
+    # Two angiography volumes from different sessions of the same subject.
+    plotter = cf.plotting.plot_composite(
+        vol_3d, vol_3d_2, slice_coords=composite_slices, normalize_strategy="per_slice"
+    )
     ```
 
-By default `vol_3d_session2` is resampled onto `vol_3d`'s grid (`resample=True`),
-so the two volumes do not need to share the same shape, spacing, or origin. The
-function returns a [`VolumePlotter`][confusius.plotting.VolumePlotter] with one
-panel per slice — the same overlay machinery used by `plot_volume` and
-`plot_contours`, so you can chain
-[`add_contours`][confusius.plotting.VolumePlotter.add_contours] on top to layer
-atlas outlines over the composite.
+By default `vol_3d_2` is resampled onto `vol_3d`'s grid (`resample=True`), so the two
+volumes do not need to share the same shape, spacing, or origin. The function returns a
+[`VolumePlotter`][confusius.plotting.VolumePlotter] with one panel per slice — the same
+overlay machinery used by `plot_volume` and `plot_contours`, so you can chain
+[`add_contours`][confusius.plotting.VolumePlotter.add_contours] on top to layer atlas
+outlines over the composite.
 
 ![Red/cyan composite of two angiography sessions](../images/visualization/composite-light.png#only-light)
 ![Red/cyan composite of two angiography sessions](../images/visualization/composite-dark.png#only-dark)
 
-### Normalisation Strategies
+### Normalization Strategies
 
 `normalize_strategy` controls how voxel intensities are mapped into the `[0, 1]`
 range that drives each channel:
 
-| Strategy | Per-array range | Cross-array range | When to use |
-|---|---|---|---|
-| `"per_volume"` (default) | one range per volume | independent | Each input is shown at its own contrast; preserves within-volume relative brightness. |
-| `"per_slice"` | one range per 2D slice | independent | Maximises contrast on dim slices; loses slice-to-slice comparability. |
-| `"shared"` | single range across both volumes | shared | Preserves absolute intensity differences between the two inputs (one looks dim, the other bright when their dynamic ranges differ). |
+| Strategy | Per-array range | When to use |
+|---|---|---|
+| `"per_volume"` (default) | one range per volume | Each input is shown at its own contrast; preserves within-volume relative brightness. |
+| `"per_slice"` | one range per slice | Maximizes contrast per slice; improves within-slice comparability. |
+| `"shared"` | one range across volumes | Preserves absolute intensity differences between the two inputs. |
 
 ### Skipping Resampling
 
-If the two volumes already share the same grid — for example one was previously
-registered onto the other — pass `resample=False` to skip the SimpleITK resample
-step:
+If the two volumes already share the same grid (if one was previously registered onto
+the other) pass `resample=False` to skip the resample step:
 
 ```python
 plotter = fixed.fusi.plot.composite(registered_moving, resample=False)
 ```
 
-When `resample=False`, the two arrays must share dimensions, shape, and
-coordinates. If the shapes match but the coordinate values disagree (e.g., two
-acquisitions on slightly offset grids that you know are equivalent), pass
-`ignore_data2_coordinates=True` to override `data2`'s coordinate axes with
-`data1`'s before plotting.
+When `resample=False`, the two arrays must share dimensions, shape, and coordinates. If
+the shapes match but the coordinate values disagree (e.g., two acquisitions on slightly
+offset grids that you know are equivalent), pass `ignore_data2_coordinates=True` to
+override `data2`'s coordinate axes with `data1`'s before plotting.
 
 ## Carpet Plots
 

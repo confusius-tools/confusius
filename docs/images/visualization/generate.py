@@ -639,18 +639,19 @@ _ANGIO_PATH_2 = (
     / f"sub-{_SUBJECT}/ses-{_SESSION_2}/angio"
     / f"sub-{_SUBJECT}_ses-{_SESSION_2}_pwd.nii.gz"
 )
-vol_3d_session2 = cf.load(_ANGIO_PATH_2).compute()
+vol_3d_2 = cf.load(_ANGIO_PATH_2).compute()
 # Every third elevation slice keeps the figure compact while still showing the
 # anatomical depth range.
-_composite_slices = list(np.asarray(vol_3d["z"].values, dtype=float)[::3])
+composite_slices = list(np.asarray(vol_3d["z"].values, dtype=float)[::3][:-1])
 
 for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter_composite = vol_3d.fusi.plot.composite(
-        vol_3d_session2,
-        slice_coords=_composite_slices,
+        vol_3d_2,
+        slice_coords=composite_slices,
         normalize_strategy="per_slice",
         bg_color=bg_color,
     )
+    plotter_composite.show()
     plotter_composite.savefig(str(HERE / f"composite-{suffix}.png"), **_SAVEFIG_KWARGS)
     plotter_composite.close()
 _ok("Saved composite-light.png and composite-dark.png")
