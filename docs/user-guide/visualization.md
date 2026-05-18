@@ -534,10 +534,12 @@ the other) pass `resample=False` to skip the resample step:
 plotter = fixed.fusi.plot.composite(registered_moving, resample=False)
 ```
 
-When `resample=False`, the two arrays must share dimensions, shape, and coordinates. If
-the shapes match but the coordinate values disagree (e.g., two acquisitions on slightly
-offset grids that you know are equivalent), pass `ignore_data2_coordinates=True` to
-override `data2`'s coordinate axes with `data1`'s before plotting.
+When `resample=False`, the two arrays must share dimensions, shape, and coordinates
+within tolerance. Coordinates are checked with `numpy.allclose`-style tolerances
+(`rtol=1e-5`, `atol=1e-8` by default); once the check passes, `data2`'s coordinates are
+replaced with `data1`'s so the two volumes share an exact coordinate frame downstream.
+Widen `rtol` / `atol` to accept acquisitions on offset grids that you know are
+equivalent.
 
 ## Carpet Plots
 

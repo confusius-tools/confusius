@@ -628,7 +628,8 @@ class FUSIPlotAccessor:
         self,
         other: xr.DataArray,
         resample: bool = True,
-        ignore_data2_coordinates: bool = False,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: list[float] | None = None,
         slice_mode: str = "z",
@@ -662,13 +663,19 @@ class FUSIPlotAccessor:
         resample : bool, default: True
             Whether to resample `other` onto this DataArray's grid using an
             identity transform before blending. When `False`, the two arrays
-            must already share dims, shape, and (unless
-            `ignore_data2_coordinates=True`) coordinates.
-        ignore_data2_coordinates : bool, default: False
-            When `True` and `resample=False`, `other`'s coordinate axes are
-            replaced with this DataArray's before plotting. Useful for
-            acquisitions on slightly offset grids that you know are equivalent.
+            must already share dims and shape, and their coordinates must match
+            within `rtol`/`atol`; once validated, `other`'s coordinates are
+            replaced with this DataArray's so the two volumes share an exact
+            coordinate frame downstream.
+        rtol : float, default: 1e-5
+            Relative tolerance used to validate that this DataArray and `other`
+            share coordinates when `resample=False`. Widen to accept
+            acquisitions on slightly offset grids known to be equivalent.
             Ignored when `resample=True`.
+        atol : float, default: 1e-8
+            Absolute tolerance used to validate that this DataArray and `other`
+            share coordinates when `resample=False`. Ignored when
+            `resample=True`.
         normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
             Intensity normalisation strategy.
 
@@ -752,7 +759,8 @@ class FUSIPlotAccessor:
             self._obj,
             other,
             resample=resample,
-            ignore_data2_coordinates=ignore_data2_coordinates,
+            rtol=rtol,
+            atol=atol,
             normalize_strategy=normalize_strategy,
             slice_coords=slice_coords,
             slice_mode=slice_mode,

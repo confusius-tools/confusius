@@ -87,34 +87,45 @@ class TestAddCompositeResample:
         data2 = sample_3d_volume.assign_coords(
             x=sample_3d_volume.coords["x"].values + 0.5
         )
-        with pytest.raises(ValueError, match="share coordinates"):
+        with pytest.raises(ValueError, match="does not match"):
             VolumePlotter(slice_mode="z").add_composite(
                 sample_3d_volume, data2, resample=False
             )
 
-    def test_ignore_data2_coordinates_overrides_with_data1_coords(
+    def test_resample_false_tolerant_drift_replaces_with_data1_coords(
         self, sample_3d_volume, matplotlib_pyplot
     ):
-        # data2 is identical in shape/dims but its x coords are shifted far
-        # enough that the two ranges are disjoint. With
-        # ignore_data2_coordinates=True the plot should use data1's coordinate
-        # axis instead of raising.
+        # Tiny floating-point drift in data2's coords (well below the default
+        # atol) should pass validation, and data2's coords should be replaced
+        # with data1's so downstream slicing sees a single coordinate frame.
         x_coords = sample_3d_volume.coords["x"].values.astype(float)
-        x_range = float(x_coords.max() - x_coords.min())
-        # Shift by twice the span so data1 and data2 ranges do not overlap.
-        x_shift = 2 * x_range + 1.0
+        drift = 1e-11
+        data2 = sample_3d_volume.assign_coords(x=x_coords + drift)
+
+        plotter = VolumePlotter(slice_mode="z").add_composite(
+            sample_3d_volume, data2, resample=False
+        )
+
+        # The rendered xlim should sit on data1's coordinate centre.
+        x_min, x_max = plotter.axes.ravel()[0].get_xlim()
+        xlim_mid = 0.5 * (x_min + x_max)
+        data1_mid = 0.5 * (float(x_coords.min()) + float(x_coords.max()))
+        assert abs(xlim_mid - data1_mid) < 1e-6
+
+    def test_resample_false_widened_tol_accepts_large_drift(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        # A larger coord shift fails by default but passes when atol is widened
+        # past the offset. data2's coords are replaced with data1's, so the
+        # rendered axes sit on data1's grid.
+        x_coords = sample_3d_volume.coords["x"].values.astype(float)
+        x_shift = 0.5
         data2 = sample_3d_volume.assign_coords(x=x_coords + x_shift)
 
         plotter = VolumePlotter(slice_mode="z").add_composite(
-            sample_3d_volume,
-            data2,
-            resample=False,
-            ignore_data2_coordinates=True,
+            sample_3d_volume, data2, resample=False, atol=1.0
         )
 
-        # Pcolormesh cell edges come from the displayed array's coordinates;
-        # the rendered xlim midpoint should sit on data1's coordinate centre,
-        # not on data2's shifted one.
         x_min, x_max = plotter.axes.ravel()[0].get_xlim()
         xlim_mid = 0.5 * (x_min + x_max)
         data1_mid = 0.5 * (float(x_coords.min()) + float(x_coords.max()))

@@ -19,7 +19,7 @@ from confusius.plotting._utils import (
     sort_coords_for_plot,
 )
 from confusius.signal import clean
-from confusius.validation import validate_time_series
+from confusius.validation import validate_matching_coordinates, validate_time_series
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -963,7 +963,8 @@ class VolumePlotter:
         data2: xr.DataArray,
         *,
         resample: bool = True,
-        ignore_data2_coordinates: bool = False,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: Sequence[float] | None = None,
         match_coordinates: bool = False,
@@ -997,17 +998,19 @@ class VolumePlotter:
             differ.
         resample : bool, default: True
             Whether to resample `data2` onto `data1`'s grid using an identity
-            transform before blending. When `False`, the two arrays must already
-            share the same dimensions, shape, and (unless
-            `ignore_data2_coordinates=True`) coordinates.
-        ignore_data2_coordinates : bool, default: False
-            When `True` and `resample=False`, `data2`'s coordinate axes are
-            replaced with `data1`'s before plotting, so the two volumes are
-            rendered on the same coordinate frame even if their stored
-            coordinate values differ. Useful when the two arrays come from
-            acquisitions on slightly offset grids that you know are
-            equivalent. Ignored when `resample=True` (the identity-transform
-            resample handles coordinate alignment automatically).
+            transform before blending. When `False`, the two arrays must
+            already share the same dimensions and shape, and their coordinates
+            must match within `rtol`/`atol`; once validated, `data2`'s
+            coordinates are replaced with `data1`'s so the two volumes share
+            an exact coordinate frame downstream.
+        rtol : float, default: 1e-5
+            Relative tolerance used to validate that `data1` and `data2` share
+            coordinates when `resample=False`. Widen to accept acquisitions on
+            slightly offset grids known to be equivalent. Ignored when
+            `resample=True`.
+        atol : float, default: 1e-8
+            Absolute tolerance used to validate that `data1` and `data2` share
+            coordinates when `resample=False`. Ignored when `resample=True`.
         normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
             Intensity normalisation strategy.
 
@@ -1065,8 +1068,8 @@ class VolumePlotter:
         ValueError
             If either input has a `time` dimension, is not 2D or 3D, lacks
             `slice_mode` as a dimension, or (when `resample=False`) the two
-            arrays do not share dims, shape, and — unless
-            `ignore_data2_coordinates=True` — coordinates.
+            arrays do not share dims, shape, and coordinates within
+            `rtol`/`atol`.
 
         Notes
         -----
@@ -1106,26 +1109,25 @@ class VolumePlotter:
                     f"With resample=False, data1 and data2 must share shape; "
                     f"got {data1.shape} vs {data2.shape}."
                 )
-            if ignore_data2_coordinates:
-                # Explicitly opted out of coordinate-aware alignment:
-                # drop data2's coords in favour of data1's so
-                # downstream slicing treats the two arrays as living on the
-                # same grid.
-                data2 = data2.assign_coords(
-                    {d: data1.coords[d] for d in data1.dims if d in data1.coords}
-                )
+            validate_matching_coordinates(
+                data1,
+                data2,
+                left_name="data1",
+                right_name="data2",
+                rtol=rtol,
+                atol=atol,
+            )
+            # Replace data2's coords with data1's so harmless floating-point
+            # drift does not propagate into downstream slicing.
+            data2 = data2.assign_coords(
+                {d: data1.coords[d] for d in data1.dims if d in data1.coords}
+            )
+
+        if slice_coords is None:
+            if self.slice_mode in data1.coords:
+                slice_coords = list(data1.coords[self.slice_mode].values)
             else:
-                for dim in data1.dims:
-                    if dim in data1.coords and dim in data2.coords:
-                        if not np.allclose(
-                            data1.coords[dim].values, data2.coords[dim].values
-                        ):
-                            raise ValueError(
-                                f"With resample=False, data1 and data2 must "
-                                f"share coordinates along '{dim}' (pass "
-                                f"ignore_data2_coordinates=True to override "
-                                f"data2's coords with data1's)."
-                            )
+                slice_coords = list(range(data1.sizes[self.slice_mode]))
 
         if normalize_strategy == "per_volume":
             data1 = data1.copy(data=scale_min_max(data1.values.astype(float)))
@@ -1144,18 +1146,12 @@ class VolumePlotter:
             data1 = data1.copy(data=arr1)
             data2 = data2.copy(data=arr2)
 
-        display_dims = [str(d) for d in data1.dims if d != self.slice_mode]
-        dim_row, dim_col = display_dims[0], display_dims[1]
-
-        if slice_coords is None:
-            if self.slice_mode in data1.coords:
-                slice_coords = list(data1.coords[self.slice_mode].values)
-            else:
-                slice_coords = list(range(data1.sizes[self.slice_mode]))
-
         slices1, actual_coords = _extract_slices(data1, self.slice_mode, slice_coords)
         slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
         n_slices = len(slices1)
+
+        display_dims = [str(d) for d in data1.dims if d != self.slice_mode]
+        dim_row, dim_col = display_dims[0], display_dims[1]
 
         plot_indices = self._resolve_axes_layout(
             data1,
@@ -1942,7 +1938,8 @@ def plot_composite(
     data2: xr.DataArray,
     *,
     resample: bool = True,
-    ignore_data2_coordinates: bool = False,
+    rtol: float = 1e-5,
+    atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
     slice_coords: Sequence[float] | None = None,
     slice_mode: str = "z",
@@ -1981,14 +1978,17 @@ def plot_composite(
         plotting, so its native shape and coordinates may differ.
     resample : bool, default: True
         Whether to resample `data2` onto `data1`'s grid using an identity transform
-        before blending. When `False`, the two arrays must already share the same
-        dimensions, shape, and (unless `ignore_data2_coordinates=True`) coordinates.
-    ignore_data2_coordinates : bool, default: False
-        When `True` and `resample=False`, `data2`'s coordinate axes are replaced with
-        `data1`'s before plotting, so the two volumes are rendered on the same
-        coordinate frame even if their stored coordinate values differ. Useful when the
-        two arrays come from acquisitions on slightly offset grids that you know are
-        equivalent. Ignored when `resample=True`.
+        before blending. When `False`, the two arrays must already share dimensions and
+        shape, and their coordinates must match within `rtol`/`atol`; once validated,
+        `data2`'s coordinates are replaced with `data1`'s so the two volumes share an
+        exact coordinate frame downstream.
+    rtol : float, default: 1e-5
+        Relative tolerance used to validate that `data1` and `data2` share coordinates
+        when `resample=False`. Widen to accept acquisitions on slightly offset grids
+        known to be equivalent. Ignored when `resample=True`.
+    atol : float, default: 1e-8
+        Absolute tolerance used to validate that `data1` and `data2` share coordinates
+        when `resample=False`. Ignored when `resample=True`.
     normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
         Intensity normalisation strategy.
 
@@ -2057,7 +2057,7 @@ def plot_composite(
     ValueError
         If either input has a `time` dimension, is not 2D or 3D, lacks `slice_mode` as a
         dimension, or (when `resample=False`) the two arrays do not share dims, shape,
-        and — unless `ignore_data2_coordinates=True` — coordinates.
+        and coordinates within `rtol`/`atol`.
 
     Notes
     -----
@@ -2101,7 +2101,8 @@ def plot_composite(
         data1,
         data2,
         resample=resample,
-        ignore_data2_coordinates=ignore_data2_coordinates,
+        rtol=rtol,
+        atol=atol,
         normalize_strategy=normalize_strategy,
         slice_coords=slice_coords,
         match_coordinates=False,
