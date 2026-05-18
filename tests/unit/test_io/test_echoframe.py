@@ -6,7 +6,11 @@ import h5py
 import numpy as np
 import pytest
 
-from confusius.io.echoframe import load_echoframe_dat, load_echoframe_metadata
+from confusius.io.echoframe import (
+    load_echoframe_dat,
+    load_echoframe_metadata,
+    load_echoframe_rf_timetag,
+)
 
 
 def _create_echoframe_metadata(
@@ -333,3 +337,106 @@ class TestLoadEchoFrameMetadata:
         """`load_echoframe_metadata` raises `ValueError` for a missing file."""
         with pytest.raises(ValueError):
             load_echoframe_metadata(tmp_path / "nonexistent.mat")
+
+
+def _create_rf_timetag_dat_file(
+    path: Path,
+    n_buffers: int = 3,
+    buffer_size: int = 10,
+    padding_bytes: int = 0,
+    known_values: bool = True,
+) -> None:
+    """Create a synthetic EchoFrame RF time tag DAT file.
+
+    Parameters
+    ----------
+    path : Path
+        Path to create the DAT file.
+    n_buffers : int, default: 3
+        Number of acquisition buffers.
+    buffer_size : int, default: 10
+        Number of float64 time tag values per buffer.
+    padding_bytes : int, default: 0
+        Padding bytes appended after each buffer.
+    known_values : bool, default: True
+        If True, fill each buffer with its 1-based index as a float64 sentinel.
+        If False, use random data.
+    """
+    header_dtype = np.uint64
+    n_header_items = 5
+    header_size = n_header_items * 8
+
+    with open(path, "wb") as f:
+        header = np.array(
+            [1, header_size, n_buffers, buffer_size, padding_bytes],
+            dtype=header_dtype,
+        )
+        header.tofile(f)
+
+        rng = np.random.default_rng(42)
+        for buf_idx in range(n_buffers):
+            if known_values:
+                data = np.full(buffer_size, float(buf_idx + 1), dtype=np.float64)
+            else:
+                data = rng.random(buffer_size)
+            data.tofile(f)
+
+            if padding_bytes > 0:
+                np.zeros(padding_bytes, dtype=np.uint8).tofile(f)
+
+
+@pytest.fixture
+def rf_timetag_no_padding(tmp_path):
+    """Create a synthetic RF time tag DAT file without padding."""
+    path = tmp_path / "rf_timetag.dat"
+    _create_rf_timetag_dat_file(path, n_buffers=3, buffer_size=10, padding_bytes=0)
+    return path
+
+
+@pytest.fixture
+def rf_timetag_with_padding(tmp_path):
+    """Create a synthetic RF time tag DAT file with padding."""
+    path = tmp_path / "rf_timetag_padded.dat"
+    _create_rf_timetag_dat_file(path, n_buffers=3, buffer_size=10, padding_bytes=16)
+    return path
+
+
+class TestLoadEchoFrameRfTimetag:
+    """Tests for `load_echoframe_rf_timetag` function."""
+
+    def test_loads_without_padding(self, rf_timetag_no_padding):
+        """`load_echoframe_rf_timetag` returns all values for files without padding."""
+        data = load_echoframe_rf_timetag(rf_timetag_no_padding)
+
+        assert data.shape == (30,)
+        assert data.dtype == np.float64
+
+    def test_known_values_without_padding(self, rf_timetag_no_padding):
+        """`load_echoframe_rf_timetag` reads correct values from each buffer."""
+        data = load_echoframe_rf_timetag(rf_timetag_no_padding)
+
+        # Buffer 0 → sentinel 1.0, buffer 1 → 2.0, buffer 2 → 3.0.
+        np.testing.assert_array_equal(data[:10], 1.0)
+        np.testing.assert_array_equal(data[10:20], 2.0)
+        np.testing.assert_array_equal(data[20:], 3.0)
+
+    def test_loads_with_padding(self, rf_timetag_with_padding):
+        """`load_echoframe_rf_timetag` returns all values for files with padding."""
+        data = load_echoframe_rf_timetag(rf_timetag_with_padding)
+
+        assert data.shape == (30,)
+        assert data.dtype == np.float64
+
+    def test_known_values_with_padding(self, rf_timetag_with_padding):
+        """`load_echoframe_rf_timetag` skips padding bytes and reads correct values."""
+        data = load_echoframe_rf_timetag(rf_timetag_with_padding)
+
+        # If padding is not skipped, buffer 1 onward will be corrupted.
+        np.testing.assert_array_equal(data[:10], 1.0)
+        np.testing.assert_array_equal(data[10:20], 2.0)
+        np.testing.assert_array_equal(data[20:], 3.0)
+
+    def test_missing_file(self, tmp_path):
+        """`load_echoframe_rf_timetag` raises `ValueError` for a missing file."""
+        with pytest.raises(ValueError):
+            load_echoframe_rf_timetag(tmp_path / "nonexistent.dat")

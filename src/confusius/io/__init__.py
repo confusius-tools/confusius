@@ -11,6 +11,7 @@ __all__ = [
     "save",
     "load_echoframe_dat",
     "load_echoframe_metadata",
+    "load_echoframe_rf_timetag",
     "load_nifti",
     "load_bps",
     "load_scan",
@@ -23,6 +24,7 @@ from confusius.io.echoframe import (
     convert_echoframe_dat_to_zarr,
     load_echoframe_dat,
     load_echoframe_metadata,
+    load_echoframe_rf_timetag,
 )
 from confusius.io.loadsave import load, save
 from confusius.io.nifti import load_nifti, save_nifti

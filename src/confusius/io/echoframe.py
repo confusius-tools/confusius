@@ -150,6 +150,89 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
     )
 
 
+def load_echoframe_rf_timetag(
+    dat_path: str | Path,
+    header_dtype: npt.DTypeLike = np.uint64,
+    n_header_items: int = 5,
+) -> npt.NDArray[np.float64]:
+    """Load an EchoFrame RF time tag DAT file.
+
+    RF time tag files record the hardware timestamp of each RF frame as a sequence of
+    64-bit floating-point values organised in acquisition buffers. The binary layout
+    mirrors the IQ DAT format: a fixed-size header followed by `n_buffers` data blocks,
+    each optionally padded to a power-of-two boundary.
+
+    The file is memory-mapped, so large files are handled without loading the entire
+    array into RAM. For the padded case the data field of the structured `numpy.memmap`
+    is returned as a flat view; for the unpadded case a plain `numpy.memmap` is returned
+    directly.
+
+    Parameters
+    ----------
+    dat_path : str or pathlib.Path
+        Path to the EchoFrame RF time tag DAT file. The file name conventionally ends
+        with `_rf_timetag.dat`.
+    header_dtype : dtype_like, default: numpy.uint64
+        Data type of each element in the binary file header.
+    n_header_items : int, default: 5
+        Number of elements in the header. The header encodes (in order):
+
+        1. File format version.
+        2. Header size in bytes (byte offset to the first data buffer).
+        3. Number of acquisition buffers written to the file.
+        4. Number of `float64` time tag values per buffer (`effectiveBufferSize`).
+        5. Number of padding bytes appended after each data buffer (`paddingBytes`).
+
+    Returns
+    -------
+    (n_buffers * buffer_size,) numpy.ndarray
+        Flat `float64` array of RF time tags concatenated across all buffers in
+        acquisition order. The `i`-th element is the hardware timestamp of the `i`-th
+        RF frame in the acquisition, in seconds.
+
+    Raises
+    ------
+    ValueError
+        If `dat_path` does not exist or is not a file.
+
+    Notes
+    -----
+    The returned array can be passed directly to
+    [convert_echoframe_dat_to_zarr][confusius.io.echoframe.convert_echoframe_dat_to_zarr]
+    via its `block_times` parameter to embed accurate per-block timestamps in the output
+    Zarr store, provided the number of time tags matches the number of acquisition
+    blocks retained after skipping.
+    """
+    dat_path = check_path(dat_path, label="dat_path", type="file")
+
+    header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
+    _, header_size, n_buffers, buffer_size, padding_bytes = header
+
+    if padding_bytes > 0:
+        block_dtype = np.dtype(
+            [
+                ("data", np.float64, (int(buffer_size),)),
+                ("padding", np.uint8, (int(padding_bytes),)),
+            ]
+        )
+        memmap = np.memmap(
+            dat_path,
+            dtype=block_dtype,
+            mode="r",
+            offset=int(header_size),
+            shape=(int(n_buffers),),
+        )
+        return memmap["data"].reshape(-1)  # type: ignore
+    else:
+        return np.memmap(
+            dat_path,
+            dtype=np.float64,
+            mode="r",
+            offset=int(header_size),
+            shape=(int(n_buffers) * int(buffer_size),),
+        )
+
+
 def load_echoframe_dat(
     dat_path: str | Path,
     meta_path: str | Path,
