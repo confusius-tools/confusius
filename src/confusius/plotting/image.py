@@ -11,8 +11,8 @@ from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
 from confusius.plotting._hover import (
+    _HoverManager,
     _normalize_roi_labels,
-    _RegionHoverManager,
 )
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
@@ -419,7 +419,7 @@ class VolumePlotter:
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
-        self._hover_manager = _RegionHoverManager()
+        self._hover_manager = _HoverManager()
 
     def _ensure_figure(
         self,
