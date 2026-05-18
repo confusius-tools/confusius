@@ -1097,7 +1097,9 @@ class VolumePlotter:
         if resample:
             from confusius.registration.resampling import resample_like
 
+            data2_name = data2.name or "data2"
             data2 = resample_like(data2, data1, np.eye(data1.ndim + 1))
+            data2.name = data2_name
         else:
             if data1.dims != data2.dims:
                 raise ValueError(
@@ -1128,6 +1130,9 @@ class VolumePlotter:
                 slice_coords = list(data1.coords[self.slice_mode].values)
             else:
                 slice_coords = list(range(data1.sizes[self.slice_mode]))
+
+        input_slices1, _ = _extract_slices(data1, self.slice_mode, slice_coords)
+        input_slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
 
         if normalize_strategy == "per_volume":
             data1 = data1.copy(data=scale_min_max(data1.values.astype(float)))
@@ -1182,9 +1187,24 @@ class VolumePlotter:
                 arr2 = scale_min_max(arr2)
             rgb = blend_red_cyan(arr1, arr2)
 
-            x_edges, y_edges, _, _ = _slice_edges_and_centers(slice1, dim_row, dim_col)
+            x_edges, y_edges, hover_x, hover_y = _slice_edges_and_centers(
+                slice1, dim_row, dim_col
+            )
 
             ax.pcolormesh(x_edges, y_edges, rgb, alpha=alpha)
+            self._attach_or_update_hover_manager({})
+            for i, (data, input_slices) in enumerate(
+                zip((data1, data2), (input_slices1, input_slices2))
+            ):
+                self._hover_manager.register_data_to_axis(
+                    ax,
+                    hover_x,
+                    hover_y,
+                    input_slices[slice_idx].values,
+                    role="volume",
+                    name=str(data.name) if data.name is not None else f"data{i + 1}",
+                    units=data.attrs.get("units"),
+                )
 
             self._style_slice_axis(
                 ax,
