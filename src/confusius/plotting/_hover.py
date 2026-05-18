@@ -24,7 +24,8 @@ if TYPE_CHECKING:
     from matplotlib.backend_bases import Event
     from matplotlib.figure import Figure
 
-_CONFUSIUS_HOVER_MANAGER: set[_HoverManager] = set()
+_CONFUSIUS_HOVER_MANAGERS: set[_HoverManager] = set()
+"""Strong-reference registry of active `_HoverManager` instances."""
 
 
 @dataclass
@@ -65,7 +66,7 @@ class _HoverManager:
         self.roi_labels.clear()
         self._ax_layers.clear()
         self._attached = False
-        _CONFUSIUS_HOVER_MANAGER.discard(self)
+        _CONFUSIUS_HOVER_MANAGERS.discard(self)
 
     def is_attached(self) -> bool:
         """Return `True` if this hover manager is attached to a figure."""
@@ -80,9 +81,9 @@ class _HoverManager:
             Figure to attach to.
         """
         self._cid = figure.canvas.mpl_connect("motion_notify_event", self._on_hover)
-        _CONFUSIUS_HOVER_MANAGER.add(self)
+        _CONFUSIUS_HOVER_MANAGERS.add(self)
         figure.canvas.mpl_connect(
-            "close_event", lambda _e, mgr=self: _CONFUSIUS_HOVER_MANAGER.discard(mgr)
+            "close_event", lambda _e, mgr=self: _CONFUSIUS_HOVER_MANAGERS.discard(mgr)
         )
         toolbar = figure.canvas.toolbar
         if toolbar is not None and hasattr(
