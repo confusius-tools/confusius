@@ -14,8 +14,8 @@ from confusius._utils import find_stack_level, get_coordinate_spacings_best_effo
 from confusius.atlas._structures import _build_atlas_cmap_and_norm
 from confusius.extract import extract_with_mask
 from confusius.plotting._hover import (
+    _HoverManager,
     _normalize_roi_labels,
-    _RegionHoverManager,
 )
 from confusius.signal import clean
 from confusius.validation import validate_time_series
@@ -447,7 +447,7 @@ class VolumePlotter:
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
-        self._hover_manager = _RegionHoverManager()
+        self._hover_manager = _HoverManager()
 
     def _ensure_figure(
         self,

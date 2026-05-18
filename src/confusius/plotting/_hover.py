@@ -24,6 +24,8 @@ if TYPE_CHECKING:
     from matplotlib.backend_bases import Event
     from matplotlib.figure import Figure
 
+_CONFUSIUS_HOVER_MANAGER: set[_HoverManager] = set()
+
 
 @dataclass
 class _SliceLayer:
@@ -43,7 +45,7 @@ class _SliceLayer:
     """Units string appended to the numeric value, if any."""
 
 
-class _RegionHoverManager:
+class _HoverManager:
     """Show the data value and/or ROI name under the cursor in the status bar.
 
     Attributes
@@ -63,6 +65,7 @@ class _RegionHoverManager:
         self.roi_labels.clear()
         self._ax_layers.clear()
         self._attached = False
+        _CONFUSIUS_HOVER_MANAGER.discard(self)
 
     def is_attached(self) -> bool:
         """Return `True` if this hover manager is attached to a figure."""
@@ -77,6 +80,10 @@ class _RegionHoverManager:
             Figure to attach to.
         """
         self._cid = figure.canvas.mpl_connect("motion_notify_event", self._on_hover)
+        _CONFUSIUS_HOVER_MANAGER.add(self)
+        figure.canvas.mpl_connect(
+            "close_event", lambda _e, mgr=self: _CONFUSIUS_HOVER_MANAGER.discard(mgr)
+        )
         toolbar = figure.canvas.toolbar
         if toolbar is not None and hasattr(
             toolbar, "_mouse_event_to_message"
