@@ -25,6 +25,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Fixed plotting hover information silently disappearing when the returned
+  `VolumePlotter` was not held in a variable (e.g. `obj.fusi.plot.volume().show()`). The
+  hover manager is now kept alive until the figure is closed
+  ([#148](https://github.com/confusius-tools/confusius/pull/148)).
 - Fixed napari x-axis extent computation to ignore the interactive cursor guide line,
   preventing incorrect plot bounds
   ([#111](https://github.com/confusius-tools/confusius/pull/111)).

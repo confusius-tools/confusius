@@ -738,6 +738,79 @@ class TestRoiHover:
             "; annotation=7 (somatosensory)"
         )
 
+    def test_hover_survives_plotter_gc(self, matplotlib_pyplot):
+        """Hover stays wired up after the returned plotter is dropped and GC'd.
+
+        Regression test for the fix that anchors active `_HoverManager`
+        instances in a module-level set: matplotlib's `CallbackRegistry`
+        stores bound methods as `WeakMethod`, so without the strong-ref
+        registry the manager would be collected as soon as the
+        `VolumePlotter` returned by `plot_volume(...)` went out of scope
+        (e.g. `plot_volume(...).show()`), silently disabling hover.
+        """
+        import gc
+        import weakref
+
+        from confusius.plotting._hover import _CONFUSIUS_HOVER_MANAGERS
+
+        coords = {"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]}
+        labels = xr.DataArray(
+            np.array(
+                [[[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]],
+                dtype=np.int32,
+            ),
+            dims=["z", "y", "x"],
+            coords=coords,
+            name="annotation",
+        )
+        roi_labels = {7: "somatosensory", 42: "visual"}
+        x, y = 0.5, 0.5
+
+        plotter = plot_volume(
+            labels,
+            slice_mode="z",
+            slice_coords=[0.0],
+            show_colorbar=False,
+            roi_labels=roi_labels,
+        )
+        fig = plotter.figure
+        ax = plotter.axes.flat[0]
+        plotter_ref = weakref.ref(plotter)
+        manager_ref = weakref.ref(plotter._hover_manager)
+        assert manager_ref() in _CONFUSIUS_HOVER_MANAGERS
+
+        del plotter
+        gc.collect()
+
+        # The plotter is gone, but the hover manager must still be alive
+        # (anchored by the module-level registry) and still wired to the
+        # canvas's motion_notify_event.
+        assert plotter_ref() is None
+        assert manager_ref() is not None
+        assert manager_ref() in _CONFUSIUS_HOVER_MANAGERS
+
+        self._fire_motion(ax, x, y)
+        assert (
+            ax.format_coord(x, y)
+            == f"x={x:.3g}, y={y:.3g}; annotation=7 (somatosensory)"
+        )
+
+        # Closing the figure must release the manager from the registry,
+        # after which it is free to be garbage collected. The Agg backend
+        # used in tests does not dispatch `close_event` from `plt.close`,
+        # so emit it explicitly to mirror what interactive backends do.
+        from matplotlib.backend_bases import CloseEvent
+
+        fig.canvas.callbacks.process(
+            "close_event", CloseEvent("close_event", fig.canvas)
+        )
+        assert manager_ref() not in _CONFUSIUS_HOVER_MANAGERS
+
+        matplotlib_pyplot.close(fig)
+        del ax, fig
+        gc.collect()
+        assert manager_ref() is None
+
 
 class TestPlotNapari:
     """Tests for plot_napari scale and translate parameters."""
