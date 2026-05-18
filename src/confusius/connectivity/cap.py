@@ -356,7 +356,7 @@ def _find_elbow(cluster_range: list[int], scores: list[float]) -> int:
     return cluster_range[int(np.argmax(distances))]
 
 
-def _segments(
+def _count_contiguous_episodes(
     labels: npt.NDArray[np.intp], cap_id: int
 ) -> tuple[npt.NDArray[np.bool_], int]:
     """Count contiguous episodes of `cap_id` in `labels`.
@@ -372,15 +372,15 @@ def _segments(
     -------
     binary : (time,) numpy.ndarray
         Boolean mask where `labels == cap_id`.
-    n_segments : int
+    n_episodes : int
         Number of contiguous episodes. Zero when the CAP never appears.
     """
     binary = labels == cap_id
     indices = np.where(binary)[0]
     if len(indices) == 0:
         return binary, 0
-    n_segments = int(np.sum(np.diff(indices) > 1)) + 1
-    return binary, n_segments
+    n_episodes = int(np.sum(np.diff(indices) > 1)) + 1
+    return binary, n_episodes
 
 
 def _volume_durations(lbl: xr.DataArray) -> npt.NDArray[np.floating]:
@@ -869,14 +869,14 @@ class CAP(BaseEstimator):
             n_volumes = len(arr)
             durations = _volume_durations(lbl)
 
-            # Censored volumes are replaced with -1. _segments() treats them as
-            # natural episode breaks (a run of CAP k interrupted by -1 becomes
+            # Censored volumes are replaced with -1. _count_contiguous_episodes() treats
+            # them as natural episode breaks (a run of CAP k interrupted by -1 becomes
             # two separate episodes). The denominator n_volumes stays fixed.
             if score_threshold is not None:
                 arr = np.where(self.scores_[i].values >= score_threshold, arr, -1)
 
             for j, cap_id in enumerate(cap_ids):
-                binary, n_segs = _segments(arr, int(cap_id))
+                binary, n_segs = _count_contiguous_episodes(arr, int(cap_id))
                 tf[i, j] = float(binary.sum()) / n_volumes
                 cnt[i, j] = n_segs
                 # Floor n_segs at 1 to avoid 0/0; the binary.sum()==0 case
@@ -1029,8 +1029,8 @@ class CAP(BaseEstimator):
     ) -> int:
         """Select the optimal number of clusters.
 
-        Fits k-means for each value in `cluster_range` (preprocessing runs
-        only once) and returns the cluster count that optimizes `method`.
+        Fits k-means for each value in `cluster_range` (preprocessing runs only once)
+        and returns the cluster count that optimizes `method`.
 
         Parameters
         ----------
