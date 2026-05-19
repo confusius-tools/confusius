@@ -422,7 +422,7 @@ _section("Plugin Screenshots")
 
 try:
     from confusius._napari._widget import ConfUSIusWidget
-    from confusius.plotting.image import plot_napari
+    from confusius.plotting.napari import plot_napari
 
     viewer = napari.Viewer(show=False)
     _viewer, _layer = plot_napari(

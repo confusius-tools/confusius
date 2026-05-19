@@ -33,11 +33,13 @@ Xarray
 Xarray's
 Zarr
 Zarr's
+Zensical
 affines
 analyses
 angiography
 beamformed
 beamforming
+codespell
 colormap
 confusius
 denoising
@@ -51,6 +53,8 @@ napari
 netCDF
 neuroanatomy
 non-trivial
+numpydoc
+numpydocs
 optogenetics
 preclinical
 pulsatility
@@ -61,5 +65,6 @@ statsmodels
 stereotactic
 subspaces
 tSNR
+ty
 velocimetry
 volumewise

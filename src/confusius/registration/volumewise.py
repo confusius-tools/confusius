@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils import is_h5py_backed
+from confusius._utils.io import is_h5py_backed
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
 

@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import scipy.stats as sps
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     import numpy.typing as npt

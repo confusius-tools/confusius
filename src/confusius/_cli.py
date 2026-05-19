@@ -44,7 +44,7 @@ def main() -> None:
 
     if args.path is not None:
         from confusius.io import load
-        from confusius.plotting.image import plot_napari
+        from confusius.plotting.napari import plot_napari
 
         da = load(args.path)
         if not args.lazy:

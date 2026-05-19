@@ -1,32 +1,31 @@
 """Image visualization utilities for fUSI data."""
 
 import warnings
-from collections import defaultdict
-from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 
-import napari
 import numpy as np
 import xarray as xr
-from napari.utils.colormaps import DirectLabelColormap
 
-from confusius._utils import find_stack_level, get_coordinate_spacings_best_effort
-from confusius.atlas._structures import _build_atlas_cmap_and_norm
+from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.plotting import blend_red_cyan, scale_min_max
+from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
 from confusius.plotting._hover import (
     _HoverManager,
     _normalize_roi_labels,
 )
+from confusius.plotting._utils import (
+    coerce_complex_to_magnitude,
+    sort_coords_for_plot,
+)
 from confusius.signal import clean
-from confusius.validation import validate_time_series
+from confusius.validation import validate_matching_coordinates, validate_time_series
 
 if TYPE_CHECKING:
     import numpy.typing as npt
     from matplotlib.axes import Axes
     from matplotlib.colors import Colormap, Normalize
     from matplotlib.figure import Figure, SubFigure
-    from napari import Viewer
-    from napari.layers import Image, Labels
 
 _BASE_SIZE = 4.0
 """Base subplot size for VolumePlotter when creating new figures.
@@ -107,6 +106,32 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     left = centers[0] - (centers[1] - centers[0]) / 2
     right = centers[-1] + (centers[-1] - centers[-2]) / 2
     return np.concatenate([[left], interior, [right]])
+
+
+def _slice_edges_and_centers(
+    slice_da: xr.DataArray, dim_row: str, dim_col: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return `(x_edges, y_edges, x_centers, y_centers)` for a 2D slice.
+
+    Centers fall back to integer indices when the slice lacks coordinates along the
+    requested dimension; edges are derived from the centers via
+    [`_centers_to_edges`][confusius.plotting.image._centers_to_edges].
+    """
+    if dim_col in slice_da.coords:
+        x_centers = slice_da.coords[dim_col].values.astype(float)
+        x_edges = _centers_to_edges(x_centers)
+    else:
+        x_centers = np.arange(slice_da.sizes[dim_col], dtype=float)
+        x_edges = np.arange(slice_da.sizes[dim_col] + 1, dtype=float)
+
+    if dim_row in slice_da.coords:
+        y_centers = slice_da.coords[dim_row].values.astype(float)
+        y_edges = _centers_to_edges(y_centers)
+    else:
+        y_centers = np.arange(slice_da.sizes[dim_row], dtype=float)
+        y_edges = np.arange(slice_da.sizes[dim_row] + 1, dtype=float)
+
+    return x_edges, y_edges, x_centers, y_centers
 
 
 def _resolve_norm(
@@ -286,38 +311,6 @@ def _resolve_font_sizes(
     return fontsize, fontsize * 0.9, fontsize * 0.85
 
 
-def _coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray:
-    """Convert complex-valued arrays to magnitude for plotting.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Input data to display.
-    caller : str
-        Name of the plotting entry point used in the warning message.
-
-    Returns
-    -------
-    xarray.DataArray
-        `data` unchanged for non-complex inputs, otherwise `abs(data)`.
-
-    Warns
-    -----
-    UserWarning
-        Raised when `data` is complex-valued to make the implicit magnitude
-        conversion explicit to users.
-    """
-    if np.iscomplexobj(data):
-        warnings.warn(
-            f"Complex-valued data passed to {caller}; plotting magnitude "
-            "(`abs(data)`).",
-            UserWarning,
-            stacklevel=find_stack_level(),
-        )
-        return xr.ufuncs.abs(data)
-    return data
-
-
 def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
     """Generate `n_colors` visually distinct colors."""
     import matplotlib
@@ -346,27 +339,6 @@ def _extract_slices(
         slices.append(slice_da)
         actual_coords.append(actual_coord)
     return slices, actual_coords
-
-
-def _sort_coords_for_plot(
-    data: xr.DataArray,
-    dims: Sequence[Hashable],
-) -> xr.DataArray:
-    """Sort coordinate axes into increasing order before plotting.
-
-    Any plotted coordinate axis that is not already monotonic increasing,
-    including monotonic-decreasing axes, is sorted to avoid ambiguous
-    geometry in plotting backends that assume ordered coordinates (e.g.
-    `pcolormesh` edge construction, contour interpolation, and napari array
-    indexing with scale/translate).
-    """
-    sorted_data = data
-    for dim in dims:
-        if dim not in sorted_data.coords:
-            continue
-        if not sorted_data.get_index(dim).is_monotonic_increasing:
-            sorted_data = sorted_data.sortby(dim)
-    return sorted_data
 
 
 class VolumePlotter:
@@ -607,6 +579,148 @@ class VolumePlotter:
             }
         return [(idx, idx) for idx in range(len(actual_coords))]
 
+    def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
+        """Coerce complex, squeeze, validate `slice_mode`/3D, and sort coords."""
+        data = coerce_complex_to_magnitude(data, caller=caller)
+        squeeze_dims = [
+            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
+        ]
+        if squeeze_dims:
+            data = data.squeeze(dim=squeeze_dims)
+        if self.slice_mode not in data.dims:
+            raise ValueError(
+                f"slice_mode '{self.slice_mode}' is not a dimension of data. "
+                f"Available dimensions: {list(data.dims)}."
+            )
+        if data.ndim != 3:
+            raise ValueError(
+                f"Data must be 3D, but got shape {data.shape} with dims "
+                f"{list(data.dims)}."
+            )
+        return sort_coords_for_plot(data, data.dims)
+
+    def _resolve_axes_layout(
+        self,
+        data: xr.DataArray,
+        n_slices: int,
+        actual_coords: list[float],
+        dim_row: str,
+        dim_col: str,
+        *,
+        match_coordinates: bool,
+        nrows: int | None,
+        ncols: int | None,
+        dpi: int | None,
+    ) -> list[tuple[int, int]]:
+        """Resolve the per-slice axis assignment, creating the figure if needed."""
+        if match_coordinates:
+            if self.axes is None:
+                raise ValueError(
+                    "Cannot match coordinates: no existing axes. Either create a "
+                    "VolumePlotter with axes or use match_coordinates=False."
+                )
+            matched_indices = self._find_matching_axes(actual_coords)
+            matched_slice_indices = {idx for _, idx in matched_indices}
+            unmatched_slices = [
+                (idx, actual_coords[idx])
+                for idx in range(n_slices)
+                if idx not in matched_slice_indices
+            ]
+            if unmatched_slices:
+                self._warn_unmatched(unmatched_slices)
+            return matched_indices
+
+        if self.axes is None:
+            x_range = None
+            y_range = None
+            if dim_col in data.coords and dim_row in data.coords:
+                x_coords = data.coords[dim_col].values.astype(float)
+                y_coords = data.coords[dim_row].values.astype(float)
+                x_range = float(np.max(x_coords) - np.min(x_coords))
+                y_range = float(np.max(y_coords) - np.min(y_coords))
+            self._ensure_figure(
+                n_slices,
+                nrows=nrows,
+                ncols=ncols,
+                dpi=dpi,
+                x_range=x_range,
+                y_range=y_range,
+            )
+
+        if self._user_provided_axes:
+            assert self.axes is not None
+            if n_slices != self.axes.size:
+                raise ValueError(
+                    f"Number of slices ({n_slices}) must match number of axes "
+                    f"({self.axes.size}). Got {n_slices} slice_coords but axes "
+                    f"has shape {self.axes.shape}."
+                )
+
+        return self._init_sequential_layout(actual_coords)
+
+    def _style_slice_axis(
+        self,
+        ax: "Axes",
+        axis_idx: int,
+        data: xr.DataArray,
+        coord: float,
+        dim_row: str,
+        dim_col: str,
+        x_edges: np.ndarray,
+        y_edges: np.ndarray,
+        *,
+        show_titles: bool,
+        show_axis_labels: bool,
+        show_axis_ticks: bool,
+        show_axes: bool,
+        title_fontsize: float | None,
+        label_fontsize: float | None,
+        tick_fontsize: float | None,
+    ) -> None:
+        """Apply post-draw styling (aspect, spines, title, labels, lims) to a slice axis."""
+        ax.set_aspect("equal")
+        self._style_ax(ax)
+
+        text_color = self._text_color
+        ax.set_title(
+            self._build_slice_title(data, coord) if show_titles else "",
+            color=text_color,
+            fontsize=title_fontsize,
+        )
+
+        if show_axes:
+            if show_axis_labels:
+                ax.set_xlabel(
+                    _build_axis_label(data, dim_col),
+                    color=text_color,
+                    fontsize=label_fontsize,
+                )
+                ax.set_ylabel(
+                    _build_axis_label(data, dim_row),
+                    color=text_color,
+                    fontsize=label_fontsize,
+                )
+            if show_axis_ticks:
+                ax.tick_params(labelsize=tick_fontsize)
+            else:
+                ax.set_xticklabels([])
+                ax.set_yticklabels([])
+        else:
+            ax.axis("off")
+
+        # Expand stored limits to encompass overlaid volumes with different extents.
+        current_xlim = self._update_stored_lim(
+            self._axis_xlims,
+            axis_idx,
+            (float(x_edges.min()), float(x_edges.max())),
+        )
+        current_ylim = self._update_stored_lim(
+            self._axis_ylims,
+            axis_idx,
+            (float(y_edges.min()), float(y_edges.max())),
+        )
+        self._set_ax_lims(ax, current_xlim, current_ylim)
+
     def add_volume(
         self,
         data: xr.DataArray,
@@ -710,38 +824,16 @@ class VolumePlotter:
         """
         import matplotlib.pyplot as plt
 
-        data = _coerce_complex_to_magnitude(data, caller="VolumePlotter.add_volume")
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
-
-        squeeze_dims = [
-            d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
-        ]
-        if squeeze_dims:
-            data = data.squeeze(dim=squeeze_dims)
-
-        if self.slice_mode not in data.dims:
-            raise ValueError(
-                f"slice_mode '{self.slice_mode}' is not a dimension of data. "
-                f"Available dimensions: {list(data.dims)}."
-            )
-
-        data = _sort_coords_for_plot(data, data.dims)
-
-        if data.ndim != 3:
-            raise ValueError(
-                f"Data must be 3D, but got shape {data.shape} with dims "
-                f"{list(data.dims)}."
-            )
+        data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
 
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
 
-        has_coords = self.slice_mode in data.coords
-
         if slice_coords is None:
-            if has_coords:
+            if self.slice_mode in data.coords:
                 slice_coords = list(data.coords[self.slice_mode].values)
             else:
                 slice_coords = list(range(data.sizes[self.slice_mode]))
@@ -771,52 +863,17 @@ class VolumePlotter:
             threshold_mode=threshold_mode,
         )
 
-        if match_coordinates:
-            if self.axes is None:
-                raise ValueError(
-                    "Cannot match coordinates: no existing axes. Either create a "
-                    "VolumePlotter with axes or use match_coordinates=False."
-                )
-            matched_indices = self._find_matching_axes(actual_coords)
-
-            matched_slice_indices = {idx for _, idx in matched_indices}
-            unmatched_slices = [
-                (idx, actual_coords[idx])
-                for idx in range(n_slices)
-                if idx not in matched_slice_indices
-            ]
-            if unmatched_slices:
-                self._warn_unmatched(unmatched_slices)
-
-            plot_indices = matched_indices
-        else:
-            if self.axes is None:
-                x_range = None
-                y_range = None
-                if dim_col in data.coords and dim_row in data.coords:
-                    x_coords = data.coords[dim_col].values.astype(float)
-                    y_coords = data.coords[dim_row].values.astype(float)
-                    x_range = float(np.max(x_coords) - np.min(x_coords))
-                    y_range = float(np.max(y_coords) - np.min(y_coords))
-                self._ensure_figure(
-                    n_slices,
-                    nrows=nrows,
-                    ncols=ncols,
-                    dpi=dpi,
-                    x_range=x_range,
-                    y_range=y_range,
-                )
-
-            if self._user_provided_axes:
-                assert self.axes is not None
-                if n_slices != self.axes.size:
-                    raise ValueError(
-                        f"Number of slices ({n_slices}) must match number of axes "
-                        f"({self.axes.size}). Got {n_slices} slice_coords but axes has "
-                        f"shape {self.axes.shape}."
-                    )
-
-            plot_indices = self._init_sequential_layout(actual_coords)
+        plot_indices = self._resolve_axes_layout(
+            data,
+            n_slices,
+            actual_coords,
+            dim_row,
+            dim_col,
+            match_coordinates=match_coordinates,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
 
         assert (self.axes is not None) and (self.figure is not None)
 
@@ -829,26 +886,14 @@ class VolumePlotter:
         for axis_idx, slice_idx in plot_indices:
             ax = axes_flat[axis_idx]
             arr = thresholded_slices[slice_idx]
-            coord = actual_coords[slice_idx]
             slice_da = unthresholded_slices[slice_idx]
-
-            if dim_col in slice_da.coords:
-                hover_x = slice_da.coords[dim_col].values.astype(float)
-                x_vals = _centers_to_edges(hover_x)
-            else:
-                hover_x = np.arange(slice_da.sizes[dim_col], dtype=float)
-                x_vals = np.arange(slice_da.sizes[dim_col] + 1, dtype=float)
-
-            if dim_row in slice_da.coords:
-                hover_y = slice_da.coords[dim_row].values.astype(float)
-                y_vals = _centers_to_edges(hover_y)
-            else:
-                hover_y = np.arange(slice_da.sizes[dim_row], dtype=float)
-                y_vals = np.arange(slice_da.sizes[dim_row] + 1, dtype=float)
+            x_edges, y_edges, hover_x, hover_y = _slice_edges_and_centers(
+                slice_da, dim_row, dim_col
+            )
 
             plotted_quadmesh = ax.pcolormesh(
-                x_vals,
-                y_vals,
+                x_edges,
+                y_edges,
                 np.ma.masked_invalid(arr),
                 cmap=cmap,
                 norm=norm,
@@ -864,42 +909,24 @@ class VolumePlotter:
                 name=str(data.name) if data.name is not None else "value",
                 units=data.attrs.get("units"),
             )
-            ax.set_aspect("equal")
-            self._style_ax(ax)
-            ax.set_title(
-                self._build_slice_title(data, coord) if show_titles else "",
-                color=text_color,
-                fontsize=title_fontsize,
-            )
 
-            if show_axes:
-                if show_axis_labels:
-                    ax.set_xlabel(
-                        _build_axis_label(data, dim_col),
-                        color=text_color,
-                        fontsize=label_fontsize,
-                    )
-                    ax.set_ylabel(
-                        _build_axis_label(data, dim_row),
-                        color=text_color,
-                        fontsize=label_fontsize,
-                    )
-                if show_axis_ticks:
-                    ax.tick_params(labelsize=tick_fontsize)
-                if not show_axis_ticks:
-                    ax.set_xticklabels([])
-                    ax.set_yticklabels([])
-            else:
-                ax.axis("off")
-
-            # Expand stored limits to encompass overlaid volumes with different extents.
-            current_xlim = self._update_stored_lim(
-                self._axis_xlims, axis_idx, (float(x_vals.min()), float(x_vals.max()))
+            self._style_slice_axis(
+                ax,
+                axis_idx,
+                data,
+                actual_coords[slice_idx],
+                dim_row,
+                dim_col,
+                x_edges,
+                y_edges,
+                show_titles=show_titles,
+                show_axis_labels=show_axis_labels,
+                show_axis_ticks=show_axis_ticks,
+                show_axes=show_axes,
+                title_fontsize=title_fontsize,
+                label_fontsize=label_fontsize,
+                tick_fontsize=tick_fontsize,
             )
-            current_ylim = self._update_stored_lim(
-                self._axis_ylims, axis_idx, (float(y_vals.min()), float(y_vals.max()))
-            )
-            self._set_ax_lims(ax, current_xlim, current_ylim)
 
         if not match_coordinates:
             for ax in axes_flat[n_slices:]:
@@ -927,6 +954,279 @@ class VolumePlotter:
                 cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
             )
             cbar.outline.set_edgecolor(text_color)  # type: ignore
+
+        return self
+
+    def add_composite(
+        self,
+        data1: xr.DataArray,
+        data2: xr.DataArray,
+        *,
+        resample: bool = True,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
+        normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
+        slice_coords: Sequence[float] | None = None,
+        match_coordinates: bool = False,
+        alpha: float = 1.0,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = True,
+        fontsize: float | None = None,
+        nrows: int | None = None,
+        ncols: int | None = None,
+        dpi: int | None = None,
+    ) -> "VolumePlotter":
+        """Plot a red/cyan composite of two volumes on the axes.
+
+        Each slice is rendered as an RGB image where `data1` drives the red channel
+        and `data2` drives the green and blue channels (cyan), making overlap
+        visible as desaturated grey. This is the same visual encoding used by the
+        live registration progress preview.
+
+        Parameters
+        ----------
+        data1 : xarray.DataArray
+            First volume, plotted in red. 3D volume data. Unitary dimensions (except
+            `slice_mode`) are squeezed before processing. Complex-valued inputs are
+            converted to magnitude (`abs(data)`) with a warning.
+        data2 : xarray.DataArray
+            Second volume, plotted in cyan. Must have the same dimensionality as
+            `data1` after squeezing; when `resample=True` it is resampled onto
+            `data1`'s grid before plotting, so its native shape and coordinates may
+            differ.
+        resample : bool, default: True
+            Whether to resample `data2` onto `data1`'s grid using an identity
+            transform before blending. When `False`, the two arrays must
+            already share the same dimensions and shape, and their coordinates
+            must match within `rtol`/`atol`; once validated, `data2`'s
+            coordinates are replaced with `data1`'s so the two volumes share
+            an exact coordinate frame downstream.
+        rtol : float, default: 1e-5
+            Relative tolerance used to validate that `data1` and `data2` share
+            coordinates when `resample=False`. Widen to accept acquisitions on
+            slightly offset grids known to be equivalent. Ignored when
+            `resample=True`.
+        atol : float, default: 1e-8
+            Absolute tolerance used to validate that `data1` and `data2` share
+            coordinates when `resample=False`. Ignored when `resample=True`.
+        normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
+            Intensity normalisation strategy.
+
+            - `"per_volume"`: rescale each input to `[0, 1]` independently over its
+              full volume. Preserves slice-to-slice contrast within each array
+              but loses the absolute-intensity relationship between `data1` and
+              `data2`.
+            - `"per_slice"`: rescale each 2D slice independently. Maximises
+              contrast on dim slices at the cost of cross-slice comparability.
+            - `"shared"`: rescale both volumes together using a single shared
+              `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]`
+              range. Preserves the absolute-intensity relationship between the
+              two inputs, useful when comparing data acquired at the same
+              dynamic range.
+        slice_coords : sequence of float, optional
+            Coordinate values along `slice_mode` at which to extract slices. If not
+            provided, all coordinate values from `data1` are used.
+        match_coordinates : bool, default: False
+            If True, match slice coordinates to the stored coordinate mapping of an
+            existing figure (for use as an overlay). If False, plot sequentially on
+            a fresh grid of axes — the natural mode for a standalone composite plot.
+        alpha : float, default: 1.0
+            Opacity of the composite image.
+        show_titles : bool, default: True
+            Whether to display subplot titles showing the slice coordinate.
+        show_axis_labels : bool, default: True
+            Whether to display axis labels (with units when available).
+        show_axis_ticks : bool, default: True
+            Whether to display axis tick labels.
+        show_axes : bool, default: True
+            Whether to show axis decorations. When `False`, overrides
+            `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels use `0.9 * fontsize`; tick labels use
+            `0.85 * fontsize`. If not provided, uses the active Matplotlib
+            defaults.
+        nrows : int, optional
+            Number of rows in the subplot grid when creating a new figure.
+            If not provided, computed automatically.
+        ncols : int, optional
+            Number of columns in the subplot grid when creating a new figure.
+            If not provided, computed automatically.
+        dpi : int, optional
+            Figure resolution in dots per inch. Ignored when using an existing
+            figure.
+
+        Returns
+        -------
+        VolumePlotter
+            Returns self for method chaining.
+
+        Raises
+        ------
+        ValueError
+            If either input has a `time` dimension, is not 2D or 3D, lacks
+            `slice_mode` as a dimension, or (when `resample=False`) the two
+            arrays do not share dims, shape, and coordinates within
+            `rtol`/`atol`.
+
+        Notes
+        -----
+        The composite is rendered with
+        [`pcolormesh`][matplotlib.axes.Axes.pcolormesh] using its RGB-`C`
+        codepath, so panels line up with overlays drawn by
+        [`add_volume`][confusius.plotting.VolumePlotter.add_volume] /
+        [`add_contours`][confusius.plotting.VolumePlotter.add_contours].
+        Hover tooltips, colormaps, colorbars, and intensity thresholds are
+        not supported on composite axes — use `add_volume` for those.
+        """
+        if normalize_strategy not in ("per_volume", "per_slice", "shared"):
+            raise ValueError(
+                f"Invalid normalization strategy {normalize_strategy!r}. "
+                f"Expected 'per_volume', 'per_slice', or 'shared'."
+            )
+
+        data1 = self._prepare_slice_inputs(
+            data1, caller="VolumePlotter.add_composite (data1)"
+        )
+        data2 = self._prepare_slice_inputs(
+            data2, caller="VolumePlotter.add_composite (data2)"
+        )
+
+        if resample:
+            from confusius.registration.resampling import resample_like
+
+            data2_name = data2.name or "data2"
+            data2 = resample_like(data2, data1, np.eye(data1.ndim + 1))
+            data2.name = data2_name
+        else:
+            if data1.dims != data2.dims:
+                raise ValueError(
+                    f"With resample=False, data1 and data2 must share dimensions; "
+                    f"got {data1.dims} vs {data2.dims}."
+                )
+            if data1.shape != data2.shape:
+                raise ValueError(
+                    f"With resample=False, data1 and data2 must share shape; "
+                    f"got {data1.shape} vs {data2.shape}."
+                )
+            validate_matching_coordinates(
+                data1,
+                data2,
+                left_name="data1",
+                right_name="data2",
+                rtol=rtol,
+                atol=atol,
+            )
+            # Replace data2's coords with data1's so harmless floating-point
+            # drift does not propagate into downstream slicing.
+            data2 = data2.assign_coords(
+                {d: data1.coords[d] for d in data1.dims if d in data1.coords}
+            )
+
+        if slice_coords is None:
+            if self.slice_mode in data1.coords:
+                slice_coords = list(data1.coords[self.slice_mode].values)
+            else:
+                slice_coords = list(range(data1.sizes[self.slice_mode]))
+
+        input_slices1, _ = _extract_slices(data1, self.slice_mode, slice_coords)
+        input_slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
+
+        if normalize_strategy == "per_volume":
+            data1 = data1.copy(data=scale_min_max(data1.values.astype(float)))
+            data2 = data2.copy(data=scale_min_max(data2.values.astype(float)))
+        elif normalize_strategy == "shared":
+            arr1 = data1.values.astype(float)
+            arr2 = data2.values.astype(float)
+            lo = float(min(arr1.min(), arr2.min()))
+            hi = float(max(arr1.max(), arr2.max()))
+            if hi == lo:
+                arr1 = np.zeros_like(arr1)
+                arr2 = np.zeros_like(arr2)
+            else:
+                arr1 = (arr1 - lo) / (hi - lo)
+                arr2 = (arr2 - lo) / (hi - lo)
+            data1 = data1.copy(data=arr1)
+            data2 = data2.copy(data=arr2)
+
+        slices1, actual_coords = _extract_slices(data1, self.slice_mode, slice_coords)
+        slices2, _ = _extract_slices(data2, self.slice_mode, slice_coords)
+        n_slices = len(slices1)
+
+        display_dims = [str(d) for d in data1.dims if d != self.slice_mode]
+        dim_row, dim_col = display_dims[0], display_dims[1]
+
+        plot_indices = self._resolve_axes_layout(
+            data1,
+            n_slices,
+            actual_coords,
+            dim_row,
+            dim_col,
+            match_coordinates=match_coordinates,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
+
+        assert (self.axes is not None) and (self.figure is not None)
+
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+        axes_flat = self.axes.ravel()
+
+        for axis_idx, slice_idx in plot_indices:
+            ax = axes_flat[axis_idx]
+            slice1 = slices1[slice_idx]
+            slice2 = slices2[slice_idx]
+
+            arr1 = slice1.values.astype(float)
+            arr2 = slice2.values.astype(float)
+            if normalize_strategy == "per_slice":
+                arr1 = scale_min_max(arr1)
+                arr2 = scale_min_max(arr2)
+            rgb = blend_red_cyan(arr1, arr2)
+
+            x_edges, y_edges, hover_x, hover_y = _slice_edges_and_centers(
+                slice1, dim_row, dim_col
+            )
+
+            ax.pcolormesh(x_edges, y_edges, rgb, alpha=alpha)
+            self._attach_or_update_hover_manager({})
+            for i, (data, input_slices) in enumerate(
+                zip((data1, data2), (input_slices1, input_slices2))
+            ):
+                self._hover_manager.register_data_to_axis(
+                    ax,
+                    hover_x,
+                    hover_y,
+                    input_slices[slice_idx].values,
+                    role="volume",
+                    name=str(data.name) if data.name is not None else f"data{i + 1}",
+                    units=data.attrs.get("units"),
+                )
+
+            self._style_slice_axis(
+                ax,
+                axis_idx,
+                data1,
+                actual_coords[slice_idx],
+                dim_row,
+                dim_col,
+                x_edges,
+                y_edges,
+                show_titles=show_titles,
+                show_axis_labels=show_axis_labels,
+                show_axis_ticks=show_axis_ticks,
+                show_axes=show_axes,
+                title_fontsize=title_fontsize,
+                label_fontsize=label_fontsize,
+                tick_fontsize=tick_fontsize,
+            )
+
+        if not match_coordinates:
+            for ax in axes_flat[n_slices:]:
+                ax.set_visible(False)
 
         return self
 
@@ -1020,7 +1320,7 @@ class VolumePlotter:
             # cmap/norm are dropped on Zarr save; reconstruct from rgb_lookup when
             # present so structure colors survive a serialization round-trip.
             if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in mask.attrs:
-                cmap_attr, norm_attr = _build_atlas_cmap_and_norm(
+                cmap_attr, norm_attr = build_atlas_cmap_and_norm(
                     mask.attrs["rgb_lookup"]
                 )
             acronyms = mask.coords["mask"].values
@@ -1070,7 +1370,7 @@ class VolumePlotter:
         if mask.ndim != 3:
             raise ValueError(f"mask must be 3D, got shape {mask.shape}")
 
-        mask = _sort_coords_for_plot(mask, mask.dims)
+        mask = sort_coords_for_plot(mask, mask.dims)
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -1084,7 +1384,7 @@ class VolumePlotter:
             # cmap/norm are dropped on Zarr save; reconstruct from rgb_lookup when
             # present so structure colors survive a serialization round-trip.
             if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in mask.attrs:
-                cmap_attr, norm_attr = _build_atlas_cmap_and_norm(
+                cmap_attr, norm_attr = build_atlas_cmap_and_norm(
                     mask.attrs["rgb_lookup"]
                 )
             if cmap_attr is not None and norm_attr is not None:
@@ -1653,480 +1953,188 @@ def plot_volume(
     )
 
 
-def plot_napari(
-    data: xr.DataArray,
-    show_colorbar: bool = True,
-    show_scale_bar: bool = True,
-    dim_order: tuple[str, ...] | None = None,
-    viewer: "Viewer | None" = None,
-    layer_type: Literal["image", "labels"] = "image",
-    **layer_kwargs,
-) -> "tuple[Viewer, Image | Labels]":
-    """Display fUSI data using the napari viewer.
+def plot_composite(
+    data1: xr.DataArray,
+    data2: xr.DataArray,
+    *,
+    resample: bool = True,
+    rtol: float = 1e-5,
+    atol: float = 1e-8,
+    normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
+    slice_coords: Sequence[float] | None = None,
+    slice_mode: str = "z",
+    alpha: float = 1.0,
+    show_titles: bool = True,
+    show_axis_labels: bool = True,
+    show_axis_ticks: bool = True,
+    show_axes: bool = True,
+    fontsize: float | None = None,
+    yincrease: bool = False,
+    xincrease: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
+    figure: "Figure | None" = None,
+    axes: "npt.NDArray[Any] | Axes | None" = None,
+    nrows: int | None = None,
+    ncols: int | None = None,
+    dpi: int | None = None,
+) -> VolumePlotter:
+    """Plot a red/cyan composite of two volumes as a grid of 2D slice panels.
+
+    Each slice is rendered as an RGB image where `data1` drives the red channel
+    and `data2` drives the green and blue channels (cyan), making overlap
+    visible as desaturated grey. This is the same visual encoding used by the
+    live registration progress preview.
 
     Parameters
     ----------
-    data : xarray.DataArray
-        Input data array to visualize. Expected dimensions are (time, z, y, x) where
-        z is the elevation/stacking axis, y is depth, and x is lateral. Use
-        `dim_order` to specify a different dimension ordering. Can be image data
-        or label/mask data (e.g., ROIs, segmentations).
-    show_colorbar : bool, default: True
-        Whether to show the colorbar. Only applies to image layers.
-    show_scale_bar : bool, default: True
-        Whether to show the scale bar.
-    dim_order : tuple[str, ...], optional
-        Dimension ordering for the spatial axes (last three dimensions). If not
-        provided, the ordering of the last three dimensions in `data` is used.
-    viewer : napari.Viewer, optional
-        Existing napari viewer to add the layer to. If not provided, a new viewer
-        is created.
-    layer_type : {"image", "labels"}, default: "image"
-        Type of layer to create. Use "image" for fUSI data and "labels" for
-        ROI masks, segmentations, or other label data.
-    **layer_kwargs
-        Additional keyword arguments passed to the layer creation method
-        (`napari.imshow` for images or `viewer.add_labels` for labels).
-        For image layers, if `data.attrs` contains `"cmap"` and `"colormap"`
-        is not in `layer_kwargs`, the attribute is used as the colormap.
-        For labels layers, if `data.attrs` contains `"cmap"` and `"norm"`
-        (as set by atlas functions) and `"colormap"` is not in `layer_kwargs`,
-        a per-label color dict is built automatically from those attributes.
+    data1 : xarray.DataArray
+        First volume, plotted in red. 3D volume data. Unitary dimensions (except
+        `slice_mode`) are squeezed before processing. Complex-valued inputs are
+        converted to magnitude (`abs(data)`) with a warning.
+    data2 : xarray.DataArray
+        Second volume, plotted in cyan. Must have the same dimensionality as `data1`
+        after squeezing; when `resample=True` it is resampled onto `data1`'s grid before
+        plotting, so its native shape and coordinates may differ.
+    resample : bool, default: True
+        Whether to resample `data2` onto `data1`'s grid using an identity transform
+        before blending. When `False`, the two arrays must already share dimensions and
+        shape, and their coordinates must match within `rtol`/`atol`; once validated,
+        `data2`'s coordinates are replaced with `data1`'s so the two volumes share an
+        exact coordinate frame downstream.
+    rtol : float, default: 1e-5
+        Relative tolerance used to validate that `data1` and `data2` share coordinates
+        when `resample=False`. Widen to accept acquisitions on slightly offset grids
+        known to be equivalent. Ignored when `resample=True`.
+    atol : float, default: 1e-8
+        Absolute tolerance used to validate that `data1` and `data2` share coordinates
+        when `resample=False`. Ignored when `resample=True`.
+    normalize_strategy : {"per_volume", "per_slice", "shared"}, default: "per_volume"
+        Intensity normalisation strategy.
+
+        - `"per_volume"`: rescale each input to `[0, 1]` independently over its full volume.
+          Preserves slice-to-slice contrast within each array but loses the
+          absolute-intensity relationship between `data1` and `data2`.
+        - `"per_slice"`: rescale each 2D slice independently. Maximises contrast on dim
+          slices at the cost of cross-slice comparability.
+        - `"shared"`: rescale both volumes together using a single shared
+          `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]` range.
+          Preserves the absolute-intensity relationship between the two inputs.
+    slice_coords : sequence of float, optional
+        Coordinate values along `slice_mode` at which to extract slices. Slices are
+        selected by nearest-neighbour lookup. If not provided, all coordinate values
+        from `data1` are used.
+    slice_mode : str, default: "z"
+        Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
+        panel must be 2D.
+    alpha : float, default: 1.0
+        Opacity of the composite image.
+    show_titles : bool, default: True
+        Whether to display subplot titles showing the slice coordinate.
+    show_axis_labels : bool, default: True
+        Whether to display axis labels (with units when available).
+    show_axis_ticks : bool, default: True
+        Whether to display axis tick labels.
+    show_axes : bool, default: True
+        Whether to show all axis decorations. When `False`, overrides `show_axis_labels`
+        and `show_axis_ticks`.
+    fontsize : float, optional
+        Base font size for all text elements. Subplot titles use `fontsize` directly;
+        axis labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not
+        provided, uses the active Matplotlib defaults.
+    yincrease : bool, default: False
+        Whether the y-axis increases upward (`True`) or downward (`False`).
+    xincrease : bool, default: True
+        Whether the x-axis increases to the right (`True`) or left (`False`).
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color string
+        (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula (white
+        on dark backgrounds, black on light ones).
+    figure : matplotlib.figure.Figure, optional
+        Existing figure to draw into. If not provided, a new figure is created.
+    axes : numpy.ndarray or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them. Must
+        contain exactly as many elements as there are slices. A single `Axes` is wrapped
+        automatically. If not provided, new axes are created inside `figure`.
+    nrows : int, optional
+        Number of rows in the subplot grid. If not provided, computed automatically.
+    ncols : int, optional
+        Number of columns in the subplot grid. If not provided, computed automatically.
+    dpi : int, optional
+        Figure resolution in dots per inch. Ignored when `figure` is provided.
 
     Returns
     -------
-    viewer : napari.Viewer
-        The napari viewer instance with the layer added.
-    layer : napari.layers.Image or napari.layers.Labels
-        The layer added to the viewer.
+    VolumePlotter
+        Object managing the figure, axes, and coordinate mapping for overlays.
+
+    Raises
+    ------
+    ValueError
+        If either input has a `time` dimension, is not 2D or 3D, lacks `slice_mode` as a
+        dimension, or (when `resample=False`) the two arrays do not share dims, shape,
+        and coordinates within `rtol`/`atol`.
 
     Notes
     -----
-    Complex-valued data is converted to magnitude (`abs(data)`) before display.
+    Rendering uses [`pcolormesh`][matplotlib.axes.Axes.pcolormesh] with an RGB `C`
+    array, so panels share their cell geometry with
+    [`plot_volume`][confusius.plotting.plot_volume] /
+    [`plot_contours`][confusius.plotting.plot_contours] and overlay correctly.
+    Colormaps, colorbars, intensity thresholds, and hover tooltips are not supported on
+    composite axes — use `plot_volume` for those.
 
-    If all spatial dimensions have coordinates, their spacing is used as the scale
-    parameter for napari to ensure correct physical scaling. If any spatial dimension is
-    missing coordinates, no scaling is applied. The spacing is computed as the median
-    difference between consecutive coordinate values.
-
-    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list
-    is forwarded to napari as the `units` layer parameter, which populates the status
-    bar with physical coordinates. The scale bar is also updated to reflect the first
-    found unit; it falls back to `"mm"` when no units are present on the coordinates.
-
-    For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
-    spacing cannot be inferred from coordinates. In that case, the function looks for a
-    `voxdim` attribute on the coordinate variable
-    (`data.coords[dim].attrs["voxdim"]`) and uses it as the spacing. If no such
-    attribute is found, unit spacing is assumed and a warning is emitted.
-
-    The first coordinate value of each spatial dimension is used as the `translate`
-    parameter so that the image is positioned at its correct physical origin. For
-    dimensions without coordinates, a translate of `0.0` is used. This ensures that
-    multiple datasets with different fields of view overlay correctly when added to the
-    same viewer.
-
-    Examples
-    --------
-    >>> import xarray as xr
-    >>> from confusius.plotting import plot_napari
-    >>> data = xr.open_zarr("output.zarr")["iq"]
-    >>> viewer, layer = plot_napari(data)
-
-    >>> # Custom contrast limits
-    >>> viewer, layer = plot_napari(data, contrast_limits=(0, 100))
-
-    >>> # Different dimension ordering (e.g., depth, elevation, lateral)
-    >>> viewer, layer = plot_napari(data, dim_order=("y", "z", "x"))
-
-    >>> # Add a second dataset as a new layer in an existing viewer
-    >>> viewer, layer = plot_napari(data1)
-    >>> viewer, layer = plot_napari(data2, viewer=viewer)
-
-    >>> # Display ROI labels (e.g., segmentation mask)
-    >>> roi_mask = xr.open_zarr("output.zarr")["roi_mask"]
-    >>> viewer, layer = plot_napari(roi_mask, layer_type="labels")
-
-    >>> # Overlay labels on existing image
-    >>> viewer, layer = plot_napari(data)
-    >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
-    """
-    all_dims = list(data.dims)
-    time_dim = "time" if "time" in all_dims else None
-    spatial_dims = [d for d in all_dims if d != time_dim]
-
-    data = _sort_coords_for_plot(data, spatial_dims)
-
-    if dim_order is not None and set(dim_order) != set(spatial_dims):
-        raise ValueError(
-            f"dim_order {dim_order} does not match spatial dimensions {spatial_dims}. "
-            "Ensure 'dim_order' contains all spatial dimension names."
-        )
-
-    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    for dim in non_uniform:
-        warnings.warn(
-            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
-            "(positions along this axis may be approximate).",
-            stacklevel=find_stack_level(),
-        )
-    scale = [spacing[str(dim)] for dim in all_dims]
-
-    # .origin falls back to 0.0 for dimensions without coordinates.
-    origin = data.fusi.origin
-    coord_translates = [origin[dim] for dim in all_dims]
-
-    # napari requires units to cover ALL dims. Build in all_dims order so each
-    # unit aligns with the correct dimension; passing None is accepted for
-    # unlabelled axes.
-    all_units: list[str | None] = [
-        data.coords[dim].attrs.get("units") if dim in data.coords else None
-        for dim in all_dims
-    ]
-
-    layer_kwargs.setdefault("name", data.name)
-    if any(u is not None for u in all_units):
-        layer_kwargs.setdefault("units", all_units)
-
-    if layer_type == "image":
-        plot_data = _coerce_complex_to_magnitude(data, caller="plot_napari")
-
-        # The last 2 (2D) or 3 (3D) dimensions are the displayed spatial axes.
-        if dim_order is not None:
-            order = []
-            if time_dim:
-                order.append(all_dims.index(time_dim))
-            for dim in dim_order:
-                if dim in all_dims:
-                    order.append(all_dims.index(dim))
-            layer_kwargs["order"] = tuple(order)
-
-        layer_kwargs.setdefault("axis_labels", all_dims)
-
-        if "colormap" not in layer_kwargs:
-            cmap_attr = data.attrs.get("cmap")
-            if cmap_attr is not None:
-                layer_kwargs["colormap"] = cmap_attr
-
-        # fUSI arrays are scalar fields; prevent napari from auto-interpreting a
-        # trailing axis of length 3/4 as RGB channels.
-        layer_kwargs.setdefault("rgb", False)
-
-        layer_kwargs.setdefault("translate", coord_translates)
-
-        # Pass the underlying array (numpy or Dask) rather than the DataArray. napari's
-        # rendering loop adds overhead on every frame when given an xarray DataArray,
-        # making time scrubbing noticeably slow for lazy (Dask-backed) data.
-        layer_kwargs.setdefault("metadata", {})["xarray"] = data
-        viewer, layer = napari.imshow(
-            plot_data.data,
-            scale=scale,
-            viewer=viewer,
-            **layer_kwargs,
-        )
-        # napari.imshow stubs declare list[Image] but at runtime returns Image
-        # directly: cast to silence the type checker.
-        layer = cast("Image", layer)
-
-        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray /
-        # Dask) defers contrast-limit computation to the async slice worker.
-        # The worker fires AFTER _should_calc_clims is set, but in napari
-        # 0.6.6 the initial viewer refresh triggered by the `inserted` event
-        # completes before that flag is raised, so contrast limits stay at
-        # (0, 1) for float data until the user manually clicks "once".
-        # Explicitly computing them here is robust across napari versions.
-        # See https://github.com/napari/napari/pull/8756.
-        if "contrast_limits" not in layer_kwargs:
-            layer.reset_contrast_limits_range()
-            layer.reset_contrast_limits("data")
-
-        if show_colorbar:
-            layer.colorbar.visible = True
-
-    elif layer_type == "labels":
-        layer_kwargs.setdefault("translate", coord_translates)
-        layer_kwargs.setdefault("metadata", {})["xarray"] = data
-        if viewer is None:
-            viewer = napari.Viewer()
-        values = data.values
-        if not np.issubdtype(values.dtype, np.integer):
-            values = values.astype(np.int32)
-
-        # Build a DirectLabelColormap from attrs when the caller has not already
-        # supplied one.  This lets atlas annotations and masks carry their colormap
-        # automatically into the viewer.  cmap/norm are not serializable, so they
-        # may be absent after a Zarr round-trip; fall back to reconstructing them
-        # from rgb_lookup when that is present.
-        cmap_attr = data.attrs.get("cmap")
-        norm_attr = data.attrs.get("norm")
-        if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in data.attrs:
-            cmap_attr, norm_attr = _build_atlas_cmap_and_norm(data.attrs["rgb_lookup"])
-        if (
-            cmap_attr is not None
-            and norm_attr is not None
-            and "colormap" not in layer_kwargs
-        ):
-            color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
-                lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
-            )
-            for label in np.unique(values):
-                if label == 0:
-                    continue  # background_value=0 is always transparent.
-                color_dict[int(label)] = np.array(
-                    cmap_attr(norm_attr(int(label))), dtype=np.float32
-                )
-            layer_kwargs["colormap"] = DirectLabelColormap(
-                color_dict=color_dict, background_value=0
-            )
-
-        layer = viewer.add_labels(
-            values,
-            scale=scale,
-            **layer_kwargs,
-        )
-
-        if (roi_labels := data.attrs.get("roi_labels")) is not None:
-            _attach_roi_labels_to_napari(layer, roi_labels)
-
-    else:
-        raise ValueError(
-            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
-        )
-
-    if show_scale_bar:
-        viewer.scale_bar.visible = True
-        scale_bar_unit = next(
-            (u for d, u in zip(all_dims, all_units) if d != time_dim and u is not None),
-            "mm",
-        )
-        viewer.scale_bar.unit = scale_bar_unit
-
-    return viewer, layer
-
-
-def _attach_roi_labels_to_napari(layer: "Labels", roi_labels: dict[int, str]) -> None:
-    """Make a napari Labels layer report the ROI name in the status bar.
-
-    Sets `layer.features` so that napari's built-in
-    `napari.layers.Labels.get_status` appends `name: <roi name>` to the status
-    bar (and the cursor tooltip when `viewer.tooltip.visible` is `True`)
-    whenever the cursor is over a labelled voxel.
-
-    A row for label `0` is included with a NaN name so background hovers do not
-    show napari's default `[No Properties]` placeholder.
-
-    Parameters
-    ----------
-    layer : napari.layers.Labels
-        Layer whose `features` table will be replaced.
-    roi_labels : dict[int, str]
-        Mapping from integer ROI id to display name.
-    """
-    import pandas as pd
-
-    ids: list[int] = [0]
-    names: list[float | str] = [float("nan")]
-    for sid, name in roi_labels.items():
-        sid_int = int(sid)
-        if sid_int != 0:
-            ids.append(sid_int)
-            names.append(str(name))
-    layer.features = pd.DataFrame({"index": ids, "name": names})
-
-
-def draw_napari_labels(
-    data: xr.DataArray,
-    labels_layer_name: str = "labels",
-    viewer: "Viewer | None" = None,
-    **kwargs,
-) -> "tuple[Viewer, Labels]":
-    """Open a napari viewer to interactively paint integer labels over fUSI data.
-
-    Displays the data as an image layer and adds an empty Labels layer on top. The user
-    can paint integer labels directly on the image using napari's brush tool. After
-    painting, call [`labels_from_layer`][confusius.plotting.labels_from_layer] with the
-    returned Labels layer and the original data to obtain an integer label map as a
-    DataArray with the same spatial coordinates.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Input data array to display as the background image. Typically a time-averaged
-        power Doppler frame, e.g. `data.mean("time")`.
-    labels_layer_name : str, default: "labels"
-        Name assigned to the Labels layer added to the viewer.
-    viewer : napari.Viewer, optional
-        Existing napari viewer to add layers to. If not provided, a new viewer
-        is created via [`plot_napari`][confusius.plotting.plot_napari].
-    **kwargs
-        Additional keyword arguments forwarded to
-        [`plot_napari`][confusius.plotting.plot_napari] for the image layer
-        (e.g. `colormap`, `contrast_limits`).
-
-    Returns
-    -------
-    viewer : napari.Viewer
-        The napari viewer instance with the image and Labels layers.
-    labels_layer : napari.layers.Labels
-        The empty Labels layer initialised to zeros. After the user paints
-        labels in the viewer, pass this layer to
-        [`labels_from_layer`][confusius.plotting.labels_from_layer] to obtain
-        an integer label map.
-
-    Notes
-    -----
-    The Labels layer is initialised with the same `scale` and `translate`
-    parameters as the image layer so that the napari canvas shows a consistent
-    physical coordinate frame regardless of voxel spacing or data origin.
-
-    Examples
-    --------
-    >>> import xarray as xr
-    >>> import confusius  # Register accessor.
-    >>> pwd = xr.open_zarr("output.zarr")["power_doppler"].compute()
-    >>> # Display the time-averaged image and add an interactive Labels layer.
-    >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
-    >>> # … paint labels in the viewer …
-    >>> # Convert painted labels to an integer label map DataArray.
-    >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
-    """
-    viewer, _ = plot_napari(data, viewer=viewer, **kwargs)
-
-    # Reuse the same spatial scale and translate that plot_napari computed for
-    # the image layer so the Labels layer overlays correctly.
-    all_dims = list(data.dims)
-    time_dim = "time" if "time" in all_dims else None
-    spatial_dims = [d for d in all_dims if d != time_dim]
-
-    spacing = data.fusi.spacing
-    spatial_scale = [
-        s if (s := spacing[dim]) is not None else 1.0 for dim in spatial_dims
-    ]
-    spatial_translate = [
-        float(data.coords[dim].values[0]) if dim in data.coords else 0.0
-        for dim in spatial_dims
-    ]
-    spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
-
-    labels_array = np.zeros(spatial_shape, dtype=np.int32)
-    labels_layer = viewer.add_labels(
-        labels_array,
-        scale=spatial_scale,
-        translate=spatial_translate,
-        name=labels_layer_name,
-    )
-
-    return viewer, labels_layer
-
-
-def labels_from_layer(
-    labels_layer: "Labels",
-    data: xr.DataArray,
-) -> xr.DataArray:
-    """Convert a napari Labels layer to an integer label map DataArray.
-
-    Reads the integer array painted in `labels_layer` and wraps it in a DataArray whose
-    spatial dimensions and coordinates match those of `data`. The result is compatible
-    with [`extract_with_labels`][confusius.extract.extract_with_labels],
-    [`plot_contours`][confusius.plotting.plot_contours], and
+    The returned [`VolumePlotter`][confusius.plotting.VolumePlotter] stores the
+    coordinate-to-axis mapping, so you can overlay further volumes or contours with
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] or
     [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours].
 
-    Parameters
-    ----------
-    labels_layer : napari.layers.Labels
-        A Labels layer populated by the user (e.g. via
-        [`draw_napari_labels`][confusius.plotting.draw_napari_labels]). Integer values
-        identify distinct regions; zero is the background and is excluded from
-        downstream analyses.
-    data : xarray.DataArray
-        Reference data array. Its spatial dimensions and coordinates define the shape
-        and labelling of the output. A time dimension, if present, is ignored: the
-        label map is purely spatial.
-
-    Returns
-    -------
-    xarray.DataArray
-        Stacked integer DataArray with dims `["mask", *spatial_dims]`, where the
-        `mask` coordinate holds each unique non-zero label integer. Each layer
-        `mask=k` has values `k` where the user painted label `k` and `0` elsewhere.
-        This format is directly compatible with
-        [`extract_with_labels`][confusius.extract.extract_with_labels],
-        [`plot_contours`][confusius.plotting.plot_contours], and
-        [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours],
-        and can be sliced by label (e.g. `label_map.sel(mask=2)`) for per-label
-        display. The `attrs` dict carries:
-
-        - `"long_name"` — human-readable name.
-        - `"labels_layer_name"` — name of the source napari layer.
-        - `"rgb_lookup"` — `dict[int, list[int]]` mapping each non-zero
-          label to its `[r, g, b]` color (0–255) as painted in napari.
-
-    Notes
-    -----
-    The label array is taken directly from `labels_layer.data`. No
-    rasterisation is performed: this is a direct read of the painted values.
-
-    Per-label colors are read from `labels_layer.get_color(label)`, which works for both
-    the default cyclic colormap and any `DirectLabelColormap` set on the layer.
-
     Examples
     --------
     >>> import xarray as xr
-    >>> import confusius  # Register accessor.
-    >>> pwd = xr.open_zarr("output.zarr")["power_doppler"].compute()
-    >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
-    >>> # … paint labels in the viewer …
-    >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
-    >>> label_map.dims
-    ('mask', 'z', 'y', 'x')
-    >>> # Slice a single label for display alongside a seed map.
-    >>> label_map.sel(mask=2)
-    >>> # Use the label map for region-based analysis.
-    >>> from confusius.extract import extract_with_labels
-    >>> signals = extract_with_labels(pwd, label_map)
+    >>> from confusius.plotting import plot_composite
+    >>> fixed = xr.open_zarr("fixed.zarr")["power_doppler"]
+    >>> moving = xr.open_zarr("moving.zarr")["power_doppler"]
+    >>> plotter = plot_composite(fixed, moving, slice_mode="z")
+
+    >>> # Skip resampling when the two volumes are already aligned.
+    >>> plotter = plot_composite(fixed, registered_moving, resample=False)
+
+    >>> # Maximise contrast on dim slices.
+    >>> plotter = plot_composite(fixed, moving, normalize_strategy="per_slice")
     """
-    all_dims = list(data.dims)
-    time_dim = "time" if "time" in all_dims else None
-    spatial_dims = [d for d in all_dims if d != time_dim]
-
-    coords = {dim: data.coords[dim] for dim in spatial_dims if dim in data.coords}
-
-    # Build a color lookup from the napari layer so downstream consumers
-    # (plot_napari, VolumePlotter.add_volume, add_contours) can render each
-    # label with exactly the color the user painted in the viewer.
-    # get_color() returns RGBA in [0, 1] for any non-zero label and works for
-    # both the default CyclicLabelColormap and any DirectLabelColormap.
-    label_array = np.asarray(labels_layer.data)
-    unique_labels = np.unique(label_array)
-    unique_labels = unique_labels[unique_labels != 0]
-    rgb_lookup: dict[int, list[int]] = {}
-    for label in unique_labels:
-        rgba = labels_layer.get_color(int(label))
-        if rgba is not None:
-            # Store 0-255 RGB (drop alpha) to match the Atlas convention.
-            rgb_lookup[int(label)] = [int(round(c * 255)) for c in rgba[:3]]
-
-    # Build one layer per label so the output matches the stacked mask format
-    # returned by Atlas.get_masks: dims=["mask", *spatial_dims] with the
-    # mask coordinate holding integer label IDs. This allows per-label slicing
-    # (e.g. label_map.sel(mask=2)) and is directly accepted by
-    # extract_with_labels, plot_contours, and add_contours.
-    layers = [np.where(label_array == k, k, 0).astype(np.int32) for k in unique_labels]
-    stacked = (
-        np.stack(layers, axis=0)
-        if len(layers) > 0
-        else np.empty((0, *label_array.shape), dtype=np.int32)
+    plotter = VolumePlotter(
+        slice_mode=slice_mode,
+        figure=figure,
+        axes=axes,
+        bg_color=bg_color,
+        fg_color=fg_color,
+        yincrease=yincrease,
+        xincrease=xincrease,
     )
 
-    return xr.DataArray(
-        stacked,
-        dims=["mask", *spatial_dims],
-        coords={"mask": unique_labels.astype(np.int32), **coords},
-        attrs={
-            "long_name": "Drawn label map",
-            "labels_layer_name": labels_layer.name,
-            "rgb_lookup": rgb_lookup,
-        },
+    return plotter.add_composite(
+        data1,
+        data2,
+        resample=resample,
+        rtol=rtol,
+        atol=atol,
+        normalize_strategy=normalize_strategy,
+        slice_coords=slice_coords,
+        match_coordinates=False,
+        alpha=alpha,
+        show_titles=show_titles,
+        show_axis_labels=show_axis_labels,
+        show_axis_ticks=show_axis_ticks,
+        show_axes=show_axes,
+        fontsize=fontsize,
+        nrows=nrows,
+        ncols=ncols,
+        dpi=dpi,
     )
 
 
