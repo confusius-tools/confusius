@@ -211,15 +211,12 @@ def compute_framewise_displacement(
     n_frames = len(affines)
     ndim = reference.ndim
 
-    spacing_dict = reference.fusi.spacing
-    origin_dict = reference.fusi.origin
-
     coords_1d = []
     for dim in (str(d) for d in reference.dims):
-        sp = spacing_dict.get(dim) or 1.0
-        orig = origin_dict.get(dim, 0.0)
-        n = reference.sizes[dim]
-        coords_1d.append(orig + np.arange(n) * sp)
+        if dim in reference.coords:
+            coords_1d.append(np.atleast_1d(reference.coords[dim].values).astype(float))
+        else:
+            coords_1d.append(np.arange(reference.sizes[dim], dtype=float))
 
     grids = np.meshgrid(*coords_1d, indexing="ij")
     points = np.stack([g.ravel() for g in grids], axis=1)  # (n_voxels, ndim)

@@ -32,6 +32,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.coordinates import sort_coords_into_increasing_order
 from confusius.registration.affines import affine_to_sitk_linear_transform
 
 if TYPE_CHECKING:
@@ -152,6 +153,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     direction_sitk = direction_zyx[np.ix_(perm, perm)]
 
     spatial_dims = list(da.dims[1:])  # e.g. ["z", "y", "x"]
+    da = sort_coords_into_increasing_order(da, spatial_dims)
 
     # Recover grid geometry from DataArray coordinates (z, y, x order).
     # The coordinates store the physical position of each control-point node;

@@ -770,8 +770,8 @@ def convert_autc_dats_to_zarr(
     # but we're currently missing some information for that, such as the elevation
     # aperture and elevation focus.
     zarr_group["z"].attrs["voxdim"] = 0.4
-    zarr_group["y"].attrs["voxdim"] = axial_coords_dim
-    zarr_group["x"].attrs["voxdim"] = lateral_coords_dim
+    zarr_group["y"].attrs["voxdim"] = abs(axial_coords_dim)
+    zarr_group["x"].attrs["voxdim"] = abs(lateral_coords_dim)
 
     if transmit_frequency is not None:
         zarr_iq.attrs["transmit_frequency"] = transmit_frequency

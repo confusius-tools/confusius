@@ -10,12 +10,12 @@ import xarray as xr
 from napari.utils.colormaps import DirectLabelColormap
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
-from confusius._utils.stack import find_stack_level
-from confusius.plotting._utils import (
-    coerce_complex_to_magnitude,
-    sort_coords_for_plot,
+from confusius._utils.coordinates import (
+    get_coordinate_spacings_best_effort,
+    sort_coords_into_increasing_order,
 )
+from confusius._utils.stack import find_stack_level
+from confusius.plotting._utils import coerce_complex_to_magnitude
 
 if TYPE_CHECKING:
     from napari import Viewer
@@ -124,14 +124,14 @@ def plot_napari(
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
 
-    data = sort_coords_for_plot(data, spatial_dims)
-
     if dim_order is not None and set(dim_order) != set(spatial_dims):
         raise ValueError(
             f"dim_order {dim_order} does not match spatial dimensions {spatial_dims}. "
             "Ensure 'dim_order' contains all spatial dimension names."
         )
 
+    data = sort_coords_into_increasing_order(data, spatial_dims)
+    # spacing is ensured to be positive in spatial_dims by `sort_coords_into_increasing_order`
     spacing, non_uniform = get_coordinate_spacings_best_effort(data)
     for dim in non_uniform:
         warnings.warn(
@@ -367,6 +367,8 @@ def draw_napari_labels(
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
 
+    data = sort_coords_into_increasing_order(data, spatial_dims)
+    # spacing is ensured to be positive in spatial_dims by `sort_coords_into_increasing_order`
     spacing = data.fusi.spacing
     spatial_scale = [
         s if (s := spacing[dim]) is not None else 1.0 for dim in spatial_dims

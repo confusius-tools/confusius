@@ -7,6 +7,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.coordinates import sort_coords_into_increasing_order
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
@@ -14,10 +15,7 @@ from confusius.plotting._hover import (
     _HoverManager,
     _normalize_roi_labels,
 )
-from confusius.plotting._utils import (
-    coerce_complex_to_magnitude,
-    sort_coords_for_plot,
-)
+from confusius.plotting._utils import coerce_complex_to_magnitude
 from confusius.signal import clean
 from confusius.validation import validate_matching_coordinates, validate_time_series
 
@@ -597,7 +595,7 @@ class VolumePlotter:
                 f"Data must be 3D, but got shape {data.shape} with dims "
                 f"{list(data.dims)}."
             )
-        return sort_coords_for_plot(data, data.dims)
+        return sort_coords_into_increasing_order(data, data.dims)
 
     def _resolve_axes_layout(
         self,
@@ -1370,7 +1368,7 @@ class VolumePlotter:
         if mask.ndim != 3:
             raise ValueError(f"mask must be 3D, got shape {mask.shape}")
 
-        mask = sort_coords_for_plot(mask, mask.dims)
+        mask = sort_coords_into_increasing_order(mask, mask.dims)
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]

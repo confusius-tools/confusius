@@ -460,8 +460,8 @@ def convert_echoframe_dat_to_zarr(
     # but we're currently missing some information for that, such as the elevation
     # aperture and elevation focus.
     zarr_group["z"].attrs["voxdim"] = 0.4
-    zarr_group["y"].attrs["voxdim"] = float(np.diff(meta["axial_coords"]).mean())
-    zarr_group["x"].attrs["voxdim"] = float(np.diff(meta["lateral_coords"]).mean())
+    zarr_group["y"].attrs["voxdim"] = abs(float(np.diff(meta["axial_coords"]).mean()))
+    zarr_group["x"].attrs["voxdim"] = abs(float(np.diff(meta["lateral_coords"]).mean()))
     zarr_iq.attrs["transmit_frequency"] = meta["transmit_frequency"]
     zarr_iq.attrs["probe_number_of_elements"] = meta["probe_number_of_elements"]
     zarr_iq.attrs["probe_pitch"] = meta["probe_pitch"]

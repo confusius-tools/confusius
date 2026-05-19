@@ -153,7 +153,7 @@ def smooth_volume(
                 "dict to explicitly select only the dimensions to smooth, e.g. "
                 f"fwhm={{'{dim}': value}} to include or omit '{dim}'."
             )
-        smooth_spacing[dim] = s
+        smooth_spacing[dim] = abs(s)
 
     if hasattr(data.data, "chunks"):
         for dim in smooth_dims:

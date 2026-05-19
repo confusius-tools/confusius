@@ -1,12 +1,14 @@
 """Internal utilities shared by registration modules."""
 
 import os
-from copy import deepcopy
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import TYPE_CHECKING, Generator
 
 import numpy as np
 import xarray as xr
+
+from confusius._utils.coordinates import sort_coords_into_increasing_order
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -94,16 +96,21 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """
     import SimpleITK as sitk
 
-    spacing_dict = da.fusi.spacing
-    origin_dict = da.fusi.origin
+    all_dims = list(da.dims)
+    time_dim = "time" if "time" in all_dims else None
+    spatial_dims = [d for d in all_dims if d != time_dim]
 
-    has_time = "time" in da.dims
-    spacing = tuple(
-        s if s is not None else 1.0 for d, s in spacing_dict.items() if str(d) != "time"
-    )
+    da = sort_coords_into_increasing_order(da, spatial_dims)
+
+    spacing_dict = da.fusi.spacing
+    spacing = [
+        s if (s := spacing_dict[dim]) is not None else 1.0 for dim in spatial_dims
+    ]
+
+    origin_dict: dict[str, float] = da.fusi.origin
     origin = tuple(o for d, o in origin_dict.items() if str(d) != "time")
 
-    if has_time:
+    if "time" in da.dims:
         data = da.values
         time_idx = da.dims.index("time")
         # SimpleITK expects the vector dimension to be the last axis, so move time

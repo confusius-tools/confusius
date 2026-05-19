@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.coordinates import sort_coords_into_increasing_order
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
     replace_affines_attr,
@@ -220,10 +221,13 @@ def resample_like(
             f"'reference' must be 2D or 3D; got {reference.ndim}D array with dims {reference.dims}."
         )
 
-    shape = list(reference.sizes[str(d)] for d in reference.dims)
+    dims = list(reference.dims)
+
+    reference = sort_coords_into_increasing_order(reference, dims)
+    shape = list(reference.sizes[str(d)] for d in dims)
     spacing = [s if s is not None else 1.0 for s in reference.fusi.spacing.values()]
     origin = list(reference.fusi.origin.values())
-    dims = [str(d) for d in reference.dims]
+    dims = [str(d) for d in dims]
 
     result = resample_volume(
         moving,

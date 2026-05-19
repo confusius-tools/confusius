@@ -16,7 +16,10 @@ from typing import TYPE_CHECKING, Any, Callable
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.utils.notifications import show_warning
 
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.coordinates import (
+    get_coordinate_spacings_best_effort,
+    sort_coords_into_increasing_order,
+)
 from confusius.io import load
 
 if TYPE_CHECKING:
@@ -42,7 +45,11 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
     """
 
     all_dims = list(da.dims)
+    time_dim = "time" if "time" in all_dims else None
+    spatial_dims = [d for d in all_dims if d != time_dim]
 
+    da = sort_coords_into_increasing_order(da, spatial_dims)
+    # spacing is ensured to be positive in spatial_dims by `sort_coords_into_increasing_order`
     spacing, non_uniform = get_coordinate_spacings_best_effort(da)
     for dim in non_uniform:
         show_warning(

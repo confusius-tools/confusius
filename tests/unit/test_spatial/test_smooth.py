@@ -27,7 +27,9 @@ class TestSmoothVolume:
         expected_sigmas = [
             fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -42,7 +44,9 @@ class TestSmoothVolume:
         expected_sigmas = [0.0] + [
             fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -57,7 +61,9 @@ class TestSmoothVolume:
         expected_sigmas = [
             fwhm_dict[d] * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -74,7 +80,9 @@ class TestSmoothVolume:
             0.0,  # y not smoothed.
             fwhm * fwhm_to_sigma / _spacing(vol, "x"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -91,7 +99,9 @@ class TestSmoothVolume:
             0.0,
             fwhm_dict["x"] * fwhm_to_sigma / _spacing(vol, "x"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -109,7 +119,9 @@ class TestSmoothVolume:
             0.0,
             0.0,
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -129,6 +141,21 @@ class TestSmoothVolume:
         vol = sample_3d_volume
         smoothed = smooth_volume(vol, fwhm=0.0)
         np.testing.assert_allclose(smoothed.values, vol.values, rtol=1e-10)
+
+    def test_decreasing_coord_matches_increasing(self, sample_3d_volume):
+        """Reversing a coord axis must not change smoothed values (issue #146).
+
+        Spacing magnitude — not its sign — determines the Gaussian kernel width.
+        Flipping only the coordinate (data values untouched) preserves the
+        physical voxel size, so the smoothed pixel values must be identical.
+        """
+        vol = sample_3d_volume
+        reversed_vol = vol.assign_coords(z=vol.coords["z"].values[::-1])
+
+        smoothed = smooth_volume(vol, fwhm=0.4)
+        smoothed_reversed = smooth_volume(reversed_vol, fwhm=0.4)
+
+        np.testing.assert_array_equal(smoothed_reversed.values, smoothed.values)
 
     def test_singleton_dim_is_not_smoothed(self):
         """Length-1 dimensions should be ignored instead of requiring spacing."""
@@ -152,7 +179,9 @@ class TestSmoothVolume:
             0.0,
             0.4 * fwhm_to_sigma / _spacing(vol, "x"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -232,13 +261,17 @@ class TestSmoothVolume:
             dims=["z", "y", "x"],
             coords={"z": coords, "y": np.arange(8) * 0.1, "x": np.arange(10) * 0.1},
         )
-        with pytest.raises(ValueError, match="non-uniform or undefined coordinate spacing"):
+        with pytest.raises(
+            ValueError, match="non-uniform or undefined coordinate spacing"
+        ):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_missing_coord(self):
         """Should raise ValueError if a smoothed dim has no coordinate."""
         vol = xr.DataArray(np.ones((8, 10, 12)), dims=["z", "y", "x"])
-        with pytest.raises(ValueError, match="non-uniform or undefined coordinate spacing"):
+        with pytest.raises(
+            ValueError, match="non-uniform or undefined coordinate spacing"
+        ):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_unknown_fwhm_key(self, sample_3d_volume):
