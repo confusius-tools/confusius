@@ -83,12 +83,12 @@ jobs:
           xvfb-run -a uv run docs/images/home/generate.py
 
       - name: Ensure gallery cache directory exists
-        run: mkdir -p .cache/gallery
+        run: mkdir -p .gallery-cache
 
       - name: Cache gallery artifacts
         uses: actions/cache@v5
         with:
-          path: .cache/gallery
+          path: .gallery-cache
           key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
           restore-keys: |
             ${{ runner.os }}-gallery-
