@@ -176,25 +176,25 @@ Zarr for efficient processing.
 ### Other Systems
 
 If you're working with IQ data from a system other than AUTC or EchoFrame, load it
-using your own loader and use [`validate_iq`][confusius.validation.validate_iq] to
+using your own loader and use [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] to
 ensure it meets ConfUSIus requirements before processing:
 
 ```python
 import xarray as xr
-from confusius.validation import validate_iq
+from confusius.validation import validate_iq_dataarray
 
 # Load IQ data from an unsupported format (example using your own loading function).
 iq = your_loader_function("path/to/iq_data")
 
 # Validate the IQ data structure and required attributes.
 try:
-    iq_validated = validate_iq(iq)
+    iq_validated = validate_iq_dataarray(iq)
     print("✓ IQ data is valid and ready for processing")
 except ValueError as e:
     print(f"✗ Validation failed: {e}")
 ```
 
-The [`validate_iq`][confusius.validation.validate_iq] function checks that your data:
+The [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] function checks that your data:
 
 - Has the correct dimensions: `(time, z, y, x)`.
 - Is complex-valued ([`numpy.complex64`][numpy.complex64] or

@@ -19,7 +19,7 @@ from confusius.timing import (
     get_representative_time_step,
     get_time_coord_to_seconds_factor,
 )
-from confusius.validation import validate_iq, validate_mask
+from confusius.validation import validate_iq_dataarray, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -1183,7 +1183,7 @@ def process_iq_to_power_doppler(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq(iq, require_attrs=False)
+    validate_iq_dataarray(iq, require_attrs=False)
 
     clutter_mask_array = None
     if clutter_mask is not None:
@@ -1321,7 +1321,7 @@ def process_iq_to_bmode(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq(iq, require_attrs=False)
+    validate_iq_dataarray(iq, require_attrs=False)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1532,7 +1532,7 @@ def process_iq_to_axial_velocity(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq(iq, require_attrs=True)
+    validate_iq_dataarray(iq, require_attrs=True)
 
     clutter_mask_array = None
     if clutter_mask is not None:
