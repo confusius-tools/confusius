@@ -117,6 +117,7 @@ plotter.show()
 registered, affine, diagnostics = register_volume(
     moving=moving,
     fixed=fixed,
+    show_progress=True,
     number_of_iterations=500,
     convergence_window_size=100,
     learning_rate=30,
