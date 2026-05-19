@@ -196,6 +196,22 @@ Do not use `tuple[type1, type2]` as the return type in the docstring.
 - Use list/dict comprehensions for simple transformations
 - Keep functions focused on single responsibilities
 
+### Module Organization
+- **Cross-module shared utilities live in `confusius/_utils/<topic>.py`** with public
+  function names (e.g. `confusius/_utils/coordinates.py` exports
+  `get_coordinate_spacings`, not `_get_coordinate_spacings`). The leading `_` on the
+  package conveys "internal API"; names inside it are not prefixed. Group by topic
+  (`stack.py`, `coordinates.py`, `timing.py`, `io.py`, `atlas.py`, `plotting.py`, etc.) —
+  do not pile everything into a single file.
+- **Module-private shared helpers live in `<module>/_utils.py`**
+  (e.g. `registration/_utils.py`, `plotting/_utils.py`). Use this when a helper is shared
+  by 2+ files inside one module but not used outside. Same naming convention: the file
+  is private, the names within are public.
+- **Never import a `_name` across module boundaries.** If you need a private function
+  from another module, that is a signal to either (a) inline it, (b) make it public in
+  the same file, or (c) promote it to `_utils/`. The underscore is a real boundary, not
+  decoration — respect it.
+
 ### Performance
 - Use NumPy operations for array computations
 - Use Dask for large array processing

@@ -4,7 +4,7 @@ from typing import Literal
 
 import xarray as xr
 
-from confusius._utils import interpolate_timeseries
+from confusius._utils.timing import interpolate_timeseries
 from confusius.validation.time_series import validate_time_series
 
 

@@ -16,11 +16,11 @@ import numpy.typing as npt
 import xarray as xr
 from pydantic import ValidationError
 
-from confusius._utils import (
-    find_stack_level,
+from confusius._utils.coordinates import (
     get_coordinate_spacing_info,
     get_representative_step,
 )
+from confusius._utils.stack import find_stack_level
 from confusius.bids import (
     DIM_TO_SLICE_ENCODING_DIRECTION,
     SLICE_ENCODING_DIRECTION_TO_DIM,

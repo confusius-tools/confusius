@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 from xarray.core.types import InterpOptions
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 from confusius.validation.coordinates import validate_matching_coordinates
 
 

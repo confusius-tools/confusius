@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import xarray as xr
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

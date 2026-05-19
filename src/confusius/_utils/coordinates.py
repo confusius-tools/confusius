@@ -1,114 +1,12 @@
-"""Package-level utilities for confusius."""
+"""Coordinate spacing and origin helpers shared across modules."""
 
-import inspect
 import warnings
-from pathlib import Path
-from typing import Literal
 
-import dask.array as da
-import h5py
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
-from scipy.interpolate import interp1d
 
-
-def interpolate_timeseries(
-    ts: npt.NDArray[np.floating],
-    acq_times: npt.NDArray[np.floating],
-    *,
-    target_times: npt.NDArray[np.floating],
-    method: Literal[
-        "linear",
-        "nearest",
-        "nearest-up",
-        "zero",
-        "slinear",
-        "quadratic",
-        "cubic",
-        "previous",
-        "next",
-    ] = "linear",
-    fill_value: float
-    | tuple[float, float]
-    | Literal["extrapolate", "nan"] = "extrapolate",
-) -> npt.NDArray[np.floating]:
-    """Interpolate a 1D time series from acquisition times to target times.
-
-    Parameters
-    ----------
-    ts : (time,) numpy.ndarray
-        Signal values at acquisition times.
-    acq_times : (time,) numpy.ndarray
-        Acquisition timestamps.
-    target_times : (time,) numpy.ndarray
-        Target timestamps to interpolate to.
-    method : {"linear", "nearest", "nearest-up", "zero", "slinear", "quadratic", "cubic", "previous", "next"}, default: "linear"
-        Interpolation method passed to `scipy.interpolate.interp1d`.
-    fill_value : float or tuple[float, float] or {"extrapolate", "nan"}, default: "extrapolate"
-        How to handle target times that fall outside the range of the input
-        time coordinates.
-
-    Returns
-    -------
-    numpy.ndarray
-        Interpolated signal at `target_times`.
-    """
-    interp_fill_value: float | tuple[float, float] | Literal["extrapolate"]
-    if fill_value == "nan":
-        interp_fill_value = np.nan
-    else:
-        interp_fill_value = fill_value
-
-    try:
-        return interp1d(
-            acq_times,
-            ts,
-            kind=method,
-            bounds_error=False,
-            fill_value=interp_fill_value,
-        )(target_times)
-    except ValueError as e:
-        if "derivatives at boundaries" in str(e):
-            warnings.warn(
-                f"{e}; falling back to 'linear'.",
-                stacklevel=2,
-            )
-            return interp1d(
-                acq_times,
-                ts,
-                kind="linear",
-                bounds_error=False,
-                fill_value=interp_fill_value,
-            )(target_times)
-        raise
-
-
-def is_h5py_backed(data: xr.DataArray) -> bool:
-    """Return True if `data` is backed by an h5py dataset.
-
-    h5py datasets cannot be pickled, so DataArrays backed by them cannot be
-    serialized for parallel processing with joblib.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray to inspect.
-
-    Returns
-    -------
-    bool
-        True if `data.data` is a `dask.array.Array` whose graph contains at least
-        one `h5py.Dataset`; False otherwise (including for in-memory arrays).
-    """
-    if not isinstance(data.data, da.Array):
-        return False
-    graph = data.data.__dask_graph__()
-    for layer in graph.layers.values():
-        for v in layer.values():
-            if isinstance(v, h5py.Dataset):
-                return True
-    return False
+from confusius._utils.stack import find_stack_level
 
 
 def get_representative_step(
@@ -191,8 +89,9 @@ def get_coordinate_spacing_info(
     """Compute coordinate spacing information for a single dimension.
 
     Shared implementation used by
-    [`get_coordinate_spacings`][confusius._utils.get_coordinate_spacings] and
-    [`get_coordinate_spacings_best_effort`][confusius._utils.get_coordinate_spacings_best_effort]
+    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
+    and
+    [`get_coordinate_spacings_best_effort`][confusius._utils.coordinates.get_coordinate_spacings_best_effort]
     to avoid duplicating the uniformity check and median computation.
 
     Parameters
@@ -204,7 +103,7 @@ def get_coordinate_spacing_info(
     uniformity_tolerance : float
         Maximum allowed per-interval relative deviation from the median consecutive
         difference (see
-        [`get_representative_step`][confusius._utils.get_representative_step]).
+        [`get_representative_step`][confusius._utils.coordinates.get_representative_step]).
 
     Returns
     -------
@@ -299,10 +198,11 @@ def get_coordinate_spacings_best_effort(
 ) -> tuple[dict[str, float], list[str]]:
     """Compute coordinate spacing, falling back to median diff for non-uniform dims.
 
-    Like [`get_coordinate_spacings`][confusius._utils.get_coordinate_spacings] but instead of
-    returning `None` for non-uniform coordinates it returns the median consecutive
-    difference as a best-effort approximation. This is appropriate when a single
-    representative spacing is required (e.g. for napari's `scale` parameter) even
+    Like
+    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
+    but instead of returning `None` for non-uniform coordinates it returns the median
+    consecutive difference as a best-effort approximation. This is appropriate when a
+    single representative spacing is required (e.g. for napari's `scale` parameter) even
     though the coordinate is not perfectly uniform. No warnings are emitted; the caller
     is responsible for issuing context-appropriate messages for the dims listed in
     `non_uniform`.
@@ -313,7 +213,7 @@ def get_coordinate_spacings_best_effort(
         DataArray whose coordinate spacing to compute.
     uniformity_tolerance : float, default: 1e-2
         Passed through to the uniformity check (see
-        [`get_coordinate_spacings`][confusius._utils.get_coordinate_spacings]).
+        [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]).
 
     Returns
     -------
@@ -374,36 +274,3 @@ def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
             else:
                 result[dim] = float(coord.values.flat[0])
     return result
-
-
-def find_stack_level() -> int:
-    """Find the first place in the stack that is not inside confusius.
-
-    Adapted from
-    [pandas](https://github.com/pandas-dev/pandas/tree/main/pandas/util/_exceptions.py#L37)
-    and
-    [Nilearn](https://github.com/nilearn/nilearn/blob/2d1a2c6d901ef4aba2737ed84e08ad1956afd123/nilearn/_utils/logger.py#L150).
-
-    Returns
-    -------
-    int
-        Stack level pointing to the first frame outside the confusius package.
-    """
-    import confusius
-
-    pkg_dir = Path(confusius.__file__).parent
-
-    frame = inspect.currentframe()
-    try:
-        n = 0
-        while frame:
-            filename = inspect.getfile(frame)
-            if not filename.startswith(str(pkg_dir)):
-                break
-            frame = frame.f_back
-            n += 1
-    finally:
-        # See note in
-        # https://docs.python.org/3/library/inspect.html#inspect.Traceback
-        del frame
-    return n

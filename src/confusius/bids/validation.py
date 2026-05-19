@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 
 
 class FUSIBIDSMetadata(BaseModel):

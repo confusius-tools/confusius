@@ -24,7 +24,8 @@ from qtpy.QtWidgets import (
 
 from confusius._dims import TIME_DIM
 from confusius._napari._qc._plots import QCPlotsWidget
-from confusius.plotting.image import _prepare_carpet_data, plot_napari
+from confusius.plotting.image import _prepare_carpet_data
+from confusius.plotting.napari import plot_napari
 from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 
 if TYPE_CHECKING:
