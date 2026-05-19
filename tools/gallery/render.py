@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import re
 import shutil
-import warnings
 from pathlib import Path
 
 import nbformat
@@ -171,19 +170,22 @@ def render_notebook(
 
         parts.append("```python\n" + cell.source.rstrip() + "\n```\n")
 
-        # Light and dark outputs are paired by index. The two executions
-        # run independently, so non-deterministic stream messages (download
-        # progress, one-time warnings, etc.) can occasionally make the lists
-        # different lengths. Drop the trailing outputs of the longer side
-        # and emit a warning rather than crashing the gallery build.
+        # Light and dark outputs are paired by index. They must have the
+        # same length: a mismatch means non-deterministic output snuck in
+        # (typically a one-shot download or a warning that fired only once),
+        # and silently dropping the extras would hide a real difference
+        # between the two rendered notebooks. Pre-warm caches outside the
+        # gallery so both runs start from the same state.
         light_outputs = light_cell.get("outputs", [])
         dark_outputs = dark_cell.get("outputs", [])
         if len(light_outputs) != len(dark_outputs):
-            warnings.warn(
+            raise ValueError(
                 f"{base_name}: cell {cell_index} produced "
                 f"{len(light_outputs)} light outputs and {len(dark_outputs)} "
-                "dark outputs; pairing by index and dropping the extras.",
-                stacklevel=2,
+                "dark outputs. Light/dark executions must be deterministic; "
+                "make sure any one-shot side effects (dataset downloads, "
+                "first-import warnings, etc.) happen before the gallery "
+                "build."
             )
         for output_index, (light_output, dark_output) in enumerate(
             zip(light_outputs, dark_outputs)
