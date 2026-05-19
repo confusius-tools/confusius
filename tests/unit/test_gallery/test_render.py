@@ -190,13 +190,17 @@ def test_render_uses_outputs_from_light_and_dark_notebooks(tmp_path: Path) -> No
     assert light_bytes != dark_bytes
 
 
-def test_render_pairs_outputs_when_light_has_extra_stream(tmp_path: Path) -> None:
-    """Light/dark output asymmetry warns and renders without crashing.
+def test_render_raises_when_light_and_dark_output_counts_differ(
+    tmp_path: Path,
+) -> None:
+    """Light/dark output mismatch is a hard error.
 
-    Independent kernels occasionally emit a one-time stream output (download
-    progress, warning) in only one of the two builds. The renderer must pair
-    what it can, drop the trailing extras, and emit a warning instead of
-    aborting the gallery build.
+    Independent kernels would occasionally emit a one-time stream output
+    (download progress, first-import warning) in only one of the two builds.
+    Silently dropping the extras hid real divergence between the two rendered
+    notebooks, so the renderer now refuses to pair mismatched cells. The fix
+    is to remove the non-determinism (pre-warming caches, etc.) before the
+    gallery runs, not to relax the renderer.
     """
     source_nb = nbformat.v4.new_notebook()
     source_nb.cells.append(nbformat.v4.new_code_cell("print('a')\nx = 1\nx"))
@@ -227,8 +231,8 @@ def test_render_pairs_outputs_when_light_has_extra_stream(tmp_path: Path) -> Non
     ]
     dark_nb.cells.append(dark_cell)
 
-    with pytest.warns(UserWarning, match="light outputs and"):
-        md_path, _ = render_notebook(
+    with pytest.raises(ValueError, match="light outputs and"):
+        render_notebook(
             source_nb,
             light_nb,
             dark_nb,
@@ -236,7 +240,3 @@ def test_render_pairs_outputs_when_light_has_extra_stream(tmp_path: Path) -> Non
             base_name="ex",
             runtime_seconds=1.0,
         )
-
-    # The shared output (stream "a") is still rendered from the paired index 0.
-    md = md_path.read_text()
-    assert "```\na\n```" in md
