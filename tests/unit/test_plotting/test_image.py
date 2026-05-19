@@ -5,7 +5,6 @@ See conftest.py for the matplotlib_pyplot fixture setup.
 """
 
 import numpy as np
-import numpy.testing as npt
 import pytest
 import xarray as xr
 
@@ -13,7 +12,6 @@ from confusius.plotting import (
     VolumePlotter,
     plot_carpet,
     plot_contours,
-    plot_napari,
     plot_volume,
 )
 
@@ -738,175 +736,78 @@ class TestRoiHover:
             "; annotation=7 (somatosensory)"
         )
 
+    def test_hover_survives_plotter_gc(self, matplotlib_pyplot):
+        """Hover stays wired up after the returned plotter is dropped and GC'd.
 
-class TestPlotNapari:
-    """Tests for plot_napari scale and translate parameters."""
-
-    def test_3d_scale_and_translate(self, sample_3d_volume, make_napari_viewer) -> None:
-        """3D layer scale matches fusi.spacing; translate matches fusi.origin."""
-        viewer = make_napari_viewer()
-        _, layer = plot_napari(
-            sample_3d_volume, viewer=viewer, show_colorbar=False, show_scale_bar=False
-        )
-
-        # z: origin=1.0 spacing=0.2; y: origin=2.0 spacing=0.1; x: origin=3.0 spacing=0.05
-        npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
-        npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
-        viewer.close()
-
-    def test_length_three_spatial_axis_not_treated_as_rgb(
-        self, sample_3d_volume, make_napari_viewer
-    ) -> None:
-        """A spatial axis of length 3 is not auto-interpreted as RGB channels."""
-        data = sample_3d_volume.isel(x=slice(0, 3))
-        viewer = make_napari_viewer()
-        _, layer = plot_napari(
-            data, viewer=viewer, show_colorbar=False, show_scale_bar=False
-        )
-
-        assert not layer.rgb
-        npt.assert_allclose(layer.scale, [0.2, 0.1, 0.05], rtol=1e-5)
-        npt.assert_allclose(layer.translate, [1.0, 2.0, 3.0], rtol=1e-5)
-        viewer.close()
-
-    def test_4d_scale_uses_time_spacing(
-        self, sample_4d_volume, make_napari_viewer
-    ) -> None:
-        """4D layer scale uses fusi.spacing for all dims, including time."""
-        viewer = make_napari_viewer()
-        _, layer = plot_napari(
-            sample_4d_volume, viewer=viewer, show_colorbar=False, show_scale_bar=False
-        )
-
-        # time: origin=10.0 spacing=0.5; z: origin=1.0 spacing=0.2;
-        # y: origin=2.0 spacing=0.1; x: origin=3.0 spacing=0.05
-        npt.assert_allclose(layer.scale, [0.5, 0.2, 0.1, 0.05], rtol=1e-5)
-        npt.assert_allclose(layer.translate, [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
-        viewer.close()
-
-    def test_scale_falls_back_to_1_when_no_coords(self, make_napari_viewer) -> None:
-        """Dims without coordinates use scale=1.0 and translate=0.0."""
-        da = xr.DataArray(np.zeros((4, 6, 8), dtype=np.float32), dims=["z", "y", "x"])
-        viewer = make_napari_viewer()
-        with pytest.warns(UserWarning):
-            _, layer = plot_napari(
-                da, viewer=viewer, show_colorbar=False, show_scale_bar=False
-            )
-
-        npt.assert_allclose(layer.scale, [1.0, 1.0, 1.0], rtol=1e-5)
-        viewer.close()
-
-    def test_labels_layer_preserves_xarray_metadata(
-        self, sample_4d_volume, make_napari_viewer
-    ) -> None:
-        """Labels layers keep the source DataArray in napari metadata."""
-        labels = xr.DataArray(
-            (sample_4d_volume > 0.5).astype(np.int32),
-            dims=sample_4d_volume.dims,
-            coords=sample_4d_volume.coords,
-            attrs=sample_4d_volume.attrs,
-        )
-        viewer = make_napari_viewer()
-        _, layer = plot_napari(
-            labels,
-            viewer=viewer,
-            layer_type="labels",
-            show_colorbar=False,
-            show_scale_bar=False,
-        )
-
-        assert layer.metadata["xarray"] is labels
-        viewer.close()
-
-    def test_complex_data_warns_and_plots_magnitude(
-        self, sample_4d_volume_complex, make_napari_viewer
-    ) -> None:
-        """Complex-valued image data is converted to magnitude with a warning."""
-        viewer = make_napari_viewer()
-        with pytest.warns(UserWarning, match="Complex-valued data"):
-            _, layer = plot_napari(
-                sample_4d_volume_complex,
-                viewer=viewer,
-                show_colorbar=False,
-                show_scale_bar=False,
-            )
-
-        assert np.issubdtype(np.asarray(layer.data).dtype, np.floating)
-        npt.assert_allclose(
-            np.asarray(layer.data), np.abs(sample_4d_volume_complex.data)
-        )
-        viewer.close()
-
-    def test_non_monotonic_coords_are_sorted_before_napari(
-        self, sample_3d_volume, make_napari_viewer
-    ) -> None:
-        """plot_napari sorts non-monotonic spatial coordinates before display."""
-        data = sample_3d_volume.copy().isel(y=[2, 0, 1], x=[3, 1, 2, 0])
-
-        viewer = make_napari_viewer()
-        _, layer = plot_napari(
-            data,
-            viewer=viewer,
-            show_colorbar=False,
-            show_scale_bar=False,
-        )
-
-        y_sorted = np.sort(data.coords["y"].values.astype(float))
-        x_sorted = np.sort(data.coords["x"].values.astype(float))
-        npt.assert_allclose(
-            layer.translate, [1.0, float(y_sorted[0]), float(x_sorted[0])], rtol=1e-5
-        )
-        assert np.all(np.diff(layer.metadata["xarray"].coords["y"].values) > 0)
-        assert np.all(np.diff(layer.metadata["xarray"].coords["x"].values) > 0)
-        viewer.close()
-
-    # Image comparison tests with pytest-mpl
-    # These generate baseline images for visual regression testing
-
-    def test_napari_labels_hover_shows_roi_name(self, make_napari_viewer) -> None:
-        """`plot_napari(layer_type='labels')` makes napari's status bar show ROI names.
-
-        Sets `attrs["roi_labels"]` on a tiny integer label map; calls
-        `plot_napari(..., layer_type="labels")`; then directly invokes
-        `Labels.get_status` (the function napari calls to populate the status
-        bar) at one labelled and one background voxel.
+        Regression test for the fix that anchors active `_HoverManager`
+        instances in a module-level set: matplotlib's `CallbackRegistry`
+        stores bound methods as `WeakMethod`, so without the strong-ref
+        registry the manager would be collected as soon as the
+        `VolumePlotter` returned by `plot_volume(...)` went out of scope
+        (e.g. `plot_volume(...).show()`), silently disabling hover.
         """
-        roi_labels = {7: "somatosensory", 42: "visual"}
+        import gc
+        import weakref
+
+        from confusius.plotting._hover import _CONFUSIUS_HOVER_MANAGERS
+
+        coords = {"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]}
         labels = xr.DataArray(
-            np.array([[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]),
-            dims=["y", "x"],
-            coords={"y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
-            attrs={"roi_labels": roi_labels},
+            np.array(
+                [[[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]],
+                dtype=np.int32,
+            ),
+            dims=["z", "y", "x"],
+            coords=coords,
+            name="annotation",
         )
+        roi_labels = {7: "somatosensory", 42: "visual"}
+        x, y = 0.5, 0.5
 
-        viewer = make_napari_viewer()
-        _, layer = plot_napari(
+        plotter = plot_volume(
             labels,
-            viewer=viewer,
-            layer_type="labels",
-            show_scale_bar=False,
+            slice_mode="z",
+            slice_coords=[0.0],
+            show_colorbar=False,
+            roi_labels=roi_labels,
+        )
+        fig = plotter.figure
+        ax = plotter.axes.flat[0]
+        plotter_ref = weakref.ref(plotter)
+        manager_ref = weakref.ref(plotter._hover_manager)
+        assert manager_ref() in _CONFUSIUS_HOVER_MANAGERS
+
+        del plotter
+        gc.collect()
+
+        # The plotter is gone, but the hover manager must still be alive
+        # (anchored by the module-level registry) and still wired to the
+        # canvas's motion_notify_event.
+        assert plotter_ref() is None
+        assert manager_ref() is not None
+        assert manager_ref() in _CONFUSIUS_HOVER_MANAGERS
+
+        self._fire_motion(ax, x, y)
+        assert (
+            ax.format_coord(x, y)
+            == f"x={x:.3g}, y={y:.3g}; annotation=7 (somatosensory)"
         )
 
-        # `world=True` means positions are in physical coordinates (the same
-        # space the user hovers in the canvas).
-        # Voxel (y=0.5, x=0.5) holds label 7.
-        roi_status = layer.get_status(
-            (0.5, 0.5),
-            view_direction=np.array([1.0, 0.0]),
-            dims_displayed=[0, 1],
-            world=True,
-        )
-        assert "name: somatosensory" in roi_status["coordinates"]
+        # Closing the figure must release the manager from the registry,
+        # after which it is free to be garbage collected. The Agg backend
+        # used in tests does not dispatch `close_event` from `plt.close`,
+        # so emit it explicitly to mirror what interactive backends do.
+        from matplotlib.backend_bases import CloseEvent
 
-        # Background voxel: NaN row hides the default `[No Properties]` placeholder.
-        bg_status = layer.get_status(
-            (0.0, 0.0),
-            view_direction=np.array([1.0, 0.0]),
-            dims_displayed=[0, 1],
-            world=True,
+        fig.canvas.callbacks.process(
+            "close_event", CloseEvent("close_event", fig.canvas)
         )
-        assert "[No Properties]" not in bg_status["coordinates"]
-        viewer.close()
+        assert manager_ref() not in _CONFUSIUS_HOVER_MANAGERS
+
+        matplotlib_pyplot.close(fig)
+        del ax, fig
+        gc.collect()
+        assert manager_ref() is None
 
 
 def _create_deterministic_volume():

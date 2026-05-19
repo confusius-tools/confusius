@@ -13,7 +13,7 @@ import zarr
 if TYPE_CHECKING:
     from rich.progress import Progress
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 from confusius.io.utils import check_path
 
 

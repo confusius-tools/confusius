@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.utils.notifications import show_warning
 
-from confusius._utils import get_coordinate_spacings_best_effort
+from confusius._utils.coordinates import get_coordinate_spacings_best_effort
 from confusius.io import load
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
     Mirrors the logic of [`plot_napari`][confusius.plotting.plot_napari]
 
     * Uses
-      [`_compute_spacing_best_effort`][confusius._utils._compute_spacing_best_effort]
+      [`get_coordinate_spacings_best_effort`][confusius._utils.coordinates.get_coordinate_spacings_best_effort]
       for the `scale`: uniform coordinates use their exact spacing; non-uniform
       coordinates fall back to the median diff and a napari warning is shown.
     * Includes [`origin`][confusius.xarray.FUSIAccessor.origin] as `translate`

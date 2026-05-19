@@ -722,6 +722,47 @@ def spatial_mask(rng, sample_4d_volume):
 
 
 @pytest.fixture
+def sample_roi_labels():
+    """Integer ROI label map matching `sample_3d_volume`'s spatial grid.
+
+    Three named regions with disjoint label ids — small enough for fast tests,
+    structured enough that any per-region failure is visible. Coordinates and
+    units match `sample_3d_volume` so the fixtures pair naturally for tests
+    combining image + label data.
+
+    Attributes mirror what `Atlas` / `labels_from_layer` produce in production:
+    `roi_labels` for status-bar names and `rgb_lookup` for per-label colors.
+    """
+    shape = (4, 6, 8)
+    values = np.zeros(shape, dtype=np.int32)
+    values[0, 0:2, 0:2] = 3  # motor.
+    values[1, 2:4, 3:5] = 7  # somatosensory.
+    values[2, 4:6, 5:8] = 42  # visual.
+
+    return xr.DataArray(
+        values,
+        name="roi_labels",
+        dims=["z", "y", "x"],
+        coords={
+            "z": xr.DataArray(
+                1.0 + np.arange(4) * 0.2, dims=["z"], attrs={"units": "mm"}
+            ),
+            "y": xr.DataArray(
+                2.0 + np.arange(6) * 0.1, dims=["y"], attrs={"units": "mm"}
+            ),
+            "x": xr.DataArray(
+                3.0 + np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}
+            ),
+        },
+        attrs={
+            "long_name": "ROI labels",
+            "roi_labels": {3: "motor", 7: "somatosensory", 42: "visual"},
+            "rgb_lookup": {3: [0, 0, 255], 7: [255, 0, 0], 42: [0, 255, 0]},
+        },
+    )
+
+
+@pytest.fixture
 def matplotlib_pyplot():
     """Set up and teardown fixture for matplotlib.
 

@@ -4,83 +4,13 @@ import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
-from numpy.typing import NDArray
 
-from confusius._utils import find_stack_level
+from confusius._utils.plotting import blend_red_cyan, make_mosaic, scale_min_max
+from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
     from matplotlib.figure import Figure
-
-
-def _normalize(arr: NDArray[np.floating]) -> NDArray[np.floating]:
-    """Linearly scale `arr` to [0, 1], handling flat arrays gracefully."""
-    lo, hi = arr.min(), arr.max()
-    if hi == lo:
-        return np.zeros_like(arr, dtype=float)
-    return (arr - lo) / (hi - lo)
-
-
-def _blend_red_cyan(
-    fixed: NDArray[np.floating],
-    moving: NDArray[np.floating],
-) -> NDArray[np.floating]:
-    """Blend two 2D arrays as red (fixed) and cyan (moving) channels.
-
-    Parameters
-    ----------
-    fixed : numpy.ndarray
-        2D reference array, normalized to [0, 1].
-    moving : numpy.ndarray
-        2D moving array, normalized to [0, 1].
-
-    Returns
-    -------
-    numpy.ndarray
-        RGB image of shape `(*fixed.shape, 3)`.
-    """
-    h, w = fixed.shape
-    rgb = np.zeros((h, w, 3))
-    # Red channel: fixed only.
-    rgb[..., 0] = fixed
-    # Green + blue channels: cyan = moving.
-    rgb[..., 1] = moving
-    rgb[..., 2] = moving
-    return rgb
-
-
-def _make_mosaic(
-    fixed_vol: NDArray[np.floating],
-    moving_vol: NDArray[np.floating],
-) -> NDArray[np.floating]:
-    """Assemble a mosaic of per-slice red/cyan blends along the first axis.
-
-    Parameters
-    ----------
-    fixed_vol : numpy.ndarray
-        3D reference volume `(n_slices, H, W)`.
-    moving_vol : numpy.ndarray
-        3D moving volume `(n_slices, H, W)`.
-
-    Returns
-    -------
-    numpy.ndarray
-        RGB mosaic image.
-    """
-    n = fixed_vol.shape[0]
-    n_cols = int(np.ceil(np.sqrt(n)))
-    n_rows = int(np.ceil(n / n_cols))
-    h, w = fixed_vol.shape[1], fixed_vol.shape[2]
-
-    mosaic = np.zeros((n_rows * h, n_cols * w, 3))
-    for i in range(n):
-        r, c = divmod(i, n_cols)
-        blend = _blend_red_cyan(
-            _normalize(fixed_vol[i]),
-            _normalize(moving_vol[i]),
-        )
-        mosaic[r * h : (r + 1) * h, c * w : (c + 1) * w] = blend
-    return mosaic
 
 
 class RegistrationProgressPlotter:
@@ -222,14 +152,14 @@ class RegistrationProgressPlotter:
             moving_arr = sitk.GetArrayFromImage(resampled).T
 
             if fixed_arr.ndim == 3:
-                rgb = _make_mosaic(
+                rgb = make_mosaic(
                     np.moveaxis(fixed_arr, 0, 0),
                     np.moveaxis(moving_arr, 0, 0),
                 )
             else:
-                rgb = _blend_red_cyan(
-                    _normalize(fixed_arr),
-                    _normalize(moving_arr),
+                rgb = blend_red_cyan(
+                    scale_min_max(fixed_arr),
+                    scale_min_max(moving_arr),
                 )
 
             if self._composite_im is None:
