@@ -27,9 +27,8 @@ def _validate_dimension_coordinate(da: xr.DataArray, dim: Hashable) -> None:
     Raises
     ------
     ValueError
-        If the coordinate is missing, is not one-dimensional along `dim`, has the
-        wrong length, contains non-finite numeric values, or is not strictly
-        increasing when numeric.
+        If the coordinate is missing, is not one-dimensional along `dim`, contains
+        non-finite numeric values, or is not strictly increasing when numeric.
     """
     if dim not in da.coords:
         raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
@@ -39,12 +38,6 @@ def _validate_dimension_coordinate(da: xr.DataArray, dim: Hashable) -> None:
         raise ValueError(
             f"Coordinate {dim!r} must be a 1D dimension coordinate with dims "
             f"({dim!r},), got {coord.dims!r}."
-        )
-
-    if coord.sizes[dim] != da.sizes[dim]:
-        raise ValueError(
-            f"Coordinate {dim!r} has length {coord.sizes[dim]}, but dimension "
-            f"{dim!r} has size {da.sizes[dim]}."
         )
 
     if np.issubdtype(coord.dtype, np.number):

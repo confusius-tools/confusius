@@ -274,6 +274,10 @@ refactor(iq): simplify power reduction algorithm
 - **Concise test suite**: No redundant tests. Each test should verify something unique.
 - **Test public API only**: Do not test private functions (prefixed with `_`). They are
   implementation details covered by testing the public functions that use them.
+- **No `# pragma: no cover`**: Do not add coverage pragmas to skip lines.
+- **Do not force unreachable tests**: If a defensive branch is unreachable because an upstream
+  library invariant prevents constructing that state (e.g., xarray coordinate shape consistency),
+  do not add brittle tests just to satisfy coverage.
 
 ### What to Test
 1. **Edge cases**: Empty inputs, boundary conditions, special values.

@@ -51,6 +51,20 @@ def test_validate_fusi_dataarray_allows_extra_dims_by_default(
     validate_fusi_dataarray(data)
 
 
+def test_validate_fusi_dataarray_allows_non_dimension_coordinates(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Auxiliary non-dimension coordinates are allowed."""
+    data = valid_2dt_dataarray.assign_coords(
+        quality=xr.DataArray(
+            np.ones(valid_2dt_dataarray.shape, dtype=np.float32),
+            dims=valid_2dt_dataarray.dims,
+        )
+    )
+
+    validate_fusi_dataarray(data)
+
+
 def test_validate_fusi_dataarray_can_forbid_extra_dims(
     valid_2dt_dataarray: xr.DataArray,
 ) -> None:
@@ -205,3 +219,25 @@ def test_validate_fusi_dataarray_can_require_spatial_units(
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
         validate_fusi_dataarray(bad, require_spatial_units=True)
+
+
+def test_validate_fusi_dataarray_rejects_non_dimension_coordinate(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Dimension coordinates must be 1D along their own dimension."""
+    bad = valid_2dt_dataarray.assign_coords(
+        x=xr.DataArray(np.arange(valid_2dt_dataarray.sizes["y"]), dims=("y",))
+    )
+
+    with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
+        validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_regular_spacing_ignores_non_numeric_coords(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Regular-spacing checks only apply to numeric coordinates."""
+    labels = np.array(["a", "b", "c", "d"], dtype=object)
+    data = valid_2dt_dataarray.assign_coords(x=xr.DataArray(labels, dims=("x",)))
+
+    validate_fusi_dataarray(data, require_regular_spacing=True)
