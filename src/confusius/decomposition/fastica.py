@@ -33,7 +33,7 @@ class FastICA(_BaseFUSIDecomposer):
     are spatial maps; time courses are derived by projecting the data onto those maps.
     This is the appropriate choice when different brain regions are assumed to have
     independently fluctuating activity, which is the standard prior for network
-    discovery.  It is also better conditioned for fUSI data where the number of voxels
+    discovery. It is also better conditioned for fUSI data where the number of voxels
     greatly exceeds the number of time points.
 
     **Temporal ICA** (`mode="temporal"`):
