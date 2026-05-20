@@ -348,3 +348,75 @@ def test_fit_raises_for_invalid_mode(sample_4d_volume):
     """fit raises for unsupported PCA mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
         PCA(mode="invalid").fit(sample_4d_volume)  # type: ignore[arg-type]
+
+
+def test_mask_restricts_features(sample_4d_volume):
+    """mask restricts fitted feature count to selected voxels."""
+    mask = xr.DataArray(
+        np.zeros(
+            (
+                sample_4d_volume.sizes["z"],
+                sample_4d_volume.sizes["y"],
+                sample_4d_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_4d_volume.coords["z"],
+            "y": sample_4d_volume.coords["y"],
+            "x": sample_4d_volume.coords["x"],
+        },
+    )
+    mask.values[:2, :, :] = True
+
+    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_4d_volume)
+
+    assert model.n_features_in_ == int(mask.values.sum())
+
+
+
+def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_4d_volume):
+    """Masked PCA keeps full geometry and fills outside-mask voxels with zero."""
+    mask = xr.DataArray(
+        np.zeros(
+            (
+                sample_4d_volume.sizes["z"],
+                sample_4d_volume.sizes["y"],
+                sample_4d_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_4d_volume.coords["z"],
+            "y": sample_4d_volume.coords["y"],
+            "x": sample_4d_volume.coords["x"],
+        },
+    )
+    mask.values[:2, :, :] = True
+
+    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_4d_volume)
+    reconstructed = model.inverse_transform(model.transform(sample_4d_volume))
+
+    assert reconstructed.dims == sample_4d_volume.dims
+    np.testing.assert_array_equal(
+        reconstructed.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+    np.testing.assert_array_equal(
+        model.maps_.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+    np.testing.assert_array_equal(
+        model.mean_.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+
+
+def test_mask_mismatch_raises(sample_4d_volume):
+    """fit raises when mask does not match spatial dimensions."""
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+
+    with pytest.raises(ValueError, match="missing from mask"):
+        PCA(mask=bad_mask).fit(sample_4d_volume)
