@@ -14,6 +14,11 @@ class ExampleSpec:
     ----------
     source : pathlib.Path
         Absolute path to the percent-format ``.py`` file.
+    base_name : str
+        Output stem used for the rendered Markdown, downloads, and cache entry.
+        Derived from ``source.stem`` with any leading numeric ordering prefix
+        (e.g. ``01_``) stripped, so the source filename can control card order
+        without leaking the prefix into URLs.
     section : str
         Section folder name (e.g. ``"io"``).
     section_intro : str
@@ -21,6 +26,7 @@ class ExampleSpec:
     """
 
     source: Path
+    base_name: str
     section: str
     section_intro: str
 

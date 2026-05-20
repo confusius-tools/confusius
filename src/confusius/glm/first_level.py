@@ -80,7 +80,7 @@ class FirstLevelModel(BaseEstimator):
         Hemodynamic response function model. A callable matching the
         [HRFModel][confusius.glm._hrf_models.HRFModel] protocol (a function taking `dt`
         and `oversampling` and returning a 1D array) is invoked to produce a custom HRF
-        kernel. If not specified, skips HRF convolution and uses the raw block
+        kernel. If not provided, skips HRF convolution and uses the raw block
         regressors, matching
         [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix].
     drift_model : {"cosine", "polynomial"} or None, default: "cosine"

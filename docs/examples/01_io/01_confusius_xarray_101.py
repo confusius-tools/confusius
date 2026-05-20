@@ -26,10 +26,10 @@ import xarray as xr
 import confusius as cf
 from confusius.datasets import fetch_nunez_elizalde_2022
 
-# A transparent background looks better in the rendered notebook.
+# Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
-# Don't expand the data values in the notebook since these arrays can be large.
+# Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
 bids_root = fetch_nunez_elizalde_2022(
@@ -132,7 +132,7 @@ roi_trace
 # %%
 roi_trace_smooth = roi_trace.rolling(time=15, center=True).mean()
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor="none")
+fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
 
 roi_trace.plot(ax=ax, color="#d93a54", label="ROI mean")
 roi_trace_smooth.plot(ax=ax, color="#3ad9a4", label="Rolling mean (15 samples)")
@@ -154,13 +154,8 @@ _ = ax.legend(loc="upper right")
 mean_db = data.mean("time").fusi.scale.db()
 
 plotter = cf.plotting.plot_volume(
-    mean_db,
-    cmap="gray",
-    cbar_label="Power Doppler (dB)",
-    bg_color=bg_color,
+    mean_db, cmap="gray", cbar_label="Power Doppler (dB)", bg_color=bg_color
 )
-# A transparent background looks better in the rendered notebook.
-plotter.figure.patch.set_alpha(0)
 
 # %% [markdown]
 # ## Mask low-intensity pixels with `where`
@@ -173,12 +168,8 @@ plotter.figure.patch.set_alpha(0)
 mean_db_masked = mean_db.where(mean_db > -20)
 
 plotter = mean_db_masked.fusi.plot.volume(
-    cmap="gray",
-    cbar_label="Power Doppler (dB)",
-    bg_color=bg_color,
+    cmap="gray", cbar_label="Power Doppler (dB)", bg_color=bg_color
 )
-# A transparent background looks better in the rendered notebook.
-plotter.figure.patch.set_alpha(0)
 
 # %% [markdown]
 # ## Save a processed result

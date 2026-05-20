@@ -32,3 +32,23 @@ def test_discover_no_section_md_uses_empty_intro(gallery_tree: Path) -> None:
 
     assert specs["first_level.py"].section == "glm"
     assert specs["first_level.py"].section_intro == ""
+
+
+def test_discover_strips_numeric_prefix_from_base_name(tmp_path: Path) -> None:
+    """Numeric prefixes order example files but do not appear in output names."""
+    root = tmp_path / "examples"
+    section = root / "decomposition"
+    section.mkdir(parents=True)
+    (section / "02_fastica_single_recording.py").write_text(
+        "# %% [markdown]\n# # FastICA\n\n# %%\npass\n"
+    )
+    (section / "01_pca_single_recording.py").write_text(
+        "# %% [markdown]\n# # PCA\n\n# %%\npass\n"
+    )
+
+    specs = discover(root)
+
+    assert [spec.base_name for spec in specs] == [
+        "pca_single_recording",
+        "fastica_single_recording",
+    ]

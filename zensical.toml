@@ -71,6 +71,10 @@ nav = [
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
         ]},
+        { "Decomposition" = [
+            { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },
+            { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },
