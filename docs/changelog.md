@@ -48,6 +48,14 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Fixed `register_volume`, `plot_composite`, and `VolumePlotter.add_composite`
+  filling out-of-FOV voxels with `0.0` when resampling. This caused a bright
+  background artifact for dB-scaled data (where 0 is maximum intensity). The fill
+  value now defaults to the minimum of the moving image, with explicit control via
+  `fill_value` on `register_volume` (applies to both the final output and the live
+  progress composite) and `resample_kwargs={"default_value": ...}` on
+  `plot_composite` / `add_composite`
+  ([#138](https://github.com/confusius-tools/confusius/pull/138)).
 - Fixed plotting hover information silently disappearing when the returned
   `VolumePlotter` was not held in a variable (e.g. `obj.fusi.plot.volume().show()`). The
   hover manager is now kept alive until the figure is closed
