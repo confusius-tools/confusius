@@ -37,7 +37,7 @@ class FastICA(_BaseFUSIDecomposer):
     greatly exceeds the number of time points.
 
     **Temporal ICA** (`mode="temporal"`):
-    Maximises independence across the *time* dimension.  The independent components
+    Maximises independence across the *time* dimension. The independent components
     are temporal signals; the spatial maps are the corresponding mixing weights.
     Suitable when temporal independence is the relevant prior.
 
