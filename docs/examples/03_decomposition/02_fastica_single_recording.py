@@ -97,7 +97,7 @@ data = cf.registration.register_volumewise(
 # Before fitting, we standardize the recording by centering and scaling each voxel's
 # time series to zero mean and unit variance with
 # [`standardize`][confusius.signal.standardize], for the same reasons as in the
-# [PCA example](pca_single_recording.md).
+# [PCA example](pca_single_recording.md#temporal-pca-modetemporal).
 
 # %%
 data_std = standardize(data)
