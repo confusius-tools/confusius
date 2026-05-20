@@ -39,8 +39,9 @@ Current development version for the next ConfUSIus release.
 
 ### :books: Documentation
 
-- Added a [Registering two acquisitions](examples/_built/registration/register_volume_two_acquisitions.md)
-  example demonstrating `register_volume`, the new diagnostics, and confusius's
+- Added a [Registering two
+  acquisitions](examples/registration/register_volume_two_acquisitions.py) example
+  demonstrating `register_volume`, the new diagnostics, and confusius's
   [`plot_volume`][confusius.plotting.plot_volume] overlay pattern for inspecting
   alignment before and after registration
   ([#139](https://github.com/confusius-tools/confusius/pull/139)).
