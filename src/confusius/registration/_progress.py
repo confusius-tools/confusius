@@ -41,13 +41,7 @@ class RegistrationProgressPlotter:
         Requires an additional `sitk.Resample` call per iteration.
     resample_kwargs : dict, optional
         Extra keyword arguments forwarded to the internal resample call at each
-        iteration. Recognised keys match
-        [`resample_like`][confusius.registration.resample_like]: `default_value`
-        (fill value for out-of-FOV voxels), `interpolation` (`"linear"`,
-        `"nearest"`, or `"bspline"`), and `sitk_threads`. When `default_value`
-        is absent it defaults to the minimum value of `moving_img`, rendering
-        out-of-FOV regions as background regardless of intensity scale (important
-        for dB data where 0 is maximum intensity).
+        iteration.
     """
 
     def __init__(

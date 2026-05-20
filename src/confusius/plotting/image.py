@@ -2012,8 +2012,6 @@ def plot_composite(
     resample_kwargs : dict, optional
         Extra keyword arguments forwarded to
         [`resample_like`][confusius.registration.resample_like] when `resample=True`.
-        Recognised keys: `default_value` (fill value for out-of-FOV voxels of `data2`),
-        `interpolation` (`"linear"`, `"nearest"`, or `"bspline"`), and `sitk_threads`.
         Ignored when `resample=False`.
     rtol : float, default: 1e-5
         Relative tolerance used to validate that `data1` and `data2` share coordinates

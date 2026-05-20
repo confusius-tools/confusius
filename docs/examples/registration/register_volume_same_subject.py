@@ -1,8 +1,8 @@
 # %% [markdown]
-# # Registration of two sessions from the same animal
+# # Registration of two sessions from the same subject
 #
-# This example shows how to align two power Doppler images acquired from the same animal
-# in different sessions. We use
+# This example shows how to align two power Doppler images acquired from the same
+# subject in different sessions. We use
 # [`register_volume`][confusius.registration.register_volume] with a rigid transform,
 # which is appropriate when the imaged anatomy is the same but the probe placement
 # differs slightly between the two recordings.

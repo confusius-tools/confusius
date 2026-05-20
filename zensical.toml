@@ -69,7 +69,7 @@ nav = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
         ]},
         { "Registration" = [
-            { "Registration of two acquisitions" = "examples/_built/registration/register_volume_two_acquisitions.md" },
+            { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },
