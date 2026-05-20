@@ -1,9 +1,9 @@
 # %% [markdown]
-# # Registration of two acquisitions
+# # Registration of two sessions from the same animal
 #
-# This example shows how to align two power Doppler images acquired from the same
-# animal in different sessions. We use
-# [`register_volume`][confusius.registration.register_volume] with an affine transform,
+# This example shows how to align two power Doppler images acquired from the same animal
+# in different sessions. We use
+# [`register_volume`][confusius.registration.register_volume] with a rigid transform,
 # which is appropriate when the imaged anatomy is the same but the probe placement
 # differs slightly between the two recordings.
 #
@@ -87,12 +87,13 @@ plotter = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 # %% [markdown]
 # ## Run the registration
 #
-# An affine transform captures the rotation, translation, scaling and shear difference
-# between the two sessions. [`register_volume`][confusius.registration.register_volume]
-# returns three values:
+# A rigid transform captures the rotation and translation difference between the two
+# sessions. [`register_volume`][confusius.registration.register_volume] returns three
+# values:
 #
 # 1. the moving image (only aligned to the fixed grid if `resample=True` is used);
-# 2. the affine matrix that maps fixed-physical coordinates to moving-physical coordinates;
+# 2. the rigid transform matrix that maps fixed-physical coordinates to moving-physical
+#    coordinates;
 # 3. a [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
 #    dataclass holding the per-iteration metric values and the optimizer stop
 #    condition, which we use below to plot the convergence curve.
@@ -110,9 +111,10 @@ plotter = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 #     until you get a stable, well-converged result.
 
 # %%
-registered, affine, diagnostics = register_volume(
+registered, transform, diagnostics = register_volume(
     moving=moving,
     fixed=fixed,
+    transform_type="rigid",
     show_progress=True,
     number_of_iterations=500,
     convergence_window_size=100,
@@ -122,7 +124,7 @@ registered, affine, diagnostics = register_volume(
 print(f"Iterations: {diagnostics.n_iterations}")
 print(f"Final metric: {diagnostics.final_metric_value:.4f}")
 print(f"Stop condition: {diagnostics.stop_condition}")
-affine
+transform
 
 # %% [markdown]
 # ## Check the alignment after registration
@@ -172,6 +174,6 @@ ax.set_title(diagnostics.stop_condition)
 
 
 # %% [markdown]
-# The resulting affine encodes the registration transform in physical units and can be
-# reused, composed with other transforms, or applied to additional volumes from the same
-# session with [`resample_volume`][confusius.registration.resample_volume].
+# The resulting rigid transform is encoded in physical units and can be reused, composed
+# with other transforms, or applied to additional volumes from the same session with
+# [`resample_volume`][confusius.registration.resample_volume].
