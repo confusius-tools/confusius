@@ -29,7 +29,7 @@ class FastICA(_BaseFUSIDecomposer):
     Two ICA modes are supported, selected via the `mode` parameter.
 
     **Spatial ICA** (`mode="spatial"`, default, matches FSL MELODIC):
-    Maximises independence across the *spatial* dimension.  The independent components
+    Maximises independence across the *spatial* dimension. The independent components
     are spatial maps; time courses are derived by projecting the data onto those maps.
     This is the appropriate choice when different brain regions are assumed to have
     independently fluctuating activity, which is the standard prior for network
