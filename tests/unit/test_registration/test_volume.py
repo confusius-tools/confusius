@@ -557,6 +557,32 @@ class TestResampleLike:
         with pytest.raises(ValueError, match="2D or 3D"):
             resample_like(da, da, np.eye(2))
 
+    def test_default_fill_is_moving_min(self, sample_2d_dataarray_spatial):
+        """Out-of-FOV voxels default to moving.min(), not 0.0."""
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 5.0,
+            dims=("y", "x"),
+            coords={
+                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
+                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
+            },
+        )
+        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3))
+        assert float(result.values[-1, -1]) == pytest.approx(5.0, abs=1e-5)
+
+    def test_explicit_default_value_overrides(self, sample_2d_dataarray_spatial):
+        """Explicit default_value overrides the auto-default."""
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 5.0,
+            dims=("y", "x"),
+            coords={
+                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
+                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
+            },
+        )
+        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0)
+        assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
+
     def test_output_coords_match_reference(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):

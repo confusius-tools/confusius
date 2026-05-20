@@ -1007,12 +1007,7 @@ class VolumePlotter:
         resample_kwargs : dict, optional
             Extra keyword arguments forwarded to
             [`resample_like`][confusius.registration.resample_like] when
-            `resample=True`. Recognised keys: `default_value` (fill value for
-            out-of-FOV voxels of `data2`), `interpolation` (`"linear"`,
-            `"nearest"`, or `"bspline"`), and `sitk_threads`. When `default_value`
-            is absent it defaults to `float(data2.min())`, rendering out-of-FOV
-            regions as background regardless of intensity scale (important for dB
-            data where 0 is maximum intensity). Ignored when `resample=False`.
+            `resample=True`. Ignored when `resample=False`.
         rtol : float, default: 1e-5
             Relative tolerance used to validate that `data1` and `data2` share
             coordinates when `resample=False`. Widen to accept acquisitions on
@@ -1109,8 +1104,6 @@ class VolumePlotter:
 
             data2_name = data2.name or "data2"
             _kw: dict[str, Any] = dict(resample_kwargs or {})
-            if "default_value" not in _kw:
-                _kw["default_value"] = float(data2.min())
             data2 = resample_like(data2, data1, np.eye(data1.ndim + 1), **_kw)
             data2.name = data2_name
         else:
@@ -2021,9 +2014,7 @@ def plot_composite(
         [`resample_like`][confusius.registration.resample_like] when `resample=True`.
         Recognised keys: `default_value` (fill value for out-of-FOV voxels of `data2`),
         `interpolation` (`"linear"`, `"nearest"`, or `"bspline"`), and `sitk_threads`.
-        When `default_value` is absent it defaults to `float(data2.min())`, rendering
-        out-of-FOV regions as background regardless of intensity scale (important for
-        dB data where 0 is maximum intensity). Ignored when `resample=False`.
+        Ignored when `resample=False`.
     rtol : float, default: 1e-5
         Relative tolerance used to validate that `data1` and `data2` share coordinates
         when `resample=False`. Widen to accept acquisitions on slightly offset grids

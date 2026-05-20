@@ -24,7 +24,7 @@ def resample_volume(
     origin: Sequence[float],
     dims: Sequence[str],
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float = 0.0,
+    default_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
@@ -59,9 +59,11 @@ def resample_volume(
         Dimension names of the output DataArray.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, default: 0.0
-        Value assigned to voxels that fall outside the moving image's field of
-        view after resampling.
+    default_value : float, optional
+        Value assigned to voxels that fall outside the moving image's field of view
+        after resampling. If not provided, defaults to `float(moving.min())`, which
+        renders out-of-FOV voxels as background regardless of intensity scale (important
+        for dB data where 0 is maximum intensity).
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -115,6 +117,8 @@ def resample_volume(
 
     moving_sitk = dataarray_to_sitk_image(moving)
 
+    _default_value = default_value if default_value is not None else float(moving.min())
+
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.
     ref = sitk.Image(list(shape), sitk.sitkFloat32)
@@ -136,7 +140,7 @@ def resample_volume(
             ref,
             tx,
             sitk_interpolation,
-            default_value,
+            _default_value,
             moving_sitk.GetPixelID(),
         )
         # .T restores DataArray axis order, inverse of the .T used to build the SITK
@@ -166,7 +170,7 @@ def resample_like(
     reference: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float = 0.0,
+    default_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto the grid of a reference DataArray.
@@ -191,9 +195,11 @@ def resample_like(
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, default: 0.0
+    default_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
-        after resampling.
+        after resampling. If not provided, defaults to `float(moving.min())`, which
+        renders out-of-FOV voxels as background regardless of intensity scale (important
+        for dB data where 0 is maximum intensity).
     sitk_threads : int, default: os.cpu_count() or 1
         Number of threads SimpleITK may use for the `Resample` call.
         Defaults to all available CPUs.
