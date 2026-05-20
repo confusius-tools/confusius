@@ -963,6 +963,7 @@ class VolumePlotter:
         data2: xr.DataArray,
         *,
         resample: bool = True,
+        resample_kwargs: "dict[str, Any] | None" = None,
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
@@ -1003,6 +1004,15 @@ class VolumePlotter:
             must match within `rtol`/`atol`; once validated, `data2`'s
             coordinates are replaced with `data1`'s so the two volumes share
             an exact coordinate frame downstream.
+        resample_kwargs : dict, optional
+            Extra keyword arguments forwarded to
+            [`resample_like`][confusius.registration.resample_like] when
+            `resample=True`. Recognised keys: `default_value` (fill value for
+            out-of-FOV voxels of `data2`), `interpolation` (`"linear"`,
+            `"nearest"`, or `"bspline"`), and `sitk_threads`. When `default_value`
+            is absent it defaults to `float(data2.min())`, rendering out-of-FOV
+            regions as background regardless of intensity scale (important for dB
+            data where 0 is maximum intensity). Ignored when `resample=False`.
         rtol : float, default: 1e-5
             Relative tolerance used to validate that `data1` and `data2` share
             coordinates when `resample=False`. Widen to accept acquisitions on
@@ -1098,7 +1108,10 @@ class VolumePlotter:
             from confusius.registration.resampling import resample_like
 
             data2_name = data2.name or "data2"
-            data2 = resample_like(data2, data1, np.eye(data1.ndim + 1))
+            _kw: dict[str, Any] = dict(resample_kwargs or {})
+            if "default_value" not in _kw:
+                _kw["default_value"] = float(data2.min())
+            data2 = resample_like(data2, data1, np.eye(data1.ndim + 1), **_kw)
             data2.name = data2_name
         else:
             if data1.dims != data2.dims:
@@ -1958,6 +1971,7 @@ def plot_composite(
     data2: xr.DataArray,
     *,
     resample: bool = True,
+    resample_kwargs: "dict[str, Any] | None" = None,
     rtol: float = 1e-5,
     atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
@@ -2002,6 +2016,14 @@ def plot_composite(
         shape, and their coordinates must match within `rtol`/`atol`; once validated,
         `data2`'s coordinates are replaced with `data1`'s so the two volumes share an
         exact coordinate frame downstream.
+    resample_kwargs : dict, optional
+        Extra keyword arguments forwarded to
+        [`resample_like`][confusius.registration.resample_like] when `resample=True`.
+        Recognised keys: `default_value` (fill value for out-of-FOV voxels of `data2`),
+        `interpolation` (`"linear"`, `"nearest"`, or `"bspline"`), and `sitk_threads`.
+        When `default_value` is absent it defaults to `float(data2.min())`, rendering
+        out-of-FOV regions as background regardless of intensity scale (important for
+        dB data where 0 is maximum intensity). Ignored when `resample=False`.
     rtol : float, default: 1e-5
         Relative tolerance used to validate that `data1` and `data2` share coordinates
         when `resample=False`. Widen to accept acquisitions on slightly offset grids
@@ -2121,6 +2143,7 @@ def plot_composite(
         data1,
         data2,
         resample=resample,
+        resample_kwargs=resample_kwargs,
         rtol=rtol,
         atol=atol,
         normalize_strategy=normalize_strategy,

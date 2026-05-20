@@ -214,6 +214,48 @@ class TestRegistrationProgressPlotterUpdate:
         plotter.figure.clf()
 
 
+class TestRegistrationProgressPlotterResampleKwargs:
+    """Tests for resample_kwargs fill-value behaviour."""
+
+    def test_default_fill_value_is_moving_min(self, fixed_img_2d, moving_img_2d):
+        """When resample_kwargs omits default_value, it is set to moving_img.min()."""
+        reg = _make_registration_method()
+        plotter = RegistrationProgressPlotter(
+            reg, fixed_img_2d, moving_img_2d, plot_metric=False, plot_composite=True
+        )
+        expected = float(sitk.GetArrayFromImage(moving_img_2d).min())
+        assert plotter._resample_kwargs["default_value"] == pytest.approx(expected)
+        plotter.figure.clf()
+
+    def test_explicit_fill_value_is_respected(self, fixed_img_2d, moving_img_2d):
+        """Explicit default_value in resample_kwargs overrides the auto-default."""
+        reg = _make_registration_method()
+        plotter = RegistrationProgressPlotter(
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=False,
+            plot_composite=True,
+            resample_kwargs={"default_value": -60.0},
+        )
+        assert plotter._resample_kwargs["default_value"] == pytest.approx(-60.0)
+        plotter.figure.clf()
+
+    def test_explicit_interpolation_is_stored(self, fixed_img_2d, moving_img_2d):
+        """interpolation key in resample_kwargs is stored and later used."""
+        reg = _make_registration_method()
+        plotter = RegistrationProgressPlotter(
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=False,
+            plot_composite=True,
+            resample_kwargs={"interpolation": "nearest"},
+        )
+        assert plotter._resample_kwargs["interpolation"] == "nearest"
+        plotter.figure.clf()
+
+
 class TestRegisterVolumeShowProgress:
     """Integration: show_progress=True wires correctly through register_volume."""
 

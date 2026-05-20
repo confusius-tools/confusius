@@ -1,7 +1,7 @@
 """Registration progress visualization."""
 
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -11,6 +11,12 @@ from confusius._utils.stack import find_stack_level
 if TYPE_CHECKING:
     import SimpleITK as sitk
     from matplotlib.figure import Figure
+
+_INTERPOLATION_MAP = {
+    "linear": "sitkLinear",
+    "nearest": "sitkNearestNeighbor",
+    "bspline": "sitkBSpline",
+}
 
 
 class RegistrationProgressPlotter:
@@ -33,6 +39,15 @@ class RegistrationProgressPlotter:
     plot_composite : bool, default: True
         Whether to display a blended fixed/moving composite at each iteration.
         Requires an additional `sitk.Resample` call per iteration.
+    resample_kwargs : dict, optional
+        Extra keyword arguments forwarded to the internal resample call at each
+        iteration. Recognised keys match
+        [`resample_like`][confusius.registration.resample_like]: `default_value`
+        (fill value for out-of-FOV voxels), `interpolation` (`"linear"`,
+        `"nearest"`, or `"bspline"`), and `sitk_threads`. When `default_value`
+        is absent it defaults to the minimum value of `moving_img`, rendering
+        out-of-FOV regions as background regardless of intensity scale (important
+        for dB data where 0 is maximum intensity).
     """
 
     def __init__(
@@ -43,6 +58,7 @@ class RegistrationProgressPlotter:
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
+        resample_kwargs: dict[str, Any] | None = None,
     ) -> None:
         import matplotlib
         import matplotlib.pyplot as plt
@@ -53,6 +69,13 @@ class RegistrationProgressPlotter:
         self._plot_metric = plot_metric
         self._plot_composite = plot_composite
         self._metric_values: list[float] = []
+
+        _kw: dict[str, Any] = dict(resample_kwargs or {})
+        if "default_value" not in _kw:
+            import SimpleITK as sitk
+
+            _kw["default_value"] = float(sitk.GetArrayFromImage(moving_img).min())
+        self._resample_kwargs = _kw
 
         # Detect Jupyter notebook environment. A plain IPython terminal shell
         # also has get_ipython() != None, so we check the kernel class name to
@@ -138,15 +161,25 @@ class RegistrationProgressPlotter:
         if self._plot_composite:
             import SimpleITK as sitk
 
+            from confusius.registration._utils import set_sitk_thread_count
+
+            interp_name = _INTERPOLATION_MAP[
+                self._resample_kwargs.get("interpolation", "linear")
+            ]
+            sitk_interp = getattr(sitk, interp_name)
+            fill_value = self._resample_kwargs["default_value"]
+            sitk_threads = self._resample_kwargs.get("sitk_threads", -1)
+
             transform = self._method.GetInitialTransform()
-            resampled = sitk.Resample(
-                self._moving_img,
-                self._fixed_img,
-                transform,
-                sitk.sitkLinear,
-                0.0,
-                self._moving_img.GetPixelID(),
-            )
+            with set_sitk_thread_count(sitk_threads):
+                resampled = sitk.Resample(
+                    self._moving_img,
+                    self._fixed_img,
+                    transform,
+                    sitk_interp,
+                    fill_value,
+                    self._moving_img.GetPixelID(),
+                )
 
             fixed_arr = sitk.GetArrayFromImage(self._fixed_img).T
             moving_arr = sitk.GetArrayFromImage(resampled).T

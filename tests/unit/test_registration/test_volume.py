@@ -737,3 +737,52 @@ class TestRegisterVolumeDiagnostics:
             metric="mattes_mi",
         )
         assert diagnostics.metric == "mattes_mi"
+
+
+class TestRegisterVolumeFillValue:
+    """fill_value applies to both the final resample output and the progress plotter."""
+
+    def test_explicit_fill_value_appears_in_out_of_fov_voxels(self):
+        """Out-of-FOV voxels in the registered output are filled with fill_value."""
+        # moving is a small sub-region of fixed; after registration the output grid
+        # is fixed-sized, so voxels outside moving's FOV must be filled.
+        fixed = xr.DataArray(
+            np.ones((16, 16), dtype=np.float32),
+            dims=("y", "x"),
+            coords={"y": np.arange(16) * 0.1, "x": np.arange(16) * 0.1},
+        )
+        # moving covers only the central 8x8 region.
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 2.0,
+            dims=("y", "x"),
+            coords={"y": np.arange(4, 12) * 0.1, "x": np.arange(4, 12) * 0.1},
+        )
+        sentinel = -99.0
+        result, _, _ = register_volume(
+            moving,
+            fixed,
+            transform_type="translation",
+            fill_value=sentinel,
+        )
+        # Out-of-FOV voxels (corners) should be exactly fill_value.
+        assert float(result.values[0, 0]) == pytest.approx(sentinel, abs=1e-5)
+
+    def test_default_fill_value_is_moving_min(self):
+        """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""
+        fixed = xr.DataArray(
+            np.ones((16, 16), dtype=np.float32),
+            dims=("y", "x"),
+            coords={"y": np.arange(16) * 0.1, "x": np.arange(16) * 0.1},
+        )
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 2.0,
+            dims=("y", "x"),
+            coords={"y": np.arange(4, 12) * 0.1, "x": np.arange(4, 12) * 0.1},
+        )
+        result, _, _ = register_volume(
+            moving,
+            fixed,
+            transform_type="translation",
+        )
+        # Default fill should be moving.min() == 2.0, not 0.0.
+        assert float(result.values[0, 0]) == pytest.approx(float(moving.min()), abs=1e-5)

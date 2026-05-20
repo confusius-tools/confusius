@@ -241,6 +241,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
+    fill_value: float | None = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
     ...
@@ -273,6 +274,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
+    fill_value: float | None = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
     ...
@@ -304,6 +306,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
+    fill_value: float | None = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
     ...
@@ -335,6 +338,7 @@ def register_volume(
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
+    fill_value: float | None = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":  # noqa: E501
     """Register a single 2D or 3D volume to a fixed reference.
 
@@ -451,6 +455,13 @@ def register_volume(
         Whether to include a fixed/moving composite overlay in the progress plot.
         Requires resampling the moving image at every iteration. Ignored when
         `show_progress=False`.
+    fill_value : float, optional
+        Fill value for voxels that fall outside the moving image's field of view after
+        resampling. Applied to both the final registered output (when `resample=True`)
+        and the progress composite overlay (when `show_progress=True` and
+        `plot_composite=True`). If not provided, defaults to the minimum value of
+        `moving`, which renders out-of-FOV regions as background regardless of intensity
+        scale (important for dB data where 0 is maximum intensity).
 
     Returns
     -------
@@ -660,6 +671,8 @@ def register_volume(
         lambda: metric_values.append(registration.GetMetricValue()),
     )
 
+    _fill_value = fill_value if fill_value is not None else float(moving.min())
+
     if show_progress:
         from confusius.registration._progress import RegistrationProgressPlotter
 
@@ -669,6 +682,11 @@ def register_volume(
             moving_sitk,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
+            resample_kwargs={
+                "default_value": _fill_value,
+                "interpolation": resample_interpolation,
+                "sitk_threads": sitk_threads,
+            },
         )
         registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
         registration.AddCommand(sitk.sitkEndEvent, plotter.close)
@@ -691,7 +709,7 @@ def register_volume(
                     fixed_sitk,
                     sitk_optimized_transform,
                     interp,
-                    0.0,
+                    _fill_value,
                     moving_sitk.GetPixelID(),
                 )
             ).T
