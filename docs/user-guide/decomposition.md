@@ -11,5 +11,8 @@ icon: lucide/layers
     - [`PCA`][confusius.decomposition.PCA]: Principal component analysis for
       `(time, ...)` `xarray.DataArray` inputs while preserving metadata through
       `transform` and `inverse_transform`.
+    - [`FastICA`][confusius.decomposition.FastICA]: Fast independent component
+      analysis for `(time, ...)` `xarray.DataArray` inputs while preserving
+      metadata through `transform` and `inverse_transform`.
 
     Please refer to the [API Reference](../api/decomposition.md) for more information.

@@ -78,17 +78,16 @@ def register_volumewise(
         aligns the image centers (safe default, no assumptions about content).
         `"moments"` aligns centers of mass (better when images are offset
         but share the same content). `"none"` uses the identity transform.
-    optimizer_weights : list of float or None, default: None
-        Per-parameter weights applied on top of the auto-estimated physical
-        shift scales. `None` uses identity weights (all ones). A list is
-        passed directly to SimpleITK's `SetOptimizerWeights`; its length
-        must match the number of transform parameters (3 for 2D rigid, 6 for
-        3D rigid, 6 for 2D affine, 12 for 3D affine). The weight for each
-        parameter is multiplied into the effective step size: `0` freezes a
-        parameter entirely, values in `(0, 1)` slow it down, and `1`
-        leaves it unchanged. For the 3D Euler transform the parameter order is
-        `[angleX, angleY, angleZ, tx, ty, tz]`; to disable rotations around
-        x and y set weights to `[0, 0, 1, 1, 1, 1]`.
+    optimizer_weights : list of float, optional
+        Per-parameter weights applied on top of the auto-estimated physical shift
+        scales. If not provided, identity weights are used. A list is passed directly to
+        SimpleITK's `SetOptimizerWeights`; its length must match the number of transform
+        parameters (3 for 2D rigid, 6 for 3D rigid, 6 for 2D affine, 12 for 3D affine).
+        The weight for each parameter is multiplied into the effective step size: `0`
+        freezes a parameter entirely, values in `(0, 1)` slow it down, and `1` leaves it
+        unchanged. For the 3D Euler transform the parameter order is `[angleX, angleY,
+        angleZ, tx, ty, tz]`; to disable rotations around x and y set weights to `[0, 0,
+        1, 1, 1, 1]`.
     use_multi_resolution : bool, default: False
         Whether to use a multi-resolution pyramid during registration. When
         `True`, registration proceeds from a coarse downsampled version of

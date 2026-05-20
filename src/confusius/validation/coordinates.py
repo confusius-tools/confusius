@@ -73,8 +73,8 @@ def validate_matching_coordinates(
         First array to compare.
     right : xarray.DataArray
         Second array to compare.
-    coord_names : Hashable | Iterable[Hashable] | None, default: None
-        Coordinate names to compare. If not specified, all shared dimension coordinates
+    coord_names : Hashable or Iterable[Hashable], optional
+        Coordinate names to compare. If not provided, all shared dimension coordinates
         are checked.
     left_name : str, default: "left array"
         Label used for `left` in error messages. Override with a context-specific name

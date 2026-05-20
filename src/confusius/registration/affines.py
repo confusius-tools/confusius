@@ -95,7 +95,7 @@ def compose_affine(
     S : (P,) numpy.ndarray, optional
         Shear vector filling the upper triangle above the diagonal of the shear
         matrix. `P` is the `(N-2)`-th triangular number (3 for the 3D case).
-        If `None`, no shear is applied.
+        If not provided, no shear is applied.
 
     Returns
     -------

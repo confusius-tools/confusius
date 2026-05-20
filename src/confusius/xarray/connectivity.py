@@ -58,7 +58,7 @@ class FUSIConnectivityAccessor:
                 default: "mean"
             Aggregation function applied across voxels within each seed region.
             Ignored when `seed_signals` is provided.
-        clean_kwargs : dict or None, default: None
+        clean_kwargs : dict, optional
             Keyword arguments forwarded to [`clean`][confusius.signal.clean]. If not
             provided, no cleaning is applied.
 

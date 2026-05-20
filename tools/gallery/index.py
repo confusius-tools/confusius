@@ -53,8 +53,10 @@ def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
         "page with code, outputs, and downloadable source files.\n\n"
     ]
 
-    for section in sorted(by_section):
-        items = by_section[section]
+    # Iterate in insertion order; discover() yields specs sorted by the section
+    # folder name (e.g. "01_io" before "02_decomposition"), so the index reflects
+    # that explicit ordering rather than alphabetical order of the stripped name.
+    for section, items in by_section.items():
         intro = _demote_h1(items[0].spec.section_intro.strip())
         parts.append((intro if intro else f"## {section}") + "\n\n")
         parts.append('<div class="grid cards examples-cards" markdown>\n\n')

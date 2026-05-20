@@ -35,7 +35,7 @@ def _write_png(path: Path, payload: str) -> None:
 
 def _image_tag(*, src: str, alt: str) -> str:
     """Return a plain HTML image tag for Markdown output."""
-    return f'<img class="skip-lightbox" src="{src}" alt="{alt}">'
+    return f'<img src="{src}" alt="{alt}">'
 
 
 def _html_block(html: str) -> str:

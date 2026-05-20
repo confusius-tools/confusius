@@ -40,8 +40,15 @@ Current development version for the next ConfUSIus release.
   coordinates are now validated as 1D, numeric, finite, and strictly increasing,
   while extra/non-dimension coordinates remain allowed
   ([#153](https://github.com/confusius-tools/confusius/pull/153)).
+- Added shared `fontsize` parameter to `plot_volume`, `plot_contours`, and carpet
+  plotting entry points so text sizing is consistent across all plotting APIs
+  ([#128](https://github.com/confusius-tools/confusius/pull/128)).
 - Replaced plotting `black_bg` with explicit `bg_color` and `fg_color` controls for
   clearer visual customization ([#124](https://github.com/confusius-tools/confusius/pull/124)).
+- Added [`FastICA`][confusius.decomposition.FastICA] transformer for independent
+  component analysis of fUSI recordings, with the same xarray-aware `fit` /
+  `transform` / `inverse_transform` API as [`PCA`][confusius.decomposition.PCA]
+  ([#118](https://github.com/confusius-tools/confusius/pull/118)).
 - Added example gallery helper utilities to streamline writing and maintaining docs
   examples ([#102](https://github.com/confusius-tools/confusius/pull/102)).
 
@@ -77,6 +84,12 @@ Current development version for the next ConfUSIus release.
   [SPEC-0001](https://scientific-python.org/specs/spec-0001/) PEP 562 lazy loading.
   Submodules and exported functions are only imported on first access, reducing `import
   confusius` overhead for workflows that use a subset of the package.
+
+### :wrench: Maintenance
+
+- Switched documentation hosting to GitHub Pages with `mike` versioning and automatic
+  PR preview deployments
+  ([#134](https://github.com/confusius-tools/confusius/pull/134)).
 
 ## 0.2.0
 
