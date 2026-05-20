@@ -11,6 +11,7 @@ from tools.gallery.index import build_index
 def _spec(source: Path, section: str) -> ExampleSpec:
     return ExampleSpec(
         source=source,
+        base_name=source.stem,
         section=section,
         section_intro=f"# {section.upper()}\n\nIntro for {section}.\n",
     )
@@ -68,6 +69,42 @@ def test_build_index_groups_cards_by_section(tmp_path: Path) -> None:
     assert "_assets/default_thumb_dark.svg#only-dark" in index_md
 
 
+def test_build_index_preserves_section_order_from_input(tmp_path: Path) -> None:
+    """Sections appear in the order they are first seen in the rendered list.
+
+    Discovery sorts section folders by their prefixed name (e.g. ``01_io`` before
+    ``02_decomposition``), so the index must preserve that order rather than
+    re-sorting alphabetically by the stripped section name.
+    """
+    src_io = tmp_path / "io" / "load.py"
+    src_decomp = tmp_path / "decomposition" / "fastica.py"
+    for src in (src_io, src_decomp):
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.touch()
+
+    rendered = [
+        RenderedExample(
+            spec=_spec(src_io, "io"),
+            title="Load",
+            summary="",
+            md_path=src_io.with_suffix(".md"),
+            thumbnail_light=None,
+            thumbnail_dark=None,
+        ),
+        RenderedExample(
+            spec=_spec(src_decomp, "decomposition"),
+            title="FastICA",
+            summary="",
+            md_path=src_decomp.with_suffix(".md"),
+            thumbnail_light=None,
+            thumbnail_dark=None,
+        ),
+    ]
+
+    md = build_index(rendered, root=tmp_path)
+    assert md.index("## IO") < md.index("## DECOMPOSITION")
+
+
 def test_build_index_demotes_h1_section_intros(tmp_path: Path) -> None:
     """Section intros starting with H1 are demoted to H2 so there's a single page title."""
     src = tmp_path / "io" / "ex.py"
@@ -75,6 +112,7 @@ def test_build_index_demotes_h1_section_intros(tmp_path: Path) -> None:
     src.touch()
     spec = ExampleSpec(
         source=src,
+        base_name=src.stem,
         section="io",
         section_intro="# Input/Output\n\nIntro paragraph.\n",
     )

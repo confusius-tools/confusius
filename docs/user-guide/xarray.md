@@ -290,7 +290,7 @@ from confusius.decomposition import PCA
 
 pca = PCA(n_components=5, random_state=0)
 component_signals = pca.fit_transform(signals)  # (time, component)
-spatial_components = pca.components_.fusi.extract.unmask(mask)
+spatial_components = pca.maps_.fusi.extract.unmask(mask)
 
 # spatial_components has dims (component, z, y, x).
 ```
@@ -389,7 +389,7 @@ pwd_denoised = cf.signal.clean(
 # 9. Decompose brain signals with PCA.
 pca = PCA(n_components=5, random_state=0)
 component_signals = pca.fit_transform(pwd_denoised)
-spatial_maps = pca.components_
+spatial_maps = pca.maps_
 ```
 
 ## API Reference

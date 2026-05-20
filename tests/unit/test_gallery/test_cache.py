@@ -9,7 +9,9 @@ from tools.gallery.cache import cache_key
 
 
 def _spec(source: Path) -> ExampleSpec:
-    return ExampleSpec(source=source, section="io", section_intro="")
+    return ExampleSpec(
+        source=source, base_name=source.stem, section="io", section_intro=""
+    )
 
 
 def test_cache_key_is_deterministic(tmp_path: Path) -> None:

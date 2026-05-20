@@ -110,7 +110,7 @@ def _build_one(
     binder_url: str | None = None,
 ) -> RenderedExample:
     """Build one example and return its rendered metadata."""
-    base_name = spec.source.stem
+    base_name = spec.base_name
     out_dir = built_dir / spec.section
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -122,7 +122,7 @@ def _build_one(
     cache_entry = cache.cache_dir(cache_root, key) / spec.section / base_name
 
     source_notebook = execute.read_example(spec.source)
-    title, summary = _extract_title_and_summary(source_notebook, spec.source.stem)
+    title, summary = _extract_title_and_summary(source_notebook, base_name)
     # nbclient only invokes `on_cell_executed` for code cells, so the bar's
     # total has to match that — counting markdown cells would leave it stuck.
     n_cells = sum(1 for c in source_notebook.cells if c.cell_type == "code")

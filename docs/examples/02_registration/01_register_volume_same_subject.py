@@ -7,7 +7,8 @@
 # which is appropriate when the imaged anatomy is the same but the probe placement
 # differs slightly between the two recordings.
 #
-# We pick two `angio` acquisitions from the Cybis Pereira 2026 dataset using
+# We pick two `angio` acquisitions from the [Cybis Pereira 2026
+# dataset](https://doi.org/10.1016/j.celrep.2025.116791) using
 # [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]: subject
 # `rat75`, slice `slice32`, recorded on consecutive days (sessions `20220523` and
 # `20220524`).
@@ -22,6 +23,7 @@
 # %%
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import xarray as xr
 
@@ -29,8 +31,8 @@ import confusius as cf
 from confusius.datasets import fetch_cybis_pereira_2026
 from confusius.registration import register_volume
 
-# Keep figure backgrounds transparent in docs and standalone notebooks.
-bg_color = "none"
+# Adapt background color to the current Matplotlib style.
+bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 xr.set_options(display_expand_data=False)
 

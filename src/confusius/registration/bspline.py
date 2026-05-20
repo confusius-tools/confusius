@@ -49,12 +49,11 @@ def sitk_bspline_to_dataarray(
     transform : SimpleITK.Transform
         A `BSplineTransform` or a `CompositeTransform` whose last sub-transform
         is a `BSplineTransform`.  Any other type raises `TypeError`.
-    pre_affine : (N+1, N+1) numpy.ndarray or None, default: None
+    pre_affine : (N+1, N+1) numpy.ndarray, optional
         Homogeneous affine matrix to store as
-        `attrs["affines"]["bspline_initialization"]`.  Pass the affine that was
-        used as the pre-alignment so that `_dataarray_to_sitk_bspline` can
-        reconstruct the full composite for resampling.  When `None`, no
-        `"affines"` key is written.
+        `attrs["affines"]["bspline_initialization"]`. Pass the affine that was used as
+        the pre-alignment so that `_dataarray_to_sitk_bspline` can reconstruct the full
+        composite for resampling.  If not provided, no `"affines"` key is written.
 
     Returns
     -------
