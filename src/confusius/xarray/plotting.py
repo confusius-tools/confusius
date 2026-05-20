@@ -671,10 +671,7 @@ class FUSIPlotAccessor:
         resample_kwargs : dict, optional
             Extra keyword arguments forwarded to
             [`resample_like`][confusius.registration.resample_like] when
-            `resample=True`. Recognised keys: `default_value` (fill value for
-            out-of-FOV voxels of `other`), `interpolation` (`"linear"`,
-            `"nearest"`, or `"bspline"`), and `sitk_threads`. Ignored when
-            `resample=False`.
+            `resample=True`. Ignored when `resample=False`.
         rtol : float, default: 1e-5
             Relative tolerance used to validate that this DataArray and `other`
             share coordinates when `resample=False`. Widen to accept
