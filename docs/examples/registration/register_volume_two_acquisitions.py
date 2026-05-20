@@ -83,7 +83,6 @@ moving
 # %%
 moving.coords["z"] = fixed.z
 plotter = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
-plotter.show()
 
 # %% [markdown]
 # ## Run the registration
@@ -144,7 +143,6 @@ for ax, moving_view, title in [
     ax.set_title(title)
 
 fig.suptitle("Fixed (red) / moving (cyan)")
-fig.show()
 
 # %% [markdown]
 # !!! tip "Watch registration progress live"
@@ -171,7 +169,6 @@ ax.plot(diagnostics.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
 ax.set_title(diagnostics.stop_condition)
-fig.show()
 
 
 # %% [markdown]
