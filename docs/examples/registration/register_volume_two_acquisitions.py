@@ -72,7 +72,7 @@ moving
 # [`plot_composite`][confusius.plotting.plot_composite], which resamples `moving` onto
 # `fixed`'s grid and draws the two as a red/cyan composite: matched anatomy appear in
 # white, while any residual red/cyan fringe reveals the displacement that
-# `register_volume` will correct.
+# [`register_volume`][confusius.registration.register_volume] will correct.
 #
 # One subtlety: the two `angio` recordings sit at slightly different `z`
 # coordinates in physical space, so resampling `moving` onto `fixed`'s grid would
@@ -82,7 +82,7 @@ moving
 
 # %%
 moving.coords["z"] = fixed.z
-plotter = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
+cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 
 # %% [markdown]
 # ## Run the registration
@@ -97,6 +97,15 @@ plotter = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 # 3. a [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
 #    dataclass holding the per-iteration metric values and the optimizer stop
 #    condition, which we use below to plot the convergence curve.
+
+# !!! tip "Watch registration progress live"
+#     Pass `show_progress=True` to
+#     [`register_volume`][confusius.registration.register_volume] to follow the
+#     optimization in real time. A live matplotlib window opens during the call and
+#     updates at every iteration with both the similarity-metric curve and a
+#     fixed/moving composite overlay. It is the fastest way to tell whether the
+#     optimizer is making progress, stuck in a local minimum, or diverging—and to
+#     decide which arguments to tweak from the warning above.
 #
 # !!! warning "Registration is sensitive to its arguments"
 #     The result depends heavily on the choice of `transform_type`, `metric`,
@@ -141,21 +150,12 @@ for ax, moving_view, title in [
     (axes[0], moving, "Before"),
     (axes[1], registered, "After"),
 ]:
-    plotter = cf.plotting.plot_composite(fixed, moving_view, axes=ax, bg_color=bg_color)
+    cf.plotting.plot_composite(fixed, moving_view, axes=ax, bg_color=bg_color)
     ax.set_title(title)
 
-fig.suptitle("Fixed (red) / moving (cyan)")
+_ = fig.suptitle("Fixed (red) / moving (cyan)")
 
 # %% [markdown]
-# !!! tip "Watch registration progress live"
-#     Pass `show_progress=True` to
-#     [`register_volume`][confusius.registration.register_volume] to follow the
-#     optimization in real time. A live matplotlib window opens during the call and
-#     updates at every iteration with both the similarity-metric curve and a
-#     fixed/moving composite overlay. It is the fastest way to tell whether the
-#     optimizer is making progress, stuck in a local minimum, or diverging—and to
-#     decide which arguments to tweak from the warning above.
-
 # ## Inspect convergence with the registration diagnostics
 #
 # `diagnostics.metric_values` holds the optimizer's similarity-metric value at each
@@ -170,8 +170,7 @@ fig.patch.set_facecolor(bg_color)
 ax.plot(diagnostics.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
 ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
-ax.set_title(diagnostics.stop_condition)
-
+_ = ax.set_title(diagnostics.stop_condition)
 
 # %% [markdown]
 # The resulting rigid transform is encoded in physical units and can be reused, composed
