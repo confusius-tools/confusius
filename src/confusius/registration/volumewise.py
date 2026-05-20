@@ -167,14 +167,11 @@ def register_volumewise(
 
     data_moved = data.transpose("time", ...)
 
-    if data_moved.ndim not in (3, 4):
-        raise ValueError(f"Expected 3D or 4D data, got {data_moved.ndim}D")
-
     validate_fusi_dataarray(
         data_moved,
         require_time=True,
         allow_pose=False,
-        allow_extra_dims=True,
+        allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
 

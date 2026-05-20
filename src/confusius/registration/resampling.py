@@ -93,17 +93,11 @@ def resample_volume(
     spatial_dims = [str(d) for d in moving.dims if str(d) != "time"]
     ndim = len(spatial_dims)
 
-    if ndim not in (2, 3):
-        raise ValueError(
-            f"'moving' must have 2 or 3 spatial dimensions; got {ndim}D "
-            f"spatial array with dims {spatial_dims}."
-        )
-
     validate_fusi_dataarray(
         moving,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=True,
+        allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
 
@@ -231,23 +225,18 @@ def resample_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    if reference.ndim not in (2, 3):
-        raise ValueError(
-            f"'reference' must be 2D or 3D; got {reference.ndim}D array with dims {reference.dims}."
-        )
-
     validate_fusi_dataarray(
         moving,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=True,
+        allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
     validate_fusi_dataarray(
         reference,
         require_time=False,
         allow_pose=False,
-        allow_extra_dims=True,
+        allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
 

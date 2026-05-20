@@ -82,15 +82,23 @@ def _validate_register_volume_inputs(
             "register_volume expects spatial-only DataArrays. "
             "For volume-wise registration, use register_volumewise."
         )
-    if moving.ndim not in (2, 3):
-        raise ValueError(
-            f"register_volume expects 2D or 3D inputs, 'moving' is {moving.ndim}D."
-        )
-    if fixed.ndim not in (2, 3):
-        raise ValueError(
-            f"register_volume expects 2D or 3D inputs, 'fixed' is {fixed.ndim}D."
-        )
 
+    from confusius.validation import validate_fusi_dataarray
+
+    validate_fusi_dataarray(
+        moving,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+        minimum_spatial_dims=2,
+    )
+    validate_fusi_dataarray(
+        fixed,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+        minimum_spatial_dims=2,
+    )
     # --- NaN checks ---
     if np.any(np.isnan(moving.values)):
         raise ValueError(
