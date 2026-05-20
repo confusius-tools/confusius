@@ -16,3 +16,6 @@ SPATIAL_DIMS_WITH_POSE: tuple[str, ...] = (POSE_DIM, *SPATIAL_DIMS)
 
 TIME_DIM: str = "time"
 """Default signal (x-axis) dimension name."""
+
+CORE_DIMS: tuple[str, ...] = (TIME_DIM,) + SPATIAL_DIMS_WITH_POSE
+"""Core ConfUSIus dimensions in canonical relative order."""

@@ -165,3 +165,43 @@ def test_validate_fusi_dataarray_can_require_coordinate_units(
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
         validate_fusi_dataarray(bad, require_time_units=True)
+
+
+def test_validate_fusi_dataarray_rejects_non_finite_numeric_coordinate(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Numeric coordinates must be finite."""
+    bad = valid_2dt_dataarray.assign_coords(time=[0.0, 0.5, np.nan, 1.5, 2.0])
+
+    with pytest.raises(ValueError, match="non-finite numeric values"):
+        validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_rejects_non_string_dimension_names() -> None:
+    """Dimension names must be strings."""
+    bad = xr.DataArray(
+        np.zeros((2, 3, 4), dtype=np.float32),
+        dims=("time", "y", 1),
+    )
+
+    with pytest.raises(ValueError, match="All dimensions must be strings"):
+        validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_validates_minimum_spatial_dims_bounds(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """minimum_spatial_dims must be in [0, 3]."""
+    with pytest.raises(ValueError, match="between 0 and 3 inclusive"):
+        validate_fusi_dataarray(valid_2dt_dataarray, minimum_spatial_dims=4)
+
+
+def test_validate_fusi_dataarray_can_require_spatial_units(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Spatial `units` metadata can be enforced explicitly."""
+    bad = valid_2dt_dataarray.copy(deep=True)
+    del bad.coords["x"].attrs["units"]
+
+    with pytest.raises(ValueError, match="missing required 'units' metadata"):
+        validate_fusi_dataarray(bad, require_spatial_units=True)

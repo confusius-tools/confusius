@@ -7,14 +7,11 @@ from collections.abc import Hashable
 import numpy as np
 import xarray as xr
 
-from confusius._dims import POSE_DIM, SPATIAL_DIMS, TIME_DIM
+from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
 
-_ALLOWED_CORE_DIMS = (TIME_DIM, POSE_DIM, *SPATIAL_DIMS)
+_ALLOWED_CORE_DIMS = CORE_DIMS
 """Core dimension names recognized by ConfUSIus fUSI validators."""
-
-_CANONICAL_DIM_ORDER = (TIME_DIM, POSE_DIM, *SPATIAL_DIMS)
-"""Canonical relative ordering of ConfUSIus core dimensions."""
 
 
 def _validate_dimension_coordinate(da: xr.DataArray, dim: Hashable) -> None:
@@ -109,7 +106,7 @@ def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
         ConfUSIus order.
     """
     present_core_dims = tuple(dim for dim in da.dims if dim in _ALLOWED_CORE_DIMS)
-    expected_order = tuple(dim for dim in _CANONICAL_DIM_ORDER if dim in da.dims)
+    expected_order = tuple(dim for dim in _ALLOWED_CORE_DIMS if dim in da.dims)
     if present_core_dims != expected_order:
         raise ValueError(
             f"Core dimensions {present_core_dims!r} are not in canonical ConfUSIus "
@@ -191,10 +188,15 @@ def validate_fusi_dataarray(
 ) -> None:
     """Validate that a DataArray follows ConfUSIus fUSI conventions.
 
-    This validator is intentionally broader than
-    [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray]: it accepts
-    2D, 3D, 2D+t, 3D+t, and multi-pose variants as long as dimensions, coordinates,
-    and optional metadata follow ConfUSIus conventions.
+    A valid fUSI DataArray must:
+
+    - Have dimension names from the set `(time, pose, z, y, x)`, with optional extra
+      dimensions if `allow_extra_dims` is `True` (e.g., `region`, `component`, `mask`,
+      etc.).
+    - Have matching 1D coordinates for all dimensions that are strictly
+      monotonic-increasing when numeric.
+
+    Additional requirements can be enforced using the function parameters.
 
     Parameters
     ----------
