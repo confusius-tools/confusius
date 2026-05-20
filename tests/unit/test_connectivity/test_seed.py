@@ -495,6 +495,52 @@ class TestSklearnInterface:
         assert result is mapper
 
 
+class TestMask:
+    """Tests for computational masking in SeedBasedMaps."""
+
+    def test_mask_sets_outside_voxels_to_zero(self, data_2d, flat_labels):
+        """Voxels outside mask are set to zero in maps_."""
+        mask = xr.DataArray(
+            np.zeros((data_2d.sizes["z"], data_2d.sizes["x"]), dtype=bool),
+            dims=["z", "x"],
+            coords={"z": data_2d.coords["z"], "x": data_2d.coords["x"]},
+        )
+        mask.values[:3, :] = True
+
+        mapper = SeedBasedMaps(seed_masks=flat_labels, mask=mask).fit(data_2d)
+
+        outside = mapper.maps_.where(~mask, other=np.nan)
+        np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
+
+    def test_mask_cleans_only_masked_signals(self, data_2d, flat_labels, monkeypatch):
+        """When mask is provided, cleaning is applied to `(time, space)` signals."""
+        import confusius.connectivity.seed as seed_module
+
+        mask = xr.DataArray(
+            np.zeros((data_2d.sizes["z"], data_2d.sizes["x"]), dtype=bool),
+            dims=["z", "x"],
+            coords={"z": data_2d.coords["z"], "x": data_2d.coords["x"]},
+        )
+        mask.values[:3, :] = True
+
+        seen = {}
+        original_clean = seed_module.clean
+
+        def _clean(x, **kwargs):
+            seen["dims"] = x.dims
+            return original_clean(x, **kwargs)
+
+        monkeypatch.setattr(seed_module, "clean", _clean)
+
+        SeedBasedMaps(
+            seed_masks=flat_labels,
+            mask=mask,
+            clean_kwargs={"detrend_order": 1},
+        ).fit(data_2d)
+
+        assert seen["dims"] == ("time", "space")
+
+
 # ---------------------------------------------------------------------------
 # Xarray accessor tests
 # ---------------------------------------------------------------------------
