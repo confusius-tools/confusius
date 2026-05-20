@@ -71,7 +71,32 @@ jobs:
         # one pass but not the other.
         run: uv run tools/prefetch_doc_datasets.py
 
+      - name: Ensure docs images directories exist
+        run: |
+          mkdir -p docs/images/gui
+          mkdir -p docs/images/qc
+          mkdir -p docs/images/visualization
+          mkdir -p docs/images/home
+
+      - name: Cache generated docs images
+        id: cache-doc-images
+        uses: actions/cache@v5
+        with:
+          path: |
+            docs/images/gui/*.png
+            docs/images/gui/*.gif
+            docs/images/qc/*.png
+            docs/images/qc/*.gif
+            docs/images/visualization/*.png
+            docs/images/visualization/*.gif
+            docs/images/home/*.png
+            docs/images/home/*.gif
+          key: ${{ runner.os }}-docs-images-${{ hashFiles('uv.lock', 'docs/images/**/generate.py', 'tools/prefetch_doc_datasets.py', 'src/**/*.py') }}
+          restore-keys: |
+            ${{ runner.os }}-docs-images-
+
       - name: Generate documentation images
+        if: steps.cache-doc-images.outputs.cache-hit != 'true'
         env:
           QT_QPA_PLATFORM: "xcb"
           PYOPENGL_PLATFORM: "glx"
