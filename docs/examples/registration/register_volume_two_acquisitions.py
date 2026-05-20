@@ -137,6 +137,7 @@ affine
 
 # %% tags=["thumbnail"]
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+fig.patch.set_facecolor(bg_color)
 
 for ax, moving_view, title in [
     (axes[0], moving, "Before"),
@@ -169,7 +170,7 @@ fig.show()
 #
 
 # %%
-fig, ax = plt.subplots(figsize=(7, 3), facecolor="none")
+fig, ax = plt.subplots(figsize=(7, 3))
 fig.patch.set_facecolor(bg_color)
 ax.plot(diagnostics.metric_values, color="#d93a54")
 ax.set_xlabel("Iteration")
