@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
 
@@ -52,7 +53,7 @@ class TestRegisterVolumeValidation:
     ):
         """Different shapes do not raise an error."""
         moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -72,7 +73,7 @@ class TestRegisterVolumeOutput:
 
     def test_returns_affine_matrix(self, sample_2d_dataarray_spatial):
         """register_volume returns a (3, 3) numpy affine matrix for 2D input."""
-        _, affine = register_volume(
+        _, affine, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -82,7 +83,7 @@ class TestRegisterVolumeOutput:
 
     def test_bspline_returns_dataarray_transform(self, sample_2d_dataarray_spatial):
         """register_volume with bspline returns a DataArray for the transform."""
-        _, bspline_tx = register_volume(
+        _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
@@ -96,7 +97,7 @@ class TestRegisterVolumeOutput:
     ):
         """resample=True output coordinates match the fixed volume, not moving."""
         moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -116,7 +117,7 @@ class TestRegisterVolumeOutput:
         moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
         fixed.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
 
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             moving,
             fixed,
             transform_type="translation",
@@ -147,7 +148,7 @@ class TestRegisterVolumeResample:
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
         )
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -167,7 +168,7 @@ class TestRegisterVolumeResample:
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
         )
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -189,7 +190,7 @@ class TestRegisterVolumeAccuracy:
 
     def test_identical_volumes_unchanged_2d(self, sample_2d_dataarray_spatial):
         """Registering identical 2D volumes produces nearly identical output."""
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -199,7 +200,7 @@ class TestRegisterVolumeAccuracy:
 
     def test_identical_volumes_unchanged_3d(self, sample_3d_dataarray_spatial):
         """Registering identical 3D volumes produces nearly identical output."""
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             sample_3d_dataarray_spatial,
             sample_3d_dataarray_spatial,
             transform_type="translation",
@@ -220,7 +221,7 @@ class TestRegisterVolumeAccuracy:
             },
         )
         moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
-        result, _ = register_volume(
+        result, _, _ = register_volume(
             moving,
             fixed,
             transform_type="translation",
@@ -239,9 +240,9 @@ class TestRegisterVolumeAccuracy:
     def test_optimizer_weights_freezes_rotation(self, sample_2d_dataarray_spatial):
         """Setting rotation weight to 0 produces the same result as translation-only."""
         da = sample_2d_dataarray_spatial
-        _, affine_translation = register_volume(da, da, transform_type="translation")
+        _, affine_translation, _ = register_volume(da, da, transform_type="translation")
         # 2D rigid with rotation frozen: [rotation, tx, ty] with weight [0, 1, 1].
-        _, affine_frozen = register_volume(
+        _, affine_frozen, _ = register_volume(
             da, da, transform_type="rigid", optimizer_weights=[0.0, 1.0, 1.0]
         )
         # The rotation sub-matrix should be identity (no rotation applied).
@@ -265,7 +266,7 @@ class TestRegisterVolumeThinDims:
             },
         )
         with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _ = register_volume(da, da, transform_type="translation")
+            result, _, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
 
     def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
@@ -282,7 +283,7 @@ class TestRegisterVolumeThinDims:
             },
         )
         with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _ = register_volume(
+            result, _, _ = register_volume(
                 da, da, transform_type="translation", resample=True
             )
         assert result.shape == da.shape
@@ -298,7 +299,7 @@ class TestRegisterVolumeThinDims:
         """
         moving = sample_2d_dataarray_spatial  # float32
         fixed = sample_2d_dataarray_spatial.astype(np.float64)
-        result, _ = register_volume(moving, fixed, transform_type="translation")
+        result, _, _ = register_volume(moving, fixed, transform_type="translation")
         assert result.shape == fixed.shape
 
     def test_3d_volume_with_depth_2_does_not_crash(self):
@@ -314,7 +315,7 @@ class TestRegisterVolumeThinDims:
                 "x": np.arange(16) * 0.1,
             },
         )
-        result, _ = register_volume(da, da, transform_type="translation")
+        result, _, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
 
 
@@ -413,7 +414,7 @@ class TestResampleVolume:
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
         )
-        resampled_direct, affine = register_volume(
+        resampled_direct, affine, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -443,7 +444,7 @@ class TestInitialTransform:
     ):
         """B-spline result DataArray stores the pre-affine in attrs when initial_transform is given."""
         pre_affine = np.eye(3)
-        _, bspline_tx = register_volume(
+        _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
@@ -457,7 +458,7 @@ class TestInitialTransform:
         self, sample_2d_dataarray_spatial
     ):
         """B-spline result DataArray without initial_transform has no bspline_initialization key."""
-        _, bspline_tx = register_volume(
+        _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
@@ -484,7 +485,7 @@ class TestResampleVolumeWithBspline:
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
         )
-        resampled_direct, bspline_tx = register_volume(
+        resampled_direct, bspline_tx, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
@@ -509,13 +510,13 @@ class TestResampleVolumeWithBspline:
             coords=sample_2d_dataarray_spatial.coords,
         )
         # First pass: affine registration.
-        _, affine_tx = register_volume(
+        _, affine_tx, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="affine",
         )
         # Second pass: B-spline refinement on top of the affine.
-        resampled_direct, bspline_tx = register_volume(
+        resampled_direct, bspline_tx, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
@@ -555,6 +556,32 @@ class TestResampleLike:
         da = xr.DataArray(np.zeros(10), dims=("x",))
         with pytest.raises(ValueError, match="2D or 3D"):
             resample_like(da, da, np.eye(2))
+
+    def test_default_fill_is_moving_min(self, sample_2d_dataarray_spatial):
+        """Out-of-FOV voxels default to moving.min(), not 0.0."""
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 5.0,
+            dims=("y", "x"),
+            coords={
+                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
+                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
+            },
+        )
+        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3))
+        assert float(result.values[-1, -1]) == pytest.approx(5.0, abs=1e-5)
+
+    def test_explicit_default_value_overrides(self, sample_2d_dataarray_spatial):
+        """Explicit default_value overrides the auto-default."""
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 5.0,
+            dims=("y", "x"),
+            coords={
+                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
+                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
+            },
+        )
+        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0)
+        assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
 
     def test_output_coords_match_reference(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -598,7 +625,7 @@ class TestResampleLike:
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
         )
-        resampled_direct, affine = register_volume(
+        resampled_direct, affine, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="translation",
@@ -617,7 +644,7 @@ class TestResampleLike:
             dims=sample_3d_dataarray_spatial.dims,
             coords=sample_3d_dataarray_spatial.coords,
         )
-        resampled_direct, affine = register_volume(
+        resampled_direct, affine, _ = register_volume(
             moving,
             sample_3d_dataarray_spatial,
             transform_type="translation",
@@ -648,10 +675,10 @@ class TestResampleLike:
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
         )
-        _, affine_init = register_volume(
+        _, affine_init, _ = register_volume(
             moving, sample_2d_dataarray_spatial, transform_type="translation"
         )
-        resampled_direct, affine = register_volume(
+        resampled_direct, affine, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
             transform_type="affine",
@@ -686,3 +713,102 @@ class TestResampleLike:
             dims=[str(d) for d in sample_2d_dataarray_spatial.dims],
         )
         assert_allclose(result_like.values, result_vol.values, atol=1e-10)
+
+
+class TestRegisterVolumeDiagnostics:
+    """Diagnostics object returned by register_volume."""
+
+    def test_returns_diagnostics_with_consistent_fields(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """register_volume returns a fully populated RegistrationDiagnostics."""
+        shifted = np.roll(np.roll(sample_2d_image, 2, axis=0), 2, axis=1)
+        moving = xr.DataArray(
+            shifted,
+            dims=sample_2d_dataarray_spatial.dims,
+            coords=sample_2d_dataarray_spatial.coords,
+        )
+
+        max_iters = 50
+        _, _, diagnostics = register_volume(
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            number_of_iterations=max_iters,
+        )
+
+        assert isinstance(diagnostics, RegistrationDiagnostics)
+        assert diagnostics.metric == "correlation"
+        # metric_values is a 1D numpy array, one entry per iteration.
+        assert isinstance(diagnostics.metric_values, np.ndarray)
+        assert diagnostics.metric_values.ndim == 1
+        assert diagnostics.metric_values.shape == (diagnostics.n_iterations,)
+        # final_metric_value mirrors metric_values[-1] when at least one
+        # iteration ran.
+        assert diagnostics.n_iterations >= 1
+        assert diagnostics.n_iterations <= max_iters
+        assert diagnostics.final_metric_value == pytest.approx(
+            float(diagnostics.metric_values[-1])
+        )
+        # SimpleITK populates a non-empty stop condition string at the end.
+        assert isinstance(diagnostics.stop_condition, str)
+        assert diagnostics.stop_condition != ""
+
+    def test_metric_field_echoes_argument(self, sample_2d_dataarray_spatial):
+        """The `metric` field on diagnostics matches the metric argument."""
+        _, _, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            metric="mattes_mi",
+        )
+        assert diagnostics.metric == "mattes_mi"
+
+
+class TestRegisterVolumeFillValue:
+    """fill_value applies to both the final resample output and the progress plotter."""
+
+    def test_explicit_fill_value_appears_in_out_of_fov_voxels(self):
+        """Out-of-FOV voxels in the registered output are filled with fill_value."""
+        # moving is a small sub-region of fixed; after registration the output grid
+        # is fixed-sized, so voxels outside moving's FOV must be filled.
+        fixed = xr.DataArray(
+            np.ones((16, 16), dtype=np.float32),
+            dims=("y", "x"),
+            coords={"y": np.arange(16) * 0.1, "x": np.arange(16) * 0.1},
+        )
+        # moving covers only the central 8x8 region.
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 2.0,
+            dims=("y", "x"),
+            coords={"y": np.arange(4, 12) * 0.1, "x": np.arange(4, 12) * 0.1},
+        )
+        sentinel = -99.0
+        result, _, _ = register_volume(
+            moving,
+            fixed,
+            transform_type="translation",
+            fill_value=sentinel,
+        )
+        # Out-of-FOV voxels (corners) should be exactly fill_value.
+        assert float(result.values[0, 0]) == pytest.approx(sentinel, abs=1e-5)
+
+    def test_default_fill_value_is_moving_min(self):
+        """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""
+        fixed = xr.DataArray(
+            np.ones((16, 16), dtype=np.float32),
+            dims=("y", "x"),
+            coords={"y": np.arange(16) * 0.1, "x": np.arange(16) * 0.1},
+        )
+        moving = xr.DataArray(
+            np.ones((8, 8), dtype=np.float32) * 2.0,
+            dims=("y", "x"),
+            coords={"y": np.arange(4, 12) * 0.1, "x": np.arange(4, 12) * 0.1},
+        )
+        result, _, _ = register_volume(
+            moving,
+            fixed,
+            transform_type="translation",
+        )
+        # Default fill should be moving.min() == 2.0, not 0.0.
+        assert float(result.values[0, 0]) == pytest.approx(float(moving.min()), abs=1e-5)

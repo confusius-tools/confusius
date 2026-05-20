@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import nbformat
+import pytest
 
 from tools.gallery.render import render_notebook
 
@@ -187,3 +188,55 @@ def test_render_uses_outputs_from_light_and_dark_notebooks(tmp_path: Path) -> No
     assert light_bytes == b"light_pixel"
     assert dark_bytes == b"dark_pixel"
     assert light_bytes != dark_bytes
+
+
+def test_render_raises_when_light_and_dark_output_counts_differ(
+    tmp_path: Path,
+) -> None:
+    """Light/dark output mismatch is a hard error.
+
+    Independent kernels would occasionally emit a one-time stream output
+    (download progress, first-import warning) in only one of the two builds.
+    Silently dropping the extras hid real divergence between the two rendered
+    notebooks, so the renderer now refuses to pair mismatched cells. The fix
+    is to remove the non-determinism (pre-warming caches, etc.) before the
+    gallery runs, not to relax the renderer.
+    """
+    source_nb = nbformat.v4.new_notebook()
+    source_nb.cells.append(nbformat.v4.new_code_cell("print('a')\nx = 1\nx"))
+
+    light_nb = nbformat.v4.new_notebook()
+    light_cell = nbformat.v4.new_code_cell("print('a')\nx = 1\nx")
+    light_cell.outputs = [
+        nbformat.v4.new_output(output_type="stream", name="stdout", text="a\n"),
+        nbformat.v4.new_output(
+            output_type="execute_result",
+            data={"text/plain": "1"},
+            execution_count=1,
+            metadata={},
+        ),
+    ]
+    light_nb.cells.append(light_cell)
+
+    dark_nb = nbformat.v4.new_notebook()
+    dark_cell = nbformat.v4.new_code_cell("print('a')\nx = 1\nx")
+    # Dark missed the stream output entirely.
+    dark_cell.outputs = [
+        nbformat.v4.new_output(
+            output_type="execute_result",
+            data={"text/plain": "1"},
+            execution_count=1,
+            metadata={},
+        ),
+    ]
+    dark_nb.cells.append(dark_cell)
+
+    with pytest.raises(ValueError, match="light outputs and"):
+        render_notebook(
+            source_nb,
+            light_nb,
+            dark_nb,
+            out_dir=tmp_path,
+            base_name="ex",
+            runtime_seconds=1.0,
+        )

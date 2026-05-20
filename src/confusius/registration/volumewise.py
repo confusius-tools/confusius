@@ -9,6 +9,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.io import is_h5py_backed
+from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
 
@@ -32,6 +33,7 @@ def register_volumewise(
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     show_progress: bool = True,
+    keep_diagnostics: bool = False,
 ) -> xr.DataArray:
     """Register all volumes in a fUSI recording to a reference volume.
 
@@ -106,12 +108,27 @@ def register_volumewise(
         cost of speed.
     show_progress : bool, default: True
         Whether to display a progress bar while registering volumes.
+    keep_diagnostics : bool, default: False
+        Whether to keep the full per-frame
+        [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
+        list on the returned DataArray under
+        `attrs["registration_diagnostics"]`. Disabled by default because each
+        diagnostics object carries the full optimizer metric trace, which adds
+        up over long recordings. The cheap per-frame summaries
+        (`final_metric_value`, `n_iterations`) are always added to
+        `motion_params` regardless of this flag.
 
     Returns
     -------
     xarray.DataArray
-        Registered data with the same coordinates as input, input attributes, and added
-        motion metadata in `attrs["reference_time"]` and `attrs["motion_params"]`.
+        Registered data with the same coordinates as input, input attributes,
+        and added motion metadata in `attrs["reference_time"]` and
+        `attrs["motion_params"]`. `motion_params` always carries per-frame
+        `final_metric_value` and `n_iterations` columns. When
+        `keep_diagnostics=True`, `attrs["registration_diagnostics"]` also
+        carries a list of
+        [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
+        (one entry per frame) with the full per-iteration metric trace.
 
     Raises
     ------
@@ -163,7 +180,7 @@ def register_volumewise(
 
     with progress_context:
         results = cast(
-            "list[tuple[xr.DataArray, npt.NDArray[np.floating] | None]]",
+            "list[tuple[xr.DataArray, npt.NDArray[np.floating] | None, RegistrationDiagnostics]]",  # noqa: E501
             Parallel(n_jobs=n_jobs)(
                 delayed(register_volume)(
                     volume,
@@ -194,9 +211,16 @@ def register_volumewise(
     arr = data_moved.values
     output = np.zeros_like(arr)
     affines: list[npt.NDArray[np.floating] | None] = []
-    for t, (registered_da, frame_affine) in enumerate(results):
+    final_metric_values: list[float] = []
+    n_iterations_per_frame: list[int] = []
+    diagnostics: list[RegistrationDiagnostics] = []
+    for t, (registered_da, frame_affine, frame_diag) in enumerate(results):
         output[t] = registered_da.values
         affines.append(frame_affine)
+        final_metric_values.append(frame_diag.final_metric_value)
+        n_iterations_per_frame.append(frame_diag.n_iterations)
+        if keep_diagnostics:
+            diagnostics.append(frame_diag)
 
     time_coords = (
         data_moved.coords["time"].values if "time" in data_moved.coords else None
@@ -204,6 +228,11 @@ def register_volumewise(
     motion_df = create_motion_dataframe(
         affines=affines, reference=ref_da, time_coords=time_coords
     )
+
+    # Per-frame summary columns are cheap (one float / int each) and useful
+    # for spotting frames that failed to converge, so we always keep them.
+    motion_df["final_metric_value"] = final_metric_values
+    motion_df["n_iterations"] = n_iterations_per_frame
 
     result = xr.DataArray(
         output,
@@ -214,5 +243,9 @@ def register_volumewise(
 
     result.attrs["reference_time"] = reference_time
     result.attrs["motion_params"] = motion_df
+    if keep_diagnostics:
+        # The full diagnostics list carries every frame's optimizer metric
+        # trace, which adds up over long recordings — gated behind the flag.
+        result.attrs["registration_diagnostics"] = diagnostics
 
     return result.transpose(*data.dims)

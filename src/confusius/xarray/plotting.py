@@ -628,6 +628,7 @@ class FUSIPlotAccessor:
         self,
         other: xr.DataArray,
         resample: bool = True,
+        resample_kwargs: "dict[str, Any] | None" = None,
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
@@ -667,6 +668,10 @@ class FUSIPlotAccessor:
             within `rtol`/`atol`; once validated, `other`'s coordinates are
             replaced with this DataArray's so the two volumes share an exact
             coordinate frame downstream.
+        resample_kwargs : dict, optional
+            Extra keyword arguments forwarded to
+            [`resample_like`][confusius.registration.resample_like] when
+            `resample=True`. Ignored when `resample=False`.
         rtol : float, default: 1e-5
             Relative tolerance used to validate that this DataArray and `other`
             share coordinates when `resample=False`. Widen to accept
@@ -759,6 +764,7 @@ class FUSIPlotAccessor:
             self._obj,
             other,
             resample=resample,
+            resample_kwargs=resample_kwargs,
             rtol=rtol,
             atol=atol,
             normalize_strategy=normalize_strategy,

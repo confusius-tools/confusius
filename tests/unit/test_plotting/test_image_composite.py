@@ -133,6 +133,59 @@ class TestAddCompositeResample:
         assert abs(xlim_mid - data1_mid) < abs(xlim_mid - data2_mid)
 
 
+class TestAddCompositeResampleKwargs:
+    """Verify resample_kwargs fill behaviour."""
+
+    @pytest.fixture
+    def narrow_data2(self, sample_3d_volume):
+        """data2 that covers only a sub-region of data1's grid."""
+        # Use data1's central x-slice only, forcing out-of-FOV voxels on resample.
+        x = sample_3d_volume.coords["x"].values
+        x_sub = x[len(x) // 4 : 3 * len(x) // 4]
+        data2 = xr.DataArray(
+            np.full(
+                (sample_3d_volume.sizes["z"], sample_3d_volume.sizes["y"], len(x_sub)),
+                fill_value=5.0,
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": sample_3d_volume.coords["z"].values,
+                "y": sample_3d_volume.coords["y"].values,
+                "x": x_sub,
+            },
+        )
+        return sample_3d_volume, data2
+
+    def test_default_fill_is_data2_min(self, narrow_data2, matplotlib_pyplot):
+        """Out-of-FOV cyan voxels default to data2.min(), not 0."""
+        data1, data2 = narrow_data2
+        plotter = VolumePlotter(slice_mode="z").add_composite(
+            data1, data2, resample=True, normalize_strategy="shared"
+        )
+        # data2 is constant 5.0, so data2.min() == 5.0. Out-of-FOV voxels should
+        # be filled with 5.0, meaning the cyan channel is uniform (not bright).
+        # Under shared normalisation the range spans [data1.min(), 5.0]; the
+        # fill value 5.0 normalises to 1.0, so no cyan voxel should exceed the
+        # cyan contribution from in-FOV data2 voxels.
+        rgb0 = plotter.axes[0, 0].collections[0].get_array()
+        # Cyan channel (G == B). All voxels in data2 have the same value (5.0),
+        # so after normalisation the cyan channel should be uniform at 1.0.
+        npt.assert_allclose(rgb0[..., 1], 1.0, atol=1e-5)
+
+    def test_explicit_fill_value_overrides_default(self, narrow_data2, matplotlib_pyplot):
+        """Explicit default_value in resample_kwargs is respected."""
+        data1, data2 = narrow_data2
+        # Passing default_value=0.0 explicitly should fill out-of-FOV with 0.0.
+        plotter = VolumePlotter(slice_mode="z").add_composite(
+            data1, data2, resample=True, normalize_strategy="shared",
+            resample_kwargs={"default_value": 0.0},
+        )
+        rgb0 = plotter.axes[0, 0].collections[0].get_array()
+        # range is [min(data1), 5.0]. fill=0.0 normalises to something < in-FOV.
+        # At least some out-of-FOV cyan voxels should be < 1.0 (since fill < max).
+        assert float(rgb0[..., 1].min()) < 1.0
+
+
 class TestAddCompositeNormalize:
     """Verify the per_volume, per_slice, and shared normalisation modes."""
 

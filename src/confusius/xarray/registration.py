@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
 
@@ -51,7 +52,8 @@ class FUSIRegistrationAccessor:
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
-    ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None]":
+        fill_value: float | None = None,
+    ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":  # noqa: E501
         """Register this volume to a fixed reference volume.
 
         Parameters
@@ -107,6 +109,10 @@ class FUSIRegistrationAccessor:
         plot_composite : bool, default: True
             Whether to include a fixed/moving composite overlay in the
             progress plot. Ignored when `show_progress=False`.
+        fill_value : float, optional
+            Fill value for voxels outside the moving image's field of view after
+            resampling. If not provided, defaults to the minimum of the moving
+            image. See [`register_volume`][confusius.registration.register_volume].
 
         Returns
         -------
@@ -118,6 +124,9 @@ class FUSIRegistrationAccessor:
             Estimated registration transform.  For linear transforms, a
             homogeneous affine matrix.  For `transform="bspline"`, a DataArray
             encoding the B-spline control-point grid.
+        diagnostics : confusius.registration.RegistrationDiagnostics
+            Per-iteration metric values and optimizer stop condition. See
+            [`register_volume`][confusius.registration.register_volume].
 
         Examples
         --------
@@ -146,6 +155,7 @@ class FUSIRegistrationAccessor:
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
+            fill_value=fill_value,
         )
 
     def volumewise(
@@ -167,6 +177,7 @@ class FUSIRegistrationAccessor:
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         show_progress: bool = True,
+        keep_diagnostics: bool = False,
     ) -> xr.DataArray:
         """Register all volumes to a reference time point.
 
@@ -214,6 +225,11 @@ class FUSIRegistrationAccessor:
             Interpolation method used for the final resample step.
         show_progress : bool, default: True
             Whether to display a progress bar while registering volumes.
+        keep_diagnostics : bool, default: False
+            Whether to keep per-frame registration diagnostics on the result.
+            See
+            [`register_volumewise`][confusius.registration.register_volumewise]
+            for the full description.
 
         Returns
         -------
@@ -243,4 +259,5 @@ class FUSIRegistrationAccessor:
             smoothing_sigmas=smoothing_sigmas,
             resample_interpolation=resample_interpolation,
             show_progress=show_progress,
+            keep_diagnostics=keep_diagnostics,
         )

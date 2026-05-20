@@ -5,6 +5,7 @@ from confusius.registration.affines import (
     compose_affine,
     decompose_affine,
 )
+from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import (
     compute_framewise_displacement,
     create_motion_dataframe,
@@ -18,6 +19,7 @@ from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
 
 __all__ = [
+    "RegistrationDiagnostics",
     "RegistrationProgressPlotter",
     "compose_affine",
     "decompose_affine",

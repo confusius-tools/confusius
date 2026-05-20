@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/confusius/nunez-elizalde-2022-bids
-          key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('docs/images/gui/generate.py', 'docs/images/qc/generate.py', 'docs/images/visualization/generate.py', 'docs/images/home/generate.py') }}
+          key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
           restore-keys: |
             ${{ runner.os }}-nunez-elizalde-bids-
 
@@ -58,9 +58,18 @@ jobs:
         uses: actions/cache@v5
         with:
           path: ~/.cache/confusius/cybis-pereira-2026-bids
-          key: ${{ runner.os }}-cybis-pereira-2026-bids-${{ hashFiles('docs/images/gui/generate.py') }}
+          key: ${{ runner.os }}-cybis-pereira-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
           restore-keys: |
             ${{ runner.os }}-cybis-pereira-2026-bids-
+
+      - name: Pre-fetch docs datasets
+        # Single source of truth for every dataset the docs pipeline loads
+        # (userguide image generators and gallery examples). Running it before
+        # both downstream steps guarantees they hit a warm cache, which the
+        # gallery renderer relies on: it enforces light/dark output parity,
+        # and download progress on a cold cache would otherwise show up in
+        # one pass but not the other.
+        run: uv run tools/prefetch_doc_datasets.py
 
       - name: Generate documentation images
         env:
@@ -74,12 +83,12 @@ jobs:
           xvfb-run -a uv run docs/images/home/generate.py
 
       - name: Ensure gallery cache directory exists
-        run: mkdir -p .cache/gallery
+        run: mkdir -p .gallery-cache
 
       - name: Cache gallery artifacts
         uses: actions/cache@v5
         with:
-          path: .cache/gallery
+          path: .gallery-cache
           key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
           restore-keys: |
             ${{ runner.os }}-gallery-

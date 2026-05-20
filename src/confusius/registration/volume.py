@@ -16,6 +16,7 @@ from confusius.registration.affines import (
     affine_to_sitk_linear_transform,
     sitk_linear_transform_to_affine,
 )
+from confusius.registration.diagnostics import RegistrationDiagnostics
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -240,7 +241,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-) -> "tuple[xr.DataArray, npt.NDArray[np.floating]]":
+    fill_value: float | None = ...,
+) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
     ...
 
@@ -272,7 +274,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-) -> "tuple[xr.DataArray, xr.DataArray]":
+    fill_value: float | None = ...,
+) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
     ...
 
@@ -303,7 +306,8 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-) -> "tuple[xr.DataArray, npt.NDArray[np.floating]]":
+    fill_value: float | None = ...,
+) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
     ...
 
@@ -334,7 +338,8 @@ def register_volume(
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
-) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray]":
+    fill_value: float | None = None,
+) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":  # noqa: E501
     """Register a single 2D or 3D volume to a fixed reference.
 
     Voxel spacing and origin are automatically extracted from the DataArray coordinates.
@@ -450,6 +455,13 @@ def register_volume(
         Whether to include a fixed/moving composite overlay in the progress plot.
         Requires resampling the moving image at every iteration. Ignored when
         `show_progress=False`.
+    fill_value : float, optional
+        Fill value for voxels that fall outside the moving image's field of view after
+        resampling. Applied to both the final registered output (when `resample=True`)
+        and the progress composite overlay (when `show_progress=True` and
+        `plot_composite=True`). If not provided, defaults to the minimum value of
+        `moving`, which renders out-of-FOV regions as background regardless of intensity
+        scale (important for dB data where 0 is maximum intensity).
 
     Returns
     -------
@@ -469,6 +481,10 @@ def register_volume(
         DataArray schema). When `initial_transform` was also supplied, the DataArray
         includes `attrs["affines"]["bspline_initialization"]` so that the full composite
         (pre-affine + B-spline) can be reconstructed for resampling.
+    diagnostics : confusius.registration.RegistrationDiagnostics
+        Per-iteration metric values, final metric value, iteration count, and the
+        optimizer stop condition. Useful for plotting convergence curves, comparing
+        runs, and detecting registrations that did not converge.
 
     Raises
     ------
@@ -647,6 +663,16 @@ def register_volume(
 
     registration.SetInitialTransform(sitk_initial_transform, inPlace=True)
 
+    # Always collect per-iteration metric values so callers get convergence
+    # diagnostics regardless of whether the live progress plot is enabled.
+    metric_values: list[float] = []
+    registration.AddCommand(
+        sitk.sitkIterationEvent,
+        lambda: metric_values.append(registration.GetMetricValue()),
+    )
+
+    _fill_value = fill_value if fill_value is not None else float(moving.min())
+
     if show_progress:
         from confusius.registration._progress import RegistrationProgressPlotter
 
@@ -656,6 +682,11 @@ def register_volume(
             moving_sitk,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
+            resample_kwargs={
+                "default_value": _fill_value,
+                "interpolation": resample_interpolation,
+                "sitk_threads": sitk_threads,
+            },
         )
         registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
         registration.AddCommand(sitk.sitkEndEvent, plotter.close)
@@ -678,7 +709,7 @@ def register_volume(
                     fixed_sitk,
                     sitk_optimized_transform,
                     interp,
-                    0.0,
+                    _fill_value,
                     moving_sitk.GetPixelID(),
                 )
             ).T
@@ -705,4 +736,17 @@ def register_volume(
     else:
         optimized_transform = sitk_linear_transform_to_affine(sitk_optimized_transform)
 
-    return result, optimized_transform
+    final_metric_value = (
+        float(metric_values[-1])
+        if metric_values
+        else float(registration.GetMetricValue())
+    )
+    diagnostics = RegistrationDiagnostics(
+        metric=metric,
+        metric_values=np.asarray(metric_values, dtype=float),
+        final_metric_value=final_metric_value,
+        n_iterations=len(metric_values),
+        stop_condition=registration.GetOptimizerStopConditionDescription(),
+    )
+
+    return result, optimized_transform, diagnostics

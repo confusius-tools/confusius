@@ -19,7 +19,7 @@ from tools.gallery._pipeline import build_gallery  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_ROOT = REPO_ROOT / "docs" / "examples"
 BUILT_DIR = EXAMPLES_ROOT / "_built"
-CACHE_ROOT = REPO_ROOT / ".cache" / "gallery"
+CACHE_ROOT = REPO_ROOT / ".gallery-cache"
 BINDER_REPO = "confusius-tools/confusius"
 
 
