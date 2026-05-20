@@ -14,8 +14,8 @@ FASTICA_TEST_KWARGS = {
     "random_state": 0,
     "max_iter": 1000,
     "tol": 1e-3,
+    "fun": "cube",
 }
-
 
 
 def test_feature_names_in_for_string_feature_labels():
@@ -40,12 +40,13 @@ def test_feature_names_in_for_string_feature_labels():
     np.testing.assert_array_equal(model.feature_names_in_, np.array(["A", "B", "C"]))
 
 
-def test_fit_transform_matches_fit_then_transform(sample_4d_volume):
+@pytest.mark.parametrize("mode", ["spatial", "temporal"])
+def test_fit_transform_matches_fit_then_transform(sample_4d_volume, mode):
     """fit_transform matches calling fit followed by transform."""
-    model_direct = FastICA(**FASTICA_TEST_KWARGS)
+    model_direct = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
     direct = model_direct.fit_transform(sample_4d_volume)
 
-    model_two_step = FastICA(**FASTICA_TEST_KWARGS)
+    model_two_step = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
     two_step = model_two_step.fit(sample_4d_volume).transform(sample_4d_volume)
 
     xr.testing.assert_identical(direct, two_step)
@@ -131,9 +132,10 @@ def test_wrapper_matches_sklearn_attributes(sample_4d_volume, mode):
         assert model.n_iter_ == sklearn_model.n_iter_
 
 
-def test_inverse_transform_from_numpy_returns_dataarray(sample_4d_volume):
+@pytest.mark.parametrize("mode", ["spatial", "temporal"])
+def test_inverse_transform_from_numpy_returns_dataarray(sample_4d_volume, mode):
     """inverse_transform accepts ndarray input and returns DataArray."""
-    model = FastICA(**FASTICA_TEST_KWARGS)
+    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
     signals = model.fit_transform(sample_4d_volume).values
 
     reconstructed = model.inverse_transform(signals)
@@ -303,7 +305,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_4d_volume, monkeypatc
     with pytest.raises(RuntimeError, match="fit failed"):
         model.fit(sample_4d_volume)
 
-    assert not hasattr(model, "_fastica")
+    assert not hasattr(model, "_estimator")
     assert not model.__sklearn_is_fitted__()
     with pytest.raises(Exception):
         check_is_fitted(model)

@@ -11,36 +11,6 @@ from sklearn.decomposition import FastICA as _SklearnFastICA
 from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
-class _SpatialFastICAProxy:
-    """Minimal estimator shim that makes spatial ICA results look like temporal ICA.
-
-    After fitting sklearn FastICA on the transposed data `(n_voxels, n_time)`, the
-    independent sources are spatial maps `(n_ica, n_voxels)`.  This proxy exposes
-    `transform` and `inverse_transform` so that `_BaseFUSIDecomposer` can call them
-    with the original `(n_time, n_voxels)` layout and get back `(n_time, n_ica)` time
-    courses or `(n_time, n_voxels)` reconstructions respectively.
-    """
-
-    def __init__(
-        self,
-        spatial_components: npt.NDArray[np.floating],
-        voxel_mean: npt.NDArray[np.floating],
-    ) -> None:
-        # spatial_components: (n_ica, n_voxels)
-        self._spatial_components = spatial_components
-        self.mean_ = voxel_mean
-
-    def transform(self, X: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        # X: (n_time, n_voxels) → (n_time, n_ica)
-        return (X - self.mean_) @ self._spatial_components.T
-
-    def inverse_transform(
-        self, X: npt.NDArray[np.floating]
-    ) -> npt.NDArray[np.floating]:
-        # X: (n_time, n_ica) → (n_time, n_voxels)
-        return X @ self._spatial_components + self.mean_
-
-
 class FastICA(_BaseFUSIDecomposer):
     """Fast independent component analysis (ICA) for fUSI data.
 
@@ -76,11 +46,14 @@ class FastICA(_BaseFUSIDecomposer):
     n_components : int, optional
         Number of components to use. If not provided, all are used.
     mode : {"spatial", "temporal"}, default: "spatial"
-        Whether to find spatially or temporally independent components.
+        Whether to find spatially or temporally independent components:
 
-        - `"spatial"` (default): fits on `(voxels, time)`, finds independent spatial
-          maps. Matches FSL MELODIC's default for single-subject data.
-        - `"temporal"`: fits on `(time, voxels)`, finds independent time courses.
+        - `"spatial"`: fit on `(voxels, time)`. The independent components are
+          spatial maps; the projected time courses are their temporal mixing weights.
+          Matches FSL MELODIC's default for single-subject data.
+        - `"temporal"`: fit on `(time, voxels)`. The independent components are time
+          courses; the spatial maps are their voxel-wise mixing weights.
+
     algorithm : {"parallel", "deflation"}, default: "parallel"
         Specify which algorithm to use for FastICA.
     whiten : {"unit-variance", "arbitrary-variance"} or bool, default: "unit-variance"
@@ -91,9 +64,12 @@ class FastICA(_BaseFUSIDecomposer):
           recovered source has unit variance.
         - If `False`, the data are already considered whitened, and no whitening is
           performed.
-    fun : {"logcosh", "exp", "cube"} or callable, default: "logcosh"
+
+    fun : {"logcosh", "exp", "cube"} or callable, default: "cube"
         The functional form of the `G` function used in the approximation to
         neg-entropy. Can be either `"logcosh"`, `"exp"`, or `"cube"`.
+
+        Default is `"cube"` to align with FSL MELODIC (`pow3`).
 
         You can also provide your own function. It should return a tuple containing the
         value of the function and its derivative at the point. The derivative should be
@@ -101,8 +77,9 @@ class FastICA(_BaseFUSIDecomposer):
     fun_args : dict[str, Any], optional
         Arguments to send to the functional form. If empty or `None` and
         `fun="logcosh"`, `fun_args` defaults to `{"alpha": 1.0}`.
-    max_iter : int, default: 200
-        Maximum number of iterations during fit.
+    max_iter : int, default: 500
+        Maximum number of iterations during fit. Default matches FSL MELODIC
+        (`--maxit=500`).
     tol : float, default: 1e-4
         A positive scalar giving the tolerance at which the un-mixing matrix is
         considered to have converged.
@@ -117,6 +94,7 @@ class FastICA(_BaseFUSIDecomposer):
         - `"eigh"` is generally more memory efficient when
           `n_samples >= n_features`, and can be faster when
           `n_samples >= 50 * n_features`.
+
     random_state : int, optional
         Used to initialize `w_init` when not provided, with a normal distribution. Pass
         an int for reproducible results across multiple function calls.
@@ -132,6 +110,7 @@ class FastICA(_BaseFUSIDecomposer):
         - In `"temporal"` mode: the unmixing directions in voxel space, that is, the
           spatial weights applied to each volume to extract IC time courses. The actual
           temporal ICs are returned by `transform`.
+
     mean_ : (...) xarray.DataArray
         Per-voxel empirical mean from the training set.
     whitening_ : (n_components, ...) xarray.DataArray
@@ -186,9 +165,9 @@ class FastICA(_BaseFUSIDecomposer):
         mode: Literal["spatial", "temporal"] = "spatial",
         algorithm: Literal["parallel", "deflation"] = "parallel",
         whiten: Literal["arbitrary-variance", "unit-variance"] | bool = "unit-variance",
-        fun: Literal["logcosh", "exp", "cube"] | Callable[..., Any] = "logcosh",
+        fun: Literal["logcosh", "exp", "cube"] | Callable[..., Any] = "cube",
         fun_args: dict[str, Any] | None = None,
-        max_iter: int = 200,
+        max_iter: int = 500,
         tol: float = 1e-4,
         w_init: npt.NDArray[np.floating] | None = None,
         whiten_solver: Literal["svd", "eigh"] = "svd",
@@ -299,7 +278,9 @@ class FastICA(_BaseFUSIDecomposer):
 
         self.n_components_ = int(spatial_maps_flat.shape[0])
         self.n_iter_ = int(fastica.n_iter_)
-        self._estimator = _SpatialFastICAProxy(spatial_maps_flat, voxel_mean)
+        self._spatial_components_flat_ = spatial_maps_flat
+        self._spatial_feature_mean_ = voxel_mean
+        self._estimator = fastica
 
     def _fit_temporal(
         self,

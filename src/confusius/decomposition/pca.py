@@ -3,6 +3,7 @@
 from typing import Literal
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 from sklearn.decomposition import PCA as _SklearnPCA
 
@@ -97,6 +98,15 @@ class PCA(_BaseFUSIDecomposer):
     random_state : int, optional
         Used when the `"arpack"` or `"randomized"` solvers are used. Pass an int for
         reproducible results across multiple function calls.
+    mode : {"temporal", "spatial"}, default: "temporal"
+        Whether to fit PCA along temporal or spatial orientation:
+
+        - `"temporal"`: fit on `(time, voxels)`. The principal axes are
+          spatial maps; the projected components are temporal time courses that capture
+          dominant variance across voxels.
+        - `"spatial"`: fit on `(voxels, time)`. The principal axes are time courses; the
+          projected components are spatial maps that capture dominant variance across
+          time.
 
     Attributes
     ----------
@@ -183,6 +193,7 @@ class PCA(_BaseFUSIDecomposer):
         n_oversamples: int = 10,
         power_iteration_normalizer: Literal["auto", "QR", "LU", "none"] = "auto",
         random_state: int | None = None,
+        mode: Literal["temporal", "spatial"] = "temporal",
     ) -> None:
         self.n_components = n_components
         self.whiten = whiten
@@ -192,6 +203,7 @@ class PCA(_BaseFUSIDecomposer):
         self.n_oversamples = n_oversamples
         self.power_iteration_normalizer = power_iteration_normalizer
         self.random_state = random_state
+        self.mode = mode
 
     def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
         """Fit PCA on `(time, ...)` fUSI data.
@@ -213,8 +225,15 @@ class PCA(_BaseFUSIDecomposer):
         ValueError
             If input has no `time` dimension, fewer than 2 timepoints, or no spatial
             dimensions.
+        ValueError
+            If `mode` is not `"temporal"` or `"spatial"`.
         """
         del y
+
+        if self.mode not in {"temporal", "spatial"}:
+            raise ValueError(
+                f"mode must be 'temporal' or 'spatial', got '{self.mode}'."
+            )
 
         X_proc, X_stacked, spatial_dims = self._prepare_data(
             X,
@@ -232,29 +251,44 @@ class PCA(_BaseFUSIDecomposer):
             power_iteration_normalizer=self.power_iteration_normalizer,
             random_state=self.random_state,
         )
-        pca.fit(X_proc)
 
         self._store_fit_metadata(X, X_proc, X_stacked, spatial_dims)
 
+        if self.mode == "temporal":
+            self._fit_temporal(pca, X_proc)
+        else:
+            self._fit_spatial(pca, X_proc)
+
+        self._store_feature_names(X)
+        return self
+
+    def _fit_temporal(
+        self,
+        pca: _SklearnPCA,
+        X_proc: npt.NDArray[np.floating],
+    ) -> None:
+        """Fit PCA in temporal orientation `(time, voxel)`."""
+        pca.fit(X_proc)
+
         component_coord = np.arange(pca.components_.shape[0], dtype=np.intp)
-        self.maps_: xr.DataArray = self._reshape_component_matrix(
+        self.maps_ = self._reshape_component_matrix(
             pca.components_,
             component_coord,
             long_name="Principal component maps",
         )
-        self.mean_: xr.DataArray = self._reshape_mean(pca.mean_)
+        self.mean_ = self._reshape_mean(pca.mean_)
 
-        self.explained_variance_: xr.DataArray = xr.DataArray(
+        self.explained_variance_ = xr.DataArray(
             pca.explained_variance_,
             dims=["component"],
             coords={"component": component_coord},
         )
-        self.explained_variance_ratio_: xr.DataArray = xr.DataArray(
+        self.explained_variance_ratio_ = xr.DataArray(
             pca.explained_variance_ratio_,
             dims=["component"],
             coords={"component": component_coord},
         )
-        self.singular_values_: xr.DataArray = xr.DataArray(
+        self.singular_values_ = xr.DataArray(
             pca.singular_values_,
             dims=["component"],
             coords={"component": component_coord},
@@ -263,8 +297,46 @@ class PCA(_BaseFUSIDecomposer):
         self.n_components_ = int(pca.n_components_)
         self.n_samples_ = int(X_proc.shape[0])
         self.noise_variance_ = float(pca.noise_variance_)
-
-        self._store_feature_names(X)
         self._estimator = pca
 
-        return self
+    def _fit_spatial(
+        self,
+        pca: _SklearnPCA,
+        X_proc: npt.NDArray[np.floating],
+    ) -> None:
+        """Fit PCA in spatial orientation `(voxel, time)`."""
+        pca.fit(X_proc.T)
+
+        spatial_maps_flat: npt.NDArray[np.floating] = pca.transform(X_proc.T).T
+        voxel_mean: npt.NDArray[np.floating] = X_proc.mean(axis=0)
+
+        component_coord = np.arange(spatial_maps_flat.shape[0], dtype=np.intp)
+        self.maps_ = self._reshape_component_matrix(
+            spatial_maps_flat,
+            component_coord,
+            long_name="Principal component maps",
+        )
+        self.mean_ = self._reshape_mean(voxel_mean)
+
+        self.explained_variance_ = xr.DataArray(
+            pca.explained_variance_,
+            dims=["component"],
+            coords={"component": component_coord},
+        )
+        self.explained_variance_ratio_ = xr.DataArray(
+            pca.explained_variance_ratio_,
+            dims=["component"],
+            coords={"component": component_coord},
+        )
+        self.singular_values_ = xr.DataArray(
+            pca.singular_values_,
+            dims=["component"],
+            coords={"component": component_coord},
+        )
+
+        self.n_components_ = int(spatial_maps_flat.shape[0])
+        self.n_samples_ = int(X_proc.shape[0])
+        self.noise_variance_ = float(pca.noise_variance_)
+        self._spatial_components_flat_ = spatial_maps_flat
+        self._spatial_feature_mean_ = voxel_mean
+        self._estimator = pca

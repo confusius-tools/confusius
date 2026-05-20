@@ -32,6 +32,9 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     _estimator: Any
     maps_: xr.DataArray
     n_components_: int
+    mode: str
+    _spatial_components_flat_: npt.NDArray[np.floating]
+    _spatial_feature_mean_: npt.NDArray[np.floating]
 
     # Set by _store_fit_metadata.
     spatial_dims_: tuple[str, ...]
@@ -114,7 +117,10 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             check_layout=True,
             operation_name=f"{type(self).__name__}.transform",
         )
-        signals = self._estimator.transform(X_proc)
+        if self._uses_spatial_projection():
+            signals = self._spatial_transform(X_proc)
+        else:
+            signals = self._estimator.transform(X_proc)
 
         transformed = xr.DataArray(
             signals,
@@ -180,7 +186,10 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
                 f"{type(self).__name__} was fitted with {self.n_components_}."
             )
 
-        reconstructed = self._estimator.inverse_transform(signals)
+        if self._uses_spatial_projection():
+            reconstructed = self._spatial_inverse_transform(signals)
+        else:
+            reconstructed = self._estimator.inverse_transform(signals)
         reconstructed_stacked = xr.DataArray(
             reconstructed,
             dims=["time", "feature"],
@@ -371,6 +380,26 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         if "time" in X.coords:
             return X.coords["time"]
         return np.arange(X.sizes["time"], dtype=np.intp)
+
+    def _uses_spatial_projection(self) -> bool:
+        """Whether transform/inverse use shared spatial projection logic."""
+        return (
+            getattr(self, "mode", None) == "spatial"
+            and hasattr(self, "_spatial_components_flat_")
+            and hasattr(self, "_spatial_feature_mean_")
+        )
+
+    def _spatial_transform(
+        self, X_proc: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
+        """Project `(time, feature)` data onto spatial components."""
+        return (X_proc - self._spatial_feature_mean_) @ self._spatial_components_flat_.T
+
+    def _spatial_inverse_transform(
+        self, signals: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
+        """Reconstruct `(time, feature)` data from spatial component signals."""
+        return signals @ self._spatial_components_flat_ + self._spatial_feature_mean_
 
     def __sklearn_is_fitted__(self) -> bool:
         """Check whether the estimator has been fitted.

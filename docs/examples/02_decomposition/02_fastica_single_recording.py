@@ -1,28 +1,41 @@
 # %% [markdown]
 # # FastICA on a single fUSI recording
 #
-# This example shows how to use [FastICA][confusius.decomposition.FastICA] to decompose a
-# fUSI recording into spatially independent components.
+# This example shows how to use [FastICA][confusius.decomposition.FastICA] to decompose
+# a fUSI recording into independent components.
 #
-# [PCA](pca_single_recording.md) decomposes the data into orthogonal axes of maximum
-# variance: the spatial maps are orthogonal and the resulting time courses are
-# uncorrelated. FastICA goes further and searches for components that are statistically
-# *independent*, a strictly stronger condition than mere decorrelation. In practice, each
-# independent component tends to concentrate its spatial weight into a more localised,
-# non-Gaussian pattern, which can separate sources that PCA would blend into a single
-# axis of shared variance.
+# [PCA](pca_single_recording.md) decomposes fUSI data into spatial maps and time courses
+# by finding orthogonal axes that capture dominant covariance/correlation structure.
+# The resulting components are uncorrelated but not necessarily independent: they may
+# still share higher-order statistical structure.
 #
-# We use the same spontaneous activity recording from the
-# [Nunez-Elizalde 2022 dataset](https://doi.org/10.1016/j.neuron.2022.02.012) as in the
-# [PCA example](pca_single_recording.md).
+# ICA uses a stronger statistical objective. Instead of diagonalising covariance, it
+# searches for components that are as statistically independent as possible, using
+# higher-order structure beyond variance and correlation[^1]. The interpretation of an
+# ICA component depends on the orientation of the data:
+#
+# - **Temporal ICA** (`mode="temporal"`): the independent components are time courses
+#   and the spatial maps are their voxel-wise mixing weights.
+# - **Spatial ICA** (`mode="spatial"`): the independent components are spatial maps and
+#   the corresponding time courses are their time-wise mixing weights.
+#
+# We start with temporal ICA because its orientation is directly comparable to the usual
+# PCA decomposition, then contrast it with spatial ICA.
+#
+# Historically, temporal ICA was less used in resting-state fMRI because acquisitions had
+# relatively few time points compared with the number of voxels. Spatial ICA was then
+# better conditioned and became the conventional choice. With fUSI (and accelerated fMRI),
+# temporal sampling is richer, so both temporal and spatial ICA are practical and provide
+# complementary information.
 
 # %% [markdown]
 # ## Load a fUSI recording
 #
-# We use a spontaneous activity recording from the
-# [Nunez-Elizalde 2022 dataset](https://doi.org/10.1016/j.neuron.2022.02.012).
-# See [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022] for
-# more details on how to download this dataset using ConfUSIus.
+# To demonstrate the use of ICA on fUSI data, we use the same spontaneous activity
+# recording from the [Nunez-Elizalde 2022
+# dataset](https://doi.org/10.1016/j.neuron.2022.02.012) as in the [PCA
+# example](pca_single_recording.md). See the [Datasets](../../../user-guide/datasets.md)
+# user guide for more details on how to download this dataset using ConfUSIus.
 
 # %%
 from pathlib import Path
@@ -37,10 +50,9 @@ from confusius.datasets import fetch_nunez_elizalde_2022
 from confusius.decomposition import FastICA
 from confusius.signal import standardize
 
-# Keep figure backgrounds transparent in docs and standalone notebooks.
-bg_color = "none"
-# Match text and axes styling to the active Matplotlib theme.
-fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
+# Adapt background color to the current Matplotlib style.
+bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
+
 # Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
@@ -76,10 +88,14 @@ data = cf.registration.register_volumewise(
 )
 
 # %% [markdown]
-# ## Fit a FastICA model
+# ## Temporal ICA
 #
-# Before fitting FastICA, we standardize the recording by centering and scaling each
-# voxel's time series to zero mean and unit variance with
+# Temporal ICA treats time courses as signals and voxels as instances. It is useful for
+# separating components that are temporally independent but may overlap in space, and can
+# help separate low-frequency physiological fluctuations.
+#
+# Before fitting, we standardize the recording by centering and scaling each voxel's
+# time series to zero mean and unit variance with
 # [`standardize`][confusius.signal.standardize], for the same reasons as in the
 # [PCA example](pca_single_recording.md).
 
@@ -87,64 +103,31 @@ data = cf.registration.register_volumewise(
 data_std = standardize(data)
 
 # %% [markdown]
-# [FastICA][confusius.decomposition.FastICA] shares the same interface as
-# [PCA][confusius.decomposition.PCA]: it expects a `(time, ...)` DataArray and exposes
-# `fit`, `transform`, and `fit_transform`. With `mode="spatial"` (the default), the data
-# is transposed to `(voxels, time)` internally so that ICA maximises independence across
-# the *spatial* dimension. The resulting `maps_` are the independent spatial patterns;
-# the associated time courses are recovered by projecting the standardised recording onto
-# those maps.
-#
-# Unlike PCA, FastICA does not order its components by explained variance, so the
-# component indices carry no intrinsic meaning. We fix `n_components=12` to limit the
-# decomposition to a manageable number of patterns, and `random_state=0` for
-# reproducibility since the ICA optimisation is sensitive to initialisation.
+# With `mode="temporal"`, [FastICA][confusius.decomposition.FastICA] operates on the
+# same `(time, voxels)` orientation as [PCA][confusius.decomposition.PCA]. The
+# algorithm finds `n_components` time courses that are as statistically independent and
+# non-Gaussian as possible. The [`maps_`][confusius.decomposition.FastICA] attribute
+# stores the corresponding spatial mixing weights — the voxel-space directions along
+# which each independent time course has its strongest influence.
 
 # %%
-ica = FastICA(n_components=12, random_state=0, mode="spatial")
-signals = ica.fit_transform(data_std)
-signals
-
-# %% [markdown]
-# ## Independent spatial maps
-#
-# [`maps_`][confusius.decomposition.FastICA] is a `(component, y, x)` DataArray.
-# Unlike [PCA maps](pca_single_recording.md), these spatial patterns are not constrained
-# to be orthogonal — they are instead optimised to be as statistically independent as
-# possible. In practice, this tends to produce maps with more spatially focused,
-# non-Gaussian structure, often corresponding to individual vascular or functional
-# territories.
-
-# %% tags=["thumbnail"]
-maps_12 = ica.maps_.isel(component=slice(0, 12))
-vmax = float(np.abs(maps_12).max())
-plotter = cf.plotting.plot_volume(
-    maps_12,
-    slice_mode="component",
-    cmap="coolwarm",
-    vmin=-vmax,
-    vmax=vmax,
-    ncols=4,
-    show_axes=False,
-    fontsize=24,
-    bg_color=bg_color,
-    fg_color=fg_color,
-    cbar_label="Component weight",
+ica_t = FastICA(
+    n_components=10,
+    mode="temporal",
+    random_state=42,
+    fun="cube",
+    max_iter=500,
 )
-_ = plotter.figure.suptitle("FastICA spatial maps (first 12 components)", fontsize=21)
+signals_t = ica_t.fit_transform(data_std)
+signals_t
 
 # %% [markdown]
-# ## Independent component time courses
-#
-# [`fit_transform`][confusius.decomposition.FastICA.fit_transform] returns the projection
-# of the recording onto each independent spatial map: a `(time, component)` DataArray.
-# Comparing the maps and time courses side by side helps to judge whether each component
-# reflects a plausible functional or vascular source, or an artefact such as motion or
-# physiological noise.
+# Plotting the spatial mixing weights alongside the independent time courses gives a
+# first sense of what each component captures.
 
 # %%
-n_show = 6
-fig = plt.figure(figsize=(10.5, 7.5), constrained_layout=True)
+n_show = 10
+fig = plt.figure(figsize=(14, 20), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 gs = fig.add_gridspec(n_show, 2, width_ratios=[1, 3])
 
@@ -153,7 +136,7 @@ for ax in axes_tc[1:]:
     ax.sharex(axes_tc[0])
 
 for i, comp in enumerate(range(n_show)):
-    component_map = ica.maps_.isel(component=[comp])
+    component_map = ica_t.maps_.isel(component=[comp])
     vmax = float(np.abs(component_map).max())
     cf.plotting.plot_volume(
         component_map,
@@ -166,10 +149,9 @@ for i, comp in enumerate(range(n_show)):
         show_colorbar=False,
         show_titles=False,
         bg_color=bg_color,
-        fg_color=fg_color,
     )
 
-    signals.sel(component=comp).plot(ax=axes_tc[i], lw=1.1)
+    signals_t.sel(component=comp).plot(ax=axes_tc[i], lw=1.1)
     axes_tc[i].set_title(f"IC {comp + 1}")
     axes_tc[i].set_ylabel("Signal")
     axes_tc[i].set_xlabel("")
@@ -178,5 +160,71 @@ for ax in axes_tc[:-1]:
     ax.tick_params(labelbottom=False)
 axes_tc[-1].set_xlabel("Time (s)")
 _ = fig.suptitle(
-    "FastICA spatial maps and time courses (first 6 components)", fontsize=21
+    "Temporal ICA: mixing weights and time courses (first 10 components)", fontsize=21
 )
+
+# %% [markdown]
+# ## Spatial ICA
+#
+# Spatial ICA (`mode="spatial"`, the default) treats spatial voxels as signals and time
+# points as instances by transposing data to `(voxels, time)` before fitting. It is the
+# conventional resting-state choice because the spatial dimension is usually much larger
+# than the temporal one, making decomposition better conditioned. In practice, spatial ICA
+# is effective at identifying spatially localized fluctuations and often better at
+# reducing whole-brain motion-related structure.
+
+# %%
+ica_s = FastICA(
+    n_components=10, mode="spatial", random_state=42, fun="cube", max_iter=500
+)
+signals_s = ica_s.fit_transform(data_std)
+signals_s
+
+# %% [markdown]
+# ### Spatial maps and time courses
+#
+# [`maps_`][confusius.decomposition.FastICA] is a `(component, y, x)` DataArray whose
+# rows are the independent spatial patterns themselves, in contrast to temporal ICA where
+# `maps_` stores mixing weights. Comparing each map with its time course helps judge
+# whether a component reflects a plausible functional or vascular source, or an artefact
+# such as motion or physiological noise.
+
+# %% tags=["thumbnail"]
+n_show = 10
+fig = plt.figure(figsize=(14, 20), constrained_layout=True)
+fig.patch.set_facecolor(bg_color)
+gs = fig.add_gridspec(n_show, 2, width_ratios=[1, 3])
+
+axes_tc = [fig.add_subplot(gs[i, 1]) for i in range(n_show)]
+for ax in axes_tc[1:]:
+    ax.sharex(axes_tc[0])
+
+for i, comp in enumerate(range(n_show)):
+    component_map = ica_s.maps_.isel(component=[comp])
+    vmax = float(np.abs(component_map).max())
+    cf.plotting.plot_volume(
+        component_map,
+        axes=fig.add_subplot(gs[i, 0]),
+        slice_mode="component",
+        cmap="coolwarm",
+        vmin=-vmax,
+        vmax=vmax,
+        show_axes=False,
+        show_colorbar=False,
+        show_titles=False,
+        bg_color=bg_color,
+    )
+
+    signals_s.sel(component=comp).plot(ax=axes_tc[i], lw=1.1)
+    axes_tc[i].set_title(f"IC {comp + 1}")
+    axes_tc[i].set_ylabel("Signal")
+    axes_tc[i].set_xlabel("")
+
+for ax in axes_tc[:-1]:
+    ax.tick_params(labelbottom=False)
+axes_tc[-1].set_xlabel("Time (s)")
+_ = fig.suptitle("Spatial ICA: maps and time courses (first 10 components)", fontsize=21)
+
+# %% [markdown]
+# [^1]: Hyvärinen, A., and Oja, E. (2000). "Independent component analysis:
+# algorithms and applications". *Neural Networks*, 13(4-5), 411-430.

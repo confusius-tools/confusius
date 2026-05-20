@@ -9,7 +9,6 @@ from sklearn.utils.validation import check_is_fitted
 from confusius.decomposition import PCA
 
 
-
 def test_feature_names_in_for_string_feature_labels():
     """feature_names_in_ is defined when flattened feature labels are strings."""
     data = xr.DataArray(
@@ -23,19 +22,20 @@ def test_feature_names_in_for_string_feature_labels():
     np.testing.assert_array_equal(model.feature_names_in_, np.array(["A", "B", "C"]))
 
 
-def test_fit_transform_matches_fit_then_transform(sample_4d_volume):
+@pytest.mark.parametrize("mode", ["temporal", "spatial"])
+def test_fit_transform_matches_fit_then_transform(sample_4d_volume, mode):
     """fit_transform matches calling fit followed by transform."""
-    model_direct = PCA(n_components=6, random_state=0)
+    model_direct = PCA(n_components=6, random_state=0, mode=mode)
     direct = model_direct.fit_transform(sample_4d_volume)
 
-    model_two_step = PCA(n_components=6, random_state=0)
+    model_two_step = PCA(n_components=6, random_state=0, mode=mode)
     two_step = model_two_step.fit(sample_4d_volume).transform(sample_4d_volume)
 
     xr.testing.assert_identical(direct, two_step)
 
 
 def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
-    """Wrapper exposes the same learned quantities as sklearn PCA."""
+    """Temporal wrapper exposes the same learned quantities as sklearn PCA."""
     stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
         feature=["z", "y", "x"]
     )
@@ -254,7 +254,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_4d_volume, monkeypatc
     with pytest.raises(RuntimeError, match="fit failed"):
         model.fit(sample_4d_volume)
 
-    assert not hasattr(model, "_pca")
+    assert not hasattr(model, "_estimator")
     assert not model.__sklearn_is_fitted__()
     with pytest.raises(Exception):
         check_is_fitted(model)
@@ -271,6 +271,7 @@ def test_get_params_includes_constructor_arguments():
         n_oversamples=12,
         power_iteration_normalizer="LU",
         random_state=42,
+        mode="spatial",
     )
     params = model.get_params()
 
@@ -282,16 +283,18 @@ def test_get_params_includes_constructor_arguments():
     assert params["n_oversamples"] == 12
     assert params["power_iteration_normalizer"] == "LU"
     assert params["random_state"] == 42
+    assert params["mode"] == "spatial"
 
 
 def test_set_params_updates_values():
     """set_params updates constructor parameters."""
     model = PCA()
-    model.set_params(n_components=2, svd_solver="full", whiten=True)
+    model.set_params(n_components=2, svd_solver="full", whiten=True, mode="spatial")
 
     assert model.n_components == 2
     assert model.svd_solver == "full"
     assert model.whiten is True
+    assert model.mode == "spatial"
 
 
 def test_randomized_solver_reproducible_with_random_state(sample_4d_volume):
@@ -304,3 +307,44 @@ def test_randomized_solver_reproducible_with_random_state(sample_4d_volume):
 
     np.testing.assert_allclose(signals_1.values, signals_2.values)
     np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
+
+
+def test_spatial_mode_matches_reference_implementation(sample_4d_volume):
+    """Spatial mode matches sklearn PCA fitted on transposed data."""
+    stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
+        feature=["z", "y", "x"]
+    )
+    X = np.asarray(stacked.values, dtype=np.float64)
+
+    model = PCA(n_components=4, random_state=0, mode="spatial").fit(sample_4d_volume)
+    sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X.T)
+
+    spatial_maps = sklearn_model.transform(X.T).T
+    voxel_mean = X.mean(axis=0)
+    reference_signals = (X - voxel_mean) @ spatial_maps.T
+    reference_reconstructed = reference_signals @ spatial_maps + voxel_mean
+
+    np.testing.assert_allclose(
+        model.transform(sample_4d_volume).values,
+        reference_signals,
+    )
+    np.testing.assert_allclose(
+        model.maps_.stack(feature=["z", "y", "x"]).values,
+        spatial_maps,
+    )
+    np.testing.assert_allclose(
+        model.mean_.stack(feature=["z", "y", "x"]).values,
+        voxel_mean,
+    )
+    np.testing.assert_allclose(
+        model.inverse_transform(model.transform(sample_4d_volume))
+        .stack(feature=["z", "y", "x"])
+        .values,
+        reference_reconstructed,
+    )
+
+
+def test_fit_raises_for_invalid_mode(sample_4d_volume):
+    """fit raises for unsupported PCA mode."""
+    with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
+        PCA(mode="invalid").fit(sample_4d_volume)  # type: ignore[arg-type]
