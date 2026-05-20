@@ -51,13 +51,24 @@ def test_validate_fusi_dataarray_allows_extra_dims_by_default(
     validate_fusi_dataarray(data)
 
 
+def test_validate_fusi_dataarray_allows_non_monotonic_numeric_extra_dimension_coordinate(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Extra-dimension coordinates are not constrained by monotonicity checks."""
+    data = valid_2dt_dataarray.expand_dims(region=[0.0, 2.0, 1.0])
+
+    validate_fusi_dataarray(data)
+
+
 def test_validate_fusi_dataarray_allows_non_dimension_coordinates(
     valid_2dt_dataarray: xr.DataArray,
 ) -> None:
     """Auxiliary non-dimension coordinates are allowed."""
     data = valid_2dt_dataarray.assign_coords(
         quality=xr.DataArray(
-            np.ones(valid_2dt_dataarray.shape, dtype=np.float32),
+            np.array(["ok"] * valid_2dt_dataarray.size, dtype=object).reshape(
+                valid_2dt_dataarray.shape
+            ),
             dims=valid_2dt_dataarray.dims,
         )
     )
@@ -132,10 +143,22 @@ def test_validate_fusi_dataarray_rejects_missing_dimension_coordinate(
 def test_validate_fusi_dataarray_rejects_non_monotonic_numeric_coordinate(
     valid_2dt_dataarray: xr.DataArray,
 ) -> None:
-    """Numeric dimension coordinates must be strictly increasing."""
+    """Core numeric dimension coordinates must be strictly increasing."""
     bad = valid_2dt_dataarray.assign_coords(y=[1.0, 2.0, 1.5])
 
     with pytest.raises(ValueError, match="strictly monotonic-increasing"):
+        validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_rejects_non_numeric_core_coordinate(
+    valid_2dt_dataarray: xr.DataArray,
+) -> None:
+    """Core dimension coordinates must be numeric."""
+    bad = valid_2dt_dataarray.assign_coords(
+        x=xr.DataArray(np.array(["a", "b", "c", "d"], dtype=object), dims=("x",))
+    )
+
+    with pytest.raises(ValueError, match="must be numeric"):
         validate_fusi_dataarray(bad)
 
 
@@ -233,11 +256,12 @@ def test_validate_fusi_dataarray_rejects_non_dimension_coordinate(
         validate_fusi_dataarray(bad)
 
 
-def test_validate_fusi_dataarray_regular_spacing_ignores_non_numeric_coords(
+def test_validate_fusi_dataarray_regular_spacing_still_requires_numeric_core_coords(
     valid_2dt_dataarray: xr.DataArray,
 ) -> None:
-    """Regular-spacing checks only apply to numeric coordinates."""
+    """Core coords must remain numeric even when regular spacing is requested."""
     labels = np.array(["a", "b", "c", "d"], dtype=object)
     data = valid_2dt_dataarray.assign_coords(x=xr.DataArray(labels, dims=("x",)))
 
-    validate_fusi_dataarray(data, require_regular_spacing=True)
+    with pytest.raises(ValueError, match="must be numeric"):
+        validate_fusi_dataarray(data, require_regular_spacing=True)

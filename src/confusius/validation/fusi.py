@@ -14,7 +14,9 @@ _ALLOWED_CORE_DIMS = CORE_DIMS
 """Core dimension names recognized by ConfUSIus fUSI validators."""
 
 
-def _validate_dimension_coordinate(da: xr.DataArray, dim: Hashable) -> None:
+def _validate_dimension_coordinate(
+    da: xr.DataArray, dim: Hashable, *, require_numeric: bool
+) -> None:
     """Validate a single dimension coordinate.
 
     Parameters
@@ -23,12 +25,15 @@ def _validate_dimension_coordinate(da: xr.DataArray, dim: Hashable) -> None:
         DataArray whose coordinate should be validated.
     dim : Hashable
         Dimension name whose matching coordinate is required.
+    require_numeric : bool
+        Whether the coordinate must be numeric, finite, and strictly increasing.
 
     Raises
     ------
     ValueError
-        If the coordinate is missing, is not one-dimensional along `dim`, contains
-        non-finite numeric values, or is not strictly increasing when numeric.
+        If the coordinate is missing, is not one-dimensional along `dim`, or (when
+        `require_numeric=True`) is non-numeric, non-finite, or not strictly
+        increasing.
     """
     if dim not in da.coords:
         raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
@@ -40,7 +45,10 @@ def _validate_dimension_coordinate(da: xr.DataArray, dim: Hashable) -> None:
             f"({dim!r},), got {coord.dims!r}."
         )
 
-    if np.issubdtype(coord.dtype, np.number):
+    if require_numeric and not np.issubdtype(coord.dtype, np.number):
+        raise ValueError(f"Coordinate {dim!r} must be numeric.")
+
+    if require_numeric:
         values = np.asarray(coord.values)
         if not np.all(np.isfinite(values)):
             raise ValueError(f"Coordinate {dim!r} contains non-finite numeric values.")
@@ -186,8 +194,9 @@ def validate_fusi_dataarray(
     - Have dimension names from the set `(time, pose, z, y, x)`, with optional extra
       dimensions if `allow_extra_dims` is `True` (e.g., `region`, `component`, `mask`,
       etc.).
-    - Have matching 1D coordinates for all dimensions that are strictly
-      monotonic-increasing when numeric.
+    - Have matching 1D coordinates for all dimensions.
+    - Have numeric, finite, and strictly increasing core dimension coordinates (`time`,
+      `pose`, `z`, `y`, `x`).
 
     Additional requirements can be enforced using the function parameters.
 
@@ -225,8 +234,8 @@ def validate_fusi_dataarray(
         If `data` is not an `xarray.DataArray`.
     ValueError
         If dimension names are invalid, required dimensions or coordinates are missing,
-        there are too few spatial dimensions, numeric coordinates are not strictly
-        increasing, optional stricter checks fail, or required metadata is missing.
+        there are too few spatial dimensions, core numeric coordinate constraints fail,
+        optional stricter checks fail, or required metadata is missing.
     """
     if not isinstance(data, xr.DataArray):
         raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
@@ -253,7 +262,9 @@ def validate_fusi_dataarray(
         )
 
     for dim in data.dims:
-        _validate_dimension_coordinate(data, dim)
+        _validate_dimension_coordinate(
+            data, dim, require_numeric=dim in _ALLOWED_CORE_DIMS
+        )
 
     if require_regular_spacing:
         _validate_regular_spacing(data, regular_spacing_tolerance)

@@ -188,9 +188,9 @@ iq = your_loader_function("path/to/iq_data")
 
 # Validate the IQ data structure and required attributes.
 try:
-    iq_validated = validate_iq_dataarray(iq)
+    validate_iq_dataarray(iq)
     print("✓ IQ data is valid and ready for processing")
-except ValueError as e:
+except (ValueError, TypeError) as e:
     print(f"✗ Validation failed: {e}")
 ```
 
