@@ -512,6 +512,72 @@ class TestMask:
         outside = mapper.maps_.where(~mask, other=np.nan)
         np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
 
+    def test_masked_stacked_labels_extracts_from_masked_space(
+        self, data_2d, stacked_labels
+    ):
+        """Masked stacked labels keep region names and full output geometry."""
+        mask = xr.DataArray(
+            np.zeros((data_2d.sizes["z"], data_2d.sizes["x"]), dtype=bool),
+            dims=["z", "x"],
+            coords={"z": data_2d.coords["z"], "x": data_2d.coords["x"]},
+        )
+        mask.values[1:5, :] = True
+
+        mapper = SeedBasedMaps(seed_masks=stacked_labels, mask=mask).fit(data_2d)
+
+        np.testing.assert_array_equal(
+            mapper.seed_signals_.coords["region"].values,
+            ["roi_a", "roi_b"],
+        )
+        np.testing.assert_array_equal(
+            mapper.maps_.coords["region"].values,
+            ["roi_a", "roi_b"],
+        )
+        outside = mapper.maps_.where(~mask, other=np.nan)
+        np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
+
+    def test_masked_seed_signals_1d_is_expanded(self, data_2d):
+        """Masked seed_signals path expands 1D signals to `(time, region)`."""
+        mask = xr.DataArray(
+            np.zeros((data_2d.sizes["z"], data_2d.sizes["x"]), dtype=bool),
+            dims=["z", "x"],
+            coords={"z": data_2d.coords["z"], "x": data_2d.coords["x"]},
+        )
+        mask.values[:3, :] = True
+
+        signal = xr.DataArray(
+            data_2d.values[:, 0, 0],
+            dims=["time"],
+            coords={"time": data_2d.coords["time"]},
+        )
+
+        mapper = SeedBasedMaps(seed_signals=signal, mask=mask).fit(data_2d)
+
+        assert mapper.seed_signals_.dims == ("time", "region")
+        assert mapper.maps_.dims == ("z", "x")
+        outside = mapper.maps_.where(~mask, other=np.nan)
+        np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
+
+    def test_masked_seed_signals_are_transposed_when_time_is_not_leading(self, data_2d):
+        """Masked seed_signals path transposes `(region, time)` to `(time, region)`."""
+        mask = xr.DataArray(
+            np.zeros((data_2d.sizes["z"], data_2d.sizes["x"]), dtype=bool),
+            dims=["z", "x"],
+            coords={"z": data_2d.coords["z"], "x": data_2d.coords["x"]},
+        )
+        mask.values[:3, :] = True
+
+        signal = xr.DataArray(
+            np.stack([data_2d.values[:, 0, 0], data_2d.values[:, 1, 1]], axis=0),
+            dims=["region", "time"],
+            coords={"time": data_2d.coords["time"], "region": ["a", "b"]},
+        )
+
+        mapper = SeedBasedMaps(seed_signals=signal, mask=mask).fit(data_2d)
+
+        assert mapper.seed_signals_.dims == ("time", "region")
+        np.testing.assert_array_equal(mapper.seed_signals_.coords["region"], ["a", "b"])
+
     def test_mask_cleans_only_masked_signals(self, data_2d, flat_labels, monkeypatch):
         """When mask is provided, cleaning is applied to `(time, space)` signals."""
         import confusius.connectivity.seed as seed_module
