@@ -84,9 +84,7 @@ data
 # avoid components dominated by motion artefacts.
 
 # %%
-data = cf.registration.register_volumewise(
-    data, learning_rate=1e-2, show_progress=False
-)
+data = cf.registration.register_volumewise(data, learning_rate=1e-2)
 
 # %% [markdown]
 # ## Temporal ICA
