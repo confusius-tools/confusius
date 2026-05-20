@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Registering two acquisitions
+# # Registration of two acquisitions
 #
 # This example shows how to align two power Doppler images acquired from the same
 # animal in different sessions. We use
@@ -31,8 +31,6 @@ from confusius.registration import register_volume
 
 # Keep figure backgrounds transparent in docs and standalone notebooks.
 bg_color = "none"
-# Match text and axes styling to the active Matplotlib theme.
-fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
 
 xr.set_options(display_expand_data=False)
 
@@ -83,9 +81,7 @@ moving
 
 # %%
 moving.coords["z"] = fixed.z
-plotter = cf.plotting.plot_composite(
-    fixed, moving, bg_color=bg_color, fg_color=fg_color
-)
+plotter = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 plotter.show()
 
 # %% [markdown]
@@ -143,9 +139,7 @@ for ax, moving_view, title in [
     (axes[0], moving, "Before"),
     (axes[1], registered, "After"),
 ]:
-    plotter = cf.plotting.plot_composite(
-        fixed, moving_view, axes=ax, bg_color=bg_color, fg_color=fg_color
-    )
+    plotter = cf.plotting.plot_composite(fixed, moving_view, axes=ax, bg_color=bg_color)
     ax.set_title(title)
 
 fig.suptitle("Fixed (red) / moving (cyan)")
