@@ -107,6 +107,9 @@ class PCA(_BaseFUSIDecomposer):
         - `"spatial"`: fit on `(voxels, time)`. The principal axes are time courses; the
           projected components are spatial maps that capture dominant variance across
           time.
+    mask : xarray.DataArray, optional
+        Boolean spatial mask selecting voxels to include during fitting and projection.
+        Must match the spatial dimensions and coordinates of the input data.
 
     Attributes
     ----------
@@ -194,6 +197,7 @@ class PCA(_BaseFUSIDecomposer):
         power_iteration_normalizer: Literal["auto", "QR", "LU", "none"] = "auto",
         random_state: int | None = None,
         mode: Literal["temporal", "spatial"] = "temporal",
+        mask: xr.DataArray | None = None,
     ) -> None:
         self.n_components = n_components
         self.whiten = whiten
@@ -204,6 +208,7 @@ class PCA(_BaseFUSIDecomposer):
         self.power_iteration_normalizer = power_iteration_normalizer
         self.random_state = random_state
         self.mode = mode
+        self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "PCA":
         """Fit PCA on `(time, ...)` fUSI data.
@@ -235,7 +240,7 @@ class PCA(_BaseFUSIDecomposer):
                 f"mode must be 'temporal' or 'spatial', got '{self.mode}'."
             )
 
-        X_proc, X_stacked, spatial_dims = self._prepare_data(
+        X_proc, X_stacked, spatial_dims, feature_mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="PCA.fit",
@@ -252,7 +257,7 @@ class PCA(_BaseFUSIDecomposer):
             random_state=self.random_state,
         )
 
-        self._store_fit_metadata(X, X_proc, X_stacked, spatial_dims)
+        self._store_fit_metadata(X, X_proc, X_stacked, spatial_dims, feature_mask)
 
         if self.mode == "temporal":
             self._fit_temporal(pca, X_proc)

@@ -98,6 +98,9 @@ class FastICA(_BaseFUSIDecomposer):
     random_state : int, optional
         Used to initialize `w_init` when not provided, with a normal distribution. Pass
         an int for reproducible results across multiple function calls.
+    mask : xarray.DataArray, optional
+        Boolean spatial mask selecting voxels to include during fitting and projection.
+        Must match the spatial dimensions and coordinates of the input data.
 
     Attributes
     ----------
@@ -172,6 +175,7 @@ class FastICA(_BaseFUSIDecomposer):
         w_init: npt.NDArray[np.floating] | None = None,
         whiten_solver: Literal["svd", "eigh"] = "svd",
         random_state: int | None = None,
+        mask: xr.DataArray | None = None,
     ) -> None:
         self.n_components = n_components
         self.mode = mode
@@ -184,6 +188,7 @@ class FastICA(_BaseFUSIDecomposer):
         self.w_init = w_init
         self.whiten_solver = whiten_solver
         self.random_state = random_state
+        self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "FastICA":
         """Fit FastICA on `(time, ...)` fUSI data.
@@ -215,7 +220,7 @@ class FastICA(_BaseFUSIDecomposer):
                 f"mode must be 'spatial' or 'temporal', got '{self.mode}'."
             )
 
-        X_proc, X_stacked, spatial_dims = self._prepare_data(
+        X_proc, X_stacked, spatial_dims, feature_mask = self._prepare_data(
             X,
             check_layout=False,
             operation_name="FastICA.fit",
@@ -234,7 +239,7 @@ class FastICA(_BaseFUSIDecomposer):
             random_state=self.random_state,
         )
 
-        self._store_fit_metadata(X, X_proc, X_stacked, spatial_dims)
+        self._store_fit_metadata(X, X_proc, X_stacked, spatial_dims, feature_mask)
 
         if self.mode == "spatial":
             self._fit_spatial(fastica, X_proc)
