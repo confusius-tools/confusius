@@ -74,16 +74,12 @@ data
 # [`register_volumewise`][confusius.registration.register_volumewise]. This is a common
 # preprocessing step for fUSI data, and it can help avoid spurious components driven by
 # brain motion.
-#
-# You may set `show_progress=True` to display a progress bar during registration, which
-# can be helpful for long recordings.
+
 
 # %%
 # The `learning_rate` controls the step size of the optimization. A value of 1e-2 is
 # a common default that balances convergence speed and stability for typical fUSI data.
-data = cf.registration.register_volumewise(
-    data, learning_rate=1e-2, show_progress=False
-)
+data = cf.registration.register_volumewise(data, learning_rate=1e-2)
 
 # %% [markdown]
 # ## Temporal PCA (`mode="temporal"`)
