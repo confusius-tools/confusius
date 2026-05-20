@@ -13,6 +13,7 @@ generation**:
 | [`draw_napari_labels`][confusius.plotting.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] | napari | Interactive manual ROI drawing |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
+| [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
 
 All functions accept DataArrays and use physical coordinates for axis scaling
@@ -68,7 +69,7 @@ concise syntax; both call the same underlying functions.
 
     bids_root = fetch_nunez_elizalde_2022(
         subjects=["CR022"],
-        sessions=["20201011"],
+        sessions=["20201011", "20201007"],
         tasks=["spontaneous"],
         acqs=["slice03"],
     )
@@ -83,6 +84,11 @@ concise syntax; both call the same underlying functions.
         bids_root
         / "sub-CR022/ses-20201011/angio"
         / "sub-CR022_ses-20201011_pwd.nii.gz"
+    ).compute()
+    angio_2 = cf.load(
+        bids_root
+        / "sub-CR022/ses-20201007/angio"
+        / "sub-CR022_ses-20201007_pwd.nii.gz"
     ).compute()
     atlas_labels = cf.load(
         bids_root
@@ -461,6 +467,79 @@ The `.fusi.plot.contours()` accessor provides the same function with a shorter s
 ```python
 plotter = atlas_fusi.annotation.fusi.plot.contours(slice_mode="z")
 ```
+
+## Composite Plots
+
+[`plot_composite`][confusius.plotting.plot_composite] overlays two volumes as a
+**red/cyan composite**: the first volume drives the red channel, the second drives the
+cyan channel (green + blue). This is the same encoding used by the live [registration
+progress preview][confusius.registration.register_volume] and is a quick way to inspect
+how well two volumes are aligned: two sessions of the same subject, a moving image
+against a reference, or a registered output against its target.
+
+### Basic Usage
+
+=== "Xarray accessor"
+
+    ```python
+    # Every third elevation slice keeps the figure compact while still showing the
+    # anatomical depth range.
+    composite_slices = list(np.asarray(angio["z"].values, dtype=float)[::3][:-1])
+
+    # Two angiography volumes from different sessions of the same subject.
+    plotter = angio.fusi.plot.composite(
+        angio_2, slice_coords=composite_slices, normalize_strategy="per_slice"
+    )
+    ```
+
+=== "Function API"
+
+    ```python
+    # Every third elevation slice keeps the figure compact while still showing the
+    # anatomical depth range.
+    composite_slices = list(np.asarray(angio["z"].values, dtype=float)[::3][:-1])
+
+    # Two angiography volumes from different sessions of the same subject.
+    plotter = cf.plotting.plot_composite(
+        angio, angio_2, slice_coords=composite_slices, normalize_strategy="per_slice"
+    )
+    ```
+
+By default `angio_2` is resampled onto `angio`'s grid (`resample=True`), so the two
+volumes do not need to share the same coordinates. Additionally, the function returns a
+[`VolumePlotter`][confusius.plotting.VolumePlotter] so you can use
+[`add_contours`][confusius.plotting.VolumePlotter.add_contours] to layer atlas outlines
+over the composite.
+
+![Red/cyan composite of two angiography sessions](../images/visualization/composite-light.png#only-light)
+![Red/cyan composite of two angiography sessions](../images/visualization/composite-dark.png#only-dark)
+
+### Normalization Strategies
+
+`normalize_strategy` controls how voxel intensities are mapped into the `[0, 1]`
+range that drives each channel:
+
+| Strategy | Per-array range | When to use |
+|---|---|---|
+| `"per_volume"` (default) | one range per volume | Each input is shown at its own contrast; preserves within-volume relative brightness. |
+| `"per_slice"` | one range per slice | Maximizes contrast per slice; improves within-slice comparability. |
+| `"shared"` | one range across volumes | Preserves absolute intensity differences between the two inputs. |
+
+### Skipping Resampling
+
+If the two volumes already share the same grid (if one was previously registered onto
+the other) pass `resample=False` to skip the resample step:
+
+```python
+plotter = fixed.fusi.plot.composite(registered_moving, resample=False)
+```
+
+When `resample=False`, the two arrays must share dimensions, shape, and coordinates
+within tolerance. Coordinates are checked with `numpy.allclose`-style tolerances
+(`rtol=1e-5`, `atol=1e-8` by default); once the check passes, `data2`'s coordinates are
+replaced with `data1`'s so the two volumes share an exact coordinate frame downstream.
+Widen `rtol` / `atol` to accept acquisitions on offset grids that you know are
+equivalent.
 
 ## Carpet Plots
 

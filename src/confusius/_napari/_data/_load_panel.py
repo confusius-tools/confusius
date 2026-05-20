@@ -24,7 +24,7 @@ from qtpy.QtWidgets import (
 )
 
 from confusius.io import load
-from confusius.plotting.image import plot_napari
+from confusius.plotting.napari import plot_napari
 
 if TYPE_CHECKING:
     import napari

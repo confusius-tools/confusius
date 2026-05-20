@@ -16,7 +16,7 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.covariance import LedoitWolf
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 from confusius.validation import validate_time_series
 
 _ALLOWED_KINDS = (

@@ -1,86 +1,22 @@
 """Registration progress visualization."""
 
 import warnings
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from numpy.typing import NDArray
 
-from confusius._utils import find_stack_level
+from confusius._utils.plotting import blend_red_cyan, make_mosaic, scale_min_max
+from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
     from matplotlib.figure import Figure
 
-
-def _normalize(arr: NDArray[np.floating]) -> NDArray[np.floating]:
-    """Linearly scale `arr` to [0, 1], handling flat arrays gracefully."""
-    lo, hi = arr.min(), arr.max()
-    if hi == lo:
-        return np.zeros_like(arr, dtype=float)
-    return (arr - lo) / (hi - lo)
-
-
-def _blend_red_cyan(
-    fixed: NDArray[np.floating],
-    moving: NDArray[np.floating],
-) -> NDArray[np.floating]:
-    """Blend two 2D arrays as red (fixed) and cyan (moving) channels.
-
-    Parameters
-    ----------
-    fixed : numpy.ndarray
-        2D reference array, normalized to [0, 1].
-    moving : numpy.ndarray
-        2D moving array, normalized to [0, 1].
-
-    Returns
-    -------
-    numpy.ndarray
-        RGB image of shape `(*fixed.shape, 3)`.
-    """
-    h, w = fixed.shape
-    rgb = np.zeros((h, w, 3))
-    # Red channel: fixed only.
-    rgb[..., 0] = fixed
-    # Green + blue channels: cyan = moving.
-    rgb[..., 1] = moving
-    rgb[..., 2] = moving
-    return rgb
-
-
-def _make_mosaic(
-    fixed_vol: NDArray[np.floating],
-    moving_vol: NDArray[np.floating],
-) -> NDArray[np.floating]:
-    """Assemble a mosaic of per-slice red/cyan blends along the first axis.
-
-    Parameters
-    ----------
-    fixed_vol : numpy.ndarray
-        3D reference volume `(n_slices, H, W)`.
-    moving_vol : numpy.ndarray
-        3D moving volume `(n_slices, H, W)`.
-
-    Returns
-    -------
-    numpy.ndarray
-        RGB mosaic image.
-    """
-    n = fixed_vol.shape[0]
-    n_cols = int(np.ceil(np.sqrt(n)))
-    n_rows = int(np.ceil(n / n_cols))
-    h, w = fixed_vol.shape[1], fixed_vol.shape[2]
-
-    mosaic = np.zeros((n_rows * h, n_cols * w, 3))
-    for i in range(n):
-        r, c = divmod(i, n_cols)
-        blend = _blend_red_cyan(
-            _normalize(fixed_vol[i]),
-            _normalize(moving_vol[i]),
-        )
-        mosaic[r * h : (r + 1) * h, c * w : (c + 1) * w] = blend
-    return mosaic
+_INTERPOLATION_MAP = {
+    "linear": "sitkLinear",
+    "nearest": "sitkNearestNeighbor",
+    "bspline": "sitkBSpline",
+}
 
 
 class RegistrationProgressPlotter:
@@ -103,6 +39,9 @@ class RegistrationProgressPlotter:
     plot_composite : bool, default: True
         Whether to display a blended fixed/moving composite at each iteration.
         Requires an additional `sitk.Resample` call per iteration.
+    resample_kwargs : dict, optional
+        Extra keyword arguments forwarded to the internal resample call at each
+        iteration.
     """
 
     def __init__(
@@ -113,6 +52,7 @@ class RegistrationProgressPlotter:
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
+        resample_kwargs: dict[str, Any] | None = None,
     ) -> None:
         import matplotlib
         import matplotlib.pyplot as plt
@@ -123,6 +63,13 @@ class RegistrationProgressPlotter:
         self._plot_metric = plot_metric
         self._plot_composite = plot_composite
         self._metric_values: list[float] = []
+
+        _kw: dict[str, Any] = dict(resample_kwargs or {})
+        if "default_value" not in _kw:
+            import SimpleITK as sitk
+
+            _kw["default_value"] = float(sitk.GetArrayFromImage(moving_img).min())
+        self._resample_kwargs = _kw
 
         # Detect Jupyter notebook environment. A plain IPython terminal shell
         # also has get_ipython() != None, so we check the kernel class name to
@@ -208,28 +155,38 @@ class RegistrationProgressPlotter:
         if self._plot_composite:
             import SimpleITK as sitk
 
+            from confusius.registration._utils import set_sitk_thread_count
+
+            interp_name = _INTERPOLATION_MAP[
+                self._resample_kwargs.get("interpolation", "linear")
+            ]
+            sitk_interp = getattr(sitk, interp_name)
+            fill_value = self._resample_kwargs["default_value"]
+            sitk_threads = self._resample_kwargs.get("sitk_threads", -1)
+
             transform = self._method.GetInitialTransform()
-            resampled = sitk.Resample(
-                self._moving_img,
-                self._fixed_img,
-                transform,
-                sitk.sitkLinear,
-                0.0,
-                self._moving_img.GetPixelID(),
-            )
+            with set_sitk_thread_count(sitk_threads):
+                resampled = sitk.Resample(
+                    self._moving_img,
+                    self._fixed_img,
+                    transform,
+                    sitk_interp,
+                    fill_value,
+                    self._moving_img.GetPixelID(),
+                )
 
             fixed_arr = sitk.GetArrayFromImage(self._fixed_img).T
             moving_arr = sitk.GetArrayFromImage(resampled).T
 
             if fixed_arr.ndim == 3:
-                rgb = _make_mosaic(
+                rgb = make_mosaic(
                     np.moveaxis(fixed_arr, 0, 0),
                     np.moveaxis(moving_arr, 0, 0),
                 )
             else:
-                rgb = _blend_red_cyan(
-                    _normalize(fixed_arr),
-                    _normalize(moving_arr),
+                rgb = blend_red_cyan(
+                    scale_min_max(fixed_arr),
+                    scale_min_max(moving_arr),
                 )
 
             if self._composite_im is None:

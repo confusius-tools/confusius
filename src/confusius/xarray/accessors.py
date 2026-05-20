@@ -193,7 +193,7 @@ class FUSIAccessor:
         >>> data.fusi.spacing
         {'y': 0.2, 'x': 0.1}
         """
-        from confusius._utils import get_coordinate_spacings
+        from confusius._utils.coordinates import get_coordinate_spacings
 
         return get_coordinate_spacings(self._obj)
 
@@ -222,7 +222,7 @@ class FUSIAccessor:
         >>> data.fusi.origin
         {'y': 0.0, 'x': 0.0}
         """
-        from confusius._utils import get_coordinate_origins
+        from confusius._utils.coordinates import get_coordinate_origins
 
         return get_coordinate_origins(self._obj)
 

@@ -170,10 +170,25 @@ def render_notebook(
 
         parts.append("```python\n" + cell.source.rstrip() + "\n```\n")
 
-        for output_index, (light_output, dark_output) in enumerate(
-            zip(
-                light_cell.get("outputs", []), dark_cell.get("outputs", []), strict=True
+        # Light and dark outputs are paired by index. They must have the
+        # same length: a mismatch means non-deterministic output snuck in
+        # (typically a one-shot download or a warning that fired only once),
+        # and silently dropping the extras would hide a real difference
+        # between the two rendered notebooks. Pre-warm caches outside the
+        # gallery so both runs start from the same state.
+        light_outputs = light_cell.get("outputs", [])
+        dark_outputs = dark_cell.get("outputs", [])
+        if len(light_outputs) != len(dark_outputs):
+            raise ValueError(
+                f"{base_name}: cell {cell_index} produced "
+                f"{len(light_outputs)} light outputs and {len(dark_outputs)} "
+                "dark outputs. Light/dark executions must be deterministic; "
+                "make sure any one-shot side effects (dataset downloads, "
+                "first-import warnings, etc.) happen before the gallery "
+                "build."
             )
+        for output_index, (light_output, dark_output) in enumerate(
+            zip(light_outputs, dark_outputs)
         ):
             output_type = light_output.get("output_type")
             if output_type == "stream":
