@@ -23,12 +23,14 @@ CACHE_ROOT = REPO_ROOT / ".gallery-cache"
 BINDER_REPO = "confusius-tools/confusius"
 
 
-def _deps_fingerprint(binder_ref: str) -> str:
-    """Return a string identifying gallery build inputs.
+def _deps_fingerprint() -> str:
+    """Return a string identifying gallery execution/render inputs.
 
     Uses ``uv.lock`` plus the gallery-builder source files directly. Any change to the
-    locked dependencies, the gallery pipeline, or the Binder launch ref forces a cache
-    miss so that rebuilt pages embed the new launcher URLs.
+    locked dependencies or gallery pipeline forces a cache miss.
+
+    Binder branch/ref is intentionally excluded so expensive gallery execution can be
+    reused across branches.
     """
     parts: list[str] = []
     lockfile = REPO_ROOT / "uv.lock"
@@ -43,7 +45,6 @@ def _deps_fingerprint(binder_ref: str) -> str:
 
     parts.append("\n# tools/build_gallery.py\n")
     parts.append(Path(__file__).read_text())
-    parts.append(f"\n# binder_ref={binder_ref}\n")
     return "".join(parts)
 
 
@@ -58,7 +59,7 @@ def main() -> int:
         examples_root=EXAMPLES_ROOT,
         built_dir=BUILT_DIR,
         cache_root=CACHE_ROOT,
-        deps_fingerprint=_deps_fingerprint(binder_ref),
+        deps_fingerprint=_deps_fingerprint(),
         repo_root=REPO_ROOT,
         binder_repo=BINDER_REPO,
         binder_ref=binder_ref,
