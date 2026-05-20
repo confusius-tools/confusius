@@ -69,7 +69,7 @@ def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
         sklearn_model.singular_values_,
     )
     assert model.n_components_ == sklearn_model.n_components_
-    assert model.noise_variance_ == sklearn_model.noise_variance_
+    np.testing.assert_allclose(model.noise_variance_, sklearn_model.noise_variance_)
 
 
 def test_inverse_transform_reconstructs_with_all_components(sample_4d_volume):
