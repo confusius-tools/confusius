@@ -132,7 +132,7 @@ roi_trace
 # %%
 roi_trace_smooth = roi_trace.rolling(time=15, center=True).mean()
 
-fig, ax = plt.subplots(figsize=(7, 3), facecolor="none")
+fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
 
 roi_trace.plot(ax=ax, color="#d93a54", label="ROI mean")
 roi_trace_smooth.plot(ax=ax, color="#3ad9a4", label="Rolling mean (15 samples)")

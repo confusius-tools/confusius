@@ -22,6 +22,7 @@
 # %%
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import xarray as xr
 
@@ -29,8 +30,8 @@ import confusius as cf
 from confusius.datasets import fetch_cybis_pereira_2026
 from confusius.registration import register_volume
 
-# Keep figure backgrounds transparent in docs and standalone notebooks.
-bg_color = "none"
+# Adapt background color to the current Matplotlib style.
+bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 xr.set_options(display_expand_data=False)
 
