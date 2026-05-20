@@ -8,8 +8,8 @@ import numpy.typing as npt
 import pandas as pd
 import xarray as xr
 
+from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius.atlas._structures import (
-    _build_atlas_cmap_and_norm,
     _build_lookup_df,
     _build_rgb_lookup,
     _get_descendant_ids,
@@ -52,7 +52,7 @@ def _build_dataset(bg_atlas: "BrainGlobeAtlas") -> xr.Dataset:
     }
 
     rgb_lookup = _build_rgb_lookup(bg_atlas.structures)
-    cmap, norm = _build_atlas_cmap_and_norm(rgb_lookup)
+    cmap, norm = build_atlas_cmap_and_norm(rgb_lookup)
     roi_labels = {
         int(sid): str(info["name"] + f" ({info['acronym']})")
         for sid, info in bg_atlas.structures.items()
@@ -267,7 +267,7 @@ class Atlas:
         matplotlib.colors.ListedColormap
             The colormap to use for atlas rendering.
         """
-        cmap, _ = _build_atlas_cmap_and_norm(self.annotation.attrs["rgb_lookup"])
+        cmap, _ = build_atlas_cmap_and_norm(self.annotation.attrs["rgb_lookup"])
         return cmap
 
     @property
@@ -279,7 +279,7 @@ class Atlas:
         matplotlib.colors.BoundaryNorm
             The norm to use for atlas rendering.
         """
-        _, norm = _build_atlas_cmap_and_norm(self.annotation.attrs["rgb_lookup"])
+        _, norm = build_atlas_cmap_and_norm(self.annotation.attrs["rgb_lookup"])
         return norm
 
     # ── Search ────────────────────────────────────────────────────────────────────────

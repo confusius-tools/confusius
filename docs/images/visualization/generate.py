@@ -41,6 +41,7 @@ HERE = Path(__file__).parent
 
 _SUBJECT = "CR022"
 _SESSION = "20201011"
+_SESSION_2 = "20201007"
 _TASK = "spontaneous"
 _ACQ_SLICE = "slice04"
 
@@ -262,7 +263,7 @@ _section("Load Data")
 console.print("Fetching Nunez-Elizalde 2022 dataset")
 bids_root = fetch_nunez_elizalde_2022(
     subjects=[_SUBJECT],
-    sessions=[_SESSION],
+    sessions=[_SESSION, _SESSION_2],
     tasks=[_TASK],
     acqs=[_ACQ_SLICE],
 )
@@ -292,7 +293,6 @@ brain_mask = mean_vol > float(mean_vol.quantile(0.4))
 console.print("Loading angiography (3D volume)")
 vol_3d = cf.load(_ANGIO_PATH).compute()
 vol_3d_name = "Angiography"
-
 console.print(f"  {vol_3d.dims}, shape {dict(vol_3d.sizes)}")
 _z_values = np.asarray(vol_3d["z"].values, dtype=float)
 if _z_values.size >= 5:
@@ -628,7 +628,36 @@ else:
     _warn("Skipping volume-with-contours-*.png (atlas mask unavailable)")
 
 # ---------------------------------------------------------------------------
-# 8. draw_napari_labels — interactive ROI drawing
+# 8. Composite — two acquisitions overlaid as red/cyan (matplotlib)
+# ---------------------------------------------------------------------------
+
+_section("Composite plot")
+
+console.print(f"Loading angiography from session {_SESSION_2}")
+_ANGIO_PATH_2 = (
+    bids_root
+    / f"sub-{_SUBJECT}/ses-{_SESSION_2}/angio"
+    / f"sub-{_SUBJECT}_ses-{_SESSION_2}_pwd.nii.gz"
+)
+vol_3d_2 = cf.load(_ANGIO_PATH_2).compute()
+# Every third elevation slice keeps the figure compact while still showing the
+# anatomical depth range.
+composite_slices = list(np.asarray(vol_3d["z"].values, dtype=float)[::3][:-1])
+
+for bg_color, suffix in [("white", "light"), ("black", "dark")]:
+    plotter_composite = vol_3d.fusi.plot.composite(
+        vol_3d_2,
+        slice_coords=composite_slices,
+        normalize_strategy="per_slice",
+        bg_color=bg_color,
+    )
+    plotter_composite.show()
+    plotter_composite.savefig(str(HERE / f"composite-{suffix}.png"), **_SAVEFIG_KWARGS)
+    plotter_composite.close()
+_ok("Saved composite-light.png and composite-dark.png")
+
+# ---------------------------------------------------------------------------
+# 9. draw_napari_labels — interactive ROI drawing
 # ---------------------------------------------------------------------------
 
 _section("draw_napari_labels")
@@ -672,7 +701,7 @@ except Exception as exc:
     _warn(f"draw_napari_labels screenshot failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 9. Carpet plot (matplotlib)
+# 10. Carpet plot (matplotlib)
 # ---------------------------------------------------------------------------
 
 for bg_color, suffix in [("white", "light"), ("black", "dark")]:

@@ -5,8 +5,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 from tools.gallery.execute import execute_example
 
 
@@ -35,11 +33,31 @@ def test_execute_uses_current_python_interpreter(tmp_path: Path) -> None:
     execute_example(src, timeout=60)
 
 
-def test_execute_re_raises_with_example_path(tmp_path: Path) -> None:
+def test_execute_captures_cell_error_as_output_and_continues(tmp_path: Path) -> None:
+    """A failing cell records its traceback and execution continues to the next cell.
+
+    The renderer (`tools.gallery.render`) already inlines `error` outputs into
+    the rendered Markdown the same way a normal Jupyter notebook would, so the
+    executor must not abort on the first failing cell.
+    """
     src = tmp_path / "broken.py"
-    src.write_text("# %%\nraise RuntimeError('boom')\n")
+    src.write_text("# %%\nraise RuntimeError('boom')\n\n# %%\nprint('after')\n")
 
-    with pytest.raises(RuntimeError) as excinfo:
-        execute_example(src, timeout=60)
+    nb, _ = execute_example(src, timeout=60)
 
-    assert "broken.py" in str(excinfo.value)
+    code_cells = [c for c in nb.cells if c.cell_type == "code"]
+    assert len(code_cells) == 2
+
+    error_outputs = [
+        out for out in code_cells[0].outputs if out.get("output_type") == "error"
+    ]
+    assert error_outputs, "the failing cell did not produce an error output"
+    assert error_outputs[0].get("ename") == "RuntimeError"
+    assert "boom" in error_outputs[0].get("evalue", "")
+
+    after_streams = [
+        out
+        for out in code_cells[1].outputs
+        if out.get("output_type") == "stream" and out.get("name") == "stdout"
+    ]
+    assert any("after" in out.get("text", "") for out in after_streams)

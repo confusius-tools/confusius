@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
+from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
 
 
@@ -228,3 +229,25 @@ class TestRegisterVolumewise:
         assert result.shape == sample_3d_dataarray.shape
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, sample_3d_dataarray.values, atol=1e-3)
+
+    def test_keep_diagnostics_toggles_full_trace(self, sample_2d_dataarray):
+        """`keep_diagnostics` gates only the full diagnostics list.
+
+        The cheap per-frame summaries (`final_metric_value`, `n_iterations`)
+        are always attached to `motion_params`; only the
+        memory-hungry trace list is opt-in.
+        """
+        # Default (False): summary columns yes, full diagnostics list no.
+        result_off = register_volumewise(sample_2d_dataarray, n_jobs=1)
+        assert "registration_diagnostics" not in result_off.attrs
+        motion_df_off = result_off.attrs["motion_params"]
+        assert "final_metric_value" in motion_df_off.columns
+        assert "n_iterations" in motion_df_off.columns
+
+        # Opt-in: full diagnostics list is also attached.
+        result_on = register_volumewise(
+            sample_2d_dataarray, n_jobs=1, keep_diagnostics=True
+        )
+        diagnostics = result_on.attrs["registration_diagnostics"]
+        assert len(diagnostics) == sample_2d_dataarray.sizes["time"]
+        assert all(isinstance(d, RegistrationDiagnostics) for d in diagnostics)

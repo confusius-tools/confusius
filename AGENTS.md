@@ -64,11 +64,12 @@ Image generators live in `docs/images/<topic>/generate.py`. Each one is gitignor
    ```yaml
    xvfb-run -a uv run docs/images/<topic>/generate.py
    ```
-4. **Cache**: if the script uses an already-cached dataset (e.g. Nunez-Elizalde), add
-   `docs/images/<topic>/generate.py` to the `hashFiles(...)` call of that dataset's
-   cache step — this ensures the cache is invalidated when the script changes. If it
-   fetches a different dataset, add a dedicated `actions/cache` step for it (see the
-   existing cache steps as a template).
+4. **Cache**: add (or update) the matching fetch call in
+   `tools/prefetch_doc_datasets.py` so the new script's data is pre-warmed in CI
+   and the dataset cache key — which hashes only `tools/prefetch_doc_datasets.py`
+   — invalidates when the args change. If the script pulls a brand-new dataset,
+   also add a dedicated `actions/cache` step in `.github/workflows/docs.yml`
+   keyed off the same prefetch file (see the existing cache steps as a template).
 
 #### Adding new example scripts
 
@@ -79,9 +80,12 @@ and executes them automatically. To add a new example:
 1. Place the script under the appropriate subdirectory in `docs/examples/`.
 2. Add the built output path (`docs/examples/_built/<subdir>/<name>.md`) to the `nav`
    in `zensical.toml`.
-3. **Cache**: no manual update needed. The gallery cache key in
-   `.github/workflows/docs.yml` already uses `docs/examples/**/*.py`, so it
-   invalidates automatically when any example script changes.
+3. **Cache**: the gallery cache key in `.github/workflows/docs.yml` already
+   uses `docs/examples/**/*.py`, so it invalidates automatically when any
+   example script changes. If the example loads data, add the matching fetch
+   call to `tools/prefetch_doc_datasets.py` so it is pre-warmed in CI — the
+   gallery renderer enforces light/dark output parity and a cold cache there
+   will fail the build.
 
 ### Linting, Formatting & Type Checking
 - `just pre-commit` (or `just pc`) - Run all pre-commit hooks (recommended)
@@ -204,6 +208,22 @@ Do not use `tuple[type1, type2]` as the return type in the docstring.
 - Prefer functional programming where appropriate
 - Use list/dict comprehensions for simple transformations
 - Keep functions focused on single responsibilities
+
+### Module Organization
+- **Cross-module shared utilities live in `confusius/_utils/<topic>.py`** with public
+  function names (e.g. `confusius/_utils/coordinates.py` exports
+  `get_coordinate_spacings`, not `_get_coordinate_spacings`). The leading `_` on the
+  package conveys "internal API"; names inside it are not prefixed. Group by topic
+  (`stack.py`, `coordinates.py`, `timing.py`, `io.py`, `atlas.py`, `plotting.py`, etc.) —
+  do not pile everything into a single file.
+- **Module-private shared helpers live in `<module>/_utils.py`**
+  (e.g. `registration/_utils.py`, `plotting/_utils.py`). Use this when a helper is shared
+  by 2+ files inside one module but not used outside. Same naming convention: the file
+  is private, the names within are public.
+- **Never import a `_name` across module boundaries.** If you need a private function
+  from another module, that is a signal to either (a) inline it, (b) make it public in
+  the same file, or (c) promote it to `_utils/`. The underscore is a real boundary, not
+  decoration — respect it.
 
 ### Performance
 - Use NumPy operations for array computations

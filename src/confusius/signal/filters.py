@@ -7,7 +7,7 @@ import numpy as np
 import scipy.signal
 import xarray as xr
 
-from confusius._utils import get_coordinate_spacings
+from confusius._utils.coordinates import get_coordinate_spacings
 from confusius.validation import validate_time_series
 
 

@@ -10,8 +10,22 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- `register_volume` now also returns a
+  [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics] dataclass
+  with the per-iteration metric values, final metric value, iteration count, optimizer
+  stop condition, and the metric name. `register_volumewise` always adds per-frame
+  `final_metric_value` and `n_iterations` columns to `motion_params`, and exposes the
+  full per-frame diagnostics list under `attrs["registration_diagnostics"]` only when
+  called with `keep_diagnostics=True` to avoid retaining the full optimizer metric
+  trace by default ([#139](https://github.com/confusius-tools/confusius/pull/139)).
+
 ### :sparkles: Enhancements
 
+- Added `plot_composite`, `VolumePlotter.add_composite`, and a matching
+  `data.fusi.plot.composite` accessor that render two volumes as a red/cyan
+  RGB overlay ([#145](https://github.com/confusius-tools/confusius/pull/145)).
 - Added `datatypes` filter to `fetch_cybis_pereira_2026`, allowing downloads to be
   scoped to specific BIDS datatype directories (`"fusi"`, `"angio"`, `"motion"`)
   ([#141](https://github.com/confusius-tools/confusius/pull/141)).
@@ -30,8 +44,28 @@ Current development version for the next ConfUSIus release.
 - Added example gallery helper utilities to streamline writing and maintaining docs
   examples ([#102](https://github.com/confusius-tools/confusius/pull/102)).
 
+### :books: Documentation
+
+- Added a [Registering two
+  acquisitions](examples/registration/register_volume_two_acquisitions.py) example
+  demonstrating `register_volume`, the new diagnostics, and confusius's
+  [`plot_volume`][confusius.plotting.plot_volume] overlay pattern for inspecting
+  alignment before and after registration
+  ([#139](https://github.com/confusius-tools/confusius/pull/139)).
+
 ### :bug: Fixes
 
+- Fixed `resample_like` and `resample_volume` filling out-of-FOV voxels with `0.0`
+  when resampling onto a larger grid. This caused a bright background artifact for
+  dB-scaled data (where 0 is maximum intensity). The `default_value` parameter now
+  defaults to `float(moving.min())` instead of `0.0`. `register_volume` gains a
+  `fill_value` parameter that overrides the default for both the final resampled output
+  and the live progress composite overlay
+  ([#138](https://github.com/confusius-tools/confusius/pull/138)).
+- Fixed plotting hover information silently disappearing when the returned
+  `VolumePlotter` was not held in a variable (e.g. `obj.fusi.plot.volume().show()`). The
+  hover manager is now kept alive until the figure is closed
+  ([#148](https://github.com/confusius-tools/confusius/pull/148)).
 - Fixed napari x-axis extent computation to ignore the interactive cursor guide line,
   preventing incorrect plot bounds
   ([#111](https://github.com/confusius-tools/confusius/pull/111)).

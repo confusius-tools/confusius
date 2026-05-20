@@ -8,11 +8,9 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import TIME_DIM
-from confusius._utils import (
-    find_stack_level,
-    get_representative_step,
-    interpolate_timeseries,
-)
+from confusius._utils.coordinates import get_representative_step
+from confusius._utils.stack import find_stack_level
+from confusius._utils.timing import interpolate_timeseries
 from confusius.validation.time_series import validate_time_series
 
 _TIME_UNIT_TO_SECONDS: dict[str, float] = {
