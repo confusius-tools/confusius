@@ -671,10 +671,22 @@ def register_volume(
         lambda: metric_values.append(registration.GetMetricValue()),
     )
 
-    _fill_value = fill_value if fill_value is not None else float(moving.min())
+    needs_fill_value = resample or (show_progress and plot_composite)
+    _fill_value = (
+        fill_value
+        if fill_value is not None
+        else (float(moving.min()) if needs_fill_value else None)
+    )
 
     if show_progress:
         from confusius.registration._progress import RegistrationProgressPlotter
+
+        resample_kwargs: dict[str, object] = {
+            "interpolation": resample_interpolation,
+            "sitk_threads": sitk_threads,
+        }
+        if _fill_value is not None:
+            resample_kwargs["default_value"] = _fill_value
 
         plotter = RegistrationProgressPlotter(
             registration,
@@ -682,11 +694,7 @@ def register_volume(
             moving_sitk,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
-            resample_kwargs={
-                "default_value": _fill_value,
-                "interpolation": resample_interpolation,
-                "sitk_threads": sitk_threads,
-            },
+            resample_kwargs=resample_kwargs,
         )
         registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
         registration.AddCommand(sitk.sitkEndEvent, plotter.close)
@@ -700,6 +708,7 @@ def register_volume(
         interp = (
             sitk.sitkLinear if resample_interpolation == "linear" else sitk.sitkBSpline
         )
+        assert _fill_value is not None
         with set_sitk_thread_count(sitk_threads):
             # .T restores numpy axis order, inverse of the .T used to build the SITK
             # image.
