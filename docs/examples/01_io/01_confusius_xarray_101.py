@@ -26,10 +26,8 @@ import xarray as xr
 import confusius as cf
 from confusius.datasets import fetch_nunez_elizalde_2022
 
-# Keep figure backgrounds transparent in docs and standalone notebooks.
-bg_color = "none"
-# Match text and axes styling to the active Matplotlib theme.
-fg_color = mpl.colors.to_hex(plt.rcParams["text.color"])
+# Adapt background color to the current Matplotlib style.
+bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 # Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
@@ -156,11 +154,7 @@ _ = ax.legend(loc="upper right")
 mean_db = data.mean("time").fusi.scale.db()
 
 plotter = cf.plotting.plot_volume(
-    mean_db,
-    cmap="gray",
-    cbar_label="Power Doppler (dB)",
-    bg_color=bg_color,
-    fg_color=fg_color,
+    mean_db, cmap="gray", cbar_label="Power Doppler (dB)", bg_color=bg_color
 )
 
 # %% [markdown]
@@ -174,10 +168,7 @@ plotter = cf.plotting.plot_volume(
 mean_db_masked = mean_db.where(mean_db > -20)
 
 plotter = mean_db_masked.fusi.plot.volume(
-    cmap="gray",
-    cbar_label="Power Doppler (dB)",
-    bg_color=bg_color,
-    fg_color=fg_color,
+    cmap="gray", cbar_label="Power Doppler (dB)", bg_color=bg_color
 )
 
 # %% [markdown]
