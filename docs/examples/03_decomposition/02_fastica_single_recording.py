@@ -79,7 +79,8 @@ data
 # This recording contains some brain motion, which we can mitigate by performing a rigid
 # translation correction with
 # [`register_volumewise`][confusius.registration.register_volumewise]. This is the same
-# preprocessing step used in the [PCA example](pca_single_recording.md), and it helps
+# preprocessing step used in the [PCA
+# example](pca_single_recording.md#correct-for-brain-motion), and it helps
 # avoid components dominated by motion artefacts.
 
 # %%
