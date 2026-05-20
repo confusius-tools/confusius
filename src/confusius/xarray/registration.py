@@ -52,6 +52,7 @@ class FUSIRegistrationAccessor:
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
+        fill_value: float | None = None,
     ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":  # noqa: E501
         """Register this volume to a fixed reference volume.
 
@@ -108,6 +109,10 @@ class FUSIRegistrationAccessor:
         plot_composite : bool, default: True
             Whether to include a fixed/moving composite overlay in the
             progress plot. Ignored when `show_progress=False`.
+        fill_value : float, optional
+            Fill value for voxels outside the moving image's field of view after
+            resampling. If not provided, defaults to the minimum of the moving
+            image. See [`register_volume`][confusius.registration.register_volume].
 
         Returns
         -------
@@ -150,6 +155,7 @@ class FUSIRegistrationAccessor:
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
+            fill_value=fill_value,
         )
 
     def volumewise(
