@@ -73,7 +73,7 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice37",
     )
 
-    # docs/examples/registration/register_volume_two_acquisitions.py
+    # docs/examples/registration/register_volume_same_subject.py
     fetch_cybis_pereira_2026(
         datasets="rawdata",
         subjects="rat75",

@@ -157,9 +157,15 @@ class RegistrationProgressPlotter:
 
             from confusius.registration._utils import set_sitk_thread_count
 
-            interp_name = _INTERPOLATION_MAP[
-                self._resample_kwargs.get("interpolation", "linear")
-            ]
+            interpolation = self._resample_kwargs.get("interpolation", "linear")
+            interp_name = _INTERPOLATION_MAP.get(interpolation)
+            if interp_name is None:
+                supported = ", ".join(sorted(_INTERPOLATION_MAP))
+                msg = (
+                    "Invalid `interpolation` in `resample_kwargs`: "
+                    f"{interpolation!r}. Expected one of: {supported}."
+                )
+                raise ValueError(msg)
             sitk_interp = getattr(sitk, interp_name)
             fill_value = self._resample_kwargs["default_value"]
             sitk_threads = self._resample_kwargs.get("sitk_threads", -1)
