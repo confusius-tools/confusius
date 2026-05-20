@@ -62,11 +62,12 @@ Image generators live in `docs/images/<topic>/generate.py`. Each one is gitignor
    ```yaml
    xvfb-run -a uv run docs/images/<topic>/generate.py
    ```
-4. **Cache**: if the script uses an already-cached dataset (e.g. Nunez-Elizalde), add
-   `docs/images/<topic>/generate.py` to the `hashFiles(...)` call of that dataset's
-   cache step — this ensures the cache is invalidated when the script changes. If it
-   fetches a different dataset, add a dedicated `actions/cache` step for it (see the
-   existing cache steps as a template).
+4. **Cache**: add (or update) the matching fetch call in
+   `tools/prefetch_doc_datasets.py` so the new script's data is pre-warmed in CI
+   and the dataset cache key — which hashes only `tools/prefetch_doc_datasets.py`
+   — invalidates when the args change. If the script pulls a brand-new dataset,
+   also add a dedicated `actions/cache` step in `.github/workflows/docs.yml`
+   keyed off the same prefetch file (see the existing cache steps as a template).
 
 #### Adding new example scripts
 
@@ -77,9 +78,12 @@ and executes them automatically. To add a new example:
 1. Place the script under the appropriate subdirectory in `docs/examples/`.
 2. Add the built output path (`docs/examples/_built/<subdir>/<name>.md`) to the `nav`
    in `zensical.toml`.
-3. **Cache**: no manual update needed. The gallery cache key in
-   `.github/workflows/docs.yml` already uses `docs/examples/**/*.py`, so it
-   invalidates automatically when any example script changes.
+3. **Cache**: the gallery cache key in `.github/workflows/docs.yml` already
+   uses `docs/examples/**/*.py`, so it invalidates automatically when any
+   example script changes. If the example loads data, add the matching fetch
+   call to `tools/prefetch_doc_datasets.py` so it is pre-warmed in CI — the
+   gallery renderer enforces light/dark output parity and a cold cache there
+   will fail the build.
 
 ### Linting, Formatting & Type Checking
 - `just pre-commit` (or `just pc`) - Run all pre-commit hooks (recommended)

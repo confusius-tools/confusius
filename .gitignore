@@ -31,4 +31,4 @@ eda.py
 # Examples gallery (generated)
 docs/examples/_built/
 docs/examples/index.md
-.cache/gallery/
+.gallery-cache/

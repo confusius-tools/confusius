@@ -12,7 +12,6 @@ import jupytext
 import nbformat
 from jupyter_client.manager import KernelManager
 from nbclient import NotebookClient
-from nbclient.exceptions import CellExecutionError
 
 OnCellExecuted = Callable[..., None]
 """Hook invoked after each cell finishes.
@@ -95,18 +94,22 @@ def execute_example(
         "{connection_file}",
     ]
 
+    # allow_errors=True lets execution continue past failing cells, so the
+    # traceback ends up as a regular `error` output that the renderer (see
+    # tools/gallery/render.py) inlines into the rendered page — matching what
+    # a normal Jupyter notebook would show after a failed run. A broken
+    # example therefore degrades to "renders with a visible traceback"
+    # instead of aborting the whole gallery build.
     client = NotebookClient(
         notebook,
         km=kernel_manager,
         timeout=timeout,
         on_cell_executed=on_cell_executed,
+        allow_errors=True,
     )
     client.owns_km = True
 
     start = time.perf_counter()
-    try:
-        client.execute()
-    except CellExecutionError as exc:
-        raise RuntimeError(f"Failed to execute {source}: {exc}") from exc
+    client.execute()
     elapsed = time.perf_counter() - start
     return notebook, elapsed
