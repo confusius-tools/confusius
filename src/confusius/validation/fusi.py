@@ -8,7 +8,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import POSE_DIM, SPATIAL_DIMS, TIME_DIM
-from confusius._utils import get_coordinate_spacing_info
+from confusius._utils.coordinates import get_coordinate_spacing_info
 
 _ALLOWED_CORE_DIMS = (TIME_DIM, POSE_DIM, *SPATIAL_DIMS)
 """Core dimension names recognized by ConfUSIus fUSI validators."""
