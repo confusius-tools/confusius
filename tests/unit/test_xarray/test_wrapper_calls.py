@@ -377,6 +377,18 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
     monkeypatch.setattr("confusius.xarray.plotting.plot_composite", _composite)
 
     viewer = object()
+    assert sample_3d_volume.fusi.plot(show_scale_bar=False) == ("viewer", "layer")
+    assert calls["napari"] == (
+        sample_3d_volume,
+        {
+            "show_colorbar": True,
+            "show_scale_bar": False,
+            "dim_order": None,
+            "viewer": None,
+            "layer_type": "image",
+        },
+    )
+
     assert sample_3d_volume.fusi.plot.napari(
         show_colorbar=False,
         show_scale_bar=False,
