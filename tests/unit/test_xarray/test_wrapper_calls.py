@@ -304,8 +304,42 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
     )
 
 
-def test_connectivity_seed_map_constructs_and_fits(sample_4d_volume, sample_roi_labels, monkeypatch):
-    """Connectivity wrapper creates SeedBasedMaps with kwargs and calls fit."""
+def test_connectivity_seed_map_with_masks_constructs_and_fits(
+    sample_4d_volume, sample_roi_labels, monkeypatch
+):
+    """Connectivity wrapper forwards mask-based seed-map arguments."""
+    calls: dict[str, object] = {}
+
+    class DummySeedBasedMaps:
+        def __init__(self, **kwargs):
+            calls["init_kwargs"] = kwargs
+
+        def fit(self, data):
+            calls["fit_data"] = data
+            return self
+
+    monkeypatch.setattr("confusius.connectivity.SeedBasedMaps", DummySeedBasedMaps)
+
+    result = sample_4d_volume.fusi.connectivity.seed_map(
+        seed_masks=sample_roi_labels,
+        labels_reduction="median",
+        clean_kwargs={"detrend_order": 1},
+    )
+
+    assert isinstance(result, DummySeedBasedMaps)
+    assert calls["fit_data"] is sample_4d_volume
+    assert calls["init_kwargs"] == {
+        "seed_masks": sample_roi_labels,
+        "seed_signals": None,
+        "labels_reduction": "median",
+        "clean_kwargs": {"detrend_order": 1},
+    }
+
+
+def test_connectivity_seed_map_with_signals_constructs_and_fits(
+    sample_4d_volume, monkeypatch
+):
+    """Connectivity wrapper forwards signal-based seed-map arguments."""
     calls: dict[str, object] = {}
 
     class DummySeedBasedMaps:
@@ -320,19 +354,18 @@ def test_connectivity_seed_map_constructs_and_fits(sample_4d_volume, sample_roi_
 
     seed_signals = xr.DataArray(np.ones((3, 2)), dims=["time", "region"])
     result = sample_4d_volume.fusi.connectivity.seed_map(
-        seed_masks=sample_roi_labels,
         seed_signals=seed_signals,
-        labels_reduction="median",
-        clean_kwargs={"detrend_order": 1},
+        labels_reduction="std",
+        clean_kwargs={"detrend_order": 2},
     )
 
     assert isinstance(result, DummySeedBasedMaps)
     assert calls["fit_data"] is sample_4d_volume
     assert calls["init_kwargs"] == {
-        "seed_masks": sample_roi_labels,
+        "seed_masks": None,
         "seed_signals": seed_signals,
-        "labels_reduction": "median",
-        "clean_kwargs": {"detrend_order": 1},
+        "labels_reduction": "std",
+        "clean_kwargs": {"detrend_order": 2},
     }
 
 
