@@ -537,3 +537,24 @@ class TestAffineApplyMethod:
             result.coords["y"].values, da.coords["y"].values + 5.0
         )
         assert "x" not in result.coords
+
+    def test_unexpected_affine_shape_is_passed_through(self):
+        """Unexpected stored affine shapes are kept unchanged."""
+        weird = np.array([1.0, 2.0, 3.0])
+        da = self._make_scan(affines={"weird": weird})
+
+        result = da.fusi.affine.apply(np.eye(4))
+
+        np.testing.assert_allclose(result.attrs["affines"]["weird"], weird)
+
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        da = self._make_scan()
+        original_z = da.coords["z"].values.copy()
+        shift = np.eye(4)
+        shift[0, 3] = 2.0
+
+        returned = da.fusi.affine.apply(shift, inplace=True)
+
+        assert returned is da
+        np.testing.assert_allclose(da.coords["z"].values, original_z + 2.0)
