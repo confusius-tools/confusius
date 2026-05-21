@@ -6,7 +6,7 @@ on:
 
 jobs:
   cleanup:
-    if: secrets.DOCS_DEPLOY_TOKEN != ''
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
@@ -50,6 +50,6 @@ jobs:
           fi
 
       - name: Delete preview comment
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: marocchino/sticky-pull-request-comment@v3
         with:
           delete: true
