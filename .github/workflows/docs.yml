@@ -154,7 +154,7 @@ jobs:
 
   deploy-preview:
     needs: build
-    if: github.event_name == 'pull_request' && secrets.DOCS_DEPLOY_TOKEN != ''
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
@@ -215,7 +215,7 @@ jobs:
 
   deploy-docs:
     needs: build
-    if: github.event_name != 'pull_request' && secrets.DOCS_DEPLOY_TOKEN != ''
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
