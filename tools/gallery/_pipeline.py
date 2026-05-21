@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -75,6 +76,25 @@ def _write_cached_artifacts(
     return None
 
 
+def _rewrite_binder_button(md_path: Path, binder_url: str | None) -> None:
+    """Rewrite the Binder button URL in one rendered Markdown page.
+
+    This lets expensive gallery execution/render artifacts stay branch-agnostic in
+    cache while still stamping the current branch/ref into the final page.
+    """
+    if binder_url is None or not md_path.is_file():
+        return
+
+    markdown = md_path.read_text(encoding="utf-8")
+    updated = re.sub(
+        r"\[Launch in Binder\]\([^)]*\)\{ \.md-button \.md-button--primary \}",
+        f"[Launch in Binder]({binder_url}){{ .md-button .md-button--primary }}",
+        markdown,
+    )
+    if updated != markdown:
+        md_path.write_text(updated, encoding="utf-8")
+
+
 def _make_progress() -> Progress:
     """Return a rich Progress configured for the gallery builder."""
     return Progress(
@@ -130,6 +150,7 @@ def _build_one(
     if cache_entry.is_dir():
         progress.add_task(f"{spec.section}/{base_name} [cached]", total=1, completed=1)
         thumb = _write_cached_artifacts(cache_entry, out_dir, base_name)
+        _rewrite_binder_button(out_dir / f"{base_name}.md", binder_url)
         return RenderedExample(
             spec=spec,
             title=title,
