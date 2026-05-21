@@ -97,6 +97,68 @@ class TestFirstLevelModelFit:
         assert_allclose(z_map.coords["y"].values, fusi_data.coords["y"].values)
         assert_allclose(z_map.coords["x"].values, fusi_data.coords["x"].values)
 
+    def test_fit_with_mask_sets_outside_voxels_to_zero(self, fusi_data, events):
+        """Mask limits fitted voxels and keeps full output geometry."""
+        mask = xr.DataArray(
+            np.zeros(
+                (
+                    fusi_data.sizes["z"],
+                    fusi_data.sizes["y"],
+                    fusi_data.sizes["x"],
+                ),
+                dtype=bool,
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": fusi_data.coords["z"],
+                "y": fusi_data.coords["y"],
+                "x": fusi_data.coords["x"],
+            },
+        )
+        mask.values[0, :, :] = True
+
+        model = FirstLevelModel(noise_model="ols", mask=mask)
+        model.fit(fusi_data, events=events)
+        z_map = model.compute_contrast("A")
+
+        outside = z_map.where(~mask, other=np.nan)
+        np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
+
+    def test_masked_f_contrast_effect_keeps_contrast_dim(self, fusi_data, events):
+        """Masked F-contrast effect maps keep `contrast_dim` and zero-fill outside mask."""
+        mask = xr.DataArray(
+            np.zeros(
+                (
+                    fusi_data.sizes["z"],
+                    fusi_data.sizes["y"],
+                    fusi_data.sizes["x"],
+                ),
+                dtype=bool,
+            ),
+            dims=["z", "y", "x"],
+            coords={
+                "z": fusi_data.coords["z"],
+                "y": fusi_data.coords["y"],
+                "x": fusi_data.coords["x"],
+            },
+        )
+        mask.values[:, 0, :] = True
+
+        model = FirstLevelModel(noise_model="ols", mask=mask)
+        model.fit(fusi_data, events=events)
+        dm = model.design_matrices_[0]
+        a_idx = list(dm.columns).index("A")
+        b_idx = list(dm.columns).index("B")
+        c = np.zeros((2, len(dm.columns)))
+        c[0, a_idx] = 1.0
+        c[1, b_idx] = 1.0
+
+        e_map = model.compute_contrast(c, stat_type="F", output_type="effect")
+
+        assert e_map.dims == ("contrast_dim", "z", "y", "x")
+        outside = e_map.where(~mask, other=np.nan)
+        np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
+
     def test_consensus_attrs_propagated_across_runs(self, fusi_data, events):
         """Attributes equal across all runs propagate to the contrast map."""
         run_a = fusi_data.copy()
