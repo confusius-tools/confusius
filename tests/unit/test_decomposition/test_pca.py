@@ -23,29 +23,29 @@ def test_feature_names_in_for_string_feature_labels():
 
 
 @pytest.mark.parametrize("mode", ["temporal", "spatial"])
-def test_fit_transform_matches_fit_then_transform(sample_4d_volume, mode):
+def test_fit_transform_matches_fit_then_transform(sample_3dt_volume, mode):
     """fit_transform matches calling fit followed by transform."""
     model_direct = PCA(n_components=6, random_state=0, mode=mode)
-    direct = model_direct.fit_transform(sample_4d_volume)
+    direct = model_direct.fit_transform(sample_3dt_volume)
 
     model_two_step = PCA(n_components=6, random_state=0, mode=mode)
-    two_step = model_two_step.fit(sample_4d_volume).transform(sample_4d_volume)
+    two_step = model_two_step.fit(sample_3dt_volume).transform(sample_3dt_volume)
 
     xr.testing.assert_identical(direct, two_step)
 
 
-def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
+def test_wrapper_matches_sklearn_attributes(sample_3dt_volume):
     """Temporal wrapper exposes the same learned quantities as sklearn PCA."""
-    stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
+    stacked = sample_3dt_volume.transpose("time", "z", "y", "x").stack(
         feature=["z", "y", "x"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
     sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X)
 
     np.testing.assert_allclose(
-        model.transform(sample_4d_volume).values,
+        model.transform(sample_3dt_volume).values,
         sklearn_model.transform(X),
     )
     np.testing.assert_allclose(
@@ -72,43 +72,43 @@ def test_wrapper_matches_sklearn_attributes(sample_4d_volume):
     assert model.noise_variance_ == sklearn_model.noise_variance_
 
 
-def test_inverse_transform_reconstructs_with_all_components(sample_4d_volume):
+def test_inverse_transform_reconstructs_with_all_components(sample_3dt_volume):
     """Using all components reconstructs the original data."""
     model = PCA(random_state=0)
 
-    signals = model.fit_transform(sample_4d_volume)
+    signals = model.fit_transform(sample_3dt_volume)
     reconstructed = model.inverse_transform(signals)
 
-    assert reconstructed.dims == sample_4d_volume.dims
+    assert reconstructed.dims == sample_3dt_volume.dims
     np.testing.assert_allclose(
-        reconstructed.coords["time"], sample_4d_volume.coords["time"]
+        reconstructed.coords["time"], sample_3dt_volume.coords["time"]
     )
     np.testing.assert_allclose(
-        reconstructed.values, sample_4d_volume.values, atol=1e-10
+        reconstructed.values, sample_3dt_volume.values, atol=1e-10
     )
-    assert reconstructed.name == sample_4d_volume.name
-    assert reconstructed.attrs == sample_4d_volume.attrs
+    assert reconstructed.name == sample_3dt_volume.name
+    assert reconstructed.attrs == sample_3dt_volume.attrs
 
 
-def test_inverse_transform_from_numpy_returns_dataarray(sample_4d_volume):
+def test_inverse_transform_from_numpy_returns_dataarray(sample_3dt_volume):
     """inverse_transform accepts ndarray input and returns DataArray."""
     model = PCA(n_components=5, random_state=0)
-    scores = model.fit_transform(sample_4d_volume).values
+    scores = model.fit_transform(sample_3dt_volume).values
 
     reconstructed = model.inverse_transform(scores)
 
     assert isinstance(reconstructed, xr.DataArray)
-    assert reconstructed.dims == sample_4d_volume.dims
+    assert reconstructed.dims == sample_3dt_volume.dims
     np.testing.assert_array_equal(
-        reconstructed.coords["time"], np.arange(sample_4d_volume.sizes["time"])
+        reconstructed.coords["time"], np.arange(sample_3dt_volume.sizes["time"])
     )
 
 
-def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_4d_volume):
+def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_3dt_volume):
     """inverse_transform raises when DataArray dims are not time/component."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
     bad = xr.DataArray(
-        np.zeros((sample_4d_volume.sizes["time"], 4)),
+        np.zeros((sample_3dt_volume.sizes["time"], 4)),
         dims=["time", "region"],
     )
 
@@ -116,43 +116,43 @@ def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_4d_volume):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_component_count_mismatch(sample_4d_volume):
+def test_inverse_transform_raises_for_component_count_mismatch(sample_3dt_volume):
     """inverse_transform raises when component count differs from fitted PCA."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
-    scores = model.transform(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    scores = model.transform(sample_3dt_volume)
     bad = scores.isel(component=slice(0, 3))
 
     with pytest.raises(ValueError, match="but PCA was fitted with"):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_invalid_numpy_shape(sample_4d_volume):
+def test_inverse_transform_raises_for_invalid_numpy_shape(sample_3dt_volume):
     """inverse_transform raises when ndarray input is not 2D."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
 
     with pytest.raises(ValueError, match="must be 2D"):
-        model.inverse_transform(np.zeros((sample_4d_volume.sizes["time"], 4, 1)))
+        model.inverse_transform(np.zeros((sample_3dt_volume.sizes["time"], 4, 1)))
 
 
-def test_inverse_transform_raises_for_invalid_input_type(sample_4d_volume):
+def test_inverse_transform_raises_for_invalid_input_type(sample_3dt_volume):
     """inverse_transform raises TypeError for unsupported input types."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
         model.inverse_transform([1, 2, 3])
 
 
-def test_fit_requires_time_dimension(sample_4d_volume):
+def test_fit_requires_time_dimension(sample_3dt_volume):
     """fit raises when the input has no `time` dimension."""
-    no_time = sample_4d_volume.isel(time=0, drop=True)
+    no_time = sample_3dt_volume.isel(time=0, drop=True)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
         PCA().fit(no_time)
 
 
-def test_fit_requires_more_than_one_timepoint(sample_4d_volume):
+def test_fit_requires_more_than_one_timepoint(sample_3dt_volume):
     """fit raises when only one timepoint is provided."""
-    single_timepoint = sample_4d_volume.isel(time=[0])
+    single_timepoint = sample_3dt_volume.isel(time=[0])
 
     with pytest.raises(ValueError, match="requires more than 1 timepoint"):
         PCA().fit(single_timepoint)
@@ -166,52 +166,52 @@ def test_fit_requires_spatial_dimension():
         PCA().fit(only_time)
 
 
-def test_fit_rejects_unexpected_fit_params(sample_4d_volume):
+def test_fit_rejects_unexpected_fit_params(sample_3dt_volume):
     """fit raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         PCA().fit(
-            sample_4d_volume,
-            sample_weight=np.ones(sample_4d_volume.sizes["time"]),
+            sample_3dt_volume,
+            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),
         )
 
 
-def test_fit_transform_rejects_unexpected_fit_params(sample_4d_volume):
+def test_fit_transform_rejects_unexpected_fit_params(sample_3dt_volume):
     """fit_transform raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="Unexpected fit parameters"):
         PCA().fit_transform(
-            sample_4d_volume,
-            sample_weight=np.ones(sample_4d_volume.sizes["time"]),
+            sample_3dt_volume,
+            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),
         )
 
 
-def test_transform_checks_spatial_layout(sample_4d_volume):
+def test_transform_checks_spatial_layout(sample_3dt_volume):
     """transform raises if spatial layout differs from fit."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
-    bad = sample_4d_volume.isel(x=slice(0, 4))
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    bad = sample_3dt_volume.isel(x=slice(0, 4))
 
     with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
         model.transform(bad)
 
 
-def test_transform_checks_spatial_dimension_names(sample_4d_volume):
+def test_transform_checks_spatial_dimension_names(sample_3dt_volume):
     """transform raises if spatial dimension names differ from fit."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
-    bad = sample_4d_volume.rename({"x": "region"})
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    bad = sample_3dt_volume.rename({"x": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(sample_4d_volume):
+def test_transform_without_time_coordinate_uses_index(sample_3dt_volume):
     """transform falls back to integer time coordinate when absent."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
     no_time_coord = xr.DataArray(
-        sample_4d_volume.values,
-        dims=sample_4d_volume.dims,
+        sample_3dt_volume.values,
+        dims=sample_3dt_volume.dims,
         coords={
-            "z": sample_4d_volume.coords["z"],
-            "y": sample_4d_volume.coords["y"],
-            "x": sample_4d_volume.coords["x"],
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
         },
     )
 
@@ -219,29 +219,29 @@ def test_transform_without_time_coordinate_uses_index(sample_4d_volume):
 
     np.testing.assert_array_equal(
         transformed.coords["time"].values,
-        np.arange(sample_4d_volume.sizes["time"]),
+        np.arange(sample_3dt_volume.sizes["time"]),
     )
 
 
-def test_transform_chunked_time_reports_transform_operation(sample_4d_volume):
+def test_transform_chunked_time_reports_transform_operation(sample_3dt_volume):
     """transform chunking error message identifies PCA.transform."""
-    model = PCA(n_components=4, random_state=0).fit(sample_4d_volume)
-    chunked = sample_4d_volume.chunk({"time": 5})
+    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    chunked = sample_3dt_volume.chunk({"time": 5})
 
     with pytest.raises(ValueError, match="PCA.transform requires the full time series"):
         model.transform(chunked)
 
 
-def test_sklearn_interface_fitted_state(sample_4d_volume):
+def test_sklearn_interface_fitted_state(sample_3dt_volume):
     """Estimator exposes sklearn fitted-state behavior."""
     model = PCA(n_components=3, random_state=0)
     with pytest.raises(Exception):
         check_is_fitted(model)
 
-    check_is_fitted(model.fit(sample_4d_volume))
+    check_is_fitted(model.fit(sample_3dt_volume))
 
 
-def test_fit_failure_does_not_mark_estimator_fitted(sample_4d_volume, monkeypatch):
+def test_fit_failure_does_not_mark_estimator_fitted(sample_3dt_volume, monkeypatch):
     """Estimator remains unfitted when underlying sklearn PCA fit fails."""
     import confusius.decomposition.pca as pca_module
 
@@ -252,7 +252,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_4d_volume, monkeypatc
 
     model = PCA(n_components=3, random_state=0)
     with pytest.raises(RuntimeError, match="fit failed"):
-        model.fit(sample_4d_volume)
+        model.fit(sample_3dt_volume)
 
     assert not hasattr(model, "_estimator")
     assert not model.__sklearn_is_fitted__()
@@ -297,26 +297,26 @@ def test_set_params_updates_values():
     assert model.mode == "spatial"
 
 
-def test_randomized_solver_reproducible_with_random_state(sample_4d_volume):
+def test_randomized_solver_reproducible_with_random_state(sample_3dt_volume):
     """Randomized solver gives reproducible results with fixed random_state."""
     model_1 = PCA(n_components=3, svd_solver="randomized", random_state=0)
     model_2 = PCA(n_components=3, svd_solver="randomized", random_state=0)
 
-    signals_1 = model_1.fit_transform(sample_4d_volume)
-    signals_2 = model_2.fit_transform(sample_4d_volume)
+    signals_1 = model_1.fit_transform(sample_3dt_volume)
+    signals_2 = model_2.fit_transform(sample_3dt_volume)
 
     np.testing.assert_allclose(signals_1.values, signals_2.values)
     np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
 
 
-def test_spatial_mode_matches_reference_implementation(sample_4d_volume):
+def test_spatial_mode_matches_reference_implementation(sample_3dt_volume):
     """Spatial mode matches sklearn PCA fitted on transposed data."""
-    stacked = sample_4d_volume.transpose("time", "z", "y", "x").stack(
+    stacked = sample_3dt_volume.transpose("time", "z", "y", "x").stack(
         feature=["z", "y", "x"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = PCA(n_components=4, random_state=0, mode="spatial").fit(sample_4d_volume)
+    model = PCA(n_components=4, random_state=0, mode="spatial").fit(sample_3dt_volume)
     sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X.T)
 
     spatial_maps = sklearn_model.transform(X.T).T
@@ -325,7 +325,7 @@ def test_spatial_mode_matches_reference_implementation(sample_4d_volume):
     reference_reconstructed = reference_signals @ spatial_maps + voxel_mean
 
     np.testing.assert_allclose(
-        model.transform(sample_4d_volume).values,
+        model.transform(sample_3dt_volume).values,
         reference_signals,
     )
     np.testing.assert_allclose(
@@ -337,14 +337,14 @@ def test_spatial_mode_matches_reference_implementation(sample_4d_volume):
         voxel_mean,
     )
     np.testing.assert_allclose(
-        model.inverse_transform(model.transform(sample_4d_volume))
+        model.inverse_transform(model.transform(sample_3dt_volume))
         .stack(feature=["z", "y", "x"])
         .values,
         reference_reconstructed,
     )
 
 
-def test_fit_raises_for_invalid_mode(sample_4d_volume):
+def test_fit_raises_for_invalid_mode(sample_3dt_volume):
     """fit raises for unsupported PCA mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
-        PCA(mode="invalid").fit(sample_4d_volume)  # type: ignore[arg-type]
+        PCA(mode="invalid").fit(sample_3dt_volume)  # type: ignore[arg-type]

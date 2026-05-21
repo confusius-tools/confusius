@@ -1,7 +1,7 @@
 """Shared fixtures for GLM tests.
 
 Mirrors the conventions of the project-wide
-[`sample_4d_volume`][tests.unit.conftest.sample_4d_volume] fixture (mm spatial
+[`sample_3dt_volume`][tests.unit.conftest.sample_3dt_volume] fixture (mm spatial
 coordinates, units/attrs metadata) but uses the longer time series GLM model
 fitting needs to estimate conditions plus drift cleanly.
 """

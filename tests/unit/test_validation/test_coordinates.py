@@ -148,18 +148,18 @@ def test_validate_matching_coordinates_raises_on_shape_mismatch():
         validate_matching_coordinates(left, right, "time")
 
 
-def test_validate_mask_accepts_scalar_attached_coordinate(sample_4d_volume):
+def test_validate_mask_accepts_scalar_attached_coordinate(sample_3dt_volume):
     """Single selected masks validate even if they keep a scalar `mask` coord."""
     mask = xr.DataArray(
-        np.zeros((2, *sample_4d_volume.shape[1:]), dtype=int),
+        np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int),
         dims=["mask", "z", "y", "x"],
         coords={
             "mask": ["roi_a", "roi_b"],
-            "z": sample_4d_volume.coords["z"],
-            "y": sample_4d_volume.coords["y"],
-            "x": sample_4d_volume.coords["x"],
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
         },
     )
     mask[0, 0, :, :] = 1
 
-    validate_mask(mask.isel(mask=0), sample_4d_volume)
+    validate_mask(mask.isel(mask=0), sample_3dt_volume)

@@ -87,8 +87,8 @@ class TestXaxisDimIndex:
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": sample_3d_volume})
         assert plotter._xaxis_dim_index(layer) == 0
 
-    def test_returns_zero_when_time_is_first_dim(self, plotter, sample_4d_volume):
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_4d_volume})
+    def test_returns_zero_when_time_is_first_dim(self, plotter, sample_3dt_volume):
+        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_3dt_volume})
         assert plotter._xaxis_dim_index(layer) == 0
 
     def test_returns_correct_index_when_time_is_not_first(self, plotter):
@@ -144,10 +144,10 @@ class TestActiveLayer:
         assert plotter._active_layer() is None
 
     def test_returns_layer_for_valid_image_with_xarray(
-        self, viewer, plotter, sample_4d_volume
+        self, viewer, plotter, sample_3dt_volume
     ):
         layer = viewer.add_image(
-            sample_4d_volume.values, metadata={"xarray": sample_4d_volume}
+            sample_3dt_volume.values, metadata={"xarray": sample_3dt_volume}
         )
         assert plotter._active_layer() is layer
 
@@ -159,10 +159,10 @@ class TestActiveLayer:
 
 class TestOnMouseMove:
     def test_shift_updates_cursor_pos_and_current_layer(
-        self, viewer, plotter, sample_4d_volume
+        self, viewer, plotter, sample_3dt_volume
     ):
         layer = viewer.add_image(
-            sample_4d_volume.values, metadata={"xarray": sample_4d_volume}
+            sample_3dt_volume.values, metadata={"xarray": sample_3dt_volume}
         )
         viewer.layers.selection.active = layer
         plotter._on_mouse_move(viewer, _FakeEventShift())
@@ -192,10 +192,10 @@ class TestGetXaxisCoords:
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
         assert plotter._get_xaxis_coords(layer) is None
 
-    def test_returns_correct_coords(self, plotter, sample_4d_volume):
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_4d_volume})
+    def test_returns_correct_coords(self, plotter, sample_3dt_volume):
+        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_3dt_volume})
         coords = plotter._get_xaxis_coords(layer)
-        npt.assert_array_equal(coords, sample_4d_volume.coords["time"].values)
+        npt.assert_array_equal(coords, sample_3dt_volume.coords["time"].values)
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +213,9 @@ class TestGetXaxisLabel:
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
         assert plotter._get_xaxis_label(layer) == "Time"
 
-    def test_uses_units_from_time_coord(self, plotter, sample_4d_volume):
-        # sample_4d_volume has time attrs={"units": "s"}, no long_name.
-        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_4d_volume})
+    def test_uses_units_from_time_coord(self, plotter, sample_3dt_volume):
+        # sample_3dt_volume has time attrs={"units": "s"}, no long_name.
+        layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_3dt_volume})
         assert plotter._get_xaxis_label(layer) == "Time (s)"
 
     def test_uses_long_name_and_units(self, plotter):
@@ -393,12 +393,12 @@ class TestVideoLayerInteraction:
     """
 
     @pytest.fixture
-    def fusi_layer(self, viewer, sample_4d_volume):
+    def fusi_layer(self, viewer, sample_3dt_volume):
         """Add a real fUSI layer with xarray metadata to the viewer."""
         from confusius.plotting import plot_napari
 
         _, layer = plot_napari(
-            sample_4d_volume,
+            sample_3dt_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -452,14 +452,14 @@ class TestVideoLayerInteraction:
         assert plotter._current_layer is fusi_layer
 
     def test_cursor_uses_world_value_when_video_selected(
-        self, viewer, plotter, fusi_layer, video_layer, sample_4d_volume
+        self, viewer, plotter, fusi_layer, video_layer, sample_3dt_volume
     ):
         """The x-axis cursor uses the world value directly (no snapping)
         even when the fUSI layer is retained as _current_layer.  This
         keeps the cursor in exact sync with the time overlay.
         """
         plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_4d_volume.coords["time"].values)
+        plotter._xaxis_coords = np.array(sample_3dt_volume.coords["time"].values)
         plotter._xaxis_dim = "time"
 
         # Select the video layer (doesn't change _current_layer).
@@ -470,26 +470,26 @@ class TestVideoLayerInteraction:
         assert result == pytest.approx(2.0)
 
     def test_click_to_navigate_works_when_video_selected(
-        self, plotter, fusi_layer, sample_4d_volume
+        self, plotter, fusi_layer, sample_3dt_volume
     ):
         """_x_to_frame must still convert xarray coords to frame indices
         when _xaxis_coords is retained from the fUSI layer.
         """
         plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_4d_volume.coords["time"].values)
+        plotter._xaxis_coords = np.array(sample_3dt_volume.coords["time"].values)
 
         # Click on x=11.0 in the plot -> should map to frame index 2.
         frame = plotter._x_to_frame(11.0)
         assert frame == pytest.approx(2.0)
 
     def test_flush_cursor_with_fusi_retained_after_video_selection(
-        self, viewer, plotter, fusi_layer, video_layer, sample_4d_volume
+        self, viewer, plotter, fusi_layer, video_layer, sample_3dt_volume
     ):
         """_flush_cursor must use the world value directly (no snapping)
         when the video layer is selected but _current_layer is the fUSI.
         """
         plotter._current_layer = fusi_layer
-        plotter._xaxis_coords = np.array(sample_4d_volume.coords["time"].values)
+        plotter._xaxis_coords = np.array(sample_3dt_volume.coords["time"].values)
         plotter._xaxis_dim = "time"
 
         plotter._vline = plotter._axes.axvline(0, color="red", animated=True)
@@ -520,12 +520,12 @@ class TestPanelXaxisWithVideoLayer:
     """
 
     @pytest.fixture
-    def fusi_layer(self, viewer, sample_4d_volume):
+    def fusi_layer(self, viewer, sample_3dt_volume):
         """Add a real fUSI layer with xarray metadata to the viewer."""
         from confusius.plotting import plot_napari
 
         _, layer = plot_napari(
-            sample_4d_volume,
+            sample_3dt_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -670,10 +670,10 @@ class TestUpdatePlotXlim:
 
 class TestTsvExport:
     def test_writes_time_first_column_for_current_plot(
-        self, plotter, tmp_path, sample_4d_volume
+        self, plotter, tmp_path, sample_3dt_volume
     ):
-        data = np.asarray(sample_4d_volume)
-        layer = _Layer(data, metadata={"xarray": sample_4d_volume})
+        data = np.asarray(sample_3dt_volume)
+        layer = _Layer(data, metadata={"xarray": sample_3dt_volume})
         layer.name = "signal"
 
         plotter._current_layer = layer
@@ -687,7 +687,7 @@ class TestTsvExport:
         assert rows[0] == ["time", "signal"]
         assert [row[0] for row in rows[1:]] == [
             format_export_value(value)
-            for value in sample_4d_volume.coords["time"].values
+            for value in sample_3dt_volume.coords["time"].values
         ]
         assert [row[1] for row in rows[1:]] == [
             format_export_value(value) for value in data[:, 1, 2, 3]

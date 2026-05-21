@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
+from typing import Literal
 
 import numpy as np
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
+
+RegularSpacingDims = Literal["all", "spatial"] | Sequence[str]
+"""Selector for dimensions that must satisfy regular-spacing checks."""
 
 _ALLOWED_CORE_DIMS = CORE_DIMS
 """Core dimension names recognized by ConfUSIus fUSI validators."""
@@ -146,8 +150,9 @@ def _validate_required_coordinate_attrs(
 def _validate_regular_spacing(
     da: xr.DataArray,
     regular_spacing_tolerance: float,
+    regular_spacing_dims: RegularSpacingDims,
 ) -> None:
-    """Validate that numeric dimension coordinates have regular spacing.
+    """Validate that selected numeric coordinates have regular spacing.
 
     Parameters
     ----------
@@ -155,17 +160,35 @@ def _validate_regular_spacing(
         DataArray whose numeric dimension coordinates should be checked.
     regular_spacing_tolerance : float
         Relative tolerance used to assess regularity.
+    regular_spacing_dims : {"all", "spatial"} or sequence[str]
+        Dimensions to validate. `"all"` checks all numeric dimensions, `"spatial"`
+        checks only present spatial dimensions, and a sequence checks only listed
+        dimensions.
 
     Raises
     ------
     ValueError
-        If a numeric dimension coordinate has non-uniform or undefined spacing.
+        If `regular_spacing_dims` is invalid, references missing dimensions, or if a
+        selected numeric coordinate has non-uniform or undefined spacing.
     """
-    for dim in da.dims:
+    if regular_spacing_dims == "all":
+        dims_to_check = [str(dim) for dim in da.dims]
+    elif regular_spacing_dims == "spatial":
+        dims_to_check = [dim for dim in SPATIAL_DIMS if dim in da.dims]
+    else:
+        dims_to_check = [str(dim) for dim in regular_spacing_dims]
+        missing_dims = [dim for dim in dims_to_check if dim not in da.dims]
+        if missing_dims:
+            raise ValueError(
+                "regular_spacing_dims contains dimensions not present in data: "
+                f"{missing_dims!r}. Present dims: {tuple(str(dim) for dim in da.dims)!r}."
+            )
+
+    for dim in dims_to_check:
         coord = da.coords[dim]
         if not np.issubdtype(coord.dtype, np.number):
             continue
-        spacing = get_coordinate_spacing_info(str(dim), da, regular_spacing_tolerance)
+        spacing = get_coordinate_spacing_info(dim, da, regular_spacing_tolerance)
         if spacing.value is None:
             raise ValueError(
                 f"Coordinate {dim!r} must have regular spacing, but spacing is "
@@ -182,6 +205,7 @@ def validate_fusi_dataarray(
     minimum_spatial_dims: int = 2,
     require_regular_spacing: bool = False,
     regular_spacing_tolerance: float = 1e-2,
+    regular_spacing_dims: RegularSpacingDims = "spatial",
     require_canonical_dim_order: bool = False,
     require_spatial_voxdim: bool = False,
     require_spatial_units: bool = False,
@@ -218,6 +242,11 @@ def validate_fusi_dataarray(
         Whether numeric dimension coordinates must have regular spacing.
     regular_spacing_tolerance : float, default: 1e-2
         Relative tolerance used to assess coordinate regularity.
+    regular_spacing_dims : {"all", "spatial"} or sequence[str], default: "spatial"
+        Dimensions that must satisfy regular-spacing checks when
+        `require_regular_spacing=True`. Use `"spatial"` (present `z`, `y`, `x`
+        dimensions only), `"all"` for all numeric dimensions, or a sequence for
+        explicit dimension names.
     require_canonical_dim_order : bool, default: False
         Whether the ConfUSIus core dimensions present in the DataArray must appear in
         canonical relative order `(time, pose, z, y, x)`.
@@ -267,7 +296,11 @@ def validate_fusi_dataarray(
         )
 
     if require_regular_spacing:
-        _validate_regular_spacing(data, regular_spacing_tolerance)
+        _validate_regular_spacing(
+            data,
+            regular_spacing_tolerance,
+            regular_spacing_dims,
+        )
 
     if require_canonical_dim_order:
         _validate_canonical_core_dim_order(data)

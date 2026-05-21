@@ -217,6 +217,7 @@ def compute_framewise_displacement(
         allow_extra_dims=False,
         minimum_spatial_dims=2,
         require_regular_spacing=True,
+        regular_spacing_dims="spatial",
     )
 
     n_frames = len(affines)

@@ -31,9 +31,9 @@ class TestSmoothVolume:
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
-    def test_matches_scipy_4d_skips_time(self, sample_4d_volume):
+    def test_matches_scipy_4d_skips_time(self, sample_3dt_volume):
         """Time dimension should not be smoothed (sigma=0)."""
-        vol = sample_4d_volume
+        vol = sample_3dt_volume
         fwhm = 0.4
 
         smoothed = smooth_volume(vol, fwhm=fwhm)
@@ -95,9 +95,9 @@ class TestSmoothVolume:
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
-    def test_fwhm_dict_can_smooth_time(self, sample_4d_volume):
+    def test_fwhm_dict_can_smooth_time(self, sample_3dt_volume):
         """A dict FWHM should be able to target non-spatial dimensions like time."""
-        vol = sample_4d_volume
+        vol = sample_3dt_volume
         fwhm_dict = {"time": 1.0}
 
         smoothed = smooth_volume(vol, fwhm=fwhm_dict)
@@ -206,10 +206,10 @@ class TestSmoothVolume:
 
         assert not np.isnan(smoothed.values).any()
 
-    def test_dask_chunked_time_ok(self, sample_4d_volume):
+    def test_dask_chunked_time_ok(self, sample_3dt_volume):
         """Dask arrays chunked along time (not spatial dims) should work."""
         pytest.importorskip("dask.array")
-        vol = sample_4d_volume
+        vol = sample_3dt_volume
         vol_dask = vol.chunk({"time": 5})  # Only time is chunked.
 
         smoothed = smooth_volume(vol_dask, fwhm=0.3)
