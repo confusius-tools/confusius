@@ -224,6 +224,17 @@ class TestSmoothVolume:
         with pytest.raises(ValueError, match="not present in the DataArray"):
             smooth_volume(sample_3d_volume, fwhm={"z": 0.3, "nonexistent": 0.3})
 
+    def test_re_raises_non_missing_coord_validation_error(self, monkeypatch):
+        """Non-missing-coordinate validation errors should be re-raised."""
+
+        def _raise(*args, **kwargs):
+            raise ValueError("boom")
+
+        monkeypatch.setattr("confusius.spatial.smooth.validate_fusi_dataarray", _raise)
+
+        with pytest.raises(ValueError, match="boom"):
+            smooth_volume(xr.DataArray(np.ones((2, 3))), fwhm=0.3)
+
     def test_raises_nonuniform_spacing(self):
         """Should raise ValueError if a smoothed dim has non-uniform spacing."""
         coords = np.concatenate([np.arange(5), np.arange(6, 12)]) * 0.1
