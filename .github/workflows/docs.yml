@@ -154,7 +154,7 @@ jobs:
 
   deploy-preview:
     needs: build
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && secrets.DOCS_DEPLOY_TOKEN != ''
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
@@ -215,7 +215,7 @@ jobs:
 
   deploy-docs:
     needs: build
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && secrets.DOCS_DEPLOY_TOKEN != ''
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
