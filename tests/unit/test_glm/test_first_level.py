@@ -559,6 +559,27 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="noise_model"):
             model.fit(fusi_data, events=events)
 
+    def test_mask_must_cover_all_non_time_dims(self, frame_times, events):
+        """Mask must span all non-time dims in GLM voxel order."""
+        data = xr.DataArray(
+            np.zeros((len(frame_times), 2, 3, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": frame_times,
+                "z": np.arange(2) * 0.5,
+                "y": np.arange(3) * 0.1,
+                "x": np.arange(4) * 0.1,
+            },
+        )
+        mask = xr.DataArray(
+            np.ones((data.sizes["y"], data.sizes["x"]), dtype=bool),
+            dims=["y", "x"],
+            coords={"y": data.coords["y"], "x": data.coords["x"]},
+        )
+        model = FirstLevelModel(noise_model="ols", mask=mask)
+        with pytest.raises(ValueError, match="match all non-time dimensions"):
+            model.fit(data, events=events)
+
     def test_2d_contrast_too_wide_raises(self, fusi_data, events):
         """2D contrast wider than design columns raises ValueError."""
         model = FirstLevelModel(noise_model="ols")

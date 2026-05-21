@@ -166,6 +166,25 @@ def test_fit_requires_spatial_dimension():
         PCA().fit(only_time)
 
 
+def test_mask_must_match_full_spatial_dims_in_order(sample_4d_volume):
+    """Mask must span all spatial dims in the stacked feature order."""
+    mask = xr.DataArray(
+        np.ones(
+            (sample_4d_volume.sizes["y"], sample_4d_volume.sizes["z"], sample_4d_volume.sizes["x"]),
+            dtype=bool,
+        ),
+        dims=["y", "z", "x"],
+        coords={
+            "y": sample_4d_volume.coords["y"],
+            "z": sample_4d_volume.coords["z"],
+            "x": sample_4d_volume.coords["x"],
+        },
+    )
+
+    with pytest.raises(ValueError, match="must match the full spatial dimensions"):
+        PCA(mask=mask).fit(sample_4d_volume)
+
+
 def test_fit_rejects_unexpected_fit_params(sample_4d_volume):
     """fit raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="unexpected keyword argument"):

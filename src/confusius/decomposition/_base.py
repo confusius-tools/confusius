@@ -277,14 +277,20 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             mask = self.mask
             assert mask is not None
             validate_mask(mask, X_ordered, "mask")
+            if tuple(str(dim) for dim in mask.dims) != spatial_dims:
+                raise ValueError(
+                    "mask dimensions must match the full spatial dimensions of X "
+                    f"in the same order. Expected {spatial_dims}, got {tuple(mask.dims)}."
+                )
 
             template = X_ordered.isel(time=0, drop=True)
             coord_updates = {
                 dim: template.coords[dim]
-                for dim in mask.dims
+                for dim in spatial_dims
                 if dim in mask.coords and dim in template.coords
             }
-            mask_aligned = mask.assign_coords(coord_updates).reindex_like(template)
+            mask_aligned = mask.assign_coords(coord_updates).transpose(*spatial_dims)
+            mask_aligned = mask_aligned.reindex_like(template)
             if bool(mask_aligned.isnull().any()):
                 raise ValueError(
                     "mask could not be aligned to data coordinates. If coordinates are "

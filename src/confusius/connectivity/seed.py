@@ -358,9 +358,17 @@ def _extract_with_labels_from_masked_space(
     reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"],
 ) -> xr.DataArray:
     """Extract region signals from masked `(time, space)` data without unmasking."""
+    spatial_dims = tuple(str(d) for d in mask.dims)
+    labels_spatial_dims = tuple(str(d) for d in labels.dims if d != "mask")
+    if set(labels_spatial_dims) != set(spatial_dims):
+        raise ValueError(
+            "labels spatial dimensions must match mask dimensions for masked "
+            f"extraction. Expected {spatial_dims}, got {labels_spatial_dims}."
+        )
+
     if "mask" in labels.dims:
-        spatial_dims = [d for d in labels.dims if d != "mask"]
-        labels_masked = labels.where(mask, other=0).stack(space=spatial_dims)
+        labels_masked = labels.where(mask, other=0).transpose("mask", *spatial_dims)
+        labels_masked = labels_masked.stack(space=list(spatial_dims))
         labels_masked = labels_masked.sel(space=data.coords["space"])
 
         region_signals: list[xr.DataArray] = []
@@ -377,7 +385,8 @@ def _extract_with_labels_from_masked_space(
             .transpose("time", "region")
         )
 
-    labels_masked = labels.where(mask, other=0).stack(space=list(labels.dims))
+    labels_masked = labels.where(mask, other=0).transpose(*spatial_dims)
+    labels_masked = labels_masked.stack(space=list(spatial_dims))
     labels_masked = labels_masked.sel(space=data.coords["space"])
 
     region_ids = np.unique(labels_masked.values)

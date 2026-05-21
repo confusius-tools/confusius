@@ -536,6 +536,27 @@ class TestMask:
         outside = mapper.maps_.where(~mask, other=np.nan)
         np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
 
+    def test_masked_stacked_labels_handle_permuted_spatial_dim_order(
+        self, data_2d, stacked_labels
+    ):
+        """Masked label extraction aligns stacked labels to mask dim order."""
+        mask = xr.DataArray(
+            np.zeros((data_2d.sizes["z"], data_2d.sizes["x"]), dtype=bool),
+            dims=["z", "x"],
+            coords={"z": data_2d.coords["z"], "x": data_2d.coords["x"]},
+        )
+        mask.values[1:5, :] = True
+
+        mapper = SeedBasedMaps(
+            seed_masks=stacked_labels.transpose("mask", "x", "z"),
+            mask=mask,
+        ).fit(data_2d)
+
+        np.testing.assert_array_equal(
+            mapper.seed_signals_.coords["region"].values,
+            ["roi_a", "roi_b"],
+        )
+
     def test_masked_seed_signals_1d_is_expanded(self, data_2d):
         """Masked seed_signals path expands 1D signals to `(time, region)`."""
         mask = xr.DataArray(
