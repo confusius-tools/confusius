@@ -6,6 +6,7 @@ on:
 
 jobs:
   cleanup:
+    if: secrets.DOCS_DEPLOY_TOKEN != ''
     runs-on: ubuntu-latest
     concurrency:
       group: docs-publish
