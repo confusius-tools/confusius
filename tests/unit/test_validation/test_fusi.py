@@ -15,10 +15,11 @@ def test_validate_fusi_dataarray_accepts_valid_3d(
 
 
 def test_validate_fusi_dataarray_accepts_valid_2dt(
-    sample_2dt_volume: xr.DataArray,
+    sample_3dt_volume: xr.DataArray,
 ) -> None:
     """A canonical 2D+t DataArray also validates successfully."""
-    validate_fusi_dataarray(sample_2dt_volume)
+    data_2dt = sample_3dt_volume.isel(z=0, drop=True)
+    validate_fusi_dataarray(data_2dt)
 
 
 def test_validate_fusi_dataarray_accepts_valid_3dt(
@@ -221,6 +222,60 @@ def test_validate_fusi_dataarray_spatial_regular_spacing_excludes_pose() -> None
     )
 
     validate_fusi_dataarray(data, require_regular_spacing=True)
+
+
+def test_validate_fusi_dataarray_regular_spacing_skips_non_numeric_selected_dims(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """Explicit non-numeric selected dims are ignored."""
+    data = sample_3dt_volume.expand_dims(region=["roi_a", "roi_b"])
+
+    validate_fusi_dataarray(
+        data,
+        require_regular_spacing=True,
+        regular_spacing_dims=["region"],
+    )
+
+
+def test_validate_fusi_dataarray_regular_spacing_all_checks_all_numeric_dims(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`all` mode checks all numeric dimensions."""
+    validate_fusi_dataarray(
+        sample_3dt_volume,
+        require_regular_spacing=True,
+        regular_spacing_dims="all",
+    )
+
+
+def test_validate_fusi_dataarray_regular_spacing_all_skips_non_numeric_dims(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`all` mode ignores non-numeric dimension coordinates."""
+    data = sample_3dt_volume.expand_dims(region=["roi_a", "roi_b"])
+
+    validate_fusi_dataarray(
+        data,
+        require_regular_spacing=True,
+        regular_spacing_dims="all",
+    )
+
+
+def test_validate_fusi_dataarray_regular_spacing_core_checks_time_when_present(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`core` mode includes `time` and rejects irregular time spacing."""
+    n_t = sample_3dt_volume.sizes["time"]
+    bad_time = sample_3dt_volume.assign_coords(
+        time=np.array([0.0, 0.5, 1.0, 1.7, 2.2, *range(5, n_t)], dtype=float)
+    )
+
+    with pytest.raises(ValueError, match="must have regular spacing"):
+        validate_fusi_dataarray(
+            bad_time,
+            require_regular_spacing=True,
+            regular_spacing_dims="core",
+        )
 
 
 def test_validate_fusi_dataarray_can_require_spatial_voxdim(
