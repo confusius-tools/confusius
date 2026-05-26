@@ -276,12 +276,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         if getattr(self, "mask", None) is not None:
             mask = self.mask
             assert mask is not None
-            validate_mask(mask, X_ordered, "mask")
-            if tuple(str(dim) for dim in mask.dims) != spatial_dims:
-                raise ValueError(
-                    "mask dimensions must match the full spatial dimensions of X "
-                    f"in the same order. Expected {spatial_dims}, got {tuple(mask.dims)}."
-                )
+            validate_mask(mask, X_ordered, "mask", require_exact_dims=True)
 
             template = X_ordered.isel(time=0, drop=True)
             coord_updates = {

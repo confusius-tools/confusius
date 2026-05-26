@@ -66,22 +66,6 @@ def _flatten_spatial(
     return values, spatial_dims, spatial_shape
 
 
-def _validate_full_spatial_mask_dims(mask: xr.DataArray, data: xr.DataArray) -> None:
-    """Validate that `mask` covers all non-time dims in the same order.
-
-    First-level GLM currently treats every non-`time` dimension as part of the voxel
-    layout. The mask must therefore span exactly those dimensions in the same order so
-    masked extraction still produces `(time, space)` data.
-    """
-    spatial_dims = tuple(str(d) for d in data.dims if d != "time")
-    mask_dims = tuple(str(d) for d in mask.dims)
-    if mask_dims != spatial_dims:
-        raise ValueError(
-            "mask dimensions must match all non-time dimensions of the input data "
-            f"in the same order. Expected {spatial_dims}, got {mask_dims}."
-        )
-
-
 class FirstLevelModel(BaseEstimator):
     """First-level GLM estimator for voxel-wise fUSI analysis.
 
@@ -234,8 +218,7 @@ class FirstLevelModel(BaseEstimator):
         for i, run in enumerate(run_data):
             validate_time_series(run, f"FirstLevelModel fit (run {i})")
             if self.mask is not None:
-                validate_mask(self.mask, run, "mask")
-                _validate_full_spatial_mask_dims(self.mask, run)
+                validate_mask(self.mask, run, "mask", require_exact_dims=True)
 
         if n_runs > 1:
             ref_run = run_data[0]
