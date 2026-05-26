@@ -170,7 +170,11 @@ def test_mask_must_match_full_spatial_dims_in_order(sample_4d_volume):
     """Mask must span all spatial dims in the stacked feature order."""
     mask = xr.DataArray(
         np.ones(
-            (sample_4d_volume.sizes["y"], sample_4d_volume.sizes["z"], sample_4d_volume.sizes["x"]),
+            (
+                sample_4d_volume.sizes["y"],
+                sample_4d_volume.sizes["z"],
+                sample_4d_volume.sizes["x"],
+            ),
             dtype=bool,
         ),
         dims=["y", "z", "x"],
@@ -181,7 +185,7 @@ def test_mask_must_match_full_spatial_dims_in_order(sample_4d_volume):
         },
     )
 
-    with pytest.raises(ValueError, match="must match the full spatial dimensions"):
+    with pytest.raises(ValueError, match="must match all non-time dimensions"):
         PCA(mask=mask).fit(sample_4d_volume)
 
 
@@ -392,7 +396,6 @@ def test_mask_restricts_features(sample_4d_volume):
     model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_4d_volume)
 
     assert model.n_features_in_ == int(mask.values.sum())
-
 
 
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_4d_volume):
