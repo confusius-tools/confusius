@@ -146,6 +146,25 @@ def test_validate_fusi_dataarray_rejects_missing_dimension_coordinate(
         validate_fusi_dataarray(bad)
 
 
+def test_validate_fusi_dataarray_allows_missing_extra_dimension_coordinate(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """Missing extra-dimension coordinates are allowed."""
+    bad = sample_3dt_volume.expand_dims(region=["roi"]).drop_vars("region")
+
+    validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_still_requires_core_dimension_coordinate(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """Core-dimension coordinates are always required."""
+    bad = sample_3dt_volume.drop_vars("x")
+
+    with pytest.raises(ValueError, match="Missing required coordinate"):
+        validate_fusi_dataarray(bad)
+
+
 def test_validate_fusi_dataarray_rejects_non_numeric_core_coordinate(
     sample_3dt_volume: xr.DataArray,
 ) -> None:
@@ -181,10 +200,10 @@ def test_validate_fusi_dataarray_can_require_regular_spacing(
         validate_fusi_dataarray(bad, require_regular_spacing=True)
 
 
-def test_validate_fusi_dataarray_regular_spacing_can_target_spatial_dims_only(
+def test_validate_fusi_dataarray_regular_spacing_can_target_space_dims_only(
     sample_3dt_volume: xr.DataArray,
 ) -> None:
-    """Spatial-only regular-spacing checks ignore irregular time sampling."""
+    """Space-only regular-spacing checks ignore irregular time sampling."""
     n_t = sample_3dt_volume.sizes["time"]
     bad_time = sample_3dt_volume.assign_coords(
         time=np.array([0.0, 0.5, 1.0, 1.7, 2.2, *range(5, n_t)], dtype=float)
@@ -193,7 +212,7 @@ def test_validate_fusi_dataarray_regular_spacing_can_target_spatial_dims_only(
     validate_fusi_dataarray(
         bad_time,
         require_regular_spacing=True,
-        regular_spacing_dims="spatial",
+        regular_spacing_dims="space",
     )
 
 
@@ -209,8 +228,8 @@ def test_validate_fusi_dataarray_regular_spacing_rejects_missing_selected_dim(
         )
 
 
-def test_validate_fusi_dataarray_spatial_regular_spacing_excludes_pose() -> None:
-    """`spatial` regular-spacing mode does not include the `pose` dimension."""
+def test_validate_fusi_dataarray_space_regular_spacing_excludes_pose() -> None:
+    """`space` regular-spacing mode does not include the `pose` dimension."""
     data = xr.DataArray(
         np.zeros((3, 4, 5), dtype=np.float32),
         dims=("pose", "y", "x"),

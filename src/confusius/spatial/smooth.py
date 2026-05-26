@@ -124,11 +124,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    try:
-        validate_fusi_dataarray(data, minimum_spatial_dims=1)
-    except ValueError as exc:
-        if "Missing required coordinate for dimension" not in str(exc):
-            raise
+    validate_fusi_dataarray(data, minimum_spatial_dims=1)
 
     all_dims = [str(d) for d in data.dims]
 

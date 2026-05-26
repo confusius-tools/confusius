@@ -247,9 +247,9 @@ class TestSmoothVolume:
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_missing_coord(self):
-        """Should raise ValueError if a smoothed dim has no coordinate."""
+        """Should raise ValueError if a core dim has no coordinate."""
         vol = xr.DataArray(np.ones((8, 10, 12)), dims=["z", "y", "x"])
-        with pytest.raises(ValueError, match="non-uniform or undefined coordinate spacing"):
+        with pytest.raises(ValueError, match="Missing required coordinate"):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_unknown_fwhm_key(self, sample_3d_volume):
