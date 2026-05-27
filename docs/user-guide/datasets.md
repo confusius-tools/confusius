@@ -86,6 +86,7 @@ list_datasets()
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
 │ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
 │ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
+│ fetch_template_huang_2025        │ 16.34 MB │    ✗    │
 │ fetch_template_pepe_mariani_2026 │ 5.508 MB │    ✗    │
 └──────────────────────────────────┴──────────┴─────────┘
 ```
@@ -206,6 +207,27 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
 
 ## Available Templates
 
+=== "Huang 2025"
+
+    A vascular mouse fUSI template derived from Huang et al. (2025)[^huang2025] and
+    distributed as a single ConfUSIus-compatible NIfTI on
+    [OSF (am3jw)](https://osf.io/am3jw/). Total size: **~16.3 MB**.
+
+    Use [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] to
+    download and load the template directly:
+
+    ```python
+    from confusius.atlas import Atlas
+    from confusius.datasets import fetch_template_huang_2025
+
+    template = fetch_template_huang_2025()
+    atlas = Atlas.from_brainglobe("allen_mouse_50um")
+    resampled_atlas = atlas.resample_like(
+        template,
+        template.attrs["affines"]["physical_to_sform"],
+    )
+    ```
+
 === "Pepe Mariani 2026"
 
     A mouse fUSI template derived from Pepe, Mariani et al. (2026)[^pepe_mariani2026] and
@@ -241,6 +263,12 @@ parameters and return types.
     Cybis Pereira, F. et al. (2026). A vascular code for speed in the spatial
     navigation system. *Cell Reports*, 45(1).
     <https://doi.org/10.1016/j.celrep.2025.116791>
+
+[^huang2025]:
+    Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
+    framework for the analysis and visualization of functional ultrasound imaging data
+    across animal models.
+    <https://doi.org/10.1101/2025.09.16.676515>
 
 [^pepe_mariani2026]:
     Pepe, C. et al. (2026). Structural and dynamic embedding of the mouse

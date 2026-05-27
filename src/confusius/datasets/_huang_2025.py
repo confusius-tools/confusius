@@ -1,4 +1,4 @@
-"""Fetcher for the Pepe, Mariani et al. (2026) fUSI template."""
+"""Fetcher for the Huang et al. (2025) vascular fUSI template."""
 
 from __future__ import annotations
 
@@ -13,10 +13,10 @@ from confusius.io.loadsave import load
 from ._pooch import quiet_pooch_logger, retrieve_with_retries
 from ._utils import get_datasets_dir
 
-_OSF_PROJECT_ID = "43tu9"
-_TEMPLATE_ROOT = "pepe-mariani-2026-template"
-_FILENAME = "pepe-mariani-2026-fusi-template.nii.gz"
-_TOTAL_SIZE_BYTES = 5_507_550
+_OSF_PROJECT_ID = "am3jw"
+_TEMPLATE_ROOT = "huang-2025-template"
+_FILENAME = "huang-2026-space-allen50_desc-vascular.nii.gz"
+_TOTAL_SIZE_BYTES = 16_338_947
 
 
 def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
@@ -24,13 +24,13 @@ def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
 
     Parameters
     ----------
-    project_id : str, default: "43tu9"
+    project_id : str, default: "am3jw"
         OSF project identifier.
 
     Returns
     -------
     str
-        Direct download URL for `pepe-mariani-2026-fusi-template.nii.gz`.
+        Direct download URL for `huang-2026-space-allen50_desc-vascular.nii.gz`.
 
     Raises
     ------
@@ -49,11 +49,11 @@ def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
     raise RuntimeError(f"Could not find {_FILENAME!r} in OSF project {project_id}.")
 
 
-def fetch_template_pepe_mariani_2026(
+def fetch_template_huang_2025(
     data_dir: str | Path | None = None,
     refresh: bool = False,
 ) -> xr.DataArray:
-    """Fetch the Pepe, Mariani et al. (2026) mouse fUSI template.
+    """Fetch the Huang et al. (2025) mouse vascular fUSI template.
 
     Downloads the template from OSF on first call, caches it locally, and returns the
     loaded NIfTI as an Xarray DataArray.
@@ -71,22 +71,22 @@ def fetch_template_pepe_mariani_2026(
     Returns
     -------
     xarray.DataArray
-        Template with `physical_to_sform` affine transform required for resampling to
-        the Allen Mouse Brain atlas space.
+        Vascular template aligned to Allen CCF space.
 
     References
     ----------
     [^1]:
-        Pepe, C. et al. (2026). Structural and dynamic embedding of the mouse
-        functional connectome revealed by functional ultrasound imaging (fUSI).
-        [https://doi.org/10.64898/2026.02.05.704055](https://doi.org/10.64898/2026.02.05.704055)
+        Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
+        framework for the analysis and visualization of functional ultrasound imaging
+        data across animal models.
+        [https://doi.org/10.1101/2025.09.16.676515](https://doi.org/10.1101/2025.09.16.676515)
 
     [^2]:
-        Template hosted on OSF: [https://osf.io/43tu9/](https://osf.io/43tu9/)
+        Template hosted on OSF: [https://osf.io/am3jw/](https://osf.io/am3jw/)
 
     [^3]:
-        Template license (CC BY 4.0):
-        [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
+        Template license (CC BY-NC-SA 4.0):
+        [https://creativecommons.org/licenses/by-nc-sa/4.0/](https://creativecommons.org/licenses/by-nc-sa/4.0/)
     """
     dataset_dir = get_datasets_dir(data_dir) / _TEMPLATE_ROOT
     dataset_dir.mkdir(parents=True, exist_ok=True)

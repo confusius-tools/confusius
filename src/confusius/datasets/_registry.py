@@ -6,6 +6,8 @@ from pathlib import Path
 
 from ._cybis_pereira_2026 import _BIDS_ROOT as _cybis_pereira_2026_bids_root
 from ._cybis_pereira_2026 import _TOTAL_SIZE_BYTES as _cybis_pereira_2026_size
+from ._huang_2025 import _TEMPLATE_ROOT as _huang_2025_template_root
+from ._huang_2025 import _TOTAL_SIZE_BYTES as _huang_2025_size
 from ._nunez_elizalde_2022 import _BIDS_ROOT as _nunez_elizalde_2022_bids_root
 from ._nunez_elizalde_2022 import _TOTAL_SIZE_BYTES as _nunez_elizalde_2022_size
 from ._pepe_mariani_2026 import _TEMPLATE_ROOT as _pepe_mariani_2026_template_root
@@ -26,6 +28,11 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         "fetch_nunez_elizalde_2022",
         _nunez_elizalde_2022_size,
         _nunez_elizalde_2022_bids_root,
+    ),
+    (
+        "fetch_template_huang_2025",
+        _huang_2025_size,
+        _huang_2025_template_root,
     ),
     (
         "fetch_template_pepe_mariani_2026",
