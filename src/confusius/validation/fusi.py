@@ -40,7 +40,9 @@ def _validate_dimension_coordinate(
         increasing.
     """
     if dim not in da.coords:
-        raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
+        if dim in _ALLOWED_CORE_DIMS:
+            raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
+        return
 
     coord = da.coords[dim]
     if coord.dims != (dim,):
@@ -303,10 +305,6 @@ def validate_fusi_dataarray(
         )
 
     for dim in data.dims:
-        if dim not in data.coords:
-            if dim in _ALLOWED_CORE_DIMS:
-                raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
-            continue
         _validate_dimension_coordinate(
             data, dim, require_numeric=dim in _ALLOWED_CORE_DIMS
         )
