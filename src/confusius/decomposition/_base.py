@@ -10,7 +10,7 @@ import xarray as xr
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
-from confusius.extract import unmask
+from confusius.extract import extract_with_mask, unmask
 from confusius.validation import validate_mask, validate_time_series
 
 
@@ -41,9 +41,6 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     # Set by _store_fit_metadata.
     spatial_dims_: tuple[str, ...]
     _spatial_sizes_: dict[str, int]
-    _feature_coord_: xr.DataArray
-    _full_feature_coord_: xr.DataArray
-    _feature_mask_: npt.NDArray[np.bool_]
     _reconstruction_mask_: xr.DataArray
     _fit_attrs_: dict[str, Any]
     _fit_name_: Hashable | None
@@ -117,7 +114,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             Decomposed signals in component space.
         """
         check_is_fitted(self)
-        X_proc, _, _, _ = self._prepare_data(
+        X_proc, _, _ = self._prepare_data(
             X,
             check_layout=True,
             operation_name=f"{type(self).__name__}.transform",
@@ -211,9 +208,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         X: xr.DataArray,
         check_layout: bool,
         operation_name: str,
-    ) -> tuple[
-        npt.NDArray[np.floating], xr.DataArray, tuple[str, ...], npt.NDArray[np.bool_]
-    ]:
+    ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], npt.NDArray[np.bool_]]:
         """Validate and stack time series data into a 2D feature matrix.
 
         Parameters
@@ -231,9 +226,6 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         X_proc : (time, feature) numpy.ndarray
             Input data stacked over selected spatial features. Dtype is preserved from
             `X`; sklearn handles any required type promotion internally.
-        X_stacked : (time, feature) xarray.DataArray
-            View of `X` with all spatial dimensions stacked into a single `feature`
-            dimension.
         spatial_dims : tuple[str, ...]
             Spatial dimensions used to order and stack the input data.
         feature_mask : (n_features,) numpy.ndarray
@@ -271,33 +263,16 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             spatial_dims = input_spatial_dims
 
         X_ordered = X.transpose("time", *spatial_dims)
-        X_stacked = X_ordered.stack(feature=list(spatial_dims))
 
         if getattr(self, "mask", None) is not None:
             mask = self.mask
             assert mask is not None
             validate_mask(mask, X_ordered, "mask", require_exact_dims=True)
-
-            template = X_ordered.isel(time=0, drop=True)
-            coord_updates = {
-                dim: template.coords[dim]
-                for dim in spatial_dims
-                if dim in mask.coords and dim in template.coords
-            }
-            mask_aligned = mask.assign_coords(coord_updates).transpose(*spatial_dims)
-            mask_aligned = mask_aligned.reindex_like(template)
-            if bool(mask_aligned.isnull().any()):
-                raise ValueError(
-                    "mask could not be aligned to data coordinates. If coordinates are "
-                    "nearly equal but not exact, resample or round them before fitting."
-                )
-
-            feature_mask = mask_aligned.values.ravel().astype(bool)
         else:
-            feature_mask = np.ones(X_stacked.sizes["feature"], dtype=bool)
+            mask = xr.ones_like(X_ordered[0], dtype=bool)
 
-        X_proc = np.asarray(X_stacked.isel(feature=feature_mask).values)
-        return X_proc, X_stacked, spatial_dims, feature_mask
+        X_proc = extract_with_mask(X_ordered, mask).values
+        return X_proc, spatial_dims, mask.values.ravel().astype(bool)
 
     def _reshape_component_matrix(
         self,
@@ -352,13 +327,12 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         self,
         X: xr.DataArray,
         X_proc: npt.NDArray[np.floating],
-        X_stacked: xr.DataArray,
         spatial_dims: tuple[str, ...],
         feature_mask: npt.NDArray[np.bool_],
     ) -> None:
         """Store spatial and array metadata from a fit call.
 
-        Sets `spatial_dims_`, `_spatial_sizes_`, `_feature_coord_`, `_fit_attrs_`,
+        Sets `spatial_dims_`, `_spatial_sizes_`, `_reconstruction_mask_`, `_fit_attrs_`,
         `_fit_name_`, and `n_features_in_` on the estimator.
 
         Parameters
@@ -366,17 +340,14 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         X : (time, ...) xarray.DataArray
             Original input passed to `fit`.
         X_proc : (time, feature) numpy.ndarray
-            Stacked data returned by `_prepare_data`.
-        X_stacked : (time, feature) xarray.DataArray
-            Stacked view returned by `_prepare_data`.
+            Stacked data over selected features returned by `_prepare_data`.
         spatial_dims : tuple[str, ...]
             Spatial dimensions returned by `_prepare_data`.
+        feature_mask : (n_features,) numpy.ndarray
+            Boolean mask selecting features used for fitting/projection.
         """
         self.spatial_dims_ = spatial_dims
         self._spatial_sizes_ = {dim: int(X.sizes[dim]) for dim in self.spatial_dims_}
-        self._full_feature_coord_ = X_stacked.coords["feature"]
-        self._feature_mask_ = feature_mask
-        self._feature_coord_ = X_stacked.isel(feature=feature_mask).coords["feature"]
         template = X.transpose("time", *self.spatial_dims_).isel(time=0, drop=True)
         self._reconstruction_mask_ = xr.DataArray(
             feature_mask.reshape(tuple(template.sizes[d] for d in self.spatial_dims_)),
