@@ -77,35 +77,35 @@ def test_compute_compcor_with_combined_mask(sample_timeseries):
     assert components.shape == (100, 3)
 
 
-def test_compute_compcor_4d_imaging_acompcor(sample_4d_volume):
+def test_compute_compcor_4d_imaging_acompcor(sample_3dt_volume):
     """Test aCompCor on 4D imaging data."""
-    spatial_shape = sample_4d_volume.shape[1:]
+    spatial_shape = sample_3dt_volume.shape[1:]
     mask_values = np.zeros(spatial_shape, dtype=bool)
     mask_values[1:3, 2:4, 3:5] = True
-    noise_mask = _create_mask_like(sample_4d_volume.isel(time=0), mask_values)
+    noise_mask = _create_mask_like(sample_3dt_volume.isel(time=0), mask_values)
 
     components = compute_compcor_confounds(
-        sample_4d_volume,
+        sample_3dt_volume,
         noise_mask=noise_mask,
         n_components=3,
         detrend=False,
     )
 
     # Check shape: (time, n_components)
-    assert components.shape == (sample_4d_volume.sizes["time"], 3)
+    assert components.shape == (sample_3dt_volume.sizes["time"], 3)
 
 
-def test_compute_compcor_4d_imaging_tcompcor(sample_4d_volume):
+def test_compute_compcor_4d_imaging_tcompcor(sample_3dt_volume):
     """Test tCompCor on 4D imaging data."""
     components = compute_compcor_confounds(
-        sample_4d_volume,
+        sample_3dt_volume,
         variance_threshold=0.2,
         n_components=3,
         detrend=False,
     )
 
     # Check shape
-    assert components.shape == (sample_4d_volume.sizes["time"], 3)
+    assert components.shape == (sample_3dt_volume.sizes["time"], 3)
 
 
 def test_compute_compcor_xarray_noise_mask(sample_timeseries):

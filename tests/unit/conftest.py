@@ -580,17 +580,17 @@ def sample_3d_volume(rng):
             "z": xr.DataArray(
                 1.0 + np.arange(4) * 0.2,
                 dims=["z"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.2},
             ),
             "y": xr.DataArray(
                 2.0 + np.arange(6) * 0.1,
                 dims=["y"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.1},
             ),
             "x": xr.DataArray(
                 3.0 + np.arange(8) * 0.05,
                 dims=["x"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.05},
             ),
             "time": 0.0,  # Scalar coord for consistency with 4D volumes.
         },
@@ -603,12 +603,12 @@ def sample_3d_volume(rng):
 
 
 @pytest.fixture
-def sample_4d_volume(rng):
-    """4D volume (time, z, y, x) with consistent coordinates.
+def sample_3dt_volume(rng):
+    """3D+t volume (time, z, y, x) with consistent coordinates.
 
-    Shape: (10, 4, 6, 8) - small enough for fast tests.
-    Spatial coordinates match sample_3d_volume exactly.
-    Includes name and metadata attributes for testing labels and units.
+    Shape: (10, 4, 6, 8) - small enough for fast tests. Spatial coordinates match
+    sample_3d_volume exactly. Includes name and metadata attributes for testing labels
+    and units.
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape)
@@ -625,17 +625,17 @@ def sample_4d_volume(rng):
             "z": xr.DataArray(
                 1.0 + np.arange(4) * 0.2,
                 dims=["z"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.2},
             ),
             "y": xr.DataArray(
                 2.0 + np.arange(6) * 0.1,
                 dims=["y"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.1},
             ),
             "x": xr.DataArray(
                 3.0 + np.arange(8) * 0.05,
                 dims=["x"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.05},
             ),
         },
         attrs={
@@ -647,11 +647,22 @@ def sample_4d_volume(rng):
 
 
 @pytest.fixture
-def sample_4d_volume_complex(rng):
-    """Complex-valued 4D volume (time, z, y, x) for IQ processing tests.
+def sample_2dt_volume(sample_3dt_volume):
+    """2D+t volume (time, y, x) with consistent coordinates.
 
-    Shape: (10, 4, 6, 8) - matches sample_4d_volume spatial dimensions.
-    Includes name and metadata attributes for testing labels and units.
+    Shape: (10, 6, 8) - small enough for fast tests. Spatial coordinates match
+    sample_3dt_volume without the z-dimension. Includes name and metadata attributes for
+    testing labels and units.
+    """
+    return sample_3dt_volume.drop_vars("z")
+
+
+@pytest.fixture
+def sample_3dt_volume_complex(rng):
+    """Complex-valued 3D+t volume (time, z, y, x) for IQ processing tests.
+
+    Shape: (10, 4, 6, 8) - matches sample_3dt_volume spatial dimensions. Includes name
+    and metadata attributes for testing labels and units.
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
@@ -668,17 +679,17 @@ def sample_4d_volume_complex(rng):
             "z": xr.DataArray(
                 np.arange(4) * 0.1,
                 dims=["z"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.1},
             ),
             "y": xr.DataArray(
                 np.arange(6) * 0.05,
                 dims=["y"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.05},
             ),
             "x": xr.DataArray(
                 np.arange(8) * 0.05,
                 dims=["x"],
-                attrs={"units": "mm"},
+                attrs={"units": "mm", "voxdim": 0.05},
             ),
         },
         attrs={
@@ -715,9 +726,9 @@ def sample_timeseries(rng):
 
 
 @pytest.fixture
-def spatial_mask(rng, sample_4d_volume):
+def spatial_mask(rng, sample_3dt_volume):
     """Boolean spatial mask matching (z, y, x) of sample volumes."""
-    _, z, y, x = sample_4d_volume.shape
+    _, z, y, x = sample_3dt_volume.shape
     return rng.random((z, y, x)) > 0.5
 
 
@@ -745,13 +756,19 @@ def sample_roi_labels():
         dims=["z", "y", "x"],
         coords={
             "z": xr.DataArray(
-                1.0 + np.arange(4) * 0.2, dims=["z"], attrs={"units": "mm"}
+                1.0 + np.arange(4) * 0.2,
+                dims=["z"],
+                attrs={"units": "mm", "voxdim": 0.2},
             ),
             "y": xr.DataArray(
-                2.0 + np.arange(6) * 0.1, dims=["y"], attrs={"units": "mm"}
+                2.0 + np.arange(6) * 0.1,
+                dims=["y"],
+                attrs={"units": "mm", "voxdim": 0.1},
             ),
             "x": xr.DataArray(
-                3.0 + np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}
+                3.0 + np.arange(8) * 0.05,
+                dims=["x"],
+                attrs={"units": "mm", "voxdim": 0.05},
             ),
         },
         attrs={

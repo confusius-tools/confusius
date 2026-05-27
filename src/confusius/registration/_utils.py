@@ -1,8 +1,8 @@
 """Internal utilities shared by registration modules."""
 
 import os
-from copy import deepcopy
 from contextlib import contextmanager
+from copy import deepcopy
 from typing import TYPE_CHECKING, Generator
 
 import numpy as np
@@ -81,9 +81,9 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Parameters
     ----------
     da : xarray.DataArray
-        2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time
-        dimension. Spacing and origin are derived from its coordinates; missing
-        coordinates warn and fall back to spacing `1.0` and origin `0.0`.
+        2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
+        Spacing and origin are derived from its coordinates; missing coordinates warn
+        and fall back to spacing `1.0` and origin `0.0`.
 
     Returns
     -------

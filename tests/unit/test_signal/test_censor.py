@@ -133,35 +133,35 @@ def test_interpolate_missing_time_coords(sample_timeseries):
         interpolate_samples(signals, sample_mask)
 
 
-def test_interpolate_4d_data(sample_4d_volume):
+def test_interpolate_4d_data(sample_3dt_volume):
     """Test interpolation on 4D (time, z, y, x) data."""
-    n_time = sample_4d_volume.sizes["time"]
+    n_time = sample_3dt_volume.sizes["time"]
     mask_values = np.ones(n_time, dtype=bool)
     mask_values[[2, 5, 8]] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_4d_volume.coords["time"]},
+        coords={"time": sample_3dt_volume.coords["time"]},
     )
 
-    result = interpolate_samples(sample_4d_volume, sample_mask, method="linear")
+    result = interpolate_samples(sample_3dt_volume, sample_mask, method="linear")
 
     # Shape and dims preserved.
-    assert result.shape == sample_4d_volume.shape
-    assert result.dims == sample_4d_volume.dims
+    assert result.shape == sample_3dt_volume.shape
+    assert result.dims == sample_3dt_volume.dims
 
     # Kept samples identical within numerical precision.
     assert_allclose(
         result.values[mask_values, ...],
-        sample_4d_volume.values[mask_values, ...],
+        sample_3dt_volume.values[mask_values, ...],
         rtol=1e-12,
         atol=1e-14,
     )
 
 
-def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_4d_volume):
+def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_3dt_volume):
     """Test time matching ignores unrelated scalar coordinates on signals."""
-    mask_data = np.zeros((2, *sample_4d_volume.shape[1:]), dtype=int)
+    mask_data = np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
     mask_data[1, 1, :, :] = 2
     labels = xr.DataArray(
@@ -169,18 +169,18 @@ def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_4d_vo
         dims=["mask", "z", "y", "x"],
         coords={
             "mask": ["VISp", "AUDp"],
-            "z": sample_4d_volume.coords["z"],
-            "y": sample_4d_volume.coords["y"],
-            "x": sample_4d_volume.coords["x"],
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
         },
     )
-    signals = extract_with_labels(sample_4d_volume, labels.isel(mask=0))
+    signals = extract_with_labels(sample_3dt_volume, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
     mask_values[3] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_4d_volume.coords["time"]},
+        coords={"time": sample_3dt_volume.coords["time"]},
     )
 
     result = interpolate_samples(signals, sample_mask)
@@ -245,33 +245,33 @@ def test_censor_removes_correct_samples(sample_timeseries, sample_mask_with_gaps
     assert_allclose(result.coords["time"].values, expected_times, rtol=1e-14)
 
 
-def test_censor_4d_data(sample_4d_volume):
+def test_censor_4d_data(sample_3dt_volume):
     """Test censoring on 4D (time, z, y, x) data."""
-    n_time = sample_4d_volume.sizes["time"]
+    n_time = sample_3dt_volume.sizes["time"]
     mask_values = np.ones(n_time, dtype=bool)
     mask_values[[2, 5, 8]] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_4d_volume.coords["time"]},
+        coords={"time": sample_3dt_volume.coords["time"]},
     )
 
-    result = censor_samples(sample_4d_volume, sample_mask)
+    result = censor_samples(sample_3dt_volume, sample_mask)
 
     # Shape correct.
     assert result.sizes["time"] == np.sum(mask_values)
-    assert result.sizes["z"] == sample_4d_volume.sizes["z"]
-    assert result.sizes["y"] == sample_4d_volume.sizes["y"]
-    assert result.sizes["x"] == sample_4d_volume.sizes["x"]
+    assert result.sizes["z"] == sample_3dt_volume.sizes["z"]
+    assert result.sizes["y"] == sample_3dt_volume.sizes["y"]
+    assert result.sizes["x"] == sample_3dt_volume.sizes["x"]
 
     # Data correct.
-    expected_data = sample_4d_volume.values[mask_values, ...]
+    expected_data = sample_3dt_volume.values[mask_values, ...]
     assert_allclose(result.values, expected_data, rtol=1e-14)
 
 
-def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_4d_volume):
+def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_3dt_volume):
     """Test censoring ignores unrelated scalar coordinates on signals."""
-    mask_data = np.zeros((2, *sample_4d_volume.shape[1:]), dtype=int)
+    mask_data = np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
     mask_data[1, 1, :, :] = 2
     labels = xr.DataArray(
@@ -279,18 +279,18 @@ def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_4d_volume)
         dims=["mask", "z", "y", "x"],
         coords={
             "mask": ["VISp", "AUDp"],
-            "z": sample_4d_volume.coords["z"],
-            "y": sample_4d_volume.coords["y"],
-            "x": sample_4d_volume.coords["x"],
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
         },
     )
-    signals = extract_with_labels(sample_4d_volume, labels.isel(mask=0))
+    signals = extract_with_labels(sample_3dt_volume, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
     mask_values[[2, 5, 8]] = False
     sample_mask = xr.DataArray(
         mask_values,
         dims=["time"],
-        coords={"time": sample_4d_volume.coords["time"]},
+        coords={"time": sample_3dt_volume.coords["time"]},
     )
 
     result = censor_samples(signals, sample_mask)

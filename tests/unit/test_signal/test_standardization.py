@@ -186,13 +186,13 @@ def test_standardize_zscore_psc_correlation(sample_timeseries):
         assert_allclose(corr, 1.0, rtol=1e-10)
 
 
-def test_standardize_4d_imaging_data(sample_4d_volume):
+def test_standardize_4d_imaging_data(sample_3dt_volume):
     """Test that standardize works on 4D imaging data (time, z, y, x)."""
-    result = standardize(sample_4d_volume, method="zscore")
+    result = standardize(sample_3dt_volume, method="zscore")
 
     # Check shape and dimensions preserved.
-    assert result.dims == sample_4d_volume.dims
-    assert result.shape == sample_4d_volume.shape
+    assert result.dims == sample_3dt_volume.dims
+    assert result.shape == sample_3dt_volume.shape
 
     # Check that each voxel (z, y, x) has mean≈0, std≈1 across time.
     mean_per_voxel = result.mean(dim="time")
@@ -203,11 +203,11 @@ def test_standardize_4d_imaging_data(sample_4d_volume):
 
     # Check coordinates preserved.
     assert_allclose(
-        result.coords["time"].values, sample_4d_volume.coords["time"].values
+        result.coords["time"].values, sample_3dt_volume.coords["time"].values
     )
-    assert_allclose(result.coords["z"].values, sample_4d_volume.coords["z"].values)
-    assert_allclose(result.coords["y"].values, sample_4d_volume.coords["y"].values)
-    assert_allclose(result.coords["x"].values, sample_4d_volume.coords["x"].values)
+    assert_allclose(result.coords["z"].values, sample_3dt_volume.coords["z"].values)
+    assert_allclose(result.coords["y"].values, sample_3dt_volume.coords["y"].values)
+    assert_allclose(result.coords["x"].values, sample_3dt_volume.coords["x"].values)
 
 
 def test_standardize_sets_units(sample_timeseries):
