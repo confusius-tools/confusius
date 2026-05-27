@@ -166,32 +166,33 @@ Or in BibTeX format:
 
 License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 
-### Cybis Pereira et al. (2025)
+### Cybis Pereira et al. (2026)
 
 The [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]
 function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
 
-> Cybis Pereira, F., Castedo, S. H., Le Meur-Diebolt, S., Ialy-Radio, N.,
-> Bhattacharya, S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R.,
-> Pezet, S., & Tanter, M. (2025). Speed vascular patterns in the spatial navigation
-> system. *bioRxiv*.
-> https://doi.org/10.1101/2025.07.15.663536
+> Cybis Pereira, F., Castedo, S. H., Meur-Diebolt, S. L., Ialy-Radio, N., Bhattacharya,
+> S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R., Pezet, S., & Tanter, M.
+> (2026). A vascular code for speed in the spatial navigation system. *Cell Reports*,
+> 45(1). https://doi.org/10.1016/j.celrep.2025.116791
 
 Or in BibTeX format:
 
 ```bibtex
-@misc{cybis_pereira_speed_2025,
-  title = {Speed Vascular Patterns in the Spatial Navigation System},
-  copyright = {http://creativecommons.org/licenses/by/4.0/},
-  url = {http://biorxiv.org/lookup/doi/10.1101/2025.07.15.663536},
-  doi = {10.1101/2025.07.15.663536},
-  language = {en},
-  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and Le Meur-Diebolt, Samuel and
-            Ialy-Radio, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and
-            Osmanski, Bruno Félix and Cocco, Simona and Monasson, Remi and Pezet, Sophie and
-            Tanter, Mickaël},
-  month = jul,
-  year = {2025},
+@article{cybispereiraVascularCodeSpeed2026,
+  title = {A Vascular Code for Speed in the Spatial Navigation System},
+  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and {Meur-Diebolt}, Samuel Le and {Ialy-Radio}, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and Osmanski, Bruno F{\'e}lix and Cocco, Simona and Monasson, Remi and Pezet, Sophie and Tanter, Micka{\"e}l},
+  year = 2026,
+  month = jan,
+  journal = {Cell Reports},
+  volume = {45},
+  number = {1},
+  publisher = {Elsevier},
+  issn = {2211-1247},
+  doi = {10.1016/j.celrep.2025.116791},
+  urldate = {2025-12-30},
+  langid = {english},
+  keywords = {animal speed,cerebral blood volume,continuous attractor network,CP: neuroscience,freely moving,functional ultrasound imaging,hippocampus,locomotion,path integration,spatial navigation},
 }
 ```
 
