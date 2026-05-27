@@ -23,6 +23,13 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added a `mask` argument to the [`PCA`][confusius.decomposition.PCA],
+  [`FastICA`][confusius.decomposition.FastICA],
+  [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps], and
+  [`FirstLevelModel`][confusius.glm.FirstLevelModel] estimators, restricting fitting
+  and projection to the selected voxels. Output maps retain the full spatial geometry,
+  with voxels outside the mask set to `0`
+  ([#155](https://github.com/confusius-tools/confusius/pull/155)).
 - Added `plot_composite`, `VolumePlotter.add_composite`, and a matching
   `data.fusi.plot.composite` accessor that render two volumes as a red/cyan
   RGB overlay ([#145](https://github.com/confusius-tools/confusius/pull/145)).
