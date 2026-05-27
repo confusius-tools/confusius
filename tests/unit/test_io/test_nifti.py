@@ -847,10 +847,10 @@ class TestSaveNifti:
         assert "RepetitionTime" not in sidecar
 
     def test_save_maps_processing_metadata_to_sidecar_fields(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Processing metadata uses BIDS fields or ConfUSIus-prefixed equivalents."""
-        da = sample_4d_volume.copy()
+        da = sample_3dt_volume.copy()
         # Use non-uniform time to force VolumeTiming (instead of RepetitionTime) in the
         # sidecar — BIDS disallows FrameAcquisitionDuration alongside RepetitionTime.
         da = da.assign_coords(
@@ -1048,19 +1048,19 @@ class TestSaveNifti:
             [0.0, 0.0, 0.0, 1.0],
         ]
 
-    def test_save_invalid_time_units_raises(self, tmp_path, sample_4d_volume):
+    def test_save_invalid_time_units_raises(self, tmp_path, sample_3dt_volume):
         """Saving rejects unsupported time units."""
-        da = sample_4d_volume.copy()
+        da = sample_3dt_volume.copy()
         da.coords["time"].attrs["units"] = "fortnight"
 
         with pytest.raises(ValueError, match="Unknown time unit"):
             save_nifti(da, tmp_path / "invalid_time_units.nii.gz")
 
     def test_save_single_volume_time_coord_uses_volume_timing(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """A single time point is stored via `VolumeTiming`, not `RepetitionTime`."""
-        da = sample_4d_volume.isel(time=slice(0, 1)).copy()
+        da = sample_3dt_volume.isel(time=slice(0, 1)).copy()
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
         output_path = tmp_path / "single_volume.nii.gz"
 
@@ -1086,10 +1086,10 @@ class TestSaveNifti:
         np.testing.assert_allclose(loaded.coords["time"].values, [10.0])
 
     def test_save_single_volume_without_duration_omits_frame_acquisition_duration(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """A single time point without metadata does not invent a frame duration."""
-        da = sample_4d_volume.isel(time=slice(0, 1)).copy()
+        da = sample_3dt_volume.isel(time=slice(0, 1)).copy()
 
         output_path = tmp_path / "single_volume_no_duration.nii.gz"
         with pytest.warns(UserWarning, match="FrameAcquisitionDuration is REQUIRED"):
@@ -1103,10 +1103,10 @@ class TestSaveNifti:
         assert "FrameAcquisitionDuration" not in sidecar
 
     def test_save_scalar_time_coordinate_without_time_dim(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Saving a 3D slice with scalar `time` coord writes single-volume timing."""
-        da = sample_4d_volume.isel(time=0).copy()
+        da = sample_3dt_volume.isel(time=0).copy()
         output_path = tmp_path / "scalar_time_coord.nii.gz"
 
         with pytest.warns(UserWarning, match="FrameAcquisitionDuration is REQUIRED"):
@@ -1144,10 +1144,10 @@ class TestSaveNifti:
         assert isinstance(loaded, nib.nifti2.Nifti2Image)
 
     def test_save_valid_derived_metadata_emits_no_validation_warning(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Valid derived timing metadata does not trigger BIDS validation warnings."""
-        da = sample_4d_volume.copy()
+        da = sample_3dt_volume.copy()
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
 
         output_path = tmp_path / "invalid_metadata.nii.gz"
@@ -1230,10 +1230,10 @@ class TestSaveNifti:
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(0.4)
 
     def test_save_serializes_consistent_2d_slice_time_coordinate(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """A 2D absolute `slice_time` is exported when onset-relative timing is constant."""
-        da = sample_4d_volume.copy()
+        da = sample_3dt_volume.copy()
         time_values = da.coords["time"].values
         da = da.assign_coords(
             slice_time=xr.DataArray(
@@ -1261,10 +1261,10 @@ class TestSaveNifti:
         assert sidecar["SliceEncodingDirection"] == "k"
 
     def test_save_skips_inconsistent_2d_slice_time_coordinate(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """A 2D `slice_time` is omitted when relative slice timing varies across volumes."""
-        da = sample_4d_volume.copy()
+        da = sample_3dt_volume.copy()
         time_values = da.coords["time"].values
         varying_offsets = np.tile(np.array([0.0, 0.1, 0.2, 0.3]), (da.sizes["time"], 1))
         varying_offsets[1, -1] += 0.05
@@ -1297,10 +1297,10 @@ class TestSaveNifti:
         assert "SliceEncodingDirection" not in sidecar
 
     def test_save_serializes_1d_slice_time_with_scalar_time_coordinate(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """A 1D absolute `slice_time` is exported for scalar-time 3D snapshots."""
-        da = sample_4d_volume.isel(time=0).copy()
+        da = sample_3dt_volume.isel(time=0).copy()
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
         da.coords["time"].attrs["volume_acquisition_reference"] = "start"
         da = da.assign_coords(
@@ -1474,17 +1474,17 @@ class TestSaveNifti:
 
         assert "SliceTiming" not in sidecar
 
-    def test_save_invalid_2d_slice_time_shape_warns(self, tmp_path, sample_4d_volume) -> None:
+    def test_save_invalid_2d_slice_time_shape_warns(self, tmp_path, sample_3dt_volume) -> None:
         """A non-1D/non-2D `slice_time` is rejected with a warning."""
-        da = sample_4d_volume.copy()
+        da = sample_3dt_volume.copy()
         da.coords["time"].attrs["volume_acquisition_reference"] = "start"
         da = da.assign_coords(
             slice_time=xr.DataArray(
                 np.zeros(
                     (
-                        sample_4d_volume.sizes["time"],
-                        sample_4d_volume.sizes["z"],
-                        sample_4d_volume.sizes["y"],
+                        sample_3dt_volume.sizes["time"],
+                        sample_3dt_volume.sizes["z"],
+                        sample_3dt_volume.sizes["y"],
                     )
                 ),
                 dims=("time", "z", "y"),
@@ -1611,7 +1611,7 @@ class TestSaveNifti:
             save_nifti(da, tmp_path / "invalid_time_reference.nii.gz")
 
     def test_save_nifti_validation_runtime_error_warns(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Unexpected sidecar validation failures degrade to a warning when saving."""
         output_path = tmp_path / "save_validation_runtime_error.nii.gz"
@@ -1622,7 +1622,7 @@ class TestSaveNifti:
             with pytest.warns(
                 UserWarning, match="validation warning when saving: boom"
             ):
-                save_nifti(sample_4d_volume, output_path)
+                save_nifti(sample_3dt_volume, output_path)
 
     def test_named_qform_selects_requested_affine(self, tmp_path):
         """`qform=` selects the requested affine key from `attrs['affines']`."""
@@ -2047,10 +2047,10 @@ class TestRoundtrip:
         ] == pytest.approx(4.6)
 
     def test_save_uses_time_coordinate_frame_acquisition_duration(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Irregular timings use `time.attrs['volume_acquisition_duration']`."""
-        original = sample_4d_volume.isel(time=slice(0, 4)).copy()
+        original = sample_3dt_volume.isel(time=slice(0, 4)).copy()
         original = original.assign_coords(
             time=xr.DataArray(
                 [0.0, 1.5, 2.8, 4.6],
@@ -2076,10 +2076,10 @@ class TestRoundtrip:
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(1.5)
 
     def test_save_irregular_time_approximates_frame_acquisition_duration_from_spacing(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Irregular timings fall back to median time spacing when no better duration exists."""
-        original = sample_4d_volume.isel(time=slice(0, 4)).copy()
+        original = sample_3dt_volume.isel(time=slice(0, 4)).copy()
         original = original.assign_coords(
             time=xr.DataArray([0.0, 1.5, 2.8, 4.6], dims=["time"], attrs={"units": "s"})
         )
@@ -2126,9 +2126,9 @@ class TestRoundtrip:
             loaded.coords["time"].values, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
         )
 
-    def test_roundtrip_4d(self, tmp_path, sample_4d_volume):
+    def test_roundtrip_4d(self, tmp_path, sample_3dt_volume):
         """Save/load roundtrip preserves 4D data and non-derived BIDS attrs."""
-        original = sample_4d_volume.copy()
+        original = sample_3dt_volume.copy()
         original.attrs.update(
             {
                 "task_name": "rest",
@@ -2184,9 +2184,9 @@ class TestRoundtrip:
         assert da.attrs.get("instrument") == "probe_A"
         assert da.attrs.get("session") == 42
 
-    def test_save_converts_time_to_seconds(self, tmp_path, sample_4d_volume):
+    def test_save_converts_time_to_seconds(self, tmp_path, sample_3dt_volume):
         """Time values are converted to seconds when saving for BIDS compliance."""
-        original = sample_4d_volume.copy()
+        original = sample_3dt_volume.copy()
         original = original.assign_coords(
             time=xr.DataArray(
                 np.arange(original.sizes["time"]) * 1000.0,
@@ -2207,12 +2207,12 @@ class TestRoundtrip:
         assert "DelayAfterTrigger" not in sidecar
 
     def test_save_converts_processing_duration_attrs_to_seconds(
-        self, tmp_path, sample_4d_volume
+        self, tmp_path, sample_3dt_volume
     ) -> None:
         """Processing duration and stride attrs are converted to seconds in sidecar."""
-        da = sample_4d_volume.copy().assign_coords(
+        da = sample_3dt_volume.copy().assign_coords(
             time=xr.DataArray(
-                np.arange(sample_4d_volume.sizes["time"]) * 100.0,
+                np.arange(sample_3dt_volume.sizes["time"]) * 100.0,
                 dims=["time"],
                 attrs={"units": "ms"},
             )

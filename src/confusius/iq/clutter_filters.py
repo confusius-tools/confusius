@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import numpy.typing as npt
 
-from confusius.validation import validate_iq, validate_mask
+from confusius.validation import validate_iq_dataarray, validate_mask
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -766,7 +766,7 @@ def compute_svd_cumulative_energy_threshold(
     # Deferred to avoid circular import: clutter_filters <- process <- clutter_filters.
     from confusius.iq.process import process_iq_blocks
 
-    validate_iq(iq, require_attrs=False)
+    validate_iq_dataarray(iq, require_attrs=False)
 
     mask_array: npt.NDArray[np.bool_] | None = None
     if clutter_mask is not None:

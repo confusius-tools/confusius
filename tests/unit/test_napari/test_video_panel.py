@@ -213,12 +213,12 @@ class TestComputeSpatialParams:
         panel._ref_layer = None
         assert panel._compute_spatial_scale(2, 48) == 1.0
 
-    def test_scale_matches_scan_height(self, panel, sample_4d_volume):
+    def test_scale_matches_scan_height(self, panel, sample_3dt_volume):
         """Scale is isotropic, derived from the vertical axis extent."""
         # vertical_dim=2 -> "y" coord.
         scale = panel._compute_spatial_scale(2, 48)
 
-        y_coords = sample_4d_volume.coords["y"].values.astype(np.float64)
+        y_coords = sample_3dt_volume.coords["y"].values.astype(np.float64)
         y_min, y_max = y_coords.min(), y_coords.max()
         y_step = float(np.median(np.diff(y_coords)))
         expected_scale = (y_max - y_min + abs(y_step)) / 48
@@ -228,11 +228,11 @@ class TestComputeSpatialParams:
         panel._axis_labels = ("time", "z", "foo", "bar")
         assert panel._compute_spatial_scale(2, 48) == 1.0
 
-    def test_scale_z_vertical(self, panel, sample_4d_volume):
+    def test_scale_z_vertical(self, panel, sample_3dt_volume):
         """When z is the vertical axis, scale uses z-coordinates."""
         scale = panel._compute_spatial_scale(1, 48)  # dim 1 = "z".
 
-        z_coords = sample_4d_volume.coords["z"].values.astype(np.float64)
+        z_coords = sample_3dt_volume.coords["z"].values.astype(np.float64)
         z_min, z_max = z_coords.min(), z_coords.max()
         z_step = float(np.median(np.diff(z_coords)))
         expected_scale = (z_max - z_min + abs(z_step)) / 48
@@ -242,25 +242,25 @@ class TestComputeSpatialParams:
         panel._ref_layer = None
         assert panel._compute_axis_center_translate(2, 48, 0.5) == 0.0
 
-    def test_center_translate_centers_video_on_fusi(self, panel, sample_4d_volume):
+    def test_center_translate_centers_video_on_fusi(self, panel, sample_3dt_volume):
         """Video centre pixel lands on the fUSI coordinate midpoint."""
         scale = panel._compute_spatial_scale(2, 48)
         translate = panel._compute_axis_center_translate(2, 48, scale)
 
-        y_coords = sample_4d_volume.coords["y"].values.astype(np.float64)
+        y_coords = sample_3dt_volume.coords["y"].values.astype(np.float64)
         center_y = (float(y_coords.min()) + float(y_coords.max())) / 2
         expected_translate = center_y - scale * (48 - 1) / 2
         assert translate == pytest.approx(expected_translate)
         # Centre video pixel lands on the fUSI centre.
         assert translate + scale * (48 - 1) / 2 == pytest.approx(center_y)
 
-    def test_center_translate_horizontal_axis(self, panel, sample_4d_volume):
+    def test_center_translate_horizontal_axis(self, panel, sample_3dt_volume):
         """Horizontal (x) axis centering uses the x-coordinate midpoint."""
         scale = panel._compute_spatial_scale(2, 48)
         video_w = 64
         translate_h = panel._compute_axis_center_translate(3, video_w, scale)
 
-        x_coords = sample_4d_volume.coords["x"].values.astype(np.float64)
+        x_coords = sample_3dt_volume.coords["x"].values.astype(np.float64)
         center_x = (float(x_coords.min()) + float(x_coords.max())) / 2
         expected = center_x - scale * (video_w - 1) / 2
         assert translate_h == pytest.approx(expected)
@@ -278,14 +278,14 @@ def viewer(make_napari_viewer):
 
 
 @pytest.fixture
-def fusi_layer(viewer, sample_4d_volume):
+def fusi_layer(viewer, sample_3dt_volume):
     """Add the sample 4D volume to the viewer as a real image layer.
 
     Returns the napari layer, which carries axis_labels, scale, translate,
     and xarray metadata -- the same state a real fUSI scan would have.
     """
     _, layer = plot_napari(
-        sample_4d_volume,
+        sample_3dt_volume,
         viewer=viewer,
         show_colorbar=False,
         show_scale_bar=False,
@@ -294,16 +294,16 @@ def fusi_layer(viewer, sample_4d_volume):
 
 
 @pytest.fixture
-def panel(viewer, fusi_layer, sample_4d_volume):
+def panel(viewer, fusi_layer, sample_3dt_volume):
     """VideoPanel wired to a real viewer that already has a fUSI layer."""
     p = VideoPanel(viewer)
 
     # Set reference layer and scan metadata (normally done by _add_video).
     p._ref_layer = fusi_layer
-    p._axis_labels = tuple(sample_4d_volume.dims)
+    p._axis_labels = tuple(sample_3dt_volume.dims)
     p._units = list(getattr(fusi_layer, "units", [None] * fusi_layer.ndim))
     p._n_pad = max(fusi_layer.ndim - 3, 0)
-    p._fusi_time_idx = list(sample_4d_volume.dims).index("time")
+    p._fusi_time_idx = list(sample_3dt_volume.dims).index("time")
     order = viewer.dims.order
     p._displayed_dims = (order[-2], order[-1])
 

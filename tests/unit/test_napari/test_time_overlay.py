@@ -78,12 +78,12 @@ class TestTimeOverlay:
         assert "ms" in viewer.text_overlay.text
 
     def test_updates_text_when_time_step_changes(
-        self, sample_4d_volume, make_napari_viewer
+        self, sample_3dt_volume, make_napari_viewer
     ) -> None:
         """Changing the time slider updates the overlay text."""
         viewer = make_napari_viewer()
         _, _ = plot_napari(
-            sample_4d_volume,
+            sample_3dt_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
@@ -95,7 +95,7 @@ class TestTimeOverlay:
 
         viewer.dims.set_current_step(overlay._time_idx, 3)
 
-        expected_time = float(sample_4d_volume.coords["time"].values[3])
+        expected_time = float(sample_3dt_volume.coords["time"].values[3])
         expected = f"{expected_time:.2f} s"
         assert viewer.text_overlay.text == expected
         assert viewer.text_overlay.visible
@@ -233,12 +233,12 @@ class TestTimeOverlay:
         assert overlay._ref_layer is layer_a
 
     def test_deactivates_when_time_layer_is_removed(
-        self, sample_4d_volume, make_napari_viewer
+        self, sample_3dt_volume, make_napari_viewer
     ) -> None:
         """Removing the only time-aware layer hides and clears the overlay."""
         viewer = make_napari_viewer()
         _, layer = plot_napari(
-            sample_4d_volume,
+            sample_3dt_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,

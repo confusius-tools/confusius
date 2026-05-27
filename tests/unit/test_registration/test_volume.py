@@ -39,13 +39,13 @@ class TestRegisterVolumeValidation:
     def test_wrong_ndim_1d_raises(self):
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="2D or 3D"):
+        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
             register_volume(da, da)
 
     def test_wrong_ndim_4d_raises(self):
         """4D input raises ValueError."""
         da = xr.DataArray(np.zeros((4, 4, 4, 4)), dims=("a", "b", "c", "d"))
-        with pytest.raises(ValueError, match="2D or 3D"):
+        with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
     def test_shape_mismatch_no_error(
@@ -65,10 +65,10 @@ class TestRegisterVolumeValidation:
 class TestRegisterVolumeOutput:
     """Output properties for register_volume."""
 
-    def test_without_coords_uses_unit_spacing(self, sample_2d_image):
-        """DataArray without coordinates warns for both spacing and origin."""
+    def test_without_coords_raises(self, sample_2d_image):
+        """DataArray without coordinates is rejected."""
         da = xr.DataArray(sample_2d_image, dims=("y", "x"))
-        with pytest.warns(UserWarning):
+        with pytest.raises(ValueError, match="Missing required coordinate"):
             register_volume(da, da, transform_type="translation")
 
     def test_returns_affine_matrix(self, sample_2d_dataarray_spatial):
@@ -364,7 +364,7 @@ class TestResampleVolume:
     def test_wrong_ndim_raises(self):
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="2 or 3 spatial"):
+        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
             resample_volume(
                 da, np.eye(2), shape=[10], spacing=[1.0], origin=[0.0], dims=["x"]
             )
@@ -554,7 +554,7 @@ class TestResampleLike:
     def test_wrong_ndim_reference_raises(self):
         """1D reference raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="2D or 3D"):
+        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
             resample_like(da, da, np.eye(2))
 
     def test_default_fill_is_moving_min(self, sample_2d_dataarray_spatial):

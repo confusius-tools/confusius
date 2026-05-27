@@ -4,6 +4,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius.validation.fusi import validate_fusi_dataarray
 
 _REQUIRED_DIMS = (TIME_DIM, *SPATIAL_DIMS)
 """Required dimensions and coordinates that all IQ data must have."""
@@ -15,11 +16,11 @@ _AXIAL_VELOCITY_REQUIRED_ATTRS = (
 """Required attributes for IQ data used in axial velocity computation."""
 
 
-def validate_iq(iq: xr.DataArray, require_attrs: bool = False) -> None:
+def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None:
     """Validate that a DataArray contains valid IQ data.
 
     This function performs validation of an IQ DataArray to ensure it meets all
-    requirements for processing with confusius functions. Validation checks include:
+    requirements for processing with ConfUSIus functions. Validation checks include:
 
     1. **Dimensions**: The IQ DataArray must have exactly 4 dimensions in the
        order: `(time, z, y, x)`.
@@ -35,20 +36,18 @@ def validate_iq(iq: xr.DataArray, require_attrs: bool = False) -> None:
     Parameters
     ----------
     iq : xarray.DataArray
-        Input DataArray to validate. Must have dimensions `(time, z, y, x)` and
-        the required structure and attributes.
+        Input DataArray to validate. Must have dimensions `(time, z, y, x)` and the
+        required structure and attributes.
     require_attrs : bool, default: False
-        Whether to validate that all required attributes
-        (`transmit_frequency`, `beamforming_sound_velocity`) are present in the
-        DataArray attributes.
+        Whether to validate that all required attributes (`transmit_frequency`,
+        `beamforming_sound_velocity`) are present in the DataArray attributes.
 
     Raises
     ------
     ValueError
-        If the DataArray does not have dimensions ("time", "z", "y", "x") or
-        corresponding coordinates, or if required attributes are missing (when
-        `require_attrs=True`).
-
+        If the DataArray does not have dimensions `(time, z, y, x)`, if required
+        coordinates are missing, or if required attributes are missing when
+        `require_attrs=True`.
     TypeError
         If the IQ data is not complex-valued.
 
@@ -56,8 +55,8 @@ def validate_iq(iq: xr.DataArray, require_attrs: bool = False) -> None:
     --------
     Validate a properly formatted IQ DataArray:
 
-    >>> import xarray as xr
     >>> import numpy as np
+    >>> import xarray as xr
     >>> iq = xr.DataArray(
     ...     np.ones((10, 4, 6, 8), dtype=np.complex64),
     ...     dims=("time", "z", "y", "x"),
@@ -72,28 +71,36 @@ def validate_iq(iq: xr.DataArray, require_attrs: bool = False) -> None:
     ...         "beamforming_sound_velocity": 1540.0,
     ...     },
     ... )
-    >>> validate_iq(iq, require_attrs=True)
+    >>> validate_iq_dataarray(iq, require_attrs=True)
 
     Skip attribute validation for intermediate processing:
 
-    >>> # DataArray missing attributes
     >>> iq_no_attrs = xr.DataArray(
     ...     np.ones((10, 4, 6, 8), dtype=np.complex64),
     ...     dims=("time", "z", "y", "x"),
-    ...     coords={"time": np.arange(10), "z": np.arange(4),
-    ...             "y": np.arange(6), "x": np.arange(8)},
+    ...     coords={
+    ...         "time": np.arange(10),
+    ...         "z": np.arange(4),
+    ...         "y": np.arange(6),
+    ...         "x": np.arange(8),
+    ...     },
     ... )
-    >>> validate_iq(iq_no_attrs, require_attrs=False)
+    >>> validate_iq_dataarray(iq_no_attrs, require_attrs=False)
     """
+    validate_fusi_dataarray(
+        iq,
+        require_time=True,
+        allow_pose=False,
+        allow_extra_dims=True,
+        minimum_spatial_dims=3,
+        require_canonical_dim_order=True,
+    )
+
     if iq.dims != _REQUIRED_DIMS:
         raise ValueError(
             f"Expected dimensions {_REQUIRED_DIMS}, got {iq.dims}. "
             "Use .transpose() to reorder dimensions if needed."
         )
-
-    missing_coords = set(_REQUIRED_DIMS) - set(iq.coords.keys())
-    if missing_coords:
-        raise ValueError(f"Missing required coordinates: {missing_coords}.")
 
     if not np.issubdtype(iq.dtype, np.complexfloating):
         raise TypeError(

@@ -41,20 +41,20 @@ class TestTimeDimIndex:
         viewer.add_image(np.zeros((4, 6, 8)), metadata={"xarray": None})
         assert qc_panel._time_dim_index() == 0
 
-    def test_finds_time_dim_from_xarray_layer(self, viewer, qc_panel, sample_4d_volume):
+    def test_finds_time_dim_from_xarray_layer(self, viewer, qc_panel, sample_3dt_volume):
         plot_napari(
-            sample_4d_volume,
+            sample_3dt_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,
         )
-        assert qc_panel._time_dim_index() == list(sample_4d_volume.dims).index("time")
+        assert qc_panel._time_dim_index() == list(sample_3dt_volume.dims).index("time")
 
 
 class TestCurrentTimeWorld:
-    def test_returns_world_coordinate(self, viewer, qc_panel, sample_4d_volume):
+    def test_returns_world_coordinate(self, viewer, qc_panel, sample_3dt_volume):
         plot_napari(
-            sample_4d_volume,
+            sample_3dt_volume,
             viewer=viewer,
             show_colorbar=False,
             show_scale_bar=False,

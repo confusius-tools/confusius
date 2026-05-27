@@ -6,7 +6,7 @@ import xarray as xr
 import confusius  # noqa: F401  # Registers accessor.
 
 
-def test_scale_wrappers_forward_calls(monkeypatch, sample_4d_volume):
+def test_scale_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     """Scale accessor methods forward arguments to module functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
     calls: dict[str, tuple] = {}
@@ -27,17 +27,17 @@ def test_scale_wrappers_forward_calls(monkeypatch, sample_4d_volume):
     monkeypatch.setattr("confusius.xarray.scale.log_scale", _log)
     monkeypatch.setattr("confusius.xarray.scale.power_scale", _power)
 
-    assert sample_4d_volume.fusi.scale.db(factor=20) is expected
-    assert calls["db"] == (sample_4d_volume, 20)
+    assert sample_3dt_volume.fusi.scale.db(factor=20) is expected
+    assert calls["db"] == (sample_3dt_volume, 20)
 
-    assert sample_4d_volume.fusi.scale.log() is expected
-    assert calls["log"] == (sample_4d_volume,)
+    assert sample_3dt_volume.fusi.scale.log() is expected
+    assert calls["log"] == (sample_3dt_volume,)
 
-    assert sample_4d_volume.fusi.scale.power(exponent=2.0) is expected
-    assert calls["power"] == (sample_4d_volume, 2.0)
+    assert sample_3dt_volume.fusi.scale.power(exponent=2.0) is expected
+    assert calls["power"] == (sample_3dt_volume, 2.0)
 
 
-def test_extract_wrappers_forward_calls(monkeypatch, sample_4d_volume, sample_roi_labels):
+def test_extract_wrappers_forward_calls(monkeypatch, sample_3dt_volume, sample_roi_labels):
     """Extract accessor methods forward arguments to extraction functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
     mask = sample_roi_labels > 0
@@ -59,21 +59,21 @@ def test_extract_wrappers_forward_calls(monkeypatch, sample_4d_volume, sample_ro
     monkeypatch.setattr("confusius.extract.mask.extract_with_mask", _with_mask)
     monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
 
-    assert sample_4d_volume.fusi.extract.with_labels(sample_roi_labels, reduction="sum") is expected
-    assert calls["labels"] == (sample_4d_volume, sample_roi_labels, "sum")
+    assert sample_3dt_volume.fusi.extract.with_labels(sample_roi_labels, reduction="sum") is expected
+    assert calls["labels"] == (sample_3dt_volume, sample_roi_labels, "sum")
 
-    assert sample_4d_volume.fusi.extract.with_mask(mask) is expected
-    assert calls["mask"] == (sample_4d_volume, mask)
+    assert sample_3dt_volume.fusi.extract.with_mask(mask) is expected
+    assert calls["mask"] == (sample_3dt_volume, mask)
 
-    assert sample_4d_volume.fusi.extract.unmask(mask, fill_value=-1.0) is expected
-    assert calls["unmask"] == (sample_4d_volume, mask, -1.0)
+    assert sample_3dt_volume.fusi.extract.unmask(mask, fill_value=-1.0) is expected
+    assert calls["unmask"] == (sample_3dt_volume, mask, -1.0)
 
 
-def test_affine_wrappers_forward_calls(monkeypatch, sample_4d_volume):
+def test_affine_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     """Affine accessor methods forward arguments to helper functions."""
     expected_to = np.eye(4)
-    expected_apply = sample_4d_volume
-    other = sample_4d_volume.copy()
+    expected_apply = sample_3dt_volume
+    other = sample_3dt_volume.copy()
     affine = np.diag([1.0, 2.0, 3.0, 1.0])
     calls: dict[str, tuple] = {}
 
@@ -88,14 +88,14 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_4d_volume):
     monkeypatch.setattr("confusius.xarray.affine.affine_to", _to)
     monkeypatch.setattr("confusius.xarray.affine.apply_affine", _apply)
 
-    assert sample_4d_volume.fusi.affine.to(other, via="physical_to_lab") is expected_to
-    assert calls["to"] == (sample_4d_volume, other, "physical_to_lab")
+    assert sample_3dt_volume.fusi.affine.to(other, via="physical_to_lab") is expected_to
+    assert calls["to"] == (sample_3dt_volume, other, "physical_to_lab")
 
-    assert sample_4d_volume.fusi.affine.apply(affine, inplace=True) is expected_apply
-    assert calls["apply"] == (sample_4d_volume, affine, True)
+    assert sample_3dt_volume.fusi.affine.apply(affine, inplace=True) is expected_apply
+    assert calls["apply"] == (sample_3dt_volume, affine, True)
 
 
-def test_iq_wrappers_forward_calls(monkeypatch, sample_4d_volume_complex):
+def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
     """IQ accessor methods forward all arguments to processing functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
     calls: dict[str, tuple] = {}
@@ -117,12 +117,12 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_4d_volume_complex):
     monkeypatch.setattr("confusius.xarray.iq.process_iq_to_bmode", _bmode)
 
     mask = xr.DataArray(
-        np.ones(sample_4d_volume_complex.shape[1:], dtype=bool),
+        np.ones(sample_3dt_volume_complex.shape[1:], dtype=bool),
         dims=["z", "y", "x"],
-        coords={k: sample_4d_volume_complex.coords[k] for k in ("z", "y", "x")},
+        coords={k: sample_3dt_volume_complex.coords[k] for k in ("z", "y", "x")},
     )
 
-    assert sample_4d_volume_complex.fusi.iq.process_to_power_doppler(
+    assert sample_3dt_volume_complex.fusi.iq.process_to_power_doppler(
         clutter_window_width=11,
         clutter_window_stride=7,
         filter_method="butterworth",
@@ -134,7 +134,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_4d_volume_complex):
         doppler_window_stride=3,
     ) is expected
     assert calls["pwd"] == (
-        sample_4d_volume_complex,
+        sample_3dt_volume_complex,
         {
             "clutter_window_width": 11,
             "clutter_window_stride": 7,
@@ -148,7 +148,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_4d_volume_complex):
         },
     )
 
-    assert sample_4d_volume_complex.fusi.iq.process_to_axial_velocity(
+    assert sample_3dt_volume_complex.fusi.iq.process_to_axial_velocity(
         clutter_window_width=13,
         clutter_window_stride=5,
         filter_method="svd_energy",
@@ -164,7 +164,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_4d_volume_complex):
         estimation_method="angle_average",
     ) is expected
     assert calls["vel"] == (
-        sample_4d_volume_complex,
+        sample_3dt_volume_complex,
         {
             "clutter_window_width": 13,
             "clutter_window_stride": 5,
@@ -183,14 +183,14 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_4d_volume_complex):
     )
 
     assert (
-        sample_4d_volume_complex.fusi.iq.process_to_bmode(
+        sample_3dt_volume_complex.fusi.iq.process_to_bmode(
             bmode_window_width=5,
             bmode_window_stride=2,
         )
         is expected
     )
     assert calls["bmode"] == (
-        sample_4d_volume_complex,
+        sample_3dt_volume_complex,
         {"bmode_window_width": 5, "bmode_window_stride": 2},
     )
 
@@ -305,7 +305,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
 
 
 def test_connectivity_seed_map_with_masks_constructs_and_fits(
-    sample_4d_volume, sample_roi_labels, monkeypatch
+    sample_3dt_volume, sample_roi_labels, monkeypatch
 ):
     """Connectivity wrapper forwards mask-based seed-map arguments."""
     calls: dict[str, object] = {}
@@ -320,14 +320,14 @@ def test_connectivity_seed_map_with_masks_constructs_and_fits(
 
     monkeypatch.setattr("confusius.connectivity.SeedBasedMaps", DummySeedBasedMaps)
 
-    result = sample_4d_volume.fusi.connectivity.seed_map(
+    result = sample_3dt_volume.fusi.connectivity.seed_map(
         seed_masks=sample_roi_labels,
         labels_reduction="median",
         clean_kwargs={"detrend_order": 1},
     )
 
     assert isinstance(result, DummySeedBasedMaps)
-    assert calls["fit_data"] is sample_4d_volume
+    assert calls["fit_data"] is sample_3dt_volume
     assert calls["init_kwargs"] == {
         "seed_masks": sample_roi_labels,
         "seed_signals": None,
@@ -337,7 +337,7 @@ def test_connectivity_seed_map_with_masks_constructs_and_fits(
 
 
 def test_connectivity_seed_map_with_signals_constructs_and_fits(
-    sample_4d_volume, monkeypatch
+    sample_3dt_volume, monkeypatch
 ):
     """Connectivity wrapper forwards signal-based seed-map arguments."""
     calls: dict[str, object] = {}
@@ -353,14 +353,14 @@ def test_connectivity_seed_map_with_signals_constructs_and_fits(
     monkeypatch.setattr("confusius.connectivity.SeedBasedMaps", DummySeedBasedMaps)
 
     seed_signals = xr.DataArray(np.ones((3, 2)), dims=["time", "region"])
-    result = sample_4d_volume.fusi.connectivity.seed_map(
+    result = sample_3dt_volume.fusi.connectivity.seed_map(
         seed_signals=seed_signals,
         labels_reduction="std",
         clean_kwargs={"detrend_order": 2},
     )
 
     assert isinstance(result, DummySeedBasedMaps)
-    assert calls["fit_data"] is sample_4d_volume
+    assert calls["fit_data"] is sample_3dt_volume
     assert calls["init_kwargs"] == {
         "seed_masks": None,
         "seed_signals": seed_signals,
