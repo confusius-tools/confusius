@@ -257,6 +257,10 @@ def fetch_cybis_pereira_2026(
 
     [^2]:
         fUSI-BIDS dataset on OSF: [https://osf.io/2v6f7/](https://osf.io/2v6f7/)
+
+    [^3]:
+        Dataset license (CC BY 4.0):
+        [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
     bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
     bids_dir.mkdir(parents=True, exist_ok=True)
