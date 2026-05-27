@@ -16,6 +16,7 @@ import pandas as pd
 import xarray as xr
 from sklearn.base import BaseEstimator
 
+from confusius.extract import extract_with_mask, unmask
 from confusius.glm._contrasts import Contrast
 from confusius.glm._design import (
     DriftModelSpec,
@@ -31,6 +32,7 @@ from confusius.glm._utils import (
     to_spatial_dataarray,
 )
 from confusius.validation.coordinates import validate_matching_coordinates
+from confusius.validation.mask import validate_mask
 from confusius.validation.time_series import validate_time_series
 
 if TYPE_CHECKING:
@@ -107,6 +109,9 @@ class FirstLevelModel(BaseEstimator):
         interval in the run `time` coordinate (see
         [`get_representative_step`][confusius._utils.get_representative_step]).
         Increase this value to tolerate slight timestamp jitter.
+    mask : xarray.DataArray, optional
+        Boolean spatial mask selecting voxels to include in model fitting. Must match
+        the spatial dimensions and coordinates of each run.
 
     Attributes
     ----------
@@ -148,6 +153,7 @@ class FirstLevelModel(BaseEstimator):
         oversampling: int = 50,
         min_onset: float = -24.0,
         uniformity_tolerance: float = 1e-2,
+        mask: xr.DataArray | None = None,
     ) -> None:
         self.hrf_model = hrf_model
         self.drift_model = drift_model
@@ -159,6 +165,7 @@ class FirstLevelModel(BaseEstimator):
         self.oversampling = oversampling
         self.min_onset = min_onset
         self.uniformity_tolerance = uniformity_tolerance
+        self.mask = mask
 
     def fit(
         self,
@@ -210,6 +217,8 @@ class FirstLevelModel(BaseEstimator):
 
         for i, run in enumerate(run_data):
             validate_time_series(run, f"FirstLevelModel fit (run {i})")
+            if self.mask is not None:
+                validate_mask(self.mask, run, "mask", require_exact_dims=True)
 
         if n_runs > 1:
             ref_run = run_data[0]
@@ -277,6 +286,9 @@ class FirstLevelModel(BaseEstimator):
 
         for run_index in range(n_runs):
             data_2d, s_dims, s_shape = _flatten_spatial(run_data[run_index])
+            if self.mask is not None:
+                masked = extract_with_mask(run_data[run_index], self.mask)
+                data_2d = masked.transpose("time", "space").values
             self._spatial_shapes.append(s_shape)
             self._run_coords.append(
                 {
@@ -358,6 +370,23 @@ class FirstLevelModel(BaseEstimator):
             contrast_def, stat_type, baseline=baseline
         )
         flat = select_contrast_map(contrast_obj, output_type)
+
+        if self.mask is not None:
+            attrs = {**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"}
+            if flat.ndim == 1:
+                result = unmask(flat, self.mask, attrs=attrs, fill_value=0.0)
+            else:
+                result = unmask(
+                    flat,
+                    self.mask,
+                    new_dims=["contrast_dim"],
+                    new_dims_coords={"contrast_dim": np.arange(flat.shape[0])},
+                    attrs=attrs,
+                    fill_value=0.0,
+                )
+            result.name = output_type
+            return result
+
         return to_spatial_dataarray(
             flat,
             spatial_dims=self._spatial_dims,
