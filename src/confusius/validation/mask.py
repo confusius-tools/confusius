@@ -74,6 +74,7 @@ def validate_mask(
     mask_name: str = "mask",
     rtol: float = 1e-5,
     atol: float = 1e-8,
+    require_exact_dims: bool = False,
 ) -> None:
     """Validate that a mask matches data spatial dimensions and coordinates.
 
@@ -92,6 +93,9 @@ def validate_mask(
         Relative tolerance for coordinate comparison.
     atol : float, default: 1e-8
         Absolute tolerance for coordinate comparison.
+    require_exact_dims : bool, default: False
+        Whether `mask.dims` must match all non-`time` dimensions of `data` in the same
+        order.
 
     Raises
     ------
@@ -123,6 +127,15 @@ def validate_mask(
         )
 
     _validate_spatial_coords(mask, data, mask_name, rtol, atol)
+
+    if require_exact_dims:
+        expected_dims = tuple(str(d) for d in data.dims if d != "time")
+        mask_dims = tuple(str(d) for d in mask.dims)
+        if mask_dims != expected_dims:
+            raise ValueError(
+                f"{mask_name} dimensions must match all non-time dimensions of data "
+                f"in the same order. Expected {expected_dims}, got {mask_dims}."
+            )
 
 
 def validate_labels(

@@ -376,3 +376,75 @@ def test_reproducible_with_random_state():
 
     np.testing.assert_allclose(signals_1.values, signals_2.values)
     np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
+
+
+def test_mask_restricts_features(sample_3dt_volume):
+    """mask restricts fitted feature count to selected voxels."""
+    mask = xr.DataArray(
+        np.zeros(
+            (
+                sample_3dt_volume.sizes["z"],
+                sample_3dt_volume.sizes["y"],
+                sample_3dt_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
+        },
+    )
+    mask.values[:, :2, :] = True
+
+    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_3dt_volume)
+
+    assert model.n_features_in_ == int(mask.values.sum())
+
+
+
+def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume):
+    """Masked FastICA keeps full geometry and fills outside-mask voxels with zero."""
+    mask = xr.DataArray(
+        np.zeros(
+            (
+                sample_3dt_volume.sizes["z"],
+                sample_3dt_volume.sizes["y"],
+                sample_3dt_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
+        },
+    )
+    mask.values[:, :2, :] = True
+
+    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_3dt_volume)
+    reconstructed = model.inverse_transform(model.transform(sample_3dt_volume))
+
+    assert reconstructed.dims == sample_3dt_volume.dims
+    np.testing.assert_array_equal(
+        reconstructed.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+    np.testing.assert_array_equal(
+        model.maps_.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+    np.testing.assert_array_equal(
+        model.mean_.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+
+
+def test_mask_mismatch_raises(sample_3dt_volume):
+    """fit raises when mask does not match spatial dimensions."""
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+
+    with pytest.raises(ValueError, match="missing from mask"):
+        FastICA(mask=bad_mask).fit(sample_3dt_volume)

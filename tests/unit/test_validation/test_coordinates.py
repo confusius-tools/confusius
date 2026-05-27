@@ -163,3 +163,30 @@ def test_validate_mask_accepts_scalar_attached_coordinate(sample_3dt_volume):
     mask[0, 0, :, :] = 1
 
     validate_mask(mask.isel(mask=0), sample_3dt_volume)
+
+
+def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_3dt_volume):
+    """`require_exact_dims=True` accepts masks over all non-time dimensions."""
+    mask = xr.DataArray(
+        np.ones(sample_3dt_volume.shape[1:], dtype=bool),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
+        },
+    )
+
+    validate_mask(mask, sample_3dt_volume, require_exact_dims=True)
+
+
+def test_validate_mask_require_exact_dims_rejects_subset_dims(sample_3dt_volume):
+    """`require_exact_dims=True` rejects subset spatial masks."""
+    mask = xr.DataArray(
+        np.ones(sample_3dt_volume.shape[3], dtype=bool),
+        dims=["x"],
+        coords={"x": sample_3dt_volume.coords["x"]},
+    )
+
+    with pytest.raises(ValueError, match="must match all non-time dimensions"):
+        validate_mask(mask, sample_3dt_volume, require_exact_dims=True)

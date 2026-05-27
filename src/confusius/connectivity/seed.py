@@ -9,9 +9,10 @@ import xarray as xr
 from matplotlib.colors import Normalize
 from sklearn.base import BaseEstimator
 
+from confusius.extract import extract_with_mask, unmask
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
-from confusius.validation import validate_labels, validate_time_series
+from confusius.validation import validate_labels, validate_mask, validate_time_series
 from confusius.validation.coordinates import validate_matching_coordinates
 
 
@@ -115,13 +116,21 @@ class SeedBasedMaps(BaseEstimator):
         provided.
     clean_kwargs : dict, optional
         Keyword arguments forwarded to [`clean`][confusius.signal.clean]. Cleaning is
-        applied to the full data array before computing correlations. If not provided,
+        applied before computing correlations. If `mask` is provided, cleaning is
+        applied to the masked `(time, space)` signals for efficiency. If not provided,
         no cleaning is applied.
 
         !!! warning "Chunking along time"
-            Any operation in `clean_kwargs` that involves detrending or
-            filtering requires the `time` dimension to be un-chunked.
-            Rechunk your data before calling `fit`: `data.chunk({'time': -1})`.
+            Any operation in `clean_kwargs` that involves detrending or filtering
+            requires the `time` dimension to be un-chunked. Rechunk your data before
+            calling `fit`: `data.chunk({'time': -1})`.
+
+    mask : xarray.DataArray, optional
+        Boolean spatial mask selecting which voxels are included in the correlation
+        computation. When provided, voxel signals are first extracted with
+        [`extract_with_mask`][confusius.extract.extract_with_mask], so cleaning and
+        correlation are computed only on masked voxels. Output maps retain the full
+        spatial geometry, with voxels outside the mask set to `0`.
 
     Attributes
     ----------
@@ -205,11 +214,13 @@ class SeedBasedMaps(BaseEstimator):
             "mean", "sum", "median", "min", "max", "var", "std"
         ] = "mean",
         clean_kwargs: dict | None = None,
+        mask: xr.DataArray | None = None,
     ) -> None:
         self.seed_masks = seed_masks
         self.seed_signals = seed_signals
         self.labels_reduction = labels_reduction
         self.clean_kwargs = clean_kwargs
+        self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "SeedBasedMaps":
         """Compute the seed-based correlation maps.
@@ -270,15 +281,33 @@ class SeedBasedMaps(BaseEstimator):
             assert self.seed_signals is not None
             _validate_seed_signals(self.seed_signals, X)
 
-        if self.clean_kwargs is not None:
-            X_clean = clean(X, **self.clean_kwargs)
+        if self.mask is not None:
+            validate_mask(self.mask, X, "mask")
+
+        if self.mask is not None:
+            X_masked = extract_with_mask(X, self.mask)
+            X_for_corr = (
+                clean(X_masked, **self.clean_kwargs)
+                if self.clean_kwargs is not None
+                else X_masked
+            )
         else:
-            X_clean = X
+            X_for_corr = (
+                clean(X, **self.clean_kwargs) if self.clean_kwargs is not None else X
+            )
 
         if self.seed_masks is not None:
-            extracted: xr.DataArray = extract_with_labels(
-                X_clean, self.seed_masks, reduction=self.labels_reduction
-            )
+            if self.mask is not None:
+                extracted = _extract_with_labels_from_masked_space(
+                    X_for_corr,
+                    self.seed_masks,
+                    self.mask,
+                    reduction=self.labels_reduction,
+                )
+            else:
+                extracted = extract_with_labels(
+                    X_for_corr, self.seed_masks, reduction=self.labels_reduction
+                )
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
             # above.
@@ -292,9 +321,14 @@ class SeedBasedMaps(BaseEstimator):
         if extracted.ndim == 1:
             extracted = extracted.expand_dims("region", axis=1)
 
-        self.seed_signals_: xr.DataArray = extracted
+        self.seed_signals_ = extracted
 
-        maps = _compute_correlation_maps(X_clean, extracted)
+        maps_masked = _compute_correlation_maps(X_for_corr, extracted)
+        maps = (
+            unmask(maps_masked, self.mask, fill_value=0.0)
+            if self.mask is not None
+            else maps_masked
+        )
 
         if maps.sizes.get("region", 0) == 1:
             maps = maps.isel(region=0, drop=False)
@@ -315,6 +349,57 @@ class SeedBasedMaps(BaseEstimator):
     def __sklearn_is_fitted__(self) -> bool:
         """Check whether the estimator has been fitted."""
         return hasattr(self, "maps_")
+
+
+def _extract_with_labels_from_masked_space(
+    data: xr.DataArray,
+    labels: xr.DataArray,
+    mask: xr.DataArray,
+    reduction: Literal["mean", "sum", "median", "min", "max", "var", "std"],
+) -> xr.DataArray:
+    """Extract region signals from masked `(time, space)` data without unmasking."""
+    spatial_dims = tuple(str(d) for d in mask.dims)
+    labels_spatial_dims = tuple(str(d) for d in labels.dims if d != "mask")
+    if set(labels_spatial_dims) != set(spatial_dims):
+        raise ValueError(
+            "labels spatial dimensions must match mask dimensions for masked "
+            f"extraction. Expected {spatial_dims}, got {labels_spatial_dims}."
+        )
+
+    if "mask" in labels.dims:
+        labels_masked = labels.where(mask, other=0).transpose("mask", *spatial_dims)
+        labels_masked = labels_masked.stack(space=list(spatial_dims))
+        labels_masked = labels_masked.sel(space=data.coords["space"])
+
+        region_signals: list[xr.DataArray] = []
+        region_names: list[object] = []
+        for i in range(labels_masked.sizes["mask"]):
+            layer = labels_masked.isel(mask=i)
+            selected = data.where(layer != 0)
+            region_signals.append(getattr(selected, reduction)(dim="space"))
+            region_names.append(labels_masked.coords["mask"].values[i])
+
+        return (
+            xr.concat(region_signals, dim="region")
+            .assign_coords(region=region_names)
+            .transpose("time", "region")
+        )
+
+    labels_masked = labels.where(mask, other=0).transpose(*spatial_dims)
+    labels_masked = labels_masked.stack(space=list(spatial_dims))
+    labels_masked = labels_masked.sel(space=data.coords["space"])
+
+    region_ids = np.unique(labels_masked.values)
+    region_ids = region_ids[region_ids != 0]
+    region_signals = [
+        getattr(data.where(labels_masked == region_id), reduction)(dim="space")
+        for region_id in region_ids
+    ]
+    return (
+        xr.concat(region_signals, dim="region")
+        .assign_coords(region=region_ids)
+        .transpose("time", "region")
+    )
 
 
 def _compute_correlation_maps(

@@ -69,7 +69,7 @@ def test_wrapper_matches_sklearn_attributes(sample_3dt_volume):
         sklearn_model.singular_values_,
     )
     assert model.n_components_ == sklearn_model.n_components_
-    assert model.noise_variance_ == sklearn_model.noise_variance_
+    np.testing.assert_allclose(model.noise_variance_, sklearn_model.noise_variance_)
 
 
 def test_inverse_transform_reconstructs_with_all_components(sample_3dt_volume):
@@ -164,6 +164,29 @@ def test_fit_requires_spatial_dimension():
 
     with pytest.raises(ValueError, match="at least one spatial dimension"):
         PCA().fit(only_time)
+
+
+def test_mask_must_match_full_spatial_dims_in_order(sample_3dt_volume):
+    """Mask must span all spatial dims in the stacked feature order."""
+    mask = xr.DataArray(
+        np.ones(
+            (
+                sample_3dt_volume.sizes["y"],
+                sample_3dt_volume.sizes["z"],
+                sample_3dt_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["y", "z", "x"],
+        coords={
+            "y": sample_3dt_volume.coords["y"],
+            "z": sample_3dt_volume.coords["z"],
+            "x": sample_3dt_volume.coords["x"],
+        },
+    )
+
+    with pytest.raises(ValueError, match="must match all non-time dimensions"):
+        PCA(mask=mask).fit(sample_3dt_volume)
 
 
 def test_fit_rejects_unexpected_fit_params(sample_3dt_volume):
@@ -348,3 +371,74 @@ def test_fit_raises_for_invalid_mode(sample_3dt_volume):
     """fit raises for unsupported PCA mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
         PCA(mode="invalid").fit(sample_3dt_volume)  # type: ignore[arg-type]
+
+
+def test_mask_restricts_features(sample_3dt_volume):
+    """mask restricts fitted feature count to selected voxels."""
+    mask = xr.DataArray(
+        np.zeros(
+            (
+                sample_3dt_volume.sizes["z"],
+                sample_3dt_volume.sizes["y"],
+                sample_3dt_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
+        },
+    )
+    mask.values[:2, :, :] = True
+
+    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_3dt_volume)
+
+    assert model.n_features_in_ == int(mask.values.sum())
+
+
+def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume):
+    """Masked PCA keeps full geometry and fills outside-mask voxels with zero."""
+    mask = xr.DataArray(
+        np.zeros(
+            (
+                sample_3dt_volume.sizes["z"],
+                sample_3dt_volume.sizes["y"],
+                sample_3dt_volume.sizes["x"],
+            ),
+            dtype=bool,
+        ),
+        dims=["z", "y", "x"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+            "x": sample_3dt_volume.coords["x"],
+        },
+    )
+    mask.values[:2, :, :] = True
+
+    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_3dt_volume)
+    reconstructed = model.inverse_transform(model.transform(sample_3dt_volume))
+
+    assert reconstructed.dims == sample_3dt_volume.dims
+    np.testing.assert_array_equal(
+        reconstructed.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+    np.testing.assert_array_equal(
+        model.maps_.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+    np.testing.assert_array_equal(
+        model.mean_.where(~mask, other=np.nan).fillna(0.0).values,
+        0.0,
+    )
+
+
+def test_mask_mismatch_raises(sample_3dt_volume):
+    """fit raises when mask does not match spatial dimensions."""
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+
+    with pytest.raises(ValueError, match="missing from mask"):
+        PCA(mask=bad_mask).fit(sample_3dt_volume)
