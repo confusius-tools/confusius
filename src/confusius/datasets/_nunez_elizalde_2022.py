@@ -180,6 +180,10 @@ def fetch_nunez_elizalde_2022(
 
     [^2]:
         fUSI-BIDS dataset on OSF: [https://osf.io/43skw/](https://osf.io/43skw/)
+
+    [^3]:
+        Dataset license (CC BY 4.0):
+        [https://creativecommons.org/licenses/by/4.0/](https://creativecommons.org/licenses/by/4.0/)
     """
     bids_dir = get_datasets_dir(data_dir) / _BIDS_ROOT
     bids_dir.mkdir(parents=True, exist_ok=True)

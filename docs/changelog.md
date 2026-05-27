@@ -29,6 +29,9 @@ Current development version for the next ConfUSIus release.
 - Added `datatypes` filter to `fetch_cybis_pereira_2026`, allowing downloads to be
   scoped to specific BIDS datatype directories (`"fusi"`, `"angio"`, `"motion"`)
   ([#141](https://github.com/confusius-tools/confusius/pull/141)).
+- Added `fetch_template_huang_2025` for downloading and loading the Huang et al.
+  vascular mouse template from OSF, with cache/refresh behavior matching existing
+  template fetchers.
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
@@ -85,7 +88,7 @@ Current development version for the next ConfUSIus release.
 
 ## 0.2.0
 
-Released 2026-05-05.
+*Released 2026-05-05.*
 
 First official public beta release of ConfUSIus.
 

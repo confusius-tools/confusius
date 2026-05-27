@@ -132,7 +132,44 @@ Or in BibTeX format:
 }
 ```
 
+## Datasets
+
+### Nunez-Elizalde et al. (2022)
+
+The [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022]
+function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
+
+> Nunez-Elizalde, A.O. et al. (2022). Neural correlates of blood flow measured by
+> ultrasound. *Neuron*, 110(10), 1631–1640.
+> https://doi.org/10.1016/j.neuron.2022.02.012
+
+License: **CC BY 4.0**.
+
+### Cybis Pereira et al. (2026)
+
+The [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]
+function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
+
+> Cybis Pereira, F. et al. (2026). A vascular code for speed in the spatial navigation
+> system. *Cell Reports*, 45(1).
+> https://doi.org/10.1016/j.celrep.2025.116791
+
+License: **CC BY 4.0**.
+
 ## Templates
+
+### Huang et al. (2025)
+
+The [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025]
+function provides a vascular mouse template derived from OpenfUSAnalyzer. If you use
+this template in your research, please cite:
+
+> Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
+> framework for the analysis and visualization of functional ultrasound imaging data
+> across animal models. *bioRxiv*.
+> https://doi.org/10.1101/2025.09.16.676515
+
+License: **CC BY-NC-SA 4.0**.
 
 ### Pepe, Mariani et al. (2026)
 
@@ -144,6 +181,8 @@ this template in your research, please also cite the corresponding article:
 > Iurilli, G., & Gozzi, A. (2026). Structural and dynamic embedding of the mouse functional
 > connectome revealed by functional ultrasound imaging (fUSI). *bioRxiv*.
 > https://doi.org/10.64898/2026.02.05.704055
+
+License: **CC BY 4.0**.
 
 Or in BibTeX format:
 
