@@ -31,7 +31,7 @@ Current development version for the next ConfUSIus release.
   ([#141](https://github.com/confusius-tools/confusius/pull/141)).
 - Added `fetch_template_huang_2025` for downloading and loading the Huang et al.
   vascular mouse template from OSF, with cache/refresh behavior matching existing
-  template fetchers.
+  template fetchers ([#162](https://github.com/confusius-tools/confusius/pull/162)).
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
