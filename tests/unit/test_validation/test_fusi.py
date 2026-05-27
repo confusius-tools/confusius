@@ -280,6 +280,23 @@ def test_validate_fusi_dataarray_regular_spacing_all_skips_non_numeric_dims(
     )
 
 
+def test_validate_fusi_dataarray_regular_spacing_all_requires_extra_dim_coordinate(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`all` mode requires a coordinate for every present dimension."""
+    bad = sample_3dt_volume.expand_dims(region=["roi"]).drop_vars("region")
+
+    with pytest.raises(
+        ValueError,
+        match="Missing required coordinate.*when checking for regular spacing",
+    ):
+        validate_fusi_dataarray(
+            bad,
+            require_regular_spacing=True,
+            regular_spacing_dims="all",
+        )
+
+
 def test_validate_fusi_dataarray_regular_spacing_core_checks_time_when_present(
     sample_3dt_volume: xr.DataArray,
 ) -> None:

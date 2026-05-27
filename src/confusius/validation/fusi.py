@@ -195,7 +195,10 @@ def _validate_regular_spacing(
 
     for dim in dims_to_check:
         if dim not in da.coords:
-            raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
+            raise ValueError(
+                f"Missing required coordinate for dimension {dim!r} when checking "
+                "for regular spacing."
+            )
         coord = da.coords[dim]
         if not np.issubdtype(coord.dtype, np.number):
             continue
