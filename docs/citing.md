@@ -139,22 +139,63 @@ Or in BibTeX format:
 The [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022]
 function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
 
-> Nunez-Elizalde, A.O. et al. (2022). Neural correlates of blood flow measured by
-> ultrasound. *Neuron*, 110(10), 1631–1640.
+> Nunez-Elizalde, A. O., Krumin, M., Reddy, C. B., Montaldo, G., Urban, A., Harris,
+> K. D., & Carandini, M. (2022). Neural correlates of blood flow measured by
+> ultrasound. *Neuron*, 110(10), 1631–1640.e4.
 > https://doi.org/10.1016/j.neuron.2022.02.012
 
-License: **CC BY 4.0**.
+Or in BibTeX format:
 
-### Cybis Pereira et al. (2026)
+```bibtex
+@article{nunez-elizalde_neural_2022,
+  title = {Neural correlates of blood flow measured by ultrasound},
+  volume = {110},
+  issn = {08966273},
+  url = {https://linkinghub.elsevier.com/retrieve/pii/S0896627322001775},
+  doi = {10.1016/j.neuron.2022.02.012},
+  language = {en},
+  number = {10},
+  journal = {Neuron},
+  author = {Nunez-Elizalde, Anwar O. and Krumin, Michael and Reddy, Charu Bai and
+            Montaldo, Gabriel and Urban, Alan and Harris, Kenneth D. and Carandini, Matteo},
+  month = may,
+  year = {2022},
+  pages = {1631--1640.e4},
+}
+```
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
+
+### Cybis Pereira et al. (2025)
 
 The [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]
 function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
 
-> Cybis Pereira, F. et al. (2026). A vascular code for speed in the spatial navigation
-> system. *Cell Reports*, 45(1).
-> https://doi.org/10.1016/j.celrep.2025.116791
+> Cybis Pereira, F., Castedo, S. H., Le Meur-Diebolt, S., Ialy-Radio, N.,
+> Bhattacharya, S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R.,
+> Pezet, S., & Tanter, M. (2025). Speed vascular patterns in the spatial navigation
+> system. *bioRxiv*.
+> https://doi.org/10.1101/2025.07.15.663536
 
-License: **CC BY 4.0**.
+Or in BibTeX format:
+
+```bibtex
+@misc{cybis_pereira_speed_2025,
+  title = {Speed Vascular Patterns in the Spatial Navigation System},
+  copyright = {http://creativecommons.org/licenses/by/4.0/},
+  url = {http://biorxiv.org/lookup/doi/10.1101/2025.07.15.663536},
+  doi = {10.1101/2025.07.15.663536},
+  language = {en},
+  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and Le Meur-Diebolt, Samuel and
+            Ialy-Radio, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and
+            Osmanski, Bruno Félix and Cocco, Simona and Monasson, Remi and Pezet, Sophie and
+            Tanter, Mickaël},
+  month = jul,
+  year = {2025},
+}
+```
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 
 ## Templates
 
@@ -164,12 +205,32 @@ The [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025]
 function provides a vascular mouse template derived from OpenfUSAnalyzer. If you use
 this template in your research, please cite:
 
-> Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source
-> framework for the analysis and visualization of functional ultrasound imaging data
-> across animal models. *bioRxiv*.
+> Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M.,
+> Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). OfUSA: OpenfUS
+> Analyzer, a versatile open-source framework for the analysis and visualization of
+> functional ultrasound imaging data across animal models. *bioRxiv*.
 > https://doi.org/10.1101/2025.09.16.676515
 
-License: **CC BY-NC-SA 4.0**.
+Or in BibTeX format:
+
+```bibtex
+@misc{huang_ofusa:_2025,
+  title = {OfUSA: OpenfUS Analyzer, a versatile open-source framework for the analysis and
+           visualization of functional ultrasound imaging data across animal models},
+  copyright = {http://creativecommons.org/licenses/by-nc/4.0/},
+  shorttitle = {OfUSA},
+  url = {http://biorxiv.org/lookup/doi/10.1101/2025.09.16.676515},
+  doi = {10.1101/2025.09.16.676515},
+  language = {en},
+  author = {Huang, Yun-An and Lambert, Théo and Verbeyst, Damon and Fitzgerald, Nora Eilis and
+            Grillet, Micheline and Brunner, Clément and Montaldo, Gabriel and
+            Vanduffel, Wim and Urban, Alan},
+  month = sep,
+  year = {2025},
+}
+```
+
+License: **[CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)**.
 
 ### Pepe, Mariani et al. (2026)
 
@@ -177,12 +238,11 @@ The [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_
 function provides a mouse fUSI template derived from Pepe, Mariani et al. (2026). If you use
 this template in your research, please also cite the corresponding article:
 
-> Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., Galbusera, A.,
-> Iurilli, G., & Gozzi, A. (2026). Structural and dynamic embedding of the mouse functional
-> connectome revealed by functional ultrasound imaging (fUSI). *bioRxiv*.
+> Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F.,
+> Galbusera, A., Iurilli, G., & Gozzi, A. (2026). Structural and dynamic embedding
+> of the mouse functional connectome revealed by functional ultrasound imaging
+> (fUSI). *bioRxiv*.
 > https://doi.org/10.64898/2026.02.05.704055
-
-License: **CC BY 4.0**.
 
 Or in BibTeX format:
 
@@ -200,3 +260,5 @@ Or in BibTeX format:
   url       = {https://doi.org/10.64898/2026.02.05.704055}
 }
 ```
+
+License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
