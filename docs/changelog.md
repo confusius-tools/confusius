@@ -8,7 +8,7 @@ icon: lucide/history
 
 ## 0.3.0
 
-Released 2026-05-27.
+*Released 2026-05-27.*
 
 ### :boom: Breaking changes
 
