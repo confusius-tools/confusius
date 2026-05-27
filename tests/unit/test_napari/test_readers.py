@@ -47,10 +47,10 @@ def zarr_3d_path(tmp_path: Path, sample_3d_volume: xr.DataArray) -> Path:
 
 
 @pytest.fixture
-def zarr_4d_path(tmp_path: Path, sample_4d_volume: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_4d_volume fixture."""
+def zarr_4d_path(tmp_path: Path, sample_3dt_volume: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_3dt_volume fixture."""
     path = tmp_path / "vol4d.zarr"
-    xr.Dataset({"data": sample_4d_volume}).to_zarr(path, zarr_format=2)
+    xr.Dataset({"data": sample_3dt_volume}).to_zarr(path, zarr_format=2)
     return path
 
 

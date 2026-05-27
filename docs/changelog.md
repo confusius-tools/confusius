@@ -20,6 +20,9 @@ Current development version for the next ConfUSIus release.
   full per-frame diagnostics list under `attrs["registration_diagnostics"]` only when
   called with `keep_diagnostics=True` to avoid retaining the full optimizer metric
   trace by default ([#139](https://github.com/confusius-tools/confusius/pull/139)).
+- Renamed `validate_iq` to
+  [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray]
+  ([#153](https://github.com/confusius-tools/confusius/pull/153)).
 
 ### :sparkles: Enhancements
 
@@ -35,6 +38,11 @@ Current development version for the next ConfUSIus release.
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
+- Added a reusable [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray]
+  validator and refactored IQ/registration validation to use it. Core dimension
+  coordinates are now validated as 1D, numeric, finite, and strictly increasing,
+  while extra/non-dimension coordinates remain allowed
+  ([#153](https://github.com/confusius-tools/confusius/pull/153)).
 - Added shared `fontsize` parameter to `plot_volume`, `plot_contours`, and carpet
   plotting entry points so text sizing is consistent across all plotting APIs
   ([#128](https://github.com/confusius-tools/confusius/pull/128)).

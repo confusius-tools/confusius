@@ -10,25 +10,25 @@ from confusius import extract
 class TestWithMask:
     """Tests for extract.extract_with_mask function."""
 
-    def test_float_mask_rejected(self, sample_4d_volume):
+    def test_float_mask_rejected(self, sample_3dt_volume):
         """Test that float mask raises TypeError."""
         mask = xr.DataArray(
-            np.random.rand(*sample_4d_volume.shape[1:]),
+            np.random.rand(*sample_3dt_volume.shape[1:]),
             dims=["z", "y", "x"],
         )
 
         with pytest.raises(TypeError, match="single-label integer dtype"):
-            extract.extract_with_mask(sample_4d_volume, mask)
+            extract.extract_with_mask(sample_3dt_volume, mask)
 
-    def test_multi_label_integer_mask_rejected(self, sample_4d_volume):
+    def test_multi_label_integer_mask_rejected(self, sample_3dt_volume):
         """Test that integer mask with more than one non-zero value raises TypeError."""
-        mask_data = np.zeros(sample_4d_volume.shape[1:], dtype=np.int32)
+        mask_data = np.zeros(sample_3dt_volume.shape[1:], dtype=np.int32)
         mask_data[0, 0, 0] = 1
         mask_data[0, 0, 1] = 2
         mask = xr.DataArray(mask_data, dims=["z", "y", "x"])
 
         with pytest.raises(TypeError, match="2 distinct non-zero"):
-            extract.extract_with_mask(sample_4d_volume, mask)
+            extract.extract_with_mask(sample_3dt_volume, mask)
 
     def test_integer_mask_selects_nonzero_voxels(self):
         """Test that an integer mask (0 / region_id) selects the same voxels as the

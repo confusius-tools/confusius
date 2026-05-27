@@ -11,39 +11,39 @@ from confusius import extract
 class TestWithLabels:
     """Tests for extract.extract_with_labels function."""
 
-    def test_labels_type_validation(self, sample_4d_volume):
+    def test_labels_type_validation(self, sample_3dt_volume):
         """Test that non-DataArray labels raises TypeError."""
         with pytest.raises(TypeError, match="xarray.DataArray"):
             extract.extract_with_labels(
-                sample_4d_volume,
+                sample_3dt_volume,
                 np.zeros((4, 6, 8), dtype=int),  # type: ignore[arg-type]
             )
 
-    def test_labels_dtype_validation(self, sample_4d_volume):
+    def test_labels_dtype_validation(self, sample_3dt_volume):
         """Test that non-integer labels raises TypeError."""
         labels = xr.DataArray(
-            np.random.rand(*sample_4d_volume.shape[1:]),
+            np.random.rand(*sample_3dt_volume.shape[1:]),
             dims=["z", "y", "x"],
         )
         with pytest.raises(TypeError, match="integer dtype"):
-            extract.extract_with_labels(sample_4d_volume, labels)
+            extract.extract_with_labels(sample_3dt_volume, labels)
 
-    def test_boolean_labels_rejected(self, sample_4d_volume):
+    def test_boolean_labels_rejected(self, sample_3dt_volume):
         """Test that boolean dtype labels raises TypeError."""
         labels = xr.DataArray(
-            np.ones(sample_4d_volume.shape[1:], dtype=bool),
+            np.ones(sample_3dt_volume.shape[1:], dtype=bool),
             dims=["z", "y", "x"],
         )
         with pytest.raises(TypeError, match="integer dtype"):
-            extract.extract_with_labels(sample_4d_volume, labels)
+            extract.extract_with_labels(sample_3dt_volume, labels)
 
-    def test_missing_spatial_dim(self, sample_4d_volume):
+    def test_missing_spatial_dim(self, sample_3dt_volume):
         """Test that labels with dimension not in data raises ValueError."""
         labels = xr.DataArray(np.array([1, 0, 2], dtype=int), dims=["w"])
         with pytest.raises(ValueError, match="missing spatial dimensions.*'w'"):
-            extract.extract_with_labels(sample_4d_volume, labels)
+            extract.extract_with_labels(sample_3dt_volume, labels)
 
-    def test_output_dims_4d(self, sample_4d_volume):
+    def test_output_dims_4d(self, sample_3dt_volume):
         """Test that spatial dims are replaced by region for 3D+t data."""
         labels_data = np.zeros((4, 6, 8), dtype=int)
         labels_data[:2, :, :] = 1
@@ -52,13 +52,13 @@ class TestWithLabels:
             labels_data,
             dims=["z", "y", "x"],
             coords={
-                "z": sample_4d_volume.coords["z"],
-                "y": sample_4d_volume.coords["y"],
-                "x": sample_4d_volume.coords["x"],
+                "z": sample_3dt_volume.coords["z"],
+                "y": sample_3dt_volume.coords["y"],
+                "x": sample_3dt_volume.coords["x"],
             },
         )
 
-        result = extract.extract_with_labels(sample_4d_volume, labels)
+        result = extract.extract_with_labels(sample_3dt_volume, labels)
 
         assert result.dims == ("time", "region")
         np.testing.assert_array_equal(result.coords["region"].values, [1, 2])
@@ -153,9 +153,9 @@ class TestWithLabels:
         expected = extract.extract_with_labels(data_eager, labels)
         np.testing.assert_allclose(result.values, expected.values)
 
-    def test_stacked_masks_format(self, sample_4d_volume):
+    def test_stacked_masks_format(self, sample_3dt_volume):
         """Test extraction with stacked mask format (masks, z, y, x)."""
-        _, nz, ny, nx = sample_4d_volume.shape
+        _, nz, ny, nx = sample_3dt_volume.shape
 
         # Build a stacked mask with two named regions.
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
@@ -166,28 +166,28 @@ class TestWithLabels:
             dims=["mask", "z", "y", "x"],
             coords={
                 "mask": ["VISp", "AUDp"],
-                "z": sample_4d_volume.coords["z"],
-                "y": sample_4d_volume.coords["y"],
-                "x": sample_4d_volume.coords["x"],
+                "z": sample_3dt_volume.coords["z"],
+                "y": sample_3dt_volume.coords["y"],
+                "x": sample_3dt_volume.coords["x"],
             },
         )
 
-        result = extract.extract_with_labels(sample_4d_volume, labels)
+        result = extract.extract_with_labels(sample_3dt_volume, labels)
 
         assert set(result.dims) == {"time", "region"}
         np.testing.assert_array_equal(result.coords["region"].values, ["VISp", "AUDp"])
         np.testing.assert_allclose(
             result.sel(region="VISp").values,
-            sample_4d_volume.values[:, 0, :, :].mean(axis=(-2, -1)),
+            sample_3dt_volume.values[:, 0, :, :].mean(axis=(-2, -1)),
         )
         np.testing.assert_allclose(
             result.sel(region="AUDp").values,
-            sample_4d_volume.values[:, 1, :, :].mean(axis=(-2, -1)),
+            sample_3dt_volume.values[:, 1, :, :].mean(axis=(-2, -1)),
         )
 
-    def test_stacked_masks_overlapping(self, sample_4d_volume):
+    def test_stacked_masks_overlapping(self, sample_3dt_volume):
         """Test extraction with overlapping stacked masks."""
-        _, nz, ny, nx = sample_4d_volume.shape
+        _, nz, ny, nx = sample_3dt_volume.shape
 
         # Region "A": z-slices 0 and 1; Region "B": z-slices 1 and 2 — z=1 overlaps.
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
@@ -198,23 +198,23 @@ class TestWithLabels:
             dims=["mask", "z", "y", "x"],
             coords={
                 "mask": ["A", "B"],
-                "z": sample_4d_volume.coords["z"],
-                "y": sample_4d_volume.coords["y"],
-                "x": sample_4d_volume.coords["x"],
+                "z": sample_3dt_volume.coords["z"],
+                "y": sample_3dt_volume.coords["y"],
+                "x": sample_3dt_volume.coords["x"],
             },
         )
 
-        result = extract.extract_with_labels(sample_4d_volume, labels)
+        result = extract.extract_with_labels(sample_3dt_volume, labels)
 
         assert set(result.dims) == {"time", "region"}
         np.testing.assert_array_equal(result.coords["region"].values, ["A", "B"])
         np.testing.assert_allclose(
             result.sel(region="A").values,
-            sample_4d_volume.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
+            sample_3dt_volume.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
         )
         np.testing.assert_allclose(
             result.sel(region="B").values,
-            sample_4d_volume.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
+            sample_3dt_volume.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
         )
 
     def test_dask_spatial_chunks(self):

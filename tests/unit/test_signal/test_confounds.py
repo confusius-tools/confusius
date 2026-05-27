@@ -274,28 +274,28 @@ def test_regress_confounds_xarray_time_mismatch(sample_timeseries):
         regress_confounds(signals, confounds)
 
 
-def test_regress_confounds_4d_imaging(sample_4d_volume):
+def test_regress_confounds_4d_imaging(sample_3dt_volume):
     """Test on 4D imaging data (time, z, y, x)."""
     # Create confounds matching time dimension
-    n_time = sample_4d_volume.sizes["time"]
+    n_time = sample_3dt_volume.sizes["time"]
     confounds = xr.DataArray(
         np.random.randn(n_time, 6),
         dims=["time", "confound"],
-        coords={"time": sample_4d_volume.coords["time"]},
+        coords={"time": sample_3dt_volume.coords["time"]},
     )
 
     # Should work on 4D data
-    cleaned = regress_confounds(sample_4d_volume, confounds)
+    cleaned = regress_confounds(sample_3dt_volume, confounds)
 
     # Check shape preserved
-    assert cleaned.dims == sample_4d_volume.dims
-    assert cleaned.shape == sample_4d_volume.shape
+    assert cleaned.dims == sample_3dt_volume.dims
+    assert cleaned.shape == sample_3dt_volume.shape
 
     # Check coordinates preserved
-    for dim in sample_4d_volume.dims:
+    for dim in sample_3dt_volume.dims:
         assert_allclose(
             cleaned.coords[dim].values,
-            sample_4d_volume.coords[dim].values,
+            sample_3dt_volume.coords[dim].values,
         )
 
 

@@ -208,18 +208,25 @@ def compute_framewise_displacement(
         - `"max_fd"`: Maximum framewise displacement per frame.
         - `"rms_fd"`: RMS framewise displacement per frame.
     """
+    from confusius.validation import validate_fusi_dataarray
+
+    validate_fusi_dataarray(
+        reference,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+        minimum_spatial_dims=2,
+        require_regular_spacing=True,
+        regular_spacing_dims="space",
+    )
+
     n_frames = len(affines)
     ndim = reference.ndim
 
-    spacing_dict = reference.fusi.spacing
-    origin_dict = reference.fusi.origin
-
-    coords_1d = []
-    for dim in (str(d) for d in reference.dims):
-        sp = spacing_dict.get(dim) or 1.0
-        orig = origin_dict.get(dim, 0.0)
-        n = reference.sizes[dim]
-        coords_1d.append(orig + np.arange(n) * sp)
+    coords_1d = [
+        np.asarray(reference.coords[str(dim)].values, dtype=float)
+        for dim in reference.dims
+    ]
 
     grids = np.meshgrid(*coords_1d, indexing="ij")
     points = np.stack([g.ravel() for g in grids], axis=1)  # (n_voxels, ndim)

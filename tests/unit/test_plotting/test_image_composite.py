@@ -263,10 +263,10 @@ class TestAddCompositeNormalize:
 class TestAddCompositeValidation:
     """Validation guards on add_composite inputs."""
 
-    def test_rejects_time_dim(self, sample_4d_volume, matplotlib_pyplot):
-        spatial = sample_4d_volume.isel(time=0).drop_vars("time")
+    def test_rejects_time_dim(self, sample_3dt_volume, matplotlib_pyplot):
+        spatial = sample_3dt_volume.isel(time=0).drop_vars("time")
         with pytest.raises(ValueError, match="time"):
-            VolumePlotter(slice_mode="z").add_composite(sample_4d_volume, spatial)
+            VolumePlotter(slice_mode="z").add_composite(sample_3dt_volume, spatial)
 
     def test_requires_slice_mode_dim(self, sample_3d_volume, matplotlib_pyplot):
         with pytest.raises(ValueError, match="slice_mode"):
@@ -344,9 +344,9 @@ class TestPlotComposite:
         rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["y"]
 
-    def test_rejects_time_dim(self, sample_4d_volume, matplotlib_pyplot):
+    def test_rejects_time_dim(self, sample_3dt_volume, matplotlib_pyplot):
         with pytest.raises(ValueError, match="time"):
-            plot_composite(sample_4d_volume, sample_4d_volume)
+            plot_composite(sample_3dt_volume, sample_3dt_volume)
 
 
 class TestAddCompositeVisualRegression:

@@ -262,12 +262,12 @@ def test_detrend_single_timepoint():
         detrend(signals, order=1)
 
 
-def test_detrend_3dt_imaging_data(sample_4d_volume):
+def test_detrend_3dt_imaging_data(sample_3dt_volume):
     """Test that detrend works on 3D+t imaging data (time, z, y, x)."""
     # Add linear trend to the sample 4D volume.
-    time = np.arange(sample_4d_volume.sizes["time"])
+    time = np.arange(sample_3dt_volume.sizes["time"])
     trend = time[:, np.newaxis, np.newaxis, np.newaxis] * 1.0
-    imaging_3dt = sample_4d_volume + trend
+    imaging_3dt = sample_3dt_volume + trend
 
     result = detrend(imaging_3dt, order=1)
 
@@ -293,12 +293,12 @@ def test_detrend_default_parameters(signals_with_linear_trend):
     assert_allclose(result.values, expected.values)
 
 
-def test_detrend_polynomial_3dt(sample_4d_volume):
+def test_detrend_polynomial_3dt(sample_3dt_volume):
     """Test polynomial detrending on 3D+t data."""
     # Add quadratic trend to the sample 4D volume.
-    time = np.arange(sample_4d_volume.sizes["time"])
+    time = np.arange(sample_3dt_volume.sizes["time"])
     trend = (time[:, np.newaxis, np.newaxis, np.newaxis] ** 2) * 0.05
-    imaging_3dt = sample_4d_volume + trend
+    imaging_3dt = sample_3dt_volume + trend
 
     result = detrend(imaging_3dt, order=2)
 

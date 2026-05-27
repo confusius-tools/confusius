@@ -448,7 +448,7 @@ class TestProcessIqToPowerDoppler:
                 "y": np.arange(6),
             },
         )
-        with pytest.raises(ValueError, match="Expected dimensions"):
+        with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
             process_iq_to_power_doppler(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -586,7 +586,7 @@ class TestProcessIqToPowerDoppler:
         """Butterworth filtering rejects non-uniform time coordinates."""
         iq = sample_iq_dataarray.assign_coords(
             time=xr.DataArray(
-                [0.0, 0.1, 0.25, 0.35, 0.5] + list(np.arange(5, 20) * 0.1),
+                [0.0, 0.1, 0.25, 0.35, 0.5] + list(np.arange(6, 21) * 0.1),
                 dims=("time",),
                 attrs={"units": "s"},
             )
@@ -659,7 +659,7 @@ class TestProcessIqToPowerDoppler:
         iq.attrs.pop("compound_sampling_frequency", None)
         iq = iq.assign_coords(
             time=xr.DataArray(
-                [0.0, 0.1, 0.25, 0.45] + list(np.arange(4, 20) * 0.1),
+                [0.0, 0.1, 0.25, 0.45] + list(np.arange(5, 21) * 0.1),
                 dims=("time",),
                 attrs={"units": "s"},
             )
@@ -1104,7 +1104,7 @@ class TestProcessIqToBmode:
                 "y": np.arange(6),
             },
         )
-        with pytest.raises(ValueError, match="Expected dimensions"):
+        with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
             process_iq_to_bmode(iq)
 
     def test_non_complex_data_raises(self, rng):

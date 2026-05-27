@@ -73,7 +73,7 @@ class TestRegisterVolumewise:
         """Data that is neither 2D+t nor 3D+t raises ValueError."""
         # 1D+time = 2D total.
         data = xr.DataArray(np.zeros((5, 10)), dims=("time", "x"))
-        with pytest.raises(ValueError, match="Expected 3D or 4D data"):
+        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
             register_volumewise(data)
 
     @pytest.mark.parametrize(

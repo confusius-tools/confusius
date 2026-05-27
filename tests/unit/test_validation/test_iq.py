@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.validation import validate_iq
+from confusius.validation import validate_iq_dataarray
 
 
-class TestValidateIq:
-    """Tests for `validate_iq` function."""
+class TestValidateIqDataArray:
+    """Tests for `validate_iq_dataarray`."""
 
     @pytest.fixture
-    def valid_iq_dataarray(self):
+    def valid_iq_dataarray(self) -> xr.DataArray:
         """Create a valid IQ DataArray with all required attributes."""
         return xr.DataArray(
             np.ones((10, 4, 6, 8), dtype=np.complex64),
@@ -28,19 +28,18 @@ class TestValidateIq:
             },
         )
 
-    def test_wrong_dimensions_raises(self, valid_iq_dataarray):
+    def test_wrong_dimensions_raises(self, valid_iq_dataarray: xr.DataArray) -> None:
         """DataArray with wrong dimensions raises `ValueError`."""
         iq = valid_iq_dataarray.rename({"time": "t"})
 
-        with pytest.raises(ValueError, match="Expected dimensions"):
-            validate_iq(iq)
+        with pytest.raises(ValueError, match="must have a 'time' dimension"):
+            validate_iq_dataarray(iq)
 
-    def test_missing_coordinates_raises(self):
+    def test_missing_coordinates_raises(self) -> None:
         """Missing required coordinates raises `ValueError`."""
         iq = xr.DataArray(
             np.ones((10, 4, 6, 8), dtype=np.complex64),
             dims=("time", "z", "y", "x"),
-            # Missing 'x' coordinate
             coords={
                 "time": np.arange(10),
                 "z": np.arange(4),
@@ -52,15 +51,15 @@ class TestValidateIq:
             },
         )
 
-        with pytest.raises(ValueError, match="Missing required coordinates"):
-            validate_iq(iq)
+        with pytest.raises(ValueError, match="Missing required coordinate"):
+            validate_iq_dataarray(iq)
 
-    def test_non_complex_data_raises(self, valid_iq_dataarray):
-        """Non-complex IQ data raises TypeError."""
+    def test_non_complex_data_raises(self, valid_iq_dataarray: xr.DataArray) -> None:
+        """Non-complex IQ data raises `TypeError`."""
         iq = valid_iq_dataarray.real
 
         with pytest.raises(TypeError, match="Expected complex-valued data"):
-            validate_iq(iq)
+            validate_iq_dataarray(iq)
 
     @pytest.mark.parametrize(
         "missing_attr",
@@ -69,30 +68,35 @@ class TestValidateIq:
             "beamforming_sound_velocity",
         ],
     )
-    def test_missing_required_attribute_raises(self, valid_iq_dataarray, missing_attr):
+    def test_missing_required_attribute_raises(
+        self, valid_iq_dataarray: xr.DataArray, missing_attr: str
+    ) -> None:
         """Missing any required attribute raises `ValueError`."""
         iq = valid_iq_dataarray.copy()
         del iq.attrs[missing_attr]
 
         with pytest.raises(ValueError, match="Missing required DataArray attributes"):
-            validate_iq(iq, require_attrs=True)
+            validate_iq_dataarray(iq, require_attrs=True)
 
-    def test_require_attrs_false_skips_attribute_validation(self, valid_iq_dataarray):
-        """require_attrs=False skips attribute validation."""
+    def test_require_attrs_false_skips_attribute_validation(
+        self, valid_iq_dataarray: xr.DataArray
+    ) -> None:
+        """`require_attrs=False` skips attribute validation."""
         iq = valid_iq_dataarray.copy()
         del iq.attrs["transmit_frequency"]
 
-        # Should not raise when require_attrs=False.
-        validate_iq(iq, require_attrs=False)
+        validate_iq_dataarray(iq, require_attrs=False)
 
-    def test_multiple_missing_attributes_in_error_message(self, valid_iq_dataarray):
+    def test_multiple_missing_attributes_in_error_message(
+        self, valid_iq_dataarray: xr.DataArray
+    ) -> None:
         """Error message lists all missing attributes."""
         iq = valid_iq_dataarray.copy()
         del iq.attrs["transmit_frequency"]
         del iq.attrs["beamforming_sound_velocity"]
 
         with pytest.raises(ValueError) as exc_info:
-            validate_iq(iq, require_attrs=True)
+            validate_iq_dataarray(iq, require_attrs=True)
 
         error_msg = str(exc_info.value)
         assert "transmit_frequency" in error_msg
