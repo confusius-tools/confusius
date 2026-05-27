@@ -228,6 +228,18 @@ def test_validate_fusi_dataarray_regular_spacing_rejects_missing_selected_dim(
         )
 
 
+def test_validate_fusi_dataarray_regular_spacing_rejects_missing_single_selected_dim(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """A single explicit regular-spacing dim string must exist in the DataArray."""
+    with pytest.raises(ValueError, match="regular_spacing_dims contains dimensions"):
+        validate_fusi_dataarray(
+            sample_3dt_volume,
+            require_regular_spacing=True,
+            regular_spacing_dims="w",
+        )
+
+
 def test_validate_fusi_dataarray_space_regular_spacing_excludes_pose() -> None:
     """`space` regular-spacing mode does not include the `pose` dimension."""
     data = xr.DataArray(
