@@ -1,79 +1,122 @@
 name: Publish to PyPI
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_run:
+    workflows: ["Docs"]
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: publish-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
 
 jobs:
-  lint:
-    uses: ./.github/workflows/lint.yml
-
-  test:
-    uses: ./.github/workflows/test.yml
-
-  verify-docs:
+  gate:
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
+    outputs:
+      should_publish: ${{ steps.check.outputs.should_publish }}
+      head_sha: ${{ steps.check.outputs.head_sha }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: astral-sh/setup-uv@v7
+      - name: Wait for lint, tests, and docs on this tag SHA
+        id: check
+        uses: actions/github-script@v8
         with:
-          python-version: "3.14"
-      - run: uv sync
-      - name: Install system dependencies for napari screenshots
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            xvfb \
-            libegl1 \
-            libgl1 \
-            libglu1-mesa \
-            libx11-xcb1 \
-            libxkbcommon-x11-0 \
-            libxcb-cursor0 \
-            libxcb-icccm4 \
-            libxcb-image0 \
-            libxcb-keysyms1 \
-            libxcb-randr0 \
-            libxcb-render-util0 \
-            libxcb-shape0 \
-            libxcb-shm0 \
-            libxcb-sync1 \
-            libxcb-xfixes0 \
-            libxcb-xinerama0
-      - name: Cache Nunez-Elizalde dataset
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/confusius/nunez-elizalde-2022-bids
-          key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('docs/images/gui/generate.py', 'docs/images/qc/generate.py', 'docs/images/visualization/generate.py') }}
-          restore-keys: |
-            ${{ runner.os }}-nunez-elizalde-bids-
-      - name: Generate documentation images
-        env:
-          QT_QPA_PLATFORM: "xcb"
-          PYOPENGL_PLATFORM: "glx"
-          LIBGL_ALWAYS_SOFTWARE: "1"
-        run: |
-          xvfb-run -a uv run docs/images/gui/generate.py
-          xvfb-run -a uv run docs/images/qc/generate.py
-          xvfb-run -a uv run docs/images/visualization/generate.py
-      - name: Build documentation
-        run: uv run zensical build --clean --strict
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const headSha = context.payload.workflow_run.head_sha;
+            const required = ["Lint", "Tests", "Docs"];
+            const timeoutMs = 30 * 60 * 1000;
+            const pollMs = 15 * 1000;
+            const startedAt = Date.now();
+
+            core.setOutput("head_sha", headSha);
+
+            while (Date.now() - startedAt < timeoutMs) {
+              const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+                owner,
+                repo,
+                event: "push",
+                head_sha: headSha,
+                per_page: 100,
+              });
+
+              const latestByName = new Map();
+              for (const run of runs) {
+                if (!required.includes(run.name)) {
+                  continue;
+                }
+
+                const current = latestByName.get(run.name);
+                if (!current || new Date(run.created_at) > new Date(current.created_at)) {
+                  latestByName.set(run.name, run);
+                }
+              }
+
+              const missing = required.filter((name) => !latestByName.has(name));
+              const pending = Array.from(latestByName.values()).filter(
+                (run) => run.status !== "completed",
+              );
+
+              if (missing.length === 0 && pending.length === 0) {
+                const failed = Array.from(latestByName.values()).filter(
+                  (run) => run.conclusion !== "success",
+                );
+
+                for (const run of latestByName.values()) {
+                  core.info(`${run.name}: ${run.conclusion} (${run.html_url})`);
+                }
+
+                if (failed.length > 0) {
+                  core.setFailed(
+                    `Required workflows did not all succeed for ${headSha}: ${failed
+                      .map((run) => `${run.name}=${run.conclusion}`)
+                      .join(", ")}`,
+                  );
+                  return;
+                }
+
+                core.setOutput("should_publish", "true");
+                return;
+              }
+
+              core.info(
+                `Waiting for workflows on ${headSha}. Missing: ${missing.join(", ") || "none"}. Pending: ${pending
+                  .map((run) => run.name)
+                  .join(", ") || "none"}.`,
+              );
+              await new Promise((resolve) => setTimeout(resolve, pollMs));
+            }
+
+            core.setFailed(
+              `Timed out waiting for Lint, Tests, and Docs to complete for ${headSha}.`,
+            );
 
   publish:
-    needs: [lint, test, verify-docs]
+    needs: gate
+    if: needs.gate.outputs.should_publish == 'true'
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/confusius
     permissions:
-      id-token: write  # Required for trusted publishing
+      id-token: write
+      contents: read
     steps:
-      - name: Checkout
+      - name: Checkout tagged commit
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.gate.outputs.head_sha }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: "3.14"
 
