@@ -5,7 +5,7 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Literal
 
-from confusius._utils import find_stack_level
+from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
     from rich.progress import Progress
@@ -1026,7 +1026,8 @@ class CAP(BaseEstimator):
         ] = "silhouette",
         show_progress: bool = True,
         progress: "Progress | None" = None,
-    ) -> int:
+        return_scores: bool = False,
+    ) -> int | tuple[int, list[float]]:
         """Select the optimal number of clusters.
 
         Fits k-means for each value in `cluster_range` (preprocessing runs only once)
@@ -1062,11 +1063,17 @@ class CAP(BaseEstimator):
             provided and `show_progress` is `True`, a task is added to this
             instance instead of creating a new progress bar with
             `rich.progress.track`.
+        return_scores : bool, default: False
+            If `True`, also return the method-specific score for each value in
+            `cluster_range`, in the same order.
 
         Returns
         -------
-        int
+        best_k : int
             Recommended number of clusters.
+        scores : list[float], optional
+            Returned only when `return_scores=True`. Method-specific scores
+            aligned with `cluster_range`.
 
         Raises
         ------
@@ -1185,11 +1192,16 @@ class CAP(BaseEstimator):
                 progress.advance(task_id)
 
         if method == "elbow":
-            return _find_elbow(cluster_list, scores)
-        if method in ("davies_bouldin",):
-            return cluster_list[int(np.argmin(scores))]
-        # silhouette and variance_ratio: higher is better.
-        return cluster_list[int(np.argmax(scores))]
+            best_k = _find_elbow(cluster_list, scores)
+        elif method == "davies_bouldin":
+            best_k = cluster_list[int(np.argmin(scores))]
+        else:
+            # silhouette and variance_ratio: higher is better.
+            best_k = cluster_list[int(np.argmax(scores))]
+
+        if return_scores:
+            return best_k, scores
+        return best_k
 
     def __sklearn_is_fitted__(self) -> bool:
         """Check whether the estimator has been fitted."""

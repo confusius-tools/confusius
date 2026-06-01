@@ -422,6 +422,20 @@ class TestSelectNClusters:
         )
         assert best_k in range(2, 5)
 
+    def test_return_scores(self, recordings):
+        cap = CAP(random_state=0)
+        cluster_range = [2, 4, 6]
+        best_k, scores = cap.select_n_clusters(
+            recordings,
+            cluster_range,
+            method="silhouette",
+            show_progress=False,
+            return_scores=True,
+        )
+        assert best_k in cluster_range
+        assert len(scores) == len(cluster_range)
+        assert all(np.isfinite(score) for score in scores)
+
     def test_cluster_range_too_short_raises(self, recordings):
         with pytest.raises(ValueError, match="at least 2"):
             CAP().select_n_clusters(recordings, [3], show_progress=False)
