@@ -103,15 +103,15 @@ class TestFit:
         with pytest.raises(ValueError, match="at least one recording"):
             cap.fit([])
 
-    def test_invalid_metric_raises(self, sample_4d_volume):
+    def test_invalid_metric_raises(self, sample_3dt_volume):
         cap = CAP(n_clusters=3, metric="manhattan")  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="metric"):
-            cap.fit([sample_4d_volume])
+            cap.fit([sample_3dt_volume])
 
-    def test_invalid_update_rule_raises(self, sample_4d_volume):
+    def test_invalid_update_rule_raises(self, sample_3dt_volume):
         cap = CAP(n_clusters=3, update_rule="invalid")  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="update_rule"):
-            cap.fit([sample_4d_volume])
+            cap.fit([sample_3dt_volume])
 
     def test_nan_input_raises(self, rng):
         data = rng.standard_normal((20, 3, 3))
@@ -166,20 +166,20 @@ class TestFit:
         cap_2 = CAP(n_clusters=10, n_init=2, random_state=0).fit(recs)
         assert not np.array_equal(cap_1.labels_[0].values, cap_2.labels_[0].values)
 
-    def test_n_init_integer(self, sample_4d_volume):
+    def test_n_init_integer(self, sample_3dt_volume):
         """Integer n_init runs multiple restarts without error."""
         cap = CAP(n_clusters=4, metric="cosine", n_init=2, random_state=0)
-        cap.fit([sample_4d_volume])
+        cap.fit([sample_3dt_volume])
         assert cap.caps_.sizes["cap"] == 4
 
-    def test_invalid_n_init_raises(self, sample_4d_volume):
+    def test_invalid_n_init_raises(self, sample_3dt_volume):
         cap = CAP(n_clusters=2, metric="cosine", n_init=0)  # type: ignore[arg-type]
         with pytest.raises(ValueError, match="n_init"):
-            cap.fit([sample_4d_volume])
+            cap.fit([sample_3dt_volume])
 
-    def test_reproducibility(self, sample_4d_volume):
-        cap1 = CAP(n_clusters=4, random_state=42).fit([sample_4d_volume])
-        cap2 = CAP(n_clusters=4, random_state=42).fit([sample_4d_volume])
+    def test_reproducibility(self, sample_3dt_volume):
+        cap1 = CAP(n_clusters=4, random_state=42).fit([sample_3dt_volume])
+        cap2 = CAP(n_clusters=4, random_state=42).fit([sample_3dt_volume])
         npt.assert_array_equal(cap1.labels_[0].values, cap2.labels_[0].values)
 
 
