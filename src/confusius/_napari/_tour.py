@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from qtpy.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, Signal
+
+from confusius._napari._widget import _ACCORDION_ANIMATION_DURATION_MS
 from qtpy.QtGui import QColor, QFont, QPainter, QPen
 from qtpy.QtWidgets import (
     QDockWidget,
@@ -435,8 +437,13 @@ class GuidedTour(QObject):
 
         if step.pre_action is not None:
             step.pre_action()
-            # Let Qt finish any visibility or layout changes before measuring.
-            QTimer.singleShot(0, lambda g=gen: self._position_step(index, g))
+            # Accordion sections expand/collapse with animation, so measuring on the
+            # next event-loop turn can capture stale geometry before headers and the
+            # opened panel settle into their final positions.
+            QTimer.singleShot(
+                _ACCORDION_ANIMATION_DURATION_MS + 20,
+                lambda g=gen: self._position_step(index, g),
+            )
         else:
             self._position_step(index, gen)
 

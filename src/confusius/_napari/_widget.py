@@ -4,9 +4,17 @@ from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
-from qtpy.QtCore import QByteArray, QRectF, QSize, Qt, QTimer
+from qtpy.QtCore import (
+    QByteArray,
+    QEasingCurve,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+)
 from qtpy.QtGui import QFont, QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
@@ -29,6 +37,7 @@ if TYPE_CHECKING:
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
+_ACCORDION_ANIMATION_DURATION_MS = 200
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -449,6 +458,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._video._video_panel import VideoPanel
 
         container = QWidget()
+        setattr(container, "_anims", [])
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -497,6 +507,7 @@ class ConfUSIusWidget(QWidget):
             panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
+            panel.setMinimumHeight(0)
             panel.setVisible(i == 0)
             btns.append(btn)
 
@@ -504,17 +515,68 @@ class ConfUSIusWidget(QWidget):
         # buttons stack at the top of the accordion area.
         layout.addStretch(1)
 
+        def _drop_anim(anim: QPropertyAnimation) -> None:
+            anims = cast(list[QPropertyAnimation], getattr(container, "_anims"))
+            try:
+                anims.remove(anim)
+            except ValueError:
+                pass
+
         def _activate_panel(panel_index: int) -> None:
             # Clicking the already-open panel collapses it (all closed).
             already_open = panels[panel_index].isVisible()
-            target = -1 if already_open else panel_index  # -1 means all collapsed
+            target = -1 if already_open else panel_index
+            available_height = max(
+                container.height() - sum(b.height() for b in btns), 50
+            )
 
-            for j, (b, p) in enumerate(zip(btns, panels)):
+            for j, (button, panel) in enumerate(zip(btns, panels)):
                 active = j == target
-                b.blockSignals(True)
-                b.setChecked(active)
-                b.blockSignals(False)
-                p.setVisible(active)
+                button.blockSignals(True)
+                button.setChecked(active)
+                button.blockSignals(False)
+
+                if active and not panel.isVisible():
+                    panel.setMaximumHeight(0)
+                    panel.show()
+                    anim = QPropertyAnimation(panel, b"maximumHeight")
+                    anim.setDuration(_ACCORDION_ANIMATION_DURATION_MS)
+                    anim.setStartValue(0)
+                    anim.setEndValue(available_height)
+                    anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+                    def _on_expand_done(
+                        target_panel: QWidget = panel,
+                        target_anim: QPropertyAnimation = anim,
+                    ) -> None:
+                        target_panel.setMaximumHeight(16777215)
+                        _drop_anim(target_anim)
+
+                    anim.finished.connect(_on_expand_done)
+                    cast(list[QPropertyAnimation], getattr(container, "_anims")).append(
+                        anim
+                    )
+                    anim.start()
+                elif not active and panel.isVisible():
+                    anim = QPropertyAnimation(panel, b"maximumHeight")
+                    anim.setDuration(_ACCORDION_ANIMATION_DURATION_MS)
+                    anim.setStartValue(panel.height())
+                    anim.setEndValue(0)
+                    anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+                    def _on_collapse_done(
+                        target_panel: QWidget = panel,
+                        target_anim: QPropertyAnimation = anim,
+                    ) -> None:
+                        target_panel.hide()
+                        target_panel.setMaximumHeight(16777215)
+                        _drop_anim(target_anim)
+
+                    anim.finished.connect(_on_collapse_done)
+                    cast(list[QPropertyAnimation], getattr(container, "_anims")).append(
+                        anim
+                    )
+                    anim.start()
 
         for i, btn in enumerate(btns):
             btn.clicked.connect(lambda _checked, i=i: _activate_panel(i))
