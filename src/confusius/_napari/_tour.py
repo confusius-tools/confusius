@@ -10,8 +10,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from qtpy.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, Signal
-
-from confusius._napari._widget import _ACCORDION_ANIMATION_DURATION_MS
 from qtpy.QtGui import QColor, QFont, QPainter, QPen
 from qtpy.QtWidgets import (
     QDockWidget,
@@ -21,6 +19,8 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from confusius._napari._constants import ACCORDION_ANIMATION_DURATION_MS
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,9 +53,10 @@ class TourStep:
         Optional callable returning the widget used only for tooltip placement.
         This lets the spotlight track a small control while the tooltip is
         positioned relative to a larger container such as the napari dock.
-    pre_action : Callable[[], None] | None
+    pre_action : Callable[[], bool] | None
         Optional callback executed before this step is shown (e.g. to expand
-        an accordion section so the target widget becomes visible).
+        an accordion section so the target widget becomes visible). Returns
+        whether the action triggered an accordion animation.
     """
 
     target: Callable[[], QWidget | None]
@@ -64,7 +65,7 @@ class TourStep:
     anchor: str = "right"
     spotlight_rect: Callable[[], QRect | None] | None = None
     tooltip_target: Callable[[], QWidget | None] | None = None
-    pre_action: Callable[[], None] | None = None
+    pre_action: Callable[[], bool] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -436,14 +437,15 @@ class GuidedTour(QObject):
         step = self._steps[index]
 
         if step.pre_action is not None:
-            step.pre_action()
-            # Accordion sections expand/collapse with animation, so measuring on the
-            # next event-loop turn can capture stale geometry before headers and the
-            # opened panel settle into their final positions.
-            QTimer.singleShot(
-                _ACCORDION_ANIMATION_DURATION_MS + 20,
-                lambda g=gen: self._position_step(index, g),
-            )
+            did_animate = step.pre_action()
+            self._position_step(index, gen)
+            if did_animate:
+                # Accordion sections expand/collapse with animation, so measure once
+                # immediately and then again after the panel settles.
+                QTimer.singleShot(
+                    ACCORDION_ANIMATION_DURATION_MS + 20,
+                    lambda g=gen: self._position_step(index, g),
+                )
         else:
             self._position_step(index, gen)
 
@@ -633,11 +635,13 @@ def build_default_tour(
 
         return _find
 
-    def _expand_section(label: str) -> Callable[[], None]:
-        def _action() -> None:
+    def _expand_section(label: str) -> Callable[[], bool]:
+        def _action() -> bool:
             for btn, _icon in getattr(plugin_widget, "_accordion_btns", []):
                 if btn.text() == label and not btn.isChecked():
                     btn.click()
+                    return True
+            return False
 
         return _action
 

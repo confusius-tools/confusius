@@ -28,6 +28,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._napari._constants import ACCORDION_ANIMATION_DURATION_MS
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 
@@ -37,7 +38,6 @@ if TYPE_CHECKING:
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
-_ACCORDION_ANIMATION_DURATION_MS = 200
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -459,6 +459,7 @@ class ConfUSIusWidget(QWidget):
 
         container = QWidget()
         setattr(container, "_anims", [])
+        setattr(container, "_panel_anims", {})
         layout = QVBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
@@ -522,6 +523,25 @@ class ConfUSIusWidget(QWidget):
             except ValueError:
                 pass
 
+        def _panel_anim(panel: QWidget) -> QPropertyAnimation | None:
+            panel_anims = cast(
+                dict[QWidget, QPropertyAnimation], getattr(container, "_panel_anims")
+            )
+            return panel_anims.get(panel)
+
+        def _replace_panel_anim(
+            panel: QWidget, anim: QPropertyAnimation | None
+        ) -> None:
+            panel_anims = cast(
+                dict[QWidget, QPropertyAnimation], getattr(container, "_panel_anims")
+            )
+            previous = panel_anims.pop(panel, None)
+            if previous is not None:
+                previous.stop()
+                _drop_anim(previous)
+            if anim is not None:
+                panel_anims[panel] = anim
+
         def _activate_panel(panel_index: int) -> None:
             # Clicking the already-open panel collapses it (all closed).
             already_open = panels[panel_index].isVisible()
@@ -540,16 +560,20 @@ class ConfUSIusWidget(QWidget):
                     panel.setMaximumHeight(0)
                     panel.show()
                     anim = QPropertyAnimation(panel, b"maximumHeight")
-                    anim.setDuration(_ACCORDION_ANIMATION_DURATION_MS)
+                    anim.setDuration(ACCORDION_ANIMATION_DURATION_MS)
                     anim.setStartValue(0)
                     anim.setEndValue(available_height)
                     anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                    _replace_panel_anim(panel, anim)
 
                     def _on_expand_done(
                         target_panel: QWidget = panel,
                         target_anim: QPropertyAnimation = anim,
                     ) -> None:
+                        if _panel_anim(target_panel) is not target_anim:
+                            return
                         target_panel.setMaximumHeight(16777215)
+                        _replace_panel_anim(target_panel, None)
                         _drop_anim(target_anim)
 
                     anim.finished.connect(_on_expand_done)
@@ -559,17 +583,21 @@ class ConfUSIusWidget(QWidget):
                     anim.start()
                 elif not active and panel.isVisible():
                     anim = QPropertyAnimation(panel, b"maximumHeight")
-                    anim.setDuration(_ACCORDION_ANIMATION_DURATION_MS)
+                    anim.setDuration(ACCORDION_ANIMATION_DURATION_MS)
                     anim.setStartValue(panel.height())
                     anim.setEndValue(0)
                     anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+                    _replace_panel_anim(panel, anim)
 
                     def _on_collapse_done(
                         target_panel: QWidget = panel,
                         target_anim: QPropertyAnimation = anim,
                     ) -> None:
+                        if _panel_anim(target_panel) is not target_anim:
+                            return
                         target_panel.hide()
                         target_panel.setMaximumHeight(16777215)
+                        _replace_panel_anim(target_panel, None)
                         _drop_anim(target_anim)
 
                     anim.finished.connect(_on_collapse_done)
