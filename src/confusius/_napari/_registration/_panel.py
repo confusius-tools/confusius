@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
@@ -15,6 +16,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -29,8 +31,16 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._napari._registration._transforms import (
+    AffineTransformPayload,
+    affine_transform_from_payload,
+    load_affine_transform_payload,
+    make_affine_transform_payload,
+    output_grid_from_payload,
+    save_affine_transform_payload,
+)
 from confusius.plotting.napari import plot_napari
-from confusius.registration import register_volume, register_volumewise
+from confusius.registration import register_volume, register_volumewise, resample_volume
 
 if TYPE_CHECKING:
     import napari
@@ -224,6 +234,26 @@ def _run_register_volume(
     )
 
 
+def _affine_payload_from_layer(layer: "Layer") -> AffineTransformPayload | None:
+    """Return the stored affine transform payload for a napari layer.
+
+    Parameters
+    ----------
+    layer : napari.layers.Layer
+        Layer whose metadata should be inspected.
+
+    Returns
+    -------
+    AffineTransformPayload or None
+        Stored payload when present and affine, otherwise `None`.
+    """
+    payload = layer.metadata.get("confusius_transform")
+    if not isinstance(payload, dict) or payload.get("kind") != "affine":
+        return None
+    affine_transform_from_payload(payload)
+    return cast("AffineTransformPayload", payload)
+
+
 def _run_register_volumewise(
     data: xr.DataArray,
     *,
@@ -291,6 +321,7 @@ class RegistrationPanel(QWidget):
         super().__init__()
         self.viewer = viewer
         self._worker = None
+        self._loaded_transform_payload: AffineTransformPayload | None = None
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
@@ -299,6 +330,44 @@ class RegistrationPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
+
+        self._panel_group = QButtonGroup(self)
+        panel_row = QHBoxLayout()
+        panel_row.setSpacing(0)
+        self._register_panel_radio = QPushButton("Register")
+        self._register_panel_radio.setCheckable(True)
+        self._transforms_panel_radio = QPushButton("Transforms")
+        self._transforms_panel_radio.setCheckable(True)
+        self._register_panel_radio.setChecked(True)
+        self._panel_group.addButton(self._register_panel_radio)
+        self._panel_group.addButton(self._transforms_panel_radio)
+        self._register_panel_radio.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._transforms_panel_radio.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        _segment_btn_style = """
+        QPushButton {
+            border-radius: 0;
+        }
+        QPushButton:checked {
+            background: #e94b5f;
+            color: white;
+            font-weight: bold;
+        }
+        """
+        self._register_panel_radio.setStyleSheet(
+            _segment_btn_style
+            + "border-top-right-radius: 0; border-bottom-right-radius: 0;"
+        )
+        self._transforms_panel_radio.setStyleSheet(
+            _segment_btn_style
+            + "border-top-left-radius: 0; border-bottom-left-radius: 0;"
+        )
+        panel_row.addWidget(self._register_panel_radio)
+        panel_row.addWidget(self._transforms_panel_radio)
+        layout.addLayout(panel_row)
 
         operation_group = QGroupBox("Registration")
         operation_layout = QFormLayout(operation_group)
@@ -311,7 +380,7 @@ class RegistrationPanel(QWidget):
         self._mode_group = QButtonGroup(self)
         mode_row = QHBoxLayout()
         self._single_volume_radio = QRadioButton("Between scans")
-        self._time_series_radio = QRadioButton("Within scan")
+        self._time_series_radio = QRadioButton("Within-scan")
         self._single_volume_radio.setChecked(True)
         self._mode_group.addButton(self._single_volume_radio)
         self._mode_group.addButton(self._time_series_radio)
@@ -319,6 +388,7 @@ class RegistrationPanel(QWidget):
         mode_row.addWidget(self._time_series_radio)
         operation_layout.addRow("Mode", mode_row)
 
+        self._moving_label = QLabel("Moving layer")
         self._moving_combo = QComboBox()
         self._moving_combo.setMinimumContentsLength(18)
         self._moving_combo.setSizeAdjustPolicy(
@@ -328,7 +398,7 @@ class RegistrationPanel(QWidget):
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
         self._moving_combo.currentTextChanged.connect(self._on_moving_layer_changed)
-        operation_layout.addRow("Moving layer", self._moving_combo)
+        operation_layout.addRow(self._moving_label, self._moving_combo)
 
         self._fixed_label = QLabel("Fixed layer")
         self._fixed_combo = QComboBox()
@@ -356,7 +426,11 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._n_jobs_label, self._n_jobs_spin)
 
-        layout.addWidget(operation_group)
+        self._layer_validation = QLabel("")
+        self._layer_validation.setWordWrap(True)
+        self._layer_validation.setObjectName("status_err")
+        self._layer_validation.hide()
+        operation_layout.addRow(self._layer_validation)
 
         params_group = QGroupBox("Parameters")
         params_layout = QFormLayout(params_group)
@@ -426,12 +500,65 @@ class RegistrationPanel(QWidget):
         self._multi_resolution_check.setChecked(False)
         params_layout.addRow(self._multi_resolution_check)
 
-        layout.addWidget(params_group)
+        self._register_panel = QWidget()
+        register_layout = QVBoxLayout(self._register_panel)
+        register_layout.setContentsMargins(0, 0, 0, 0)
+        register_layout.setSpacing(8)
+        register_layout.addWidget(operation_group)
+        register_layout.addWidget(params_group)
 
         self._run_btn = QPushButton("Run registration")
         self._run_btn.setObjectName("primary_btn")
         self._run_btn.clicked.connect(self._run_registration)
-        layout.addWidget(self._run_btn)
+        register_layout.addWidget(self._run_btn)
+
+        layout.addWidget(self._register_panel)
+
+        transforms_group = QGroupBox("Transforms")
+        transforms_group.setToolTip(
+            "Save, load, and reapply affine transforms estimated from between-scan registration."
+        )
+        transforms_layout = QFormLayout(transforms_group)
+        transforms_layout.setSpacing(6)
+        transforms_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        transforms_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+
+        self._transform_source_combo = QComboBox()
+        self._transform_source_combo.setMinimumContentsLength(18)
+        self._transform_source_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._transform_source_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        transforms_layout.addRow("Transform", self._transform_source_combo)
+
+        self._transform_target_combo = QComboBox()
+        self._transform_target_combo.setMinimumContentsLength(18)
+        self._transform_target_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._transform_target_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        transforms_layout.addRow("Input layer", self._transform_target_combo)
+
+        transform_buttons = QHBoxLayout()
+        self._save_transform_btn = QPushButton("Save")
+        self._save_transform_btn.clicked.connect(self._save_transform)
+        self._load_transform_btn = QPushButton("Load")
+        self._load_transform_btn.clicked.connect(self._load_transform)
+        self._apply_transform_btn = QPushButton("Apply")
+        self._apply_transform_btn.clicked.connect(self._apply_transform)
+        transform_buttons.addWidget(self._save_transform_btn)
+        transform_buttons.addWidget(self._load_transform_btn)
+        transform_buttons.addWidget(self._apply_transform_btn)
+        transforms_layout.addRow(transform_buttons)
+
+        self._transforms_panel = transforms_group
+        layout.addWidget(self._transforms_panel)
 
         self._status = QLabel("")
         self._status.setWordWrap(True)
@@ -447,13 +574,19 @@ class RegistrationPanel(QWidget):
 
         layout.addStretch()
 
+        self._register_panel_radio.toggled.connect(self._on_panel_changed)
+        self._transforms_panel_radio.toggled.connect(self._on_panel_changed)
         self._single_volume_radio.toggled.connect(self._on_mode_changed)
         self._time_series_radio.toggled.connect(self._on_mode_changed)
+        self._fixed_combo.currentTextChanged.connect(
+            self._validate_registration_selection
+        )
         self._learning_rate_auto_check.toggled.connect(
             self._learning_rate_spin.setDisabled
         )
 
         self._refresh_layers()
+        self._on_panel_changed()
         self._on_mode_changed()
 
     def _refresh_layers(self) -> None:
@@ -486,6 +619,8 @@ class RegistrationPanel(QWidget):
             self._fixed_combo.setCurrentIndex(1)
 
         self._update_reference_time_bounds()
+        self._refresh_transform_controls()
+        self._validate_registration_selection()
 
     def _selected_layer(self, combo: QComboBox) -> Layer | None:
         """Return the currently selected viewer layer for a combo box.
@@ -508,6 +643,74 @@ class RegistrationPanel(QWidget):
         except KeyError:
             return None
 
+    def _transform_source_label(
+        self, payload: AffineTransformPayload, *, suffix: str | None = None
+    ) -> str:
+        """Return a user-facing label for a transform payload."""
+        label = payload["name"]
+        if suffix:
+            label = f"{label} — {suffix}"
+        return label
+
+    def _refresh_transform_controls(self) -> None:
+        """Refresh transform-related layer selectors."""
+        source_data = self._transform_source_combo.currentData()
+        target_name = self._transform_target_combo.currentText()
+
+        self._transform_source_combo.blockSignals(True)
+        self._transform_source_combo.clear()
+        if self._loaded_transform_payload is not None:
+            self._transform_source_combo.addItem(
+                self._transform_source_label(
+                    self._loaded_transform_payload,
+                    suffix="loaded",
+                ),
+                ("loaded", ""),
+            )
+        for layer in self.viewer.layers:
+            payload = _affine_payload_from_layer(layer)
+            if payload is None:
+                continue
+            self._transform_source_combo.addItem(
+                self._transform_source_label(payload, suffix=layer.name),
+                ("layer", layer.name),
+            )
+        self._transform_source_combo.blockSignals(False)
+
+        self._transform_target_combo.blockSignals(True)
+        self._transform_target_combo.clear()
+        self._transform_target_combo.addItems(
+            [layer.name for layer in self.viewer.layers]
+        )
+        self._transform_target_combo.blockSignals(False)
+
+        if source_data is not None:
+            for i in range(self._transform_source_combo.count()):
+                if self._transform_source_combo.itemData(i) == source_data:
+                    self._transform_source_combo.setCurrentIndex(i)
+                    break
+
+        target_index = self._transform_target_combo.findText(target_name)
+        if target_index >= 0:
+            self._transform_target_combo.setCurrentIndex(target_index)
+
+    def _selected_transform_payload(self) -> AffineTransformPayload | None:
+        """Return the currently selected affine transform payload."""
+        source_data = self._transform_source_combo.currentData()
+        if not isinstance(source_data, tuple) or len(source_data) != 2:
+            return None
+
+        source_kind, source_name = source_data
+        if source_kind == "loaded":
+            return self._loaded_transform_payload
+        if source_kind != "layer" or not source_name:
+            return None
+        try:
+            layer = cast("Layer", self.viewer.layers[source_name])
+        except KeyError:
+            return None
+        return _affine_payload_from_layer(layer)
+
     def _update_reference_time_bounds(self) -> None:
         """Clamp the volumewise reference-time widget to the moving layer."""
         moving_layer = self._selected_layer(self._moving_combo)
@@ -524,15 +727,113 @@ class RegistrationPanel(QWidget):
 
         self._reference_time_spin.setMaximum(max(0, data.sizes[TIME_DIM] - 1))
 
+    def _set_layer_validation_style(
+        self,
+        *,
+        moving_invalid: bool = False,
+        fixed_invalid: bool = False,
+        message: str | None = None,
+    ) -> None:
+        """Update inline validation state for the layer selectors."""
+        error_style = "border: 1px solid #e05555;"
+        normal_style = ""
+        self._moving_combo.setStyleSheet(
+            error_style if moving_invalid else normal_style
+        )
+        self._fixed_combo.setStyleSheet(error_style if fixed_invalid else normal_style)
+        self._moving_label.setStyleSheet("color: #e05555;" if moving_invalid else "")
+        self._fixed_label.setStyleSheet("color: #e05555;" if fixed_invalid else "")
+        self._reference_time_label.setStyleSheet("")
+        self._n_jobs_label.setStyleSheet("")
+        if message:
+            self._layer_validation.setText(message)
+            self._layer_validation.show()
+        else:
+            self._layer_validation.hide()
+            self._layer_validation.clear()
+
+    def _validate_registration_selection(self) -> bool:
+        """Validate the current registration-layer selection and show inline feedback."""
+        moving_layer = self._selected_layer(self._moving_combo)
+        fixed_layer = self._selected_layer(self._fixed_combo)
+        operation = self._operation()
+
+        if moving_layer is None:
+            self._set_layer_validation_style()
+            return True
+
+        try:
+            moving = _layer_to_dataarray(moving_layer)
+        except Exception:
+            self._set_layer_validation_style(
+                moving_invalid=True,
+                message="Could not read the selected moving layer.",
+            )
+            return False
+
+        if operation == "register_volumewise":
+            if TIME_DIM not in moving.dims:
+                self._set_layer_validation_style(
+                    moving_invalid=True,
+                    message="Within-scan registration requires a layer with a time dimension.",
+                )
+                return False
+            self._set_layer_validation_style()
+            return True
+
+        moving_invalid = TIME_DIM in moving.dims
+        fixed_invalid = False
+        message: str | None = None
+
+        if fixed_layer is None:
+            self._set_layer_validation_style(
+                moving_invalid=moving_invalid,
+                fixed_invalid=True,
+                message="Between-scans registration requires different moving and fixed layers.",
+            )
+            return False
+
+        try:
+            fixed = _layer_to_dataarray(fixed_layer)
+        except Exception:
+            self._set_layer_validation_style(
+                fixed_invalid=True,
+                message="Could not read the selected fixed layer.",
+            )
+            return False
+
+        if fixed_layer is moving_layer:
+            moving_invalid = True
+            fixed_invalid = True
+            message = "Moving and fixed layers must be different."
+        elif TIME_DIM in moving.dims or TIME_DIM in fixed.dims:
+            moving_invalid = TIME_DIM in moving.dims
+            fixed_invalid = TIME_DIM in fixed.dims
+            message = "Between-scans registration requires spatial-only layers."
+
+        self._set_layer_validation_style(
+            moving_invalid=moving_invalid,
+            fixed_invalid=fixed_invalid,
+            message=message,
+        )
+        return not (moving_invalid or fixed_invalid)
+
     def _on_moving_layer_changed(self, _name: str) -> None:
         """Update dependent widgets when the moving layer changes."""
         self._update_reference_time_bounds()
+        self._validate_registration_selection()
 
     def _operation(self) -> Literal["register_volume", "register_volumewise"]:
         """Return the currently selected registration workflow."""
         if self._time_series_radio.isChecked():
             return "register_volumewise"
         return "register_volume"
+
+    def _on_panel_changed(self) -> None:
+        """Switch between the register and transforms subpanels."""
+        show_register = self._register_panel_radio.isChecked()
+        self._register_panel.setVisible(show_register)
+        self._transforms_panel.setVisible(not show_register)
 
     def _on_mode_changed(self) -> None:
         """Update the panel when the registration mode changes."""
@@ -558,6 +859,7 @@ class RegistrationPanel(QWidget):
             self._transform_combo.setCurrentIndex(rigid_index)
 
         self._update_reference_time_bounds()
+        self._validate_registration_selection()
 
     def _begin_work(self) -> None:
         """Put the panel into its busy state."""
@@ -584,6 +886,98 @@ class RegistrationPanel(QWidget):
         self._status.setText(message)
         self._status.show()
 
+    def _save_transform(self) -> None:
+        """Save the selected affine transform payload to JSON."""
+        payload = self._selected_transform_payload()
+        if payload is None:
+            self._set_error("Select an affine transform to save.")
+            return
+
+        default_name = payload["name"].replace("/", "-")
+        start = str(Path.home() / f"{default_name}.json")
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save transform",
+            start,
+            "JSON files (*.json)",
+        )
+        if not path_str:
+            return
+
+        save_affine_transform_payload(path_str, payload)
+        show_info(f"Saved transform: {path_str}")
+
+    def _load_transform(self) -> None:
+        """Load an affine transform payload from JSON."""
+        start = str(Path.home())
+        path_str, _ = QFileDialog.getOpenFileName(
+            self,
+            "Load transform",
+            start,
+            "JSON files (*.json)",
+        )
+        if not path_str:
+            return
+
+        try:
+            self._loaded_transform_payload = load_affine_transform_payload(path_str)
+        except Exception as exc:  # noqa: BLE001
+            self._set_error(str(exc))
+            show_error(str(exc))
+            return
+
+        self._refresh_transform_controls()
+        for i in range(self._transform_source_combo.count()):
+            if self._transform_source_combo.itemData(i) == ("loaded", ""):
+                self._transform_source_combo.setCurrentIndex(i)
+                break
+        show_info(f"Loaded transform: {self._loaded_transform_payload['name']}")
+
+    def _apply_transform(self) -> None:
+        """Apply the selected affine transform to a layer."""
+        payload = self._selected_transform_payload()
+        if payload is None:
+            self._set_error("Select an affine transform to apply.")
+            return
+
+        moving_layer = self._selected_layer(self._transform_target_combo)
+        if moving_layer is None:
+            self._set_error("Select an input layer to transform.")
+            return
+
+        try:
+            moving = _layer_to_dataarray(moving_layer)
+            affine = affine_transform_from_payload(payload)
+            output_grid = output_grid_from_payload(payload)
+        except Exception as exc:  # noqa: BLE001
+            self._set_error(str(exc))
+            return
+
+        worker = thread_worker(resample_volume)(
+            moving,
+            affine,
+            shape=output_grid["shape"],
+            spacing=output_grid["spacing"],
+            origin=output_grid["origin"],
+            dims=output_grid["dims"],
+            interpolation=cast(
+                "Literal['linear', 'bspline']", self._interpolation_combo.currentText()
+            ),
+        )
+        apply_payload = {
+            "moving_layer_name": moving_layer.name,
+            "target_layer_name": payload["target_layer_name"],
+            "transform_source": payload["name"],
+        }
+        self._worker = worker
+        self._begin_work()
+        worker.returned.connect(
+            lambda result: self._on_apply_transform_finished(apply_payload, result)
+        )
+        worker.errored.connect(self._on_registration_failed)
+        worker.finished.connect(self._end_work)
+        worker.start()
+
     def _run_registration(self) -> None:
         """Validate inputs and start the selected registration workflow."""
         operation = self._operation()
@@ -592,6 +986,8 @@ class RegistrationPanel(QWidget):
 
         if moving_layer is None:
             self._set_error("Select a moving layer.")
+            return
+        if not self._validate_registration_selection():
             return
 
         try:
@@ -715,6 +1111,18 @@ class RegistrationPanel(QWidget):
                 "registration_transform": transform,
                 "registration_diagnostics": diagnostics,
             }
+            if isinstance(transform, np.ndarray):
+                affine_transform = np.asarray(transform, dtype=float)
+                metadata["confusius_transform"] = make_affine_transform_payload(
+                    affine_transform,
+                    reference=registered,
+                    source_layer_name=cast(str, payload["moving_layer_name"]),
+                    target_layer_name=cast(str, payload["fixed_layer_name"]),
+                    operation=operation,
+                    transform_model=cast(str, payload["transform"]),
+                    metric=cast(str, payload["metric"]),
+                    diagnostics=diagnostics,
+                )
         else:
             registered = cast("xr.DataArray", result).copy(deep=False)
             registered.attrs = registered.attrs.copy()
@@ -735,19 +1143,53 @@ class RegistrationPanel(QWidget):
             display_kwargs: dict[str, Any] = {}
         else:
             display_kwargs = _image_display_kwargs_from_layer(source_layer)
-        display_kwargs["contrast_limits"] = calc_data_range(registered.data)
+        contrast_limits = tuple(calc_data_range(registered.data))
 
         _, layer = plot_napari(
             registered,
             viewer=self.viewer,
             name=layer_name,
             show_colorbar=False,
+            contrast_limits=contrast_limits,
             **display_kwargs,
         )
         layer.metadata.update(metadata)
         layer.metadata["xarray"] = registered
         self.viewer.layers.selection.active = layer
+        self._refresh_transform_controls()
         show_info(f"Added registered layer: {layer.name}")
+
+    def _on_apply_transform_finished(
+        self, payload: dict[str, str], result: xr.DataArray
+    ) -> None:
+        """Add a resampled layer produced from an existing affine transform.
+
+        Parameters
+        ----------
+        payload : dict[str, str]
+            UI snapshot captured before the worker started.
+        result : xarray.DataArray
+            Resampled output.
+        """
+        registered = result.copy(deep=False)
+        registered.attrs = registered.attrs.copy()
+        registered.attrs["registration_operation"] = "apply_transform"
+
+        layer_name = f"{payload['moving_layer_name']} → {payload['target_layer_name']}"
+        contrast_limits = tuple(calc_data_range(registered.data))
+
+        _, layer = plot_napari(
+            registered,
+            viewer=self.viewer,
+            name=layer_name,
+            show_colorbar=False,
+            contrast_limits=contrast_limits,
+        )
+        layer.metadata["xarray"] = registered
+        layer.metadata["registration_operation"] = "apply_transform"
+        layer.metadata["registration_parameters"] = payload.copy()
+        self.viewer.layers.selection.active = layer
+        show_info(f"Added transformed layer: {layer.name}")
 
     def _on_registration_failed(self, exc: BaseException) -> None:
         """Handle a failed worker execution.

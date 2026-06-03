@@ -90,11 +90,22 @@ Store a small provenance payload on the result layer metadata, including:
 
 ### Phase 2
 
-Transform management:
+Transform management.
 
-- save/load/apply affine transforms
-- stable serialized transform payload owned by ConfUSIus
-- better provenance for manual vs optimized transforms
+#### Implemented
+
+- Save/load/apply affine transforms from the registration panel.
+- Stable ConfUSIus-owned JSON payload for affine transforms.
+- Human-friendly transform names in the payload.
+- Output-grid metadata stored with the transform so a saved transform can be
+  reapplied later without reloading the original fixed/reference layer.
+- Affine registration results store a reusable transform payload in layer metadata.
+
+#### Remaining polish
+
+- Better internal layout for the registration tab as it grows.
+- Unified payload support for manual napari-created transforms.
+- Optional support for non-affine transform payloads in the future.
 
 ### Phase 3
 
