@@ -585,7 +585,4 @@ class ConfUSIusWidget(QWidget):
         # Exposed so the guided tour can follow in-flight panel animations.
         self._accordion_anims = panel_anims
 
-        # Store so GuidedTour can be told when accordion animations finish
-        self._accordion_anims = panel_anims
-
         return container

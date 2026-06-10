@@ -453,19 +453,8 @@ class GuidedTour(QObject):
         # the final geometry — including animations started by a previous
         # step. Connections die with the short-lived animation objects.
         for anim in self._animations_source():
-            anim.valueChanged.connect(self._on_animation_frame)
-            anim.finished.connect(self._on_animation_frame)
-
-    def _on_animation_frame(self, _value: object = None) -> None:
-        """Track an animation frame by recomputing the current step geometry.
-
-        Parameters
-        ----------
-        _value : object, optional
-            Animated value emitted by `valueChanged`; unused (the `finished`
-            signal emits nothing).
-        """
-        self._reposition_current()
+            anim.valueChanged.connect(lambda _value: self._reposition_current())
+            anim.finished.connect(self._reposition_current)
 
     def _position_step(self, index: int, generation: int) -> None:
         """Measure target geometry and place the spotlight + tooltip."""
