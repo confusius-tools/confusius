@@ -18,6 +18,7 @@ from qtpy.QtCore import (
 from qtpy.QtGui import QFont, QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
+    QWIDGETSIZE_MAX,
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -25,11 +26,9 @@ from qtpy.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QVBoxLayout,
-    QWIDGETSIZE_MAX,
     QWidget,
 )
 
-from confusius._napari._constants import ACCORDION_ANIMATION_DURATION_MS
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 
@@ -39,6 +38,9 @@ if TYPE_CHECKING:
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
+
+ACCORDION_ANIMATION_DURATION_MS = 200
+"""Duration of accordion expand/collapse animations, in milliseconds."""
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -580,5 +582,10 @@ class ConfUSIusWidget(QWidget):
         # Store for icon re-tinting on theme change and tour access.
         self._accordion_btns = list(zip(btns, [e[1] for e in tab_entries]))
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
+        # Exposed so the guided tour can follow in-flight panel animations.
+        self._accordion_anims = panel_anims
+
+        # Store so GuidedTour can be told when accordion animations finish
+        self._accordion_anims = panel_anims
 
         return container

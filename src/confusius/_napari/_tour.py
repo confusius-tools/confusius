@@ -20,11 +20,10 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._napari._constants import ACCORDION_ANIMATION_DURATION_MS
-
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterable
 
+    from qtpy.QtCore import QVariantAnimation
     from qtpy.QtGui import QMouseEvent, QPaintEvent
 
 
@@ -53,10 +52,9 @@ class TourStep:
         Optional callable returning the widget used only for tooltip placement.
         This lets the spotlight track a small control while the tooltip is
         positioned relative to a larger container such as the napari dock.
-    pre_action : Callable[[], bool] | None
+    pre_action : Callable[[], None] | None
         Optional callback executed before this step is shown (e.g. to expand
-        an accordion section so the target widget becomes visible). Returns
-        whether the action triggered an accordion animation.
+        an accordion section so the target widget becomes visible).
     """
 
     target: Callable[[], QWidget | None]
@@ -65,7 +63,7 @@ class TourStep:
     anchor: str = "right"
     spotlight_rect: Callable[[], QRect | None] | None = None
     tooltip_target: Callable[[], QWidget | None] | None = None
-    pre_action: Callable[[], bool] | None = None
+    pre_action: Callable[[], None] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +319,12 @@ class GuidedTour(QObject):
     on_close : Callable[[], None] | None
         Optional callback invoked when the tour ends (skip or finish). Use
         this to restore any UI state changed by the tour's pre-actions.
+    animations_source : Callable[[], Iterable[QVariantAnimation]] | None
+        Optional callable returning the UI animations currently in flight
+        (e.g. accordion panels expanding). After showing a step, the tour
+        subscribes to these animations and repositions the spotlight on
+        every frame so it settles on the final geometry. If not provided,
+        each step is positioned once when shown.
     """
 
     finished = Signal()
@@ -332,10 +336,12 @@ class GuidedTour(QObject):
         *,
         is_dark: bool = True,
         on_close: Callable[[], None] | None = None,
+        animations_source: Callable[[], Iterable[QVariantAnimation]] | None = None,
     ) -> None:
         super().__init__(parent_window)
         self._steps = steps
         self._window = parent_window
+        self._animations_source = animations_source
         self._current = 0
         # Incremented on every _show_step call so stale QTimer callbacks from
         # rapid next/back clicks are discarded.
@@ -437,17 +443,29 @@ class GuidedTour(QObject):
         step = self._steps[index]
 
         if step.pre_action is not None:
-            did_animate = step.pre_action()
-            self._position_step(index, gen)
-            if did_animate:
-                # Accordion sections expand/collapse with animation, so measure once
-                # immediately and then again after the panel settles.
-                QTimer.singleShot(
-                    ACCORDION_ANIMATION_DURATION_MS + 20,
-                    lambda g=gen: self._position_step(index, g),
-                )
-        else:
-            self._position_step(index, gen)
+            step.pre_action()
+        self._position_step(index, gen)
+
+        if self._animations_source is None:
+            return
+        # Follow any in-flight panel animation (e.g. an accordion section
+        # expanding) so the spotlight grows with the panel and settles on
+        # the final geometry — including animations started by a previous
+        # step. Connections die with the short-lived animation objects.
+        for anim in self._animations_source():
+            anim.valueChanged.connect(self._on_animation_frame)
+            anim.finished.connect(self._on_animation_frame)
+
+    def _on_animation_frame(self, _value: object = None) -> None:
+        """Track an animation frame by recomputing the current step geometry.
+
+        Parameters
+        ----------
+        _value : object, optional
+            Animated value emitted by `valueChanged`; unused (the `finished`
+            signal emits nothing).
+        """
+        self._reposition_current()
 
     def _position_step(self, index: int, generation: int) -> None:
         """Measure target geometry and place the spotlight + tooltip."""
@@ -635,13 +653,12 @@ def build_default_tour(
 
         return _find
 
-    def _expand_section(label: str) -> Callable[[], bool]:
-        def _action() -> bool:
+    def _expand_section(label: str) -> Callable[[], None]:
+        def _action() -> None:
             for btn, _icon in getattr(plugin_widget, "_accordion_btns", []):
                 if btn.text() == label and not btn.isChecked():
                     btn.click()
-                    return True
-            return False
+                    break
 
         return _action
 
@@ -911,4 +928,13 @@ def build_default_tour(
         ),
     ]
 
-    return GuidedTour(steps, window, is_dark=is_dark, on_close=_restore_state)
+    def _accordion_animations() -> list[QVariantAnimation]:
+        return list(getattr(plugin_widget, "_accordion_anims", {}).values())
+
+    return GuidedTour(
+        steps,
+        window,
+        is_dark=is_dark,
+        on_close=_restore_state,
+        animations_source=_accordion_animations,
+    )
