@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import napari
 import numpy as np
@@ -37,6 +37,9 @@ from confusius._napari._theme import (
     style_export_button,
     style_plot_toolbar,
 )
+
+if TYPE_CHECKING:
+    from confusius._napari._events._store import EventStore
 
 _SOURCE_MODE = Literal["mouse", "points", "labels"]
 """Source modes for the plotter, determining where signals are extracted from."""
@@ -72,10 +75,13 @@ class SignalPlotter(QWidget):
         self,
         viewer: napari.Viewer,
         store: SignalStore | None = None,
+        event_store: EventStore | None = None,
     ) -> None:
         super().__init__()
         self._viewer = viewer
         self._signals_store = store
+        self._event_store = event_store
+        self._event_spans: list = []
         self._cursor_pos: np.ndarray | None = None
         self._current_layer = None
 
@@ -159,6 +165,8 @@ class SignalPlotter(QWidget):
                 self._show_instructions()
         else:
             self._show_instructions()
+        if self._event_store is not None:
+            self._event_store.changed.connect(self._on_events_changed)
         self._apply_theme()
 
     def sizeHint(self) -> QSize:
@@ -708,7 +716,63 @@ class SignalPlotter(QWidget):
             for spine in self._axes.spines.values():
                 spine.set_visible(False)
 
+        self._draw_event_spans()
         self._canvas.draw_idle()
+
+    # ------------------------------------------------------------------
+    # Event shading
+    # ------------------------------------------------------------------
+
+    def _on_events_changed(self) -> None:
+        """Redraw event bands when the event store changes.
+
+        Only redraws when a plot is already present; otherwise the next plot
+        update will draw the bands as part of its normal styling.
+        """
+        if self._has_plot:
+            self._draw_event_spans()
+            self._canvas.draw_idle()
+
+    def _draw_event_spans(self) -> None:
+        """Shade the time intervals of stored events on the current axes.
+
+        Removes any previously drawn bands first, then draws one band per event
+        coloured by trial type. Bands are only drawn when shading is enabled, the
+        x-axis represents time, and the axes already contain plotted data lines.
+        """
+        for span in self._event_spans:
+            try:
+                span.remove()
+            except (ValueError, NotImplementedError):
+                # Already detached by a prior _axes.clear(); nothing to remove.
+                pass
+        self._event_spans = []
+
+        store = self._event_store
+        if store is None or not store.shade_signals:
+            return
+        # Events are expressed in seconds, so only shade when plotting against time.
+        if self._xaxis_dim is not None and self._xaxis_dim != TIME_DIM:
+            return
+        if not self._axes.get_lines():
+            return
+
+        for event in store.events():
+            color = store.color_for(event.trial_type)
+            if event.duration <= 0:
+                span = self._axes.axvline(
+                    event.onset, color=color, alpha=0.6, linewidth=1.0, zorder=0
+                )
+            else:
+                span = self._axes.axvspan(
+                    event.onset,
+                    event.onset + event.duration,
+                    color=color,
+                    alpha=0.15,
+                    linewidth=0,
+                    zorder=0,
+                )
+            self._event_spans.append(span)
 
     def _xaxis_dim_index(self, layer) -> int:
         """Return the data dimension index that corresponds to the x-axis.
@@ -1347,6 +1411,7 @@ class SignalPlotter(QWidget):
 
         self._has_plot = True
         self._prev_ts_valid = True
+        self._draw_event_spans()
         self._canvas.draw_idle()
         return True
 
@@ -1398,6 +1463,7 @@ class SignalPlotter(QWidget):
         self._restore_view(saved_xlim, saved_ylim)
         self._has_plot = True
         self._prev_ts_valid = True
+        self._draw_event_spans()
         self._canvas.draw_idle()
         return True
 
@@ -1651,6 +1717,7 @@ class SignalPlotter(QWidget):
             with_legend=len(self._export_signals) > 1,
         )
         self._restore_view(saved_xlim, saved_ylim)
+        self._draw_event_spans()
         self._canvas.draw_idle()
 
     def _update_plot_from_points(self) -> None:
@@ -1944,6 +2011,11 @@ class SignalPlotter(QWidget):
                 pass
             try:
                 self._signals_store.changed.disconnect(self._sync_live_colors_to_layers)
+            except (RuntimeError, TypeError):
+                pass
+        if self._event_store is not None:
+            try:
+                self._event_store.changed.disconnect(self._on_events_changed)
             except (RuntimeError, TypeError):
                 pass
         self.set_points_layer(None)

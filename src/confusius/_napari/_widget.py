@@ -20,6 +20,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._napari._events._store import EventStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 
@@ -225,6 +226,9 @@ class ConfUSIusWidget(QWidget):
             QSizePolicy.Policy.Expanding,
         )
         self._active_tour: GuidedTour | None = None
+        # Shared store of BIDS temporal events, used by the event panel, the signal
+        # plotter (background shading) and the time overlay (active-event readout).
+        self._event_store = EventStore(self)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -232,8 +236,11 @@ class ConfUSIusWidget(QWidget):
         # (including installing its custom title bar).
         QTimer.singleShot(500, self._fix_dock_title)
 
-        # Timestamp overlay — shown whenever time is being sliced.
+        # Timestamp overlay — shown whenever time is being sliced. It also names the
+        # events active at the current time when the event store has any.
         self._time_overlay = _TimeOverlay(self.viewer)
+        self._time_overlay.set_event_store(self._event_store)
+        self._event_store.changed.connect(self._time_overlay.update)
 
     # ------------------------------------------------------------------
     # Theme
@@ -444,6 +451,7 @@ class ConfUSIusWidget(QWidget):
         """Build a stacked accordion where the open section fills all space."""
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
+        from confusius._napari._events._panel import EventPanel
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._signals._panel import SignalPanel
         from confusius._napari._video._video_panel import VideoPanel
@@ -470,12 +478,14 @@ class ConfUSIusWidget(QWidget):
             ("Data I/O", "file-input"),
             ("Video", "video"),
             ("Signals", "chart-line"),
+            ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
         panels = [
             data_panel,
             video_panel,
-            SignalPanel(self.viewer),
+            SignalPanel(self.viewer, event_store=self._event_store),
+            EventPanel(self.viewer, self._event_store),
             QCPanel(self.viewer),
         ]
         btns: list[QPushButton] = []
