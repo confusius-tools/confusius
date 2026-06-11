@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from napari.utils.key_bindings import coerce_keybinding
 from napari.utils.notifications import show_error, show_info
-from qtpy.QtCore import Qt
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -14,11 +14,13 @@ from qtpy.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -74,6 +76,51 @@ class EventPanel(QWidget):
         layout.addStretch()
 
     # ------------------------------------------------------------------
+    # Key bindings
+    # ------------------------------------------------------------------
+
+    def showEvent(self, a0) -> None:
+        """Bind the annotation shortcut keys when the panel becomes visible.
+
+        Parameters
+        ----------
+        a0 : QShowEvent
+            The Qt show event.
+        """
+        super().showEvent(a0)
+        self._bind_keys()
+
+    def hideEvent(self, a0) -> None:
+        """Unbind the annotation shortcut keys when the panel is hidden.
+
+        Parameters
+        ----------
+        a0 : QHideEvent
+            The Qt hide event.
+        """
+        super().hideEvent(a0)
+        self._unbind_keys()
+
+    def _bind_keys(self) -> None:
+        """Bind S/E/C in the napari viewer keymap to Start/End/Cancel.
+
+        Uses napari key bindings rather than QShortcuts so the letters are not
+        intercepted while the user is typing in a text field.
+        """
+        bindings = (("S", self._on_start), ("E", self._on_end), ("C", self._on_cancel))
+        for key, handler in bindings:
+            self._viewer.bind_key(
+                key, lambda _viewer, handler=handler: handler(), overwrite=True
+            )
+
+    def _unbind_keys(self) -> None:
+        """Remove the S/E/C bindings from the napari viewer keymap."""
+        for key in ("S", "E", "C"):
+            # The keymap is keyed by normalized KeyBinding objects, not strings,
+            # so the key must be coerced before removal.
+            self._viewer.keymap.pop(coerce_keybinding(key), None)
+
+    # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
@@ -101,18 +148,22 @@ class EventPanel(QWidget):
             "Move the time slider so a time axis is active first."
         )
         self._start_btn.clicked.connect(self._on_start)
-        btn_row.addWidget(self._start_btn)
 
         self._end_btn = QPushButton("End")
         self._end_btn.setToolTip("Mark the offset of the event being annotated.")
         self._end_btn.clicked.connect(self._on_end)
         self._end_btn.setEnabled(False)
-        btn_row.addWidget(self._end_btn)
 
         self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.clicked.connect(self._on_cancel)
         self._cancel_btn.setEnabled(False)
-        btn_row.addWidget(self._cancel_btn)
+
+        # Equal stretch, fixed height, and an expanding policy keep the three
+        # buttons identical in size despite the primary button's extra padding.
+        for btn in (self._start_btn, self._end_btn, self._cancel_btn):
+            btn.setFixedHeight(30)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn_row.addWidget(btn, stretch=1)
         group_layout.addLayout(btn_row)
 
         self._status_label = QLabel("")
@@ -126,10 +177,21 @@ class EventPanel(QWidget):
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(4)
 
-        self._list = QListWidget()
-        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self._list.setMinimumHeight(120)
-        group_layout.addWidget(self._list)
+        self._table = QTableWidget(0, 4)
+        self._table.setHorizontalHeaderLabels(
+            ["Trial type", "Onset", "End", "Duration"]
+        )
+        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self._table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        vertical_header = self._table.verticalHeader()
+        if vertical_header is not None:
+            vertical_header.setVisible(False)
+        header = self._table.horizontalHeader()
+        if header is not None:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self._table.setMinimumHeight(120)
+        group_layout.addWidget(self._table)
 
         btn_row = QHBoxLayout()
         self._remove_btn = QPushButton("Remove selected")
@@ -143,17 +205,17 @@ class EventPanel(QWidget):
         return group
 
     def _make_file_group(self) -> QGroupBox:
-        group = QGroupBox("BIDS Events File")
+        group = QGroupBox("Events File")
         group_layout = QHBoxLayout(group)
         group_layout.setSpacing(4)
 
         load_btn = QPushButton("Load…")
-        load_btn.setToolTip("Load events from a BIDS events .tsv file.")
+        load_btn.setToolTip("Load events from an events .tsv file.")
         load_btn.clicked.connect(self._on_load)
         group_layout.addWidget(load_btn)
 
         save_btn = QPushButton("Save…")
-        save_btn.setToolTip("Save events to a BIDS events .tsv file.")
+        save_btn.setToolTip("Save events to an events .tsv file.")
         save_btn.clicked.connect(self._on_save)
         group_layout.addWidget(save_btn)
 
@@ -220,11 +282,11 @@ class EventPanel(QWidget):
         if value is None:
             show_error("No time axis is active.")
             return
-        if value < self._pending_onset:
+        if value <= self._pending_onset:
             show_error(
-                f"End time ({value:.2f} {units}) precedes the start time "
-                f"({self._pending_onset:.2f} {units}). Move forward in time, then "
-                "press End again."
+                f"End time ({value:.2f} {units}) must be strictly after the start "
+                f"time ({self._pending_onset:.2f} {units}). Move forward in time, "
+                "then press End again."
             )
             return
         duration = value - self._pending_onset
@@ -257,26 +319,32 @@ class EventPanel(QWidget):
     # ------------------------------------------------------------------
 
     def _refresh_list(self) -> None:
-        """Repopulate the event list from the store."""
-        self._list.clear()
+        """Repopulate the events table from the store.
+
+        Rows map 1:1 to `EventStore.events` order, so a row index equals its
+        event index.
+        """
+        self._table.setRowCount(0)
         units = read_time_units(resolve_reference_layer(self._viewer)) or "s"
-        for index, event in enumerate(self._store.events()):
+        for row, event in enumerate(self._store.events()):
             end = event.onset + event.duration
-            text = (
-                f"{event.trial_type}   {event.onset:.2f}–{end:.2f} {units}"
-                f"  ({event.duration:.2f})"
+            self._table.insertRow(row)
+            name_item = QTableWidgetItem(event.trial_type)
+            name_item.setForeground(QColor(self._store.color_for(event.trial_type)))
+            self._table.setItem(row, 0, name_item)
+            self._table.setItem(row, 1, QTableWidgetItem(f"{event.onset:.2f} {units}"))
+            self._table.setItem(row, 2, QTableWidgetItem(f"{end:.2f} {units}"))
+            self._table.setItem(
+                row, 3, QTableWidgetItem(f"{event.duration:.2f} {units}")
             )
-            item = QListWidgetItem(text)
-            item.setForeground(QColor(self._store.color_for(event.trial_type)))
-            item.setData(Qt.ItemDataRole.UserRole, index)
-            self._list.addItem(item)
 
     def _on_remove_selected(self) -> None:
-        indices = [
-            item.data(Qt.ItemDataRole.UserRole) for item in self._list.selectedItems()
-        ]
-        if indices:
-            self._store.remove_events(indices)
+        selection_model = self._table.selectionModel()
+        if selection_model is None:
+            return
+        rows = {idx.row() for idx in selection_model.selectedRows()}
+        if rows:
+            self._store.remove_events(sorted(rows))
 
     def _on_clear(self) -> None:
         self._store.clear()
@@ -288,9 +356,9 @@ class EventPanel(QWidget):
     def _on_load(self) -> None:
         path_str, _ = QFileDialog.getOpenFileName(
             self,
-            "Load BIDS Events",
+            "Load Events",
             str(Path.home()),
-            "BIDS events (*.tsv);;All files (*)",
+            "Events (*.tsv);;All files (*)",
         )
         if not path_str:
             return
@@ -307,9 +375,9 @@ class EventPanel(QWidget):
             return
         path_str, _ = QFileDialog.getSaveFileName(
             self,
-            "Save BIDS Events",
+            "Save Events",
             str(Path.home() / "events.tsv"),
-            "BIDS events (*.tsv);;All files (*)",
+            "Events (*.tsv);;All files (*)",
         )
         if not path_str:
             return

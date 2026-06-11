@@ -724,14 +724,16 @@ class SignalPlotter(QWidget):
     # ------------------------------------------------------------------
 
     def _on_events_changed(self) -> None:
-        """Redraw event bands when the event store changes.
+        """Reconcile event bands when the event store changes.
 
-        Only redraws when a plot is already present; otherwise the next plot
-        update will draw the bands as part of its normal styling.
+        Always runs (not gated on whether a plot exists) so that disabling
+        shading reliably removes the bands. The blit background is invalidated
+        so the x-axis cursor does not restore a snapshot that still contains the
+        old bands.
         """
-        if self._has_plot:
-            self._draw_event_spans()
-            self._canvas.draw_idle()
+        self._bg = None
+        self._draw_event_spans()
+        self._canvas.draw_idle()
 
     def _draw_event_spans(self) -> None:
         """Shade the time intervals of stored events on the current axes.

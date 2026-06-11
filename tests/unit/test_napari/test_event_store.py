@@ -21,9 +21,11 @@ class TestEventStore:
         assert event == BIDSEvent(1.0, 2.0, "event")
         assert store.events() == [event]
 
-    def test_add_event_rejects_negative_duration(self, store):
-        """A negative duration raises ValueError."""
-        with pytest.raises(ValueError, match="non-negative"):
+    def test_add_event_rejects_non_positive_duration(self, store):
+        """A zero or negative duration raises ValueError."""
+        with pytest.raises(ValueError, match="positive"):
+            store.add_event(1.0, 0.0, "stim")
+        with pytest.raises(ValueError, match="positive"):
             store.add_event(1.0, -1.0, "stim")
 
     def test_color_is_stable_per_trial_type(self, store):
@@ -40,9 +42,13 @@ class TestEventStore:
         assert [e.trial_type for e in store.active_events(2.9)] == ["stim"]
         assert store.active_events(3.0) == []
 
-    def test_active_events_instantaneous(self, store):
-        """A zero-duration event is active only exactly at its onset."""
-        store.add_event(5.0, 0.0, "blip")
+    def test_active_events_instantaneous(self, store, tmp_path):
+        """A loaded zero-duration event is active only exactly at its onset."""
+        # Zero-duration events cannot be created interactively, only loaded
+        # from a BIDS events file.
+        path = tmp_path / "events.tsv"
+        path.write_text("onset\tduration\ttrial_type\n5.0\t0.0\tblip\n")
+        store.load_file(path)
         assert [e.trial_type for e in store.active_events(5.0)] == ["blip"]
         assert store.active_events(5.001) == []
 

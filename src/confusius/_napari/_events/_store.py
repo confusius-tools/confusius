@@ -155,7 +155,7 @@ class EventStore(QObject):
         onset : float
             Event onset in seconds.
         duration : float
-            Event duration in seconds. Must be non-negative.
+            Event duration in seconds. Must be positive.
         trial_type : str, optional
             Trial type name. Missing or blank values use the default trial type.
 
@@ -167,10 +167,10 @@ class EventStore(QObject):
         Raises
         ------
         ValueError
-            If `duration` is negative.
+            If `duration` is negative or zero.
         """
-        if duration < 0:
-            raise ValueError("Event duration must be non-negative.")
+        if duration <= 0:
+            raise ValueError("Event duration must be positive.")
         name = (trial_type or "").strip() or DEFAULT_TRIAL_TYPE
         event = BIDSEvent(onset=float(onset), duration=float(duration), trial_type=name)
         self.color_for(name)

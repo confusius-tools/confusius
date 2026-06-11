@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import xarray as xr
+from napari.utils.key_bindings import coerce_keybinding
 
+from confusius._napari._events._panel import EventPanel
 from confusius._napari._events._store import EventStore
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._time_overlay import _TimeOverlay
@@ -71,3 +73,16 @@ def test_overlay_names_active_event(rng, make_napari_viewer):
     # Move to time = 4.0 s (frame 4), outside the event.
     viewer.dims.set_current_step(overlay._time_idx, 4)
     assert "stim" not in viewer.text_overlay.text
+
+
+def test_panel_binds_keys_while_visible(make_napari_viewer):
+    """Showing the panel binds S/E/C in the viewer keymap; hiding removes them."""
+    viewer = make_napari_viewer()
+    panel = EventPanel(viewer, EventStore())
+    keys = [coerce_keybinding(key) for key in ("S", "E", "C")]
+
+    panel.show()
+    assert all(key in viewer.keymap for key in keys)
+
+    panel.hide()
+    assert all(key not in viewer.keymap for key in keys)
