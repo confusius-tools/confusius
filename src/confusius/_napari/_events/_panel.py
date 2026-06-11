@@ -18,7 +18,6 @@ from qtpy.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -101,21 +100,26 @@ class EventPanel(QWidget):
         super().hideEvent(a0)
         self._unbind_keys()
 
+    _KEY_BINDINGS = ("S", "E", "Escape")
+    """Viewer keys bound to Start, End, and Cancel while the panel is visible."""
+
     def _bind_keys(self) -> None:
-        """Bind S/E/C in the napari viewer keymap to Start/End/Cancel.
+        """Bind S/E/Escape in the napari viewer keymap to Start/End/Cancel.
 
         Uses napari key bindings rather than QShortcuts so the letters are not
-        intercepted while the user is typing in a text field.
+        intercepted while the user is typing in a text field. Escape (rather than
+        a letter) cancels, avoiding a clash with napari's own single-letter
+        shortcuts.
         """
-        bindings = (("S", self._on_start), ("E", self._on_end), ("C", self._on_cancel))
-        for key, handler in bindings:
+        handlers = (self._on_start, self._on_end, self._on_cancel)
+        for key, handler in zip(self._KEY_BINDINGS, handlers):
             self._viewer.bind_key(
                 key, lambda _viewer, handler=handler: handler(), overwrite=True
             )
 
     def _unbind_keys(self) -> None:
-        """Remove the S/E/C bindings from the napari viewer keymap."""
-        for key in ("S", "E", "C"):
+        """Remove the S/E/Escape bindings from the napari viewer keymap."""
+        for key in self._KEY_BINDINGS:
             # The keymap is keyed by normalized KeyBinding objects, not strings,
             # so the key must be coerced before removal.
             self._viewer.keymap.pop(coerce_keybinding(key), None)
@@ -141,29 +145,25 @@ class EventPanel(QWidget):
         group_layout.addLayout(name_row)
 
         btn_row = QHBoxLayout()
-        self._start_btn = QPushButton("Start")
+        self._start_btn = QPushButton("Start (S)")
         self._start_btn.setObjectName("primary_btn")
         self._start_btn.setToolTip(
             "Mark the onset of an event at the current time step.\n"
             "Move the time slider so a time axis is active first."
         )
         self._start_btn.clicked.connect(self._on_start)
+        btn_row.addWidget(self._start_btn)
 
-        self._end_btn = QPushButton("End")
+        self._end_btn = QPushButton("End (E)")
         self._end_btn.setToolTip("Mark the offset of the event being annotated.")
         self._end_btn.clicked.connect(self._on_end)
         self._end_btn.setEnabled(False)
+        btn_row.addWidget(self._end_btn)
 
-        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn = QPushButton("Cancel (Esc)")
         self._cancel_btn.clicked.connect(self._on_cancel)
         self._cancel_btn.setEnabled(False)
-
-        # Equal stretch, fixed height, and an expanding policy keep the three
-        # buttons identical in size despite the primary button's extra padding.
-        for btn in (self._start_btn, self._end_btn, self._cancel_btn):
-            btn.setFixedHeight(30)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            btn_row.addWidget(btn, stretch=1)
+        btn_row.addWidget(self._cancel_btn)
         group_layout.addLayout(btn_row)
 
         self._status_label = QLabel("")

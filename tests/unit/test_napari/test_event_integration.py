@@ -76,10 +76,10 @@ def test_overlay_names_active_event(rng, make_napari_viewer):
 
 
 def test_panel_binds_keys_while_visible(make_napari_viewer):
-    """Showing the panel binds S/E/C in the viewer keymap; hiding removes them."""
+    """Showing the panel binds S/E/Escape in the viewer keymap; hiding removes them."""
     viewer = make_napari_viewer()
     panel = EventPanel(viewer, EventStore())
-    keys = [coerce_keybinding(key) for key in ("S", "E", "C")]
+    keys = [coerce_keybinding(key) for key in ("S", "E", "Escape")]
 
     panel.show()
     assert all(key in viewer.keymap for key in keys)
