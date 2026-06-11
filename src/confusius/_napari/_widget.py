@@ -6,10 +6,19 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QByteArray, QRectF, QSize, Qt, QTimer
+from qtpy.QtCore import (
+    QByteArray,
+    QEasingCurve,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+)
 from qtpy.QtGui import QFont, QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
+    QWIDGETSIZE_MAX,
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -29,6 +38,9 @@ if TYPE_CHECKING:
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
+
+ACCORDION_ANIMATION_DURATION_MS = 200
+"""Duration of accordion expand/collapse animations, in milliseconds."""
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -497,6 +509,9 @@ class ConfUSIusWidget(QWidget):
             panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
+            # Allow the collapse animation to shrink the panel below its
+            # content's minimum size hint.
+            panel.setMinimumHeight(0)
             panel.setVisible(i == 0)
             btns.append(btn)
 
@@ -504,17 +519,62 @@ class ConfUSIusWidget(QWidget):
         # buttons stack at the top of the accordion area.
         layout.addStretch(1)
 
+        # Maps each panel to its in-flight animation; also keeps the Python-side
+        # reference alive until the animation finishes or is replaced.
+        panel_anims: dict[QWidget, QPropertyAnimation] = {}
+
+        def _replace_panel_anim(
+            panel: QWidget, anim: QPropertyAnimation | None
+        ) -> None:
+            previous = panel_anims.pop(panel, None)
+            if previous is not None:
+                previous.stop()
+            if anim is not None:
+                panel_anims[panel] = anim
+
+        def _animate_panel(
+            panel: QWidget, start: int, end: int, *, hide_on_done: bool
+        ) -> None:
+            anim = QPropertyAnimation(panel, b"maximumHeight")
+            anim.setDuration(ACCORDION_ANIMATION_DURATION_MS)
+            anim.setStartValue(start)
+            anim.setEndValue(end)
+            anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            _replace_panel_anim(panel, anim)
+
+            def _on_done() -> None:
+                # Stale callback — this animation was replaced (stop() also
+                # emits finished).
+                if panel_anims.get(panel) is not anim:
+                    return
+                if hide_on_done:
+                    panel.hide()
+                panel.setMaximumHeight(QWIDGETSIZE_MAX)
+                _replace_panel_anim(panel, None)
+
+            anim.finished.connect(_on_done)
+            anim.start()
+
         def _activate_panel(panel_index: int) -> None:
             # Clicking the already-open panel collapses it (all closed).
             already_open = panels[panel_index].isVisible()
-            target = -1 if already_open else panel_index  # -1 means all collapsed
+            target = -1 if already_open else panel_index
+            available_height = max(
+                container.height() - sum(b.height() for b in btns), 50
+            )
 
-            for j, (b, p) in enumerate(zip(btns, panels)):
+            for j, (button, panel) in enumerate(zip(btns, panels)):
                 active = j == target
-                b.blockSignals(True)
-                b.setChecked(active)
-                b.blockSignals(False)
-                p.setVisible(active)
+                button.blockSignals(True)
+                button.setChecked(active)
+                button.blockSignals(False)
+
+                if active and not panel.isVisible():
+                    panel.setMaximumHeight(0)
+                    panel.show()
+                    _animate_panel(panel, 0, available_height, hide_on_done=False)
+                elif not active and panel.isVisible():
+                    _animate_panel(panel, panel.height(), 0, hide_on_done=True)
 
         for i, btn in enumerate(btns):
             btn.clicked.connect(lambda _checked, i=i: _activate_panel(i))
@@ -522,5 +582,7 @@ class ConfUSIusWidget(QWidget):
         # Store for icon re-tinting on theme change and tour access.
         self._accordion_btns = list(zip(btns, [e[1] for e in tab_entries]))
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
+        # Exposed so the guided tour can follow in-flight panel animations.
+        self._accordion_anims = panel_anims
 
         return container
