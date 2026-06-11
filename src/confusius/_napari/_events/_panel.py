@@ -24,7 +24,12 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._events._store import EventStore
-from confusius._napari._timeaxis import read_current_time, time_is_sliced
+from confusius._napari._timeaxis import (
+    read_current_time,
+    read_time_units,
+    resolve_reference_layer,
+    time_is_sliced,
+)
 
 if TYPE_CHECKING:
     import napari
@@ -254,8 +259,7 @@ class EventPanel(QWidget):
     def _refresh_list(self) -> None:
         """Repopulate the event list from the store."""
         self._list.clear()
-        _, units = read_current_time(self._viewer)
-        units = units or "s"
+        units = read_time_units(resolve_reference_layer(self._viewer)) or "s"
         for index, event in enumerate(self._store.events()):
             end = event.onset + event.duration
             text = (

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import napari
 import napari.layers
 
+from confusius._dims import TIME_DIM
 from confusius._napari._timeaxis import (
     find_time_dim_index,
     read_time_units,
@@ -117,7 +118,7 @@ class _TimeOverlay:
         # Pick a default reference layer when none is set.
         if self._ref_layer is None:
             for layer in self._viewer.layers:
-                if "time" in layer.axis_labels:
+                if TIME_DIM in layer.axis_labels:
                     self._ref_layer = layer
                     break
 
@@ -154,7 +155,7 @@ class _TimeOverlay:
         selected_with_time = [
             layer
             for layer in self._viewer.layers.selection
-            if "time" in layer.axis_labels
+            if TIME_DIM in layer.axis_labels
         ]
         if len(selected_with_time) == 1:
             self._ref_layer = selected_with_time[0]

@@ -1411,7 +1411,9 @@ class SignalPlotter(QWidget):
 
         self._has_plot = True
         self._prev_ts_valid = True
-        self._draw_event_spans()
+        # Event bands are not redrawn here: the fast path never clears the axes, so
+        # the bands drawn by the previous full render persist. They are refreshed only
+        # when the events themselves change, via _on_events_changed.
         self._canvas.draw_idle()
         return True
 

@@ -6,26 +6,13 @@ from pathlib import Path
 
 from qtpy.QtCore import QObject, Signal
 
+from confusius._napari._utils import CATEGORICAL_COLORS
 from confusius.bids.events import (
     DEFAULT_TRIAL_TYPE,
     BIDSEvent,
     read_events,
     write_events,
 )
-
-_TRIAL_TYPE_COLORS = [
-    "#4e79a7",
-    "#f28e2b",
-    "#e15759",
-    "#76b7b2",
-    "#59a14f",
-    "#edc948",
-    "#b07aa1",
-    "#ff9da7",
-    "#9c755f",
-    "#bab0ab",
-]
-"""Qualitative palette cycled across distinct trial types."""
 
 
 class EventStore(QObject):
@@ -124,8 +111,8 @@ class EventStore(QObject):
             Hex color string assigned to this trial type.
         """
         if trial_type not in self._colors:
-            self._colors[trial_type] = _TRIAL_TYPE_COLORS[
-                self._color_counter % len(_TRIAL_TYPE_COLORS)
+            self._colors[trial_type] = CATEGORICAL_COLORS[
+                self._color_counter % len(CATEGORICAL_COLORS)
             ]
             self._color_counter += 1
         return self._colors[trial_type]
