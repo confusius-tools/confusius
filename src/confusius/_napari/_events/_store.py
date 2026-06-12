@@ -43,12 +43,24 @@ class EventStore(QObject):
 
     @property
     def shade_signals(self) -> bool:
-        """Whether event bands should be shaded on the signal plot."""
+        """Whether event bands should be shaded on the signal plot.
+
+        Returns
+        -------
+        bool
+            Whether shading is enabled.
+        """
         return self._shade_signals
 
     @property
     def show_in_overlay(self) -> bool:
-        """Whether active events should be named in the time overlay."""
+        """Whether active events should be named in the time overlay.
+
+        Returns
+        -------
+        bool
+            Whether the overlay readout is enabled.
+        """
         return self._show_in_overlay
 
     def set_shade_signals(self, enabled: bool) -> None:

@@ -62,6 +62,9 @@ class SignalPlotter(QWidget):
         The active napari viewer instance.
     store : SignalStore | None, optional
         Shared store containing imported signals to overlay on the live plot.
+    event_store : EventStore | None, optional
+        Shared store of temporal events whose intervals are shaded as background
+        bands on the plot.
     """
 
     frame_clicked = Signal(float)
