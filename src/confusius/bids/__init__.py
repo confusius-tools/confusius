@@ -32,6 +32,12 @@ from confusius.bids.coordinates import (
     create_bids_slice_timing_from_coordinate,
     create_slice_time_coordinate_from_bids,
 )
+from confusius.bids.events import (
+    DEFAULT_TRIAL_TYPE,
+    BIDSEvent,
+    read_events,
+    write_events,
+)
 from confusius.bids.mapping import (
     EXPLICIT_BIDS_FIELD_MAPPINGS,
     from_bids,
@@ -57,4 +63,9 @@ __all__ = [
     "DIM_TO_SLICE_ENCODING_DIRECTION",
     "create_bids_slice_timing_from_coordinate",
     "create_slice_time_coordinate_from_bids",
+    # Events
+    "BIDSEvent",
+    "DEFAULT_TRIAL_TYPE",
+    "read_events",
+    "write_events",
 ]
