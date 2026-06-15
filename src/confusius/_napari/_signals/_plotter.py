@@ -762,16 +762,19 @@ class SignalPlotter(QWidget):
         if not self._axes.get_lines():
             return
 
-        for event in store.events():
-            color = store.color_for(event.trial_type)
-            if event.duration <= 0:
+        events = store.events_dataframe()
+        for onset, duration, trial_type in zip(
+            events["onset"], events["duration"], events["trial_type"], strict=False
+        ):
+            color = store.color_for(trial_type)
+            if duration <= 0:
                 span = self._axes.axvline(
-                    event.onset, color=color, alpha=0.6, linewidth=1.0, zorder=0
+                    onset, color=color, alpha=0.6, linewidth=1.0, zorder=0
                 )
             else:
                 span = self._axes.axvspan(
-                    event.onset,
-                    event.onset + event.duration,
+                    onset,
+                    onset + duration,
                     color=color,
                     alpha=0.15,
                     linewidth=0,

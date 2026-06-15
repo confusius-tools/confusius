@@ -243,7 +243,7 @@ def _validate_events(events: pd.DataFrame) -> pd.DataFrame:
             "'trial_type' column not found in the given events data.",
             stacklevel=find_stack_level(),
         )
-        events["trial_type"] = "dummy"
+        events["trial_type"] = "event"
 
     if (events["duration"] == 0).any():
         conditions = events.loc[events["duration"] == 0, "trial_type"].unique()

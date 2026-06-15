@@ -103,10 +103,10 @@ class _TimeOverlay:
         if store is None or not store.show_in_overlay:
             return ""
         active = store.active_events(time_val)
-        if not active:
+        if active.empty:
             return ""
         # Preserve order while removing duplicate trial types.
-        names = list(dict.fromkeys(event.trial_type for event in active))
+        names = list(dict.fromkeys(active["trial_type"]))
         return "  ●  " + ", ".join(names)
 
     # -- lifecycle --------------------------------------------------------

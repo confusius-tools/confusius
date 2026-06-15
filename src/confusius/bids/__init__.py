@@ -34,7 +34,6 @@ from confusius.bids.coordinates import (
 )
 from confusius.bids.events import (
     DEFAULT_TRIAL_TYPE,
-    BIDSEvent,
     read_events,
     write_events,
 )
@@ -64,7 +63,6 @@ __all__ = [
     "create_bids_slice_timing_from_coordinate",
     "create_slice_time_coordinate_from_bids",
     # Events
-    "BIDSEvent",
     "DEFAULT_TRIAL_TYPE",
     "read_events",
     "write_events",

@@ -321,22 +321,23 @@ class EventPanel(QWidget):
     def _refresh_list(self) -> None:
         """Repopulate the events table from the store.
 
-        Rows map 1:1 to `EventStore.events` order, so a row index equals its
+        Rows map 1:1 to the store's events table order, so a row index equals its
         event index.
         """
         self._table.setRowCount(0)
         units = read_time_units(resolve_reference_layer(self._viewer)) or "s"
-        for row, event in enumerate(self._store.events()):
-            end = event.onset + event.duration
+        events = self._store.events_dataframe()
+        for row, (onset, duration, trial_type) in enumerate(
+            zip(events["onset"], events["duration"], events["trial_type"], strict=False)
+        ):
+            end = onset + duration
             self._table.insertRow(row)
-            name_item = QTableWidgetItem(event.trial_type)
-            name_item.setForeground(QColor(self._store.color_for(event.trial_type)))
+            name_item = QTableWidgetItem(trial_type)
+            name_item.setForeground(QColor(self._store.color_for(trial_type)))
             self._table.setItem(row, 0, name_item)
-            self._table.setItem(row, 1, QTableWidgetItem(f"{event.onset:.2f} {units}"))
+            self._table.setItem(row, 1, QTableWidgetItem(f"{onset:.2f} {units}"))
             self._table.setItem(row, 2, QTableWidgetItem(f"{end:.2f} {units}"))
-            self._table.setItem(
-                row, 3, QTableWidgetItem(f"{event.duration:.2f} {units}")
-            )
+            self._table.setItem(row, 3, QTableWidgetItem(f"{duration:.2f} {units}"))
 
     def _on_remove_selected(self) -> None:
         selection_model = self._table.selectionModel()
@@ -370,7 +371,7 @@ class EventPanel(QWidget):
         show_info(f"Loaded {len(loaded)} event(s) from {Path(path_str).name}.")
 
     def _on_save(self) -> None:
-        if not self._store.events():
+        if self._store.events_dataframe().empty:
             show_error("There are no events to save.")
             return
         path_str, _ = QFileDialog.getSaveFileName(
@@ -389,4 +390,6 @@ class EventPanel(QWidget):
         except OSError as exc:
             show_error(str(exc))
             return
-        show_info(f"Saved {len(self._store.events())} event(s) to {path.name}.")
+        show_info(
+            f"Saved {len(self._store.events_dataframe())} event(s) to {path.name}."
+        )

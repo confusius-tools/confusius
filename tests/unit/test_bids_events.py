@@ -1,29 +1,35 @@
 """Tests for the confusius.bids.events module."""
 
+import numpy as np
+import pandas as pd
 import pytest
+from pandas.testing import assert_frame_equal
 
 from confusius.bids.events import (
     DEFAULT_TRIAL_TYPE,
-    BIDSEvent,
     read_events,
     write_events,
 )
 
 
 class TestReadEvents:
-    """Reading BIDS events files."""
+    """Reading BIDS events files into a DataFrame."""
 
     def test_reads_required_columns(self, tmp_path):
-        """onset, duration, and trial_type are parsed into events."""
+        """onset, duration, and trial_type are parsed into a typed table."""
         path = tmp_path / "events.tsv"
         path.write_text("onset\tduration\ttrial_type\n1.0\t2.0\tstim\n4.5\t0.5\tcue\n")
 
         events = read_events(path)
 
-        assert events == [
-            BIDSEvent(1.0, 2.0, "stim"),
-            BIDSEvent(4.5, 0.5, "cue"),
-        ]
+        expected = pd.DataFrame(
+            {
+                "onset": [1.0, 4.5],
+                "duration": [2.0, 0.5],
+                "trial_type": ["stim", "cue"],
+            }
+        )
+        assert_frame_equal(events, expected)
 
     def test_defaults_trial_type_when_column_absent(self, tmp_path):
         """Missing trial_type column yields the default trial type."""
@@ -32,7 +38,7 @@ class TestReadEvents:
 
         events = read_events(path)
 
-        assert events == [BIDSEvent(0.0, 1.0, DEFAULT_TRIAL_TYPE)]
+        assert list(events["trial_type"]) == [DEFAULT_TRIAL_TYPE]
 
     def test_defaults_trial_type_when_cell_missing(self, tmp_path):
         """An empty or n/a trial_type cell falls back to the default."""
@@ -41,13 +47,10 @@ class TestReadEvents:
 
         events = read_events(path)
 
-        assert [event.trial_type for event in events] == [
-            DEFAULT_TRIAL_TYPE,
-            DEFAULT_TRIAL_TYPE,
-        ]
+        assert list(events["trial_type"]) == [DEFAULT_TRIAL_TYPE, DEFAULT_TRIAL_TYPE]
 
     def test_preserves_extra_columns(self, tmp_path):
-        """Columns beyond the BIDS basics are kept on the event."""
+        """Columns beyond the BIDS basics are kept, after the canonical three."""
         path = tmp_path / "events.tsv"
         path.write_text(
             "onset\tduration\ttrial_type\tresponse_time\n1.0\t2.0\tstim\t0.42\n"
@@ -55,7 +58,13 @@ class TestReadEvents:
 
         events = read_events(path)
 
-        assert events[0].extra == {"response_time": "0.42"}
+        assert list(events.columns) == [
+            "onset",
+            "duration",
+            "trial_type",
+            "response_time",
+        ]
+        assert events["response_time"].tolist() == [0.42]
 
     def test_missing_required_column_raises(self, tmp_path):
         """A file without a duration column is rejected."""
@@ -75,40 +84,70 @@ class TestReadEvents:
 
 
 class TestWriteEvents:
-    """Writing BIDS events files."""
+    """Writing BIDS events DataFrames."""
 
     def test_writes_tab_separated_sorted_by_onset(self, tmp_path):
         """Events are written tab-separated and ordered by onset."""
         path = tmp_path / "events.tsv"
-        write_events(
-            path,
-            [BIDSEvent(4.0, 1.0, "late"), BIDSEvent(1.0, 2.0, "early")],
+        events = pd.DataFrame(
+            {
+                "onset": [4.0, 1.0],
+                "duration": [1.0, 2.0],
+                "trial_type": ["late", "early"],
+            }
         )
+
+        write_events(path, events)
 
         lines = path.read_text().splitlines()
         assert lines[0] == "onset\tduration\ttrial_type"
         assert lines[1].split("\t")[:3] == ["1.0", "2.0", "early"]
         assert lines[2].split("\t")[:3] == ["4.0", "1.0", "late"]
 
-    def test_round_trip_preserves_events(self, tmp_path):
-        """Writing then reading returns the same events (onset-sorted)."""
+    def test_round_trip_preserves_events_and_extra_columns(self, tmp_path):
+        """Writing then reading returns the same table, including extra columns."""
         path = tmp_path / "events.tsv"
-        events = [
-            BIDSEvent(2.0, 1.0, "b", {"stim_file": "b.png"}),
-            BIDSEvent(0.0, 0.5, "a"),
-        ]
-        write_events(path, events)
+        events = pd.DataFrame(
+            {
+                "onset": [2.0, 0.0],
+                "duration": [1.0, 0.5],
+                "trial_type": ["b", "a"],
+                # The "a" row has no stim_file; it round-trips as "n/a" -> NaN.
+                "stim_file": ["b.png", None],
+            }
+        )
 
+        write_events(path, events)
         loaded = read_events(path)
 
-        # The "a" event had no stim_file, so it is written as "n/a" and read back
-        # as a missing (skipped) extra column.
-        assert loaded[0] == BIDSEvent(0.0, 0.5, "a")
-        assert loaded[1] == BIDSEvent(2.0, 1.0, "b", {"stim_file": "b.png"})
+        expected = pd.DataFrame(
+            {
+                "onset": [0.0, 2.0],
+                "duration": [0.5, 1.0],
+                "trial_type": ["a", "b"],
+                "stim_file": [np.nan, "b.png"],
+            }
+        )
+        assert_frame_equal(loaded, expected)
 
     def test_empty_events_writes_header_only(self, tmp_path):
-        """An empty event list still writes a valid header."""
+        """An empty events table still writes a valid header."""
         path = tmp_path / "events.tsv"
-        write_events(path, [])
+        events = pd.DataFrame({"onset": [], "duration": [], "trial_type": []})
+
+        write_events(path, events)
 
         assert path.read_text().splitlines() == ["onset\tduration\ttrial_type"]
+
+    def test_rejects_non_dataframe(self, tmp_path):
+        """A non-DataFrame events argument is rejected."""
+        path = tmp_path / "events.tsv"
+        with pytest.raises(TypeError, match="DataFrame"):
+            write_events(path, [(0.0, 1.0, "stim")])
+
+    def test_rejects_missing_required_column(self, tmp_path):
+        """A DataFrame without a duration column is rejected."""
+        path = tmp_path / "events.tsv"
+        events = pd.DataFrame({"onset": [0.0], "trial_type": ["stim"]})
+        with pytest.raises(ValueError, match="duration"):
+            write_events(path, events)

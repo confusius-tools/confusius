@@ -1,11 +1,15 @@
 """Read and write BIDS events files (`.tsv`).
 
-This module provides a small, dependency-light representation of a BIDS task
-events table together with helpers to read and write it. A BIDS events file is a
-tab-separated table where each row describes one event in time. The `onset` and
-`duration` columns (both in seconds) are required; the optional `trial_type`
-column names the kind of event and defaults to `"event"` when absent. Any
-additional columns are preserved on a round trip.
+A BIDS events file is a tab-separated table where each row describes one event in
+time. The `onset` and `duration` columns (both in seconds) are required; the
+optional `trial_type` column names the kind of event and defaults to `"event"`
+when absent. Any additional columns are preserved on a round trip.
+
+Events are represented as a `pandas.DataFrame` with columns ordered
+`onset`, `duration`, `trial_type`, then any extra columns. This is the same
+representation consumed by the GLM design-matrix tools (see
+[make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix]),
+so an events table read here can be fed to the GLM without conversion.
 
 See the BIDS specification for the full definition of the events file:
 https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/events.html
@@ -13,7 +17,6 @@ https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/even
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
 
 import pandas as pd
@@ -32,29 +35,6 @@ _TRIAL_TYPE_COLUMN = "trial_type"
 
 _REQUIRED_COLUMNS = (_ONSET_COLUMN, _DURATION_COLUMN)
 """BIDS columns that every events file must contain."""
-
-
-@dataclass(frozen=True, slots=True)
-class BIDSEvent:
-    """A single BIDS task event spanning a period of time.
-
-    Attributes
-    ----------
-    onset : float
-        Event onset in seconds, measured from the start of the recording.
-    duration : float
-        Event duration in seconds. Zero denotes an instantaneous event.
-    trial_type : str, default: "event"
-        Name of the kind of event.
-    extra : dict[str, str]
-        Additional BIDS columns (e.g. `response_time`, `stim_file`) kept as
-        strings so they survive a read/write round trip. Empty by default.
-    """
-
-    onset: float
-    duration: float
-    trial_type: str = DEFAULT_TRIAL_TYPE
-    extra: dict[str, str] = field(default_factory=dict)
 
 
 def normalize_trial_type(trial_type: object) -> str:
@@ -78,8 +58,8 @@ def normalize_trial_type(trial_type: object) -> str:
     return text or DEFAULT_TRIAL_TYPE
 
 
-def read_events(path: str | Path) -> list[BIDSEvent]:
-    """Read a BIDS events file into a list of events.
+def read_events(path: str | Path) -> pd.DataFrame:
+    """Read a BIDS events file into an events table.
 
     Parameters
     ----------
@@ -88,8 +68,11 @@ def read_events(path: str | Path) -> list[BIDSEvent]:
 
     Returns
     -------
-    list[BIDSEvent]
-        One event per data row, in file order.
+    pandas.DataFrame
+        Events table with columns ordered `onset` (float), `duration` (float),
+        `trial_type` (str), then any extra columns from the file (preserved
+        verbatim). A missing `trial_type` column or blank/`n/a` cell defaults to
+        `DEFAULT_TRIAL_TYPE`.
 
     Raises
     ------
@@ -111,75 +94,65 @@ def read_events(path: str | Path) -> list[BIDSEvent]:
         raise ValueError(
             "BIDS events 'onset' and 'duration' must all be numeric and present."
         )
+    frame[_ONSET_COLUMN] = onset.astype(float)
+    frame[_DURATION_COLUMN] = duration.astype(float)
 
     if _TRIAL_TYPE_COLUMN in frame.columns:
-        trial_types = [
+        frame[_TRIAL_TYPE_COLUMN] = [
             normalize_trial_type(value) for value in frame[_TRIAL_TYPE_COLUMN]
         ]
     else:
-        trial_types = [DEFAULT_TRIAL_TYPE] * len(frame)
+        frame[_TRIAL_TYPE_COLUMN] = DEFAULT_TRIAL_TYPE
 
-    extra_columns = [
+    extra = [
         column
         for column in frame.columns
         if column not in (_ONSET_COLUMN, _DURATION_COLUMN, _TRIAL_TYPE_COLUMN)
     ]
-
-    events = []
-    for i in range(len(frame)):
-        extra = {
-            column: str(frame[column].iloc[i])
-            for column in extra_columns
-            if not pd.isna(frame[column].iloc[i])
-        }
-        events.append(
-            BIDSEvent(
-                onset=float(onset.iloc[i]),
-                duration=float(duration.iloc[i]),
-                trial_type=trial_types[i],
-                extra=extra,
-            )
-        )
-    return events
+    ordered = [_ONSET_COLUMN, _DURATION_COLUMN, _TRIAL_TYPE_COLUMN, *extra]
+    return frame[ordered]
 
 
-def write_events(path: str | Path, events: list[BIDSEvent]) -> None:
-    """Write events to a BIDS events file.
+def write_events(path: str | Path, events: pd.DataFrame) -> None:
+    """Write an events table to a BIDS events file.
 
-    Rows are sorted by onset, as recommended by BIDS. Extra columns present on
-    any event are written for every row, using `"n/a"` where absent.
+    Rows are sorted by onset, as recommended by BIDS, and columns are ordered
+    `onset`, `duration`, `trial_type` (when present), then any extra columns.
+    Missing values are written as `"n/a"`.
 
     Parameters
     ----------
     path : str or pathlib.Path
         Output path for the tab-separated events file.
-    events : list[BIDSEvent]
-        Events to write. An empty list writes a header-only file.
+    events : pandas.DataFrame
+        Events table containing at least `onset` and `duration` columns. An
+        empty table writes a header-only file.
 
     Returns
     -------
     None
         This function writes to disk and returns nothing.
+
+    Raises
+    ------
+    TypeError
+        If `events` is not a `pandas.DataFrame`.
+    ValueError
+        If `events` is missing the `onset` or `duration` column.
     """
     path = Path(path)
+    if not isinstance(events, pd.DataFrame):
+        raise TypeError("events must be a pandas DataFrame.")
 
-    extra_keys: list[str] = []
-    for event in events:
-        for key in event.extra:
-            if key not in extra_keys:
-                extra_keys.append(key)
+    missing = [column for column in _REQUIRED_COLUMNS if column not in events.columns]
+    if missing:
+        names = ", ".join(repr(column) for column in missing)
+        raise ValueError(f"events DataFrame is missing required column(s): {names}.")
 
-    columns = [_ONSET_COLUMN, _DURATION_COLUMN, _TRIAL_TYPE_COLUMN, *extra_keys]
-    rows = []
-    for event in sorted(events, key=lambda event: event.onset):
-        row: dict[str, object] = {
-            _ONSET_COLUMN: event.onset,
-            _DURATION_COLUMN: event.duration,
-            _TRIAL_TYPE_COLUMN: event.trial_type,
-        }
-        for key in extra_keys:
-            row[key] = event.extra.get(key, "n/a")
-        rows.append(row)
+    leading = [_ONSET_COLUMN, _DURATION_COLUMN]
+    if _TRIAL_TYPE_COLUMN in events.columns:
+        leading.append(_TRIAL_TYPE_COLUMN)
+    ordered = leading + [column for column in events.columns if column not in leading]
 
-    frame = pd.DataFrame(rows, columns=columns)
+    frame = events[ordered].sort_values(_ONSET_COLUMN, kind="stable")
     frame.to_csv(path, sep="\t", index=False, na_rep="n/a")

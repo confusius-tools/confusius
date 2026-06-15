@@ -1,9 +1,10 @@
 """Unit tests for the EventStore."""
 
+import pandas as pd
 import pytest
+from pandas.testing import assert_frame_equal
 
 from confusius._napari._events._store import EventStore
-from confusius.bids.events import BIDSEvent
 
 
 @pytest.fixture
@@ -17,9 +18,11 @@ class TestEventStore:
 
     def test_add_event_defaults_trial_type(self, store):
         """A blank trial type falls back to the default 'event' name."""
-        event = store.add_event(1.0, 2.0, "")
-        assert event == BIDSEvent(1.0, 2.0, "event")
-        assert store.events() == [event]
+        store.add_event(1.0, 2.0, "")
+        frame = store.events_dataframe()
+        assert list(frame["trial_type"]) == ["event"]
+        assert frame["onset"].tolist() == [1.0]
+        assert frame["duration"].tolist() == [2.0]
 
     def test_add_event_rejects_non_positive_duration(self, store):
         """A zero or negative duration raises ValueError."""
@@ -37,10 +40,10 @@ class TestEventStore:
     def test_active_events_half_open_interval(self, store):
         """An event is active on [onset, onset + duration)."""
         store.add_event(1.0, 2.0, "stim")  # active over [1, 3)
-        assert store.active_events(0.5) == []
-        assert [e.trial_type for e in store.active_events(1.0)] == ["stim"]
-        assert [e.trial_type for e in store.active_events(2.9)] == ["stim"]
-        assert store.active_events(3.0) == []
+        assert store.active_events(0.5).empty
+        assert list(store.active_events(1.0)["trial_type"]) == ["stim"]
+        assert list(store.active_events(2.9)["trial_type"]) == ["stim"]
+        assert store.active_events(3.0).empty
 
     def test_active_events_instantaneous(self, store, tmp_path):
         """A loaded zero-duration event is active only exactly at its onset."""
@@ -49,8 +52,8 @@ class TestEventStore:
         path = tmp_path / "events.tsv"
         path.write_text("onset\tduration\ttrial_type\n5.0\t0.0\tblip\n")
         store.load_file(path)
-        assert [e.trial_type for e in store.active_events(5.0)] == ["blip"]
-        assert store.active_events(5.001) == []
+        assert list(store.active_events(5.0)["trial_type"]) == ["blip"]
+        assert store.active_events(5.001).empty
 
     def test_remove_and_clear(self, store):
         """Events can be removed by index and cleared entirely."""
@@ -59,23 +62,41 @@ class TestEventStore:
         store.add_event(4.0, 1.0, "c")
 
         store.remove_events([1])
-        assert [e.trial_type for e in store.events()] == ["a", "c"]
+        assert list(store.events_dataframe()["trial_type"]) == ["a", "c"]
 
         store.clear()
-        assert store.events() == []
+        assert store.events_dataframe().empty
 
     def test_load_and_save_round_trip(self, store, tmp_path):
-        """Saving then loading into a fresh store preserves events."""
-        store.add_event(2.0, 1.0, "b")
-        store.add_event(0.0, 0.5, "a")
-        path = tmp_path / "events.tsv"
-        store.save_file(path)
+        """Saving then loading preserves events, including unused extra columns.
+
+        `response_time` is never read by the plugin, but it must still survive a
+        load -> save -> load cycle.
+        """
+        src = tmp_path / "in.tsv"
+        src.write_text(
+            "onset\tduration\ttrial_type\tresponse_time\n"
+            "2.0\t1.0\tb\t0.30\n"
+            "0.0\t0.5\ta\t0.10\n"
+        )
+        store.load_file(src)
+
+        out = tmp_path / "out.tsv"
+        store.save_file(out)
 
         other = EventStore()
-        loaded = other.load_file(path)
+        loaded = other.load_file(out)
 
-        assert loaded == [BIDSEvent(0.0, 0.5, "a"), BIDSEvent(2.0, 1.0, "b")]
-        assert other.events() == loaded
+        expected = pd.DataFrame(
+            {
+                "onset": [0.0, 2.0],
+                "duration": [0.5, 1.0],
+                "trial_type": ["a", "b"],
+                "response_time": [0.10, 0.30],
+            }
+        )
+        assert_frame_equal(loaded, expected)
+        assert_frame_equal(other.events_dataframe(), expected)
 
     def test_changed_emitted_on_mutation(self, store, qtbot):
         """The changed signal fires when events are added."""
