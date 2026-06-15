@@ -334,10 +334,7 @@ class EventPanel(QWidget):
         """
         self._table.setRowCount(0)
         units = read_time_units(resolve_reference_layer(self._viewer)) or "s"
-        events = self._store.events_dataframe()
-        for row, (onset, duration, trial_type) in enumerate(
-            zip(events["onset"], events["duration"], events["trial_type"], strict=False)
-        ):
+        for row, (onset, duration, trial_type) in enumerate(self._store.iter_events()):
             end = onset + duration
             self._table.insertRow(row)
             name_item = QTableWidgetItem(trial_type)

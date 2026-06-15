@@ -114,6 +114,26 @@ class EventStore(QObject):
         """
         return self._events.copy()
 
+    def iter_events(self) -> zip:
+        """Iterate `(onset, duration, trial_type)` over the stored events.
+
+        Unlike [events_dataframe][confusius._napari._events._store.EventStore.events_dataframe]
+        this does not copy the table, so it is cheap to call on every redraw. The
+        caller must only read the yielded values, never mutate the store.
+
+        Returns
+        -------
+        zip
+            Lazy iterator of `(onset, duration, trial_type)` tuples in insertion
+            order.
+        """
+        return zip(
+            self._events[ONSET_COLUMN],
+            self._events[DURATION_COLUMN],
+            self._events[TRIAL_TYPE_COLUMN],
+            strict=False,
+        )
+
     def trial_types(self) -> list[str]:
         """Return the distinct trial types in first-seen order.
 
