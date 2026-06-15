@@ -21,8 +21,9 @@ from pathlib import Path
 
 import pandas as pd
 
-DEFAULT_TRIAL_TYPE = "event"
-"""Trial type assigned to events whose `trial_type` is missing or empty."""
+from confusius._utils.bids import DEFAULT_TRIAL_TYPE, normalize_trial_type
+
+__all__ = ["DEFAULT_TRIAL_TYPE", "normalize_trial_type", "read_events", "write_events"]
 
 _ONSET_COLUMN = "onset"
 """Required BIDS column holding the event onset in seconds."""
@@ -35,27 +36,6 @@ _TRIAL_TYPE_COLUMN = "trial_type"
 
 _REQUIRED_COLUMNS = (_ONSET_COLUMN, _DURATION_COLUMN)
 """BIDS columns that every events file must contain."""
-
-
-def normalize_trial_type(trial_type: object) -> str:
-    """Return a non-empty trial type, falling back to the default.
-
-    Parameters
-    ----------
-    trial_type : object
-        Candidate trial type. Missing values (`None`, NaN) and blank strings
-        are replaced by the default trial type.
-
-    Returns
-    -------
-    str
-        The stripped trial type, or `DEFAULT_TRIAL_TYPE` when the input is
-        missing or empty.
-    """
-    if trial_type is None or pd.isna(trial_type):
-        return DEFAULT_TRIAL_TYPE
-    text = str(trial_type).strip()
-    return text or DEFAULT_TRIAL_TYPE
 
 
 def read_events(path: str | Path) -> pd.DataFrame:
