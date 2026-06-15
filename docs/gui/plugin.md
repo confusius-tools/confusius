@@ -218,7 +218,7 @@ back out as a BIDS events `.tsv`.
 !!! tip "Straight into analysis"
     An events `.tsv` saved here is a standard BIDS events table, so it can be read
     back with [read_events][confusius.bids.events.read_events] and fed directly to either
-    [make_first_level_design_matrix][confusius.glm._design.make_first_level_design_matrix]
+    [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix]
     or the `fit` method of a
     [FirstLevelModel][confusius.glm.first_level.FirstLevelModel]:
 
