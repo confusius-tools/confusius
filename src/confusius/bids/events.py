@@ -94,9 +94,10 @@ def read_events(path: str | Path) -> pd.DataFrame:
         raise ValueError(
             "BIDS events 'onset' and 'duration' must all be numeric and present."
         )
+    if (duration < 0).any():
+        raise ValueError("BIDS events 'duration' values must be non-negative.")
     frame[_ONSET_COLUMN] = onset.astype(float)
     frame[_DURATION_COLUMN] = duration.astype(float)
-
     if _TRIAL_TYPE_COLUMN in frame.columns:
         frame[_TRIAL_TYPE_COLUMN] = [
             normalize_trial_type(value) for value in frame[_TRIAL_TYPE_COLUMN]
