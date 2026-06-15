@@ -48,7 +48,6 @@ class EventStore(QObject):
         super().__init__(parent)
         self._events: pd.DataFrame = _empty_events()
         self._colors: dict[str, str] = {}
-        self._color_counter: int = 0
         self._shade_signals: bool = True
         self._show_in_overlay: bool = True
 
@@ -140,9 +139,8 @@ class EventStore(QObject):
         """
         if trial_type not in self._colors:
             self._colors[trial_type] = CATEGORICAL_COLORS[
-                self._color_counter % len(CATEGORICAL_COLORS)
+                len(self._colors) % len(CATEGORICAL_COLORS)
             ]
-            self._color_counter += 1
         return self._colors[trial_type]
 
     def active_events(self, time: float) -> pd.DataFrame:
