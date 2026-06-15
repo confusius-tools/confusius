@@ -52,7 +52,7 @@ def normalize_trial_type(trial_type: object) -> str:
         The stripped trial type, or `DEFAULT_TRIAL_TYPE` when the input is
         missing or empty.
     """
-    if trial_type is None or (isinstance(trial_type, float) and pd.isna(trial_type)):
+    if trial_type is None or pd.isna(trial_type):
         return DEFAULT_TRIAL_TYPE
     text = str(trial_type).strip()
     return text or DEFAULT_TRIAL_TYPE
