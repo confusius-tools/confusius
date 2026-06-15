@@ -82,6 +82,14 @@ class TestReadEvents:
         with pytest.raises(ValueError, match="numeric"):
             read_events(path)
 
+    def test_negative_duration_raises(self, tmp_path):
+        """A negative duration value is rejected."""
+        path = tmp_path / "events.tsv"
+        path.write_text("onset\tduration\n0.0\t-1.0\n")
+
+        with pytest.raises(ValueError, match="non-negative"):
+            read_events(path)
+
 
 class TestWriteEvents:
     """Writing BIDS events DataFrames."""
