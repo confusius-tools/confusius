@@ -59,6 +59,8 @@ class EventPanel(QWidget):
         self._store = event_store
         self._pending_onset: float | None = None
         self._pending_name: str = ""
+        # Keymap entries displaced by our S/E/Escape bindings, restored on unbind.
+        self._displaced_keys: dict = {}
         self._setup_ui()
         self._store.changed.connect(self._refresh_list)
         self._refresh_list()
@@ -109,20 +111,26 @@ class EventPanel(QWidget):
         Uses napari key bindings rather than QShortcuts so the letters are not
         intercepted while the user is typing in a text field. Escape (rather than
         a letter) cancels, avoiding a clash with napari's own single-letter
-        shortcuts.
+        shortcuts. Any handler already bound to these keys is saved first so it can
+        be restored when the panel is hidden, rather than being silently dropped.
         """
         handlers = (self._on_start, self._on_end, self._on_cancel)
         for key, handler in zip(self._KEY_BINDINGS, handlers):
+            # The keymap is keyed by normalized KeyBinding objects, not strings.
+            keybinding = coerce_keybinding(key)
+            self._displaced_keys[keybinding] = self._viewer.keymap.get(keybinding)
             self._viewer.bind_key(
                 key, lambda _viewer, handler=handler: handler(), overwrite=True
             )
 
     def _unbind_keys(self) -> None:
-        """Remove the S/E/Escape bindings from the napari viewer keymap."""
-        for key in self._KEY_BINDINGS:
-            # The keymap is keyed by normalized KeyBinding objects, not strings,
-            # so the key must be coerced before removal.
-            self._viewer.keymap.pop(coerce_keybinding(key), None)
+        """Restore the keymap to its state before the panel bound S/E/Escape."""
+        for keybinding, previous in self._displaced_keys.items():
+            if previous is None:
+                self._viewer.keymap.pop(keybinding, None)
+            else:
+                self._viewer.keymap[keybinding] = previous
+        self._displaced_keys.clear()
 
     # ------------------------------------------------------------------
     # UI construction
