@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import napari
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -161,25 +163,21 @@ class SignalPanel(QWidget):
         xaxis_row.addWidget(self._xaxis_combo, stretch=1)
         axis_layout.addLayout(xaxis_row)
 
-        # Y-axis limits.
-        y_layout = QHBoxLayout()
-        ymin_label = QLabel("<i>y</i> min:")
-        ymin_label.setTextFormat(Qt.TextFormat.RichText)
-        y_layout.addWidget(ymin_label)
-        self._ymin_spin = QDoubleSpinBox()
-        self._ymin_spin.setRange(-1e9, 1e9)
-        self._ymin_spin.setValue(-1.0)
-        self._ymin_spin.valueChanged.connect(self._apply_settings)
-        y_layout.addWidget(self._ymin_spin)
-        ymax_label = QLabel("<i>y</i> max:")
-        ymax_label.setTextFormat(Qt.TextFormat.RichText)
-        y_layout.addWidget(ymax_label)
-        self._ymax_spin = QDoubleSpinBox()
-        self._ymax_spin.setRange(-1e9, 1e9)
-        self._ymax_spin.setValue(1.0)
-        self._ymax_spin.valueChanged.connect(self._apply_settings)
-        y_layout.addWidget(self._ymax_spin)
-        axis_layout.addLayout(y_layout)
+        for lim in ("min", "max"):
+            ylim_layout = QHBoxLayout()
+            ylim_label = QLabel(f"<i>y</i> {lim}:")
+            ylim_label.setTextFormat(Qt.TextFormat.RichText)
+            ylim_layout.addWidget(ylim_label)
+            setattr(self, f"_y{lim}_spin", QDoubleSpinBox())
+            spin = cast(QDoubleSpinBox, getattr(self, f"_y{lim}_spin"))
+            spin.setObjectName(f"y{lim}_spin")
+            spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spin.setRange(-1e9, 1e9)
+            spin.setValue(-1.0 if lim == "min" else 1.0)
+            spin.valueChanged.connect(self._apply_settings)
+            ylim_layout.addWidget(spin)
+
+            axis_layout.addLayout(ylim_layout)
 
         # Autoscale checkbox. QCheckBox does not support rich text, so we pair a
         # text-less checkbox with a clickable QLabel to get the italic "y".
