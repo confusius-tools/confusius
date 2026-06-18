@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import cast
-
 import napari
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -163,21 +161,24 @@ class SignalPanel(QWidget):
         xaxis_row.addWidget(self._xaxis_combo, stretch=1)
         axis_layout.addLayout(xaxis_row)
 
+        spinbox: list[QDoubleSpinBox] = []
         for lim in ("min", "max"):
             ylim_layout = QHBoxLayout()
             ylim_label = QLabel(f"<i>y</i> {lim}:")
             ylim_label.setTextFormat(Qt.TextFormat.RichText)
             ylim_layout.addWidget(ylim_label)
-            setattr(self, f"_y{lim}_spin", QDoubleSpinBox())
-            spin = cast(QDoubleSpinBox, getattr(self, f"_y{lim}_spin"))
+            spin = QDoubleSpinBox()
             spin.setObjectName(f"y{lim}_spin")
             spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
             spin.setRange(-1e9, 1e9)
             spin.setValue(-1.0 if lim == "min" else 1.0)
             spin.valueChanged.connect(self._apply_settings)
+            spinbox.append(spin)
             ylim_layout.addWidget(spin)
 
             axis_layout.addLayout(ylim_layout)
+
+        self._ymin_spin, self._ymax_spin = spinbox
 
         # Autoscale checkbox. QCheckBox does not support rich text, so we pair a
         # text-less checkbox with a clickable QLabel to get the italic "y".
