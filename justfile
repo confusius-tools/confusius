@@ -10,8 +10,14 @@ gallery:
     uv run python tools/build_gallery.py
 
 # Remove generated gallery artifacts and the gallery cache.
+[unix]
 clean-gallery:
-    rm -rf docs/examples/_built docs/examples/index.md .cache/gallery
+    rm -rf docs/examples/_built docs/examples/index.md .gallery-cache
+
+# Remove generated gallery artifacts and the gallery cache.
+[windows]
+clean-gallery:
+    foreach ($p in 'docs/examples/_built', 'docs/examples/index.md', '.gallery-cache') { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
 
 # Build documentation.
 docs: gallery
@@ -22,9 +28,14 @@ serve-docs: gallery
     uv run zensical serve
 
 # Clean documentation build artifacts.
+[unix]
 clean-docs: clean-gallery
-    rm -rf .cache/
-    rm -rf site/
+    rm -rf .cache/ site/
+
+# Clean documentation build artifacts.
+[windows]
+clean-docs: clean-gallery
+    foreach ($p in '.cache', 'site') { if (Test-Path $p) { Remove-Item -Recurse -Force $p } }
 
 # Generate documentation images.
 generate-doc-images:
@@ -42,8 +53,15 @@ test-verbose:
     uv run pytest tests/ -v --mpl
 
 # Generate baseline images for visual regression tests.
+[unix]
 generate-baselines:
     rm -f tests/unit/test_plotting/baseline/*.png
+    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression
+
+# Generate baseline images for visual regression tests.
+[windows]
+generate-baselines:
+    if (Test-Path tests/unit/test_plotting/baseline/*.png) { Remove-Item -Force tests/unit/test_plotting/baseline/*.png }
     uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression
 
 # Run all pre-commit hooks.
