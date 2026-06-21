@@ -208,5 +208,7 @@ fixed/reference DataArray are preserved automatically.
     preserves coordinates, so the affine remains valid without any adjustment.
 
     [`save_nifti`][confusius.io.save_nifti] reconstructs the full voxel → reference
-    NIfTI affine internally by combining the physical → reference orientation matrix
-    with the dimension coordinate origin and spacing.
+    NIfTI affine internally by composing the physical → reference affine with the
+    voxel → physical map built from the dimension coordinate origin and spacing. Using
+    the full affine (not just its orientation) means each form keeps its own origin, so
+    a file with distinct `sform` and `qform` round-trips faithfully.
