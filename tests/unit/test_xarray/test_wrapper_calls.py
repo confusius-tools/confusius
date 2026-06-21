@@ -91,7 +91,9 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     assert sample_3dt_volume.fusi.affine.to(other, via="physical_to_lab") is expected_to
     assert calls["to"] == (sample_3dt_volume, other, "physical_to_lab")
 
-    assert sample_3dt_volume.fusi.affine.apply(affine, inplace=True) is expected_apply
+    assert (
+        sample_3dt_volume.fusi.affine.apply(affine, inplace=True) is expected_apply
+    )
     assert calls["apply"] == (sample_3dt_volume, affine, True)
 
 

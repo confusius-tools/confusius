@@ -393,6 +393,27 @@ class TestAffineToMethod:
         assert result.shape == (4, 4)
 
 
+def _assert_affine_round_trip(result, orientation, applied, old):
+    """Check `orientation @ new_physical == applied @ old_physical` at sample voxels.
+
+    A 3D affine is fixed by four affinely independent points, so a handful of
+    representative voxels (the origin, one step along each axis, plus an interior
+    point) is a complete reference comparison.
+    """
+    iz, iy, ix = [0, 2, 0, 0, 1], [0, 0, 3, 0, 2], [0, 0, 0, 4, 3]
+    ones = np.ones(len(iz))
+    old_pts = np.stack([old["z"][iz], old["y"][iy], old["x"][ix], ones])
+    new_pts = np.stack(
+        [
+            result.coords["z"].values[iz],
+            result.coords["y"].values[iy],
+            result.coords["x"].values[ix],
+            ones,
+        ]
+    )
+    np.testing.assert_allclose(orientation @ new_pts, applied @ old_pts, atol=1e-10)
+
+
 class TestAffineApplyMethod:
     """Tests for fusi.affine.apply."""
 
@@ -416,18 +437,19 @@ class TestAffineApplyMethod:
         )
 
     def test_identity_leaves_coords_unchanged(self):
-        """Applying the identity affine does not change coordinates."""
+        """Applying the identity affine leaves coords unchanged and orientation I."""
         da = self._make_scan(origin=(1.0, 2.0, 3.0))
-        result = da.fusi.affine.apply(np.eye(4))
+        result, orientation = da.fusi.affine.apply(np.eye(4))
         for dim in ("z", "y", "x"):
             np.testing.assert_allclose(result.coords[dim].values, da.coords[dim].values)
+        np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_pure_translation_shifts_coords(self):
         """A pure translation shifts all coordinate arrays by the given amount."""
         da = self._make_scan()
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, -3.0]
-        result = da.fusi.affine.apply(shift)
+        result, _ = da.fusi.affine.apply(shift)
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values + 10.0
         )
@@ -442,7 +464,7 @@ class TestAffineApplyMethod:
         """A diagonal scaling matrix scales coordinate values."""
         da = self._make_scan(spacing=(1.0, 1.0, 1.0))
         scale = np.diag([2.0, 3.0, 0.5, 1.0])
-        result = da.fusi.affine.apply(scale)
+        result, _ = da.fusi.affine.apply(scale)
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values * 2.0
         )
@@ -453,26 +475,37 @@ class TestAffineApplyMethod:
             result.coords["x"].values, da.coords["x"].values * 0.5
         )
 
-    def test_sign_flip_negates_coords(self):
-        """A diagonal rotation with -1 entries negates coordinate values."""
+    def test_single_axis_flip_negates_only_that_coord(self):
+        """A sign flip on any single axis negates only that axis, orientation I.
+
+        Regression: a y- or x-axis flip must negate y or x (not z). A diagonal
+        affine is axis-aligned regardless of which axis carries the sign, so the
+        axis-mixing test must read the off-diagonal block, not the decomposed
+        zoom (decompose_affine relocates its one allowed sign flip onto axis 0).
+        """
+        base = self._make_scan(spacing=(1.0, 1.0, 1.0), origin=(1.0, 2.0, 3.0))
+        for axis, flipped in enumerate(("z", "y", "x")):
+            flip = np.eye(4)
+            flip[axis, axis] = -1.0
+            result, orientation = base.fusi.affine.apply(flip)
+            for dim in ("z", "y", "x"):
+                expected = (
+                    -base.coords[dim].values
+                    if dim == flipped
+                    else base.coords[dim].values
+                )
+                np.testing.assert_allclose(result.coords[dim].values, expected)
+            np.testing.assert_allclose(orientation, np.eye(4))
+
+    def test_multi_axis_flip_negates_flipped_coords(self):
+        """A multi-axis sign flip is diagonal: negates each flipped axis, orientation I."""
         da = self._make_scan(spacing=(1.0, 1.0, 1.0), origin=(1.0, 2.0, 3.0))
-        flip = np.diag([-1.0, -1.0, -1.0, 1.0])
-        result = da.fusi.affine.apply(flip)
+        flip = np.diag([-1.0, -1.0, 1.0, 1.0])
+        result, orientation = da.fusi.affine.apply(flip)
         np.testing.assert_allclose(result.coords["z"].values, -da.coords["z"].values)
         np.testing.assert_allclose(result.coords["y"].values, -da.coords["y"].values)
-        np.testing.assert_allclose(result.coords["x"].values, -da.coords["x"].values)
-
-    def test_axis_mixing_raises_value_error(self):
-        """A rotation that mixes axes raises ValueError."""
-        da = self._make_scan()
-        angle = np.pi / 4
-        rot = np.eye(4)
-        rot[0, 0] = np.cos(angle)
-        rot[0, 1] = -np.sin(angle)
-        rot[1, 0] = np.sin(angle)
-        rot[1, 1] = np.cos(angle)
-        with pytest.raises(ValueError, match="not diagonal"):
-            da.fusi.affine.apply(rot)
+        np.testing.assert_allclose(result.coords["x"].values, da.coords["x"].values)
+        np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_wrong_shape_raises_value_error(self):
         """Affines with shape other than (4, 4) raise ValueError."""
@@ -493,7 +526,7 @@ class TestAffineApplyMethod:
         da = self._make_scan(affines={"physical_to_lab": stored})
         shift = np.eye(4)
         shift[:3, 3] = [1.0, 2.0, 3.0]
-        result = da.fusi.affine.apply(shift)
+        result, _ = da.fusi.affine.apply(shift)
         expected = stored @ np.linalg.inv(shift)
         np.testing.assert_allclose(
             result.attrs["affines"]["physical_to_lab"], expected, atol=1e-12
@@ -512,7 +545,7 @@ class TestAffineApplyMethod:
             stored[i, 3, 3] = 1.0
         da = self._make_scan(affines={"physical_to_lab": stored})
         scale = np.diag([2.0, 1.0, 1.0, 1.0])
-        result = da.fusi.affine.apply(scale)
+        result, _ = da.fusi.affine.apply(scale)
         inv_scale = np.linalg.inv(scale)
         expected = stored @ inv_scale
         np.testing.assert_allclose(
@@ -529,7 +562,7 @@ class TestAffineApplyMethod:
         )
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, 99.0]  # x-shift should have no effect.
-        result = da.fusi.affine.apply(shift)
+        result, _ = da.fusi.affine.apply(shift)
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values + 10.0
         )
@@ -543,7 +576,7 @@ class TestAffineApplyMethod:
         weird = np.array([1.0, 2.0, 3.0])
         da = self._make_scan(affines={"weird": weird})
 
-        result = da.fusi.affine.apply(np.eye(4))
+        result, _ = da.fusi.affine.apply(np.eye(4))
 
         np.testing.assert_allclose(result.attrs["affines"]["weird"], weird)
 
@@ -554,7 +587,56 @@ class TestAffineApplyMethod:
         shift = np.eye(4)
         shift[0, 3] = 2.0
 
-        returned = da.fusi.affine.apply(shift, inplace=True)
+        returned, _ = da.fusi.affine.apply(shift, inplace=True)
 
         assert returned is da
         np.testing.assert_allclose(da.coords["z"].values, original_z + 2.0)
+
+    def test_rotation_returns_round_trip_orientation(self):
+        """A rotation absorbs zoom/translation into coords and returns the
+        residual orientation, mapping new physical coords to the affine's world."""
+        da = self._make_scan(shape=(3, 4, 5), spacing=(1.0, 1.0, 1.0))
+        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
+        # 90 deg rotation in the z-y plane, zoom [2, 3, 4], translation [1, 2, 3].
+        affine = np.array(
+            [
+                [0.0, -3.0, 0.0, 1.0],
+                [2.0, 0.0, 0.0, 2.0],
+                [0.0, 0.0, 4.0, 3.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        result, orientation = da.fusi.affine.apply(affine)
+        _assert_affine_round_trip(result, orientation, affine, old)
+
+    def test_shear_returns_round_trip_orientation(self):
+        """A shear is axis-mixing (identity rotation, nonzero off-diagonal) and
+        returns a residual orientation that round-trips."""
+        da = self._make_scan(shape=(3, 4, 5), spacing=(1.0, 1.0, 1.0))
+        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
+        shear = np.eye(4)
+        shear[0, 1] = 0.5  # z depends on y: off-diagonal, axis-mixing.
+        result, orientation = da.fusi.affine.apply(shear)
+        _assert_affine_round_trip(result, orientation, shear, old)
+
+    def test_mixing_affine_reexpresses_existing_stored_affine(self):
+        """Existing stored affines stay valid after an axis-mixing affine."""
+        stored = np.eye(4)
+        stored[:3, 3] = [5.0, 6.0, 7.0]
+        da = self._make_scan(
+            spacing=(1.0, 1.0, 1.0), affines={"physical_to_lab": stored}
+        )
+        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
+        affine = np.array(
+            [
+                [0.0, -1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        result, _ = da.fusi.affine.apply(affine)
+        # lab position is frame-independent: M @ new_physical == stored @ old_physical.
+        _assert_affine_round_trip(
+            result, result.attrs["affines"]["physical_to_lab"], stored, old
+        )
