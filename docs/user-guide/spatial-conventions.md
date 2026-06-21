@@ -169,8 +169,12 @@ Several loaders populate `da.attrs["affines"]` automatically:
   voxel indices to reference coordinates. [`load_nifti`][confusius.io.load_nifti] reads
   the relevant affine(s), converts them from voxel → reference to physical → reference
   form, and stores them under the keys `"physical_to_sform"` and/or
-  `"physical_to_qform"` depending on which codes are valid in the header. When saving
-  back to NIfTI, [`save_nifti`][confusius.io.save_nifti] can write any named affine in
+  `"physical_to_qform"` depending on which codes are valid in the header. When a file
+  declares both forms, the physical coordinates come from the primary (usually `sform`)
+  affine, and `physical_to_{secondary}` (usually `physical_to_qform`) is anchored to
+  that same physical space, so both keys map the one set of coordinates in `da.coords`,
+  just to different reference spaces. When saving back to NIfTI,
+  [`save_nifti`][confusius.io.save_nifti] can write any named affine in
   `attrs["affines"]` to the header via its `qform=` and `sform=` arguments, with
   `"physical_to_qform"` and `"physical_to_sform"` used as convenience fallbacks.
 - **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] stores a
