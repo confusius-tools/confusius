@@ -16,6 +16,9 @@ Current development version for the next ConfUSIus release.
   primary (sform) coordinates, so the stored qform affine maps the array's
   physical coordinates to qform world space
   ([#187](https://github.com/confusius-tools/confusius/pull/187)).
+- `save_nifti` now preserves each affine's own translation, so a NIfTI file with sform
+  and qform round-trips through `load_nifti`/`save_nifti` without corrupting the qform
+  ([#187](https://github.com/confusius-tools/confusius/pull/187)).
 
 ## 0.3.0
 
