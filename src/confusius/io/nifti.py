@@ -19,6 +19,7 @@ from pydantic import ValidationError
 from confusius._utils.coordinates import (
     get_coordinate_spacing_info,
     get_representative_step,
+    reexpress_affine,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
@@ -274,8 +275,11 @@ def _create_spatial_coords_from_nifti(
     Selects the primary affine (sform preferred over qform when both are valid)
     and builds one coordinate per spatial dimension. When a valid affine is
     available, each axis starts at `affine[col, 3]` (origin) and is stepped by
-    the true voxel size (from `decompose_affine`). The rotation and shear are
-    captured in a 4×4 `A_physical` affine stored in the returned attributes.
+    the true voxel size (from `decompose_affine`). The physical coordinate frame
+    is defined by the primary affine's translation and zoom; every form's affine
+    (primary and secondary) is re-expressed against that shared frame and stored
+    in the returned attributes, so a secondary qform keeps its relationship to
+    the physical coordinates.
 
     When both sform and qform codes are zero, coordinates are built from
     pixdim only (origin 0, step = voxel size). A warning is emitted and no
@@ -333,6 +337,14 @@ def _create_spatial_coords_from_nifti(
         _, sform_code = img.header.get_sform(coded=True)
         primary_prefix = "sform" if sform_code > 0 else "qform"
 
+        # The physical coordinate frame is defined once by the primary affine's
+        # axis-aligned decomposition: origin T (translation) and voxel spacing Z (true
+        # zoom from decompose_affine). Every stored affine is re-expressed against this
+        # single frame, so a secondary form (e.g. qform when sform is primary) keeps its
+        # relationship to the physical coordinates instead of being built from its own,
+        # inconsistent decomposition.
+        T, _, Z, _ = decompose_affine(primary_affine)
+
         affines_dict: dict[str, npt.NDArray[np.floating]] = {}
         nifti_affines: list[tuple[npt.NDArray[np.floating], str]] = [
             (primary_affine, primary_prefix),
@@ -341,49 +353,30 @@ def _create_spatial_coords_from_nifti(
             nifti_affines.append((secondary_affine, "qform"))
 
         for affine, prefix in nifti_affines:
-            T, _, Z, _ = decompose_affine(affine)
-
-            # Orientation matrix D satisfies D @ diag(Z) = RZS and captures rotation
-            # and shear.
-            D = affine[:3, :3] / Z
-
-            # Build A_physical: the 4×4 affine mapping physical coordinates (in the
-            # spatial units declared by the NIfTI header) to sform/qform world-space
-            # coordinates (same units). In NIfTI (x, y, z) convention:
-            #   A_nifti[:3, :3] = D,  A_nifti[:3, 3] = T − D @ T
-            # so that A_nifti @ [px, py, pz, 1] → [wx, wy, wz, 1].
-            # A_physical is invariant to all slicing and downsampling because it maps
-            # physical positions, not voxel indices.
-            A_nifti = np.eye(4)
-            A_nifti[:3, :3] = D
-            A_nifti[:3, 3] = T - D @ T
-
-            # Permute to ConfUSIus (z, y, x) convention by swapping rows and columns
-            # 0 ↔ 2 (equivalent to P @ A_nifti @ P where P is the flip permutation).
-            # Result: A_physical @ [pz, py, px, 1] → [wz, wy, wx, 1].
+            # Re-express this form's voxel->world affine against the primary physical
+            # frame (in NIfTI x, y, z order), then permute to ConfUSIus (z, y, x) by
+            # swapping rows and columns 0 <-> 2. For the primary form this reduces to
+            # the orientation-only affine [[D, T - D @ T]].
+            A_nifti = reexpress_affine(affine, T, Z)
             A_physical = A_nifti[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
             affines_dict[f"physical_to_{prefix}"] = A_physical
 
-            # Only the primary affine contributes dimension coordinates.
-            if prefix != primary_prefix:
+        for col, dim in enumerate(("x", "y", "z")):
+            if dim not in dims:
                 continue
+            coord_attrs: dict[str, Any] = {}
+            if space_unit is not None:
+                coord_attrs["units"] = space_unit
+            if dim in voxel_sizes:
+                coord_attrs["voxdim"] = voxel_sizes[dim]
 
-            for col, dim in enumerate(("x", "y", "z")):
-                if dim not in dims:
-                    continue
-                coord_attrs_a: dict[str, Any] = {}
-                if space_unit is not None:
-                    coord_attrs_a["units"] = space_unit
-                if dim in voxel_sizes:
-                    coord_attrs_a["voxdim"] = voxel_sizes[dim]
-
-                # Coordinates encode translation (T[col]) plus zoom (Z[col] from
-                # decompose_affine, the true voxel spacing along this axis).
-                coords[dim] = xr.DataArray(
-                    T[col] + Z[col] * np.arange(img.shape[col]),
-                    dims=[dim],
-                    attrs=coord_attrs_a,
-                )
+            # Coordinates encode the primary translation (T[col]) plus the
+            # primary zoom (Z[col], the true voxel spacing along this axis).
+            coords[dim] = xr.DataArray(
+                T[col] + Z[col] * np.arange(img.shape[col]),
+                dims=[dim],
+                attrs=coord_attrs,
+            )
 
         if affines_dict:
             extra_attrs["affines"] = affines_dict

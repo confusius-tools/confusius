@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :bug: Fixes
+
+- `load_nifti` now anchors `physical_to_qform` to the same physical frame as the
+  primary (sform) coordinates, so the stored qform affine maps the array's
+  physical coordinates to qform world space
+  ([#187](https://github.com/confusius-tools/confusius/pull/187)).
+
 ## 0.3.0
 
 *Released 2026-05-27.*
