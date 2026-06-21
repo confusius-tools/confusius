@@ -1840,10 +1840,10 @@ class TestSaveNifti:
 class TestRoundtrip:
     """Tests for save/load roundtrip consistency."""
 
-    def test_roundtrip_preserves_full_affine(self, tmp_path):
-        """Save and load roundtrip preserves the full affine (rotation + shear)."""
+    def test_roundtrip_preserves_differing_qform(self, tmp_path):
+        """A load->save->load roundtrip preserves the full qform and sform."""
         # 45° rotation in XY plane + zoom + translation — not a diagonal affine.
-        affine = np.array(
+        sform = np.array(
             [
                 [1.41421356, -1.41421356, 0.0, 10.0],
                 [1.41421356, 2.82842712, 0.0, -5.0],
@@ -1851,18 +1851,32 @@ class TestRoundtrip:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        data = np.random.default_rng(0).random((3, 4, 5)).astype(np.float32)
-        img = nib.Nifti1Image(data, affine)
-        img.header.set_sform(affine, code=1)
-        nifti_path = tmp_path / "rotated.nii.gz"
-        img.to_filename(nifti_path)
+        # qform: different orientation (90 deg about x), unit zoom, origin [5, 6, 7].
+        qform = np.array(
+            [
+                [1.0, 0.0, 0.0, 5.0],
+                [0.0, 0.0, -1.0, 6.0],
+                [0.0, 1.0, 0.0, 7.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        img = nib.Nifti1Image(np.zeros((4, 3, 2), dtype=np.float32), sform)
+        img.header.set_sform(sform, code=5)
+        img.header.set_qform(qform, code=1)
+        in_path = tmp_path / "in.nii.gz"
+        img.to_filename(in_path)
 
-        da = load_nifti(nifti_path)
-        out_path = tmp_path / "roundtrip_rotated.nii.gz"
-        save_nifti(da, out_path)
-
+        out_path = tmp_path / "out.nii.gz"
+        save_nifti(load_nifti(in_path), out_path)
         reloaded = nib.load(out_path)
-        np.testing.assert_allclose(reloaded.header.get_sform(), affine, atol=1e-5)
+
+        # sform survives (primary frame); qform must survive too.
+        np.testing.assert_allclose(
+            reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
+        )
+        np.testing.assert_allclose(
+            reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
+        )
 
     def test_roundtrip_3d(self, tmp_path, sample_3d_volume):
         """Save and load preserves 3D data and attributes."""
