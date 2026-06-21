@@ -17,6 +17,7 @@ import xarray as xr
 from pydantic import ValidationError
 
 from confusius._utils.coordinates import (
+    get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
     reexpress_affine,
@@ -1092,9 +1093,10 @@ def _build_nifti_affine(
 ) -> npt.NDArray[np.floating]:
     """Reconstruct a NIfTI affine from a stored ConfUSIus physical-to-world transform.
 
-    Reverses the ConfUSIus `(z, y, x)` permutation to recover the orientation matrix
-    `D`, then combines it with the physical-coord origin `T` and spacing `Z` to rebuild
-    the full NIfTI affine. Falls back to a diagonal affine when no transform is given.
+    Reverses the ConfUSIus `(z, y, x)` permutation, then composes the physical-to-world
+    transform with the voxel-to-physical map built from the origin `T` and spacing `Z`
+    to rebuild the full NIfTI affine. Falls back to a diagonal affine when no transform
+    is given.
 
     Parameters
     ----------
@@ -1114,11 +1116,12 @@ def _build_nifti_affine(
         Full NIfTI affine mapping voxel indices to world-space coordinates.
     """
     if transform is not None:
+        # Compose the full physical-to-world transform with the voxel-to-physical
+        # map (origin T, spacing Z). Taking only the 3x3 block and substituting T
+        # for the translation would drop a secondary form's own origin, corrupting
+        # e.g. a qform whose origin differs from the primary (coordinate) origin.
         A_nifti = np.asarray(transform)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
-        D = A_nifti[:3, :3]
-        out = np.eye(4)
-        out[:3, :3] = D @ np.diag(Z)
-        out[:3, 3] = T
+        out = A_nifti @ get_axis_aligned_affine(T, Z)
     else:
         out = np.eye(4)
         out[:3, :3] = np.diag(Z)
