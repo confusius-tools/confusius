@@ -41,7 +41,7 @@ def test_reexpress_affine_against_own_frame_strips_axis_aligned_part():
 
 
 def test_reexpress_affine_maps_reference_frame_to_world():
-    """reexpress(M, T, Z) @ (get_axis_aligned(T, Z) @ p) == M @ p for any point p."""
+    """reexpress(M, T, Z) @ (get_axis_aligned_affine(T, Z) @ p) == M @ p for any point p."""
     rng = np.random.default_rng(0)
     M = np.eye(4)
     M[:3, :3] = rng.standard_normal((3, 3))

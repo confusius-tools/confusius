@@ -128,6 +128,62 @@ def _clean_stream_text(text: str) -> str:
     return "\n".join(cleaned_lines).strip("\n")
 
 
+def _summarize_output(output: dict[str, object]) -> str:
+    """Return a one-line human-readable summary of one notebook output.
+
+    Used to build a useful error message when the light and dark runs disagree on
+    the number of outputs for a cell: showing what each side actually produced makes
+    the offending extra (a stray warning, a one-shot download log, etc.) obvious.
+
+    Parameters
+    ----------
+    output : dict[str, object]
+        One nbformat output node (a dict with an `output_type` key).
+
+    Returns
+    -------
+    str
+        A short, single-line description of the output's type and content.
+    """
+    output_type = output.get("output_type")
+    if output_type == "stream":
+        name = output.get("name", "stdout")
+        text = str(output.get("text", "")).replace("\n", "\\n")
+        return f"stream[{name}]: {text[:200]}"
+    if output_type in {"execute_result", "display_data"}:
+        data = output.get("data", {})
+        keys = sorted(data) if isinstance(data, dict) else []
+        summary = f"{output_type}: {{{', '.join(keys)}}}"
+        if isinstance(data, dict) and "text/plain" in data:
+            preview = str(data["text/plain"]).replace("\n", "\\n")
+            summary += f" -> {preview[:120]}"
+        return summary
+    if output_type == "error":
+        return f"error: {output.get('ename')}: {output.get('evalue')}"
+    return str(output_type)
+
+
+def _summarize_outputs(outputs: list[dict[str, object]]) -> str:
+    """Return a numbered, indented summary of a cell's outputs.
+
+    Parameters
+    ----------
+    outputs : list[dict[str, object]]
+        The outputs of one notebook cell.
+
+    Returns
+    -------
+    str
+        One `_summarize_output` line per output, numbered and indented, or `(none)`
+        when the cell produced no outputs.
+    """
+    if not outputs:
+        return "  (none)"
+    return "\n".join(
+        f"  {i}. {_summarize_output(output)}" for i, output in enumerate(outputs, 1)
+    )
+
+
 def render_notebook(
     source_notebook: nbformat.NotebookNode,
     light_notebook: nbformat.NotebookNode,
@@ -185,7 +241,11 @@ def render_notebook(
                 "dark outputs. Light/dark executions must be deterministic; "
                 "make sure any one-shot side effects (dataset downloads, "
                 "first-import warnings, etc.) happen before the gallery "
-                "build."
+                "build.\n"
+                f"Light outputs ({len(light_outputs)}):\n"
+                f"{_summarize_outputs(light_outputs)}\n"
+                f"Dark outputs ({len(dark_outputs)}):\n"
+                f"{_summarize_outputs(dark_outputs)}"
             )
         for output_index, (light_output, dark_output) in enumerate(
             zip(light_outputs, dark_outputs)
