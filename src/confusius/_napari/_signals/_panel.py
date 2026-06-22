@@ -161,25 +161,24 @@ class SignalPanel(QWidget):
         xaxis_row.addWidget(self._xaxis_combo, stretch=1)
         axis_layout.addLayout(xaxis_row)
 
-        # Y-axis limits.
-        y_layout = QHBoxLayout()
-        ymin_label = QLabel("<i>y</i> min:")
-        ymin_label.setTextFormat(Qt.TextFormat.RichText)
-        y_layout.addWidget(ymin_label)
-        self._ymin_spin = QDoubleSpinBox()
-        self._ymin_spin.setRange(-1e9, 1e9)
-        self._ymin_spin.setValue(-1.0)
-        self._ymin_spin.valueChanged.connect(self._apply_settings)
-        y_layout.addWidget(self._ymin_spin)
-        ymax_label = QLabel("<i>y</i> max:")
-        ymax_label.setTextFormat(Qt.TextFormat.RichText)
-        y_layout.addWidget(ymax_label)
-        self._ymax_spin = QDoubleSpinBox()
-        self._ymax_spin.setRange(-1e9, 1e9)
-        self._ymax_spin.setValue(1.0)
-        self._ymax_spin.valueChanged.connect(self._apply_settings)
-        y_layout.addWidget(self._ymax_spin)
-        axis_layout.addLayout(y_layout)
+        spinbox: list[QDoubleSpinBox] = []
+        for lim in ("min", "max"):
+            ylim_layout = QHBoxLayout()
+            ylim_label = QLabel(f"<i>y</i> {lim}:")
+            ylim_label.setTextFormat(Qt.TextFormat.RichText)
+            ylim_layout.addWidget(ylim_label)
+            spin = QDoubleSpinBox()
+            spin.setObjectName(f"y{lim}_spin")
+            spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spin.setRange(-1e9, 1e9)
+            spin.setValue(-1.0 if lim == "min" else 1.0)
+            spin.valueChanged.connect(self._apply_settings)
+            spinbox.append(spin)
+            ylim_layout.addWidget(spin)
+
+            axis_layout.addLayout(ylim_layout)
+
+        self._ymin_spin, self._ymax_spin = spinbox
 
         # Autoscale checkbox. QCheckBox does not support rich text, so we pair a
         # text-less checkbox with a clickable QLabel to get the italic "y".
@@ -622,9 +621,12 @@ class SignalPanel(QWidget):
         """Return list of available x-axis dimensions from the active layer.
 
         Returns the dimension names from the active image layer's xarray
-        metadata if available, excluding:
-        - Spatial dimensions (including `pose`) which are never valid signal axes
-        - Dimensions with only 1 element (can't create meaningful x-axis)
+        metadata if available, restricted to the **non-displayed** (slider)
+        axes with more than one element. Displayed axes are shown on screen and
+        have no slider, so they are not valid x-axis choices; singleton axes
+        cannot form a meaningful x-axis. This mirrors the criterion used by
+        [_refresh_source_combos][confusius._napari._signals._panel.SignalPanel._refresh_source_combos]
+        to identify signal-bearing layers.
 
         When the active layer lacks xarray metadata (e.g., a video layer),
         falls back to the first image layer in the viewer that does have
@@ -647,11 +649,12 @@ class SignalPanel(QWidget):
                         break
 
         if da is not None:
-            # Filter out spatial dimensions and single-element dimensions.
+            # Offer the non-displayed (slider) axes with more than one element.
+            displayed_dims = set(self._viewer.dims.displayed)
             return [
-                dim
+                str(dim)
                 for i, dim in enumerate(da.dims)
-                if dim not in SPATIAL_DIMS_WITH_POSE and da.shape[i] > 1
+                if i not in displayed_dims and da.shape[i] > 1
             ]
 
         return []
