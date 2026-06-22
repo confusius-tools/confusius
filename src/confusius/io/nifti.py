@@ -21,7 +21,6 @@ from confusius._utils.coordinates import (
     get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
-    reexpress_affine,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (

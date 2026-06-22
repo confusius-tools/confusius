@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS
-from confusius._utils.coordinates import reexpress_affine
+from confusius._utils.coordinates import get_affine_in_axis_aligned_space
 from confusius.registration.affines import decompose_affine
 
 if TYPE_CHECKING:
@@ -150,7 +150,7 @@ def apply_affine(
         # Coordinates absorb the zoom magnitudes from the decomposition; the
         # residual orientation (rotation + shear) is returned via
         # orientation @ new_physical == affine @ old_physical.
-        orientation = reexpress_affine(affine, translation, zoom)
+        orientation = get_affine_in_axis_aligned_space(affine, translation, zoom)
     else:
         # Diagonal affine: each axis keeps its own SIGNED scale. Use the raw
         # diagonal, not the decomposed zoom -- decompose relocates a lone sign
@@ -177,13 +177,16 @@ def apply_affine(
 
     # Re-express every stored affine against the new axis-aligned physical frame
     # so it stays valid: M_new = M_old @ inv(axis_aligned(translation, zoom)).
-    # Per-pose (npose, 4, 4) stacks are handled via broadcasting in reexpress_affine.
+    # Per-pose (npose, 4, 4) stacks are handled via broadcasting in
+    # get_affine_in_axis_aligned_space.
     stored = da.attrs.get("affines", {})
     new_affines: dict[str, "npt.NDArray[np.float64]"] = {}
     for stored_key, val in stored.items():
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
-            new_affines[stored_key] = reexpress_affine(arr, translation, zoom)
+            new_affines[stored_key] = get_affine_in_axis_aligned_space(
+                arr, translation, zoom
+            )
         else:
             # Unexpected shape: pass through unchanged.
             new_affines[stored_key] = arr
