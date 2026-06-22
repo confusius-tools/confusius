@@ -130,6 +130,12 @@ class FastICA(_BaseFUSIDecomposer):
         Feature names seen during `fit`. Defined only when flattened feature labels are
         all strings.
 
+    References
+    ----------
+    [^1]:
+        Hyvarinen, A., and Oja, E. (2000). "Independent component analysis: Algorithms
+        and applications". Neural Networks, 13(4-5), 411-430.
+
     Examples
     --------
     Spatial ICA (default, matches FSL MELODIC):
@@ -151,12 +157,6 @@ class FastICA(_BaseFUSIDecomposer):
     >>> reconstructed = ica.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'z', 'y', 'x')
-
-    References
-    ----------
-    [^1]:
-        Hyvarinen, A., and Oja, E. (2000). "Independent component analysis: Algorithms
-        and applications". Neural Networks, 13(4-5), 411-430.
     """
 
     _signals_long_name = "FastICA signals"

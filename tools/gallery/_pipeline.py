@@ -95,13 +95,40 @@ def _rewrite_binder_button(md_path: Path, binder_url: str | None) -> None:
         md_path.write_text(updated, encoding="utf-8")
 
 
-def _make_progress() -> Progress:
-    """Return a rich Progress configured for the gallery builder."""
+def _is_interactive() -> bool:
+    """Whether stdout is an interactive terminal where a live bar is usable.
+
+    Returns
+    -------
+    bool
+        Whether `sys.stdout` is attached to a TTY. This is `False` in CI (e.g.
+        GitHub Actions) and whenever output is redirected/piped, which is exactly
+        when the rich live bar produces no useful incremental output.
+    """
+    return sys.stdout.isatty()
+
+
+def _make_progress(interactive: bool) -> Progress:
+    """Return a rich Progress configured for the gallery builder.
+
+    Parameters
+    ----------
+    interactive : bool
+        Whether stdout is an interactive terminal. When `False`, the live bar is
+        disabled so it does not emit control characters into non-TTY logs; plain
+        per-example lines are printed instead (see `_build_one`).
+
+    Returns
+    -------
+    rich.progress.Progress
+        The configured progress instance.
+    """
     return Progress(
         TextColumn("  {task.description}"),
         BarColumn(),
         TextColumn("{task.completed}/{task.total} cells"),
         TimeElapsedColumn(),
+        disable=not interactive,
     )
 
 
@@ -127,6 +154,7 @@ def _build_one(
     cache_root: Path,
     deps_fingerprint: str,
     progress: Progress,
+    interactive: bool,
     binder_url: str | None = None,
 ) -> RenderedExample:
     """Build one example and return its rendered metadata."""
@@ -149,6 +177,10 @@ def _build_one(
 
     if cache_entry.is_dir():
         progress.add_task(f"{spec.section}/{base_name} [cached]", total=1, completed=1)
+        # The live bar already conveys this interactively; in CI/non-TTY the bar is
+        # disabled, so emit a plain flushed line instead.
+        if not interactive:
+            print(f"-> {spec.section}/{base_name} [cached]", flush=True)
         thumb = _write_cached_artifacts(cache_entry, out_dir, base_name)
         _rewrite_binder_button(out_dir / f"{base_name}.md", binder_url)
         return RenderedExample(
@@ -158,6 +190,11 @@ def _build_one(
             md_path=out_dir / f"{base_name}.md",
             thumbnail_light=thumb[0] if thumb is not None else None,
             thumbnail_dark=thumb[1] if thumb is not None else None,
+        )
+
+    if not interactive:
+        print(
+            f"-> {spec.section}/{base_name} ({n_cells} cells, light+dark)", flush=True
         )
 
     light_task = progress.add_task(f"{spec.section}/{base_name} (light)", total=n_cells)
@@ -172,6 +209,9 @@ def _build_one(
         theme="dark",
         on_cell_executed=_advance_on_cell(progress, dark_task),
     )
+
+    if not interactive:
+        print(f"   done in {light_seconds:.1f}s", flush=True)
 
     scratch = cache_root / "_scratch" / spec.section / base_name
     if scratch.exists():
@@ -232,7 +272,8 @@ def build_gallery(
     cache_root.mkdir(parents=True, exist_ok=True)
 
     rendered: list[RenderedExample] = []
-    with _make_progress() as progress:
+    interactive = _is_interactive()
+    with _make_progress(interactive) as progress:
         for spec in specs:
             binder_url = (
                 _binder_url(
@@ -251,6 +292,7 @@ def build_gallery(
                     cache_root=cache_root,
                     deps_fingerprint=deps_fingerprint,
                     progress=progress,
+                    interactive=interactive,
                     binder_url=binder_url,
                 )
             )

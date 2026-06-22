@@ -34,13 +34,9 @@ if TYPE_CHECKING:
 class QCPlotsWidget(QWidget):
     """Tabbed matplotlib canvas shown in the napari bottom dock area.
 
-    Tabs
-    ----
-    DVARS
-        Line plot of the DVARS metric, with a navigation toolbar and a blitted vertical
-        cursor tracking the napari time slider.
-    Carpet plot
-        Raster image of voxel intensities over time, with a matching cursor.
+    The widget provides two tabs: a DVARS line plot with a navigation toolbar and a
+    blitted vertical cursor tracking the napari time slider, and a carpet plot showing
+    voxel intensities over time with a matching cursor.
 
     Parameters
     ----------

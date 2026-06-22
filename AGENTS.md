@@ -275,6 +275,28 @@ test(nifti): add fixtures for 2D/3D/4D NIfTI files
 refactor(iq): simplify power reduction algorithm
 ```
 
+## Changelog
+
+The changelog lives at `docs/changelog.md`. Entries are grouped by version tag, newest
+first. When adding an entry, place it under the **current development version** (the
+`X.Y.Z.devN` heading at the top), never under an already-released version.
+
+Within the development version, entries go under section labels (emoji headings),
+ordered as below. Add only the labels you need:
+
+- `### :boom: Breaking changes`
+- `### :sparkles: Enhancements`
+- `### :zap: Performance`
+- `### :bug: Fixes`
+- `### :books: Documentation`
+- `### :wrench: Maintenance`
+
+Napari plugin related changes may carry an entry with a prefix **[Napari plugin]**.
+Write entries that are clear and concise, from the user's perspective: describe the
+user-facing effect, not the implementation. End each entry with a link to its pull
+request, e.g. `([#123](https://github.com/confusius-tools/confusius/pull/123))`.
+
+
 ## Testing Guidelines
 
 ### Philosophy
