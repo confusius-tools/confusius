@@ -170,6 +170,25 @@ class TestEchoFrameConversion:
             expected_times = np.array([1.0, 1.001, 1.002, 3.0, 3.001, 3.002])
             np.testing.assert_allclose(ds["time"].values, expected_times, rtol=1e-5)
 
+    def test_with_volume_times(self, synthetic_echoframe_session, tmp_path):
+        """Test conversion with explicit per-volume times provided by user."""
+        dat_path = synthetic_echoframe_session / "fUSi_BF.dat"
+        meta_path = synthetic_echoframe_session / "ScanParameters.mat"
+        output_path = tmp_path / "output.zarr"
+
+        volume_times = np.array([1.0, 1.01, 1.02, 3.0, 3.01, 3.02])
+
+        convert_echoframe_dat_to_zarr(
+            dat_path,
+            meta_path,
+            output_path,
+            volume_times=volume_times,
+            show_progress=False,
+        )
+
+        with xr.open_zarr(output_path) as ds:
+            np.testing.assert_allclose(ds["time"].values, volume_times)
+
     def test_overwrite_existing(self, synthetic_echoframe_session, tmp_path):
         """Test overwriting existing Zarr output."""
         dat_path = synthetic_echoframe_session / "fUSi_BF.dat"
@@ -444,5 +463,38 @@ class TestEchoFrameConversion:
                 meta_path,
                 output_path,
                 block_times=np.array([1.0, 2.0, 3.0]),
+                show_progress=False,
+            )
+
+    def test_volume_times_length_mismatch(self, synthetic_echoframe_session, tmp_path):
+        """Raise ValueError when volume_times length does not match retained volumes."""
+        dat_path = synthetic_echoframe_session / "fUSi_BF.dat"
+        meta_path = synthetic_echoframe_session / "ScanParameters.mat"
+        output_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="volume_times length"):
+            convert_echoframe_dat_to_zarr(
+                dat_path,
+                meta_path,
+                output_path,
+                volume_times=np.array([1.0, 2.0, 3.0]),
+                show_progress=False,
+            )
+
+    def test_block_times_and_volume_times_mutually_exclusive(
+        self, synthetic_echoframe_session, tmp_path
+    ):
+        """Raise ValueError when both block_times and volume_times are provided."""
+        dat_path = synthetic_echoframe_session / "fUSi_BF.dat"
+        meta_path = synthetic_echoframe_session / "ScanParameters.mat"
+        output_path = tmp_path / "output.zarr"
+
+        with pytest.raises(ValueError, match="Only one of block_times and volume_times"):
+            convert_echoframe_dat_to_zarr(
+                dat_path,
+                meta_path,
+                output_path,
+                block_times=np.array([1.0, 3.0]),
+                volume_times=np.array([1.0, 1.01, 1.02, 3.0, 3.01, 3.02]),
                 show_progress=False,
             )

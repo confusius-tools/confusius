@@ -153,15 +153,23 @@ Zarr for efficient processing.
     function.
 
     ```python
-    from confusius.io import convert_echoframe_dat_to_zarr
+    from confusius.io import (
+        convert_echoframe_dat_to_zarr,
+        load_echoframe_metadata,
+        load_echoframe_rf_timetag,
+    )
+
+    meta = load_echoframe_metadata("path/to/metadata.mat")
+    rf_timetags = load_echoframe_rf_timetag("path/to/data_rf_timetag.dat")
+    volume_times = rf_timetags[::meta["plane_wave_angles"].size]
 
     convert_echoframe_dat_to_zarr(
         dat_path="path/to/data.dat",
         meta_path="path/to/metadata.mat",
         output_path="sub-01_task-awake_iq.zarr",
-        # Optional: specify block start times. Other metadata (e.g., transmit frequency,
+        # Optional: specify per-volume times. Other metadata (e.g., transmit frequency,
         # axis coordinates) will be automatically extracted from the metadata file.
-        block_times=block_times,
+        volume_times=volume_times,
     )
     ```
 

@@ -1,6 +1,5 @@
 """Functional connectivity analysis for fUSI data."""
 
-from confusius.connectivity.cap import CAP
 from confusius.connectivity.matrix import (
     ConnectivityMatrix,
     covariance_to_correlation,
@@ -11,7 +10,6 @@ from confusius.connectivity.matrix import (
 from confusius.connectivity.seed import SeedBasedMaps
 
 __all__ = [
-    "CAP",
     "ConnectivityMatrix",
     "SeedBasedMaps",
     "covariance_to_correlation",

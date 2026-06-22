@@ -408,6 +408,7 @@ class TestLoadEchoFrameRfTimetag:
         """`load_echoframe_rf_timetag` returns all values for files without padding."""
         data = load_echoframe_rf_timetag(rf_timetag_no_padding)
 
+        assert isinstance(data, np.memmap)
         assert data.shape == (30,)
         assert data.dtype == np.float64
 
@@ -424,6 +425,7 @@ class TestLoadEchoFrameRfTimetag:
         """`load_echoframe_rf_timetag` returns all values for files with padding."""
         data = load_echoframe_rf_timetag(rf_timetag_with_padding)
 
+        assert isinstance(data, np.memmap)
         assert data.shape == (30,)
         assert data.dtype == np.float64
 

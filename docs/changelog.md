@@ -10,6 +10,14 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Added [`load_echoframe_rf_timetag`][confusius.io.load_echoframe_rf_timetag] for
+  memory-mapped reading of EchoFrame RF frame timestamps, and added a
+  `volume_times` argument to
+  [`convert_echoframe_dat_to_zarr`][confusius.io.convert_echoframe_dat_to_zarr]
+  so per-volume acquisition times can be stored directly in the output Zarr group.
+
 ### :zap: Performance
 
 - [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses

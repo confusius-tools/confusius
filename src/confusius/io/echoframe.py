@@ -185,10 +185,10 @@ def load_echoframe_rf_timetag(
 
     Returns
     -------
-    (n_buffers * buffer_size,) numpy.ndarray
-        Flat `float64` array of RF time tags concatenated across all buffers in
-        acquisition order. The `i`-th element is the hardware timestamp of the `i`-th
-        RF frame in the acquisition, in seconds.
+    (n_buffers * buffer_size,) numpy.memmap
+        Flat memory-mapped `float64` array of RF time tags concatenated across all
+        buffers in acquisition order. The `i`-th element is the hardware timestamp of
+        the `i`-th RF frame in the acquisition, in seconds.
 
     Raises
     ------
@@ -197,11 +197,12 @@ def load_echoframe_rf_timetag(
 
     Notes
     -----
-    The returned array can be passed directly to
-    [convert_echoframe_dat_to_zarr][confusius.io.echoframe.convert_echoframe_dat_to_zarr]
-    via its `block_times` parameter to embed accurate per-block timestamps in the output
-    Zarr store, provided the number of time tags matches the number of acquisition
-    blocks retained after skipping.
+    RF time tags are stored per RF frame, not per IQ volume or IQ block. To use them
+    with
+    [convert_echoframe_dat_to_zarr][confusius.io.echoframe.convert_echoframe_dat_to_zarr],
+    first derive one timestamp per IQ volume, for example with
+    `rf_timetags[::n_rf_frames_per_ensemble]`, and pass the result via the
+    `volume_times` parameter.
     """
     dat_path = check_path(dat_path, label="dat_path", type="file")
 
@@ -343,6 +344,7 @@ def convert_echoframe_dat_to_zarr(
     skip_first_blocks: int = 0,
     skip_last_blocks: int = 0,
     block_times: npt.ArrayLike | None = None,
+    volume_times: npt.ArrayLike | None = None,
     show_progress: bool = True,
     progress: "Progress | None" = None,
     track_kwargs: dict[str, Any] | None = None,
@@ -391,9 +393,13 @@ def convert_echoframe_dat_to_zarr(
     block_times : (n_blocks_after_skip,) array_like, optional
         Start time of each IQ block in seconds, for the retained blocks only. If
         provided, individual volume times will be computed and stored as a time
-        coordinate. Requires `compound_sampling_frequency` to be provided. If not
-        provided, time coordinate will be computed based on
-        `compound_sampling_frequency` or set to frame indices.
+        coordinate. Mutually exclusive with `volume_times`.
+    volume_times : (n_volumes_after_skip,) array_like, optional
+        Acquisition time of each retained IQ volume in seconds. If provided, these
+        values are stored directly as the time coordinate. This is useful when volume
+        times are derived from RF frame timestamps loaded with
+        [load_echoframe_rf_timetag][confusius.io.echoframe.load_echoframe_rf_timetag].
+        Mutually exclusive with `block_times`.
     show_progress : bool, default: True
         Whether to show progress during conversion. If `False`, no progress bars are
         displayed.
@@ -492,8 +498,19 @@ def convert_echoframe_dat_to_zarr(
     if shards is not None:
         create_array_kwargs["shards"] = shards
 
-    if block_times is not None:
-        block_times_array = np.asarray(block_times)
+    if block_times is not None and volume_times is not None:
+        raise ValueError("Only one of block_times and volume_times may be provided.")
+
+    if volume_times is not None:
+        volume_times_array = np.asarray(volume_times, dtype=np.float64).reshape(-1)
+        if volume_times_array.size != n_total_volumes:
+            raise ValueError(
+                f"volume_times length ({volume_times_array.size}) does not match "
+                f"number of volumes after skipping ({n_total_volumes})."
+            )
+        time_values = volume_times_array
+    elif block_times is not None:
+        block_times_array = np.asarray(block_times, dtype=np.float64).reshape(-1)
         if block_times_array.size != n_blocks_after_skip:
             raise ValueError(
                 f"block_times length ({block_times_array.size}) does not match "
