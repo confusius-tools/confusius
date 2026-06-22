@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :bug: Fixes
+
+- **[Napari plugin]** Fixed the Signals plot x-axis for volumes without a time
+  dimension. It now follows the slider axis world coordinates, with a matching label and
+  dropdown option ([#180](https://github.com/confusius-tools/confusius/pull/180)).
+
 ## 0.3.0
 
 *Released 2026-05-27.*

@@ -621,9 +621,12 @@ class SignalPanel(QWidget):
         """Return list of available x-axis dimensions from the active layer.
 
         Returns the dimension names from the active image layer's xarray
-        metadata if available, excluding:
-        - Spatial dimensions (including `pose`) which are never valid signal axes
-        - Dimensions with only 1 element (can't create meaningful x-axis)
+        metadata if available, restricted to the **non-displayed** (slider)
+        axes with more than one element. Displayed axes are shown on screen and
+        have no slider, so they are not valid x-axis choices; singleton axes
+        cannot form a meaningful x-axis. This mirrors the criterion used by
+        [_refresh_source_combos][confusius._napari._signals._panel.SignalPanel._refresh_source_combos]
+        to identify signal-bearing layers.
 
         When the active layer lacks xarray metadata (e.g., a video layer),
         falls back to the first image layer in the viewer that does have
@@ -646,11 +649,12 @@ class SignalPanel(QWidget):
                         break
 
         if da is not None:
-            # Filter out spatial dimensions and single-element dimensions.
+            # Offer the non-displayed (slider) axes with more than one element.
+            displayed_dims = set(self._viewer.dims.displayed)
             return [
-                dim
+                str(dim)
                 for i, dim in enumerate(da.dims)
-                if dim not in SPATIAL_DIMS_WITH_POSE and da.shape[i] > 1
+                if i not in displayed_dims and da.shape[i] > 1
             ]
 
         return []
