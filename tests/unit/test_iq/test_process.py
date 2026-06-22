@@ -405,12 +405,25 @@ class TestProcessIqBlocks:
 
         assert result.shape == (4, 4, 6, 8)
 
-    def test_non_overlapping_windows_use_map_blocks(self):
-        """Non-overlapping windows build a graph without overlap tasks."""
+    def test_non_overlapping_windows_use_map_blocks(self, monkeypatch):
+        """Non-overlapping windows dispatch to `dask.array.map_blocks`."""
         iq = da.from_array(np.arange(20 * 2 * 3).reshape(20, 2, 3), chunks=(5, 2, 3))
+        map_blocks_called = False
+        real_map_blocks = da.map_blocks
 
         def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
             return block.mean(axis=0, keepdims=True)
+
+        def wrapped_map_blocks(*args, **kwargs):
+            nonlocal map_blocks_called
+            map_blocks_called = True
+            return real_map_blocks(*args, **kwargs)
+
+        def forbidden_map_overlap(*args, **kwargs):
+            raise AssertionError("map_overlap should not be used for non-overlapping windows")
+
+        monkeypatch.setattr(da, "map_blocks", wrapped_map_blocks)
+        monkeypatch.setattr(da, "map_overlap", forbidden_map_overlap)
 
         result = process_iq_blocks(
             iq,
@@ -423,18 +436,31 @@ class TestProcessIqBlocks:
             [iq.compute()[i : i + 5].mean(axis=0) for i in range(0, 20, 5)], axis=0
         )
 
+        assert map_blocks_called
         assert_allclose(result.compute(), expected)
-        assert not any("overlap-" in layer for layer in result.dask.layers)
 
-    def test_non_overlapping_windows_with_drop_axis_use_map_blocks(self):
-        """Non-overlapping windows preserve drop_axis behavior with map_blocks."""
+    def test_non_overlapping_windows_with_drop_axis_use_map_blocks(self, monkeypatch):
+        """Non-overlapping windows preserve drop_axis behavior with `map_blocks`."""
         iq = da.from_array(
             np.arange(20 * 2 * 3 * 4).reshape(20, 2, 3, 4),
             chunks=(5, 2, 3, 4),
         )
+        map_blocks_called = False
+        real_map_blocks = da.map_blocks
 
         def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
             return block.sum(axis=(1, 2, 3))
+
+        def wrapped_map_blocks(*args, **kwargs):
+            nonlocal map_blocks_called
+            map_blocks_called = True
+            return real_map_blocks(*args, **kwargs)
+
+        def forbidden_map_overlap(*args, **kwargs):
+            raise AssertionError("map_overlap should not be used for non-overlapping windows")
+
+        monkeypatch.setattr(da, "map_blocks", wrapped_map_blocks)
+        monkeypatch.setattr(da, "map_overlap", forbidden_map_overlap)
 
         result = process_iq_blocks(
             iq,
@@ -446,15 +472,28 @@ class TestProcessIqBlocks:
 
         expected = iq.compute().sum(axis=(1, 2, 3))
 
+        assert map_blocks_called
         assert_array_equal(result.compute(), expected)
-        assert not any("overlap-" in layer for layer in result.dask.layers)
 
-    def test_overlapping_windows_keep_map_overlap(self):
-        """Overlapping windows still use the generic overlap path."""
+    def test_overlapping_windows_keep_map_overlap(self, monkeypatch):
+        """Overlapping windows still dispatch to `dask.array.map_overlap`."""
         iq = da.from_array(np.arange(21 * 2 * 3).reshape(21, 2, 3), chunks=(5, 2, 3))
+        map_overlap_called = False
+        real_map_overlap = da.map_overlap
 
         def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
             return block.mean(axis=0, keepdims=True)
+
+        def forbidden_map_blocks(*args, **kwargs):
+            raise AssertionError("map_blocks should not be used for overlapping windows")
+
+        def wrapped_map_overlap(*args, **kwargs):
+            nonlocal map_overlap_called
+            map_overlap_called = True
+            return real_map_overlap(*args, **kwargs)
+
+        monkeypatch.setattr(da, "map_blocks", forbidden_map_blocks)
+        monkeypatch.setattr(da, "map_overlap", wrapped_map_overlap)
 
         result = process_iq_blocks(
             iq,
@@ -465,7 +504,7 @@ class TestProcessIqBlocks:
 
         result.compute()
 
-        assert any("overlap-" in layer for layer in result.dask.layers)
+        assert map_overlap_called
 
     def test_stride_greater_than_width_raises(self, sample_iq_dataarray):
         """window_stride > window_width raises ValueError."""
