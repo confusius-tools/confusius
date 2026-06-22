@@ -341,7 +341,7 @@ def _create_spatial_coords_from_nifti(
         # The physical coordinate frame is defined once by the primary affine's
         # axis-aligned decomposition: origin T (translation) and voxel spacing Z (true
         # zoom from decompose_affine). Every stored affine is re-expressed against this
-        # single frame, so a secondary form (e.g. qform when sform is primary) keeps its
+        # single frame, so a secondary affine (e.g. qform when sform is primary) keeps its
         # relationship to the physical coordinates instead of being built from its own,
         # inconsistent decomposition.
         T, _, Z, _ = decompose_affine(primary_affine)
