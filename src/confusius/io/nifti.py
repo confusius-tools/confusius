@@ -277,7 +277,7 @@ def _create_spatial_coords_from_nifti(
     and builds one coordinate per spatial dimension. When a valid affine is
     available, each axis starts at `affine[col, 3]` (origin) and is stepped by
     the true voxel size (from `decompose_affine`). The physical coordinate frame
-    is defined by the primary affine's translation and zoom; every form's affine
+    is defined by the primary affine's translation and zoom; every affine
     (primary and secondary) is re-expressed against that shared frame and stored
     in the returned attributes, so a secondary qform keeps its relationship to
     the physical coordinates.
