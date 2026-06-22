@@ -244,6 +244,7 @@ da.attrs["affines"]["physical_to_sform"]  # identity
 #        [ 0.,  1.,  0.,  0.],
 #        [ 0.,  0.,  1.,  0.],
 #        [ 0.,  0.,  0.,  1.]])
+
 da.attrs["affines"]["physical_to_qform"]  # here a (+10, +5) shift in (z, y):
 # array([[ 1.,  0.,  0., 10.],
 #        [ 0.,  1.,  0.,  5.],
@@ -277,6 +278,7 @@ da_q.attrs["affines"]["physical_to_sform"]  # the (-10, -5) shift back to sform
 #        [ 0.,  1.,  0.,  -5.],
 #        [ 0.,  0.,  1.,   0.],
 #        [ 0.,  0.,  0.,   1.]])
+
 da_q.attrs["affines"]["physical_to_qform"]  # identity, the new physical frame
 # array([[ 1.,  0.,  0.,  0.],
 #        [ 0.,  1.,  0.,  0.],
@@ -296,6 +298,22 @@ If `physical_to_qform` were instead only a 90° rotation in the `(z, y)` plane, 
 it could go into the coordinates—they come back unchanged from `apply_affine`—and the
 whole rotation is returned as `orientation`:
 
+```python
+da.coords["z"].values  # array([0., 1., 2.])
+da.coords["y"].values  # array([0., 1., 2., 3.])
+
+da.attrs["affines"]["physical_to_sform"]  # identity
+# array([[ 1.,  0.,  0.,  0.],
+#        [ 0.,  1.,  0.,  0.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+
+da.attrs["affines"]["physical_to_qform"]  # here a 90° rotation in (z, y) plane:
+# array([[ 0., -1.,  0.,  0.],
+#        [ 1.,  0.,  0.,  0.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+```
 
 === "`confusius.xarray.apply_affine`"
 
@@ -314,6 +332,18 @@ da_q.coords["z"].values  # array([0., 1., 2.])      <- unchanged
 da_q.coords["y"].values  # array([0., 1., 2., 3.])  <- unchanged
 
 orientation  # the 90° rotation the coordinates could not absorb:
+# array([[ 0., -1.,  0.,  0.],
+#        [ 1.,  0.,  0.,  0.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+
+da_q.attrs["affines"]["physical_to_sform"]  # identity
+# array([[ 1.,  0.,  0.,  0.],
+#        [ 0.,  1.,  0.,  0.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+
+da_q.attrs["affines"]["physical_to_qform"]  # here a 90° rotation in (z, y) plane:
 # array([[ 0., -1.,  0.,  0.],
 #        [ 1.,  0.,  0.,  0.],
 #        [ 0.,  0.,  1.,  0.],
