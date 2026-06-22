@@ -64,6 +64,43 @@ def test_build_gallery_produces_expected_artifacts(gallery_paths: GalleryPaths) 
 
 
 @pytest.mark.slow
+def test_build_gallery_prints_progress_when_non_interactive(
+    gallery_paths: GalleryPaths, capsys: pytest.CaptureFixture[str]
+) -> None:
+    examples_root, built_dir, cache_root = gallery_paths
+
+    _seed_example(
+        examples_root,
+        "io",
+        "hello",
+        "# %% [markdown]\n# # Hello\n\n# %%\nprint('hi')\n",
+    )
+
+    # Under pytest stdout is captured and reports ``isatty() == False``, so the
+    # builder takes its non-interactive path and emits plain progress lines
+    # instead of the rich live bar.
+    build_gallery(
+        examples_root=examples_root,
+        built_dir=built_dir,
+        cache_root=cache_root,
+        deps_fingerprint="testdeps==1.0",
+    )
+    fresh = capsys.readouterr().out
+    assert "-> io/hello" in fresh
+    assert "done in" in fresh
+
+    # A second run hits the cache and announces it.
+    shutil.rmtree(built_dir)
+    build_gallery(
+        examples_root=examples_root,
+        built_dir=built_dir,
+        cache_root=cache_root,
+        deps_fingerprint="testdeps==1.0",
+    )
+    assert "[cached]" in capsys.readouterr().out
+
+
+@pytest.mark.slow
 def test_build_gallery_embeds_binder_launch_url(gallery_paths: GalleryPaths) -> None:
     examples_root, built_dir, cache_root = gallery_paths
     repo_root = examples_root.parent.parent

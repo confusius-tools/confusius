@@ -746,13 +746,6 @@ def load_nifti(
         Lazy DataArray with dimensions in ConfUSIus order. Data is wrapped in a Dask
         array for out-of-core computation.
 
-    Examples
-    --------
-    >>> import confusius as cf
-    >>> da = cf.io.load_nifti("brain.nii.gz")
-    >>> print(da.dims)
-    ("time", "z", "y", "x")
-
     Notes
     -----
     Physical-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
@@ -784,6 +777,13 @@ def load_nifti(
     Voxel dimensions are stored in their native header units as a `voxdim`
     attribute on each spatial coordinate array, consistent with the `units`
     attribute of that coordinate.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> da = cf.io.load_nifti("brain.nii.gz")
+    >>> print(da.dims)
+    ("time", "z", "y", "x")
     """
     path = check_path(path, type="file")
 
