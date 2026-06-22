@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import xarray as xr
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius.iq.process import (
     compute_axial_velocity_volume,
@@ -404,6 +404,68 @@ class TestProcessIqBlocks:
         result = process_iq_blocks(iq, process_func=process_func)
 
         assert result.shape == (4, 4, 6, 8)
+
+    def test_non_overlapping_windows_use_map_blocks(self):
+        """Non-overlapping windows build a graph without overlap tasks."""
+        iq = da.from_array(np.arange(20 * 2 * 3).reshape(20, 2, 3), chunks=(5, 2, 3))
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=5,
+        )
+
+        expected = np.stack(
+            [iq.compute()[i : i + 5].mean(axis=0) for i in range(0, 20, 5)], axis=0
+        )
+
+        assert_allclose(result.compute(), expected)
+        assert not any("overlap-" in layer for layer in result.dask.layers)
+
+    def test_non_overlapping_windows_with_drop_axis_use_map_blocks(self):
+        """Non-overlapping windows preserve drop_axis behavior with map_blocks."""
+        iq = da.from_array(
+            np.arange(20 * 2 * 3 * 4).reshape(20, 2, 3, 4),
+            chunks=(5, 2, 3, 4),
+        )
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.sum(axis=(1, 2, 3))
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=5,
+            drop_axis=(1, 2, 3),
+        )
+
+        expected = iq.compute().sum(axis=(1, 2, 3))
+
+        assert_array_equal(result.compute(), expected)
+        assert not any("overlap-" in layer for layer in result.dask.layers)
+
+    def test_overlapping_windows_keep_map_overlap(self):
+        """Overlapping windows still use the generic overlap path."""
+        iq = da.from_array(np.arange(21 * 2 * 3).reshape(21, 2, 3), chunks=(5, 2, 3))
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=2,
+        )
+
+        result.compute()
+
+        assert any("overlap-" in layer for layer in result.dask.layers)
 
     def test_stride_greater_than_width_raises(self, sample_iq_dataarray):
         """window_stride > window_width raises ValueError."""
