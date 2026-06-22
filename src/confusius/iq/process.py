@@ -987,8 +987,9 @@ def process_iq_blocks(
 ) -> "da.Array":
     """Process blocks of IQ data using sliding windows.
 
-    This function applies a processing operation to IQ data using
-    `dask.array.map_overlap` for efficient parallelized processing.
+    This function applies a processing operation to IQ data using Dask. It uses
+    `dask.array.map_blocks` for non-overlapping windows and
+    `dask.array.map_overlap` when temporal overlap is required.
 
     !!! warning
         Depending on the window width and stride, some input volumes may be dropped if
@@ -1051,6 +1052,18 @@ def process_iq_blocks(
     iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
 
     dummy_result = process_func(iq.blocks[0].compute(), **kwargs)
+    meta = np.array((), dtype=dummy_result.dtype)
+
+    if overlap_width == 0:
+        return da.map_blocks(
+            process_func,
+            iq,
+            chunks=dummy_result.shape,
+            drop_axis=drop_axis,
+            new_axis=new_axis,
+            meta=meta,
+            **kwargs,
+        )
 
     return da.map_overlap(
         process_func,
@@ -1061,7 +1074,7 @@ def process_iq_blocks(
         chunks=dummy_result.shape,
         drop_axis=drop_axis,
         new_axis=new_axis,
-        meta=np.array((), dtype=dummy_result.dtype),
+        meta=meta,
         **kwargs,
     )
 

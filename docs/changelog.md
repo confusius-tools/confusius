@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :zap: Performance
+
+- [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
+  `dask.array.map_blocks` for non-overlapping outer IQ windows and keeps
+  `dask.array.map_overlap` for overlapping cases, reducing Dask overhead in common
+  blockwise processing workflows ([#190](https://github.com/confusius-tools/confusius/pull/190)).
+
 ### :bug: Fixes
 
 - **[Napari plugin]** Fixed the Signals plot x-axis for volumes without a time
