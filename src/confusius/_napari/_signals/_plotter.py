@@ -727,28 +727,38 @@ class SignalPlotter(QWidget):
     def _get_xaxis_coords(self, layer) -> np.ndarray | None:
         """Return the x-axis coordinate array from the layer's xarray metadata.
 
+        The x-axis dimension is resolved via
+        [_xaxis_dim_index][confusius._napari._signals._plotter.SignalPlotter._xaxis_dim_index]
+        so the trace, label, and slider cursor all share the same dimension and
+        its world coordinates — including for data with no `time` dimension,
+        where the resolved dimension is the sliding (spatial) axis.
+
         Returns None when no xarray metadata is present or the DataArray has no
-        coordinate for the configured x-axis dimension.
+        coordinate for the resolved x-axis dimension.
         """
         da = layer.metadata.get("xarray")
         if da is None:
             return None
-        dim = self._xaxis_dim if self._xaxis_dim is not None else TIME_DIM
+        dim = list(da.dims)[self._xaxis_dim_index(layer)]
         if dim in da.coords:
             return np.asarray(da.coords[dim])
         return None
 
     def _get_xaxis_label(self, layer) -> str:
-        """Return the x-axis label for the selected axis.
+        """Return the x-axis label for the resolved x-axis dimension.
 
-        Reads `long_name` and `units` from the coordinate attributes
-        when available. Falls back to the dimension name with capitalized first letter.
+        The dimension is resolved via
+        [_xaxis_dim_index][confusius._napari._signals._plotter.SignalPlotter._xaxis_dim_index]
+        (matching [_get_xaxis_coords][confusius._napari._signals._plotter.SignalPlotter._get_xaxis_coords]).
+        Reads `long_name` and `units` from the coordinate attributes when
+        available. Falls back to the dimension name with a capitalized first
+        letter.
         """
         da = layer.metadata.get("xarray")
         if da is None:
             return "Index"
 
-        dim = self._xaxis_dim if self._xaxis_dim is not None else TIME_DIM
+        dim = list(da.dims)[self._xaxis_dim_index(layer)]
         if dim in da.coords:
             attrs = da.coords[dim].attrs
             name = attrs.get("long_name", dim.capitalize())
@@ -1387,9 +1397,17 @@ class SignalPlotter(QWidget):
         self._mouse_legend_signature = self._imported_signature(imported_signals)
         self._mouse_plot_dirty = True
         self._xaxis_coords = None
+        # Label from the active layer when one is present so the imported-only
+        # view stays consistent with the live plot; fall back to "Time" for
+        # standalone imported signals (typically a CSV time column).
+        xlabel = (
+            self._get_xaxis_label(self._current_layer)
+            if self._current_layer is not None
+            else "Time"
+        )
         self._style_valid_axes(
             colors,
-            "Time",
+            xlabel,
             "Z-score" if self._zscore else "Value",
             "Imported Signals",
             with_legend=len(imported_signals) > 1,

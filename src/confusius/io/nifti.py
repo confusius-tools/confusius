@@ -17,6 +17,7 @@ import xarray as xr
 from pydantic import ValidationError
 
 from confusius._utils.coordinates import (
+    get_affine_in_axis_aligned_space,
     get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
@@ -277,7 +278,7 @@ def _create_spatial_coords_from_nifti(
     and builds one coordinate per spatial dimension. When a valid affine is
     available, each axis starts at `affine[col, 3]` (origin) and is stepped by
     the true voxel size (from `decompose_affine`). The physical coordinate frame
-    is defined by the primary affine's translation and zoom; every form's affine
+    is defined by the primary affine's translation and zoom; every affine
     (primary and secondary) is re-expressed against that shared frame and stored
     in the returned attributes, so a secondary qform keeps its relationship to
     the physical coordinates.
@@ -341,7 +342,7 @@ def _create_spatial_coords_from_nifti(
         # The physical coordinate frame is defined once by the primary affine's
         # axis-aligned decomposition: origin T (translation) and voxel spacing Z (true
         # zoom from decompose_affine). Every stored affine is re-expressed against this
-        # single frame, so a secondary form (e.g. qform when sform is primary) keeps its
+        # single frame, so a secondary affine (e.g. qform when sform is primary) keeps its
         # relationship to the physical coordinates instead of being built from its own,
         # inconsistent decomposition.
         T, _, Z, _ = decompose_affine(primary_affine)
@@ -358,7 +359,7 @@ def _create_spatial_coords_from_nifti(
             # frame (in NIfTI x, y, z order), then permute to ConfUSIus (z, y, x) by
             # swapping rows and columns 0 <-> 2. For the primary form this reduces to
             # the orientation-only affine [[D, T - D @ T]].
-            A_nifti = reexpress_affine(affine, T, Z)
+            A_nifti = get_affine_in_axis_aligned_space(affine, T, Z)
             A_physical = A_nifti[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
             affines_dict[f"physical_to_{prefix}"] = A_physical
 

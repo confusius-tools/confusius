@@ -17,6 +17,12 @@ Current development version for the next ConfUSIus release.
   the residual orientation as a 4x4 affine (the identity for diagonal affines)
   for the caller to use as they wish
   ([#188](https://github.com/confusius-tools/confusius/pull/188)).
+### :zap: Performance
+
+- [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
+  `dask.array.map_blocks` for non-overlapping outer IQ windows and keeps
+  `dask.array.map_overlap` for overlapping cases, reducing Dask overhead in common
+  blockwise processing workflows ([#190](https://github.com/confusius-tools/confusius/pull/190)).
 
 ### :bug: Fixes
 
@@ -27,6 +33,9 @@ Current development version for the next ConfUSIus release.
 - `save_nifti` now preserves each affine's own translation, so a NIfTI file with sform
   and qform round-trips through `load_nifti`/`save_nifti` without corrupting the qform
   ([#187](https://github.com/confusius-tools/confusius/pull/187)).
+- **[Napari plugin]** Fixed the Signals plot x-axis for volumes without a time
+  dimension. It now follows the slider axis world coordinates, with a matching label and
+  dropdown option ([#180](https://github.com/confusius-tools/confusius/pull/180)).
 
 ## 0.3.0
 

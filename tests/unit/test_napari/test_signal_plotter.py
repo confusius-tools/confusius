@@ -187,7 +187,8 @@ class TestGetXaxisCoords:
         layer = _Layer(np.zeros((10, 4, 6, 8)))
         assert plotter._get_xaxis_coords(layer) is None
 
-    def test_returns_none_when_no_time_coord(self, plotter):
+    def test_returns_none_when_slider_dim_has_no_coord(self, plotter):
+        # No time dim and no coord for the resolved slider dim (z) -> None.
         da = xr.DataArray(np.zeros((4, 6, 8)), dims=["z", "y", "x"])
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
         assert plotter._get_xaxis_coords(layer) is None
@@ -196,6 +197,18 @@ class TestGetXaxisCoords:
         layer = _Layer(np.zeros((10, 4, 6, 8)), metadata={"xarray": sample_3dt_volume})
         coords = plotter._get_xaxis_coords(layer)
         npt.assert_array_equal(coords, sample_3dt_volume.coords["time"].values)
+
+    def test_resolves_slider_dim_coords_when_no_time(self, plotter):
+        # No time dim: the x-axis falls back to the slider dim (z), so the trace
+        # is plotted against z world coordinates, not step indices.
+        z = 1.0 + np.arange(4) * 0.2
+        da = xr.DataArray(
+            np.zeros((4, 6, 8)),
+            dims=["z", "y", "x"],
+            coords={"z": xr.DataArray(z, dims=["z"], attrs={"units": "mm"})},
+        )
+        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
+        npt.assert_array_equal(plotter._get_xaxis_coords(layer), z)
 
 
 # ---------------------------------------------------------------------------
@@ -208,10 +221,25 @@ class TestGetXaxisLabel:
         layer = _Layer(np.zeros((10, 4, 6, 8)))
         assert plotter._get_xaxis_label(layer) == "Index"
 
-    def test_returns_capitalized_dim_when_no_coord(self, plotter):
+    def test_returns_capitalized_slider_dim_when_no_coord(self, plotter):
+        # No time dim: label falls back to the resolved slider dim (z).
         da = xr.DataArray(np.zeros((4, 6, 8)), dims=["z", "y", "x"])
         layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
-        assert plotter._get_xaxis_label(layer) == "Time"
+        assert plotter._get_xaxis_label(layer) == "Z"
+
+    def test_uses_slider_dim_units_when_no_time(self, plotter):
+        # No time dim: label reflects the slider dim (z) coordinate units.
+        da = xr.DataArray(
+            np.zeros((4, 6, 8)),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.DataArray(
+                    1.0 + np.arange(4) * 0.2, dims=["z"], attrs={"units": "mm"}
+                )
+            },
+        )
+        layer = _Layer(np.zeros((4, 6, 8)), metadata={"xarray": da})
+        assert plotter._get_xaxis_label(layer) == "Z (mm)"
 
     def test_uses_units_from_time_coord(self, plotter, sample_3dt_volume):
         # sample_3dt_volume has time attrs={"units": "s"}, no long_name.
