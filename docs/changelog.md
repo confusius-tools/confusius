@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :zap: Performance
+
+- [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
+  `dask.array.map_blocks` for non-overlapping outer IQ windows and keeps
+  `dask.array.map_overlap` for overlapping cases, reducing Dask overhead in common
+  blockwise processing workflows ([#190](https://github.com/confusius-tools/confusius/pull/190)).
+
 ## 0.3.0
 
 *Released 2026-05-27.*
