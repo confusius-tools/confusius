@@ -19,6 +19,13 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `load_nifti` now anchors `physical_to_qform` to the same physical frame as the
+  primary (sform) coordinates, so the stored qform affine maps the array's
+  physical coordinates to qform world space
+  ([#187](https://github.com/confusius-tools/confusius/pull/187)).
+- `save_nifti` now preserves each affine's own translation, so a NIfTI file with sform
+  and qform round-trips through `load_nifti`/`save_nifti` without corrupting the qform
+  ([#187](https://github.com/confusius-tools/confusius/pull/187)).
 - **[Napari plugin]** Fixed the Signals plot x-axis for volumes without a time
   dimension. It now follows the slider axis world coordinates, with a matching label and
   dropdown option ([#180](https://github.com/confusius-tools/confusius/pull/180)).
