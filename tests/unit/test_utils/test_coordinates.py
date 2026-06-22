@@ -2,7 +2,10 @@
 
 import numpy as np
 
-from confusius._utils.coordinates import get_axis_aligned_affine, reexpress_affine
+from confusius._utils.coordinates import (
+    get_affine_in_axis_aligned_space,
+    get_axis_aligned_affine,
+)
 
 
 def test_axis_aligned_affine_builds_diag_and_translation():
@@ -32,7 +35,7 @@ def test_reexpress_affine_against_own_frame_strips_axis_aligned_part():
     affine[:3, :3] = D @ np.diag(Z)
     affine[:3, 3] = T
 
-    result = reexpress_affine(affine, T, Z)
+    result = get_affine_in_axis_aligned_space(affine, T, Z)
 
     expected = np.eye(4)
     expected[:3, :3] = D
@@ -49,7 +52,7 @@ def test_reexpress_affine_maps_reference_frame_to_world():
     T = np.array([1.0, -2.0, 3.0])
     Z = np.array([2.0, 0.5, 4.0])
     aa = get_axis_aligned_affine(T, Z)
-    re = reexpress_affine(M, T, Z)
+    re = get_affine_in_axis_aligned_space(M, T, Z)
     for _ in range(4):
         p = np.append(rng.standard_normal(3), 1.0)
         np.testing.assert_allclose(re @ (aa @ p), M @ p, atol=1e-10)
@@ -62,7 +65,7 @@ def test_reexpress_affine_broadcasts_over_pose_stack():
     stack[:, :3, :3] = rng.standard_normal((3, 3, 3))
     T = np.array([0.0, 1.0, 2.0])
     Z = np.array([1.0, 2.0, 3.0])
-    out = reexpress_affine(stack, T, Z)
+    out = get_affine_in_axis_aligned_space(stack, T, Z)
     assert out.shape == (3, 4, 4)
     inv = np.linalg.inv(get_axis_aligned_affine(T, Z))
     for i in range(3):

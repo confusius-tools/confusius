@@ -300,22 +300,34 @@ def get_axis_aligned_affine(
     return affine
 
 
-def reexpress_affine(
+def get_affine_in_axis_aligned_space(
     affine: npt.NDArray[np.floating],
     translation: npt.NDArray[np.floating],
     zoom: npt.NDArray[np.floating],
 ) -> npt.NDArray[np.float64]:
-    """Re-express an affine relative to an axis-aligned affine.
+    """Change an affine's input space to axis-aligned physical coordinates.
 
-    Returns `affine @ inv(get_axis_aligned_affine(translation, zoom))`. Given an affine
-    mapping some reference space (voxel indices, for example) into an output space, this
-    rewrites it to map the axis-aligned physical space defined by `(translation, zoom)`
-    into that same world space. The axis-aligned part is absorbed by the reference
-    space; only the residual orientation (rotation and shear) remains as the
-    re-expressed affine.
+    `affine` is assumed to map coordinates from a reference space, such as voxel
+    indices, to an output space. `translation` and `zoom` define an axis-aligned affine
+    that maps coordinates in the same reference space as `affine` to physical
+    coordinates:
 
-    This is useful when `translation` and `zoom` share the same reference space as
-    `affine` (voxel indices, for example).
+    ```python
+    physical = diag(zoom) @ voxel + translation
+    ```
+
+    This function returns a transform that maps axis-aligned physical coordinates to the
+    same output coordinate system:
+
+    ```python
+    result = affine @ inv(get_axis_aligned_affine(translation, zoom))
+    ```
+
+    Thus, for any voxel coordinate `v`:
+
+    ```python
+    result @ physical(v) == affine @ v
+    ```
 
     Parameters
     ----------
@@ -329,8 +341,8 @@ def reexpress_affine(
     Returns
     -------
     (4, 4) or (..., 4, 4) numpy.ndarray
-        `affine` composed on the right with the inverse of the axis-aligned
-        reference affine, with the same leading shape as `affine`.
+        Transform from axis-aligned physical coordinates to the same output coordinate
+        system as `affine`.
     """
     inv_reference = np.linalg.inv(get_axis_aligned_affine(translation, zoom))
     return np.asarray(affine, dtype=np.float64) @ inv_reference

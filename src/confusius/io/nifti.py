@@ -17,10 +17,10 @@ import xarray as xr
 from pydantic import ValidationError
 
 from confusius._utils.coordinates import (
+    get_affine_in_axis_aligned_space,
     get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
-    reexpress_affine,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
@@ -358,7 +358,7 @@ def _create_spatial_coords_from_nifti(
             # frame (in NIfTI x, y, z order), then permute to ConfUSIus (z, y, x) by
             # swapping rows and columns 0 <-> 2. For the primary form this reduces to
             # the orientation-only affine [[D, T - D @ T]].
-            A_nifti = reexpress_affine(affine, T, Z)
+            A_nifti = get_affine_in_axis_aligned_space(affine, T, Z)
             A_physical = A_nifti[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
             affines_dict[f"physical_to_{prefix}"] = A_physical
 
