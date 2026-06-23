@@ -1066,11 +1066,17 @@ def process_iq_blocks(
             **kwargs,
         )
 
+    overlap_window_width = window_width
+    overlap_window_stride = window_stride
+
     # Batch several overlapping windows into each task so every post-first chunk is at
     # least as large as the requested overlap. Otherwise Dask auto-rechunks the tiny
     # stride-sized chunks and breaks the expected one-output-block-per-input-block
     # mapping.
-    min_windows_per_block = max(1, (overlap_width + window_stride - 1) // window_stride)
+    min_windows_per_block = max(
+        1,
+        (overlap_width + overlap_window_stride - 1) // overlap_window_stride,
+    )
     first_block_windows = n_windows % min_windows_per_block
     if first_block_windows == 0:
         first_block_windows = min_windows_per_block
@@ -1079,9 +1085,10 @@ def process_iq_blocks(
         (n_windows - first_block_windows) // min_windows_per_block
     )
     chunks_volumes = (
-        window_width + (first_block_windows - 1) * window_stride,
+        overlap_window_width + (first_block_windows - 1) * overlap_window_stride,
     ) + tuple(
-        n_block_windows * window_stride for n_block_windows in windows_per_block[1:]
+        n_block_windows * overlap_window_stride
+        for n_block_windows in windows_per_block[1:]
     )
     iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
     iq = da.overlap.overlap(
@@ -1094,10 +1101,27 @@ def process_iq_blocks(
     def process_overlapping_batch(
         block: npt.NDArray, **batch_kwargs: Any
     ) -> npt.NDArray:
-        """Apply `process_func` to every overlapping outer window in a batch."""
+        """Apply `process_func` to every overlapping outer window in a batch.
+
+        Parameters
+        ----------
+        block : numpy.ndarray
+            Batched input block containing one or more overlapping windows.
+        **batch_kwargs
+            Additional keyword arguments passed to `process_func`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Concatenated outputs from all sliding windows in `block`.
+        """
         outputs = [
-            process_func(block[start : start + window_width], **batch_kwargs)
-            for start in range(0, block.shape[0] - window_width + 1, window_stride)
+            process_func(block[start : start + overlap_window_width], **batch_kwargs)
+            for start in range(
+                0,
+                block.shape[0] - overlap_window_width + 1,
+                overlap_window_stride,
+            )
         ]
         return np.concatenate(outputs, axis=0)
 
