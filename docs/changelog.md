@@ -19,6 +19,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `process_iq_blocks` now handles strongly overlapping IQ windows without corrupting
+  the output time dimension, so power Doppler and related IQ reducers work when
+  `window_stride < window_width / 2`
+  ([#192](https://github.com/confusius-tools/confusius/pull/192)).
 - `load_nifti` now anchors `physical_to_qform` to the same physical frame as the
   primary (sform) coordinates, so the stored qform affine maps the array's
   physical coordinates to qform world space
