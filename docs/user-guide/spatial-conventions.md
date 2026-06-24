@@ -215,14 +215,31 @@ fixed/reference DataArray are preserved automatically.
 
 ## Switching Physical Spaces
 
-The physical space is a *choice of frame*, not a fixed property of the data. Whenever a
-DataArray carries an affine to a reference space in `attrs["affines"]`, you can
-**re-anchor its coordinates onto that frame** with
-[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], making the reference
-space the new physical space. This is handy for visualization (so coordinate ticks and
-napari's world axes read in the target frame) and for initializing a registration
-(switching two scans into a common frame lines up their coordinates, leaving a small,
-optimizer-friendly transform between them).
+The physical space is a *choice of coordinate frame*, not a fixed property of the data.
+When a DataArray carries an affine from its current physical space (described by its
+coordinates) to a reference space in `attrs["affines"]`, you can use
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] to re-express its
+physical coordinates in that reference frame. 
+
+ConfUSIus physical coordinates are stored as three independent 1D arrays, so they can
+encode scaling and translation but not rotations and shears. Consequently,
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] may perform either a
+complete or partial change of physical frame:
+
+- If the affine can be represented by the coordinate arrays (that is, it is
+  axis-aligned), [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
+  absorbs the full transform. The requested reference frame becomes the new physical
+  frame, and the returned `orientation` is the identity.
+- If the affine contains axis-mixing components (rotation or shear),
+  [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] absorbs only the
+  axis-aligned part into the coordinates and returns the remaining transform as
+  `orientation`. In that case, the change of frame is incomplete until the residual
+  transform is handled separately.
+
+This operation is useful for visualization, because representable changes appear
+directly in coordinate ticks and world axes. It can also provide a useful initialization
+for registration by expressing datasets in approximately the same frame. Any returned
+residual orientation must still be included when comparing or registering datasets.
 
 Take the `sform`/`qform` example from [Reference Spaces](#reference-spaces). A NIfTI
 file with both affines anchors its physical space to the axis-aligned `sform` frame (the
