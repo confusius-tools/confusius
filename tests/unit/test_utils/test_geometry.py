@@ -11,6 +11,7 @@ from confusius._utils.geometry import (
     get_affine_orientation_matrix,
     get_affine_origin,
     get_physical_spacings,
+    get_voxel_affine_origin,
 )
 
 
@@ -146,3 +147,28 @@ def test_get_physical_spacings_returns_none_for_irregular_voxel_axes() -> None:
     spacing = get_physical_spacings(voxel_coords, voxel_to_physical)
 
     assert spacing == {"k": 2.0, "j": 6.0, "i": None}
+
+
+def test_get_voxel_affine_origin_uses_first_sampled_voxel() -> None:
+    """Voxel-affine origin is the physical location of array index zero."""
+    data = xr.DataArray(
+        np.zeros((2, 3, 4)),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [10.0, 11.0],
+            "j": [5.0, 7.0, 9.0],
+            "i": [100.0, 101.0, 102.0, 103.0],
+        },
+        attrs={
+            "voxel_to_physical": np.array(
+                [
+                    [2.0, 0.0, 0.0, 10.0],
+                    [0.0, 3.0, 0.0, 20.0],
+                    [0.0, 0.0, 4.0, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            )
+        },
+    )
+
+    assert get_voxel_affine_origin(data) == {"z": 30.0, "y": 35.0, "x": 430.0}

@@ -115,6 +115,34 @@ def _has_voxel_affine_geometry(data: xr.DataArray) -> bool:
     )
 
 
+def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
+    """Validate slice selection semantics for voxel-affine data.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Data being sliced for plotting.
+    slice_mode : str
+        Requested slice dimension.
+
+    Raises
+    ------
+    ValueError
+        If voxel-affine data is sliced along anything other than its native voxel-space
+        dimensions.
+    """
+    if not _has_voxel_affine_geometry(data):
+        return
+
+    valid_slice_modes = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    if slice_mode not in valid_slice_modes:
+        raise ValueError(
+            "Voxel-affine plotting currently supports only native voxel-plane slicing "
+            f"along {valid_slice_modes!r}, got slice_mode={slice_mode!r}. Physical-"
+            "plane slicing is not implemented yet."
+        )
+
+
 def _voxel_affine_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
     """Return voxel-space dimension order implied by the stored affine."""
     ndim = np.asarray(slice_da.attrs["voxel_to_physical"]).shape[0] - 1
@@ -698,6 +726,7 @@ class VolumePlotter:
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
+        _validate_voxel_affine_slice_mode(data, self.slice_mode)
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
@@ -1489,6 +1518,8 @@ class VolumePlotter:
         ]
         if squeeze_dims:
             mask = mask.squeeze(dim=squeeze_dims)
+
+        _validate_voxel_affine_slice_mode(mask, self.slice_mode)
 
         if self.slice_mode not in mask.dims:
             raise ValueError(f"slice_mode '{self.slice_mode}' not in mask dimensions")

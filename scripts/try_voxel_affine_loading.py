@@ -9,6 +9,7 @@ import numpy as np
 
 import confusius as cf
 from confusius.plotting import plot_volume
+from confusius.validation import validate_fusi_dataarray
 
 # %%
 # Build a synthetic 3D volume in NIfTI (x, y, z) array order.
@@ -70,6 +71,12 @@ print("affine keys:", list(da.attrs.get("affines", {})))
 print("k range:", float(da.k.min()), "->", float(da.k.max()))
 print("j range:", float(da.j.min()), "->", float(da.j.max()))
 print("i range:", float(da.i.min()), "->", float(da.i.max()))
+print("origin:", da.fusi.origin)
+print("spacing:", da.fusi.spacing)
+print("direction:\n", da.fusi.direction)
+
+validate_fusi_dataarray(da, require_regular_spacing=True, regular_spacing_dims="space")
+print("validate_fusi_dataarray(...): ok")
 
 # %%
 # Slice along k: constant k, plot the native (j, i) plane in its projected in-plane geometry.
@@ -78,6 +85,9 @@ plot_volume(
     slice_mode="k",
     show_colorbar=False,
 ).show()
+
+# `slice_mode="z"` is intentionally not supported yet for voxel-affine data:
+# slicing is native voxel-plane only for now.
 
 # %%
 # Slice along j: constant j, plot the native (k, i) plane.

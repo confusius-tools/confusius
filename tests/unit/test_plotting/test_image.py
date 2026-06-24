@@ -455,6 +455,13 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "i in-plane (mm)"
         assert ax.get_ylabel() == "j in-plane (mm)"
 
+    def test_voxel_affine_volume_rejects_physical_slice_mode(self, matplotlib_pyplot):
+        """Voxel-affine plotting accepts only native voxel-space slice modes."""
+        data = _make_voxel_affine_volume()
+
+        with pytest.raises(ValueError, match="native voxel-plane slicing"):
+            plot_volume(data, slice_mode="z", slice_coords=[0.0], show_colorbar=False)
+
 
 class TestCentersToEdges:
     """Tests for _centers_to_edges helper function."""

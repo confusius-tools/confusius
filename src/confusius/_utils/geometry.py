@@ -288,6 +288,174 @@ def add_physical_coords_from_voxel_affine(
     return result
 
 
+def restore_physical_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArray:
+    """Rebuild lazy CTI physical coordinates from stored voxel-affine metadata.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray that may carry `attrs["voxel_to_physical"]` plus 1D voxel-space
+        coordinates on `k`, `j`, and/or `i`.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` unchanged when the required voxel-affine metadata is absent, otherwise a
+        DataArray with lazy CTI-derived physical coordinates restored.
+    """
+    if "voxel_to_physical" not in data.attrs:
+        return data
+
+    voxel_dims = get_voxel_affine_spatial_dims(data)
+    if len(voxel_dims) not in {2, 3}:
+        return data
+    if any(
+        dim not in data.coords or data.coords[dim].dims != (dim,) for dim in voxel_dims
+    ):
+        return data
+
+    physical_coord_names = get_voxel_affine_physical_coord_names(data)
+    physical_coord_attrs = {
+        name: dict(data.coords[name].attrs)
+        for name in physical_coord_names
+        if name in data.coords
+    }
+
+    return add_physical_coords_from_voxel_affine(
+        data,
+        data.attrs["voxel_to_physical"],
+        voxel_dims=voxel_dims,
+        physical_coord_names=physical_coord_names,
+        physical_coord_attrs=physical_coord_attrs,
+    )
+
+
+def has_voxel_affine_geometry(data: xr.DataArray) -> bool:
+    """Return whether a DataArray carries canonical voxel-affine metadata.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    bool
+        Whether `data` stores a `voxel_to_physical` affine and has 2D or 3D voxel-space
+        dimensions drawn from `("k", "j", "i")`.
+    """
+    return "voxel_to_physical" in data.attrs and len(
+        get_voxel_affine_spatial_dims(data)
+    ) in {
+        2,
+        3,
+    }
+
+
+def get_voxel_affine_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
+    """Return voxel-space dimensions present on a voxel-affine DataArray.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Present voxel-space dimensions in canonical affine column order.
+    """
+    return tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+
+
+def get_voxel_affine_physical_coord_names(data: xr.DataArray) -> tuple[str, ...]:
+    """Return physical coordinate names exposed by voxel-affine geometry.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Physical coordinate names in affine row order.
+    """
+    voxel_dims = get_voxel_affine_spatial_dims(data)
+    physical_coord_names = tuple(
+        dim
+        for dim in ("z", "y", "x")
+        if dim in data.coords and data.coords[dim].dims == voxel_dims
+    )
+    if physical_coord_names:
+        return physical_coord_names
+    return ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
+
+
+def get_voxel_affine_origin(data: xr.DataArray) -> dict[str, float]:
+    """Return the physical location of the first sampled voxel.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Voxel-affine DataArray.
+
+    Returns
+    -------
+    dict[str, float]
+        Physical origin keyed by physical coordinate name.
+
+    Notes
+    -----
+    This returns the physical location of array index `(0, ..., 0)`, i.e. the first
+    sampled voxel, not necessarily the affine translation at voxel-space `(0, ..., 0)`.
+    The two coincide only when the voxel coordinates themselves start at zero.
+    """
+    voxel_dims = get_voxel_affine_spatial_dims(data)
+    physical_coord_names = get_voxel_affine_physical_coord_names(data)
+    first_voxel = np.array(
+        [float(np.asarray(data.coords[dim].values)[0]) for dim in voxel_dims] + [1.0],
+        dtype=np.float64,
+    )
+    origin = np.asarray(data.attrs["voxel_to_physical"], dtype=np.float64) @ first_voxel
+    return {name: float(origin[i]) for i, name in enumerate(physical_coord_names)}
+
+
+def get_voxel_affine_spacing(data: xr.DataArray) -> dict[str, float | None]:
+    """Return physical spacing per voxel-space axis for a voxel-affine DataArray.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Voxel-affine DataArray.
+
+    Returns
+    -------
+    dict[str, float | None]
+        Physical spacing keyed by voxel-space dimension.
+    """
+    voxel_dims = get_voxel_affine_spatial_dims(data)
+    voxel_coords = {dim: data.coords[dim].values for dim in voxel_dims}
+    return get_physical_spacings(voxel_coords, data.attrs["voxel_to_physical"])
+
+
+def get_voxel_affine_direction_matrix(data: xr.DataArray) -> npt.NDArray[np.float64]:
+    """Return the physical-space direction matrix of a voxel-affine DataArray.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Voxel-affine DataArray.
+
+    Returns
+    -------
+    (N, N) numpy.ndarray
+        Unit direction vectors in physical-space row order and voxel-space column
+        order.
+    """
+    return get_affine_orientation_matrix(data.attrs["voxel_to_physical"])
+
+
 def get_affine_origin(
     voxel_to_physical: npt.ArrayLike,
 ) -> npt.NDArray[np.float64]:

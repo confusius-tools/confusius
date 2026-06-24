@@ -1,11 +1,12 @@
 """Unit tests for confusius.io.loadsave module."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.io.loadsave import load, save
 
 
@@ -18,7 +19,7 @@ class TestLoadDispatch:
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
             result = load(path)
-        mock.assert_called_once_with(path.resolve())
+        mock.assert_called_once_with(path.resolve(), coordinate_model="legacy")
         assert result is mock_da
 
     def test_compound_nii_gz_extension(self, tmp_path):
@@ -27,7 +28,7 @@ class TestLoadDispatch:
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
             result = load(path)
-        mock.assert_called_once_with(path.resolve())
+        mock.assert_called_once_with(path.resolve(), coordinate_model="legacy")
         assert result is mock_da
 
     def test_nii_dispatches_to_load_nifti(self, tmp_path):
@@ -36,7 +37,7 @@ class TestLoadDispatch:
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
             result = load(path)
-        mock.assert_called_once_with(path.resolve())
+        mock.assert_called_once_with(path.resolve(), coordinate_model="legacy")
         assert result is mock_da
 
     def test_scan_dispatches_to_load_scan(self, tmp_path):
@@ -45,7 +46,7 @@ class TestLoadDispatch:
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.scan.load_scan", return_value=mock_da) as mock:
             result = load(path)
-        mock.assert_called_once_with(path.resolve())
+        mock.assert_called_once_with(path.resolve(), coordinate_model="legacy")
         assert result is mock_da
 
     def test_compound_scan_extension(self, tmp_path):
@@ -54,7 +55,7 @@ class TestLoadDispatch:
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.scan.load_scan", return_value=mock_da) as mock:
             result = load(path)
-        mock.assert_called_once_with(path.resolve())
+        mock.assert_called_once_with(path.resolve(), coordinate_model="legacy")
         assert result is mock_da
 
     def test_kwargs_forwarded_to_loader(self, tmp_path):
@@ -63,7 +64,9 @@ class TestLoadDispatch:
         mock_da = MagicMock(spec=xr.DataArray)
         with patch("confusius.io.nifti.load_nifti", return_value=mock_da) as mock:
             load(path, chunks=None)
-        mock.assert_called_once_with(path.resolve(), chunks=None)
+        mock.assert_called_once_with(
+            path.resolve(), coordinate_model="legacy", chunks=None
+        )
 
     def test_unsupported_extension_raises(self, tmp_path):
         """Unsupported extension raises ValueError."""
@@ -103,7 +106,7 @@ class TestSaveDispatch:
         """.zarr extension calls DataArray.to_zarr."""
         path = tmp_path / "data.zarr"
         da = MagicMock(spec=xr.DataArray)
-        with patch("confusius.io.nifti.save_nifti") as mock:
+        with patch("confusius.io.nifti.save_nifti"):
             save(da, path)
         da.to_zarr.assert_called_once_with(path.resolve())
 
@@ -111,7 +114,7 @@ class TestSaveDispatch:
         """.source.zarr compound extension calls DataArray.to_zarr."""
         path = tmp_path / "data.source.zarr"
         da = MagicMock(spec=xr.DataArray)
-        with patch("confusius.io.nifti.save_nifti") as mock:
+        with patch("confusius.io.nifti.save_nifti"):
             save(da, path)
         da.to_zarr.assert_called_once_with(path.resolve())
 
@@ -165,3 +168,47 @@ class TestLoadZarr:
         result = load(multi_var_zarr, variable="iq")
         assert isinstance(result, xr.DataArray)
         assert result.name == "iq"
+
+    def test_zarr_voxel_affine_rebuilds_coordinate_transform_index(self, tmp_path):
+        """coordinate_model='voxel_affine' rebuilds CTI-backed physical coords."""
+        base = xr.DataArray(
+            np.arange(24, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={
+                "k": [0.0, 1.0],
+                "j": [0.0, 1.0, 2.0],
+                "i": [0.0, 1.0, 2.0, 3.0],
+            },
+            name="power",
+        )
+        voxel_affine = add_physical_coords_from_voxel_affine(
+            base,
+            np.array(
+                [
+                    [0.4, 0.0, 0.1, 10.0],
+                    [0.1, 0.3, 0.0, 20.0],
+                    [0.0, 0.05, 0.25, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
+        path = tmp_path / "voxel_affine.zarr"
+        voxel_affine.to_dataset().to_zarr(path, zarr_format=2)
+
+        loaded = load(path, variable="power", coordinate_model="voxel_affine")
+
+        assert loaded.dims == ("k", "j", "i")
+        assert loaded.coords["x"].dims == ("k", "j", "i")
+        assert loaded.coords["y"].dims == ("k", "j", "i")
+        assert loaded.coords["z"].dims == ("k", "j", "i")
+        assert type(loaded.xindexes["x"]).__name__ == "CoordinateTransformIndex"
+        np.testing.assert_allclose(
+            loaded.attrs["voxel_to_physical"], voxel_affine.attrs["voxel_to_physical"]
+        )
