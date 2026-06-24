@@ -540,8 +540,8 @@ def compute_compcor_confounds(
     selected_voxels = np.ones(n_voxels, dtype=bool)
 
     if noise_mask is not None:
-        validate_mask(noise_mask, signals, "noise_mask")
-        noise_mask_flat = noise_mask.values.flatten().astype(bool)
+        noise_mask = validate_mask(noise_mask, signals, "noise_mask")
+        noise_mask_flat = noise_mask.values.flatten()
 
         if noise_mask_flat.shape[0] != n_voxels:
             raise ValueError(
