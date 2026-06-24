@@ -31,6 +31,7 @@ from confusius.glm._utils import (
     select_contrast_map,
     to_spatial_dataarray,
 )
+from confusius.spatial import smooth_volume
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import validate_mask
 from confusius.validation.time_series import validate_time_series
@@ -109,6 +110,14 @@ class FirstLevelModel(BaseEstimator):
         interval in the run `time` coordinate (see
         [`get_representative_step`][confusius._utils.get_representative_step]).
         Increase this value to tolerate slight timestamp jitter.
+    smoothing_fwhm : float or dict[str, float], optional
+        Full width at half maximum of the Gaussian smoothing kernel, in the physical
+        units of the spatial coordinates, applied to each run before model fitting. A
+        scalar smooths all non-`time` dimensions (caution if data `pose` dimension); a
+        dict maps dimension names to per-dimension FWHM. Smoothing is delegated to
+        [`smooth_volume`][confusius.spatial.smooth_volume], which requires each smoothed
+        dimension to have uniform coordinate spacing. If not provided, no smoothing is
+        applied.
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting voxels to include in model fitting. Must match
         the spatial dimensions and coordinates of each run.
@@ -153,6 +162,7 @@ class FirstLevelModel(BaseEstimator):
         oversampling: int = 50,
         min_onset: float = -24.0,
         uniformity_tolerance: float = 1e-2,
+        smoothing_fwhm: float | dict[str, float] | None = None,
         mask: xr.DataArray | None = None,
     ) -> None:
         self.hrf_model = hrf_model
@@ -165,6 +175,7 @@ class FirstLevelModel(BaseEstimator):
         self.oversampling = oversampling
         self.min_onset = min_onset
         self.uniformity_tolerance = uniformity_tolerance
+        self.smoothing_fwhm = smoothing_fwhm
         self.mask = mask
 
     def fit(
@@ -285,17 +296,16 @@ class FirstLevelModel(BaseEstimator):
         self._input_attrs: dict[str, object] = consensus_attrs(run_data)
 
         for run_index in range(n_runs):
-            data_2d, s_dims, s_shape = _flatten_spatial(run_data[run_index])
+            run = run_data[run_index]
+            if self.smoothing_fwhm is not None:
+                run = smooth_volume(run, self.smoothing_fwhm)
+            data_2d, s_dims, s_shape = _flatten_spatial(run)
             if self.mask is not None:
-                masked = extract_with_mask(run_data[run_index], self.mask)
+                masked = extract_with_mask(run, self.mask)
                 data_2d = masked.transpose("time", "space").values
             self._spatial_shapes.append(s_shape)
             self._run_coords.append(
-                {
-                    str(d): run_data[run_index].coords[d]
-                    for d in s_dims
-                    if d in run_data[run_index].coords
-                }
+                {str(d): run.coords[d] for d in s_dims if d in run.coords}
             )
 
             dm = design_matrices_list[run_index]
