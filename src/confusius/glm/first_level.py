@@ -118,13 +118,13 @@ class FirstLevelModel(BaseEstimator):
         Smoothing is delegated to [`smooth_volume`][confusius.spatial.smooth_volume],
         which requires each smoothed dimension to have uniform coordinate spacing.
 
-        .. attention::
+        !!! warning
             If the data has any other dimension besides `time`, a scalar
             `smoothing_fwhm` will smooth these dimensions as well.
 
-        .. attention::
-          The dict may also include the `"time"` key to smooth along the
-          time axis as well (this is intended behavior).
+        !!! attention
+            The dict may also include the `"time"` key to smooth along the
+            time axis as well (this is intended behavior).
 
         If not provided, no smoothing is applied.
     mask : xarray.DataArray, optional
