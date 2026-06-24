@@ -101,6 +101,10 @@ numpydoc_validation_checks = ["all", "GL01", "ES01", "SA01", "EX01"]
 # well beyond what unit tests cover. Exclude it to keep coverage numbers meaningful.
 omit = ["*/confusius/_napari/*", "*/confusius/_cli.py"]
 
+[tool.codespell]
+# "fpr" is the false-positive-rate option of threshold_stats_img, not a typo.
+ignore-words-list = "fpr"
+
 [tool.ruff]
 exclude = ["benchmark/*"]
 

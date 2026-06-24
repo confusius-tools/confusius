@@ -22,6 +22,7 @@ from confusius.glm._models import (
 )  # exported for user type annotations
 from confusius.glm.first_level import FirstLevelModel
 from confusius.glm.second_level import SecondLevelModel, make_second_level_design_matrix
+from confusius.glm.thresholding import threshold_stats_img
 
 __all__ = [
     "FirstLevelModel",
@@ -30,6 +31,7 @@ __all__ = [
     "make_second_level_design_matrix",
     "RegressionResults",
     "Contrast",
+    "threshold_stats_img",
     "gamma_difference_hrf",
     "glover_hrf",
     "spm_hrf",
