@@ -37,7 +37,7 @@ def _validate_register_volume_inputs(
     shrink_factors: Sequence[int],
     smoothing_sigmas: Sequence[int],
     resample_interpolation: Literal["linear", "bspline"],
-) -> None:
+) -> tuple[xr.DataArray | None, xr.DataArray | None]:
     """Validate all inputs to `register_volume` before any computation.
 
     Parameters
@@ -70,6 +70,13 @@ def _validate_register_volume_inputs(
         Smoothing sigmas per pyramid level.
     resample_interpolation : {"linear", "bspline"}
         Interpolator name used when resampling.
+
+    Returns
+    -------
+    fixed_mask : xarray.DataArray or None
+        `fixed_mask` coerced to boolean dtype, or None if not provided.
+    moving_mask : xarray.DataArray or None
+        `moving_mask` coerced to boolean dtype, or None if not provided.
 
     Raises
     ------
@@ -175,9 +182,9 @@ def _validate_register_volume_inputs(
     from confusius.validation import validate_mask
 
     if fixed_mask is not None:
-        validate_mask(fixed_mask, fixed, "fixed_mask")
+        fixed_mask = validate_mask(fixed_mask, fixed, "fixed_mask")
     if moving_mask is not None:
-        validate_mask(moving_mask, moving, "moving_mask")
+        moving_mask = validate_mask(moving_mask, moving, "moving_mask")
 
     # --- Multi-resolution consistency ---
     if len(shrink_factors) != len(smoothing_sigmas):
@@ -185,6 +192,8 @@ def _validate_register_volume_inputs(
             f"shrink_factors and smoothing_sigmas must have the same length; "
             f"got {len(shrink_factors)} and {len(smoothing_sigmas)}."
         )
+
+    return fixed_mask, moving_mask
 
 
 def _expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
@@ -521,7 +530,7 @@ def register_volume(
     """
     import SimpleITK as sitk
 
-    _validate_register_volume_inputs(
+    fixed_mask, moving_mask = _validate_register_volume_inputs(
         moving=moving,
         fixed=fixed,
         fixed_mask=fixed_mask,
