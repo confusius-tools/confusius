@@ -19,6 +19,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Masks are now coerced to boolean by `validate_mask` (added `return_dtype_as_bool`
+  parameter that defaults to `True`), to avoid DataArrays to use *positional indexing*
+  instead. Previously these masks could select the wrong voxels or, for
+  `register_volume`, silently disable the metric mask
+  ([#197](https://github.com/confusius-tools/confusius/pull/197)).
 - `load_nifti` now anchors `physical_to_qform` to the same physical frame as the
   primary (sform) coordinates, so the stored qform affine maps the array's
   physical coordinates to qform world space
