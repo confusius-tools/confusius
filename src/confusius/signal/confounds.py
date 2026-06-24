@@ -13,8 +13,8 @@ import xarray as xr
 from confusius.signal._utils import remove_zero_variance_voxels
 from confusius.signal.detrending import detrend as detrend_signals
 from confusius.signal.standardization import standardize
-from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation import validate_mask, validate_time_series
+from confusius.validation.coordinates import validate_matching_coordinates
 
 
 def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.ndarray:
@@ -541,7 +541,7 @@ def compute_compcor_confounds(
 
     if noise_mask is not None:
         validate_mask(noise_mask, signals, "noise_mask")
-        noise_mask_flat = noise_mask.values.flatten()
+        noise_mask_flat = noise_mask.values.flatten().astype(bool)
 
         if noise_mask_flat.shape[0] != n_voxels:
             raise ValueError(
@@ -549,7 +549,7 @@ def compute_compcor_confounds(
                 f"signals spatial size ({n_voxels})."
             )
 
-        selected_voxels = selected_voxels & noise_mask_flat
+        selected_voxels = np.logical_and(selected_voxels, noise_mask_flat)
 
     if variance_threshold is not None:
         if not (0 < variance_threshold < 1):
