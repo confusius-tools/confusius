@@ -18,7 +18,7 @@ Current development version for the next ConfUSIus release.
   for the caller to use as they wish
   ([#188](https://github.com/confusius-tools/confusius/pull/188)).
 - Add `smoothing_fwhm` parameter to [`FirstLevelModel`][confusius.glm.FirstLevelModel].
-  Spatial smoothing is applied to each run before model fitting
+  Smoothing is applied to each run before model fitting
   ([#201](https://github.com/confusius-tools/confusius/pull/201)).
 
 ### :zap: Performance
