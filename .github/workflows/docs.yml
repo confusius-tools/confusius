@@ -47,7 +47,7 @@ jobs:
             libxcb-xinerama0
 
       - name: Cache Nunez-Elizalde dataset
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/nunez-elizalde-2022-bids
           key: ${{ runner.os }}-nunez-elizalde-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
@@ -55,7 +55,7 @@ jobs:
             ${{ runner.os }}-nunez-elizalde-bids-
 
       - name: Cache Cybis Pereira dataset
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/cybis-pereira-2026-bids
           key: ${{ runner.os }}-cybis-pereira-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
@@ -80,7 +80,7 @@ jobs:
 
       - name: Cache generated docs images
         id: cache-doc-images
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             docs/images/gui/*.png
@@ -111,7 +111,7 @@ jobs:
         run: mkdir -p .gallery-cache
 
       - name: Cache gallery artifacts
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .gallery-cache
           key: ${{ runner.os }}-gallery-${{ hashFiles('uv.lock', 'docs/examples/**/*.py', 'tools/gallery/**/*.py', 'tools/build_gallery.py') }}
