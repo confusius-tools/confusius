@@ -144,7 +144,7 @@ def _apply_cluster_threshold(
     arr[small] = 0.0
 
 
-def threshold_stats_img(
+def apply_statistical_threshold(
     stat_map: xr.DataArray,
     mask: xr.DataArray | None = None,
     *,
