@@ -137,6 +137,52 @@ class TestLoadScan2D:
         """2Dscan produces DataArray with dims (time, z, y, x)."""
         assert scan_2d.dims == ("time", "z", "y", "x")
 
+    def test_voxel_affine_model_uses_voxel_dims_and_lazy_physical_coords(
+        self, scan_2d_path: Path
+    ) -> None:
+        """Voxel-affine loading exposes `k/j/i` plus derived physical coords."""
+        da = load_scan(scan_2d_path, coordinate_model="voxel_affine")
+
+        assert da.dims == ("time", "k", "j", "i")
+        assert da.shape == (_T, _SIZE_Y, _SIZE_Z, _SIZE_X)
+        assert da.coords["k"].dims == ("k",)
+        assert da.coords["j"].dims == ("j",)
+        assert da.coords["i"].dims == ("i",)
+        assert da.coords["z"].dims == ("k", "j", "i")
+        assert da.coords["y"].dims == ("k", "j", "i")
+        assert da.coords["x"].dims == ("k", "j", "i")
+        assert da.attrs["voxel_to_physical"].shape == (4, 4)
+        np.testing.assert_allclose(
+            da.coords["x"].values[0, 0, :],
+            1e3
+            * (
+                _VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1)
+                + _VOXELS_TO_PROBE[0, 3]
+            ),
+            rtol=1e-10,
+        )
+        np.testing.assert_allclose(
+            da.coords["y"].values[0, :, 0],
+            1e3
+            * (
+                -(
+                    _VOXELS_TO_PROBE[2, 2] * (np.arange(_SIZE_Z) + 1)
+                    + _VOXELS_TO_PROBE[2, 3]
+                )
+            ),
+            rtol=1e-10,
+        )
+        np.testing.assert_allclose(
+            da.coords["z"].values[:, 0, 0],
+            1e3
+            * (
+                _VOXELS_TO_PROBE[1, 1] * (np.arange(_SIZE_Y) + 1)
+                + _VOXELS_TO_PROBE[1, 3]
+            ),
+            rtol=1e-10,
+        )
+        assert da.attrs["affines"]["physical_to_lab"].shape == (4, 4)
+
     def test_shape(self, scan_2d: xr.DataArray) -> None:
         """2Dscan shape matches (T, sizeY, sizeZ, sizeX)."""
         assert scan_2d.shape == (_T, _SIZE_Y, _SIZE_Z, _SIZE_X)
@@ -608,7 +654,9 @@ class TestLoadScanWithBPS:
         brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)
         return np.linalg.inv(brain_to_confusius_lab) @ physical_to_lab
 
-    def test_load_bps_reexpresses_lab_side(self, bps_path: Path, brain_to_lab: np.ndarray) -> None:
+    def test_load_bps_reexpresses_lab_side(
+        self, bps_path: Path, brain_to_lab: np.ndarray
+    ) -> None:
         """load_bps converts BrainToLab to ConfUSIus-ordered lab coordinates."""
         expected = self._expected_brain_to_confusius_lab(brain_to_lab)
         result = load_bps(bps_path)

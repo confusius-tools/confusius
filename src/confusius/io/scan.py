@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.io.utils import check_path
 
 PHYSICAL_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
@@ -186,6 +187,102 @@ def _build_physical_to_lab(
     return physical_to_lab
 
 
+def _build_voxel_to_confusius_physical(
+    voxels_to_probe: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Convert `voxelsToProbe` into a zero-based ConfUSIus voxel-to-physical affine.
+
+    Parameters
+    ----------
+    voxels_to_probe : (4, 4) numpy.ndarray
+        SCAN `voxelsToProbe` affine mapping one-based probe voxel coordinates to probe
+        physical coordinates in metres.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Affine mapping zero-based ConfUSIus voxel coordinates `(k, j, i)` to
+        ConfUSIus physical coordinates `(z, y, x)` in millimetres.
+    """
+    conf_voxel_to_probe_voxel = np.array(
+        [
+            [0.0, 0.0, 1.0, 1.0],
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+    metres_to_mm = np.diag([1e3, 1e3, 1e3, 1.0])
+    return (
+        metres_to_mm
+        @ PHYSICAL_TO_PROBE_PERMUTATION.T
+        @ np.asarray(voxels_to_probe, dtype=np.float64)
+        @ conf_voxel_to_probe_voxel
+    )
+
+
+def _make_scan_voxel_coords(
+    size_x: int,
+    size_y: int,
+    size_z: int,
+) -> dict[str, xr.DataArray]:
+    """Return 1D voxel-space coordinates for ConfUSIus scan dimensions.
+
+    Parameters
+    ----------
+    size_x : int
+        Number of lateral voxels.
+    size_y : int
+        Number of elevation voxels.
+    size_z : int
+        Number of depth voxels.
+
+    Returns
+    -------
+    dict[str, xarray.DataArray]
+        One-dimensional voxel-space coordinates keyed by `k`, `j`, and `i`.
+    """
+    return {
+        "k": xr.DataArray(np.arange(size_y, dtype=np.float64), dims=["k"]),
+        "j": xr.DataArray(np.arange(size_z, dtype=np.float64), dims=["j"]),
+        "i": xr.DataArray(np.arange(size_x, dtype=np.float64), dims=["i"]),
+    }
+
+
+def _attach_scan_voxel_affine_geometry(
+    data: xr.DataArray,
+    voxel_to_physical: npt.NDArray[np.float64],
+) -> xr.DataArray:
+    """Attach lazy physical `(z, y, x)` coordinates derived from scan voxel space.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Scan data carrying 1D voxel-space coordinates `k`, `j`, `i`.
+    voxel_to_physical : (4, 4) numpy.ndarray
+        Affine mapping zero-based ConfUSIus voxel coordinates to physical probe space.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray with lazy physical coordinates attached and the affine stored in
+        `attrs["voxel_to_physical"]`.
+    """
+    data.attrs["voxel_to_physical"] = np.asarray(voxel_to_physical, dtype=np.float64)
+    return add_physical_coords_from_voxel_affine(
+        data,
+        voxel_to_physical,
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
 def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     """Load a BPS file and return an affine from Iconeus' brain space to ConfUSIus lab space.
 
@@ -244,6 +341,7 @@ def load_scan(
     path: str | Path,
     bps_path: str | Path | None = None,
     chunks: int | tuple[int, ...] | str | None = "auto",
+    coordinate_model: str = "legacy",
 ) -> xr.DataArray:
     """Load an Iconeus SCAN file as a lazy Xarray DataArray.
 
@@ -271,17 +369,32 @@ def load_scan(
         - A size in bytes like `"100 MiB"`.
         - `"auto"` to let Dask choose based on heuristics.
         - `-1` or `None` for the full dimension size (no chunking).
+    coordinate_model : {"legacy", "voxel_affine"}, default: "legacy"
+        Spatial coordinate representation to construct.
+
+        - `"legacy"` keeps the current 1D physical coordinates `z`, `y`, `x`.
+        - `"voxel_affine"` creates 1D voxel-space coordinates `k`, `j`, `i` plus
+          lazy physical coordinates `z`, `y`, `x` derived from a single
+          `attrs["voxel_to_physical"]` affine.
 
     Returns
     -------
     xarray.DataArray
         Lazy DataArray with dimensions and coordinates:
 
-        - `2Dscan` → `(time, z, y, x)`.
-        - `3Dscan` → `(pose, z, y, x)`.
-        - `4Dscan` → `(time, pose, z, y, x)`.
+        - `coordinate_model="legacy"`:
 
-        All spatial coordinates are in millimeters. The `time` coordinate is in
+          - `2Dscan` → `(time, z, y, x)`.
+          - `3Dscan` → `(pose, z, y, x)`.
+          - `4Dscan` → `(time, pose, z, y, x)`.
+
+        - `coordinate_model="voxel_affine"`:
+
+          - `2Dscan` → `(time, k, j, i)`.
+          - `3Dscan` → `(pose, k, j, i)`.
+          - `4Dscan` → `(time, pose, k, j, i)`.
+
+        All physical coordinates are in millimeters. The `time` coordinate is in
         seconds. For `4Dscan`, a `pose_time` non-dimension coordinate of shape
         `(time, pose)` stores the actual per-pose acquisition timestamps.
 
@@ -332,6 +445,8 @@ def load_scan(
         spatial_coords = _coords_from_voxels_to_probe(
             voxels_to_probe, size_x, size_y, size_z
         )
+        voxel_coords = _make_scan_voxel_coords(size_x, size_y, size_z)
+        voxel_to_physical = _build_voxel_to_confusius_physical(voxels_to_probe)
         physical_to_lab = _build_physical_to_lab(probe_to_lab)
 
         attrs: dict[str, Any] = {
@@ -348,18 +463,48 @@ def load_scan(
 
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
 
-        if mode == "2Dscan":
-            data_array = _load_2dscan(h5, raw_lazy, spatial_coords, attrs)
-        elif mode == "3Dscan":
-            data_array = _load_3dscan(raw_lazy, spatial_coords, attrs, npose)
-        elif mode == "4Dscan":
-            data_array = _load_4dscan(
-                h5, raw_lazy, spatial_coords, attrs, npose, nblock_repeat
-            )
+        if coordinate_model == "legacy":
+            if mode == "2Dscan":
+                data_array = _load_2dscan(h5, raw_lazy, spatial_coords, attrs)
+            elif mode == "3Dscan":
+                data_array = _load_3dscan(raw_lazy, spatial_coords, attrs, npose)
+            elif mode == "4Dscan":
+                data_array = _load_4dscan(
+                    h5, raw_lazy, spatial_coords, attrs, npose, nblock_repeat
+                )
+            else:
+                raise ValueError(
+                    f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
+                    " '3Dscan', '4Dscan'."
+                )
+        elif coordinate_model == "voxel_affine":
+            if mode == "2Dscan":
+                data_array = _load_2dscan_voxel_affine(
+                    h5, raw_lazy, voxel_coords, attrs, voxel_to_physical
+                )
+            elif mode == "3Dscan":
+                data_array = _load_3dscan_voxel_affine(
+                    raw_lazy, voxel_coords, attrs, npose, voxel_to_physical
+                )
+            elif mode == "4Dscan":
+                data_array = _load_4dscan_voxel_affine(
+                    h5,
+                    raw_lazy,
+                    voxel_coords,
+                    attrs,
+                    npose,
+                    nblock_repeat,
+                    voxel_to_physical,
+                )
+            else:
+                raise ValueError(
+                    f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
+                    " '3Dscan', '4Dscan'."
+                )
         else:
             raise ValueError(
-                f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
-                " '3Dscan', '4Dscan'."
+                f"Unknown coordinate_model {coordinate_model!r}. Expected 'legacy' or "
+                "'voxel_affine'."
             )
 
         data_array.name = attrs["iconeus_scan"] or path.stem
@@ -585,3 +730,102 @@ def _load_4dscan(
     return xr.DataArray(
         data_lazy, dims=["time", "pose", "z", "y", "x"], coords=coords, attrs=attrs
     )
+
+
+def _load_2dscan_voxel_affine(
+    h5: h5py.File,
+    raw_lazy: da.Array,
+    voxel_coords: dict[str, xr.DataArray],
+    attrs: dict[str, Any],
+    voxel_to_physical: npt.NDArray[np.float64],
+) -> xr.DataArray:
+    """Build a voxel-affine DataArray for `2Dscan` mode."""
+    data_lazy = da.transpose(raw_lazy, [0, 2, 1, 3])
+    time: npt.NDArray[np.float64] = np.array(
+        h5["/acqMetaData/time"][()], dtype=np.float64
+    ).squeeze()
+    time_attrs: dict[str, Any] = {
+        "units": "s",
+        "volume_acquisition_reference": "end",
+        "volume_acquisition_duration": time.min(),
+    }
+    coords: dict[str, Any] = {
+        "time": xr.DataArray(time, dims=["time"], attrs=time_attrs),
+        **voxel_coords,
+    }
+    result = xr.DataArray(
+        data_lazy,
+        dims=["time", "k", "j", "i"],
+        coords=coords,
+        attrs=attrs,
+    )
+    return _attach_scan_voxel_affine_geometry(result, voxel_to_physical)
+
+
+def _load_3dscan_voxel_affine(
+    raw_lazy: da.Array,
+    voxel_coords: dict[str, xr.DataArray],
+    attrs: dict[str, Any],
+    npose: int,
+    voxel_to_physical: npt.NDArray[np.float64],
+) -> xr.DataArray:
+    """Build a voxel-affine DataArray for `3Dscan` mode."""
+    sq = da.squeeze(raw_lazy, axis=1)
+    data_lazy = da.transpose(sq, [0, 2, 1, 3])
+    coords: dict[str, Any] = {
+        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
+        **voxel_coords,
+    }
+    result = xr.DataArray(
+        data_lazy,
+        dims=["pose", "k", "j", "i"],
+        coords=coords,
+        attrs=attrs,
+    )
+    return _attach_scan_voxel_affine_geometry(result, voxel_to_physical)
+
+
+def _load_4dscan_voxel_affine(
+    h5: h5py.File,
+    raw_lazy: da.Array,
+    voxel_coords: dict[str, xr.DataArray],
+    attrs: dict[str, Any],
+    npose: int,
+    nblock_repeat: int,
+    voxel_to_physical: npt.NDArray[np.float64],
+) -> xr.DataArray:
+    """Build a voxel-affine DataArray for `4Dscan` mode."""
+    nscan_repeat = raw_lazy.shape[0]
+    n_time = nscan_repeat * nblock_repeat
+
+    if nblock_repeat == 1:
+        sq = da.squeeze(raw_lazy, axis=2)
+    else:
+        transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
+        sq = transposed.reshape(n_time, npose, *raw_lazy.shape[3:])
+
+    data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
+    time_raw: npt.NDArray[np.float64] = (
+        np.array(h5["/acqMetaData/time"][()], dtype=np.float64)
+        .squeeze()
+        .reshape(n_time, npose)
+    )
+    block_time = time_raw.max(axis=1)
+    time_attrs: dict[str, Any] = {
+        "units": "s",
+        "volume_acquisition_reference": "end",
+        "volume_acquisition_duration": time_raw.min(),
+    }
+    coords: dict[str, Any] = {
+        "time": xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
+        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
+        "pose_time": xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
+        **voxel_coords,
+    }
+    result = xr.DataArray(
+        data_lazy,
+        dims=["time", "pose", "k", "j", "i"],
+        coords=coords,
+        attrs=attrs,
+    )
+    return _attach_scan_voxel_affine_geometry(result, voxel_to_physical)
