@@ -493,9 +493,38 @@ class TestProcessIqBlocks:
             window_stride=2,
         )
 
+        iq_values = iq.compute()
         expected = np.stack(
             [
-                iq.compute()[start : start + 5].mean(axis=0)
+                iq_values[start : start + 5].mean(axis=0)
+                for start in range(0, 21 - 5 + 1, 2)
+            ],
+            axis=0,
+        )
+
+        assert_allclose(result.compute(), expected)
+
+    def test_overlapping_windows_match_reference_with_spatial_chunks(self):
+        """Overlapping windows remain correct for spatially chunked inputs."""
+        iq = da.from_array(
+            np.arange(21 * 4 * 6 * 8).reshape(21, 4, 6, 8),
+            chunks=(5, 2, 3, 4),
+        )
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=2,
+        )
+
+        iq_values = iq.compute()
+        expected = np.stack(
+            [
+                iq_values[start : start + 5].mean(axis=0)
                 for start in range(0, 21 - 5 + 1, 2)
             ],
             axis=0,
