@@ -242,15 +242,14 @@ for registration by expressing datasets in approximately the same frame. Any ret
 residual orientation must still be included when comparing or registering datasets.
 
 Take the `sform`/`qform` example from [Reference Spaces](#reference-spaces). A NIfTI
-file with both affines anchors its physical space to the axis-aligned `sform` frame (the
-primary affine when `sform_code > 0`). The remaining orientation component of the
-`sform` is carried on the `physical_to_sform` affine attribute, while
-`physical_to_qform` records the mapping of the current physical space to the `qform`
-frame.
+file with `sform_code > 0` anchors its physical space to the `sform` frame, absorbing
+only its axis-aligned part. The remaining orientation component of `sform` is carried on
+the `physical_to_sform` affine attribute, while `physical_to_qform` records the mapping
+of the physical space to the `qform` frame.
 
-The example below shows an `sform` with no rotation or shear, resulting in a
-`physical_to_sform` that is the identity. The `qform` has a shift in `(z, y)` of (+10,
-+5) with respect to the `sform`, so `physical_to_qform` encodes that shift:
+The following example uses an axis-aligned `sform`, so `physical_to_sform` is the
+identity. The `qform` is shifted by +10 along `z` and +5 along `y` relative to the
+`sform`, so `physical_to_qform` contains only a translation:
 
 ```python
 da.coords["z"].values  # array([0., 1., 2.])
@@ -262,17 +261,17 @@ da.attrs["affines"]["physical_to_sform"]  # identity
 #        [ 0.,  0.,  1.,  0.],
 #        [ 0.,  0.,  0.,  1.]])
 
-da.attrs["affines"]["physical_to_qform"]  # here a (+10, +5) shift in (z, y):
+da.attrs["affines"]["physical_to_qform"]  # (+10, +5) shift in (z, y):
 # array([[ 1.,  0.,  0., 10.],
 #        [ 0.,  1.,  0.,  5.],
 #        [ 0.,  0.,  1.,  0.],
 #        [ 0.,  0.,  0.,  1.]])
 ```
 
-
-Applying `physical_to_qform` moves the coordinates into the `qform` frame, collapses
-`physical_to_qform` to the identity (the data is *in* that frame now), and re-expresses
-`physical_to_sform` to point back the way you came:
+Applying `physical_to_qform` absorbs the translation into the coordinate arrays. The
+`qform` frame therefore becomes the new physical frame: `physical_to_qform` becomes the
+identity, while every other stored affine is re-expressed relative to the new physical
+coordinates.
 
 === "`confusius.xarray.apply_affine`"
 
@@ -290,7 +289,7 @@ Applying `physical_to_qform` moves the coordinates into the `qform` frame, colla
 da_q.coords["z"].values  # array([10., 11., 12.])   <- shifted by +10
 da_q.coords["y"].values  # array([5., 6., 7., 8.])  <- shifted by +5
 
-da_q.attrs["affines"]["physical_to_sform"]  # the (-10, -5) shift back to sform
+da_q.attrs["affines"]["physical_to_sform"]  # (-10, -5) shift back to sform
 # array([[ 1.,  0.,  0., -10.],
 #        [ 0.,  1.,  0.,  -5.],
 #        [ 0.,  0.,  1.,   0.],
@@ -304,70 +303,59 @@ da_q.attrs["affines"]["physical_to_qform"]  # identity, the new physical frame
 orientation                                 # identity, nothing left over
 ```
 
-Every other affine in `attrs["affines"]` (atlas, lab, ...) is re-expressed the same way,
-like `physical_to_sform` above, so it stays valid.
+Because `orientation` is the identity, the change of physical frame is complete.
 
 ### Rotations and Shears
 
-As explained above, ConfUSIus physical coordinates are three independent 1D arrays, so
-they can encode scaling and translation but **not a rotation or shear that mixes axes**.
-If `physical_to_qform` were instead only a 90° rotation in the `(z, y)` plane, none of
-it could go into the coordinates—they come back unchanged from `apply_affine`—and the
-whole rotation is returned as `orientation`:
+Independent one-dimensional coordinate arrays cannot represent a transform that mixes
+axes. For example, consider a `physical_to_qform` containing a 90° rotation in the
+`(z, y)` plane:
 
 ```python
-da.coords["z"].values  # array([0., 1., 2.])
-da.coords["y"].values  # array([0., 1., 2., 3.])
-
-da.attrs["affines"]["physical_to_sform"]  # identity
-# array([[ 1.,  0.,  0.,  0.],
-#        [ 0.,  1.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
-
-da.attrs["affines"]["physical_to_qform"]  # here a 90° rotation in (z, y) plane:
-# array([[ 0., -1.,  0.,  0.],
-#        [ 1.,  0.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
+da.attrs["affines"]["physical_to_qform"]
+# array([[ 0., -1., 0., 0.],
+#        [ 1., 0., 0., 0.],
+#        [ 0., 0., 1., 0.],
+#        [ 0., 0., 0., 1.]])
 ```
 
-=== "`confusius.xarray.apply_affine`"
-
-    ```python
-    da_q, orientation = cf.xarray.apply_affine(da, da.attrs["affines"]["physical_to_qform"])
-    ```
-
-=== "Xarray accessor"
-
-    ```python
-    da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
-    ```
+After calling [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], the
+coordinate arrays remain unchanged because none of this rotation can be represented as
+independent changes to `z`, `y`, and `x`:
 
 ```python
-da_q.coords["z"].values  # array([0., 1., 2.])      <- unchanged
-da_q.coords["y"].values  # array([0., 1., 2., 3.])  <- unchanged
+da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
+da_q.coords["z"].values  # array([0., 1., 2.])
+da_q.coords["y"].values  # array([0., 1., 2., 3.])
+```
 
-orientation  # the 90° rotation the coordinates could not absorb:
-# array([[ 0., -1.,  0.,  0.],
-#        [ 1.,  0.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
+The unabsorbed transform is returned as orientation:
 
+```python
+orientation
+# array([[ 0., -1., 0., 0.],
+#        [ 1.,  0., 0., 0.],
+#        [ 0.,  0., 1., 0.],
+#        [ 0.,  0., 0., 1.]])
+```
+
+Because the residual is non-identity, the DataArray has not been fully re-anchored to
+the `qform` frame. The stored affines remain valid relative to the unchanged physical
+coordinates:
+
+```python
 da_q.attrs["affines"]["physical_to_sform"]  # identity
-# array([[ 1.,  0.,  0.,  0.],
-#        [ 0.,  1.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
-
-da_q.attrs["affines"]["physical_to_qform"]  # here a 90° rotation in (z, y) plane:
-# array([[ 0., -1.,  0.,  0.],
-#        [ 1.,  0.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
+da_q.attrs["affines"]["physical_to_qform"]  # unchanged 90° rotation
 ```
 
-In general `apply` absorbs the axis-aligned part (zoom + translation) into the
-coordinates and returns the residual rotation, with
-`orientation @ new_physical == affine @ old_physical`. You can leave it in
-`physical_to_qform`, compose it, or store it elsewhere.
+In general, [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] absorbs
+the diagonal scale and translation components into the coordinate arrays and returns any
+remaining axis-mixing component, such that
+
+```python
+orientation @ new_physical == affine @ old_physical
+```
+
+Always check the returned `orientation`. When it is non-identity, retain or compose it
+with subsequent transformations—or resample the data onto the target grid—rather than
+treating the coordinate arrays alone as coordinates in the target frame.
