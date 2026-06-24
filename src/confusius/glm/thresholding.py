@@ -1,10 +1,12 @@
 """Statistical thresholding with multiple-comparison correction for GLM maps.
 
-This module provides [`threshold_stats_img`][confusius.glm.thresholding.threshold_stats_img],
-which applies a voxel-level height threshold (uncorrected, false-discovery-rate, or
-Bonferroni) and an optional cluster-extent threshold to a statistical map, and
-[`fdr_threshold`][confusius.glm.thresholding.fdr_threshold], the Benjamini-Hochberg
-helper it relies on. The maps are expected to be z-scaled, such as those returned by
+This module provides
+[`threshold_stats_img`][confusius.glm.thresholding.threshold_stats_img], which applies a
+voxel-level height threshold (uncorrected, false-discovery-rate, or Bonferroni) and an
+optional cluster-extent threshold to a statistical map, and
+[`fdr_benjamini_hochberg_threshold`][confusius.glm.thresholding.fdr_benjamini_hochberg_threshold],
+the Benjamini-Hochberg helper it relies on. The maps are expected to be z-scaled, such
+as those returned by
 [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast].
 
 Portions of this file are derived from Nilearn, which is licensed under the BSD-3-Clause
@@ -28,7 +30,7 @@ if TYPE_CHECKING:
     import xarray as xr
 
 
-def fdr_threshold(
+def fdr_benjamini_hochberg_threshold(
     z_vals: npt.ArrayLike,
     alpha: float,
 ) -> float:
@@ -218,9 +220,9 @@ def apply_statistical_threshold(
         If `height_control` is not one of the allowed values, `cluster_threshold` is
         negative, `alpha` is not in `[0, 1]`, or no voxel is tested.
     """
-    if height_control not in ("fpr", "fdr", "bonferroni", None):
+    if height_control not in ("fpr", "fdr_bh", "bonferroni", None):
         raise ValueError(
-            "height_control must be one of 'fpr', 'fdr', 'bonferroni', or None, got "
+            "height_control must be one of 'fpr', 'fdr_bh', 'bonferroni', or None, got "
             f"{height_control!r}."
         )
     if cluster_threshold < 0:
@@ -247,8 +249,8 @@ def apply_statistical_threshold(
 
     if height_control == "fpr":
         z_threshold = float(sps.norm.isf(alpha_))
-    elif height_control == "fdr":
-        z_threshold = fdr_threshold(stats_for_threshold, alpha_)
+    elif height_control == "fdr_bh":
+        z_threshold = fdr_benjamini_hochberg_threshold(stats_for_threshold, alpha_)
     elif height_control == "bonferroni":
         z_threshold = float(sps.norm.isf(alpha_ / stats.size))
     else:
