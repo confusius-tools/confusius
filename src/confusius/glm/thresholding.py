@@ -150,7 +150,7 @@ def apply_statistical_threshold(
     *,
     alpha: float = 0.001,
     threshold: float | None = None,
-    height_control: Literal["fpr", "fdr", "bonferroni"] | None = "fpr",
+    height_control: Literal["fpr", "fdr_bh", "bonferroni"] | None = "fpr",
     cluster_threshold: int = 0,
     two_sided: bool = True,
     skipzero: bool = False,
@@ -180,7 +180,7 @@ def apply_statistical_threshold(
         Explicit z-score threshold, used only when `height_control` is not provided. If
         not provided in that case, defaults to 3.0. Ignored (with a warning) when
         `height_control` is set.
-    height_control : {"fpr", "fdr", "bonferroni"}, optional
+    height_control : {"fpr", "fdr_bh", "bonferroni"}, optional
         Voxel-level correction method, by default `"fpr"`. If not provided, `threshold`
         is used directly with no statistical control.
 
