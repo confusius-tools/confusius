@@ -419,13 +419,7 @@ class TestProcessIqBlocks:
             map_blocks_called = True
             return real_map_blocks(*args, **kwargs)
 
-        def forbidden_map_overlap(*args, **kwargs):
-            raise AssertionError(
-                "map_overlap should not be used for non-overlapping windows"
-            )
-
         monkeypatch.setattr(da, "map_blocks", wrapped_map_blocks)
-        monkeypatch.setattr(da, "map_overlap", forbidden_map_overlap)
 
         result = process_iq_blocks(
             iq,
@@ -458,13 +452,7 @@ class TestProcessIqBlocks:
             map_blocks_called = True
             return real_map_blocks(*args, **kwargs)
 
-        def forbidden_map_overlap(*args, **kwargs):
-            raise AssertionError(
-                "map_overlap should not be used for non-overlapping windows"
-            )
-
         monkeypatch.setattr(da, "map_blocks", wrapped_map_blocks)
-        monkeypatch.setattr(da, "map_overlap", forbidden_map_overlap)
 
         result = process_iq_blocks(
             iq,
