@@ -12,6 +12,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- New [`apply_statistical_threshold`][confusius.glm.apply_statistical_threshold] applies
+  a voxel-level height threshold (uncorrected false positive rate, false-discovery-rate,
+  or Bonferroni) and an optional cluster-extent threshold to a statistical DataArray
+  ([#204](https://github.com/confusius-tools/confusius/pull/204)).
 - `data.fusi.affine.apply` now accepts affines with rotation and shear. The
   axis-aligned part updates the 1D `z`/`y`/`x` coordinates and the method returns
   the residual orientation as a 4x4 affine (the identity for diagonal affines)
