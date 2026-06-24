@@ -270,13 +270,15 @@ def add_physical_coords_from_voxel_affine(
             )
         voxel_coords[dim] = np.asarray(coord.values, dtype=np.float64)
 
+    voxel_to_physical_array = np.asarray(voxel_to_physical, dtype=np.float64)
     transform = VoxelSpaceAffineTransform(
         voxel_coords,
-        voxel_to_physical,
+        voxel_to_physical_array,
         physical_coord_names=physical_coord_names,
     )
     physical_coords = xr.Coordinates.from_xindex(CoordinateTransformIndex(transform))
     result = data.assign_coords(physical_coords)
+    result.attrs["voxel_to_physical"] = voxel_to_physical_array
 
     if physical_coord_attrs is not None:
         for name, attrs in physical_coord_attrs.items():
