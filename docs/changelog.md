@@ -20,9 +20,10 @@ Current development version for the next ConfUSIus release.
 ### :zap: Performance
 
 - [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
-  `dask.array.map_blocks` for non-overlapping outer IQ windows and keeps
-  `dask.array.map_overlap` for overlapping cases, reducing Dask overhead in common
-  blockwise processing workflows ([#190](https://github.com/confusius-tools/confusius/pull/190)).
+  `dask.array.map_blocks` for non-overlapping outer IQ windows and batches
+  overlapping windows with explicit overlap before mapping blocks, reducing Dask
+  overhead in common blockwise processing workflows
+  ([#190](https://github.com/confusius-tools/confusius/pull/190)).
 
 ### :bug: Fixes
 
@@ -31,6 +32,10 @@ Current development version for the next ConfUSIus release.
   Previously these masks could select the wrong voxels or, for `register_volume`,
   silently disable the metric mask
   ([#197](https://github.com/confusius-tools/confusius/pull/197)).
+- `process_iq_blocks` now handles strongly overlapping IQ windows without corrupting
+  the output time dimension, so power Doppler and related IQ reducers work when
+  `window_stride < window_width / 2`
+  ([#192](https://github.com/confusius-tools/confusius/pull/192)).
 - `load_nifti` now anchors `physical_to_qform` to the same physical frame as the
   primary (sform) coordinates, so the stored qform affine maps the array's
   physical coordinates to qform world space
