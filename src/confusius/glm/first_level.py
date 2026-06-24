@@ -111,11 +111,11 @@ class FirstLevelModel(BaseEstimator):
         [`get_representative_step`][confusius._utils.get_representative_step]).
         Increase this value to tolerate slight timestamp jitter.
     smoothing_fwhm : float or dict[str, float], optional
-        Full width at half maximum of the Gaussian smoothing kernel, in the physical
         units of the spatial coordinates, applied to each run before model fitting. A
-        scalar smooths all non-`time` dimensions (caution if data `pose` dimension); a
-        dict maps dimension names to per-dimension FWHM. Smoothing is delegated to
-        [`smooth_volume`][confusius.spatial.smooth_volume], which requires each smoothed
+        scalar smooths all non-`time` dimensions (caution if the data has a `pose`
+        dimension); a dict maps non-`time` dimension names to per-dimension FWHM.
+        Smoothing is delegated to [`smooth_volume`][confusius.spatial.smooth_volume],
+        which requires each smoothed dimension to have uniform coordinate spacing.
         dimension to have uniform coordinate spacing. If not provided, no smoothing is
         applied.
     mask : xarray.DataArray, optional
