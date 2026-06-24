@@ -147,9 +147,13 @@ def apply_affine(
     )
 
     if mixes_axes:
-        # Coordinates absorb the zoom magnitudes from the decomposition; the
-        # residual orientation (rotation + shear) is returned via
-        # orientation @ new_physical == affine @ old_physical.
+        # When axes mix, the decomposition's signed zoom is not a canonical
+        # per-axis coordinate scaling: decompose_affine keeps `rotation`
+        # right-handed (`det(rotation) > 0`) by relocating any needed
+        # reflection into one zoom entry. Absorb only the zoom magnitudes into
+        # the independent 1D coordinates and leave permutations/reflections in
+        # the residual orientation.
+        zoom = np.abs(zoom)
         orientation = get_affine_in_axis_aligned_space(affine, translation, zoom)
     else:
         # Diagonal affine: each axis keeps its own SIGNED scale. Use the raw

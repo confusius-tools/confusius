@@ -619,6 +619,29 @@ class TestAffineApplyMethod:
         result, orientation = da.fusi.affine.apply(shear)
         _assert_affine_round_trip(result, orientation, shear, old)
 
+    def test_axis_permutation_does_not_introduce_spurious_coord_flip(self):
+        """A mixing affine absorbs unsigned zoom only, leaving reflections in orientation."""
+        da = self._make_scan(
+            shape=(3, 4, 5),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(10.0, 20.0, 30.0),
+        )
+        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
+        affine = np.array(
+            [
+                [0.0, 1.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        result, orientation = da.fusi.affine.apply(affine)
+
+        np.testing.assert_allclose(result.coords["z"].values, da.coords["z"].values)
+        np.testing.assert_allclose(result.coords["y"].values, da.coords["y"].values)
+        np.testing.assert_allclose(result.coords["x"].values, da.coords["x"].values)
+        _assert_affine_round_trip(result, orientation, affine, old)
+
     def test_mixing_affine_reexpresses_existing_stored_affine(self):
         """Existing stored affines stay valid after an axis-mixing affine."""
         stored = np.eye(4)
