@@ -10,6 +10,17 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
+  Events shade the signal plot; active event names appear in the time overlay; load
+  from / save to a BIDS `.tsv`
+  ([#176](https://github.com/confusius-tools/confusius/pull/176)).
+- [`confusius.bids`][confusius.bids] module is now public with new
+  [`read_events`][confusius.bids.read_events] and
+  [`write_events`][confusius.bids.write_events]
+  ([#176](https://github.com/confusius-tools/confusius/pull/176)).
+
 ### :zap: Performance
 
 - [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
