@@ -276,6 +276,8 @@ coordinates.
 === "`confusius.xarray.apply_affine`"
 
     ```python
+    import confusius as cf
+
     da_q, orientation = cf.xarray.apply_affine(da, da.attrs["affines"]["physical_to_qform"])
     ```
 
