@@ -75,7 +75,8 @@ def validate_mask(
     rtol: float = 1e-5,
     atol: float = 1e-8,
     require_exact_dims: bool = False,
-) -> None:
+    return_dtype_as_bool: bool = True,
+) -> xr.DataArray:
     """Validate that a mask matches data spatial dimensions and coordinates.
 
     Parameters
@@ -96,6 +97,17 @@ def validate_mask(
     require_exact_dims : bool, default: False
         Whether `mask.dims` must match all non-`time` dimensions of `data` in the same
         order.
+    return_dtype_as_bool : bool, default: True
+        Whether to coerce the returned `mask` to boolean dtype. Single-label integer
+        masks (`{0, region_id}`) become `{False, True}` so callers can index with the
+        result without the integer label being misread as a positional index. When
+        False, `mask` is returned with its original dtype unchanged.
+
+    Returns
+    -------
+    xarray.DataArray
+        The validated `mask`, coerced to boolean dtype when `return_dtype_as_bool` is
+        True (the default), otherwise returned with its original dtype.
 
     Raises
     ------
@@ -136,6 +148,12 @@ def validate_mask(
                 f"{mask_name} dimensions must match all non-time dimensions of data "
                 f"in the same order. Expected {expected_dims}, got {mask_dims}."
             )
+
+    # Coerce after validation so callers never index with a raw single-label integer
+    # mask (which xarray.isel would treat as positional indices). See PR #197.
+    if return_dtype_as_bool:
+        return mask.astype(bool)
+    return mask
 
 
 def validate_labels(
