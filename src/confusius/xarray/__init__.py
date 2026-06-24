@@ -15,6 +15,7 @@ __all__ = [
     "db_scale",
     "log_scale",
     "power_scale",
+    "apply_affine",
 ]
 
 from confusius.xarray.accessors import FUSIAccessor
@@ -30,6 +31,7 @@ _ATTR_TO_MODULE = {
     "db_scale": "confusius.xarray.scale",
     "log_scale": "confusius.xarray.scale",
     "power_scale": "confusius.xarray.scale",
+    "apply_affine": "confusius.xarray.affine",
 }
 
 
@@ -47,7 +49,7 @@ def __dir__() -> list[str]:
 
 
 if TYPE_CHECKING:
-    from confusius.xarray.affine import FUSIAffineAccessor
+    from confusius.xarray.affine import FUSIAffineAccessor, apply_affine
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
     from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor

@@ -212,3 +212,152 @@ fixed/reference DataArray are preserved automatically.
     voxel → physical map built from the dimension coordinate origin and spacing. Using
     the full affine (not just its orientation) means each affine keeps its own origin, so
     a file with distinct `sform` and `qform` round-trips faithfully.
+
+## Switching Physical Spaces
+
+The physical space is a *choice of coordinate frame*, not a fixed property of the data.
+When a DataArray carries an affine from its current physical space (described by its
+coordinates) to a reference space in `attrs["affines"]`, you can use
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] to re-express its
+physical coordinates in that reference frame. 
+
+ConfUSIus physical coordinates are stored as three independent 1D arrays, so they can
+encode scaling and translation but not rotations and shears. Consequently,
+[`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] may perform either a
+complete or partial change of physical frame:
+
+- If the affine can be represented by the coordinate arrays (that is, it is
+  axis-aligned), [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
+  absorbs the full transform. The requested reference frame becomes the new physical
+  frame, and the returned `orientation` is the identity.
+- If the affine contains axis-mixing components (rotation or shear),
+  [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] absorbs only the
+  axis-aligned part into the coordinates and returns the remaining transform as
+  `orientation`. In that case, the change of frame is incomplete until the residual
+  transform is handled separately.
+
+This operation is useful for visualization, because representable changes appear
+directly in coordinate ticks and world axes. It can also provide a useful initialization
+for registration by expressing datasets in approximately the same frame. Any returned
+residual orientation must still be included when comparing or registering datasets.
+
+Take the `sform`/`qform` example from [Reference Spaces](#reference-spaces). A NIfTI
+file with `sform_code > 0` anchors its physical space to the `sform` frame, absorbing
+only its axis-aligned part. The remaining orientation component of `sform` is carried on
+the `physical_to_sform` affine attribute, while `physical_to_qform` records the mapping
+of the physical space to the `qform` frame.
+
+The following example uses an axis-aligned `sform`, so `physical_to_sform` is the
+identity. The `qform` is shifted by +10 along `z` and +5 along `y` relative to the
+`sform`, so `physical_to_qform` contains only a translation:
+
+```python
+da.coords["z"].values  # array([0., 1., 2.])
+da.coords["y"].values  # array([0., 1., 2., 3.])
+
+da.attrs["affines"]["physical_to_sform"]  # identity
+# array([[ 1.,  0.,  0.,  0.],
+#        [ 0.,  1.,  0.,  0.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+
+da.attrs["affines"]["physical_to_qform"]  # (+10, +5) shift in (z, y):
+# array([[ 1.,  0.,  0., 10.],
+#        [ 0.,  1.,  0.,  5.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+```
+
+Applying `physical_to_qform` absorbs the translation into the coordinate arrays. The
+`qform` frame therefore becomes the new physical frame: `physical_to_qform` becomes the
+identity, while every other stored affine is re-expressed relative to the new physical
+coordinates.
+
+=== "`confusius.xarray.apply_affine`"
+
+    ```python
+    import confusius as cf
+
+    da_q, orientation = cf.xarray.apply_affine(da, da.attrs["affines"]["physical_to_qform"])
+    ```
+
+=== "Xarray accessor"
+
+    ```python
+    da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
+    ```
+
+```python
+da_q.coords["z"].values  # array([10., 11., 12.])   <- shifted by +10
+da_q.coords["y"].values  # array([5., 6., 7., 8.])  <- shifted by +5
+
+da_q.attrs["affines"]["physical_to_sform"]  # (-10, -5) shift back to sform
+# array([[ 1.,  0.,  0., -10.],
+#        [ 0.,  1.,  0.,  -5.],
+#        [ 0.,  0.,  1.,   0.],
+#        [ 0.,  0.,  0.,   1.]])
+
+da_q.attrs["affines"]["physical_to_qform"]  # identity, the new physical frame
+# array([[ 1.,  0.,  0.,  0.],
+#        [ 0.,  1.,  0.,  0.],
+#        [ 0.,  0.,  1.,  0.],
+#        [ 0.,  0.,  0.,  1.]])
+orientation                                 # identity, nothing left over
+```
+
+Because `orientation` is the identity, the change of physical frame is complete.
+
+### Rotations and Shears
+
+Independent one-dimensional coordinate arrays cannot represent a transform that mixes
+axes. For example, consider a `physical_to_qform` containing a 90° rotation in the
+`(z, y)` plane:
+
+```python
+da.attrs["affines"]["physical_to_qform"]
+# array([[ 0., -1., 0., 0.],
+#        [ 1., 0., 0., 0.],
+#        [ 0., 0., 1., 0.],
+#        [ 0., 0., 0., 1.]])
+```
+
+After calling [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], the
+coordinate arrays remain unchanged because none of this rotation can be represented as
+independent changes to `z`, `y`, and `x`:
+
+```python
+da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
+da_q.coords["z"].values  # array([0., 1., 2.])
+da_q.coords["y"].values  # array([0., 1., 2., 3.])
+```
+
+The unabsorbed transform is returned as orientation:
+
+```python
+orientation
+# array([[ 0., -1., 0., 0.],
+#        [ 1.,  0., 0., 0.],
+#        [ 0.,  0., 1., 0.],
+#        [ 0.,  0., 0., 1.]])
+```
+
+Because the residual is non-identity, the DataArray has not been fully re-anchored to
+the `qform` frame. The stored affines remain valid relative to the unchanged physical
+coordinates:
+
+```python
+da_q.attrs["affines"]["physical_to_sform"]  # identity
+da_q.attrs["affines"]["physical_to_qform"]  # unchanged 90° rotation
+```
+
+In general, [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] absorbs
+the diagonal scale and translation components into the coordinate arrays and returns any
+remaining axis-mixing component, such that
+
+```python
+orientation @ new_physical == affine @ old_physical
+```
+
+Always check the returned `orientation`. When it is non-identity, retain or compose it
+with subsequent transformations—or resample the data onto the target grid—rather than
+treating the coordinate arrays alone as coordinates in the target frame.

@@ -113,10 +113,13 @@ def compose_affine(
     R = np.asarray(R)
     if R.shape != (n, n):
         raise ValueError(f"Expected shape ({n},{n}) for R, got {R.shape}")
+
     A = np.eye(n + 1)
     ZS = np.diag(Z)
+
     if S is not None:
         ZS = ZS @ _striu2mat(S)
+
     A[:n, :n] = R @ ZS
     A[:n, n] = T
     return A
@@ -171,27 +174,37 @@ def decompose_affine(
     Academic Press, 1991.
     """
     A44 = np.asarray(A44)
+
     T = A44[:-1, -1]
+
     RZS = A44[:-1, :-1]
     M0, M1, M2 = np.array(RZS).T
+
     sx = math.sqrt(np.sum(M0**2))
     M0 /= sx
+
     sx_sxy = np.dot(M0, M1)
     M1 -= sx_sxy * M0
+
     sy = math.sqrt(np.sum(M1**2))
     M1 /= sy
+
     sxy = sx_sxy / sx
-    sx_sxz = np.dot(M0, M2)
-    sy_syz = np.dot(M1, M2)
+    sx_sxz = M0 @ M2
+    sy_syz = M1 @ M2
     M2 -= sx_sxz * M0 + sy_syz * M1
+
     sz = math.sqrt(np.sum(M2**2))
     M2 /= sz
+
     sxz = sx_sxz / sx
     syz = sy_syz / sy
     Rmat = np.array([M0, M1, M2]).T
+
     if np.linalg.det(Rmat) < 0:
         sx *= -1
         Rmat[:, 0] *= -1
+
     return T, Rmat, np.array([sx, sy, sz]), np.array([sxy, sxz, syz])
 
 

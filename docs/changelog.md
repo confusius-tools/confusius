@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- `data.fusi.affine.apply` now accepts affines with rotation and shear. The
+  axis-aligned part updates the 1D `z`/`y`/`x` coordinates and the method returns
+  the residual orientation as a 4x4 affine (the identity for diagonal affines)
+  for the caller to use as they wish
+  ([#188](https://github.com/confusius-tools/confusius/pull/188)).
 ### :zap: Performance
 
 - [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
