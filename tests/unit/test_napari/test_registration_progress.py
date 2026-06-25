@@ -80,6 +80,11 @@ class TestNapariProgressBridge:
         with qtbot.waitSignal(bridge.finished, timeout=1000):
             bridge.finished.emit()
 
+    def test_metric_updated_signal_is_emitted(self, qtbot):
+        bridge = NapariProgressBridge()
+        with qtbot.waitSignal(bridge.metric_updated, timeout=1000):
+            bridge.metric_updated.emit(0.42)
+
 
 class TestNapariVolumeProgress:
     """Per-iteration reporter behaviour."""
@@ -107,6 +112,52 @@ class TestNapariVolumeProgress:
         # `.T` restores numpy axis order, matching `register_volume`.
         assert arr.shape == (16, 16)
         assert arr.dtype == np.float32
+
+    def test_update_emits_metric_value(self, qtbot, fixed_img_2d, moving_img_2d):
+        """`update()` also forwards the current optimizer metric value."""
+        reg = _make_registration_method(ndim=2)
+        bridge = NapariProgressBridge()
+        metric_spy = _SignalSpy()
+        bridge.metric_updated.connect(metric_spy)
+
+        reporter = NapariVolumeProgress(
+            bridge,
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            resample_kwargs={"default_value": 0.0},
+        )
+
+        with qtbot.waitSignal(bridge.metric_updated, timeout=2000):
+            reporter.update()
+
+        assert len(metric_spy.payloads) == 1
+        assert isinstance(metric_spy.payloads[0], float)
+        assert np.isfinite(metric_spy.payloads[0])
+
+    def test_update_skips_metric_when_plot_metric_false(
+        self, qtbot, fixed_img_2d, moving_img_2d
+    ):
+        """`plot_metric=False` suppresses the metric_updated emission."""
+        reg = _make_registration_method(ndim=2)
+        bridge = NapariProgressBridge()
+        metric_spy = _SignalSpy()
+        bridge.metric_updated.connect(metric_spy)
+
+        reporter = NapariVolumeProgress(
+            bridge,
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=False,
+            resample_kwargs={"default_value": 0.0},
+        )
+        # Iterate and confirm the metric signal never fires. We trigger the
+        # iterated signal first to give the metric a chance to emit, then
+        # check the spy.
+        with qtbot.waitSignal(bridge.iterated, timeout=2000):
+            reporter.update()
+        assert metric_spy.payloads == []
 
     def test_close_emits_finished_signal(self, qtbot, fixed_img_2d, moving_img_2d):
         reg = _make_registration_method(ndim=2)

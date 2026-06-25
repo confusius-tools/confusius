@@ -360,6 +360,50 @@ class TestFinishedCallbacks:
         assert moving.colormap.name == "cyan"
         assert moving.blending == "additive"
 
+    def test_setup_creates_metric_plotter_dock(
+        self, viewer, registration_panel
+    ):
+        """`_setup_volume_progress` lazily creates and docks the metric plotter."""
+        moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        fixed = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
+
+        assert registration_panel._metric_plotter is None
+        assert registration_panel._metric_dock is None
+
+        registration_panel._setup_volume_progress(
+            moving_layer=moving,
+            fixed_layer=fixed_layer,
+            fixed=fixed,
+            layer_name="moving → fixed",
+        )
+
+        assert registration_panel._metric_plotter is not None
+        assert registration_panel._metric_dock is not None
+        # The plotter is parented to a dock (i.e. it has been re-parented
+        # away from its original parent).
+        assert registration_panel._metric_plotter.parent() is not None
+
+        # Feeding a value through the bridge populates the plotter's buffer.
+        bridge = registration_panel._progress_bridge
+        assert bridge is not None
+        bridge.metric_updated.emit(0.5)
+        # Force a render so the throttled redraw is observed synchronously.
+        registration_panel._metric_plotter._render()  # type: ignore[attr-defined]
+        assert registration_panel._metric_plotter.metric_values == [0.5]  # type: ignore[attr-defined]
+
+        # Tearing down keeps the plotter (so the user can inspect the trace).
+        registration_panel._teardown_volume_progress()
+        assert registration_panel._metric_plotter is not None
+        assert registration_panel._metric_plotter.metric_values == [0.5]  # type: ignore[attr-defined]
+
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
         registered = xr.DataArray(
             np.ones((3, 4, 6), dtype=np.float32),

@@ -11,17 +11,20 @@ import xarray as xr
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
+from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDockWidget,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QMainWindow,
     QProgressBar,
     QPushButton,
     QRadioButton,
@@ -32,6 +35,9 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._napari._registration._metric_plotter import (
+    RegistrationMetricPlotter,
+)
 from confusius._napari._registration._progress import (
     NapariProgressBridge,
     make_napari_progress_factory,
@@ -344,6 +350,10 @@ class RegistrationPanel(QWidget):
         # overlay the fixed layer without a duplicate moving/final-image
         # overlap. Visibility is not restored on teardown.
         self._progress_hidden_layer: Image | None = None
+        # Bottom-dock metric curve. Created lazily on the first run, reused
+        # across subsequent runs, and torn down with the progress state.
+        self._metric_plotter: RegistrationMetricPlotter | None = None
+        self._metric_dock: QDockWidget | None = None
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
@@ -1011,6 +1021,14 @@ class RegistrationPanel(QWidget):
         # persists past teardown.
         self._progress_hidden_layer = moving_layer
         self._progress_hidden_layer.visible = False
+
+        # Lazily build the bottom-dock metric plotter. The widget is reused
+        # across runs; only the data buffer is reset.
+        self._ensure_metric_plotter()
+        plotter = self._metric_plotter
+        if plotter is not None:
+            plotter.reset()
+            bridge.metric_updated.connect(plotter.add_metric)
         return make_napari_progress_factory(bridge)
 
     def _update_progress_layer(self, arr: object) -> None:
@@ -1042,6 +1060,8 @@ class RegistrationPanel(QWidget):
         Called by `_on_registration_finished` and `_on_registration_failed`
         so the newly added result layer replaces the preview without leaving
         duplicates behind. The moving layer's hidden state is not restored.
+        The metric plotter is kept (docked, with its final trace) so the
+        user can inspect the convergence curve after the run.
         """
         if self._progress_layer is not None:
             try:
@@ -1049,11 +1069,83 @@ class RegistrationPanel(QWidget):
             except (KeyError, ValueError):
                 pass
             self._progress_layer = None
+        # Drop the bridge reference; the plotter connection becomes inert
+        # when the bridge is garbage-collected.
         self._progress_bridge = None
         # Drop the reference without restoring visibility: the moving layer
         # stays hidden so the resampled output remains the visible moving
         # stand-in after the run.
         self._progress_hidden_layer = None
+
+    def _ensure_metric_plotter(self) -> RegistrationMetricPlotter | None:
+        """Return the bottom-dock metric plotter, creating and docking it on first use.
+
+        Mirrors the lazy-dock pattern used by `SignalPanel`. The plotter widget is
+        reused across runs; `_setup_volume_progress` resets its data buffer
+        before each run. Returns `None` only when the dock could not be created
+        (in which case the registration still runs, just without a live metric
+        view).
+        """
+        if self._metric_plotter is None:
+            self._metric_plotter = RegistrationMetricPlotter(self.viewer)
+
+        if self._metric_dock is None or self._metric_plotter.parent() is None:
+            dock = self.viewer.window.add_dock_widget(
+                self._metric_plotter,
+                name="Registration Metric",
+                area="bottom",
+            )
+            self._metric_dock = cast("QDockWidget", dock)
+
+            # Mirror the HiDPI click-offset fix from the SignalPanel so the
+            # canvas paints at the right device-pixel ratio the first time.
+            def _settle_layout() -> None:
+                main_win = self._find_main_window(dock)
+                if main_win is None:
+                    return
+                from qtpy.QtCore import QSize
+
+                central = main_win.centralWidget()
+                if central is None:
+                    return
+                central.setMinimumSize(QSize(0, 0))
+                for w in central.findChildren(QWidget):
+                    w.setMinimumSize(QSize(0, 0))
+                for side_dock in main_win.findChildren(QDockWidget):
+                    if side_dock is dock:
+                        continue
+                    side_dock.setMinimumHeight(0)
+                    widget = side_dock.widget()
+                    if widget is not None:
+                        widget.setMinimumSize(QSize(0, 0))
+                current = main_win.size()
+                if current.height() < 800:
+                    main_win.resize(current.width(), 800)
+                main_win.resizeDocks([dock], [220], Qt.Orientation.Vertical)
+
+            QTimer.singleShot(200, _settle_layout)
+
+        return self._metric_plotter
+
+    def _find_main_window(self, widget: QWidget) -> QMainWindow | None:
+        """Traverse up the widget hierarchy to find the QMainWindow.
+
+        Parameters
+        ----------
+        widget : QWidget
+            Starting widget to search from.
+
+        Returns
+        -------
+        QMainWindow or None
+            The main window if found, otherwise None.
+        """
+        parent = widget.parent()
+        while parent is not None:
+            if isinstance(parent, QMainWindow):
+                return parent
+            parent = parent.parent()
+        return None
 
     def _end_work(self) -> None:
         """Restore the idle UI state after background work."""

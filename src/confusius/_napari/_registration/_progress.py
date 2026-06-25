@@ -68,6 +68,10 @@ class NapariProgressBridge(QObject):
     """:pyqtSignal: Emitted at every optimizer iteration with the resampled
     moving image as a numpy array in numpy axis order (matching `fixed`)."""
 
+    metric_updated = Signal(float)
+    """:pyqtSignal: Emitted at every optimizer iteration with the current
+    optimizer metric value (a float)."""
+
     finished = Signal()
     """:pyqtSignal: Emitted once when the registration end event fires."""
 
@@ -133,9 +137,14 @@ class NapariVolumeProgress:
         Called at every SimpleITK iteration event from the worker thread. The
         resampled array is sent to the GUI thread via `bridge.iterated`; the
         emit is thread-safe and does not require this object to live on the
-        GUI thread.
+        GUI thread. The current optimizer metric value is also forwarded via
+        `bridge.metric_updated` so a metric-curve plotter can track
+        convergence.
         """
         import SimpleITK as sitk
+
+        if self._plot_metric:
+            self._bridge.metric_updated.emit(float(self._method.GetMetricValue()))
 
         resampled = _resample_intermediate(
             self._method,
