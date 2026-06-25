@@ -1,6 +1,9 @@
 """Registration module for fUSI data."""
 
-from confusius.registration._progress import RegistrationProgressPlotter
+from confusius.registration._progress import (
+    RegistrationProgress,
+    RegistrationProgressPlotter,
+)
 from confusius.registration.affines import (
     compose_affine,
     decompose_affine,
@@ -20,6 +23,7 @@ from confusius.registration.volumewise import register_volumewise
 
 __all__ = [
     "RegistrationDiagnostics",
+    "RegistrationProgress",
     "RegistrationProgressPlotter",
     "compose_affine",
     "decompose_affine",

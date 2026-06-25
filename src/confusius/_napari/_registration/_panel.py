@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -31,6 +32,10 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._napari._registration._progress import (
+    NapariProgressBridge,
+    make_napari_progress_factory,
+)
 from confusius._napari._registration._transforms import (
     AffineTransformPayload,
     affine_transform_from_payload,
@@ -40,14 +45,19 @@ from confusius._napari._registration._transforms import (
     save_affine_transform_payload,
 )
 from confusius.plotting.napari import plot_napari
-from confusius.registration import register_volume, register_volumewise, resample_volume
+from confusius.registration import (
+    register_volume,
+    register_volumewise,
+    resample_like,
+    resample_volume,
+)
 
 if TYPE_CHECKING:
     import napari
     import numpy.typing as npt
-    from napari.layers import Layer
+    from napari.layers import Image, Layer
 
-    from confusius.registration import RegistrationDiagnostics
+    from confusius.registration import RegistrationDiagnostics, RegistrationProgress
 
 
 def _default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
@@ -187,6 +197,7 @@ def _run_register_volume(
     number_of_iterations: int,
     use_multi_resolution: bool,
     resample_interpolation: Literal["linear", "bspline"],
+    progress_plotter: Callable[..., RegistrationProgress] | None = None,
 ) -> tuple[
     xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics
 ]:
@@ -210,6 +221,9 @@ def _run_register_volume(
         Whether to enable the registration pyramid.
     resample_interpolation : {"linear", "bspline"}
         Interpolator for the resampled output.
+    progress_plotter : callable, optional
+        Optional progress-plotter factory forwarded to `register_volume`. When
+        not provided, no live progress is shown.
 
     Returns
     -------
@@ -230,7 +244,8 @@ def _run_register_volume(
         use_multi_resolution=use_multi_resolution,
         resample=True,
         resample_interpolation=resample_interpolation,
-        show_progress=False,
+        show_progress=progress_plotter is not None,
+        progress_plotter=progress_plotter,
     )
 
 
@@ -322,6 +337,13 @@ class RegistrationPanel(QWidget):
         self.viewer = viewer
         self._worker = None
         self._loaded_transform_payload: AffineTransformPayload | None = None
+        # Per-run progress state. Set on the GUI thread before the worker starts.
+        self._progress_bridge: NapariProgressBridge | None = None
+        self._progress_layer: Image | None = None
+        # Moving layer hidden during the run so the resampled preview can
+        # overlay the fixed layer without a duplicate moving/final-image
+        # overlap. Visibility is not restored on teardown.
+        self._progress_hidden_layer: Image | None = None
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
@@ -869,6 +891,170 @@ class RegistrationPanel(QWidget):
         self._progress.show()
         QApplication.processEvents()
 
+    def _setup_volume_progress(
+        self,
+        *,
+        moving_layer: "Image",
+        fixed_layer: "Image",
+        fixed: xr.DataArray,
+        layer_name: str,
+    ) -> "Callable[..., RegistrationProgress] | None":
+        """Build a napari progress bridge and preview layer for register_volume.
+
+        Creates an empty image layer on the fixed grid (with the final target
+        name) and wires a
+        [`NapariProgressBridge`][confusius._napari._registration._progress.NapariProgressBridge]
+        so that every iteration of SimpleITK's optimizer streams the resampled
+        array into that layer. The returned factory is forwarded to
+        `register_volume` via its `progress_plotter` argument.
+
+        Parameters
+        ----------
+        moving_layer : napari.layers.Layer
+            Moving source layer. Used for display defaults (colormap,
+            contrast limits) on the preview layer, since the resampled output
+            lives in the moved intensity space.
+        fixed_layer : napari.layers.Layer
+            Fixed reference layer. Defines the shape, scale, translate, and
+            coordinate system of the preview/output layer.
+        fixed : xarray.DataArray
+            DataArray view of `fixed_layer`, used to build the empty preview
+            grid.
+        layer_name : str
+            Name for the preview (and later final) layer.
+
+        Returns
+        -------
+        callable or None
+            Factory suited for `register_volume`'s `progress_plotter`
+            argument, or `None` when the preview layer could not be created
+            (in which case `register_volume` runs without live progress).
+        """
+        self._teardown_volume_progress()
+
+        # Tint the fixed layer red so the resampled preview can overlay it via
+        # the classic red/cyan alignment view. The tint persists after the
+        # run; the user can reset it via the layer controls.
+        fixed_layer.colormap = "red"
+
+        # Re-tint the moving layer cyan and switch it to additive blending so
+        # the registered overlay keeps the red/cyan alignment look if the
+        # user re-enables it after the run.
+        moving_layer.colormap = "cyan"
+        moving_layer.blending = "additive"
+
+        display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        # Seed contrast limits with the moving layer so the preview is shown in
+        # the same intensity space as the final resampled volume.
+        moving_contrast = getattr(moving_layer, "contrast_limits", None)
+        if moving_contrast is not None:
+            display_kwargs.setdefault("contrast_limits", tuple(moving_contrast))
+
+        # Render the preview in cyan with additive blending. napari sums the
+        # RGB channels of the two layers, so red+cyan highlights
+        # misregistered regions as a pure colour. `_image_display_kwargs_from_layer`
+        # copies the moving layer's colormap, so we override it explicitly
+        # rather than rely on `setdefault`.
+        display_kwargs["colormap"] = "cyan"
+        display_kwargs["blending"] = "additive"
+
+        # Seed the preview with the moving image resampled onto the fixed
+        # grid using an identity transform. This makes the first frame a
+        # meaningful "unaligned moving on fixed grid" view that the user can
+        # compare against the red fixed, instead of a zero-valued blank that
+        # would flash a full-FOV tint. The SimpleITK iteration events then
+        # overwrite the data in place as the registration progresses.
+        try:
+            identity = np.eye(fixed.ndim + 1, dtype=float)
+            moving_da = _layer_to_dataarray(moving_layer)
+            preview = resample_like(
+                moving_da,
+                fixed,
+                identity,
+                interpolation=cast(
+                    "Literal['linear', 'bspline']",
+                    "linear",
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Fall back to a zero-valued seed if the initial resample fails
+            # for any reason. The first iteration will populate the preview.
+            self._set_error(f"Could not seed progress layer: {exc}")
+            preview = xr.DataArray(
+                np.zeros(fixed.shape, dtype=np.float32),
+                coords=fixed.coords,
+                dims=fixed.dims,
+                attrs=fixed.attrs.copy(),
+            )
+
+        try:
+            _, layer = plot_napari(
+                preview,
+                viewer=self.viewer,
+                name=layer_name,
+                show_colorbar=False,
+                **display_kwargs,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._set_error(f"Could not create progress layer: {exc}")
+            return None
+
+        bridge = NapariProgressBridge()
+        bridge.iterated.connect(self._update_progress_layer)
+        # `finished` is informational: we tear the preview down on
+        # `_on_registration_finished` / `_on_registration_failed` instead, so
+        # no extra slot is required here.
+        self._progress_bridge = bridge
+        self._progress_layer = cast("Image", layer)
+        # Hide the moving layer *before* the worker starts so the resampled
+        # preview never overlaps with the original input. The hidden state
+        # persists past teardown.
+        self._progress_hidden_layer = moving_layer
+        self._progress_hidden_layer.visible = False
+        return make_napari_progress_factory(bridge)
+
+    def _update_progress_layer(self, arr: object) -> None:
+        """Write an intermediate resampled array into the preview layer.
+
+        Invoked on the GUI thread via `NapariProgressBridge.iterated`. The
+        payload is a numpy array in numpy axis order matching the fixed grid
+        shape. Shape/coordinate mismatches are silently ignored: they
+        indicate that another run's stale signal slipped through or that the
+        preview layer has already been torn down.
+
+        Parameters
+        ----------
+        arr : numpy.ndarray
+            Resampled moving image for the current iteration.
+        """
+        layer = self._progress_layer
+        if layer is None:
+            return
+        if not isinstance(arr, np.ndarray):
+            return
+        if arr.shape != layer.data.shape:
+            return
+        layer.data = arr  # type: ignore[invalid-assignment]
+
+    def _teardown_volume_progress(self) -> None:
+        """Remove the progress preview layer and bridge references, if any.
+
+        Called by `_on_registration_finished` and `_on_registration_failed`
+        so the newly added result layer replaces the preview without leaving
+        duplicates behind. The moving layer's hidden state is not restored.
+        """
+        if self._progress_layer is not None:
+            try:
+                self.viewer.layers.remove(self._progress_layer)
+            except (KeyError, ValueError):
+                pass
+            self._progress_layer = None
+        self._progress_bridge = None
+        # Drop the reference without restoring visibility: the moving layer
+        # stays hidden so the resampled output remains the visible moving
+        # stand-in after the run.
+        self._progress_hidden_layer = None
+
     def _end_work(self) -> None:
         """Restore the idle UI state after background work."""
         self._run_btn.setEnabled(True)
@@ -1032,6 +1218,15 @@ class RegistrationPanel(QWidget):
 
             payload["fixed_layer_name"] = fixed_layer.name
 
+            progress_plotter = self._setup_volume_progress(
+                moving_layer=cast("Image", moving_layer),
+                fixed_layer=cast("Image", fixed_layer),
+                fixed=fixed,
+                layer_name=(
+                    f"{payload['moving_layer_name']} → {payload['fixed_layer_name']}"
+                ),
+            )
+
             worker = thread_worker(_run_register_volume)(
                 moving,
                 fixed,
@@ -1046,6 +1241,7 @@ class RegistrationPanel(QWidget):
                 resample_interpolation=cast(
                     "Literal['linear', 'bspline']", payload["resample_interpolation"]
                 ),
+                progress_plotter=progress_plotter,
             )
         else:
             if TIME_DIM not in moving.dims:
@@ -1093,6 +1289,12 @@ class RegistrationPanel(QWidget):
             Worker return value.
         """
         operation = cast(str, payload["operation"])
+
+        # Remove the live preview layer if one was created. The freshly-added
+        # result layer is the authoritative output; the preview is just visual
+        # scaffolding during optimisation.
+        if operation == "register_volume":
+            self._teardown_volume_progress()
 
         if operation == "register_volume":
             registered, transform, diagnostics = cast(
@@ -1143,6 +1345,12 @@ class RegistrationPanel(QWidget):
             display_kwargs: dict[str, Any] = {}
         else:
             display_kwargs = _image_display_kwargs_from_layer(source_layer)
+        # The result layer is the registered stand-in for the moving layer:
+        # it must use the same cyan + additive styling so the red/cyan
+        # overlay persists after the run.
+        if operation == "register_volume":
+            display_kwargs["colormap"] = "cyan"
+            display_kwargs["blending"] = "additive"
         contrast_limits = tuple(calc_data_range(registered.data))
 
         _, layer = plot_napari(
@@ -1199,5 +1407,6 @@ class RegistrationPanel(QWidget):
         exc : BaseException
             Exception raised by the worker.
         """
+        self._teardown_volume_progress()
         self._set_error(str(exc))
         show_error(str(exc))

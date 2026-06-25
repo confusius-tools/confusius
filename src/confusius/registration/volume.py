@@ -1,6 +1,6 @@
 """Volume-to-volume registration for fUSI data."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
@@ -20,6 +20,8 @@ from confusius.registration.diagnostics import RegistrationDiagnostics
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
+
+    from confusius.registration._progress import RegistrationProgress
 
 
 def _validate_register_volume_inputs(
@@ -247,6 +249,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample_interpolation: Literal["linear", "bspline"] = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
     fill_value: float | None = ...,
@@ -280,6 +283,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample_interpolation: Literal["linear", "bspline"] = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
     fill_value: float | None = ...,
@@ -312,6 +316,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     resample_interpolation: Literal["linear", "bspline"] = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
     fill_value: float | None = ...,
@@ -344,6 +349,7 @@ def register_volume(
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     sitk_threads: int = -1,
     show_progress: bool = False,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = True,
     plot_composite: bool = True,
     fill_value: float | None = None,
@@ -456,6 +462,17 @@ def register_volume(
         Whether to display a live progress plot during registration. The plot is shown
         in a Jupyter notebook or in an interactive matplotlib window depending on the
         active backend.
+    progress_plotter : callable, optional
+        Factory that builds the progress reporter, called inside `register_volume`
+        as `progress_plotter(registration_method, fixed_img, moving_img, *,
+        plot_metric, plot_composite, resample_kwargs)`. The returned object must
+        implement the
+        [`RegistrationProgress`][confusius.registration.RegistrationProgress]
+        protocol (`update()` / `close()`). If not provided, defaults to
+        [`RegistrationProgressPlotter`][confusius.registration.RegistrationProgressPlotter]
+        (matplotlib). Ignored when `show_progress=False`. Custom factories are
+        expected to be safe to call from a non-GUI thread; GUI side effects must
+        be marshalled via thread-safe primitives such as Qt signals.
     plot_metric : bool, default: True
         Whether to include the optimizer metric curve in the progress plot. Ignored when
         `show_progress=False`.
@@ -687,7 +704,10 @@ def register_volume(
     )
 
     if show_progress:
-        from confusius.registration._progress import RegistrationProgressPlotter
+        from confusius.registration._progress import (
+            RegistrationProgress,
+            RegistrationProgressPlotter,
+        )
 
         resample_kwargs: dict[str, object] = {
             "interpolation": resample_interpolation,
@@ -696,7 +716,8 @@ def register_volume(
         if _fill_value is not None:
             resample_kwargs["default_value"] = _fill_value
 
-        plotter = RegistrationProgressPlotter(
+        plotter_factory = progress_plotter or RegistrationProgressPlotter
+        plotter: RegistrationProgress = plotter_factory(
             registration,
             fixed_sitk,
             moving_sitk,

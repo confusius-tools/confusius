@@ -93,7 +93,9 @@ class TestValidation:
         assert not registration_panel._layer_validation.isHidden()
         assert "must be different" in registration_panel._layer_validation.text()
 
-    def test_between_scans_with_single_layer_flags_fixed(self, viewer, registration_panel):
+    def test_between_scans_with_single_layer_flags_fixed(
+        self, viewer, registration_panel
+    ):
         viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="only")
         registration_panel._refresh_layers()
         registration_panel._moving_combo.setCurrentText("only")
@@ -108,7 +110,10 @@ class TestValidation:
         registration_panel._moving_combo.setCurrentText("vol")
 
         assert not registration_panel._validate_registration_selection()
-        assert "Within-scan registration requires" in registration_panel._layer_validation.text()
+        assert (
+            "Within-scan registration requires"
+            in registration_panel._layer_validation.text()
+        )
 
 
 class TestLayerToDataArray:
@@ -217,6 +222,143 @@ class TestFinishedCallbacks:
             layer.metadata["xarray"].attrs["registration_operation"]
             == "register_volume"
         )
+
+    def test_volume_result_replaces_preview_layer(
+        self, viewer, registration_panel, qtbot
+    ):
+        """A preview layer created by `_setup_volume_progress` is removed
+        after `_on_registration_finished` so the final result is the only
+        layer with that name."""
+        moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        fixed = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        fixed_layer = viewer.add_image(np.ones((4, 6), dtype=np.float32), name="fixed")
+
+        factory = registration_panel._setup_volume_progress(
+            moving_layer=moving,
+            fixed_layer=fixed_layer,
+            fixed=fixed,
+            layer_name="moving → fixed",
+        )
+        assert factory is not None
+        assert "moving → fixed" in {layer.name for layer in viewer.layers}
+        assert registration_panel._progress_layer is not None
+        assert registration_panel._progress_bridge is not None
+        # The fixed layer is tinted red so the cyan overlay reads as the
+        # classic red/cyan alignment view.
+        assert fixed_layer.colormap.name == "red"
+        # The moving layer is re-tinted cyan + additive, then hidden before
+        # the worker starts so the resampled preview never overlaps it.
+        assert moving.colormap.name == "cyan"
+        assert moving.blending == "additive"
+        assert registration_panel._progress_hidden_layer is moving
+        assert not moving.visible
+        # The preview is rendered in cyan with additive blending and seeded
+        # with the moving image resampled onto the fixed grid, so the first
+        # frame is a meaningful "unaligned moving on fixed" view rather than
+        # a zero-valued blank.
+        preview_layer = viewer.layers["moving → fixed"]
+        assert preview_layer.colormap.name == "cyan"
+        assert preview_layer.blending == "additive"
+        assert preview_layer.visible
+        np.testing.assert_array_equal(
+            np.asarray(preview_layer.data),
+            np.asarray(moving.data),
+        )
+
+        registered = fixed.copy()
+        transform = np.eye(3)
+        diagnostics = _FakeDiagnostics()
+
+        payload = {
+            "operation": "register_volume",
+            "moving_layer_name": "moving",
+            "fixed_layer_name": "fixed",
+            "transform": "rigid",
+            "metric": "correlation",
+            "learning_rate": "auto",
+            "number_of_iterations": 100,
+            "use_multi_resolution": False,
+            "resample_interpolation": "linear",
+        }
+        registration_panel._on_registration_finished(
+            payload,
+            (registered, transform, diagnostics),
+        )
+
+        # Preview has been torn down; the result layer is the only match.
+        assert registration_panel._progress_layer is None
+        assert registration_panel._progress_bridge is None
+        # The result layer picks up the same cyan + additive styling so the
+        # red/cyan overlay survives past teardown.
+        result_layer = viewer.layers["moving → fixed"]
+        assert result_layer.colormap.name == "cyan"
+        assert result_layer.blending == "additive"
+        # The moving layer stays hidden, with its cyan + additive tint, so
+        # the registered output remains the visible stand-in.
+        assert not moving.visible
+        assert moving.colormap.name == "cyan"
+        assert moving.blending == "additive"
+        assert np.array_equal(
+            np.asarray(result_layer.data),
+            np.asarray(registered.values),
+        )
+
+    def test_progress_layer_data_updates_on_iteration(
+        self, viewer, registration_panel, qtbot
+    ):
+        """`_update_progress_layer` writes the iterated array into the preview
+        layer's data, refreshing the canvas."""
+        moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        fixed = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
+
+        registration_panel._setup_volume_progress(
+            moving_layer=moving,
+            fixed_layer=fixed_layer,
+            fixed=fixed,
+            layer_name="moving → fixed",
+        )
+        # The preview is seeded with the moving image resampled onto the
+        # fixed grid, so it's visible and meaningful from the start.
+        preview_layer = viewer.layers["moving → fixed"]
+        assert preview_layer.visible
+
+        next_arr = np.full((4, 6), 0.5, dtype=np.float32)
+        registration_panel._update_progress_layer(next_arr)
+
+        np.testing.assert_array_equal(
+            np.asarray(viewer.layers["moving → fixed"].data), next_arr
+        )
+
+        # Shape mismatch is silently ignored.
+        registration_panel._update_progress_layer(np.zeros((3, 6), dtype=np.float32))
+        np.testing.assert_array_equal(
+            np.asarray(viewer.layers["moving → fixed"].data), next_arr
+        )
+
+        # Teardown removes the preview; the moving layer stays hidden with
+        # its cyan + additive styling.
+        registration_panel._teardown_volume_progress()
+        assert registration_panel._progress_layer is None
+        assert registration_panel._progress_bridge is None
+        assert "moving → fixed" not in {layer.name for layer in viewer.layers}
+        assert not moving.visible
+        assert moving.colormap.name == "cyan"
+        assert moving.blending == "additive"
 
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
         registered = xr.DataArray(
