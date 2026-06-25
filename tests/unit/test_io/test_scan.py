@@ -137,10 +137,10 @@ class TestLoadScan2D:
         """2Dscan produces DataArray with dims (time, z, y, x)."""
         assert scan_2d.dims == ("time", "z", "y", "x")
 
-    def test_voxel_affine_model_uses_voxel_dims_and_lazy_physical_coords(
+    def test_voxel_affine_model_uses_voxel_dims_and_1d_physical_coords(
         self, scan_2d_path: Path
     ) -> None:
-        """Voxel-affine loading exposes `k/j/i` plus derived physical coords."""
+        """Axis-aligned voxel-affine loading exposes `k/j/i` plus 1D physical coords."""
         da = load_scan(scan_2d_path, coordinate_model="voxel_affine")
 
         assert da.dims == ("time", "k", "j", "i")
@@ -148,12 +148,12 @@ class TestLoadScan2D:
         assert da.coords["k"].dims == ("k",)
         assert da.coords["j"].dims == ("j",)
         assert da.coords["i"].dims == ("i",)
-        assert da.coords["z"].dims == ("k", "j", "i")
-        assert da.coords["y"].dims == ("k", "j", "i")
-        assert da.coords["x"].dims == ("k", "j", "i")
+        assert da.coords["z"].dims == ("k",)
+        assert da.coords["y"].dims == ("j",)
+        assert da.coords["x"].dims == ("i",)
         assert da.attrs["voxel_to_physical"].shape == (4, 4)
         np.testing.assert_allclose(
-            da.coords["x"].values[0, 0, :],
+            da.coords["x"].values,
             1e3
             * (
                 _VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1)
@@ -162,7 +162,7 @@ class TestLoadScan2D:
             rtol=1e-10,
         )
         np.testing.assert_allclose(
-            da.coords["y"].values[0, :, 0],
+            da.coords["y"].values,
             1e3
             * (
                 -(
@@ -173,7 +173,7 @@ class TestLoadScan2D:
             rtol=1e-10,
         )
         np.testing.assert_allclose(
-            da.coords["z"].values[:, 0, 0],
+            da.coords["z"].values,
             1e3
             * (
                 _VOXELS_TO_PROBE[1, 1] * (np.arange(_SIZE_Y) + 1)

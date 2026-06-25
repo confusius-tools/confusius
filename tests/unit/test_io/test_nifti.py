@@ -118,7 +118,7 @@ class TestLoadNifti:
     def test_load_3d_nifti_voxel_affine_model(
         self, nifti_3d_path: tuple[Path, np.ndarray]
     ) -> None:
-        """Voxel-affine loading exposes voxel dims plus lazy physical coords."""
+        """Axis-aligned voxel-affine loading exposes voxel dims plus 1D physical coords."""
         nifti_path, expected_data = nifti_3d_path
         da = load_nifti(nifti_path, coordinate_model="voxel_affine")
 
@@ -127,14 +127,14 @@ class TestLoadNifti:
         assert da.coords["k"].dims == ("k",)
         assert da.coords["j"].dims == ("j",)
         assert da.coords["i"].dims == ("i",)
-        assert da.coords["z"].dims == ("k", "j", "i")
-        assert da.coords["y"].dims == ("k", "j", "i")
-        assert da.coords["x"].dims == ("k", "j", "i")
+        assert da.coords["z"].dims == ("k",)
+        assert da.coords["y"].dims == ("j",)
+        assert da.coords["x"].dims == ("i",)
         assert da.attrs["voxel_to_physical"].shape == (4, 4)
         np.testing.assert_array_equal(da.values, expected_data.transpose(2, 1, 0))
-        np.testing.assert_array_equal(da.coords["z"].values[:, 0, 0], np.arange(6))
-        np.testing.assert_array_equal(da.coords["y"].values[0, :, 0], np.arange(8))
-        np.testing.assert_array_equal(da.coords["x"].values[0, 0, :], np.arange(10))
+        np.testing.assert_array_equal(da.coords["z"].values, np.arange(6))
+        np.testing.assert_array_equal(da.coords["y"].values, np.arange(8))
+        np.testing.assert_array_equal(da.coords["x"].values, np.arange(10))
 
     def test_load_nifti_voxel_affine_model_uses_full_primary_affine(
         self, tmp_path: Path

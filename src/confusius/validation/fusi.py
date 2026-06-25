@@ -90,16 +90,17 @@ def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
             f"{affine.shape}."
         )
 
-    for name in get_voxel_affine_physical_coord_names(da):
+    physical_coord_names = get_voxel_affine_physical_coord_names(da)
+    for name, dim in zip(physical_coord_names, voxel_dims, strict=True):
         if name not in da.coords:
             raise ValueError(
                 f"Voxel-affine data is missing physical coordinate {name!r}."
             )
         coord = da.coords[name]
-        if coord.dims != voxel_dims:
+        if coord.dims not in {voxel_dims, (dim,)}:
             raise ValueError(
-                f"Voxel-affine coordinate {name!r} must have dims {voxel_dims!r}, "
-                f"got {coord.dims!r}."
+                f"Voxel-affine coordinate {name!r} must have dims {voxel_dims!r} "
+                f"or {(dim,)!r}, got {coord.dims!r}."
             )
 
 

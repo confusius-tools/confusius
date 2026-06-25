@@ -5,7 +5,9 @@ coordinates (for example `i`, `j`, `k`) and stores a single affine that maps
 those voxel-space coordinates into physical-space coordinates (for example
 `x`, `y`, `z`).
 
-The physical coordinates are exposed lazily via Xarray's
+For axis-aligned affines, the derived physical coordinates are attached as 1D
+coordinates with ordinary Xarray indexes so `.sel(...)` remains convenient. For
+oblique affines, the physical coordinates are exposed lazily via Xarray's
 `CoordinateTransformIndex`.
 """
 
@@ -213,6 +215,25 @@ class VoxelSpaceAffineTransform(CoordinateTransform):
         )
 
 
+def _is_axis_aligned_affine(voxel_to_physical: npt.ArrayLike) -> bool:
+    """Return whether the affine has no cross-axis mixing.
+
+    Parameters
+    ----------
+    voxel_to_physical : (N+1, N+1) numpy.ndarray
+        Homogeneous affine mapping voxel space to physical space.
+
+    Returns
+    -------
+    bool
+        Whether the affine linear part is diagonal up to floating-point noise.
+    """
+    affine = np.asarray(voxel_to_physical, dtype=np.float64)
+    linear = affine[:-1, :-1]
+    diagonal = np.diag(np.diag(linear))
+    return np.allclose(linear, diagonal, rtol=1e-10, atol=1e-12)
+
+
 def add_physical_coords_from_voxel_affine(
     data: xr.DataArray,
     voxel_to_physical: npt.ArrayLike,
@@ -221,7 +242,7 @@ def add_physical_coords_from_voxel_affine(
     physical_coord_names: tuple[Hashable, ...] | None = None,
     physical_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Attach lazy physical coordinates to a DataArray.
+    """Attach physical coordinates to a DataArray.
 
     Parameters
     ----------
@@ -243,7 +264,9 @@ def add_physical_coords_from_voxel_affine(
     Returns
     -------
     xarray.DataArray
-        A new DataArray with lazily generated physical coordinates attached via a
+        A new DataArray with derived physical coordinates attached. Axis-aligned
+        affines produce ordinary 1D coordinates with standard Xarray indexes;
+        oblique affines produce lazily generated coordinates attached via a
         `CoordinateTransformIndex`.
 
     Raises
@@ -270,14 +293,36 @@ def add_physical_coords_from_voxel_affine(
             )
         voxel_coords[dim] = np.asarray(coord.values, dtype=np.float64)
 
+    if physical_coord_names is None:
+        physical_coord_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
+
     voxel_to_physical_array = np.asarray(voxel_to_physical, dtype=np.float64)
-    transform = VoxelSpaceAffineTransform(
-        voxel_coords,
-        voxel_to_physical_array,
-        physical_coord_names=physical_coord_names,
-    )
-    physical_coords = xr.Coordinates.from_xindex(CoordinateTransformIndex(transform))
-    result = data.assign_coords(physical_coords)
+
+    if _is_axis_aligned_affine(voxel_to_physical_array):
+        affine = voxel_to_physical_array
+        axis_coords = {
+            name: (
+                dim,
+                affine[i, i] * voxel_coords[dim] + affine[i, -1],
+            )
+            for i, (dim, name) in enumerate(
+                zip(voxel_dims, physical_coord_names, strict=True)
+            )
+        }
+        result = data.assign_coords(axis_coords)
+        for name in physical_coord_names:
+            result = result.set_xindex(name)
+    else:
+        transform = VoxelSpaceAffineTransform(
+            voxel_coords,
+            voxel_to_physical_array,
+            physical_coord_names=physical_coord_names,
+        )
+        physical_coords = xr.Coordinates.from_xindex(
+            CoordinateTransformIndex(transform)
+        )
+        result = data.assign_coords(physical_coords)
+
     result.attrs["voxel_to_physical"] = voxel_to_physical_array
 
     if physical_coord_attrs is not None:
@@ -289,7 +334,7 @@ def add_physical_coords_from_voxel_affine(
 
 
 def restore_physical_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArray:
-    """Rebuild lazy CTI physical coordinates from stored voxel-affine metadata.
+    """Rebuild derived physical coordinates from stored voxel-affine metadata.
 
     Parameters
     ----------
@@ -301,7 +346,7 @@ def restore_physical_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArra
     -------
     xarray.DataArray
         `data` unchanged when the required voxel-affine metadata is absent, otherwise a
-        DataArray with lazy CTI-derived physical coordinates restored.
+        DataArray with physical coordinates and indexes restored.
     """
     if "voxel_to_physical" not in data.attrs:
         return data
@@ -382,14 +427,15 @@ def get_voxel_affine_physical_coord_names(data: xr.DataArray) -> tuple[str, ...]
         Physical coordinate names in affine row order.
     """
     voxel_dims = get_voxel_affine_spatial_dims(data)
+    default_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
     physical_coord_names = tuple(
-        dim
-        for dim in ("z", "y", "x")
-        if dim in data.coords and data.coords[dim].dims == voxel_dims
+        name
+        for name, dim in zip(default_names, voxel_dims, strict=True)
+        if name in data.coords and data.coords[name].dims in {voxel_dims, (dim,)}
     )
-    if physical_coord_names:
+    if len(physical_coord_names) == len(voxel_dims):
         return physical_coord_names
-    return ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
+    return default_names
 
 
 def get_voxel_affine_origin(data: xr.DataArray) -> dict[str, float]:

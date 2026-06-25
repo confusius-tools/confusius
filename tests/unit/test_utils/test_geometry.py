@@ -15,8 +15,8 @@ from confusius._utils.geometry import (
 )
 
 
-def test_add_physical_coords_from_voxel_affine_uses_irregular_voxel_coords() -> None:
-    """Physical coords follow voxel-space lookup arrays, not dense positions."""
+def test_axis_aligned_voxel_affine_uses_1d_physical_coords() -> None:
+    """Axis-aligned voxel-affine geometry exposes 1D physical coords and indexes."""
     data = xr.DataArray(
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
@@ -42,16 +42,18 @@ def test_add_physical_coords_from_voxel_affine_uses_irregular_voxel_coords() -> 
         physical_coord_names=("z", "y", "x"),
     )
 
-    assert result.coords["z"].dims == ("k", "j", "i")
-    assert result.coords["y"].dims == ("k", "j", "i")
-    assert result.coords["x"].dims == ("k", "j", "i")
-    assert_array_equal(result.coords["z"].values[:, 0, 0], [100.0, 120.0])
-    assert_array_equal(result.coords["y"].values[0, :, 0], [200.0, 202.0, 206.0])
-    assert_array_equal(result.coords["x"].values[0, 0, :], [300.0, 306.0, 309.0, 321.0])
+    assert result.coords["z"].dims == ("k",)
+    assert result.coords["y"].dims == ("j",)
+    assert result.coords["x"].dims == ("i",)
+    assert_array_equal(result.coords["z"].values, [100.0, 120.0])
+    assert_array_equal(result.coords["y"].values, [200.0, 202.0, 206.0])
+    assert_array_equal(result.coords["x"].values, [300.0, 306.0, 309.0, 321.0])
+    assert type(result.xindexes["x"]).__name__ == "PandasIndex"
 
 
-def test_coordinate_transform_index_selection_uses_physical_coords() -> None:
-    """Nearest selection in physical space returns the correct dense voxel."""
+
+def test_axis_aligned_voxel_affine_sel_supports_scalars_and_slices() -> None:
+    """Axis-aligned voxel-affine geometry supports ordinary `.sel(...)` queries."""
     data = xr.DataArray(
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
@@ -76,6 +78,43 @@ def test_coordinate_transform_index_selection_uses_physical_coords() -> None:
         physical_coord_names=("z", "y", "x"),
     )
 
+    selected = result.sel(z=12.1, y=26.2, x=39.4, method="nearest")
+    sliced = result.sel(z=slice(10.0, 12.0), y=slice(20.0, 22.0))
+
+    assert selected.item() == data.sel(k=2.0, j=3.0, i=3.0).item()
+    assert float(selected.coords["z"]) == 12.0
+    assert float(selected.coords["y"]) == 26.0
+    assert float(selected.coords["x"]) == 39.0
+    assert sliced.sizes == {"k": 2, "j": 2, "i": 4}
+
+
+
+def test_oblique_coordinate_transform_index_selection_uses_physical_coords() -> None:
+    """Oblique voxel-affine geometry still uses CTI pointwise physical selection."""
+    data = xr.DataArray(
+        np.arange(24).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [0.0, 2.0],
+            "j": [0.0, 1.0, 3.0],
+            "i": [0.0, 2.0, 3.0, 7.0],
+        },
+    )
+    voxel_to_physical = np.array(
+        [
+            [1.0, 0.1, 0.0, 10.0],
+            [0.0, 2.0, 0.0, 20.0],
+            [0.0, 0.0, 3.0, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    result = add_physical_coords_from_voxel_affine(
+        data,
+        voxel_to_physical,
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+    )
+
     selected = result.sel(
         z=xr.Variable("point", [12.1]),
         y=xr.Variable("point", [26.2]),
@@ -83,10 +122,9 @@ def test_coordinate_transform_index_selection_uses_physical_coords() -> None:
         method="nearest",
     )
 
+    assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
+    assert result.coords["x"].dims == ("k", "j", "i")
     assert selected.item() == data.sel(k=2.0, j=3.0, i=3.0).item()
-    assert_allclose(selected.coords["z"].values, [12.0])
-    assert_allclose(selected.coords["y"].values, [26.0])
-    assert_allclose(selected.coords["x"].values, [39.0])
 
 
 def test_affine_geometry_helpers_extract_origin_vectors_scalings_and_orientation() -> (
