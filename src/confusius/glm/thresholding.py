@@ -1,7 +1,7 @@
 """Statistical thresholding with multiple-comparison correction for GLM maps.
 
 This module provides
-[`threshold_stats_img`][confusius.glm.thresholding.threshold_stats_img], which applies a
+[`apply_statistical_threshold`][confusius.glm.thresholding.apply_statistical_threshold], which applies a
 voxel-level height threshold (uncorrected, false-discovery-rate, or Bonferroni) and an
 optional cluster-extent threshold to a statistical map, and
 [`fdr_benjamini_hochberg_threshold`][confusius.glm.thresholding.fdr_benjamini_hochberg_threshold],
