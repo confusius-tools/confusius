@@ -177,6 +177,30 @@ class TestRegisterVolumeMask:
         assert not np.allclose(affine_bool, np.eye(3), atol=1e-2)
         assert_allclose(affine_int, affine_bool)
 
+    def test_both_masks_coerced_to_bool(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """Both fixed_mask and moving_mask are coerced to boolean."""
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True
+        fixed_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        moving_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+
+        _, affine, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        assert not np.allclose(affine, np.eye(3), atol=1e-2)
+
 
 class TestRegisterVolumeResample:
     """Behaviour of the resample parameter."""
