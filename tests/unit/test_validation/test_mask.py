@@ -69,7 +69,7 @@ def test_return_dtype_as_bool_false_preserves_dtype():
     raw[2:5] = 512
     data, mask = _data_and_mask(raw)
 
-    result = validate_mask(mask, data, return_dtype_as_bool=False)
+    result = validate_mask(mask, data, coerce_bool=False)
 
     assert result.dtype == np.int32
     assert_array_equal(result.values, raw)
