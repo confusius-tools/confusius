@@ -31,6 +31,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Masks are now coerced to boolean by `validate_mask` (added `return_dtype_as_bool`
+  parameter that defaults to `True`) to avoid DataArrays using *positional indexing*.
+  Previously these masks could select the wrong voxels or, for `register_volume`,
+  silently disable the metric mask
+  ([#197](https://github.com/confusius-tools/confusius/pull/197)).
 - `process_iq_blocks` now handles strongly overlapping IQ windows without corrupting
   the output time dimension, so power Doppler and related IQ reducers work when
   `window_stride < window_width / 2`
