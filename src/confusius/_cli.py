@@ -12,13 +12,13 @@ if TYPE_CHECKING:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the ``confusius`` command-line argument parser.
+    """Build the `confusius` command-line argument parser.
 
     Returns
     -------
     argparse.ArgumentParser
         The parser configured with the CLI's positional path argument and
-        ``--lazy`` / ``--video`` options.
+        `--lazy` / `--video` options.
     """
     parser = argparse.ArgumentParser(
         prog="confusius",
@@ -70,7 +70,7 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
     napari.Viewer
         The viewer with the ConfUSIus widget docked and the requested data
         files added as image layers (one layer per file, in the same order as
-        ``args.path``). The first loaded layer is paired with ``args.video``
+        `args.path`). The first loaded layer is paired with `args.video`
         if it is also set.
     """
     import napari
