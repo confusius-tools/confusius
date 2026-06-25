@@ -264,15 +264,14 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
 
         X_ordered = X.transpose("time", *spatial_dims)
 
-        if getattr(self, "mask", None) is not None:
-            mask = self.mask
-            assert mask is not None
-            validate_mask(mask, X_ordered, "mask", require_exact_dims=True)
-        else:
+        mask = getattr(self, "mask", None)
+        if mask is None:
             mask = xr.ones_like(X_ordered[0], dtype=bool)
+        else:
+            mask = validate_mask(mask, X_ordered, "mask", require_exact_dims=True)
 
         X_proc = extract_with_mask(X_ordered, mask).values
-        return X_proc, spatial_dims, mask.values.ravel().astype(bool)
+        return X_proc, spatial_dims, mask.values.ravel()
 
     def _reshape_component_matrix(
         self,

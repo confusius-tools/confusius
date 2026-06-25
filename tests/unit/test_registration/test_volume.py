@@ -131,6 +131,77 @@ class TestRegisterVolumeOutput:
         )
 
 
+class TestRegisterVolumeMask:
+    """Metric masks for register_volume."""
+
+    def test_integer_label_mask_matches_boolean_mask(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """A single-label integer mask registers identically to its boolean form.
+
+        Guards against single-label integer masks (e.g. ``{0, 512}`` from
+        `Atlas.get_masks`) reaching SimpleITK's metric mask uncoerced: 512 wraps to 0
+        under the `numpy.uint8` cast, which silently empties the mask and turns
+        registration into a no-op.
+        """
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True  # covers the bright square in both volumes
+        bool_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        # 512 is a multiple of 256: a uint8 cast of the raw integer mask wraps it to 0.
+        int_mask = xr.DataArray(
+            region.astype(np.int32) * 512, dims=fixed.dims, coords=fixed.coords
+        )
+
+        _, affine_bool, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=bool_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        _, affine_int, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=int_mask,
+            transform_type="translation",
+            resample=False,
+        )
+
+        # The masked registration must actually recover the planted shift; otherwise the
+        # equality check would also pass for a silently-emptied (no-op) mask.
+        assert not np.allclose(affine_bool, np.eye(3), atol=1e-2)
+        assert_allclose(affine_int, affine_bool)
+
+    def test_both_masks_coerced_to_bool(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """Both fixed_mask and moving_mask are coerced to boolean."""
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True
+        fixed_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        moving_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+
+        _, affine, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        assert not np.allclose(affine, np.eye(3), atol=1e-2)
+
+
 class TestRegisterVolumeResample:
     """Behaviour of the resample parameter."""
 

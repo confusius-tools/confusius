@@ -21,6 +21,10 @@ Current development version for the next ConfUSIus release.
   the residual orientation as a 4x4 affine (the identity for diagonal affines)
   for the caller to use as they wish
   ([#188](https://github.com/confusius-tools/confusius/pull/188)).
+- Add `smoothing_fwhm` parameter to [`FirstLevelModel`][confusius.glm.FirstLevelModel].
+  Smoothing is applied to each run before model fitting
+  ([#201](https://github.com/confusius-tools/confusius/pull/201)).
+
 ### :zap: Performance
 
 - [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
@@ -31,6 +35,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Masks are now coerced to boolean by `validate_mask` (added `return_dtype_as_bool`
+  parameter that defaults to `True`) to avoid DataArrays using *positional indexing*.
+  Previously these masks could select the wrong voxels or, for `register_volume`,
+  silently disable the metric mask
+  ([#197](https://github.com/confusius-tools/confusius/pull/197)).
 - `process_iq_blocks` now handles strongly overlapping IQ windows without corrupting
   the output time dimension, so power Doppler and related IQ reducers work when
   `window_stride < window_width / 2`
