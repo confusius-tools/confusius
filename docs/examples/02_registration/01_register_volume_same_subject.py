@@ -60,10 +60,11 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
 
 
 fixed = _load_angio_for_registration(sessions[0])
-moving = _load_angio_for_registration(sessions[1])
 
 fixed
 # %%
+moving = _load_angio_for_registration(sessions[1])
+
 moving
 
 # %% [markdown]

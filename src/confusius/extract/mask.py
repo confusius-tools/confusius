@@ -78,7 +78,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     >>> pose_signals.dims
     ("time", "pose", "space")
     """
-    validate_mask(mask, data, "mask")
+    mask = validate_mask(mask, data, "mask")
 
     spatial_dims = list(mask.dims)
     non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
@@ -106,11 +106,11 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         )
 
     if "space" in data.dims and set(spatial_dims) == {"space"}:
-        mask_flat = mask_aligned.values.astype(bool)
+        mask_flat = mask_aligned.values
         return data.isel(space=mask_flat)
 
     data_flat = data.stack(space=spatial_dims)
-    mask_flat = mask_aligned.values.ravel().astype(bool)
+    mask_flat = mask_aligned.values.ravel()
     # Rebuild the space index from the selected voxel coordinates so unstack() uses the
     # reduced grid implied by the extracted mask.
     return data_flat.isel(space=mask_flat).set_xindex(spatial_dims)

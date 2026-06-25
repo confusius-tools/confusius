@@ -3,6 +3,7 @@ description: Report incorrect behaviour in ConfUSIus.
 labels: ["bug"]
 assignees:
   - sdiebolt
+  - FelipeCybis
 body:
   - type: markdown
     attributes:
@@ -64,7 +65,7 @@ body:
         # /// script
         # requires-python = ">=3.11"
         # dependencies = [
-        #   "confusius@git+https://github.com/sdiebolt/confusius.git@main",
+        #   "confusius@git+https://github.com/confusius-tools/confusius.git@main",
         # ]
         # ///
         #

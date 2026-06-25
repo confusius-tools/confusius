@@ -6,9 +6,58 @@ icon: lucide/history
 
 # Changelog
 
-## 0.3.1.dev0
+## 0.4.1.dev0
 
 Current development version for the next ConfUSIus release.
+
+## 0.4.0
+
+*Released 2026-06-25.*
+
+### :sparkles: Enhancements
+
+- The `confusius` CLI now accepts multiple fUSI data files in a single
+  invocation (e.g. `confusius fixed.nii moving.nii`). Each file is added as its
+  own image layer, named after the file's basename
+  ([#205](https://github.com/confusius-tools/confusius/issues/205)).
+- `data.fusi.affine.apply` now accepts affines with rotation and shear. The
+  axis-aligned part updates the 1D `z`/`y`/`x` coordinates and the method returns
+  the residual orientation as a 4x4 affine (the identity for diagonal affines)
+  for the caller to use as they wish
+  ([#188](https://github.com/confusius-tools/confusius/pull/188)).
+- Add `smoothing_fwhm` parameter to [`FirstLevelModel`][confusius.glm.FirstLevelModel].
+  Smoothing is applied to each run before model fitting
+  ([#201](https://github.com/confusius-tools/confusius/pull/201)).
+
+### :zap: Performance
+
+- [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
+  `dask.array.map_blocks` for non-overlapping outer IQ windows and batches
+  overlapping windows with explicit overlap before mapping blocks, reducing Dask
+  overhead in common blockwise processing workflows
+  ([#190](https://github.com/confusius-tools/confusius/pull/190)).
+
+### :bug: Fixes
+
+- Masks are now coerced to boolean by `validate_mask` (added `return_dtype_as_bool`
+  parameter that defaults to `True`) to avoid DataArrays using *positional indexing*.
+  Previously these masks could select the wrong voxels or, for `register_volume`,
+  silently disable the metric mask
+  ([#197](https://github.com/confusius-tools/confusius/pull/197)).
+- `process_iq_blocks` now handles strongly overlapping IQ windows without corrupting
+  the output time dimension, so power Doppler and related IQ reducers work when
+  `window_stride < window_width / 2`
+  ([#192](https://github.com/confusius-tools/confusius/pull/192)).
+- `load_nifti` now anchors `physical_to_qform` to the same physical frame as the
+  primary (sform) coordinates, so the stored qform affine maps the array's
+  physical coordinates to qform world space
+  ([#187](https://github.com/confusius-tools/confusius/pull/187)).
+- `save_nifti` now preserves each affine's own translation, so a NIfTI file with sform
+  and qform round-trips through `load_nifti`/`save_nifti` without corrupting the qform
+  ([#187](https://github.com/confusius-tools/confusius/pull/187)).
+- **[Napari plugin]** Fixed the Signals plot x-axis for volumes without a time
+  dimension. It now follows the slider axis world coordinates, with a matching label and
+  dropdown option ([#180](https://github.com/confusius-tools/confusius/pull/180)).
 
 ## 0.3.0
 

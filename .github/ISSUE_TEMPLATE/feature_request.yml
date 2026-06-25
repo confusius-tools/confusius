@@ -3,6 +3,7 @@ description: Request a new feature for ConfUSIus
 labels: ["enhancement"]
 assignees:
   - sdiebolt
+  - FelipeCybis
 body:
 - type: textarea
   attributes:

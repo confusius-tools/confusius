@@ -194,9 +194,9 @@ class TestLoadNifti:
         assert loaded.coords["time"].dims == ()
         assert loaded.coords["time"].item() == pytest.approx(2.05)
         assert loaded.coords["time"].attrs["volume_acquisition_reference"] == "start"
-        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
-            0.4
-        )
+        assert loaded.coords["time"].attrs[
+            "volume_acquisition_duration"
+        ] == pytest.approx(0.4)
         assert "volume_timing" not in loaded.attrs
         assert "volume_acquisition_duration" not in loaded.attrs
 
@@ -231,9 +231,9 @@ class TestLoadNifti:
 
         assert loaded.coords["time"].attrs["units"] == "ms"
         assert loaded.coords["time"].item() == pytest.approx(2050.0)
-        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
-            400.0
-        )
+        assert loaded.coords["time"].attrs[
+            "volume_acquisition_duration"
+        ] == pytest.approx(400.0)
         np.testing.assert_allclose(
             loaded.coords["slice_time"].values,
             np.array([2050.0, 2150.0, 2250.0]),
@@ -445,9 +445,9 @@ class TestLoadNifti:
             loaded.coords["time"].values,
             [250.0, 1250.0, 2250.0, 3250.0, 4250.0],
         )
-        assert loaded.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
-            500.0
-        )
+        assert loaded.coords["time"].attrs[
+            "volume_acquisition_duration"
+        ] == pytest.approx(500.0)
 
     def test_load_nifti_volume_timing_sidecar_converts_to_header_time_units(
         self, tmp_path: Path
@@ -511,6 +511,36 @@ class TestLoadNifti:
         assert "z_qform" not in da.coords
         assert "physical_to_qform" in da.attrs["affines"]
         assert da.attrs["affines"]["physical_to_qform"].shape == (4, 4)
+
+    def test_load_nifti_qform_anchored_to_sform_physical_frame(
+        self, tmp_path: Path
+    ) -> None:
+        """physical_to_qform maps the sform-defined physical frame, not qform's own.
+
+        With qform == identity, qform world coordinates equal voxel indices, so
+        physical_to_qform applied to a physical coordinate must recover that voxel's (z,
+        y, x) index.
+        """
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        sform[:3, 3] = [10.0, 20.0, 30.0]
+        qform = np.eye(4)
+        data = np.zeros((5, 4, 3), dtype=np.float32)
+        img = nib.Nifti1Image(data, sform)
+        img.header.set_sform(sform, code=5)
+        img.header.set_qform(qform, code=1)
+        nifti_path = tmp_path / "anchored.nii"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+        A = da.attrs["affines"]["physical_to_qform"]
+
+        # NIfTI shape is (x=5, y=4, z=3). A is in ConfUSIus (z, y, x) convention.
+        for i, j, k in [(0, 0, 0), (4, 3, 2), (2, 1, 0)]:
+            px = float(da.coords["x"].values[i])
+            py = float(da.coords["y"].values[j])
+            pz = float(da.coords["z"].values[k])
+            index_zyx = (A @ np.array([pz, py, px, 1.0]))[:3]
+            np.testing.assert_allclose(index_zyx, [k, j, i], atol=1e-9)
 
     def test_load_nifti_qform_only_uses_qform(self, tmp_path: Path) -> None:
         """Loading a NIfTI with only qform valid uses qform for primary coords."""
@@ -1405,7 +1435,9 @@ class TestSaveNifti:
 
         assert "SliceTiming" not in sidecar
 
-    def test_save_1d_slice_time_converts_slice_reference_to_start(self, tmp_path) -> None:
+    def test_save_1d_slice_time_converts_slice_reference_to_start(
+        self, tmp_path
+    ) -> None:
         """A 1D `slice_time` honors its own acquisition reference metadata."""
         da = xr.DataArray(
             np.zeros((2, 3, 2), dtype=np.float32),
@@ -1474,7 +1506,9 @@ class TestSaveNifti:
 
         assert "SliceTiming" not in sidecar
 
-    def test_save_invalid_2d_slice_time_shape_warns(self, tmp_path, sample_3dt_volume) -> None:
+    def test_save_invalid_2d_slice_time_shape_warns(
+        self, tmp_path, sample_3dt_volume
+    ) -> None:
         """A non-1D/non-2D `slice_time` is rejected with a warning."""
         da = sample_3dt_volume.copy()
         da.coords["time"].attrs["volume_acquisition_reference"] = "start"
@@ -1607,7 +1641,9 @@ class TestSaveNifti:
             },
         )
 
-        with pytest.raises(ValueError, match="Unknown time volume_acquisition_reference"):
+        with pytest.raises(
+            ValueError, match="Unknown time volume_acquisition_reference"
+        ):
             save_nifti(da, tmp_path / "invalid_time_reference.nii.gz")
 
     def test_save_nifti_validation_runtime_error_warns(
@@ -1804,10 +1840,10 @@ class TestSaveNifti:
 class TestRoundtrip:
     """Tests for save/load roundtrip consistency."""
 
-    def test_roundtrip_preserves_full_affine(self, tmp_path):
-        """Save and load roundtrip preserves the full affine (rotation + shear)."""
+    def test_roundtrip_preserves_differing_qform(self, tmp_path):
+        """A load->save->load roundtrip preserves the full qform and sform."""
         # 45° rotation in XY plane + zoom + translation — not a diagonal affine.
-        affine = np.array(
+        sform = np.array(
             [
                 [1.41421356, -1.41421356, 0.0, 10.0],
                 [1.41421356, 2.82842712, 0.0, -5.0],
@@ -1815,18 +1851,32 @@ class TestRoundtrip:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        data = np.random.default_rng(0).random((3, 4, 5)).astype(np.float32)
-        img = nib.Nifti1Image(data, affine)
-        img.header.set_sform(affine, code=1)
-        nifti_path = tmp_path / "rotated.nii.gz"
-        img.to_filename(nifti_path)
+        # qform: different orientation (90 deg about x), unit zoom, origin [5, 6, 7].
+        qform = np.array(
+            [
+                [1.0, 0.0, 0.0, 5.0],
+                [0.0, 0.0, -1.0, 6.0],
+                [0.0, 1.0, 0.0, 7.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        img = nib.Nifti1Image(np.zeros((4, 3, 2), dtype=np.float32), sform)
+        img.header.set_sform(sform, code=5)
+        img.header.set_qform(qform, code=1)
+        in_path = tmp_path / "in.nii.gz"
+        img.to_filename(in_path)
 
-        da = load_nifti(nifti_path)
-        out_path = tmp_path / "roundtrip_rotated.nii.gz"
-        save_nifti(da, out_path)
-
+        out_path = tmp_path / "out.nii.gz"
+        save_nifti(load_nifti(in_path), out_path)
         reloaded = nib.load(out_path)
-        np.testing.assert_allclose(reloaded.header.get_sform(), affine, atol=1e-5)
+
+        # sform survives (primary frame); qform must survive too.
+        np.testing.assert_allclose(
+            reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
+        )
+        np.testing.assert_allclose(
+            reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
+        )
 
     def test_roundtrip_3d(self, tmp_path, sample_3d_volume):
         """Save and load preserves 3D data and attributes."""

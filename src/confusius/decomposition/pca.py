@@ -153,6 +153,13 @@ class PCA(_BaseFUSIDecomposer):
         Feature names seen during fit. Defined only when flattened feature labels are
         all strings.
 
+    References
+    ----------
+    [^1]:
+        Halko, N., Martinsson, P. G., and Tropp, J. A. (2011). "Finding structure with
+        randomness: Probabilistic algorithms for constructing approximate matrix
+        decompositions". SIAM Review, 53(2), 217-288.
+
     Examples
     --------
     >>> import numpy as np
@@ -172,13 +179,6 @@ class PCA(_BaseFUSIDecomposer):
     >>> reconstructed = pca.inverse_transform(signals)
     >>> reconstructed.dims
     ('time', 'z', 'y', 'x')
-
-    References
-    ----------
-    [^1]:
-        Halko, N., Martinsson, P. G., and Tropp, J. A. (2011). "Finding structure with
-        randomness: Probabilistic algorithms for constructing approximate matrix
-        decompositions". SIAM Review, 53(2), 217-288.
     """
 
     _signals_long_name = "PCA signals"

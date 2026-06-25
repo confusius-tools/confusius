@@ -770,8 +770,8 @@ def compute_svd_cumulative_energy_threshold(
 
     mask_array: npt.NDArray[np.bool_] | None = None
     if clutter_mask is not None:
-        validate_mask(clutter_mask, iq, "clutter_mask")
-        mask_array = clutter_mask.values.astype(bool)
+        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
+        mask_array = clutter_mask.values
 
     dask_iq = iq.data
     if not isinstance(dask_iq, da.Array):

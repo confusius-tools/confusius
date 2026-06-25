@@ -6,10 +6,19 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QByteArray, QRectF, QSize, Qt, QTimer
-from qtpy.QtGui import QFont, QImage, QPainter, QPixmap
+from qtpy.QtCore import (
+    QByteArray,
+    QEasingCurve,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+)
+from qtpy.QtGui import QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
+    QWIDGETSIZE_MAX,
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -29,6 +38,9 @@ if TYPE_CHECKING:
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
+
+ACCORDION_ANIMATION_DURATION_MS = 200
+"""Duration of accordion expand/collapse animations, in milliseconds."""
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -81,8 +93,20 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
     background: {header_bg};
     border-bottom: 2px solid {header_border};
 }}
-#confusius_title   {{ color: {accent};      background: transparent; }}
-#confusius_subtitle {{ color: {subtitle_fg}; font-size: 11px; background: transparent; }}
+#confusius_title   {{
+    color: {accent};
+    font-size: 14px;
+    font-weight: bold;
+    background: transparent;
+    padding-left: 0px;
+}}
+#confusius_subtitle {{
+    color: {subtitle_fg};
+    font-size: 11px;
+    background: transparent;
+    padding-left: 0px;
+    padding-top: 0px;
+}}
 #confusius_version  {{ color: {version_fg};  font-size: 10px; background: transparent; }}
 
 /* ---- Accordion section headers ---- */
@@ -197,7 +221,7 @@ QPushButton#tour_btn {{
     color: {accent};
     border: 1px solid {accent};
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 10px;
     padding: 3px 8px;
 }}
 QPushButton#tour_btn:hover {{
@@ -346,48 +370,60 @@ class ConfUSIusWidget(QWidget):
         header.setObjectName("confusius_header")
 
         layout = QVBoxLayout(header)
-        layout.setContentsMargins(16, 16, 16, 14)
+        layout.setContentsMargins(4, 6, 12, 14)
         layout.setSpacing(2)
 
         tour_btn = QPushButton("Take a Tour")
         tour_btn.setObjectName("tour_btn")
         tour_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         tour_btn.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        tour_btn.setFixedHeight(24)
         tour_btn.clicked.connect(self._start_tour)
         tour_btn.adjustSize()
 
         logo_widget = self._load_logo()
         logo_row = QHBoxLayout()
         logo_row.setContentsMargins(0, 0, 0, 6)
-        logo_row.setSpacing(8)
+        logo_row.setSpacing(10)
         if logo_widget is not None:
             logo_row.addWidget(logo_widget)
-        logo_row.addStretch()
-        logo_row.addWidget(tour_btn, alignment=Qt.AlignmentFlag.AlignTop)
-        layout.addLayout(logo_row)
 
         title = QLabel("ConfUSIus")
         title.setObjectName("confusius_title")
-        title_font = QFont()
-        title_font.setPointSize(20)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        layout.addWidget(title)
+        title.setIndent(0)
 
         subtitle = QLabel("Functional Ultrasound Imaging Analysis")
         subtitle.setObjectName("confusius_subtitle")
-        layout.addWidget(subtitle)
+        subtitle.setIndent(0)
+
+        tour_btn_title_and_subtitle = QWidget()
+        tour_btn_title_and_subtitle_layout = QVBoxLayout(tour_btn_title_and_subtitle)
+        tour_btn_title_and_subtitle_layout.setContentsMargins(0, 0, 0, 0)
+        tour_btn_title_and_subtitle_layout.setSpacing(0)
+
+        tour_btn_title_and_subtitle_layout.addStretch()
+        tour_btn_title_and_subtitle_layout.addWidget(
+            tour_btn, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
+        )
+        tour_btn_title_and_subtitle_layout.addWidget(
+            title, alignment=Qt.AlignmentFlag.AlignLeft
+        )
+        tour_btn_title_and_subtitle_layout.addWidget(
+            subtitle, alignment=Qt.AlignmentFlag.AlignLeft
+        )
+
+        logo_row.addWidget(tour_btn_title_and_subtitle)
+        layout.addLayout(logo_row)
 
         return header
 
     def _load_logo(self) -> QWidget | None:
-        """Return an SVG logo widget, or None if unavailable.
+        """Build the header logo as a fixed-size QLabel.
 
-        Uses viewBoxF() (not defaultSize()) for the aspect ratio so that mm-unit
-        SVG dimensions are handled correctly by Qt's renderer. An explicit clip
-        rect on the painter prevents Qt from rendering strokes outside the image
-        bounds when the SVG viewBox sits flush with the content edges.
+        Returns
+        -------
+        QWidget or None
+            A QLabel displaying the logo, or None if the SVG asset is missing or
+            the renderer fails to load it.
         """
         import re
 
@@ -397,13 +433,20 @@ class ConfUSIusWidget(QWidget):
 
         svg_bytes = svg_path.read_bytes()
 
-        # The logo circle extends ~3.5 SVG units beyond the viewBox right edge
-        # (content overhang) plus 1 unit for the half-stroke, so the viewBox
-        # must be expanded by at least 5 units on that side. Using a symmetric
-        # pad of 6 ensures all edges are covered without being too conservative.
+        # QtSvg clips all drawing to the SVG viewBox. This logo's outline stroke is
+        # centred on a path that runs flush with the viewBox edges, so the outer
+        # half of the stroke falls outside the viewBox and is clipped — shaving the
+        # right and bottom contour off the rendered logo. Enlarging the viewBox
+        # pulls the whole stroke back inside and leaves a thin transparent margin,
+        # which also keeps the artwork off the rasterised image edge (where it would
+        # otherwise be shaved on sub-pixel boundaries).
+        #
+        # The pad is a fraction of the viewBox, not an absolute number of units, so
+        # the breathing room scales with the artwork and never needs retuning when
+        # `target_height` changes.
         def _expand_viewbox(m: re.Match) -> bytes:
             x, y, w, h = (float(v) for v in m.group(1).split())
-            pad = 6.0  # SVG user units (mm)
+            pad = 0.05 * max(w, h)  # 5% of the viewBox, in SVG user units
             return (
                 f'viewBox="{x - pad:.4f} {y - pad:.4f} '
                 f'{w + 2 * pad:.4f} {h + 2 * pad:.4f}"'
@@ -416,7 +459,7 @@ class ConfUSIusWidget(QWidget):
         if not renderer.isValid():
             return None
 
-        target_height = 80
+        target_height = 50
         vb = renderer.viewBoxF()
         aspect = vb.width() / vb.height() if vb.height() > 0 else 1.0
         target_width = round(target_height * aspect)
@@ -500,6 +543,9 @@ class ConfUSIusWidget(QWidget):
             panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
+            # Allow the collapse animation to shrink the panel below its
+            # content's minimum size hint.
+            panel.setMinimumHeight(0)
             panel.setVisible(i == 0)
             btns.append(btn)
 
@@ -507,17 +553,62 @@ class ConfUSIusWidget(QWidget):
         # buttons stack at the top of the accordion area.
         layout.addStretch(1)
 
+        # Maps each panel to its in-flight animation; also keeps the Python-side
+        # reference alive until the animation finishes or is replaced.
+        panel_anims: dict[QWidget, QPropertyAnimation] = {}
+
+        def _replace_panel_anim(
+            panel: QWidget, anim: QPropertyAnimation | None
+        ) -> None:
+            previous = panel_anims.pop(panel, None)
+            if previous is not None:
+                previous.stop()
+            if anim is not None:
+                panel_anims[panel] = anim
+
+        def _animate_panel(
+            panel: QWidget, start: int, end: int, *, hide_on_done: bool
+        ) -> None:
+            anim = QPropertyAnimation(panel, b"maximumHeight")
+            anim.setDuration(ACCORDION_ANIMATION_DURATION_MS)
+            anim.setStartValue(start)
+            anim.setEndValue(end)
+            anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            _replace_panel_anim(panel, anim)
+
+            def _on_done() -> None:
+                # Stale callback — this animation was replaced (stop() also
+                # emits finished).
+                if panel_anims.get(panel) is not anim:
+                    return
+                if hide_on_done:
+                    panel.hide()
+                panel.setMaximumHeight(QWIDGETSIZE_MAX)
+                _replace_panel_anim(panel, None)
+
+            anim.finished.connect(_on_done)
+            anim.start()
+
         def _activate_panel(panel_index: int) -> None:
             # Clicking the already-open panel collapses it (all closed).
             already_open = panels[panel_index].isVisible()
-            target = -1 if already_open else panel_index  # -1 means all collapsed
+            target = -1 if already_open else panel_index
+            available_height = max(
+                container.height() - sum(b.height() for b in btns), 50
+            )
 
-            for j, (b, p) in enumerate(zip(btns, panels)):
+            for j, (button, panel) in enumerate(zip(btns, panels)):
                 active = j == target
-                b.blockSignals(True)
-                b.setChecked(active)
-                b.blockSignals(False)
-                p.setVisible(active)
+                button.blockSignals(True)
+                button.setChecked(active)
+                button.blockSignals(False)
+
+                if active and not panel.isVisible():
+                    panel.setMaximumHeight(0)
+                    panel.show()
+                    _animate_panel(panel, 0, available_height, hide_on_done=False)
+                elif not active and panel.isVisible():
+                    _animate_panel(panel, panel.height(), 0, hide_on_done=True)
 
         for i, btn in enumerate(btns):
             btn.clicked.connect(lambda _checked, i=i: _activate_panel(i))
@@ -525,5 +616,7 @@ class ConfUSIusWidget(QWidget):
         # Store for icon re-tinting on theme change and tour access.
         self._accordion_btns = list(zip(btns, [e[1] for e in tab_entries]))
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
+        # Exposed so the guided tour can follow in-flight panel animations.
+        self._accordion_anims = panel_anims
 
         return container
