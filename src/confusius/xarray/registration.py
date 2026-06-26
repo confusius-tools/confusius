@@ -41,7 +41,9 @@ class FUSIRegistrationAccessor:
         number_of_iterations: int = 100,
         convergence_minimum_value: float = 1e-6,
         convergence_window_size: int = 10,
-        initialization: Literal["geometry", "moments", "none"] = "geometry",
+        initialization: Literal["center_geometry", "center_moments"]
+        | npt.NDArray[np.floating]
+        | None = "center_geometry",
         optimizer_weights: list[float] | None = None,
         mesh_size: tuple[int, int, int] = (10, 10, 10),
         use_multi_resolution: bool = False,
@@ -75,8 +77,17 @@ class FUSIRegistrationAccessor:
             Convergence threshold for early stopping.
         convergence_window_size : int, default: 10
             Window size for convergence check.
-        initialization : {"geometry", "moments", "none"}, default: "geometry"
-            Transform initialization strategy. Ignored for bspline transforms.
+        initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray, default: "center_geometry"
+            Initial transform applied before optimization:
+
+            - `"center_geometry"`: aligns image centers.
+            - `"center_moments"`: aligns centers of mass.
+            - `(N+1, N+1)` homogeneous affine matrix: uses a precomputed affine
+              transform.
+            - `None`: uses the identity transform.
+
+            For `transform="bspline"`, centering modes are ignored but affine
+            initialization is supported.
         optimizer_weights : list of float, optional
             Per-parameter weights applied on top of auto-estimated scales via
             `SetOptimizerWeights()`. If not provided, no additional weighting is
@@ -144,7 +155,7 @@ class FUSIRegistrationAccessor:
             number_of_iterations=number_of_iterations,
             convergence_minimum_value=convergence_minimum_value,
             convergence_window_size=convergence_window_size,
-            centering_initialization=initialization,
+            initialization=initialization,
             optimizer_weights=optimizer_weights,
             mesh_size=mesh_size,
             use_multi_resolution=use_multi_resolution,
@@ -170,7 +181,8 @@ class FUSIRegistrationAccessor:
         number_of_iterations: int = 100,
         convergence_minimum_value: float = 1e-6,
         convergence_window_size: int = 10,
-        initialization: Literal["geometry", "moments", "none"] = "geometry",
+        initialization: Literal["center_geometry", "center_moments"]
+        | None = "center_geometry",
         optimizer_weights: list[float] | None = None,
         use_multi_resolution: bool = False,
         shrink_factors: Sequence[int] = (6, 2, 1),
@@ -203,8 +215,12 @@ class FUSIRegistrationAccessor:
             Convergence threshold for early stopping.
         convergence_window_size : int, default: 10
             Window size for convergence check.
-        initialization : {"geometry", "moments", "none"}, default: "geometry"
-            Transform initialization strategy.
+        initialization : {"center_geometry", "center_moments"}, default: "center_geometry"
+            Initial transform applied before optimization:
+
+            - `"center_geometry"`: aligns image centers.
+            - `"center_moments"`: aligns centers of mass.
+            - `None`: uses the identity transform.
         optimizer_weights : list of float, optional
             Per-parameter weights applied on top of auto-estimated scales via
             `SetOptimizerWeights()`. If not provided, no additional weighting is

@@ -27,7 +27,8 @@ def register_volumewise(
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
-    initialization: Literal["geometry", "moments", "none"] = "geometry",
+    initialization: Literal["center_geometry", "center_moments"]
+    | None = "center_geometry",
     optimizer_weights: list[float] | None = None,
     use_multi_resolution: bool = False,
     shrink_factors: Sequence[int] = (6, 2, 1),
@@ -73,11 +74,12 @@ def register_volumewise(
     convergence_window_size : int, default: 10
         Number of recent metric values used to estimate the energy profile
         for convergence checking.
-    initialization : {"geometry", "moments", "none"}, default: "geometry"
-        Transform initializer applied before optimization. `"geometry"`
-        aligns the image centers (safe default, no assumptions about content).
-        `"moments"` aligns centers of mass (better when images are offset
-        but share the same content). `"none"` uses the identity transform.
+    initialization : {"center_geometry", "center_moments"}, default: "center_geometry"
+        Initial transform applied before optimization:
+
+        - `"center_geometry"`: aligns image centers.
+        - `"center_moments"`: aligns centers of mass.
+        - `None`: uses the identity transform.
     optimizer_weights : list of float, optional
         Per-parameter weights applied on top of the auto-estimated physical shift
         scales. If not provided, identity weights are used. A list is passed directly to
@@ -197,7 +199,7 @@ def register_volumewise(
                     number_of_iterations=number_of_iterations,
                     convergence_minimum_value=convergence_minimum_value,
                     convergence_window_size=convergence_window_size,
-                    centering_initialization=initialization,
+                    initialization=initialization,
                     optimizer_weights=optimizer_weights,
                     use_multi_resolution=use_multi_resolution,
                     shrink_factors=shrink_factors,

@@ -497,38 +497,38 @@ class TestResampleVolume:
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
-class TestInitialTransform:
-    """Tests for the initial_transform parameter of register_volume."""
+class TestInitialization:
+    """Tests for the initialization parameter of register_volume."""
 
     def test_wrong_shape_raises(self, sample_2d_dataarray_spatial):
-        """initial_transform with wrong shape raises ValueError."""
-        with pytest.raises(ValueError, match="initial_transform shape"):
+        """Affine initialization with wrong shape raises ValueError."""
+        with pytest.raises(ValueError, match="initialization shape"):
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
                 transform_type="bspline",
-                initial_transform=np.eye(4),  # wrong: 3D affine for 2D images
+                initialization=np.eye(4),  # wrong: 3D affine for 2D images
             )
 
-    def test_bspline_with_initial_transform_stores_pre_affine(
+    def test_bspline_with_affine_initialization_stores_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
-        """B-spline result DataArray stores the pre-affine in attrs when initial_transform is given."""
+        """B-spline result stores the pre-affine when affine initialization is given."""
         pre_affine = np.eye(3)
         _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
-            initial_transform=pre_affine,
+            initialization=pre_affine,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         assert "affines" in bspline_tx.attrs
         assert "bspline_initialization" in bspline_tx.attrs["affines"]
 
-    def test_bspline_without_initial_transform_has_no_pre_affine(
+    def test_bspline_without_affine_initialization_has_no_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
-        """B-spline result DataArray without initial_transform has no bspline_initialization key."""
+        """B-spline result without affine initialization has no bspline_initialization key."""
         _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
@@ -569,7 +569,7 @@ class TestResampleVolumeWithBspline:
     def test_resample_like_with_composite_bspline_matches_direct_resample(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
-        """resample_like with composite B-spline (with initial_transform) matches register_volume(resample=True)."""
+        """resample_like with composite B-spline matches register_volume(resample=True)."""
         rng = np.random.default_rng(1)
         shift = rng.integers(2, 4, size=2)
         shifted = np.roll(
@@ -591,7 +591,7 @@ class TestResampleVolumeWithBspline:
             moving,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
-            initial_transform=affine_tx,
+            initialization=affine_tx,
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -651,7 +651,9 @@ class TestResampleLike:
                 "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
             },
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0)
+        result = resample_like(
+            moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0
+        )
         assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
 
     def test_output_coords_match_reference(
@@ -726,10 +728,10 @@ class TestResampleLike:
         result = resample_like(moving, sample_3d_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
-    def test_matches_register_volume_with_initial_transform(
+    def test_matches_register_volume_with_affine_initialization(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
-        """resample_like matches register_volume(resample=True) when initial_transform is used.
+        """resample_like matches register_volume(resample=True) when affine initialization is used.
 
         Regression test for a bug where CompositeTransform sub-transforms were
         composed in the wrong order in _sitk_linear_transform_to_affine, causing
@@ -753,7 +755,7 @@ class TestResampleLike:
             moving,
             sample_2d_dataarray_spatial,
             transform_type="affine",
-            initial_transform=affine_init,
+            initialization=affine_init,
             resample=True,
         )
         result = resample_like(moving, sample_2d_dataarray_spatial, affine)
@@ -882,4 +884,6 @@ class TestRegisterVolumeFillValue:
             transform_type="translation",
         )
         # Default fill should be moving.min() == 2.0, not 0.0.
-        assert float(result.values[0, 0]) == pytest.approx(float(moving.min()), abs=1e-5)
+        assert float(result.values[0, 0]) == pytest.approx(
+            float(moving.min()), abs=1e-5
+        )
