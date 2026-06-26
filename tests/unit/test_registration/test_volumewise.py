@@ -13,17 +13,8 @@ from confusius.registration.volumewise import register_volumewise
 
 class _FakeVolumewiseProgressReporter:
     def __init__(self) -> None:
-        self.iterations: list[tuple[int, int, int]] = []
         self.completed_frames: list[int] = []
         self.closed = False
-
-    def iteration(
-        self,
-        frame_index: int,
-        iteration: int,
-        total_iterations: int,
-    ) -> None:
-        self.iterations.append((frame_index, iteration, total_iterations))
 
     def frame_completed(
         self,
@@ -113,16 +104,12 @@ class TestRegisterVolumewise:
         assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
         assert_allclose(result.values, sample_2d_dataarray.values)
 
-    def test_progress_reporter_receives_iteration_and_frame_updates(
+    def test_progress_reporter_receives_frame_updates(
         self, sample_2d_dataarray, monkeypatch
     ):
         reporter = _FakeVolumewiseProgressReporter()
 
         def _fake_register_volume(_volume, _ref_da, **kwargs):
-            iteration_callback = kwargs["iteration_callback"]
-            if iteration_callback is not None:
-                iteration_callback(1, -1.0)
-                iteration_callback(2, -0.5)
             diagnostics = RegistrationDiagnostics(
                 metric="correlation",
                 metric_values=np.asarray([-1.0, -0.5]),
@@ -147,7 +134,6 @@ class TestRegisterVolumewise:
         )
 
         assert result.shape == sample_2d_dataarray.shape
-        assert reporter.iterations
         assert sorted(reporter.completed_frames) == list(
             range(sample_2d_dataarray.sizes["time"])
         )

@@ -174,8 +174,8 @@ class NapariVolumeProgress:
 class NapariVolumewiseProgressBridge(QObject):
     """Thread-boundary signal bridge for volumewise registration progress."""
 
-    iteration_progress = Signal(int, int)
-    """:pyqtSignal: Emitted with `(completed_iterations, total_iterations)`.
+    frame_progress = Signal(int, int)
+    """:pyqtSignal: Emitted with `(completed_frames, total_frames)`.
     """
 
     frame_completed = Signal(int, object)
@@ -196,8 +196,6 @@ class NapariVolumewiseProgress:
         GUI-thread signal bridge used to forward progress updates.
     n_frames : int
         Number of frames that will be registered.
-    total_iterations_per_frame : int
-        Expected maximum number of optimizer iterations per frame.
     """
 
     def __init__(
@@ -205,41 +203,11 @@ class NapariVolumewiseProgress:
         bridge: NapariVolumewiseProgressBridge,
         *,
         n_frames: int,
-        total_iterations_per_frame: int,
     ) -> None:
         self._bridge = bridge
         self._n_frames = n_frames
-        self._total_iterations_per_frame = total_iterations_per_frame
-        self._iteration_counts = [0] * n_frames
+        self._completed_frames: set[int] = set()
         self._lock = Lock()
-
-    def iteration(
-        self,
-        frame_index: int,
-        iteration: int,
-        total_iterations: int,
-    ) -> None:
-        """Update the aggregated completed-iteration count.
-
-        Parameters
-        ----------
-        frame_index : int
-            Index of the frame being optimized.
-        iteration : int
-            Current 1-indexed optimizer iteration for that frame.
-        total_iterations : int
-            Maximum number of iterations expected for that frame.
-        """
-        with self._lock:
-            if total_iterations > self._total_iterations_per_frame:
-                self._total_iterations_per_frame = total_iterations
-            self._iteration_counts[frame_index] = max(
-                self._iteration_counts[frame_index],
-                iteration,
-            )
-            completed = sum(self._iteration_counts)
-            total = self._n_frames * self._total_iterations_per_frame
-        self._bridge.iteration_progress.emit(completed, total)
 
     def frame_completed(
         self,
@@ -259,13 +227,11 @@ class NapariVolumewiseProgress:
             Diagnostics collected for the completed frame.
         """
         with self._lock:
-            self._iteration_counts[frame_index] = max(
-                self._iteration_counts[frame_index],
-                diagnostics.n_iterations,
-            )
-            completed = sum(self._iteration_counts)
-            total = self._n_frames * self._total_iterations_per_frame
-        self._bridge.iteration_progress.emit(completed, total)
+            del diagnostics
+            self._completed_frames.add(frame_index)
+            completed = len(self._completed_frames)
+            total = self._n_frames
+        self._bridge.frame_progress.emit(completed, total)
         self._bridge.frame_completed.emit(
             frame_index, np.asarray(registered_frame.values)
         )

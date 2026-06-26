@@ -18,25 +18,6 @@ class VolumewiseProgressReporter(Protocol):
     via thread-safe mechanisms such as Qt signals.
     """
 
-    def iteration(
-        self,
-        frame_index: int,
-        iteration: int,
-        total_iterations: int,
-    ) -> None:
-        """Report the current optimizer iteration for one frame.
-
-        Parameters
-        ----------
-        frame_index : int
-            Index of the frame being optimized.
-        iteration : int
-            Current 1-indexed optimizer iteration for that frame.
-        total_iterations : int
-            Maximum number of iterations expected for that frame.
-        """
-        ...
-
     def frame_completed(
         self,
         frame_index: int,

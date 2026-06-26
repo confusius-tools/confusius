@@ -132,9 +132,9 @@ def register_volumewise(
         original values, and per-frame `motion_params` rows are marked via the
         diagnostics status.
     progress_reporter : VolumewiseProgressReporter, optional
-        Thread-safe reporter notified at every optimizer iteration and whenever
-        one frame completes. Useful for GUI progress bars or progressively
-        filling an output layer while frames finish.
+        Thread-safe reporter notified whenever one frame completes. Useful for
+        GUI progress bars or progressively filling an output layer while frames
+        finish.
 
     Returns
     -------
@@ -213,14 +213,6 @@ def register_volumewise(
     ) -> tuple[
         int, xr.DataArray, npt.NDArray[np.floating] | None, RegistrationDiagnostics
     ]:
-        def _iteration_callback(iteration: int, _metric_value: float) -> None:
-            if progress_reporter is not None:
-                progress_reporter.iteration(
-                    frame_index,
-                    iteration,
-                    number_of_iterations,
-                )
-
         registered_da, frame_affine, frame_diag = register_volume(
             volume,
             ref_da,
@@ -243,9 +235,6 @@ def register_volumewise(
             sitk_threads=1,
             show_progress=False,
             abort_event=abort_event,
-            iteration_callback=_iteration_callback
-            if progress_reporter is not None
-            else None,
         )
         return frame_index, registered_da, frame_affine, frame_diag
 

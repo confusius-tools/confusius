@@ -375,12 +375,11 @@ class TestVolumewiseProgress:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
-            total_iterations_per_frame=5,
         )
 
         assert registration_panel._volumewise_progress_layer is not None
         assert registration_panel._volumewise_moving_preview_layer is not None
-        assert registration_panel._progress.maximum() == 15
+        assert registration_panel._progress.maximum() == 3
         assert registration_panel._progress.isTextVisible()
         assert registration_panel._progress.minimumHeight() >= 18
         assert moving_layer.colormap.name != "red"
@@ -395,8 +394,7 @@ class TestVolumewiseProgress:
             np.full(moving.shape, float(moving.min()), dtype=np.float32),
         )
 
-        progress.iteration(1, 2, 5)
-        assert registration_panel._progress.value() == 2
+        assert registration_panel._progress.value() == 0
 
         frame = xr.DataArray(
             np.ones((4, 6), dtype=np.float32),
@@ -408,10 +406,50 @@ class TestVolumewiseProgress:
         )
         progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
 
+        assert registration_panel._progress.value() == 1
         np.testing.assert_array_equal(
             np.asarray(viewer.layers["Motion corrected"].data)[1],
             np.asarray(frame.values),
         )
+
+
+    def test_frame_completion_updates_frame_progress(
+        self, viewer, registration_panel
+    ):
+        moving = xr.DataArray(
+            np.zeros((3, 4, 6), dtype=np.float32),
+            dims=["time", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(3), dims=["time"]),
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        moving_layer = viewer.add_image(
+            moving.values,
+            name="series",
+            metadata={"xarray": moving},
+        )
+        progress = registration_panel._setup_volumewise_progress(
+            moving_layer=moving_layer,
+            moving=moving,
+            layer_name="Motion corrected",
+        )
+
+        frame = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        progress.frame_completed(0, frame, _FakeDiagnostics(n_iterations=2))
+        progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=1))
+        progress.frame_completed(2, frame, _FakeDiagnostics(n_iterations=3))
+
+        assert registration_panel._progress.maximum() == 3
+        assert registration_panel._progress.value() == 3
 
 
 class TestFinishedCallbacks:
@@ -730,7 +768,6 @@ class TestFinishedCallbacks:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
-            total_iterations_per_frame=5,
         )
 
         registered = xr.DataArray(

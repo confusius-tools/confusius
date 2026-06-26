@@ -1628,7 +1628,6 @@ class RegistrationPanel(QWidget):
         moving_layer: "Image",
         moving: xr.DataArray,
         layer_name: str,
-        total_iterations_per_frame: int,
     ) -> NapariVolumewiseProgress:
         """Create a progress bridge and output layer for volumewise registration."""
         self._teardown_volumewise_progress(remove_layer=True)
@@ -1669,32 +1668,29 @@ class RegistrationPanel(QWidget):
             **display_kwargs,
         )
         bridge = NapariVolumewiseProgressBridge()
-        bridge.iteration_progress.connect(self._update_volumewise_progress_bar)
+        bridge.frame_progress.connect(self._update_volumewise_progress_bar)
         bridge.frame_completed.connect(self._update_volumewise_progress_frame)
 
         self._volumewise_progress_bridge = bridge
         self._volumewise_progress_layer = cast("Image", layer)
         self._volumewise_moving_preview_layer = cast("Image", moving_preview_layer)
         self._volumewise_progress_time_axis = moving.dims.index(TIME_DIM)
-        self._volumewise_progress_total = (
-            moving.sizes[TIME_DIM] * total_iterations_per_frame
-        )
+        self._volumewise_progress_total = moving.sizes[TIME_DIM]
         self._progress.setRange(0, self._volumewise_progress_total)
         self._progress.setValue(0)
         return NapariVolumewiseProgress(
             bridge,
             n_frames=moving.sizes[TIME_DIM],
-            total_iterations_per_frame=total_iterations_per_frame,
         )
 
     def _update_volumewise_progress_bar(
         self,
-        completed_iterations: int,
-        total_iterations: int,
+        completed_frames: int,
+        total_frames: int,
     ) -> None:
         """Update the determinate progress bar for volumewise registration."""
-        self._progress.setRange(0, max(total_iterations, 1))
-        self._progress.setValue(min(completed_iterations, total_iterations))
+        self._progress.setRange(0, max(total_frames, 1))
+        self._progress.setValue(min(completed_frames, total_frames))
 
     def _update_volumewise_progress_frame(
         self,
@@ -2248,7 +2244,6 @@ class RegistrationPanel(QWidget):
                 layer_name=self._volumewise_result_layer_name(
                     cast("str", payload["moving_layer_name"])
                 ),
-                total_iterations_per_frame=payload["number_of_iterations"],
             )
 
             worker = thread_worker(_run_register_volumewise)(
