@@ -229,12 +229,12 @@ class TestRunRegistration:
         registration_panel._refresh_transform_controls()
         registration_panel._moving_combo.setCurrentText("moving")
         registration_panel._fixed_combo.setCurrentText("fixed")
-        for i in range(registration_panel._initial_transform_combo.count()):
-            if registration_panel._initial_transform_combo.itemData(i) == (
+        for i in range(registration_panel._initialization_combo.count()):
+            if registration_panel._initialization_combo.itemData(i) == (
                 "layer",
                 "Previous registered",
             ):
-                registration_panel._initial_transform_combo.setCurrentIndex(i)
+                registration_panel._initialization_combo.setCurrentIndex(i)
                 break
 
         captured: dict[str, object] = {}
@@ -274,7 +274,7 @@ class TestRunRegistration:
         registration_panel._run_registration()
 
         np.testing.assert_array_equal(captured["kwargs"]["initial_transform"], affine)
-        assert captured["kwargs"]["initialization"] == "geometry"
+        assert captured["kwargs"]["center_initialization"] is None
         assert registration_panel._worker is not None
 
 
@@ -389,12 +389,12 @@ class TestValidation:
         viewer.add_image(reference.values, name="Registered", metadata={"confusius_transform": payload})
         registration_panel._refresh_transform_controls()
 
-        assert registration_panel._initial_transform_combo.itemText(0) == "None"
-        assert registration_panel._initial_transform_combo.count() >= 2
+        assert registration_panel._initialization_combo.itemText(0) == "center_geometry"
+        assert registration_panel._initialization_combo.count() >= 4
         assert any(
-            registration_panel._initial_transform_combo.itemData(i)
+            registration_panel._initialization_combo.itemData(i)
             == ("layer", "Registered")
-            for i in range(registration_panel._initial_transform_combo.count())
+            for i in range(registration_panel._initialization_combo.count())
         )
 
 
@@ -624,7 +624,7 @@ class TestFinishedCallbacks:
             (registered, transform, diagnostics),
         )
 
-        layer = viewer.layers["Registered"]
+        layer = viewer.layers["Registered (rigid)"]
         assert layer.metadata["registration_transform"] is transform
         assert layer.metadata["registration_diagnostics"] is diagnostics
         assert layer.metadata["registration_status"] == "completed"
@@ -667,10 +667,10 @@ class TestFinishedCallbacks:
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
-            layer_name="Resampled moving",
+            layer_name="Registered (rigid)",
         )
         assert factory is not None
-        assert {"Fixed", "Moving", "Resampled moving"}.issubset(
+        assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
             {layer.name for layer in viewer.layers}
         )
         assert registration_panel._progress_layer is not None
@@ -685,7 +685,7 @@ class TestFinishedCallbacks:
         # Dedicated preview layers carry the registration styling.
         fixed_preview = viewer.layers["Fixed"]
         moving_preview = viewer.layers["Moving"]
-        preview_layer = viewer.layers["Resampled moving"]
+        preview_layer = viewer.layers["Registered (rigid)"]
         assert fixed_preview.colormap.name == "red"
         assert moving_preview.colormap.name == "cyan"
         assert moving_preview.blending == "additive"
@@ -721,13 +721,13 @@ class TestFinishedCallbacks:
         # The resampled preview is kept and promoted to the final registered
         # layer so the user can keep reviewing the fixed / moving / result
         # stack after the run.
-        assert registration_panel._progress_layer is viewer.layers["Registered"]
+        assert registration_panel._progress_layer is None
         assert registration_panel._progress_bridge is None
-        assert {"Fixed", "Moving", "Registered"}.issubset(
+        assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
             {layer.name for layer in viewer.layers}
         )
         assert not viewer.layers["Moving"].visible
-        result_layer = viewer.layers["Registered"]
+        result_layer = viewer.layers["Registered (rigid)"]
         assert result_layer.colormap.name == "cyan"
         assert result_layer.blending == "additive"
         # Original source layers remain untouched.
@@ -769,33 +769,34 @@ class TestFinishedCallbacks:
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
-            layer_name="Resampled moving",
+            layer_name="Registered (rigid)",
         )
         # The preview is seeded with the moving image resampled onto the
         # fixed grid, so it's visible and meaningful from the start.
-        preview_layer = viewer.layers["Resampled moving"]
+        preview_layer = viewer.layers["Registered (rigid)"]
         assert preview_layer.visible
 
         next_arr = np.full((4, 6), 0.5, dtype=np.float32)
         registration_panel._update_progress_layer(next_arr)
 
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["Resampled moving"].data), next_arr
+            np.asarray(viewer.layers["Registered (rigid)"].data), next_arr
         )
 
         # Shape mismatch is silently ignored.
         registration_panel._update_progress_layer(np.zeros((3, 6), dtype=np.float32))
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["Resampled moving"].data), next_arr
+            np.asarray(viewer.layers["Registered (rigid)"].data), next_arr
         )
 
-        # Teardown removes the preview layers while leaving the originals untouched.
+        # Teardown removes only the in-flight registered layer while leaving
+        # the reusable fixed / moving previews and originals untouched.
         registration_panel._teardown_volume_progress()
         assert registration_panel._progress_layer is None
         assert registration_panel._progress_bridge is None
-        assert "Resampled moving" not in {layer.name for layer in viewer.layers}
-        assert "Fixed" not in {layer.name for layer in viewer.layers}
-        assert "Moving" not in {layer.name for layer in viewer.layers}
+        assert "Registered (rigid)" not in {layer.name for layer in viewer.layers}
+        assert "Fixed" in {layer.name for layer in viewer.layers}
+        assert "Moving" in {layer.name for layer in viewer.layers}
         assert moving.visible
         assert moving.colormap.name != "cyan"
         assert moving.blending != "additive"
@@ -829,7 +830,7 @@ class TestFinishedCallbacks:
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
-            layer_name="Resampled moving",
+            layer_name="Registered (rigid)",
         )
 
         assert registration_panel._metric_plotter is not None
@@ -934,3 +935,46 @@ class TestFinishedCallbacks:
         )
         assert viewer.layers["series"].colormap.name != "red"
         assert viewer.layers["Moving"].colormap.name == "red"
+
+    def test_unique_transform_and_result_names(self, viewer, registration_panel):
+        fixed = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        payload = {
+            "operation": "register_volume",
+            "moving_layer_name": "moving",
+            "fixed_layer_name": "fixed",
+            "transform": "rigid",
+            "metric": "correlation",
+            "learning_rate": "auto",
+            "number_of_iterations": 100,
+            "use_multi_resolution": False,
+            "resample_interpolation": "linear",
+        }
+        transform = np.eye(3)
+        diagnostics = _FakeDiagnostics()
+
+        registration_panel._on_registration_finished(
+            payload,
+            (fixed.copy(), transform, diagnostics),
+        )
+        registration_panel._on_registration_finished(
+            payload,
+            (fixed.copy(), transform, diagnostics),
+        )
+
+        assert "Registered (rigid)" in {layer.name for layer in viewer.layers}
+        assert "Registered (rigid) [1]" in {layer.name for layer in viewer.layers}
+        names = [
+            viewer.layers[name].metadata["confusius_transform"]["name"]
+            for name in ("Registered (rigid)", "Registered (rigid) [1]")
+        ]
+        assert names == [
+            "moving → fixed (rigid)",
+            "moving → fixed (rigid) [1]",
+        ]
