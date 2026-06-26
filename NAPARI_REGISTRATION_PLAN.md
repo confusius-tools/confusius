@@ -43,6 +43,13 @@ Deliver a thin but usable panel focused on running registrations and adding the 
 - Both must be spatial-only volumes.
 - Result layer name should clearly indicate the fixed target.
 - Keep the estimated transform and diagnostics in metadata for later reuse.
+- Future between-scan previews should use dedicated temporary napari layers
+  (Fixed / Moving / Resampled moving) instead of mutating the original
+  viewer layers in place.
+- When time-series inputs are selected in between-scan mode, they should be
+  reduced to a time-averaged spatial volume before registration.
+- Registration should support an optional intensity-scale preprocessing step
+  so fixed and moving previews live in the same display space.
 
 ### `register_volumewise`
 
@@ -50,6 +57,9 @@ Deliver a thin but usable panel focused on running registrations and adding the 
 - Uses a selected `reference_time`.
 - Adds the registered time series as a new layer.
 - Preserve motion metadata already returned by `register_volumewise`.
+- Volumewise progress should also move toward separate napari layer objects
+  for preview/result state, while reusing the same underlying data whenever
+  possible to avoid unnecessary copies.
 
 ## Implementation notes
 
@@ -101,6 +111,12 @@ Transform management.
 - Optional support for non-affine transform payloads in the future.
 - Decide whether volumewise should also hide / retint the source layer after
   completion, mirroring the single-volume workflow more closely.
+- Support B-spline transform payloads in the Transforms tab if we want to save
+  and reload non-affine registrations.
+- Make it possible to use an existing saved / computed transform as the
+  initialization transform for a new registration run.
+- Make it possible to use the current napari layer transform as the
+  initialization transform.
 
 ### Phase 3
 
@@ -134,6 +150,11 @@ Progress integration.
   the moving-layer minimum value, then writes frames in as they finish.
 - During volumewise progress, the original layer is tinted red and the
   in-progress output layer is tinted cyan + additive for visual comparison.
+
+#### Remaining polish
+
+- Fix the volumewise progress bar so it reliably reaches 100% on completion.
+- Investigate and fix abort support on Windows.
 
 ### Phase 5
 
@@ -175,6 +196,15 @@ Panel polish.
 - Better internal layout for the registration tab as it grows.
 - Unified payload support for manual napari-created transforms.
 - Optional support for non-affine transform payloads in the future.
+- Add the B-spline `mesh_size` parameter to the basic parameters area and show
+  it only when the selected transform is `bspline`.
+- Shorten and clarify the names of the temporary / output registration layers.
+- Add an intensity-scale control (for example `dB`, `sqrt`, or off) to
+  registration previews and preprocessing. The default should be enabled and
+  use `dB`.
+- Rework between-scan preview layers so fixed, moving, and registered-moving
+  are separate dedicated layers with appropriate contrast handling.
+- Set the iterations spinbox step size to 100.
 
 ### Phase 6
 

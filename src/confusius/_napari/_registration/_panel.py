@@ -779,6 +779,7 @@ class RegistrationPanel(QWidget):
 
         self._iterations_spin = QSpinBox()
         self._iterations_spin.setRange(1, 100_000)
+        self._iterations_spin.setSingleStep(100)
         self._iterations_spin.setValue(100)
         params_layout.addRow(
             self._make_form_label(

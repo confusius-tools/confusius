@@ -135,6 +135,7 @@ class TestOperationMode:
             1e-10
         )
         assert registration_panel._convergence_min_edit.value() == pytest.approx(1e-6)
+        assert registration_panel._iterations_spin.singleStep() == 100
 
     def test_metric_specific_rows_follow_metric(self, registration_panel):
         registration_panel._advanced_toggle.setChecked(True)
