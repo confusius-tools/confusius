@@ -381,7 +381,7 @@ class TestVolumewiseProgress:
         assert registration_panel._volumewise_moving_preview_layer is not None
         assert registration_panel._progress.maximum() == 3
         assert registration_panel._progress.isTextVisible()
-        assert registration_panel._progress.minimumHeight() >= 18
+        assert registration_panel._progress.minimumHeight() >= 16
         assert moving_layer.colormap.name != "red"
 
         moving_preview_layer = viewer.layers["Moving"]

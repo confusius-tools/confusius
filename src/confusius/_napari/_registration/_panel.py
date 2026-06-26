@@ -1124,7 +1124,7 @@ class RegistrationPanel(QWidget):
 
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
-        self._progress.setMinimumHeight(18)
+        self._progress.setMinimumHeight(16)
         self._progress.setTextVisible(True)
         self._progress.hide()
         layout.addWidget(self._progress)
