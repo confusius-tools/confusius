@@ -553,14 +553,12 @@ class RegistrationPanel(QWidget):
         # Per-run progress state. Set on the GUI thread before the worker starts.
         self._progress_bridge: NapariProgressBridge | None = None
         self._progress_layer: Image | None = None
+        self._progress_fixed_layer: Image | None = None
+        self._progress_moving_layer: Image | None = None
         self._volumewise_progress_bridge: NapariVolumewiseProgressBridge | None = None
         self._volumewise_progress_layer: Image | None = None
         self._volumewise_progress_time_axis: int | None = None
         self._volumewise_progress_total: int | None = None
-        # Moving layer hidden during the run so the resampled preview can
-        # overlay the fixed layer without a duplicate moving/final-image
-        # overlap. Visibility is not restored on teardown.
-        self._progress_hidden_layer: Image | None = None
         # Bottom-dock metric curve. Created lazily on the first run, reused
         # across subsequent runs, and torn down with the progress state.
         self._metric_plotter: RegistrationMetricPlotter | None = None
@@ -1227,6 +1225,18 @@ class RegistrationPanel(QWidget):
         del moving_name, fixed_name
         return "Registered"
 
+    def _volume_preview_layer_name(self) -> str:
+        """Return the napari layer name for between-scan progress preview."""
+        return "Resampled moving"
+
+    def _volume_fixed_preview_layer_name(self) -> str:
+        """Return the napari layer name for the fixed preview layer."""
+        return "Fixed"
+
+    def _volume_moving_preview_layer_name(self) -> str:
+        """Return the napari layer name for the moving preview layer."""
+        return "Moving"
+
     def _volumewise_result_layer_name(self, moving_name: str) -> str:
         """Return the napari layer name for within-scan registration output."""
         del moving_name
@@ -1739,18 +1749,14 @@ class RegistrationPanel(QWidget):
         """
         self._teardown_volume_progress()
 
-        # Tint the fixed layer red so the resampled preview can overlay it via
-        # the classic red/cyan alignment view. The tint persists after the
-        # run; the user can reset it via the layer controls.
-        fixed_layer.colormap = "red"
+        fixed_display_kwargs = _image_display_kwargs_from_layer(fixed_layer)
+        fixed_display_kwargs["colormap"] = "red"
 
-        # Re-tint the moving layer cyan and switch it to additive blending so
-        # the registered overlay keeps the red/cyan alignment look if the
-        # user re-enables it after the run.
-        moving_layer.colormap = "cyan"
-        moving_layer.blending = "additive"
+        moving_display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        moving_display_kwargs["colormap"] = "cyan"
+        moving_display_kwargs["blending"] = "additive"
 
-        display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        display_kwargs = dict(moving_display_kwargs)
         # Seed contrast limits with the moving layer so the preview is shown in
         # the same intensity space as the final resampled volume.
         moving_contrast = getattr(moving_layer, "contrast_limits", None)
@@ -1794,6 +1800,20 @@ class RegistrationPanel(QWidget):
             )
 
         try:
+            _, fixed_preview_layer = plot_napari(
+                fixed,
+                viewer=self.viewer,
+                name=self._volume_fixed_preview_layer_name(),
+                show_colorbar=False,
+                **fixed_display_kwargs,
+            )
+            _, moving_preview_layer = plot_napari(
+                moving,
+                viewer=self.viewer,
+                name=self._volume_moving_preview_layer_name(),
+                show_colorbar=False,
+                **moving_display_kwargs,
+            )
             _, layer = plot_napari(
                 preview,
                 viewer=self.viewer,
@@ -1812,11 +1832,9 @@ class RegistrationPanel(QWidget):
         # no extra slot is required here.
         self._progress_bridge = bridge
         self._progress_layer = cast("Image", layer)
-        # Hide the moving layer *before* the worker starts so the resampled
-        # preview never overlaps with the original input. The hidden state
-        # persists past teardown.
-        self._progress_hidden_layer = moving_layer
-        self._progress_hidden_layer.visible = False
+        self._progress_fixed_layer = cast("Image", fixed_preview_layer)
+        self._progress_moving_layer = cast("Image", moving_preview_layer)
+        self._progress_moving_layer.visible = False
 
         # Lazily build the bottom-dock metric plotter. The widget is reused
         # across runs; only the data buffer is reset.
@@ -1859,19 +1877,21 @@ class RegistrationPanel(QWidget):
         The metric plotter is kept (docked, with its final trace) so the
         user can inspect the convergence curve after the run.
         """
-        if self._progress_layer is not None:
-            try:
-                self.viewer.layers.remove(self._progress_layer)
-            except (KeyError, ValueError):
-                pass
-            self._progress_layer = None
+        for attr_name in (
+            "_progress_layer",
+            "_progress_fixed_layer",
+            "_progress_moving_layer",
+        ):
+            layer = cast("Image | None", getattr(self, attr_name))
+            if layer is not None:
+                try:
+                    self.viewer.layers.remove(layer)
+                except (KeyError, ValueError):
+                    pass
+                setattr(self, attr_name, None)
         # Drop the bridge reference; the plotter connection becomes inert
         # when the bridge is garbage-collected.
         self._progress_bridge = None
-        # Drop the reference without restoring visibility: the moving layer
-        # stays hidden so the resampled output remains the visible moving
-        # stand-in after the run.
-        self._progress_hidden_layer = None
 
     def _ensure_metric_plotter(self) -> RegistrationMetricPlotter | None:
         """Return the bottom-dock metric plotter, creating and docking it on first use.
@@ -2152,10 +2172,7 @@ class RegistrationPanel(QWidget):
                 fixed_layer=cast("Image", fixed_layer),
                 moving=moving,
                 fixed=fixed,
-                layer_name=self._volume_result_layer_name(
-                    cast("str", payload["moving_layer_name"]),
-                    cast("str", payload["fixed_layer_name"]),
-                ),
+                layer_name=self._volume_preview_layer_name(),
             )
 
             worker = thread_worker(_run_register_volume_registration_volume)(
@@ -2252,12 +2269,6 @@ class RegistrationPanel(QWidget):
         """
         operation = cast(str, payload["operation"])
 
-        # Remove the live preview layer if one was created. The freshly-added
-        # result layer is the authoritative output; the preview is just visual
-        # scaffolding during optimisation.
-        if operation == "register_volume":
-            self._teardown_volume_progress()
-
         if operation == "register_volume":
             registered, transform, diagnostics = cast(
                 "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]",
@@ -2320,7 +2331,14 @@ class RegistrationPanel(QWidget):
             display_kwargs["blending"] = "additive"
         contrast_limits = tuple(calc_data_range(registered.data))
 
-        if (
+        if operation == "register_volume" and self._progress_layer is not None:
+            layer = self._progress_layer
+            layer.data = np.asarray(registered.data)  # type: ignore[invalid-assignment]
+            layer.name = layer_name
+            if hasattr(layer, "contrast_limits"):
+                layer.contrast_limits = contrast_limits
+            self._progress_bridge = None
+        elif (
             operation == "register_volumewise"
             and self._volumewise_progress_layer is not None
         ):

@@ -487,26 +487,29 @@ class TestFinishedCallbacks:
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
-            layer_name="Registered",
+            layer_name="Resampled moving",
         )
         assert factory is not None
-        assert "Registered" in {layer.name for layer in viewer.layers}
+        assert {"Fixed", "Moving", "Resampled moving"}.issubset(
+            {layer.name for layer in viewer.layers}
+        )
         assert registration_panel._progress_layer is not None
         assert registration_panel._progress_bridge is not None
-        # The fixed layer is tinted red so the cyan overlay reads as the
-        # classic red/cyan alignment view.
-        assert fixed_layer.colormap.name == "red"
-        # The moving layer is re-tinted cyan + additive, then hidden before
-        # the worker starts so the resampled preview never overlaps it.
-        assert moving.colormap.name == "cyan"
-        assert moving.blending == "additive"
-        assert registration_panel._progress_hidden_layer is moving
-        assert not moving.visible
-        # The preview is rendered in cyan with additive blending and seeded
-        # with the moving image resampled onto the fixed grid, so the first
-        # frame is a meaningful "unaligned moving on fixed" view rather than
-        # a zero-valued blank.
-        preview_layer = viewer.layers["Registered"]
+        assert registration_panel._progress_fixed_layer is not None
+        assert registration_panel._progress_moving_layer is not None
+        # Original layers are left untouched.
+        assert fixed_layer.colormap.name != "red"
+        assert moving.colormap.name != "cyan"
+        assert moving.blending != "additive"
+        assert moving.visible
+        # Dedicated preview layers carry the registration styling.
+        fixed_preview = viewer.layers["Fixed"]
+        moving_preview = viewer.layers["Moving"]
+        preview_layer = viewer.layers["Resampled moving"]
+        assert fixed_preview.colormap.name == "red"
+        assert moving_preview.colormap.name == "cyan"
+        assert moving_preview.blending == "additive"
+        assert not moving_preview.visible
         assert preview_layer.colormap.name == "cyan"
         assert preview_layer.blending == "additive"
         assert preview_layer.visible
@@ -535,19 +538,23 @@ class TestFinishedCallbacks:
             (registered, transform, diagnostics),
         )
 
-        # Preview has been torn down; the result layer is the only match.
-        assert registration_panel._progress_layer is None
+        # The resampled preview is kept and promoted to the final registered
+        # layer so the user can keep reviewing the fixed / moving / result
+        # stack after the run.
+        assert registration_panel._progress_layer is viewer.layers["Registered"]
         assert registration_panel._progress_bridge is None
-        # The result layer picks up the same cyan + additive styling so the
-        # red/cyan overlay survives past teardown.
+        assert {"Fixed", "Moving", "Registered"}.issubset(
+            {layer.name for layer in viewer.layers}
+        )
+        assert not viewer.layers["Moving"].visible
         result_layer = viewer.layers["Registered"]
         assert result_layer.colormap.name == "cyan"
         assert result_layer.blending == "additive"
-        # The moving layer stays hidden, with its cyan + additive tint, so
-        # the registered output remains the visible stand-in.
-        assert not moving.visible
-        assert moving.colormap.name == "cyan"
-        assert moving.blending == "additive"
+        # Original source layers remain untouched.
+        assert moving.visible
+        assert moving.colormap.name != "cyan"
+        assert moving.blending != "additive"
+        assert fixed_layer.colormap.name != "red"
         assert np.array_equal(
             np.asarray(result_layer.data),
             np.asarray(registered.values),
@@ -582,35 +589,36 @@ class TestFinishedCallbacks:
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
-            layer_name="Registered",
+            layer_name="Resampled moving",
         )
         # The preview is seeded with the moving image resampled onto the
         # fixed grid, so it's visible and meaningful from the start.
-        preview_layer = viewer.layers["Registered"]
+        preview_layer = viewer.layers["Resampled moving"]
         assert preview_layer.visible
 
         next_arr = np.full((4, 6), 0.5, dtype=np.float32)
         registration_panel._update_progress_layer(next_arr)
 
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["Registered"].data), next_arr
+            np.asarray(viewer.layers["Resampled moving"].data), next_arr
         )
 
         # Shape mismatch is silently ignored.
         registration_panel._update_progress_layer(np.zeros((3, 6), dtype=np.float32))
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["Registered"].data), next_arr
+            np.asarray(viewer.layers["Resampled moving"].data), next_arr
         )
 
-        # Teardown removes the preview; the moving layer stays hidden with
-        # its cyan + additive styling.
+        # Teardown removes the preview layers while leaving the originals untouched.
         registration_panel._teardown_volume_progress()
         assert registration_panel._progress_layer is None
         assert registration_panel._progress_bridge is None
-        assert "Registered" not in {layer.name for layer in viewer.layers}
-        assert not moving.visible
-        assert moving.colormap.name == "cyan"
-        assert moving.blending == "additive"
+        assert "Resampled moving" not in {layer.name for layer in viewer.layers}
+        assert "Fixed" not in {layer.name for layer in viewer.layers}
+        assert "Moving" not in {layer.name for layer in viewer.layers}
+        assert moving.visible
+        assert moving.colormap.name != "cyan"
+        assert moving.blending != "additive"
 
     def test_setup_creates_metric_plotter_dock(self, viewer, registration_panel):
         """`_setup_volume_progress` lazily creates and docks the metric plotter."""
@@ -641,7 +649,7 @@ class TestFinishedCallbacks:
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
-            layer_name="Registered",
+            layer_name="Resampled moving",
         )
 
         assert registration_panel._metric_plotter is not None
