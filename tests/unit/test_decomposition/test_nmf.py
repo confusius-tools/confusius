@@ -126,8 +126,31 @@ def test_fit_raises_for_negative_input_under_mask(nmf_3dt_volume):
         NMF(n_components=3, init="nndsvda", random_state=0).fit(data)
 
 
+def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
+    """inverse_transform matches sklearn NMF reconstruction in temporal mode."""
+    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
+        feature=["z", "y", "x"]
+    )
+    X = np.asarray(stacked.values, dtype=np.float64)
+
+    model = NMF(n_components=3, init="nndsvda", random_state=0, mode="temporal")
+    reconstructed = model.inverse_transform(model.fit_transform(nmf_3dt_volume))
+
+    sklearn_model = SklearnNMF(
+        n_components=3, init="nndsvda", random_state=0
+    ).fit(X)
+    sklearn_reconstructed = sklearn_model.inverse_transform(
+        sklearn_model.transform(X)
+    )
+
+    np.testing.assert_allclose(
+        reconstructed.stack(feature=["z", "y", "x"]).values,
+        sklearn_reconstructed,
+    )
+
+
 def test_inverse_transform_runs_in_fitted_geometry(nmf_3dt_volume):
-    """NMF inverse_transform reconstructs in fitted spatial geometry."""
+    """NMF inverse_transform reconstructs in fitted spatial geometry with metadata."""
     model = NMF(n_components=3, init="nndsvda", random_state=0)
 
     signals = model.fit_transform(nmf_3dt_volume)
@@ -139,6 +162,15 @@ def test_inverse_transform_runs_in_fitted_geometry(nmf_3dt_volume):
     )
     assert reconstructed.name == nmf_3dt_volume.name
     assert reconstructed.attrs == nmf_3dt_volume.attrs
+
+
+def test_temporal_mode_signals_and_maps_are_non_negative(nmf_3dt_volume):
+    """Temporal-mode signals and maps are non-negative — the defining NMF guarantee."""
+    model = NMF(n_components=3, init="nndsvda", random_state=0, mode="temporal")
+    signals = model.fit_transform(nmf_3dt_volume)
+
+    assert float(signals.min()) >= 0.0
+    assert float(model.maps_.min()) >= 0.0
 
 
 def test_inverse_transform_from_numpy_returns_dataarray(nmf_3dt_volume):
@@ -380,7 +412,7 @@ def test_set_params_updates_values():
     assert model.mode == "spatial"
 
 
-def test_random_state_reproducible(nmf_3dt_volume):
+def test_reproducible_with_random_state(nmf_3dt_volume):
     """NMF gives reproducible results with a fixed random_state."""
     model_1 = NMF(n_components=3, init="nndsvda", random_state=0)
     model_2 = NMF(n_components=3, init="nndsvda", random_state=0)
@@ -425,7 +457,7 @@ def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
     )
 
 
-def test_fit_raises_for_invalid_mode(nmf_3dt_volume):
+def test_fit_rejects_invalid_mode(nmf_3dt_volume):
     """fit raises for unsupported NMF mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
         NMF(mode="invalid").fit(nmf_3dt_volume)  # type: ignore[arg-type]
