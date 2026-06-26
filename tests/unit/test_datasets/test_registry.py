@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 from confusius.datasets import list_datasets
 from confusius.datasets._registry import _REGISTRY
