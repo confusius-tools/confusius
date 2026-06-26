@@ -243,7 +243,7 @@ class ConfUSIusWidget(QWidget):
     def __init__(self, napari_viewer: napari.Viewer) -> None:
         super().__init__()
         self.viewer = napari_viewer
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(400)
         self.setSizePolicy(
             QSizePolicy.Policy.MinimumExpanding,
             QSizePolicy.Policy.Expanding,
@@ -488,6 +488,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._registration._panel import RegistrationPanel
         from confusius._napari._signals._panel import SignalPanel
         from confusius._napari._video._video_panel import VideoPanel
 
@@ -513,12 +514,14 @@ class ConfUSIusWidget(QWidget):
             ("Data I/O", "file-input"),
             ("Video", "video"),
             ("Signals", "chart-line"),
+            ("Registration", "images"),
             ("Quality Control", "clipboard-check"),
         ]
         panels = [
             data_panel,
             video_panel,
             SignalPanel(self.viewer),
+            RegistrationPanel(self.viewer),
             QCPanel(self.viewer),
         ]
         btns: list[QPushButton] = []
