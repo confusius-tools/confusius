@@ -173,11 +173,10 @@ def apply_statistical_threshold(
         Z-scaled statistical map with spatial dimensions. Voxels that do not survive the
         thresholds are set to zero.
     mask : xarray.DataArray, optional
-        Boolean (or single-label integer) mask of the tested voxels, defining the number
-        of comparisons for the `fdr` and `bonferroni` corrections. If not provided, the
+        Boolean (or single-label integer) mask of the tested voxels. If not provided, the
         tested voxels are derived from `stat_map` according to `skipzero` and `skipna`.
     alpha : float, default: 0.001
-        Significance level. A p-value for `fpr` and `bonferroni`, a q-value for `fdr`.
+        Significance level. A p-value for `fpr` and `bonferroni`, a q-value for `fdr_bh`.
     threshold : float, optional
         Explicit z-score threshold, used only when `height_control` is not provided. If
         not provided in that case, defaults to 3.0. Ignored (with a warning) when
@@ -211,8 +210,8 @@ def apply_statistical_threshold(
     thresholded_map : xarray.DataArray
         Copy of `stat_map` with sub-threshold and untested voxels set to zero.
     threshold : float
-        The z-score threshold that was applied. May be `numpy.inf` for `"fdr"` when no
-        voxel survives.
+        The z-score threshold that was applied. May be `numpy.inf` for `"fdr_bh"` when
+        no voxel survives.
 
     Raises
     ------
