@@ -1,16 +1,23 @@
 """Generic file loading and saving dispatcher."""
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
+from confusius._utils.geometry import restore_physical_coords_from_voxel_affine
 from confusius.io.utils import check_path
 
 
-def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
+def load(
+    path: str | Path,
+    variable: str | None = None,
+    *,
+    coordinate_model: Literal["legacy", "voxel_affine"] = "legacy",
+    **kwargs: Any,
+) -> xr.DataArray:
     """Load a fUSI DataArray from file, dispatching by extension.
 
     Supported formats:
@@ -28,6 +35,13 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     variable : str, optional
         Zarr only. Name of the variable to extract as a DataArray. If not provided, the
         first variable in the dataset is returned.
+    coordinate_model : {"legacy", "voxel_affine"}, default: "legacy"
+        Spatial coordinate representation to construct or restore.
+
+        - `"legacy"` keeps ConfUSIus' current axis-aligned coordinate model.
+        - `"voxel_affine"` requests the voxel-space plus CTI-derived physical
+          coordinate model. For Zarr, this rebuilds the CTI from stored
+          `voxel_to_physical` metadata when available.
     **kwargs
         Additional keyword arguments forwarded to the underlying loader.
 
@@ -45,15 +59,19 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     name = path.name
 
     if name.endswith(".nii") or name.endswith(".nii.gz"):
-        return _nifti.load_nifti(path, **kwargs)
+        return _nifti.load_nifti(path, coordinate_model=coordinate_model, **kwargs)
     if name.endswith(".scan"):
-        return _scan.load_scan(path, **kwargs)
+        return _scan.load_scan(path, coordinate_model=coordinate_model, **kwargs)
     if name.endswith(".zarr"):
         ds = xr.open_zarr(path, **kwargs)
         if variable is not None:
-            return ds[variable]
-        first_var = next(iter(ds.data_vars))
-        return ds[first_var]
+            data = ds[variable]
+        else:
+            first_var = next(iter(ds.data_vars))
+            data = ds[first_var]
+        if coordinate_model == "voxel_affine":
+            return restore_physical_coords_from_voxel_affine(data)
+        return data
 
     raise ValueError(
         f"Unsupported file extension in {name!r}. Supported"

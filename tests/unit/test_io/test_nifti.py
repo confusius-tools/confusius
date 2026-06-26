@@ -115,6 +115,54 @@ class TestLoadNifti:
         assert da.shape == (6, 5, 4, 3, 2)
         np.testing.assert_array_equal(da.values, data.transpose(4, 3, 2, 1, 0))
 
+    def test_load_3d_nifti_voxel_affine_model(
+        self, nifti_3d_path: tuple[Path, np.ndarray]
+    ) -> None:
+        """Axis-aligned voxel-affine loading exposes voxel dims plus 1D physical coords."""
+        nifti_path, expected_data = nifti_3d_path
+        da = load_nifti(nifti_path, coordinate_model="voxel_affine")
+
+        assert da.dims == ("k", "j", "i")
+        assert da.shape == (6, 8, 10)
+        assert da.coords["k"].dims == ("k",)
+        assert da.coords["j"].dims == ("j",)
+        assert da.coords["i"].dims == ("i",)
+        assert da.coords["z"].dims == ("k",)
+        assert da.coords["y"].dims == ("j",)
+        assert da.coords["x"].dims == ("i",)
+        assert da.attrs["voxel_to_physical"].shape == (4, 4)
+        np.testing.assert_array_equal(da.values, expected_data.transpose(2, 1, 0))
+        np.testing.assert_array_equal(da.coords["z"].values, np.arange(6))
+        np.testing.assert_array_equal(da.coords["y"].values, np.arange(8))
+        np.testing.assert_array_equal(da.coords["x"].values, np.arange(10))
+
+    def test_load_nifti_voxel_affine_model_uses_full_primary_affine(
+        self, tmp_path: Path
+    ) -> None:
+        """Voxel-affine loading keeps the full voxel-to-world geometry in coords."""
+        data = np.random.default_rng(0).random((5, 4, 3)).astype(np.float32)
+        affine = np.array(
+            [
+                [0.0, -3.0, 0.0, 10.0],
+                [2.0, 0.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        nifti_path = tmp_path / "rotated_voxel_affine.nii.gz"
+        nib.Nifti1Image(data, affine).to_filename(nifti_path)
+
+        da = load_nifti(nifti_path, coordinate_model="voxel_affine")
+
+        expected_xyz = affine @ np.array([2.0, 1.0, 0.0, 1.0])
+        assert da.dims == ("k", "j", "i")
+        assert da.attrs["voxel_to_physical"].shape == (4, 4)
+        assert da.attrs["affines"]["physical_to_sform"].shape == (4, 4)
+        assert np.allclose(da.attrs["affines"]["physical_to_sform"], np.eye(4))
+        assert da.coords["z"].values[0, 1, 2] == pytest.approx(expected_xyz[2])
+        assert da.coords["y"].values[0, 1, 2] == pytest.approx(expected_xyz[1])
+        assert da.coords["x"].values[0, 1, 2] == pytest.approx(expected_xyz[0])
+
     def test_load_nifti_units_from_header(self, tmp_path: Path) -> None:
         """Units on coordinate attrs come from the NIfTI header, not hardcoded."""
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)

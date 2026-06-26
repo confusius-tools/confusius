@@ -170,15 +170,21 @@ class FUSIAccessor:
     def spacing(self) -> dict[str, float | None]:
         """Coordinate spacing for all dimensions.
 
-        Spacing is computed as the median of consecutive coordinate differences.
-        A coordinate is considered uniform if every interval is within 1% of the
-        median interval (per-interval `|diff - median| <= 0.01 * |median|`).
+        For regular axis-aligned data, spacing is computed as the median of
+        consecutive coordinate differences. A coordinate is considered uniform if every
+        interval is within 1% of the median interval (per-interval
+        `|diff - median| <= 0.01 * |median|`).
+
+        For voxel-affine data (`k/j/i` plus `attrs["voxel_to_physical"]`), spacing is
+        reported in DataArray dimension order, but each voxel-space dimension receives
+        its physical step length derived from the affine column norm and the 1D
+        voxel-coordinate step.
 
         Returns
         -------
         dict[str, float | None]
-            Spacing per dimension, in DataArray dimension order. Returns `None` for
-            dimensions with non-uniform or undefined spacing, with a warning.
+            Spacing per dimension. Returns `None` for dimensions with non-uniform or
+            undefined spacing, with a warning.
 
         Examples
         --------
@@ -194,20 +200,41 @@ class FUSIAccessor:
         {'y': 0.2, 'x': 0.1}
         """
         from confusius._utils.coordinates import get_coordinate_spacings
+        from confusius._utils.geometry import (
+            get_voxel_affine_spacing,
+            has_voxel_affine_geometry,
+        )
 
-        return get_coordinate_spacings(self._obj)
+        if not has_voxel_affine_geometry(self._obj):
+            return get_coordinate_spacings(self._obj)
+
+        voxel_spacing = get_voxel_affine_spacing(self._obj)
+        regular_spacing = get_coordinate_spacings(self._obj)
+        return {
+            dim_str: (
+                voxel_spacing[dim_str]
+                if dim_str in voxel_spacing
+                else regular_spacing[dim_str]
+            )
+            for dim_str in (str(dim) for dim in self._obj.dims)
+        }
 
     @property
     def origin(self) -> dict[str, float]:
-        """Physical origin (first coordinate value) for all dimensions.
+        """Physical origin metadata for the DataArray.
 
-        For each dimension, returns the first coordinate value. If a coordinate is
-        missing, warns and falls back to `0.0`.
+        For regular axis-aligned data, this returns the first coordinate value for each
+        dimension. If a coordinate is missing, warns and falls back to `0.0`.
+
+        For voxel-affine data, non-spatial dimensions still use their first coordinate
+        value, while spatial origin is returned in physical coordinate order as the
+        physical location of the first sampled voxel under the stored
+        `voxel_to_physical` affine.
 
         Returns
         -------
         dict[str, float]
-            Origin per dimension, in DataArray dimension order.
+            Origin metadata for the DataArray.
 
         Examples
         --------
@@ -223,8 +250,48 @@ class FUSIAccessor:
         {'y': 0.0, 'x': 0.0}
         """
         from confusius._utils.coordinates import get_coordinate_origins
+        from confusius._utils.geometry import (
+            get_voxel_affine_origin,
+            get_voxel_affine_spatial_dims,
+            has_voxel_affine_geometry,
+        )
 
-        return get_coordinate_origins(self._obj)
+        if not has_voxel_affine_geometry(self._obj):
+            return get_coordinate_origins(self._obj)
+
+        voxel_dims = set(get_voxel_affine_spatial_dims(self._obj))
+        regular_origin = get_coordinate_origins(self._obj)
+        return {
+            **{
+                dim_str: regular_origin[dim_str]
+                for dim_str in (str(dim) for dim in self._obj.dims)
+                if dim_str not in voxel_dims
+            },
+            **get_voxel_affine_origin(self._obj),
+        }
+
+    @property
+    def direction(self):
+        """Physical-space direction matrix for the present spatial geometry.
+
+        Returns
+        -------
+        numpy.ndarray
+            Identity for axis-aligned data. For voxel-affine data, the columns are the
+            unit physical-space directions of the voxel axes.
+        """
+        import numpy as np
+
+        from confusius._utils.geometry import (
+            get_voxel_affine_direction_matrix,
+            has_voxel_affine_geometry,
+        )
+
+        if has_voxel_affine_geometry(self._obj):
+            return get_voxel_affine_direction_matrix(self._obj)
+
+        ndim = len([dim for dim in self._obj.dims if dim in {"z", "y", "x"}])
+        return np.eye(ndim, dtype=np.float64)
 
     @property
     def affine(self) -> FUSIAffineAccessor:

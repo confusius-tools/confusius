@@ -4,7 +4,39 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.validation import validate_fusi_dataarray
+
+
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small voxel-affine volume for validation tests."""
+    base = xr.DataArray(
+        np.zeros((2, 3, 4), dtype=np.float32),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 2.0, 4.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.array(
+            [
+                [2.0, 0.0, 0.0, 10.0],
+                [0.0, 3.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
 
 
 def test_validate_fusi_dataarray_accepts_valid_3d(
@@ -33,6 +65,35 @@ def test_validate_fusi_dataarray_rejects_non_dataarray() -> None:
     """Non-DataArray inputs raise `TypeError`."""
     with pytest.raises(TypeError, match="xarray.DataArray"):
         validate_fusi_dataarray(np.zeros((2, 2)))  # type: ignore
+
+
+def test_validate_fusi_dataarray_accepts_voxel_affine_geometry() -> None:
+    """Voxel-affine spatial geometry is accepted as valid ConfUSIus data."""
+    validate_fusi_dataarray(_make_voxel_affine_volume())
+
+
+def test_validate_fusi_dataarray_accepts_voxel_affine_with_regular_spacing() -> None:
+    """Regular-spacing checks operate on voxel-space dimensions for CTI geometry."""
+    validate_fusi_dataarray(
+        _make_voxel_affine_volume(),
+        require_regular_spacing=True,
+        regular_spacing_dims="space",
+        allow_extra_dims=False,
+    )
+
+
+def test_validate_fusi_dataarray_rejects_voxel_affine_missing_physical_coord() -> None:
+    """Voxel-affine validation requires CTI-derived physical coordinates."""
+    good = _make_voxel_affine_volume()
+    bad = xr.DataArray(
+        good.values,
+        dims=good.dims,
+        coords={dim: good.coords[dim] for dim in ("k", "j", "i")},
+        attrs={"voxel_to_physical": good.attrs["voxel_to_physical"]},
+    )
+
+    with pytest.raises(ValueError, match="missing physical coordinate 'z'"):
+        validate_fusi_dataarray(bad)
 
 
 def test_validate_fusi_dataarray_allows_extra_dims_by_default(
