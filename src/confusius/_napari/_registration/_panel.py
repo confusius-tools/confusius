@@ -342,7 +342,9 @@ def _run_register_volume_registration_volume(
     number_of_histogram_bins: int = 50,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
-    initialization: Literal["geometry", "moments", "none"] = "geometry",
+    initialization: Literal["center_geometry", "center_moments"]
+    | None = "center_geometry",
+    initial_transform: npt.NDArray[np.floating] | None = None,
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     fill_value: float | None = None,
@@ -379,8 +381,10 @@ def _run_register_volume_registration_volume(
         Convergence threshold.
     convergence_window_size : int
         Window size for convergence estimation.
-    initialization : {"geometry", "moments", "none"}
+    initialization : {"center_geometry", "center_moments"} or None
         Transform initializer.
+    initial_transform : numpy.ndarray, optional
+        Pre-computed affine transform used as a warm start before optimization.
     shrink_factors : sequence of int
         Shrink factors per resolution level.
     smoothing_sigmas : sequence of int
@@ -415,7 +419,9 @@ def _run_register_volume_registration_volume(
         number_of_histogram_bins=number_of_histogram_bins,
         convergence_minimum_value=convergence_minimum_value,
         convergence_window_size=convergence_window_size,
-        centering_initialization=initialization,
+        initialization=initialization
+        if initial_transform is None
+        else initial_transform,
         shrink_factors=shrink_factors,
         smoothing_sigmas=smoothing_sigmas,
         fill_value=fill_value,
@@ -459,7 +465,8 @@ def _run_register_volumewise(
     number_of_histogram_bins: int = 50,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
-    initialization: Literal["geometry", "moments", "none"] = "geometry",
+    initialization: Literal["center_geometry", "center_moments"]
+    | None = "center_geometry",
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     keep_diagnostics: bool = False,
@@ -494,7 +501,7 @@ def _run_register_volumewise(
         Convergence threshold.
     convergence_window_size : int
         Window size for convergence estimation.
-    initialization : {"geometry", "moments", "none"}
+    initialization : {"center_geometry", "center_moments"} or None
         Transform initializer.
     shrink_factors : tuple of int or None
         Shrink factors per resolution level.
@@ -798,19 +805,38 @@ class RegistrationPanel(QWidget):
 
         self._initialization_combo = QComboBox()
         self._initialization_combo.addItems(
-            ["geometry", "moments", "none", "napari transform"]
+            ["center_geometry", "center_moments", "none"]
         )
         self._initialization_combo.setToolTip(
-            "Transform initializer before optimization. 'geometry' aligns centers; "
-            "'moments' aligns centers of mass; 'none' uses identity; "
-            "'napari transform' uses the currently selected affine transform from the Transforms panel."
+            "Transform initializer before optimization. 'center_geometry' aligns centers; "
+            "'center_moments' aligns centers of mass; 'none' uses identity."
         )
         params_layout.addRow(
             self._make_form_label(
                 "Initialization",
-                tooltip="How to initialize the transform before optimization: image geometry, centers of mass, identity, or the selected napari transform.",
+                tooltip="How to initialize the transform before optimization: center geometry, center moments, or identity.",
             ),
             self._initialization_combo,
+        )
+
+        self._initial_transform_combo = QComboBox()
+        self._initial_transform_combo.setMinimumContentsLength(18)
+        self._initial_transform_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._initial_transform_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._initial_transform_combo.setToolTip(
+            "Optional pre-computed affine transform used as a warm start before optimization."
+        )
+        self._initial_transform_row_label = self._make_form_label(
+            "Initial transform",
+            tooltip="Optional pre-computed affine transform from the Transforms tab used as a warm start before optimization.",
+        )
+        params_layout.addRow(
+            self._initial_transform_row_label,
+            self._initial_transform_combo,
         )
 
         learning_rate_row = QHBoxLayout()
@@ -1138,6 +1164,15 @@ class RegistrationPanel(QWidget):
         self._fixed_combo.currentTextChanged.connect(
             self._validate_registration_selection
         )
+        self._initialization_combo.currentTextChanged.connect(
+            self._validate_registration_selection
+        )
+        self._initial_transform_combo.currentTextChanged.connect(
+            self._validate_registration_selection
+        )
+        self._transform_source_combo.currentTextChanged.connect(
+            self._validate_registration_selection
+        )
         self._learning_rate_auto_check.toggled.connect(
             lambda checked: self._learning_rate_edit.setEnabled(not checked)
         )
@@ -1250,27 +1285,43 @@ class RegistrationPanel(QWidget):
     def _refresh_transform_controls(self) -> None:
         """Refresh transform-related layer selectors."""
         source_data = self._transform_source_combo.currentData()
+        initial_transform_data = self._initial_transform_combo.currentData()
         target_name = self._transform_target_combo.currentText()
 
-        self._transform_source_combo.blockSignals(True)
-        self._transform_source_combo.clear()
+        transform_options: list[tuple[str, tuple[str, str]]] = []
         if self._loaded_transform_payload is not None:
-            self._transform_source_combo.addItem(
-                self._transform_source_label(
-                    self._loaded_transform_payload,
-                    suffix="loaded",
-                ),
-                ("loaded", ""),
+            transform_options.append(
+                (
+                    self._transform_source_label(
+                        self._loaded_transform_payload,
+                        suffix="loaded",
+                    ),
+                    ("loaded", ""),
+                )
             )
         for layer in self.viewer.layers:
             payload = _affine_payload_from_layer(layer)
             if payload is None:
                 continue
-            self._transform_source_combo.addItem(
-                self._transform_source_label(payload, suffix=layer.name),
-                ("layer", layer.name),
+            transform_options.append(
+                (
+                    self._transform_source_label(payload, suffix=layer.name),
+                    ("layer", layer.name),
+                )
             )
+
+        self._transform_source_combo.blockSignals(True)
+        self._transform_source_combo.clear()
+        for label, data in transform_options:
+            self._transform_source_combo.addItem(label, data)
         self._transform_source_combo.blockSignals(False)
+
+        self._initial_transform_combo.blockSignals(True)
+        self._initial_transform_combo.clear()
+        self._initial_transform_combo.addItem("None", None)
+        for label, data in transform_options:
+            self._initial_transform_combo.addItem(label, data)
+        self._initial_transform_combo.blockSignals(False)
 
         self._transform_target_combo.blockSignals(True)
         self._transform_target_combo.clear()
@@ -1283,6 +1334,12 @@ class RegistrationPanel(QWidget):
             for i in range(self._transform_source_combo.count()):
                 if self._transform_source_combo.itemData(i) == source_data:
                     self._transform_source_combo.setCurrentIndex(i)
+                    break
+
+        if initial_transform_data is not None:
+            for i in range(self._initial_transform_combo.count()):
+                if self._initial_transform_combo.itemData(i) == initial_transform_data:
+                    self._initial_transform_combo.setCurrentIndex(i)
                     break
 
         target_index = self._transform_target_combo.findText(target_name)
@@ -1305,6 +1362,52 @@ class RegistrationPanel(QWidget):
         except KeyError:
             return None
         return _affine_payload_from_layer(layer)
+
+    def _selected_initial_transform_payload(self) -> AffineTransformPayload | None:
+        """Return the transform payload selected for registration initialization."""
+        source_data = self._initial_transform_combo.currentData()
+        if source_data is None:
+            return None
+        if not isinstance(source_data, tuple) or len(source_data) != 2:
+            return None
+
+        source_kind, source_name = source_data
+        if source_kind == "loaded":
+            return self._loaded_transform_payload
+        if source_kind != "layer" or not source_name:
+            return None
+        try:
+            layer = cast("Layer", self.viewer.layers[source_name])
+        except KeyError:
+            return None
+        return _affine_payload_from_layer(layer)
+
+    def _validate_initial_transform_selection(
+        self,
+        *,
+        operation: Literal["register_volume", "register_volumewise"],
+        moving: xr.DataArray,
+        fixed: xr.DataArray | None = None,
+    ) -> str | None:
+        """Return an inline validation message for transform initialization."""
+        payload = self._selected_initial_transform_payload()
+        if payload is None or operation != "register_volume":
+            return None
+        if fixed is None:
+            return "Select a fixed layer."
+
+        try:
+            affine = affine_transform_from_payload(payload)
+        except Exception as exc:  # noqa: BLE001
+            return str(exc)
+
+        expected_shape = (moving.ndim + 1, moving.ndim + 1)
+        if affine.shape != expected_shape:
+            return (
+                f"Selected initialization transform has shape {affine.shape}, "
+                f"but this registration expects {expected_shape}."
+            )
+        return None
 
     def _update_reference_time_bounds(self) -> None:
         """Clamp the volumewise reference-time widget to the moving layer."""
@@ -1395,9 +1498,13 @@ class RegistrationPanel(QWidget):
                 )
                 self._set_run_btn_enabled(False)
                 return False
-            self._set_layer_validation_style()
-            self._set_run_btn_enabled(True)
-            return True
+            init_message = self._validate_initial_transform_selection(
+                operation=operation,
+                moving=moving,
+            )
+            self._set_layer_validation_style(message=init_message)
+            self._set_run_btn_enabled(init_message is None)
+            return init_message is None
 
         moving_invalid = False
         fixed_invalid = False
@@ -1413,7 +1520,7 @@ class RegistrationPanel(QWidget):
             return False
 
         try:
-            _layer_to_dataarray(fixed_layer)
+            fixed = _layer_to_dataarray(fixed_layer)
         except Exception:
             self._set_layer_validation_style(
                 fixed_invalid=True,
@@ -1427,7 +1534,14 @@ class RegistrationPanel(QWidget):
             fixed_invalid = True
             message = "Moving and fixed layers must be different."
 
-        valid = not (moving_invalid or fixed_invalid)
+        if message is None:
+            message = self._validate_initial_transform_selection(
+                operation=operation,
+                moving=_prepare_between_scan_data(moving),
+                fixed=_prepare_between_scan_data(fixed),
+            )
+
+        valid = not (moving_invalid or fixed_invalid or message is not None)
         self._set_layer_validation_style(
             moving_invalid=moving_invalid,
             fixed_invalid=fixed_invalid,
@@ -1481,6 +1595,7 @@ class RegistrationPanel(QWidget):
             "transform": self._transform_combo.currentText() or "rigid",
             "metric": self._metric_combo.currentText(),
             "initialization": self._initialization_combo.currentText(),
+            "initial_transform_source": self._initial_transform_combo.currentData(),
             "learning_rate_auto": self._learning_rate_auto_check.isChecked(),
             "learning_rate_value": self._learning_rate_edit.value(),
             "number_of_iterations": self._iterations_spin.value(),
@@ -1527,6 +1642,15 @@ class RegistrationPanel(QWidget):
 
         self._metric_combo.setCurrentText(cast("str", params["metric"]))
         self._initialization_combo.setCurrentText(cast("str", params["initialization"]))
+        initial_transform_source = params.get("initial_transform_source")
+        if initial_transform_source is not None:
+            for i in range(self._initial_transform_combo.count()):
+                if (
+                    self._initial_transform_combo.itemData(i)
+                    == initial_transform_source
+                ):
+                    self._initial_transform_combo.setCurrentIndex(i)
+                    break
         self._learning_rate_auto_check.setChecked(
             cast("bool", params["learning_rate_auto"])
         )
@@ -1581,6 +1705,9 @@ class RegistrationPanel(QWidget):
         self._fixed_label.setVisible(not is_volumewise)
         self._fixed_combo.setVisible(not is_volumewise)
         self._fixed_combo.setEnabled(not is_volumewise)
+        self._initial_transform_row_label.setVisible(not is_volumewise)
+        self._initial_transform_combo.setVisible(not is_volumewise)
+        self._initial_transform_combo.setEnabled(not is_volumewise)
         self._reference_time_label.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
         self._n_jobs_row.setVisible(is_volumewise)
@@ -2191,6 +2318,18 @@ class RegistrationPanel(QWidget):
             moving = _prepare_between_scan_data(moving)
             fixed = _prepare_between_scan_data(fixed)
 
+            initial_transform_payload = self._selected_initial_transform_payload()
+            initial_transform: npt.NDArray[np.floating] | None = None
+            if initial_transform_payload is not None:
+                try:
+                    initial_transform = affine_transform_from_payload(
+                        initial_transform_payload
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    self._set_error(str(exc))
+                    return
+                payload["initial_transform_source"] = initial_transform_payload["name"]
+
             payload["fixed_layer_name"] = fixed_layer.name
 
             progress_plotter = self._setup_volume_progress(
@@ -2220,8 +2359,12 @@ class RegistrationPanel(QWidget):
                 convergence_minimum_value=payload["convergence_minimum_value"],
                 convergence_window_size=payload["convergence_window_size"],
                 initialization=cast(
-                    "Literal['geometry', 'moments', 'none']", payload["initialization"]
+                    "Literal['center_geometry', 'center_moments'] | None",
+                    None
+                    if payload["initialization"] == "none"
+                    else payload["initialization"],
                 ),
+                initial_transform=initial_transform,
                 shrink_factors=payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=payload["smoothing_sigmas"] or (6, 2, 1),
                 fill_value=payload["fill_value"],
@@ -2242,7 +2385,7 @@ class RegistrationPanel(QWidget):
                 moving_layer=cast("Image", moving_layer),
                 moving=moving,
                 layer_name=self._volumewise_result_layer_name(
-                    cast("str", payload["moving_layer_name"])
+                    payload["moving_layer_name"]
                 ),
             )
 
@@ -2264,7 +2407,10 @@ class RegistrationPanel(QWidget):
                 convergence_minimum_value=payload["convergence_minimum_value"],
                 convergence_window_size=payload["convergence_window_size"],
                 initialization=cast(
-                    "Literal['geometry', 'moments', 'none']", payload["initialization"]
+                    "Literal['center_geometry', 'center_moments'] | None",
+                    None
+                    if payload["initialization"] == "none"
+                    else payload["initialization"],
                 ),
                 shrink_factors=payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=payload["smoothing_sigmas"] or (6, 2, 1),

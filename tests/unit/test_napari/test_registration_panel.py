@@ -183,6 +183,101 @@ class TestOperationMode:
         assert registration_panel._mesh_size_row.isHidden()
 
 
+class TestRunRegistration:
+    def test_between_scan_run_uses_selected_initial_transform(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        moving = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        fixed = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        affine = np.array(
+            [[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [0.0, 0.0, 1.0]],
+            dtype=float,
+        )
+        transform_payload = make_affine_transform_payload(
+            affine,
+            reference=fixed,
+            source_layer_name="moving",
+            target_layer_name="fixed",
+            operation="register_volume",
+            transform_model="rigid",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
+        viewer.add_image(
+            fixed.values,
+            name="Previous registered",
+            metadata={"confusius_transform": transform_payload},
+        )
+        registration_panel._refresh_layers()
+        registration_panel._refresh_transform_controls()
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._fixed_combo.setCurrentText("fixed")
+        for i in range(registration_panel._initial_transform_combo.count()):
+            if registration_panel._initial_transform_combo.itemData(i) == (
+                "layer",
+                "Previous registered",
+            ):
+                registration_panel._initial_transform_combo.setCurrentIndex(i)
+                break
+
+        captured: dict[str, object] = {}
+
+        class _FakeSignal:
+            def connect(self, _slot):
+                return None
+
+        class _FakeWorker:
+            def __init__(self) -> None:
+                self.returned = _FakeSignal()
+                self.errored = _FakeSignal()
+                self.finished = _FakeSignal()
+
+            def start(self) -> None:
+                return None
+
+        def _fake_thread_worker(func):
+            def _runner(*args, **kwargs):
+                captured["func"] = func
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return _FakeWorker()
+
+            return _runner
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.thread_worker",
+            _fake_thread_worker,
+        )
+        monkeypatch.setattr(
+            registration_panel,
+            "_setup_volume_progress",
+            lambda **_kwargs: None,
+        )
+
+        registration_panel._run_registration()
+
+        np.testing.assert_array_equal(captured["kwargs"]["initial_transform"], affine)
+        assert captured["kwargs"]["initialization"] == "geometry"
+        assert registration_panel._worker is not None
+
+
 class TestAbort:
     def test_abort_sets_cancellation_event(self, registration_panel):
         registration_panel._worker = object()
@@ -257,6 +352,50 @@ class TestValidation:
         registration_panel._fixed_combo.setCurrentText("fixed")
 
         assert registration_panel._validate_registration_selection()
+
+    def test_transform_initialization_requires_selected_affine_transform(
+        self, viewer, registration_panel
+    ):
+        viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        viewer.add_image(np.ones((4, 6), dtype=np.float32), name="fixed")
+        registration_panel._refresh_layers()
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._fixed_combo.setCurrentText("fixed")
+
+        assert registration_panel._validate_registration_selection()
+
+    def test_initial_transform_dropdown_lists_available_transforms(
+        self, viewer, registration_panel
+    ):
+        reference = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        payload = make_affine_transform_payload(
+            np.eye(3),
+            reference=reference,
+            source_layer_name="moving",
+            target_layer_name="fixed",
+            operation="register_volume",
+            transform_model="rigid",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+
+        viewer.add_image(reference.values, name="Registered", metadata={"confusius_transform": payload})
+        registration_panel._refresh_transform_controls()
+
+        assert registration_panel._initial_transform_combo.itemText(0) == "None"
+        assert registration_panel._initial_transform_combo.count() >= 2
+        assert any(
+            registration_panel._initial_transform_combo.itemData(i)
+            == ("layer", "Registered")
+            for i in range(registration_panel._initial_transform_combo.count())
+        )
 
 
 class TestBetweenScanPreparation:
