@@ -538,6 +538,32 @@ class TestInitialization:
         affines = bspline_tx.attrs.get("affines", {})
         assert "bspline_initialization" not in affines
 
+    def test_center_moments_uses_moments_initializer(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """center_moments uses SimpleITK's moments-based centering initializer."""
+        import SimpleITK as sitk
+
+        original_initializer = sitk.CenteredTransformInitializer
+        calls = []
+
+        def wrapped_initializer(fixed, moving, transform, operation_mode):
+            calls.append(operation_mode)
+            return original_initializer(fixed, moving, transform, operation_mode)
+
+        monkeypatch.setattr(
+            sitk, "CenteredTransformInitializer", wrapped_initializer
+        )
+
+        register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="affine",
+            initialization="center_moments",
+        )
+
+        assert calls == [sitk.CenteredTransformInitializerFilter.MOMENTS]
+
 
 class TestResampleVolumeWithBspline:
     """Tests for resample_volume and resample_like with a B-spline DataArray transform."""
