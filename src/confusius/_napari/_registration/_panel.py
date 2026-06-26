@@ -557,6 +557,7 @@ class RegistrationPanel(QWidget):
         self._progress_moving_layer: Image | None = None
         self._volumewise_progress_bridge: NapariVolumewiseProgressBridge | None = None
         self._volumewise_progress_layer: Image | None = None
+        self._volumewise_moving_preview_layer: Image | None = None
         self._volumewise_progress_time_axis: int | None = None
         self._volumewise_progress_total: int | None = None
         # Bottom-dock metric curve. Created lazily on the first run, reused
@@ -1242,6 +1243,10 @@ class RegistrationPanel(QWidget):
         del moving_name
         return "Motion corrected"
 
+    def _volumewise_moving_preview_layer_name(self) -> str:
+        """Return the napari layer name for the within-scan moving preview."""
+        return "Moving"
+
     def _refresh_transform_controls(self) -> None:
         """Refresh transform-related layer selectors."""
         source_data = self._transform_source_combo.currentData()
@@ -1628,15 +1633,33 @@ class RegistrationPanel(QWidget):
         """Create a progress bridge and output layer for volumewise registration."""
         self._teardown_volumewise_progress(remove_layer=True)
 
-        moving_layer.colormap = "red"
+        moving_display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        moving_display_kwargs["colormap"] = "red"
 
-        display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        display_kwargs = dict(moving_display_kwargs)
         display_kwargs["colormap"] = "cyan"
         display_kwargs["blending"] = "additive"
         contrast_limits = tuple(calc_data_range(moving.data))
-        preview = moving.copy(deep=True)
-        preview.data[...] = float(np.min(moving.data))
+        preview_data = np.full(
+            moving.shape,
+            fill_value=float(np.min(moving.data)),
+            dtype=np.asarray(moving.data).dtype,
+        )
+        preview = xr.DataArray(
+            preview_data,
+            dims=moving.dims,
+            coords=moving.coords,
+            attrs=moving.attrs.copy(),
+        )
 
+        _, moving_preview_layer = plot_napari(
+            moving,
+            viewer=self.viewer,
+            name=self._volumewise_moving_preview_layer_name(),
+            show_colorbar=False,
+            contrast_limits=contrast_limits,
+            **moving_display_kwargs,
+        )
         _, layer = plot_napari(
             preview,
             viewer=self.viewer,
@@ -1651,6 +1674,7 @@ class RegistrationPanel(QWidget):
 
         self._volumewise_progress_bridge = bridge
         self._volumewise_progress_layer = cast("Image", layer)
+        self._volumewise_moving_preview_layer = cast("Image", moving_preview_layer)
         self._volumewise_progress_time_axis = moving.dims.index(TIME_DIM)
         self._volumewise_progress_total = (
             moving.sizes[TIME_DIM] * total_iterations_per_frame
@@ -1683,7 +1707,7 @@ class RegistrationPanel(QWidget):
         if layer is None or time_axis is None or not isinstance(arr, np.ndarray):
             return
 
-        data = np.asarray(layer.data).copy()
+        data = np.asarray(layer.data)
         if time_axis >= data.ndim:
             return
         index = tuple(
@@ -1691,17 +1715,23 @@ class RegistrationPanel(QWidget):
             for axis in range(data.ndim)
         )
         data[index] = arr
-        layer.data = data  # type: ignore[invalid-assignment]
+        layer.refresh()
 
     def _teardown_volumewise_progress(self, *, remove_layer: bool) -> None:
         """Reset volumewise progress-layer state."""
-        if remove_layer and self._volumewise_progress_layer is not None:
-            try:
-                self.viewer.layers.remove(self._volumewise_progress_layer)
-            except (KeyError, ValueError):
-                pass
+        if remove_layer:
+            for attr_name in (
+                "_volumewise_progress_layer",
+                "_volumewise_moving_preview_layer",
+            ):
+                layer = cast("Image | None", getattr(self, attr_name))
+                if layer is not None:
+                    try:
+                        self.viewer.layers.remove(layer)
+                    except (KeyError, ValueError):
+                        pass
+                    setattr(self, attr_name, None)
         self._volumewise_progress_bridge = None
-        self._volumewise_progress_layer = None
         self._volumewise_progress_time_axis = None
         self._volumewise_progress_total = None
 

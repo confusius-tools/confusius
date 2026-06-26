@@ -379,11 +379,14 @@ class TestVolumewiseProgress:
         )
 
         assert registration_panel._volumewise_progress_layer is not None
+        assert registration_panel._volumewise_moving_preview_layer is not None
         assert registration_panel._progress.maximum() == 15
         assert registration_panel._progress.isTextVisible()
         assert registration_panel._progress.minimumHeight() >= 18
-        assert moving_layer.colormap.name == "red"
+        assert moving_layer.colormap.name != "red"
 
+        moving_preview_layer = viewer.layers["Moving"]
+        assert moving_preview_layer.colormap.name == "red"
         preview_layer = viewer.layers["Motion corrected"]
         assert preview_layer.colormap.name == "cyan"
         assert preview_layer.blending == "additive"
@@ -705,3 +708,53 @@ class TestFinishedCallbacks:
             layer.metadata["xarray"].attrs["registration_operation"]
             == "register_volumewise"
         )
+
+    def test_volumewise_finished_keeps_preview_layers(
+        self, viewer, registration_panel
+    ):
+        moving = xr.DataArray(
+            np.zeros((3, 4, 6), dtype=np.float32),
+            dims=["time", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(3), dims=["time"]),
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        moving_layer = viewer.add_image(
+            moving.values,
+            name="series",
+            metadata={"xarray": moving},
+        )
+        registration_panel._setup_volumewise_progress(
+            moving_layer=moving_layer,
+            moving=moving,
+            layer_name="Motion corrected",
+            total_iterations_per_frame=5,
+        )
+
+        registered = xr.DataArray(
+            np.ones((3, 4, 6), dtype=np.float32),
+            dims=["time", "y", "x"],
+            coords=moving.coords,
+            attrs={"motion_params": object()},
+        )
+        payload = {
+            "operation": "register_volumewise",
+            "moving_layer_name": "series",
+            "transform": "rigid",
+            "metric": "correlation",
+            "learning_rate": "auto",
+            "number_of_iterations": 100,
+            "use_multi_resolution": False,
+            "resample_interpolation": "linear",
+            "reference_time": 1,
+        }
+
+        registration_panel._on_registration_finished(payload, registered)
+
+        assert {"Moving", "Motion corrected"}.issubset(
+            {layer.name for layer in viewer.layers}
+        )
+        assert viewer.layers["series"].colormap.name != "red"
+        assert viewer.layers["Moving"].colormap.name == "red"
