@@ -67,8 +67,10 @@ class FUSIRegistrationAccessor:
         number_of_histogram_bins : int, default: 50
             Number of histogram bins (only used when `metric="mattes_mi"`).
         learning_rate : float or "auto", default: "auto"
-            Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
-            `"auto"` re-estimates the rate at every iteration.
+            Optimizer step size in normalised units (after
+            `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
+            every iteration. A float uses that value directly; if registration diverges
+            or fails to converge, reduce it.
         number_of_iterations : int, default: 100
             Maximum number of optimizer iterations.
         convergence_minimum_value : float, default: 1e-6
@@ -166,7 +168,7 @@ class FUSIRegistrationAccessor:
         transform: Literal["translation", "rigid", "affine"] = "rigid",
         metric: Literal["correlation", "mattes_mi"] = "correlation",
         number_of_histogram_bins: int = 50,
-        learning_rate: float | Literal["auto"] = "auto",
+        learning_rate: float | Literal["auto"] = 0.01,
         number_of_iterations: int = 100,
         convergence_minimum_value: float = 1e-6,
         convergence_window_size: int = 10,
@@ -194,9 +196,11 @@ class FUSIRegistrationAccessor:
             Similarity metric for registration.
         number_of_histogram_bins : int, default: 50
             Number of histogram bins (only used when `metric="mattes_mi"`).
-        learning_rate : float or "auto", default: "auto"
-            Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
-            `"auto"` re-estimates the rate at every iteration.
+        learning_rate : float or "auto", default: 0.01
+            Optimizer step size in normalised units (after
+            `SetOptimizerScalesFromPhysicalShift`). `"auto"` re-estimates the rate at
+            every iteration. A float uses that value directly; if registration diverges
+            or fails to converge, reduce it.
         number_of_iterations : int, default: 100
             Maximum number of optimizer iterations.
         convergence_minimum_value : float, default: 1e-6

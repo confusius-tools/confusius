@@ -24,6 +24,7 @@ class TransformDiagnosticsPayload(TypedDict):
     final_metric_value: float
     n_iterations: int
     stop_condition: str
+    status: str
 
 
 class OutputGridPayload(TypedDict):
@@ -138,6 +139,7 @@ def make_affine_transform_payload(
             "final_metric_value": float(diagnostics.final_metric_value),
             "n_iterations": int(diagnostics.n_iterations),
             "stop_condition": diagnostics.stop_condition,
+            "status": diagnostics.status,
         },
     }
 

@@ -1,10 +1,14 @@
 """Unit tests for single-volume registration."""
 
+import signal
+from threading import Event
+
 import numpy as np
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius.registration._utils import abort_on_sigint
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
@@ -60,6 +64,30 @@ class TestRegisterVolumeValidation:
             resample=False,
         )
         assert result.shape == moving.shape
+
+    def test_abort_event_returns_partial_result(self, sample_2d_dataarray_spatial):
+        """A pre-set abort event returns an aborted diagnostics record."""
+        abort_event = Event()
+        abort_event.set()
+
+        result, _transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            abort_event=abort_event,
+        )
+
+        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+
+    def test_abort_on_sigint_sets_abort_event(self):
+        """First Ctrl+C is converted into cooperative cancellation."""
+        with abort_on_sigint(None) as abort_event:
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            assert abort_event.is_set()
 
 
 class TestRegisterVolumeOutput:
@@ -651,7 +679,9 @@ class TestResampleLike:
                 "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
             },
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0)
+        result = resample_like(
+            moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0
+        )
         assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
 
     def test_output_coords_match_reference(
@@ -882,4 +912,6 @@ class TestRegisterVolumeFillValue:
             transform_type="translation",
         )
         # Default fill should be moving.min() == 2.0, not 0.0.
-        assert float(result.values[0, 0]) == pytest.approx(float(moving.min()), abs=1e-5)
+        assert float(result.values[0, 0]) == pytest.approx(
+            float(moving.min()), abs=1e-5
+        )

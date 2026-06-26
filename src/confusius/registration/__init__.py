@@ -9,6 +9,7 @@ from confusius.registration.affines import (
     decompose_affine,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
+from confusius.registration.exceptions import RegistrationAbortedError
 from confusius.registration.motion import (
     compute_framewise_displacement,
     create_motion_dataframe,
@@ -20,8 +21,10 @@ from confusius.registration.resampling import (
 )
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
+from confusius.registration.volumewise_progress import VolumewiseProgressReporter
 
 __all__ = [
+    "RegistrationAbortedError",
     "RegistrationDiagnostics",
     "RegistrationProgress",
     "RegistrationProgressPlotter",
@@ -31,6 +34,7 @@ __all__ = [
     "resample_volume",
     "resample_like",
     "register_volumewise",
+    "VolumewiseProgressReporter",
     "extract_motion_parameters",
     "compute_framewise_displacement",
     "create_motion_dataframe",

@@ -1,6 +1,8 @@
 """Internal utilities shared by registration modules."""
 
 import os
+import signal
+import threading
 from contextlib import contextmanager
 from copy import deepcopy
 from typing import TYPE_CHECKING, Generator
@@ -9,6 +11,8 @@ import numpy as np
 import xarray as xr
 
 if TYPE_CHECKING:
+    from threading import Event
+
     import SimpleITK as sitk
 
 
@@ -68,6 +72,63 @@ def set_sitk_thread_count(n: int) -> Generator[None, None, None]:
         yield
     finally:
         sitk.ProcessObject.SetGlobalDefaultNumberOfThreads(prev)
+
+
+@contextmanager
+def abort_on_sigint(
+    abort_event: "Event | None",
+) -> Generator["Event", None, None]:
+    """Return an abort event that is set cooperatively on the first Ctrl+C.
+
+    Parameters
+    ----------
+    abort_event : threading.Event or None
+        Existing cooperative-cancellation event to reuse. If not provided, a
+        new event is created for the duration of the context.
+
+    Yields
+    ------
+    threading.Event
+        Event that is set when cooperative cancellation is requested, either
+        explicitly by the caller or via a Ctrl+C signal handled on the main
+        thread.
+
+    Notes
+    -----
+    On the main thread, the first `SIGINT`/Ctrl+C is converted into
+    `abort_event.set()` so long-running registrations can stop cleanly at the
+    next SimpleITK iteration boundary and return their current partial result.
+    A second Ctrl+C falls back to the previous signal handler so users can
+    still force an immediate interrupt if graceful cancellation stalls.
+    """
+    shared_abort_event = abort_event or threading.Event()
+
+    if threading.current_thread() is not threading.main_thread():
+        yield shared_abort_event
+        return
+
+    previous_handler = signal.getsignal(signal.SIGINT)
+    saw_sigint = False
+
+    def _handle_sigint(signum: int, frame: object) -> None:
+        nonlocal saw_sigint
+        if not saw_sigint:
+            saw_sigint = True
+            shared_abort_event.set()
+            return
+
+        if previous_handler in {signal.SIG_DFL, signal.default_int_handler}:
+            raise KeyboardInterrupt
+        if previous_handler == signal.SIG_IGN:
+            return
+        if callable(previous_handler):
+            previous_handler(signum, frame)
+
+    signal.signal(signal.SIGINT, _handle_sigint)
+    try:
+        yield shared_abort_event
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
 
 
 def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":

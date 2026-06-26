@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from threading import Event
 
 import numpy as np
 import pytest
@@ -36,6 +37,7 @@ class _FakeDiagnostics:
     final_metric_value: float = -1.0
     n_iterations: int = 1
     stop_condition: str = "done"
+    status: str = "completed"
 
 
 class TestRefreshLayers:
@@ -61,25 +63,113 @@ class TestOperationMode:
         registration_panel._time_series_radio.setChecked(True)
         assert registration_panel._fixed_combo.isHidden()
         assert not registration_panel._reference_time_spin.isHidden()
-        assert not registration_panel._n_jobs_spin.isHidden()
+        assert not registration_panel._n_jobs_row.isHidden()
+
+    def test_parallel_jobs_is_in_advanced_parameters(self, registration_panel):
+        registration_panel._time_series_radio.setChecked(True)
+        registration_panel._advanced_toggle.setChecked(True)
+
+        assert not registration_panel._n_jobs_row.isHidden()
+        assert registration_panel._n_jobs_spin.parent() is not None
 
     def test_volume_shows_fixed_selector(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
         registration_panel._single_volume_radio.setChecked(True)
         assert not registration_panel._fixed_combo.isHidden()
         assert registration_panel._reference_time_spin.isHidden()
-        assert registration_panel._n_jobs_spin.isHidden()
+        assert registration_panel._n_jobs_row.isHidden()
 
     def test_defaults_transform_to_rigid(self, registration_panel):
         assert registration_panel._transform_combo.currentText() == "rigid"
         registration_panel._time_series_radio.setChecked(True)
         assert registration_panel._transform_combo.currentText() == "rigid"
 
-    def test_learning_rate_auto_disables_spinbox(self, registration_panel):
+    def test_learning_rate_auto_disables_edit(self, registration_panel):
         assert registration_panel._learning_rate_auto_check.isChecked()
-        assert not registration_panel._learning_rate_spin.isEnabled()
+        assert not registration_panel._learning_rate_edit.isEnabled()
         registration_panel._learning_rate_auto_check.setChecked(False)
-        assert registration_panel._learning_rate_spin.isEnabled()
+        assert registration_panel._learning_rate_edit.isEnabled()
+
+    def test_volumewise_learning_rate_defaults_to_fixed_0_01(self, registration_panel):
+        registration_panel._time_series_radio.setChecked(True)
+
+        assert not registration_panel._learning_rate_auto_check.isChecked()
+        assert registration_panel._learning_rate_edit.isEnabled()
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
+
+    def test_mode_switch_preserves_session_parameters(self, registration_panel):
+        registration_panel._time_series_radio.setChecked(True)
+        registration_panel._learning_rate_auto_check.setChecked(True)
+        registration_panel._learning_rate_edit.setValue(0.23)
+        registration_panel._n_jobs_spin.setValue(3)
+
+        registration_panel._single_volume_radio.setChecked(True)
+        registration_panel._learning_rate_edit.setValue(0.42)
+        registration_panel._time_series_radio.setChecked(True)
+
+        assert registration_panel._learning_rate_auto_check.isChecked()
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.23)
+        assert registration_panel._n_jobs_spin.value() == 3
+
+    def test_advanced_group_is_collapsed_by_default(self, registration_panel):
+        assert not registration_panel._advanced_toggle.isChecked()
+        assert registration_panel._advanced_content.isHidden()
+        assert registration_panel._advanced_toggle.text() == "Advanced"
+        registration_panel._advanced_toggle.click()
+        assert not registration_panel._advanced_content.isHidden()
+
+    def test_scientific_notation_spinboxes_parse_values(self, registration_panel):
+        registration_panel._learning_rate_auto_check.setChecked(False)
+        registration_panel._learning_rate_edit.lineEdit().setText("1e-5")
+        registration_panel._learning_rate_edit.interpretText()
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(1e-5)
+
+        registration_panel._convergence_min_edit.lineEdit().setText("2.5e-7")
+        registration_panel._convergence_min_edit.interpretText()
+        assert registration_panel._convergence_min_edit.value() == pytest.approx(2.5e-7)
+
+    def test_spinbox_defaults_and_minima(self, registration_panel):
+        assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.1)
+        assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
+            1e-10
+        )
+        assert registration_panel._convergence_min_edit.value() == pytest.approx(1e-6)
+
+    def test_metric_specific_rows_follow_metric(self, registration_panel):
+        registration_panel._advanced_toggle.setChecked(True)
+        assert registration_panel._metric_combo.currentText() == "correlation"
+        assert registration_panel._histogram_bins_row.isHidden()
+
+        registration_panel._metric_combo.setCurrentText("mattes_mi")
+        assert not registration_panel._histogram_bins_row.isHidden()
+
+    def test_multi_resolution_toggle_hides_dependent_inputs(self, registration_panel):
+        registration_panel._advanced_toggle.setChecked(True)
+        assert not registration_panel._multi_resolution_check.isChecked()
+        assert registration_panel._shrink_factors_row.isHidden()
+        assert registration_panel._smoothing_sigmas_row.isHidden()
+
+        registration_panel._multi_resolution_check.setChecked(True)
+
+        assert not registration_panel._shrink_factors_row.isHidden()
+        assert not registration_panel._smoothing_sigmas_row.isHidden()
+
+    def test_initialization_is_in_basic_parameters(self, registration_panel):
+        assert registration_panel._initialization_combo.parent() is not None
+
+
+class TestAbort:
+    def test_abort_sets_cancellation_event(self, registration_panel):
+        registration_panel._worker = object()
+        registration_panel._abort_event = Event()
+        registration_panel._begin_work()
+
+        registration_panel._abort_registration()
+
+        assert registration_panel._abort_event.is_set()
+        assert not registration_panel._abort_btn.isEnabled()
+        assert registration_panel._abort_btn.text() == "Aborting…"
 
 
 class TestValidation:
@@ -178,6 +268,68 @@ class TestPluginWidget:
         assert "Registration" in widget._accordion_panels
 
 
+class TestVolumewiseProgress:
+    def test_setup_updates_progress_bar_and_output_layer(
+        self, viewer, registration_panel
+    ):
+        from confusius._napari._registration._panel import _layer_to_dataarray
+
+        moving = xr.DataArray(
+            np.linspace(-2.0, 3.0, 3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6),
+            dims=["time", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(3), dims=["time"]),
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        moving_layer = viewer.add_image(
+            moving.values,
+            name="series",
+            metadata={"xarray": moving},
+        )
+        moving = _layer_to_dataarray(moving_layer)
+
+        progress = registration_panel._setup_volumewise_progress(
+            moving_layer=moving_layer,
+            moving=moving,
+            layer_name="series registered",
+            total_iterations_per_frame=5,
+        )
+
+        assert registration_panel._volumewise_progress_layer is not None
+        assert registration_panel._progress.maximum() == 15
+        assert registration_panel._progress.isTextVisible()
+        assert registration_panel._progress.minimumHeight() >= 18
+        assert moving_layer.colormap.name == "red"
+
+        preview_layer = viewer.layers["series registered"]
+        assert preview_layer.colormap.name == "cyan"
+        assert preview_layer.blending == "additive"
+        np.testing.assert_array_equal(
+            np.asarray(preview_layer.data),
+            np.full(moving.shape, float(moving.min()), dtype=np.float32),
+        )
+
+        progress.iteration(1, 2, 5)
+        assert registration_panel._progress.value() == 2
+
+        frame = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
+
+        np.testing.assert_array_equal(
+            np.asarray(viewer.layers["series registered"].data)[1],
+            np.asarray(frame.values),
+        )
+
+
 class TestFinishedCallbacks:
     def test_volume_result_adds_new_layer_with_transform_metadata(
         self, viewer, registration_panel
@@ -214,6 +366,7 @@ class TestFinishedCallbacks:
         layer = viewer.layers["moving → fixed"]
         assert layer.metadata["registration_transform"] is transform
         assert layer.metadata["registration_diagnostics"] is diagnostics
+        assert layer.metadata["registration_status"] == "completed"
         np.testing.assert_array_equal(
             affine_transform_from_payload(layer.metadata["confusius_transform"]),
             transform,
@@ -360,9 +513,7 @@ class TestFinishedCallbacks:
         assert moving.colormap.name == "cyan"
         assert moving.blending == "additive"
 
-    def test_setup_creates_metric_plotter_dock(
-        self, viewer, registration_panel
-    ):
+    def test_setup_creates_metric_plotter_dock(self, viewer, registration_panel):
         """`_setup_volume_progress` lazily creates and docks the metric plotter."""
         moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
         fixed = xr.DataArray(
@@ -433,6 +584,7 @@ class TestFinishedCallbacks:
         layer = viewer.layers["series registered"]
         assert layer.metadata["reference_time"] == 1
         assert layer.metadata["registration_operation"] == "register_volumewise"
+        assert "registration_status" not in layer.metadata
         assert (
             layer.metadata["xarray"].attrs["registration_operation"]
             == "register_volumewise"

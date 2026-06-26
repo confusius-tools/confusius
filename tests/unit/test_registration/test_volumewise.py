@@ -1,5 +1,7 @@
 """Unit tests for volumewise registration functions."""
 
+from threading import Event
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -7,6 +9,32 @@ from numpy.testing import assert_allclose
 
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
+
+
+class _FakeVolumewiseProgressReporter:
+    def __init__(self) -> None:
+        self.iterations: list[tuple[int, int, int]] = []
+        self.completed_frames: list[int] = []
+        self.closed = False
+
+    def iteration(
+        self,
+        frame_index: int,
+        iteration: int,
+        total_iterations: int,
+    ) -> None:
+        self.iterations.append((frame_index, iteration, total_iterations))
+
+    def frame_completed(
+        self,
+        frame_index: int,
+        registered_frame: xr.DataArray,
+        diagnostics: RegistrationDiagnostics,
+    ) -> None:
+        self.completed_frames.append(frame_index)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class TestRegisterVolumewise:
@@ -68,6 +96,62 @@ class TestRegisterVolumewise:
         )
 
         assert result.shape == sample_2d_dataarray.shape
+
+    def test_abort_event_returns_partial_dataset(self, sample_2d_dataarray):
+        """A pre-set abort event returns an aborted partial dataset."""
+        abort_event = Event()
+        abort_event.set()
+
+        result = register_volumewise(
+            sample_2d_dataarray,
+            n_jobs=2,
+            transform="translation",
+            abort_event=abort_event,
+        )
+
+        assert result.shape == sample_2d_dataarray.shape
+        assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
+        assert_allclose(result.values, sample_2d_dataarray.values)
+
+    def test_progress_reporter_receives_iteration_and_frame_updates(
+        self, sample_2d_dataarray, monkeypatch
+    ):
+        reporter = _FakeVolumewiseProgressReporter()
+
+        def _fake_register_volume(_volume, _ref_da, **kwargs):
+            iteration_callback = kwargs["iteration_callback"]
+            if iteration_callback is not None:
+                iteration_callback(1, -1.0)
+                iteration_callback(2, -0.5)
+            diagnostics = RegistrationDiagnostics(
+                metric="correlation",
+                metric_values=np.asarray([-1.0, -0.5]),
+                final_metric_value=-0.5,
+                n_iterations=2,
+                stop_condition="done",
+                status="completed",
+            )
+            return _volume.copy(), np.eye(3), diagnostics
+
+        monkeypatch.setattr(
+            "confusius.registration.volumewise.register_volume",
+            _fake_register_volume,
+        )
+
+        result = register_volumewise(
+            sample_2d_dataarray,
+            n_jobs=1,
+            transform="translation",
+            show_progress=False,
+            progress_reporter=reporter,
+        )
+
+        assert result.shape == sample_2d_dataarray.shape
+        assert reporter.iterations
+        assert sorted(reporter.completed_frames) == list(
+            range(sample_2d_dataarray.sizes["time"])
+        )
+        assert reporter.closed
 
     def test_wrong_dimensionality_raises(self):
         """Data that is neither 2D+t nor 3D+t raises ValueError."""

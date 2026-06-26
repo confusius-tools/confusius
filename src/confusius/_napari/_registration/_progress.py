@@ -36,6 +36,7 @@ Connection lifecycle:
 
 from __future__ import annotations
 
+from threading import Lock
 from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
@@ -45,8 +46,9 @@ from confusius.registration._progress import _resample_intermediate
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
+    import xarray as xr
 
-    from confusius.registration import RegistrationProgress
+    from confusius.registration import RegistrationDiagnostics, RegistrationProgress
 
 
 class NapariProgressBridge(QObject):
@@ -166,6 +168,110 @@ class NapariVolumeProgress:
         returned DataArray, so this signal is informational (e.g. to stop a
         spinner or mark the layer as finalised).
         """
+        self._bridge.finished.emit()
+
+
+class NapariVolumewiseProgressBridge(QObject):
+    """Thread-boundary signal bridge for volumewise registration progress."""
+
+    iteration_progress = Signal(int, int)
+    """:pyqtSignal: Emitted with `(completed_iterations, total_iterations)`.
+    """
+
+    frame_completed = Signal(int, object)
+    """:pyqtSignal: Emitted with `(frame_index, registered_frame_array)` when one
+    frame finishes.
+    """
+
+    finished = Signal()
+    """:pyqtSignal: Emitted once when the volumewise run ends."""
+
+
+class NapariVolumewiseProgress:
+    """Aggregate per-frame progress for `register_volumewise` on the GUI thread.
+
+    Parameters
+    ----------
+    bridge : NapariVolumewiseProgressBridge
+        GUI-thread signal bridge used to forward progress updates.
+    n_frames : int
+        Number of frames that will be registered.
+    total_iterations_per_frame : int
+        Expected maximum number of optimizer iterations per frame.
+    """
+
+    def __init__(
+        self,
+        bridge: NapariVolumewiseProgressBridge,
+        *,
+        n_frames: int,
+        total_iterations_per_frame: int,
+    ) -> None:
+        self._bridge = bridge
+        self._n_frames = n_frames
+        self._total_iterations_per_frame = total_iterations_per_frame
+        self._iteration_counts = [0] * n_frames
+        self._lock = Lock()
+
+    def iteration(
+        self,
+        frame_index: int,
+        iteration: int,
+        total_iterations: int,
+    ) -> None:
+        """Update the aggregated completed-iteration count.
+
+        Parameters
+        ----------
+        frame_index : int
+            Index of the frame being optimized.
+        iteration : int
+            Current 1-indexed optimizer iteration for that frame.
+        total_iterations : int
+            Maximum number of iterations expected for that frame.
+        """
+        with self._lock:
+            if total_iterations > self._total_iterations_per_frame:
+                self._total_iterations_per_frame = total_iterations
+            self._iteration_counts[frame_index] = max(
+                self._iteration_counts[frame_index],
+                iteration,
+            )
+            completed = sum(self._iteration_counts)
+            total = self._n_frames * self._total_iterations_per_frame
+        self._bridge.iteration_progress.emit(completed, total)
+
+    def frame_completed(
+        self,
+        frame_index: int,
+        registered_frame: "xr.DataArray",
+        diagnostics: "RegistrationDiagnostics",
+    ) -> None:
+        """Emit one completed frame for GUI-side layer updates.
+
+        Parameters
+        ----------
+        frame_index : int
+            Index of the completed frame.
+        registered_frame : xarray.DataArray
+            Registered frame data to write into the napari output layer.
+        diagnostics : confusius.registration.RegistrationDiagnostics
+            Diagnostics collected for the completed frame.
+        """
+        with self._lock:
+            self._iteration_counts[frame_index] = max(
+                self._iteration_counts[frame_index],
+                diagnostics.n_iterations,
+            )
+            completed = sum(self._iteration_counts)
+            total = self._n_frames * self._total_iterations_per_frame
+        self._bridge.iteration_progress.emit(completed, total)
+        self._bridge.frame_completed.emit(
+            frame_index, np.asarray(registered_frame.values)
+        )
+
+    def close(self) -> None:
+        """Signal the end of the volumewise run."""
         self._bridge.finished.emit()
 
 
