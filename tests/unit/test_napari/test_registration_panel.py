@@ -229,6 +229,63 @@ class TestValidation:
             in registration_panel._layer_validation.text()
         )
 
+    def test_between_scans_accepts_time_series_by_averaging(
+        self, viewer, registration_panel
+    ):
+        moving = xr.DataArray(
+            np.zeros((3, 4, 6), dtype=np.float32),
+            dims=["time", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(3), dims=["time"]),
+                "y": xr.DataArray(np.arange(4), dims=["y"]),
+                "x": xr.DataArray(np.arange(6), dims=["x"]),
+            },
+        )
+        fixed = xr.DataArray(
+            np.ones((3, 4, 6), dtype=np.float32),
+            dims=["time", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(3), dims=["time"]),
+                "y": xr.DataArray(np.arange(4), dims=["y"]),
+                "x": xr.DataArray(np.arange(6), dims=["x"]),
+            },
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
+        registration_panel._refresh_layers()
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._fixed_combo.setCurrentText("fixed")
+
+        assert registration_panel._validate_registration_selection()
+
+
+class TestBetweenScanPreparation:
+    def test_prepare_between_scan_data_averages_time(self):
+        from confusius._napari._registration._panel import _prepare_between_scan_data
+
+        data = xr.DataArray(
+            np.stack(
+                [
+                    np.zeros((4, 6), dtype=np.float32),
+                    np.ones((4, 6), dtype=np.float32),
+                ],
+                axis=0,
+            ),
+            dims=["time", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(2), dims=["time"]),
+                "y": xr.DataArray(np.arange(4), dims=["y"]),
+                "x": xr.DataArray(np.arange(6), dims=["x"]),
+            },
+            attrs={"foo": "bar"},
+        )
+
+        averaged = _prepare_between_scan_data(data)
+
+        assert averaged.dims == ("y", "x")
+        assert averaged.attrs["foo"] == "bar"
+        np.testing.assert_allclose(averaged.values, 0.5)
+
 
 class TestLayerToDataArray:
     def test_reconstructs_dataarray_from_generic_layer(self, viewer):
@@ -406,6 +463,14 @@ class TestFinishedCallbacks:
         """A preview layer created by `_setup_volume_progress` is removed
         after `_on_registration_finished` so the final result is the only
         layer with that name."""
+        moving_data = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
         moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
         fixed = xr.DataArray(
             np.ones((4, 6), dtype=np.float32),
@@ -420,6 +485,7 @@ class TestFinishedCallbacks:
         factory = registration_panel._setup_volume_progress(
             moving_layer=moving,
             fixed_layer=fixed_layer,
+            moving=moving_data,
             fixed=fixed,
             layer_name="Registered",
         )
@@ -492,6 +558,14 @@ class TestFinishedCallbacks:
     ):
         """`_update_progress_layer` writes the iterated array into the preview
         layer's data, refreshing the canvas."""
+        moving_data = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
         moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
         fixed = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
@@ -506,6 +580,7 @@ class TestFinishedCallbacks:
         registration_panel._setup_volume_progress(
             moving_layer=moving,
             fixed_layer=fixed_layer,
+            moving=moving_data,
             fixed=fixed,
             layer_name="Registered",
         )
@@ -539,6 +614,14 @@ class TestFinishedCallbacks:
 
     def test_setup_creates_metric_plotter_dock(self, viewer, registration_panel):
         """`_setup_volume_progress` lazily creates and docks the metric plotter."""
+        moving_data = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
         moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
         fixed = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
@@ -556,6 +639,7 @@ class TestFinishedCallbacks:
         registration_panel._setup_volume_progress(
             moving_layer=moving,
             fixed_layer=fixed_layer,
+            moving=moving_data,
             fixed=fixed,
             layer_name="Registered",
         )

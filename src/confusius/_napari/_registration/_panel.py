@@ -179,6 +179,27 @@ def _layer_to_dataarray(layer: "Layer") -> xr.DataArray:
     return xr.DataArray(data, dims=axis_labels, coords=coords)
 
 
+def _prepare_between_scan_data(data: xr.DataArray) -> xr.DataArray:
+    """Return a spatial-only DataArray for between-scan registration.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input layer data.
+
+    Returns
+    -------
+    xarray.DataArray
+        Spatial-only data. If the input has a time dimension, it is averaged
+        over time with attributes preserved.
+    """
+    if TIME_DIM not in data.dims:
+        return data
+    averaged = data.mean(dim=TIME_DIM, keep_attrs=True)
+    averaged.attrs = data.attrs.copy()
+    return averaged
+
+
 def _image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
     """Return image-display kwargs copied from an existing napari layer.
 
@@ -1363,7 +1384,7 @@ class RegistrationPanel(QWidget):
             self._set_run_btn_enabled(True)
             return True
 
-        moving_invalid = TIME_DIM in moving.dims
+        moving_invalid = False
         fixed_invalid = False
         message: str | None = None
 
@@ -1377,7 +1398,7 @@ class RegistrationPanel(QWidget):
             return False
 
         try:
-            fixed = _layer_to_dataarray(fixed_layer)
+            _layer_to_dataarray(fixed_layer)
         except Exception:
             self._set_layer_validation_style(
                 fixed_invalid=True,
@@ -1390,10 +1411,6 @@ class RegistrationPanel(QWidget):
             moving_invalid = True
             fixed_invalid = True
             message = "Moving and fixed layers must be different."
-        elif TIME_DIM in moving.dims or TIME_DIM in fixed.dims:
-            moving_invalid = TIME_DIM in moving.dims
-            fixed_invalid = TIME_DIM in fixed.dims
-            message = "Between-scans registration requires spatial-only layers."
 
         valid = not (moving_invalid or fixed_invalid)
         self._set_layer_validation_style(
@@ -1683,6 +1700,7 @@ class RegistrationPanel(QWidget):
         *,
         moving_layer: "Image",
         fixed_layer: "Image",
+        moving: xr.DataArray,
         fixed: xr.DataArray,
         layer_name: str,
     ) -> "Callable[..., RegistrationProgress] | None":
@@ -1704,9 +1722,11 @@ class RegistrationPanel(QWidget):
         fixed_layer : napari.layers.Layer
             Fixed reference layer. Defines the shape, scale, translate, and
             coordinate system of the preview/output layer.
+        moving : xarray.DataArray
+            Spatial-only moving data used to seed the preview layer.
         fixed : xarray.DataArray
-            DataArray view of `fixed_layer`, used to build the empty preview
-            grid.
+            Spatial-only DataArray view of `fixed_layer`, used to build the
+            empty preview grid.
         layer_name : str
             Name for the preview (and later final) layer.
 
@@ -1753,9 +1773,8 @@ class RegistrationPanel(QWidget):
         # overwrite the data in place as the registration progresses.
         try:
             identity = np.eye(fixed.ndim + 1, dtype=float)
-            moving_da = _layer_to_dataarray(moving_layer)
             preview = resample_like(
-                moving_da,
+                moving,
                 fixed,
                 identity,
                 interpolation=cast(
@@ -1877,7 +1896,10 @@ class RegistrationPanel(QWidget):
             # Mirror the HiDPI click-offset fix from the SignalPanel so the
             # canvas paints at the right device-pixel ratio the first time.
             def _settle_layout() -> None:
-                main_win = self._find_main_window(dock)
+                try:
+                    main_win = self._find_main_window(dock)
+                except RuntimeError:
+                    return
                 if main_win is None:
                     return
                 from qtpy.QtCore import QSize
@@ -1917,11 +1939,17 @@ class RegistrationPanel(QWidget):
         QMainWindow or None
             The main window if found, otherwise None.
         """
-        parent = widget.parent()
+        try:
+            parent = widget.parent()
+        except RuntimeError:
+            return None
         while parent is not None:
             if isinstance(parent, QMainWindow):
                 return parent
-            parent = parent.parent()
+            try:
+                parent = parent.parent()
+            except RuntimeError:
+                return None
         return None
 
     def _end_work(self) -> None:
@@ -2114,15 +2142,15 @@ class RegistrationPanel(QWidget):
                 self._set_error(str(exc))
                 return
 
-            if TIME_DIM in moving.dims or TIME_DIM in fixed.dims:
-                self._set_error("register_volume requires spatial-only layers.")
-                return
+            moving = _prepare_between_scan_data(moving)
+            fixed = _prepare_between_scan_data(fixed)
 
             payload["fixed_layer_name"] = fixed_layer.name
 
             progress_plotter = self._setup_volume_progress(
                 moving_layer=cast("Image", moving_layer),
                 fixed_layer=cast("Image", fixed_layer),
+                moving=moving,
                 fixed=fixed,
                 layer_name=self._volume_result_layer_name(
                     cast("str", payload["moving_layer_name"]),
