@@ -1201,6 +1201,16 @@ class RegistrationPanel(QWidget):
             label = f"{label} — {suffix}"
         return label
 
+    def _volume_result_layer_name(self, moving_name: str, fixed_name: str) -> str:
+        """Return the napari layer name for between-scan registration output."""
+        del moving_name, fixed_name
+        return "Registered"
+
+    def _volumewise_result_layer_name(self, moving_name: str) -> str:
+        """Return the napari layer name for within-scan registration output."""
+        del moving_name
+        return "Motion corrected"
+
     def _refresh_transform_controls(self) -> None:
         """Refresh transform-related layer selectors."""
         source_data = self._transform_source_combo.currentData()
@@ -2114,8 +2124,9 @@ class RegistrationPanel(QWidget):
                 moving_layer=cast("Image", moving_layer),
                 fixed_layer=cast("Image", fixed_layer),
                 fixed=fixed,
-                layer_name=(
-                    f"{payload['moving_layer_name']} → {payload['fixed_layer_name']}"
+                layer_name=self._volume_result_layer_name(
+                    cast("str", payload["moving_layer_name"]),
+                    cast("str", payload["fixed_layer_name"]),
                 ),
             )
 
@@ -2159,7 +2170,9 @@ class RegistrationPanel(QWidget):
             progress_reporter = self._setup_volumewise_progress(
                 moving_layer=cast("Image", moving_layer),
                 moving=moving,
-                layer_name=f"{payload['moving_layer_name']} registered",
+                layer_name=self._volumewise_result_layer_name(
+                    cast("str", payload["moving_layer_name"])
+                ),
                 total_iterations_per_frame=payload["number_of_iterations"],
             )
 
@@ -2228,8 +2241,9 @@ class RegistrationPanel(QWidget):
             registered.attrs["registration_diagnostics"] = diagnostics
             registered.attrs["registration_operation"] = operation
             registered.attrs["registration_status"] = diagnostics.status
-            layer_name = (
-                f"{payload['moving_layer_name']} → {payload['fixed_layer_name']}"
+            layer_name = self._volume_result_layer_name(
+                cast("str", payload["moving_layer_name"]),
+                cast("str", payload["fixed_layer_name"]),
             )
             metadata: dict[str, Any] = {
                 "registration_transform": transform,
@@ -2252,7 +2266,9 @@ class RegistrationPanel(QWidget):
             registered = cast("xr.DataArray", result).copy(deep=False)
             registered.attrs = registered.attrs.copy()
             registered.attrs["registration_operation"] = operation
-            layer_name = f"{payload['moving_layer_name']} registered"
+            layer_name = self._volumewise_result_layer_name(
+                cast("str", payload["moving_layer_name"])
+            )
             metadata = {
                 "motion_params": registered.attrs.get("motion_params"),
                 "reference_time": payload["reference_time"],

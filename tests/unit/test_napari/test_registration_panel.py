@@ -317,7 +317,7 @@ class TestVolumewiseProgress:
         progress = registration_panel._setup_volumewise_progress(
             moving_layer=moving_layer,
             moving=moving,
-            layer_name="series registered",
+            layer_name="Motion corrected",
             total_iterations_per_frame=5,
         )
 
@@ -327,7 +327,7 @@ class TestVolumewiseProgress:
         assert registration_panel._progress.minimumHeight() >= 18
         assert moving_layer.colormap.name == "red"
 
-        preview_layer = viewer.layers["series registered"]
+        preview_layer = viewer.layers["Motion corrected"]
         assert preview_layer.colormap.name == "cyan"
         assert preview_layer.blending == "additive"
         np.testing.assert_array_equal(
@@ -349,7 +349,7 @@ class TestVolumewiseProgress:
         progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
 
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["series registered"].data)[1],
+            np.asarray(viewer.layers["Motion corrected"].data)[1],
             np.asarray(frame.values),
         )
 
@@ -387,7 +387,7 @@ class TestFinishedCallbacks:
             (registered, transform, diagnostics),
         )
 
-        layer = viewer.layers["moving → fixed"]
+        layer = viewer.layers["Registered"]
         assert layer.metadata["registration_transform"] is transform
         assert layer.metadata["registration_diagnostics"] is diagnostics
         assert layer.metadata["registration_status"] == "completed"
@@ -421,10 +421,10 @@ class TestFinishedCallbacks:
             moving_layer=moving,
             fixed_layer=fixed_layer,
             fixed=fixed,
-            layer_name="moving → fixed",
+            layer_name="Registered",
         )
         assert factory is not None
-        assert "moving → fixed" in {layer.name for layer in viewer.layers}
+        assert "Registered" in {layer.name for layer in viewer.layers}
         assert registration_panel._progress_layer is not None
         assert registration_panel._progress_bridge is not None
         # The fixed layer is tinted red so the cyan overlay reads as the
@@ -440,7 +440,7 @@ class TestFinishedCallbacks:
         # with the moving image resampled onto the fixed grid, so the first
         # frame is a meaningful "unaligned moving on fixed" view rather than
         # a zero-valued blank.
-        preview_layer = viewer.layers["moving → fixed"]
+        preview_layer = viewer.layers["Registered"]
         assert preview_layer.colormap.name == "cyan"
         assert preview_layer.blending == "additive"
         assert preview_layer.visible
@@ -474,7 +474,7 @@ class TestFinishedCallbacks:
         assert registration_panel._progress_bridge is None
         # The result layer picks up the same cyan + additive styling so the
         # red/cyan overlay survives past teardown.
-        result_layer = viewer.layers["moving → fixed"]
+        result_layer = viewer.layers["Registered"]
         assert result_layer.colormap.name == "cyan"
         assert result_layer.blending == "additive"
         # The moving layer stays hidden, with its cyan + additive tint, so
@@ -507,24 +507,24 @@ class TestFinishedCallbacks:
             moving_layer=moving,
             fixed_layer=fixed_layer,
             fixed=fixed,
-            layer_name="moving → fixed",
+            layer_name="Registered",
         )
         # The preview is seeded with the moving image resampled onto the
         # fixed grid, so it's visible and meaningful from the start.
-        preview_layer = viewer.layers["moving → fixed"]
+        preview_layer = viewer.layers["Registered"]
         assert preview_layer.visible
 
         next_arr = np.full((4, 6), 0.5, dtype=np.float32)
         registration_panel._update_progress_layer(next_arr)
 
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["moving → fixed"].data), next_arr
+            np.asarray(viewer.layers["Registered"].data), next_arr
         )
 
         # Shape mismatch is silently ignored.
         registration_panel._update_progress_layer(np.zeros((3, 6), dtype=np.float32))
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["moving → fixed"].data), next_arr
+            np.asarray(viewer.layers["Registered"].data), next_arr
         )
 
         # Teardown removes the preview; the moving layer stays hidden with
@@ -532,7 +532,7 @@ class TestFinishedCallbacks:
         registration_panel._teardown_volume_progress()
         assert registration_panel._progress_layer is None
         assert registration_panel._progress_bridge is None
-        assert "moving → fixed" not in {layer.name for layer in viewer.layers}
+        assert "Registered" not in {layer.name for layer in viewer.layers}
         assert not moving.visible
         assert moving.colormap.name == "cyan"
         assert moving.blending == "additive"
@@ -557,7 +557,7 @@ class TestFinishedCallbacks:
             moving_layer=moving,
             fixed_layer=fixed_layer,
             fixed=fixed,
-            layer_name="moving → fixed",
+            layer_name="Registered",
         )
 
         assert registration_panel._metric_plotter is not None
@@ -605,7 +605,7 @@ class TestFinishedCallbacks:
 
         registration_panel._on_registration_finished(payload, registered)
 
-        layer = viewer.layers["series registered"]
+        layer = viewer.layers["Motion corrected"]
         assert layer.metadata["reference_time"] == 1
         assert layer.metadata["registration_operation"] == "register_volumewise"
         assert "registration_status" not in layer.metadata
