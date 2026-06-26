@@ -10,6 +10,15 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Add [`NMF`][confusius.decomposition.NMF] for non-negative matrix factorization
+  of fUSI time series, wrapping `sklearn.decomposition.NMF` with the same
+  xarray-aware `fit`/`transform`/`inverse_transform` interface as
+  [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
+  Both `mode='temporal'` and `mode='spatial'` are supported
+  ([#117](https://github.com/confusius-tools/confusius/issues/117)).
+
 ## 0.4.0
 
 *Released 2026-06-25.*
