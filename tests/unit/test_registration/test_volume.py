@@ -48,6 +48,15 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
+    def test_invalid_initialization_raises(self, sample_2d_dataarray_spatial):
+        """Unknown initialization mode raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization="moments",
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
