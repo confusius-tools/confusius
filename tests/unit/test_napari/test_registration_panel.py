@@ -159,6 +159,29 @@ class TestOperationMode:
     def test_initialization_is_in_basic_parameters(self, registration_panel):
         assert registration_panel._initialization_combo.parent() is not None
 
+    def test_mesh_size_is_basic_and_only_visible_for_bspline(self, registration_panel):
+        assert registration_panel._mesh_size_row.parent() is not None
+        assert registration_panel._mesh_size_row.isHidden()
+        assert registration_panel._mesh_size_z_spin.value() == 10
+        assert registration_panel._mesh_size_y_spin.value() == 10
+        assert registration_panel._mesh_size_x_spin.value() == 10
+
+        registration_panel._transform_combo.setCurrentText("bspline")
+        assert not registration_panel._mesh_size_row.isHidden()
+
+        registration_panel._mesh_size_z_spin.setValue(5)
+        registration_panel._mesh_size_y_spin.setValue(7)
+        registration_panel._mesh_size_x_spin.setValue(9)
+        assert registration_panel._mesh_size_z_spin.value() == 5
+        assert registration_panel._mesh_size_y_spin.value() == 7
+        assert registration_panel._mesh_size_x_spin.value() == 9
+
+        registration_panel._transform_combo.setCurrentText("rigid")
+        assert registration_panel._mesh_size_row.isHidden()
+
+        registration_panel._time_series_radio.setChecked(True)
+        assert registration_panel._mesh_size_row.isHidden()
+
 
 class TestAbort:
     def test_abort_sets_cancellation_event(self, registration_panel):

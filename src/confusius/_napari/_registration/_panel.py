@@ -12,8 +12,7 @@ import xarray as xr
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
-from qtpy.QtCore import Qt, QTimer
-from qtpy.QtCore import QRegularExpression
+from qtpy.QtCore import QRegularExpression, Qt, QTimer
 from qtpy.QtGui import QValidator
 from qtpy.QtWidgets import (
     QApplication,
@@ -318,6 +317,7 @@ def _run_register_volume_registration_volume(
     number_of_iterations: int,
     use_multi_resolution: bool,
     resample_interpolation: Literal["linear", "bspline"],
+    mesh_size: tuple[int, int, int] = (10, 10, 10),
     number_of_histogram_bins: int = 50,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
@@ -350,6 +350,8 @@ def _run_register_volume_registration_volume(
         Whether to enable the registration pyramid.
     resample_interpolation : {"linear", "bspline"}
         Interpolator for the resampled output.
+    mesh_size : tuple of int, default: (10, 10, 10)
+        B-spline mesh size.
     number_of_histogram_bins : int
         Histogram bins for Mattes MI metric.
     convergence_minimum_value : float
@@ -388,6 +390,7 @@ def _run_register_volume_registration_volume(
         use_multi_resolution=use_multi_resolution,
         resample=True,
         resample_interpolation=resample_interpolation,
+        mesh_size=mesh_size,
         number_of_histogram_bins=number_of_histogram_bins,
         convergence_minimum_value=convergence_minimum_value,
         convergence_window_size=convergence_window_size,
@@ -719,6 +722,43 @@ class RegistrationPanel(QWidget):
             self._transform_combo,
         )
 
+        self._mesh_size_z_spin = QSpinBox()
+        self._mesh_size_z_spin.setRange(1, 512)
+        self._mesh_size_z_spin.setValue(10)
+        self._mesh_size_z_spin.setMaximumWidth(48)
+        self._mesh_size_z_spin.setToolTip("B-spline mesh size along z.")
+        self._mesh_size_y_spin = QSpinBox()
+        self._mesh_size_y_spin.setRange(1, 512)
+        self._mesh_size_y_spin.setValue(10)
+        self._mesh_size_y_spin.setMaximumWidth(48)
+        self._mesh_size_y_spin.setToolTip("B-spline mesh size along y.")
+        self._mesh_size_x_spin = QSpinBox()
+        self._mesh_size_x_spin.setRange(1, 512)
+        self._mesh_size_x_spin.setValue(10)
+        self._mesh_size_x_spin.setMaximumWidth(48)
+        self._mesh_size_x_spin.setToolTip("B-spline mesh size along x.")
+        self._mesh_size_row = QWidget()
+        mesh_size_layout = QVBoxLayout(self._mesh_size_row)
+        mesh_size_layout.setContentsMargins(0, 0, 0, 0)
+        mesh_size_layout.setSpacing(4)
+        mesh_size_label = self._make_form_label(
+            "Mesh size",
+            tooltip="B-spline mesh size used for B-spline registration.",
+        )
+        mesh_size_layout.addWidget(mesh_size_label)
+        mesh_size_inputs = QHBoxLayout()
+        mesh_size_inputs.setContentsMargins(0, 0, 0, 0)
+        mesh_size_inputs.setSpacing(6)
+        mesh_size_inputs.addWidget(QLabel("Z"))
+        mesh_size_inputs.addWidget(self._mesh_size_z_spin)
+        mesh_size_inputs.addWidget(QLabel("Y"))
+        mesh_size_inputs.addWidget(self._mesh_size_y_spin)
+        mesh_size_inputs.addWidget(QLabel("X"))
+        mesh_size_inputs.addWidget(self._mesh_size_x_spin)
+        mesh_size_inputs.addStretch(1)
+        mesh_size_layout.addLayout(mesh_size_inputs)
+        params_layout.addRow(self._mesh_size_row)
+
         self._metric_combo = QComboBox()
         self._metric_combo.setMinimumContentsLength(14)
         self._metric_combo.setSizeAdjustPolicy(
@@ -976,9 +1016,13 @@ class RegistrationPanel(QWidget):
         self._metric_combo.currentTextChanged.connect(
             self._update_metric_dependent_visibility
         )
+        self._transform_combo.currentTextChanged.connect(
+            self._update_transform_dependent_visibility
+        )
         self._on_advanced_toggled(False)
         self._update_multi_resolution_enabled(False)
         self._update_metric_dependent_visibility(self._metric_combo.currentText())
+        self._update_transform_dependent_visibility(self._transform_combo.currentText())
 
         self._register_panel = QWidget()
         register_layout = QVBoxLayout(self._register_panel)
@@ -1383,6 +1427,12 @@ class RegistrationPanel(QWidget):
         self._shrink_factors_row.setVisible(checked)
         self._smoothing_sigmas_row.setVisible(checked)
 
+    def _update_transform_dependent_visibility(self, transform: str) -> None:
+        """Show or hide transform-specific basic parameters."""
+        self._mesh_size_row.setVisible(
+            self._operation() == "register_volume" and transform == "bspline"
+        )
+
     def _snapshot_mode_parameters(self, *, is_volumewise: bool) -> dict[str, Any]:
         """Capture the current parameter state for one registration mode."""
         return {
@@ -1393,6 +1443,11 @@ class RegistrationPanel(QWidget):
             "learning_rate_value": self._learning_rate_edit.value(),
             "number_of_iterations": self._iterations_spin.value(),
             "number_of_histogram_bins": self._histogram_bins_spin.value(),
+            "mesh_size": (
+                self._mesh_size_z_spin.value(),
+                self._mesh_size_y_spin.value(),
+                self._mesh_size_x_spin.value(),
+            ),
             "convergence_minimum_value": self._convergence_min_edit.value(),
             "convergence_window_size": self._convergence_window_spin.value(),
             "use_multi_resolution": self._multi_resolution_check.isChecked(),
@@ -1438,6 +1493,10 @@ class RegistrationPanel(QWidget):
         self._histogram_bins_spin.setValue(
             cast("int", params["number_of_histogram_bins"])
         )
+        mesh_size = cast("tuple[int, int, int]", params["mesh_size"])
+        self._mesh_size_z_spin.setValue(mesh_size[0])
+        self._mesh_size_y_spin.setValue(mesh_size[1])
+        self._mesh_size_x_spin.setValue(mesh_size[2])
         self._convergence_min_edit.setValue(
             cast("float", params["convergence_minimum_value"])
         )
@@ -1463,6 +1522,7 @@ class RegistrationPanel(QWidget):
         self._on_advanced_toggled(self._advanced_toggle.isChecked())
         self._update_metric_dependent_visibility(self._metric_combo.currentText())
         self._update_multi_resolution_enabled(self._multi_resolution_check.isChecked())
+        self._update_transform_dependent_visibility(self._transform_combo.currentText())
 
     def _on_mode_changed(self) -> None:
         """Update the panel when the registration mode changes."""
@@ -2012,6 +2072,11 @@ class RegistrationPanel(QWidget):
             "number_of_iterations": self._iterations_spin.value(),
             "use_multi_resolution": use_multi_res,
             "resample_interpolation": self._interpolation_combo.currentText(),
+            "mesh_size": (
+                self._mesh_size_z_spin.value(),
+                self._mesh_size_y_spin.value(),
+                self._mesh_size_x_spin.value(),
+            ),
             "number_of_histogram_bins": self._histogram_bins_spin.value(),
             "convergence_minimum_value": convergence_minimum_value,
             "convergence_window_size": self._convergence_window_spin.value(),
@@ -2068,6 +2133,7 @@ class RegistrationPanel(QWidget):
                 resample_interpolation=cast(
                     "Literal['linear', 'bspline']", payload["resample_interpolation"]
                 ),
+                mesh_size=payload["mesh_size"] or (10, 10, 10),
                 number_of_histogram_bins=payload["number_of_histogram_bins"],
                 convergence_minimum_value=payload["convergence_minimum_value"],
                 convergence_window_size=payload["convergence_window_size"],
