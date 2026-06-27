@@ -418,7 +418,8 @@ def register_volume(
         Number of values of the similarity metric which are used to estimate the energy
         profile of the similarity metric.
     initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray, default: "center_geometry"
-        Initial transform applied before optimization:
+        Initial transform mapping `fixed` to `moving` coordinates, applied before
+        optimization:
 
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.

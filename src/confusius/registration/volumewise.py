@@ -75,11 +75,13 @@ def register_volumewise(
         Number of recent metric values used to estimate the energy profile
         for convergence checking.
     initialization : {"center_geometry", "center_moments"}, default: "center_geometry"
-        Initial transform applied before optimization:
+        Initial transform mapping `fixed` to `moving` coordinates, applied before
+        optimization:
 
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
         - `None`: uses the identity transform.
+
     optimizer_weights : list of float, optional
         Per-parameter weights applied on top of the auto-estimated physical shift
         scales. If not provided, identity weights are used. A list is passed directly to
