@@ -57,6 +57,17 @@ class TestRegisterVolumeValidation:
                 initialization="moments",
             )
 
+    def test_non_array_initialization_raises_value_error(
+        self, sample_2d_dataarray_spatial
+    ):
+        """A non-ndarray sequence raises ValueError, not an unhashable TypeError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -560,9 +571,7 @@ class TestInitialization:
             calls.append(operation_mode)
             return original_initializer(fixed, moving, transform, operation_mode)
 
-        monkeypatch.setattr(
-            sitk, "CenteredTransformInitializer", wrapped_initializer
-        )
+        monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
 
         register_volume(
             sample_2d_dataarray_spatial,

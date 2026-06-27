@@ -140,7 +140,9 @@ def _validate_register_volume_inputs(
     if (
         initialization is not None
         and not isinstance(initialization, np.ndarray)
-        and initialization not in valid_initializations
+        and not (
+            isinstance(initialization, str) and initialization in valid_initializations
+        )
     ):
         raise ValueError(
             f"Invalid initialization {initialization!r}. "
