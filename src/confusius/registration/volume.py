@@ -137,13 +137,16 @@ def _validate_register_volume_inputs(
         )
 
     valid_initializations = {"center_geometry", "center_moments"}
-    if initialization is not None and not isinstance(initialization, np.ndarray):
-        if initialization not in valid_initializations:
-            raise ValueError(
-                f"Invalid initialization {initialization!r}. "
-                f"Expected one of {sorted(valid_initializations)}, None, or a "
-                "homogeneous affine matrix."
-            )
+    if (
+        initialization is not None
+        and not isinstance(initialization, np.ndarray)
+        and initialization not in valid_initializations
+    ):
+        raise ValueError(
+            f"Invalid initialization {initialization!r}. "
+            f"Expected one of {sorted(valid_initializations)}, None, or a "
+            "homogeneous affine matrix."
+        )
 
     valid_interpolations = {"linear", "bspline"}
     if resample_interpolation not in valid_interpolations:
