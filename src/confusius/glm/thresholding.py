@@ -61,16 +61,16 @@ def fdr_benjamini_hochberg_threshold(
     if not 0 <= alpha <= 1:
         raise ValueError(f"alpha should be between 0 and 1, got {alpha}.")
 
-    z_sorted = -np.sort(-np.asarray(z_vals, dtype=float))  # descending z-scores.
-    n_samples = z_sorted.size
+    descending_z = -np.sort(-np.asarray(z_vals, dtype=float).ravel())
+    n_samples = descending_z.size
     if n_samples == 0:
         raise ValueError("z_vals is empty.")
 
-    p_vals = sps.norm.sf(z_sorted)  # ascending one-sided upper-tail p-values.
+    p_vals = sps.norm.sf(descending_z)  # ascending one-sided upper-tail p-values.
     below_line = p_vals < alpha * np.linspace(1 / n_samples, 1, n_samples)
     if below_line.any():
         # Subtract a tiny epsilon so the last surviving voxel passes a strict `>`.
-        return float(z_sorted[below_line][-1] - 1.0e-12)
+        return float(descending_z[below_line][-1] - 1.0e-12)
     return np.inf
 
 
