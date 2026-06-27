@@ -684,8 +684,6 @@ def register_volume(
                 sitk_centering_transform,
                 sitk.CenteredTransformInitializerFilter.MOMENTS,
             )
-        else:
-            sitk_centering_transform = sitk_centering_transform
 
     if affine_initialization is not None:
         pre_tx = affine_to_sitk_linear_transform(affine_initialization)
