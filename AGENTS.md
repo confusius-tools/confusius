@@ -144,6 +144,7 @@ Coverage reports are generated automatically (terminal, HTML in `htmlcov/`, and 
 
 ### Naming Conventions
 - Functions/methods: `snake_case`
+- Prefer imperative verb phrases for function names (for example, `get_source_dataarray`, `reconstruct_layer_dataarray`, `validate_inputs`), not noun phrases.
 - Classes: `PascalCase`
 - Constants: `UPPER_CASE`
 - Private functions/methods: leading underscore `_function_name`
