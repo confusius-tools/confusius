@@ -64,7 +64,7 @@ def _validate_register_volume_inputs(
         Maximum number of optimizer iterations.
     convergence_window_size : int
         Window size for convergence checking.
-    initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray, optional
+    initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray
         Transform initialization mode or precomputed affine transform.
     shrink_factors : sequence of int
         Downsampling factors per pyramid level.
