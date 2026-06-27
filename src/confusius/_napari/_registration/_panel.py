@@ -63,6 +63,7 @@ from confusius.registration import (
     resample_like,
     resample_volume,
 )
+from confusius.xarray.scale import db_scale, power_scale
 
 if TYPE_CHECKING:
     import napari
@@ -224,6 +225,37 @@ def _prepare_between_scan_data(data: xr.DataArray) -> xr.DataArray:
     return averaged
 
 
+def _apply_registration_scale(
+    data: xr.DataArray, scale_mode: Literal["off", "dB", "sqrt"]
+) -> xr.DataArray:
+    """Apply optional intensity preprocessing for registration.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input data.
+    scale_mode : {"off", "dB", "sqrt"}
+        Intensity scaling mode used before registration.
+
+    Returns
+    -------
+    xarray.DataArray
+        Preprocessed data.
+
+    Raises
+    ------
+    ValueError
+        If `scale_mode` is not recognized.
+    """
+    if scale_mode == "off":
+        return data
+    if scale_mode == "dB":
+        return db_scale(data)
+    if scale_mode == "sqrt":
+        return power_scale(data, exponent=0.5)
+    raise ValueError(f"Unknown registration scale mode: {scale_mode}.")
+
+
 def _image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
     """Return image-display kwargs copied from an existing napari layer.
 
@@ -242,6 +274,22 @@ def _image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
         if hasattr(layer, attr):
             kwargs[attr] = getattr(layer, attr)
     return kwargs
+
+
+def _should_reset_gamma(scale_mode: str) -> bool:
+    """Return whether registration preview/result gamma should be reset.
+
+    Parameters
+    ----------
+    scale_mode : str
+        Registration intensity scaling mode.
+
+    Returns
+    -------
+    bool
+        Whether preview/result layers should force `gamma=1.0`.
+    """
+    return scale_mode != "off"
 
 
 def _parse_sequence(text: str, expected_len: int = 3) -> tuple[int, ...]:
@@ -945,6 +993,28 @@ class RegistrationPanel(QWidget):
                 tooltip="Similarity metric optimized during registration. 'correlation' suits same-modality data; 'mattes_mi' is more robust across intensity changes.",
             ),
             self._metric_combo,
+        )
+
+        self._scale_combo = QComboBox()
+        self._scale_combo.setMinimumContentsLength(10)
+        self._scale_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._scale_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._scale_combo.addItem("decibel", "dB")
+        self._scale_combo.addItem("square root", "sqrt")
+        self._scale_combo.addItem("none", "off")
+        self._scale_combo.setToolTip(
+            "Optional intensity preprocessing applied before registration and used for registration preview layers."
+        )
+        params_layout.addRow(
+            self._make_form_label(
+                "Scale",
+                tooltip="Optional intensity preprocessing applied before registration and used for registration preview layers.",
+            ),
+            self._scale_combo,
         )
 
         self._initialization_combo = QComboBox()
@@ -1875,6 +1945,7 @@ class RegistrationPanel(QWidget):
         return {
             "transform": self._transform_combo.currentText() or "rigid",
             "metric": self._metric_combo.currentText(),
+            "scale": cast("str", self._scale_combo.currentData()),
             "initialization": self._initialization_combo.currentData(),
             "learning_rate_auto": self._learning_rate_auto_check.isChecked(),
             "learning_rate_value": self._learning_rate_edit.value(),
@@ -1921,6 +1992,10 @@ class RegistrationPanel(QWidget):
         self._transform_combo.blockSignals(False)
 
         self._metric_combo.setCurrentText(cast("str", params["metric"]))
+        scale_mode = cast("str", params.get("scale", "dB"))
+        scale_index = self._scale_combo.findData(scale_mode)
+        if scale_index >= 0:
+            self._scale_combo.setCurrentIndex(scale_index)
         initialization_data = params.get("initialization")
         for i in range(self._initialization_combo.count()):
             if self._initialization_combo.itemData(i) == initialization_data:
@@ -2027,12 +2102,15 @@ class RegistrationPanel(QWidget):
         moving_layer: "Image",
         moving: xr.DataArray,
         layer_name: str,
+        scale_mode: str = "off",
     ) -> NapariVolumewiseProgress:
         """Create a progress bridge and output layer for volumewise registration."""
         self._teardown_volumewise_progress(remove_layer=True)
 
         moving_display_kwargs = _image_display_kwargs_from_layer(moving_layer)
         moving_display_kwargs["colormap"] = "red"
+        if _should_reset_gamma(scale_mode):
+            moving_display_kwargs["gamma"] = 1.0
 
         display_kwargs = dict(moving_display_kwargs)
         display_kwargs["colormap"] = "cyan"
@@ -2067,6 +2145,9 @@ class RegistrationPanel(QWidget):
         else:
             moving_preview_layer.data = np.asarray(moving.data)  # type: ignore[invalid-assignment]
             moving_preview_layer.colormap = moving_display_kwargs["colormap"]
+            moving_preview_layer.gamma = cast(
+                "float", moving_display_kwargs.get("gamma", 1.0)
+            )
             moving_preview_layer.contrast_limits = contrast_limits
 
         try:
@@ -2155,6 +2236,7 @@ class RegistrationPanel(QWidget):
         fixed: xr.DataArray,
         layer_name: str,
         initial_transform: npt.NDArray[np.floating] | None = None,
+        scale_mode: str = "off",
     ) -> "Callable[..., RegistrationProgress] | None":
         """Build a napari progress bridge and preview layer for register_volume.
 
@@ -2200,13 +2282,11 @@ class RegistrationPanel(QWidget):
         moving_display_kwargs = _image_display_kwargs_from_layer(moving_layer)
         moving_display_kwargs["colormap"] = "cyan"
         moving_display_kwargs["blending"] = "additive"
+        if _should_reset_gamma(scale_mode):
+            fixed_display_kwargs["gamma"] = 1.0
+            moving_display_kwargs["gamma"] = 1.0
 
         display_kwargs = dict(moving_display_kwargs)
-        # Seed contrast limits with the moving layer so the preview is shown in
-        # the same intensity space as the final resampled volume.
-        moving_contrast = getattr(moving_layer, "contrast_limits", None)
-        if moving_contrast is not None:
-            display_kwargs.setdefault("contrast_limits", tuple(moving_contrast))
 
         # Render the preview in cyan with additive blending. napari sums the
         # RGB channels of the two layers, so red+cyan highlights
@@ -2237,6 +2317,7 @@ class RegistrationPanel(QWidget):
                     "linear",
                 ),
             )
+            preview_contrast_limits = tuple(calc_data_range(preview.data))
         except Exception as exc:  # noqa: BLE001
             # Fall back to a zero-valued seed if the initial resample fails
             # for any reason. The first iteration will populate the preview.
@@ -2247,6 +2328,7 @@ class RegistrationPanel(QWidget):
                 dims=fixed.dims,
                 attrs=fixed.attrs.copy(),
             )
+            preview_contrast_limits = tuple(calc_data_range(preview.data))
 
         try:
             try:
@@ -2264,6 +2346,9 @@ class RegistrationPanel(QWidget):
             else:
                 fixed_preview_layer.data = np.asarray(fixed.data)  # type: ignore[invalid-assignment]
                 fixed_preview_layer.colormap = fixed_display_kwargs["colormap"]
+                fixed_preview_layer.gamma = cast(
+                    "float", fixed_display_kwargs.get("gamma", 1.0)
+                )
                 fixed_preview_layer.visible = True
 
             try:
@@ -2277,12 +2362,17 @@ class RegistrationPanel(QWidget):
                     viewer=self.viewer,
                     name=self._volume_moving_preview_layer_name(),
                     show_colorbar=False,
+                    contrast_limits=preview_contrast_limits,
                     **moving_display_kwargs,
                 )
             else:
                 moving_preview_layer.data = np.asarray(preview.data)  # type: ignore[invalid-assignment]
                 moving_preview_layer.colormap = moving_display_kwargs["colormap"]
                 moving_preview_layer.blending = moving_display_kwargs["blending"]
+                moving_preview_layer.gamma = cast(
+                    "float", moving_display_kwargs.get("gamma", 1.0)
+                )
+                moving_preview_layer.contrast_limits = preview_contrast_limits
             moving_preview_layer.visible = False
 
             _, layer = plot_napari(
@@ -2290,6 +2380,7 @@ class RegistrationPanel(QWidget):
                 viewer=self.viewer,
                 name=layer_name,
                 show_colorbar=False,
+                contrast_limits=preview_contrast_limits,
                 **display_kwargs,
             )
         except Exception as exc:  # noqa: BLE001
@@ -2591,6 +2682,7 @@ class RegistrationPanel(QWidget):
             "moving_layer_name": moving_layer.name,
             "transform": self._transform_combo.currentText(),
             "metric": self._metric_combo.currentText(),
+            "scale": cast("str", self._scale_combo.currentData()),
             "learning_rate": learning_rate,
             "number_of_iterations": self._iterations_spin.value(),
             "use_multi_resolution": use_multi_res,
@@ -2629,6 +2721,14 @@ class RegistrationPanel(QWidget):
 
             moving = _prepare_between_scan_data(moving)
             fixed = _prepare_between_scan_data(fixed)
+            moving = _apply_registration_scale(
+                moving,
+                cast("Literal['off', 'dB', 'sqrt']", payload["scale"]),
+            )
+            fixed = _apply_registration_scale(
+                fixed,
+                cast("Literal['off', 'dB', 'sqrt']", payload["scale"]),
+            )
 
             initial_transform: npt.NDArray[np.floating] | None = None
             try:
@@ -2660,6 +2760,7 @@ class RegistrationPanel(QWidget):
                     )
                 ),
                 initial_transform=initial_transform,
+                scale_mode=cast("str", payload["scale"]),
             )
 
             worker = thread_worker(_run_register_volume)(
@@ -2697,6 +2798,10 @@ class RegistrationPanel(QWidget):
 
             payload["reference_time"] = self._reference_time_spin.value()
             payload["n_jobs"] = self._n_jobs_spin.value()
+            moving = _apply_registration_scale(
+                moving,
+                cast("Literal['off', 'dB', 'sqrt']", payload["scale"]),
+            )
 
             progress_reporter = self._setup_volumewise_progress(
                 moving_layer=cast("Image", moving_layer),
@@ -2704,6 +2809,7 @@ class RegistrationPanel(QWidget):
                 layer_name=self._make_unique_layer_name(
                     self._volumewise_result_layer_name(payload["moving_layer_name"])
                 ),
+                scale_mode=cast("str", payload["scale"]),
             )
 
             worker = thread_worker(_run_register_volumewise)(
@@ -2811,6 +2917,8 @@ class RegistrationPanel(QWidget):
             display_kwargs: dict[str, Any] = {}
         else:
             display_kwargs = _image_display_kwargs_from_layer(source_layer)
+        if _should_reset_gamma(cast("str", payload.get("scale", "off"))):
+            display_kwargs["gamma"] = 1.0
         # The result layer is the registered stand-in for the moving layer:
         # it must use the same cyan + additive styling so the red/cyan
         # overlay persists after the run.

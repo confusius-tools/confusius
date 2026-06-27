@@ -111,14 +111,17 @@ class TestOperationMode:
         registration_panel._learning_rate_auto_check.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.23)
         registration_panel._n_jobs_spin.setValue(3)
+        registration_panel._scale_combo.setCurrentText("square root")
 
         registration_panel._single_volume_radio.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.42)
+        registration_panel._scale_combo.setCurrentText("none")
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._learning_rate_auto_check.isChecked()
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.23)
         assert registration_panel._n_jobs_spin.value() == 3
+        assert registration_panel._scale_combo.currentText() == "square root"
 
     def test_advanced_group_is_collapsed_by_default(self, registration_panel):
         assert not registration_panel._advanced_toggle.isChecked()
@@ -145,6 +148,53 @@ class TestOperationMode:
         )
         assert registration_panel._convergence_min_edit.value() == pytest.approx(1e-6)
         assert registration_panel._iterations_spin.singleStep() == 100
+
+    def test_scale_defaults_to_db(self, registration_panel):
+        assert registration_panel._scale_combo.currentText() == "decibel"
+
+    def test_scale_preprocessing_resets_gamma_for_previews(self, viewer, registration_panel):
+        moving_data = xr.DataArray(
+            np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        fixed = xr.DataArray(
+            2 * np.ones((4, 6), dtype=np.float32),
+            dims=["y", "x"],
+            coords=moving_data.coords,
+        )
+        moving = viewer.add_image(moving_data.values, name="moving")
+        fixed_layer = viewer.add_image(fixed.values, name="fixed")
+        moving.gamma = 0.4
+        fixed_layer.gamma = 0.6
+
+        registration_panel._setup_volume_progress(
+            moving_layer=moving,
+            fixed_layer=fixed_layer,
+            moving=moving_data,
+            fixed=fixed,
+            layer_name="Registered (rigid)",
+            scale_mode="sqrt",
+        )
+        assert viewer.layers["Fixed"].gamma == pytest.approx(1.0)
+        assert viewer.layers["Moving"].gamma == pytest.approx(1.0)
+        assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
+
+        registration_panel._teardown_volume_progress()
+        registration_panel._setup_volume_progress(
+            moving_layer=moving,
+            fixed_layer=fixed_layer,
+            moving=moving_data,
+            fixed=fixed,
+            layer_name="Registered (rigid)",
+            scale_mode="off",
+        )
+        assert viewer.layers["Fixed"].gamma == pytest.approx(0.6)
+        assert viewer.layers["Moving"].gamma == pytest.approx(0.4)
+        assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(0.4)
 
     def test_metric_specific_rows_follow_metric(self, registration_panel):
         registration_panel._advanced_toggle.setChecked(True)
@@ -238,6 +288,7 @@ class TestRunRegistration:
         registration_panel._refresh_transform_controls()
         registration_panel._moving_combo.setCurrentText("moving")
         registration_panel._fixed_combo.setCurrentText("fixed")
+        registration_panel._scale_combo.setCurrentText("square root")
         for i in range(registration_panel._initialization_combo.count()):
             if registration_panel._initialization_combo.itemData(i) == (
                 "layer",
@@ -284,6 +335,8 @@ class TestRunRegistration:
 
         np.testing.assert_array_equal(captured["kwargs"]["initial_transform"], affine)
         assert captured["kwargs"]["center_initialization"] is None
+        np.testing.assert_allclose(captured["args"][0].values, np.sqrt(moving.values))
+        np.testing.assert_allclose(captured["args"][1].values, np.sqrt(fixed.values))
         assert registration_panel._worker is not None
 
     def test_between_scan_run_uses_selected_manual_napari_transform(
@@ -612,6 +665,24 @@ class TestBetweenScanPreparation:
         np.testing.assert_allclose(averaged.values, 0.5)
 
 
+class TestScalePreprocessing:
+    def test_apply_registration_scale_db(self):
+        from confusius._napari._registration._panel import _apply_registration_scale
+
+        data = xr.DataArray([1.0, 10.0, 100.0], dims=["x"])
+        scaled = _apply_registration_scale(data, "dB")
+
+        np.testing.assert_allclose(scaled.values, [-20.0, -10.0, 0.0])
+
+    def test_apply_registration_scale_sqrt(self):
+        from confusius._napari._registration._panel import _apply_registration_scale
+
+        data = xr.DataArray([1.0, 4.0, 9.0], dims=["x"])
+        scaled = _apply_registration_scale(data, "sqrt")
+
+        np.testing.assert_allclose(scaled.values, [1.0, 2.0, 3.0])
+
+
 class TestManualNapariInitialization:
     def test_spatial_manual_affine_ignores_time_axis(self, viewer):
         from confusius._napari._registration._panel import (
@@ -818,6 +889,7 @@ class TestVolumewiseProgress:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
+            scale_mode="off",
         )
 
         assert registration_panel._volumewise_progress_layer is not None
@@ -877,6 +949,7 @@ class TestVolumewiseProgress:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
+            scale_mode="off",
         )
 
         frame = xr.DataArray(
@@ -1258,6 +1331,7 @@ class TestFinishedCallbacks:
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
+            scale_mode="off",
         )
 
         registered = xr.DataArray(
