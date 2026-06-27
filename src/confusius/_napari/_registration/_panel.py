@@ -2975,6 +2975,7 @@ class RegistrationPanel(QWidget):
             self._progress.setValue(self._progress.maximum())
 
         if registration_status == "aborted":
+            layer.name = f"{layer.name} (aborted)"
             self._set_error("Registration aborted; added partial result.")
             show_info(f"Registration aborted; added partial layer: {layer.name}")
         else:
