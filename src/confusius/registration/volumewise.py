@@ -127,12 +127,11 @@ def register_volumewise(
         (`final_metric_value`, `n_iterations`) are always added to
         `motion_params` regardless of this flag.
     abort_event : threading.Event, optional
-        Cooperative cancellation flag shared across frames. If set before or
-        during execution, in-flight frame registrations stop at the next
-        optimiser iteration boundary and this function returns the partial
-        dataset collected so far. Frames that were not started keep their
-        original values, and per-frame `motion_params` rows are marked via the
-        diagnostics status.
+        Cooperative cancellation flag shared across frames. If set before or during
+        execution, in-flight frame registrations stop at the next optimiser iteration
+        boundary and this function returns the partial dataset collected so far. Frames
+        that were not started are left blank (filled with the data minimum), and
+        per-frame `motion_params` rows are marked via the diagnostics status.
     progress_reporter : VolumewiseProgressReporter, optional
         Thread-safe reporter notified whenever one frame completes. Useful for
         GUI progress bars or progressively filling an output layer while frames
@@ -215,6 +214,24 @@ def register_volumewise(
     ) -> tuple[
         int, xr.DataArray, npt.NDArray[np.floating] | None, RegistrationDiagnostics
     ]:
+        # Once aborted, skip cheaply: building SimpleITK images and resampling is
+        # pure-Python/GIL-bound work that, multiplied across joblib threads, starves the
+        # GUI thread. Return the original frame with a zero-iteration "aborted"
+        # diagnostic instead.
+        if abort_event is not None and abort_event.is_set():
+            return (
+                frame_index,
+                volume,
+                None,
+                RegistrationDiagnostics(
+                    metric=metric,
+                    metric_values=np.empty(0, dtype=float),
+                    final_metric_value=float("nan"),
+                    n_iterations=0,
+                    stop_condition="Registration aborted before frame started.",
+                    status="aborted",
+                ),
+            )
         registered_da, frame_affine, frame_diag = register_volume(
             volume,
             ref_da,
@@ -241,7 +258,10 @@ def register_volumewise(
         return frame_index, registered_da, frame_affine, frame_diag
 
     arr = data_moved.values
-    output = np.array(arr, copy=True)
+    # Aborted/un-started frames are left blank (filled with the data minimum,
+    # i.e. background) rather than copying the unregistered input, so the partial
+    # result visibly shows which frames were skipped.
+    output = np.full_like(arr, arr.min())
     affines: list[npt.NDArray[np.floating] | None] = [None] * n_frames
     final_metric_values = [float("nan")] * n_frames
     n_iterations_per_frame = [0] * n_frames
@@ -251,13 +271,16 @@ def register_volumewise(
     try:
         with progress_context:
             results = Parallel(return_as="generator_unordered", **parallel_kwargs)(
-                delayed(_register_one)(t, volume) for t, volume in enumerate(data_moved)
+                delayed(_register_one)(t, volume)
+                for t, volume in enumerate(data_moved)
+                if abort_event is None or not abort_event.is_set()
             )
             for t, registered_da, frame_affine, frame_diag in results:
                 skipped = (
                     frame_diag.status == "aborted" and frame_diag.n_iterations == 0
                 )
-                output[t] = arr[t] if skipped else registered_da.values
+                if not skipped:
+                    output[t] = registered_da.values
                 affines[t] = None if skipped else frame_affine
                 final_metric_values[t] = frame_diag.final_metric_value
                 n_iterations_per_frame[t] = frame_diag.n_iterations
