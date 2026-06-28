@@ -541,11 +541,16 @@ def register_volume(
         N+1)` in physical space, where `N` is the spatial dimensionality (2 or 3).
         Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
-        returns a DataArray encoding the B-spline control-point grid (see
-        [`confusius.registration.bspline`][confusius.registration.bspline] for the
-        DataArray schema). When an affine `initialization` was also supplied, the DataArray
-        includes `attrs["affines"]["bspline_initialization"]` so that the full composite
-        (pre-affine + B-spline) can be reconstructed for resampling.
+        returns an `xarray.DataArray` containing the B-spline control-point grid, not a
+        dense deformation field. The first dimension is `component` with length `N`,
+        followed by spatial dimensions in ConfUSIus order (`("y", "x")` in 2D or
+        `("z", "y", "x")` in 3D). The coordinate values along each spatial axis are
+        the physical positions of the control points. Attributes include `type =
+        "bspline_transform"`, the spline `order`, and the control-grid `direction`
+        matrix. When an affine `initialization` was also supplied, the DataArray also
+        includes `attrs["affines"]["bspline_initialization"]` so that the full
+        composite transform (pre-affine + B-spline) can be reconstructed for later
+        resampling.
     diagnostics : confusius.registration.RegistrationDiagnostics
         Per-iteration metric values, final metric value, iteration count, and the
         optimizer stop condition. Useful for plotting convergence curves, comparing

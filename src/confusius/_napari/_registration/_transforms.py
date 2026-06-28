@@ -1,4 +1,4 @@
-"""Affine transform helpers for the napari registration panel."""
+"""Transform payload helpers for the napari registration panel."""
 
 from __future__ import annotations
 
@@ -8,11 +8,10 @@ from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex, TypedDi
 
 import numpy as np
 import numpy.typing as npt
+import xarray as xr
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-    import xarray as xr
 
     from confusius.registration import RegistrationDiagnostics
 
@@ -37,6 +36,15 @@ class OutputGridPayload(TypedDict):
     units: list[str | None]
 
 
+class BSplineDataArrayPayload(TypedDict):
+    """JSON-serializable B-spline control-point DataArray."""
+
+    dims: list[str]
+    data: list[object]
+    coords: dict[str, list[float]]
+    attrs: dict[str, object]
+
+
 class AffineTransformPayload(TypedDict):
     """JSON-serializable affine transform payload used by the napari plugin."""
 
@@ -50,6 +58,24 @@ class AffineTransformPayload(TypedDict):
     metric: str
     output_grid: OutputGridPayload
     diagnostics: TransformDiagnosticsPayload
+
+
+class BSplineTransformPayload(TypedDict):
+    """B-spline transform payload used by the napari plugin."""
+
+    kind: Literal["bspline"]
+    name: str
+    bspline: BSplineDataArrayPayload
+    source_layer_name: str
+    target_layer_name: str
+    operation: str
+    transform_model: str
+    metric: str
+    output_grid: OutputGridPayload
+    diagnostics: TransformDiagnosticsPayload
+
+
+TransformPayload = AffineTransformPayload | BSplineTransformPayload
 
 
 def make_output_grid_payload(reference: "xr.DataArray") -> OutputGridPayload:
@@ -77,6 +103,19 @@ def make_output_grid_payload(reference: "xr.DataArray") -> OutputGridPayload:
             else None
             for dim in dims
         ],
+    }
+
+
+def _make_diagnostics_payload(
+    diagnostics: "RegistrationDiagnostics",
+) -> TransformDiagnosticsPayload:
+    """Return a JSON-serializable diagnostics summary."""
+    return {
+        "metric": diagnostics.metric,
+        "final_metric_value": float(diagnostics.final_metric_value),
+        "n_iterations": int(diagnostics.n_iterations),
+        "stop_condition": diagnostics.stop_condition,
+        "status": diagnostics.status,
     }
 
 
@@ -118,7 +157,7 @@ def make_affine_transform_payload(
     Returns
     -------
     AffineTransformPayload
-        JSON-serializable transform payload.
+        JSON-serializable affine transform payload.
     """
     affine = np.asarray(affine, dtype=float)
     payload_name = (
@@ -134,13 +173,96 @@ def make_affine_transform_payload(
         "transform_model": transform_model,
         "metric": metric,
         "output_grid": make_output_grid_payload(reference),
-        "diagnostics": {
-            "metric": diagnostics.metric,
-            "final_metric_value": float(diagnostics.final_metric_value),
-            "n_iterations": int(diagnostics.n_iterations),
-            "stop_condition": diagnostics.stop_condition,
-            "status": diagnostics.status,
+        "diagnostics": _make_diagnostics_payload(diagnostics),
+    }
+
+
+def _serialize_bspline_dataarray(transform: "xr.DataArray") -> BSplineDataArrayPayload:
+    """Return a JSON-serializable B-spline DataArray payload."""
+    _validate_bspline_dataarray(transform)
+    return {
+        "dims": [str(dim) for dim in transform.dims],
+        "data": np.asarray(transform, dtype=float).tolist(),
+        "coords": {
+            str(dim): np.asarray(transform.coords[dim], dtype=float).tolist()
+            for dim in transform.dims
+            if dim in transform.coords
         },
+        "attrs": json.loads(json.dumps(transform.attrs)),
+    }
+
+
+def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataArray:
+    """Reconstruct a B-spline DataArray from its JSON payload."""
+    dims = [str(dim) for dim in payload["dims"]]
+    coords = {
+        str(dim): xr.DataArray(np.asarray(values, dtype=float), dims=[str(dim)])
+        for dim, values in payload["coords"].items()
+    }
+    transform = xr.DataArray(
+        np.asarray(payload["data"], dtype=float),
+        dims=dims,
+        coords=coords,
+        attrs=dict(payload["attrs"]),
+    )
+    _validate_bspline_dataarray(transform)
+    return transform
+
+
+def make_bspline_transform_payload(
+    transform: "xr.DataArray",
+    *,
+    reference: "xr.DataArray",
+    source_layer_name: str,
+    target_layer_name: str,
+    operation: str,
+    transform_model: str,
+    metric: str,
+    diagnostics: "RegistrationDiagnostics",
+    name: str | None = None,
+) -> BSplineTransformPayload:
+    """Build a JSON-serializable payload for a registered B-spline transform.
+
+    Parameters
+    ----------
+    transform : xarray.DataArray
+        B-spline control-point grid.
+    reference : xarray.DataArray
+        Fixed/reference DataArray defining the output resampling grid.
+    source_layer_name : str
+        Name of the moving/source layer used when estimating the transform.
+    target_layer_name : str
+        Name of the fixed/target layer used when estimating the transform.
+    operation : str
+        Registration operation that produced the transform.
+    transform_model : str
+        Transform model used during registration.
+    metric : str
+        Similarity metric used during registration.
+    diagnostics : confusius.registration.RegistrationDiagnostics
+        Per-call registration diagnostics.
+    name : str, optional
+        Human-friendly transform name. If not provided, a default name is generated.
+
+    Returns
+    -------
+    BSplineTransformPayload
+        JSON-serializable B-spline transform payload.
+    """
+    payload_name = (
+        name or f"{source_layer_name} → {target_layer_name} ({transform_model})"
+    )
+    return {
+        "kind": "bspline",
+        "name": payload_name,
+        "bspline": _serialize_bspline_dataarray(transform),
+        "source_layer_name": source_layer_name,
+        "target_layer_name": target_layer_name,
+        "operation": operation,
+        "transform_model": transform_model,
+        "metric": metric,
+        "output_grid": make_output_grid_payload(reference),
+        "diagnostics": _make_diagnostics_payload(diagnostics),
     }
 
 
@@ -152,17 +274,12 @@ def affine_transform_from_payload(
     Parameters
     ----------
     payload : mapping
-        Transform payload loaded from metadata or JSON.
+        Transform payload loaded from metadata or disk.
 
     Returns
     -------
     (N+1, N+1) numpy.ndarray
         Affine matrix.
-
-    Raises
-    ------
-    ValueError
-        If the payload is not an affine transform payload.
     """
     if payload.get("kind") != "affine":
         raise ValueError("Transform payload is not an affine transform.")
@@ -176,23 +293,40 @@ def affine_transform_from_payload(
     return affine
 
 
+def bspline_transform_from_payload(payload: "Mapping[str, object]") -> xr.DataArray:
+    """Return the B-spline transform stored in a payload.
+
+    Parameters
+    ----------
+    payload : mapping
+        Transform payload loaded from metadata or disk.
+
+    Returns
+    -------
+    xarray.DataArray
+        B-spline control-point grid.
+    """
+    if payload.get("kind") != "bspline":
+        raise ValueError("Transform payload is not a B-spline transform.")
+
+    bspline = payload.get("bspline")
+    if not isinstance(bspline, dict):
+        raise ValueError("B-spline payload must contain a serialized DataArray.")
+    return _deserialize_bspline_dataarray(cast("BSplineDataArrayPayload", bspline))
+
+
 def output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridPayload:
     """Return the output grid stored in a transform payload.
 
     Parameters
     ----------
     payload : mapping
-        Transform payload loaded from metadata or JSON.
+        Transform payload loaded from metadata or disk.
 
     Returns
     -------
     OutputGridPayload
         Output-grid description stored in the payload.
-
-    Raises
-    ------
-    ValueError
-        If the payload does not carry a valid output grid.
     """
     grid = payload.get("output_grid")
     if not isinstance(grid, dict):
@@ -222,6 +356,130 @@ def output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridPaylo
     }
 
 
+def _save_bspline_transform_payload(
+    path: str | Path, payload: BSplineTransformPayload
+) -> None:
+    """Save a B-spline transform payload as Zarr.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Output Zarr path.
+    payload : BSplineTransformPayload
+        Transform payload to save.
+    """
+    path = Path(path)
+    if path.suffix != ".zarr":
+        raise ValueError("B-spline transform files must have .zarr extension.")
+
+    transform = bspline_transform_from_payload(payload)
+    ds = transform.to_dataset(name="bspline_transform")
+    payload_metadata = {
+        key: value for key, value in payload.items() if key not in {"kind", "bspline"}
+    }
+    ds.attrs["confusius_transform_kind"] = "bspline"
+    ds.attrs["confusius_transform_payload_json"] = json.dumps(payload_metadata)
+    ds.to_zarr(path, mode="w")
+
+
+def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload:
+    """Load a B-spline transform payload from Zarr.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Input Zarr path.
+
+    Returns
+    -------
+    BSplineTransformPayload
+        Loaded B-spline transform payload.
+    """
+    ds = xr.open_zarr(path)
+    try:
+        if ds.attrs.get("confusius_transform_kind") != "bspline":
+            raise ValueError(
+                "Zarr transform store does not contain a ConfUSIus B-spline transform."
+            )
+        payload_metadata = json.loads(
+            cast("str", ds.attrs["confusius_transform_payload_json"])
+        )
+        if not isinstance(payload_metadata, dict):
+            raise ValueError("Stored transform payload metadata is malformed.")
+        transform = ds["bspline_transform"].load()
+    finally:
+        ds.close()
+
+    _validate_bspline_dataarray(transform)
+    payload: BSplineTransformPayload = {
+        "kind": "bspline",
+        "bspline": _serialize_bspline_dataarray(transform),
+        "name": str(payload_metadata["name"]),
+        "source_layer_name": str(payload_metadata["source_layer_name"]),
+        "target_layer_name": str(payload_metadata["target_layer_name"]),
+        "operation": str(payload_metadata["operation"]),
+        "transform_model": str(payload_metadata["transform_model"]),
+        "metric": str(payload_metadata["metric"]),
+        "output_grid": output_grid_from_payload(payload_metadata),
+        "diagnostics": cast(
+            "TransformDiagnosticsPayload", payload_metadata["diagnostics"]
+        ),
+    }
+    return payload
+
+
+def save_transform_payload(path: str | Path, payload: TransformPayload) -> None:
+    """Save a transform payload to disk.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Output path.
+    payload : TransformPayload
+        Transform payload to save.
+
+    Notes
+    -----
+    Affine payloads are saved as JSON. B-spline payloads are saved as Zarr.
+    """
+    if payload["kind"] == "affine":
+        Path(path).write_text(json.dumps(payload, indent=2) + "\n")
+        return
+    _save_bspline_transform_payload(path, payload)
+
+
+def load_transform_payload(path: str | Path) -> TransformPayload:
+    """Load an affine or B-spline transform payload from disk.
+
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Input path.
+
+    Returns
+    -------
+    TransformPayload
+        Loaded transform payload.
+    """
+    path = Path(path)
+    if path.suffix == ".zarr":
+        return _load_bspline_transform_payload(path)
+
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, dict):
+        raise ValueError("Transform file must contain a JSON object.")
+
+    kind = payload.get("kind")
+    if kind != "affine":
+        raise ValueError(
+            "JSON transform files currently support affine payloads only. "
+            "Use .zarr for B-spline transforms."
+        )
+    affine_transform_from_payload(payload)
+    output_grid_from_payload(payload)
+    return cast("TransformPayload", payload)
+
+
 def save_affine_transform_payload(
     path: str | Path, payload: AffineTransformPayload
 ) -> None:
@@ -234,7 +492,7 @@ def save_affine_transform_payload(
     payload : AffineTransformPayload
         Transform payload to save.
     """
-    Path(path).write_text(json.dumps(payload, indent=2) + "\n")
+    save_transform_payload(path, payload)
 
 
 def load_affine_transform_payload(path: str | Path) -> AffineTransformPayload:
@@ -248,16 +506,34 @@ def load_affine_transform_payload(path: str | Path) -> AffineTransformPayload:
     Returns
     -------
     AffineTransformPayload
-        Loaded payload.
-
-    Raises
-    ------
-    ValueError
-        If the file does not contain an affine transform payload.
+        Loaded affine transform payload.
     """
-    payload = json.loads(Path(path).read_text())
-    if not isinstance(payload, dict):
-        raise ValueError("Transform file must contain a JSON object.")
+    payload = load_transform_payload(path)
     affine_transform_from_payload(payload)
-    output_grid_from_payload(payload)
     return cast("AffineTransformPayload", payload)
+
+
+def _validate_bspline_dataarray(da: xr.DataArray) -> None:
+    """Raise ValueError if *da* does not look like a valid B-spline transform."""
+    if da.attrs.get("type") != "bspline_transform":
+        raise ValueError(
+            f"Expected a DataArray with attrs['type'] == 'bspline_transform'; "
+            f"got {da.attrs.get('type')!r}."
+        )
+    for key in ("order", "direction"):
+        if key not in da.attrs:
+            raise ValueError(
+                f"B-spline transform DataArray is missing required attribute {key!r}."
+            )
+    if not da.dims or da.dims[0] != "component":
+        raise ValueError(
+            "B-spline transform DataArray must have 'component' as its first "
+            f"dimension; got {da.dims[0] if da.dims else None!r}."
+        )
+    ndim = da.ndim - 1
+    if da.sizes["component"] != ndim:
+        raise ValueError(
+            "B-spline transform DataArray component axis must match the number of "
+            f"spatial dimensions; got {da.sizes['component']} components for {ndim} "
+            "spatial dims."
+        )

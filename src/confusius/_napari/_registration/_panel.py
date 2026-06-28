@@ -50,11 +50,14 @@ from confusius._napari._registration._progress import (
 )
 from confusius._napari._registration._transforms import (
     AffineTransformPayload,
+    TransformPayload,
     affine_transform_from_payload,
-    load_affine_transform_payload,
+    bspline_transform_from_payload,
+    load_transform_payload,
     make_affine_transform_payload,
+    make_bspline_transform_payload,
     output_grid_from_payload,
-    save_affine_transform_payload,
+    save_transform_payload,
 )
 from confusius.plotting.napari import plot_napari
 from confusius.registration import (
@@ -747,7 +750,7 @@ class RegistrationPanel(QWidget):
         self.viewer = viewer
         self._worker = None
         self._abort_event: Event | None = None
-        self._loaded_transform_payload: AffineTransformPayload | None = None
+        self._loaded_transform_payload: TransformPayload | None = None
         # Per-run progress state. Set on the GUI thread before the worker starts.
         self._progress_bridge: NapariProgressBridge | None = None
         self._progress_layer: Image | None = None
@@ -1460,7 +1463,7 @@ class RegistrationPanel(QWidget):
             return None
 
     def _transform_source_label(
-        self, payload: AffineTransformPayload, *, suffix: str | None = None
+        self, payload: TransformPayload, *, suffix: str | None = None
     ) -> str:
         """Return a user-facing label for a transform payload."""
         del suffix
@@ -1521,15 +1524,21 @@ class RegistrationPanel(QWidget):
         """Return the napari layer name for the within-scan moving preview."""
         return "Moving"
 
-    def _available_transform_payloads(self) -> list[AffineTransformPayload]:
-        """Return all affine transform payloads currently available in the UI."""
-        payloads: list[AffineTransformPayload] = []
+    def _available_transform_payloads(self) -> list[TransformPayload]:
+        """Return all transform payloads currently available in the UI."""
+        payloads: list[TransformPayload] = []
         if self._loaded_transform_payload is not None:
             payloads.append(self._loaded_transform_payload)
         for layer in self.viewer.layers:
-            payload = _affine_payload_from_layer(layer)
-            if payload is not None:
-                payloads.append(payload)
+            payload = layer.metadata.get("confusius_transform")
+            if isinstance(payload, dict):
+                kind = payload.get("kind")
+                if kind == "affine":
+                    affine_transform_from_payload(payload)
+                    payloads.append(cast("TransformPayload", payload))
+                elif kind == "bspline":
+                    bspline_transform_from_payload(payload)
+                    payloads.append(cast("TransformPayload", payload))
         return payloads
 
     def _refresh_transform_controls(self) -> None:
@@ -1550,12 +1559,21 @@ class RegistrationPanel(QWidget):
                 )
             )
         for layer in self.viewer.layers:
-            payload = _affine_payload_from_layer(layer)
-            if payload is None:
+            payload = layer.metadata.get("confusius_transform")
+            if not isinstance(payload, dict):
+                continue
+            kind = payload.get("kind")
+            if kind == "affine":
+                affine_transform_from_payload(payload)
+            elif kind == "bspline":
+                bspline_transform_from_payload(payload)
+            else:
                 continue
             transform_options.append(
                 (
-                    self._transform_source_label(payload, suffix=layer.name),
+                    self._transform_source_label(
+                        cast("TransformPayload", payload), suffix=layer.name
+                    ),
                     ("layer", layer.name),
                 )
             )
@@ -1594,6 +1612,19 @@ class RegistrationPanel(QWidget):
         self._initialization_combo.addItem("center_moments", "center_moments")
         self._initialization_combo.addItem("none", None)
         for label, data in transform_options:
+            source_kind, source_name = data
+            if source_kind == "loaded":
+                if self._loaded_transform_payload is None:
+                    continue
+                if self._loaded_transform_payload["kind"] != "affine":
+                    continue
+            elif source_kind == "layer":
+                try:
+                    layer = cast("Layer", self.viewer.layers[source_name])
+                except KeyError:
+                    continue
+                if _affine_payload_from_layer(layer) is None:
+                    continue
             self._initialization_combo.addItem(label, data)
         for label, data in manual_initialization_options:
             self._initialization_combo.addItem(label, data)
@@ -1622,8 +1653,8 @@ class RegistrationPanel(QWidget):
         if target_index >= 0:
             self._transform_target_combo.setCurrentIndex(target_index)
 
-    def _selected_transform_payload(self) -> AffineTransformPayload | None:
-        """Return the currently selected affine transform payload."""
+    def _selected_transform_payload(self) -> TransformPayload | None:
+        """Return the currently selected transform payload."""
         source_data = self._transform_source_combo.currentData()
         if not isinstance(source_data, tuple) or len(source_data) != 2:
             return None
@@ -1638,7 +1669,16 @@ class RegistrationPanel(QWidget):
         except KeyError:
             return None
         if source_kind == "layer":
-            return _affine_payload_from_layer(layer)
+            payload = layer.metadata.get("confusius_transform")
+            if isinstance(payload, dict):
+                kind = payload.get("kind")
+                if kind == "affine":
+                    affine_transform_from_payload(payload)
+                    return cast("TransformPayload", payload)
+                if kind == "bspline":
+                    bspline_transform_from_payload(payload)
+                    return cast("TransformPayload", payload)
+            return None
         if source_kind == "manual":
             return _make_manual_transform_payload(layer)
         return None
@@ -1660,7 +1700,12 @@ class RegistrationPanel(QWidget):
 
         source_kind, source_name = source_data
         if source_kind == "loaded":
-            return self._loaded_transform_payload
+            if (
+                self._loaded_transform_payload is not None
+                and self._loaded_transform_payload["kind"] == "affine"
+            ):
+                return self._loaded_transform_payload
+            return None
         if source_kind != "layer" or not source_name:
             return None
         try:
@@ -2553,40 +2598,46 @@ class RegistrationPanel(QWidget):
         self._status.show()
 
     def _save_transform(self) -> None:
-        """Save the selected affine transform payload to JSON."""
+        """Save the selected transform payload to disk."""
         payload = self._selected_transform_payload()
         if payload is None:
-            self._set_error("Select an affine transform to save.")
+            self._set_error("Select a transform to save.")
             return
 
         default_name = payload["name"].replace("/", "-")
-        start = str(Path.home() / f"{default_name}.json")
+        suffix = ".json" if payload["kind"] == "affine" else ".zarr"
+        file_filter = (
+            "JSON files (*.json)"
+            if payload["kind"] == "affine"
+            else "Zarr stores (*.zarr)"
+        )
+        start = str(Path.home() / f"{default_name}{suffix}")
         path_str, _ = QFileDialog.getSaveFileName(
             self,
             "Save transform",
             start,
-            "JSON files (*.json)",
+            file_filter,
         )
         if not path_str:
             return
 
-        save_affine_transform_payload(path_str, payload)
+        save_transform_payload(path_str, payload)
         show_info(f"Saved transform: {path_str}")
 
     def _load_transform(self) -> None:
-        """Load an affine transform payload from JSON."""
+        """Load a transform payload from disk."""
         start = str(Path.home())
         path_str, _ = QFileDialog.getOpenFileName(
             self,
             "Load transform",
             start,
-            "JSON files (*.json)",
+            "Transform files (*.json *.zarr)",
         )
         if not path_str:
             return
 
         try:
-            self._loaded_transform_payload = load_affine_transform_payload(path_str)
+            self._loaded_transform_payload = load_transform_payload(path_str)
         except Exception as exc:  # noqa: BLE001
             self._set_error(str(exc))
             show_error(str(exc))
@@ -2603,7 +2654,7 @@ class RegistrationPanel(QWidget):
         """Apply the selected affine transform to a layer."""
         payload = self._selected_transform_payload()
         if payload is None:
-            self._set_error("Select an affine transform to apply.")
+            self._set_error("Select a transform to apply.")
             return
 
         moving_layer = self._selected_layer(self._transform_target_combo)
@@ -2613,7 +2664,10 @@ class RegistrationPanel(QWidget):
 
         try:
             moving = _get_source_dataarray(moving_layer)
-            affine = affine_transform_from_payload(payload)
+            if payload["kind"] == "affine":
+                transform = affine_transform_from_payload(payload)
+            else:
+                transform = bspline_transform_from_payload(payload)
             output_grid = output_grid_from_payload(payload)
         except Exception as exc:  # noqa: BLE001
             self._set_error(str(exc))
@@ -2621,7 +2675,7 @@ class RegistrationPanel(QWidget):
 
         worker = thread_worker(resample_volume)(
             moving,
-            affine,
+            transform,
             shape=output_grid["shape"],
             spacing=output_grid["spacing"],
             origin=output_grid["origin"],
@@ -2760,7 +2814,7 @@ class RegistrationPanel(QWidget):
                     )
                 ),
                 initial_transform=initial_transform,
-                scale_mode=cast("str", payload["scale"]),
+                scale_mode=payload["scale"],
             )
 
             worker = thread_worker(_run_register_volume)(
@@ -2809,7 +2863,7 @@ class RegistrationPanel(QWidget):
                 layer_name=self._make_unique_layer_name(
                     self._volumewise_result_layer_name(payload["moving_layer_name"])
                 ),
-                scale_mode=cast("str", payload["scale"]),
+                scale_mode=payload["scale"],
             )
 
             worker = thread_worker(_run_register_volumewise)(
@@ -2879,13 +2933,25 @@ class RegistrationPanel(QWidget):
                 "registration_diagnostics": diagnostics,
                 "registration_status": diagnostics.status,
             }
+            transform_name = self._make_unique_transform_name(
+                f"{payload['moving_layer_name']} → {payload['fixed_layer_name']} ({payload['transform']})"
+            )
             if isinstance(transform, np.ndarray):
                 affine_transform = np.asarray(transform, dtype=float)
-                transform_name = self._make_unique_transform_name(
-                    f"{payload['moving_layer_name']} → {payload['fixed_layer_name']} ({payload['transform']})"
-                )
                 metadata["confusius_transform"] = make_affine_transform_payload(
                     affine_transform,
+                    reference=registered,
+                    source_layer_name=cast(str, payload["moving_layer_name"]),
+                    target_layer_name=cast(str, payload["fixed_layer_name"]),
+                    operation=operation,
+                    transform_model=cast(str, payload["transform"]),
+                    metric=cast(str, payload["metric"]),
+                    diagnostics=diagnostics,
+                    name=transform_name,
+                )
+            else:
+                metadata["confusius_transform"] = make_bspline_transform_payload(
+                    transform,
                     reference=registered,
                     source_layer_name=cast(str, payload["moving_layer_name"]),
                     target_layer_name=cast(str, payload["fixed_layer_name"]),

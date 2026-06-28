@@ -959,3 +959,152 @@ class TestRegisterVolumeFillValue:
         assert float(result.values[0, 0]) == pytest.approx(
             float(moving.min()), abs=1e-5
         )
+
+
+class TestRegisterVolumeIterationCallback:
+    """The `iteration_callback` is invoked at every optimizer iteration."""
+
+    def test_callback_receives_one_indexed_iteration_and_metric(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Each callback call is (iteration, metric) with iteration starting at 1."""
+        calls: list[tuple[int, float]] = []
+
+        def callback(iteration: int, metric: float) -> None:
+            calls.append((iteration, metric))
+
+        register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            number_of_iterations=5,
+            iteration_callback=callback,
+        )
+
+        assert len(calls) == 5
+        assert [c[0] for c in calls] == [1, 2, 3, 4, 5]
+        for _, metric in calls:
+            assert np.isfinite(metric)
+
+
+class TestRegisterVolumePreSetAbort:
+    """Pre-set abort_event short-circuits before SimpleITK Execute is called."""
+
+    def test_bspline_abort_returns_initial_bspline_transform(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Pre-aborted bspline returns a DataArray without forcing a bspline fit."""
+        abort_event = Event()
+        abort_event.set()
+
+        _, transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+            abort_event=abort_event,
+        )
+
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+        assert (
+            diagnostics.stop_condition
+            == "Registration aborted before optimisation started."
+        )
+        # The returned DataArray wraps the initial (unoptimised) bspline — its
+        # coefficients differ from a real registration only in that no iterations ran.
+        assert isinstance(transform, xr.DataArray)
+        assert transform.attrs.get("type") == "bspline_transform"
+
+    def test_affine_initialization_abort_returns_initialization_affine(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Pre-aborted linear registration returns the provided affine initialization.
+
+        The transform must match the initialization matrix — not the default
+        identity/TranslationTransform fallback used when no initialization is set —
+        so downstream consumers can rely on a coherent aborted transform.
+        """
+        pre_affine = np.array([[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [0.0, 0.0, 1.0]])
+
+        abort_event = Event()
+        abort_event.set()
+
+        _, transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="rigid",
+            initialization=pre_affine,
+            abort_event=abort_event,
+        )
+
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+        assert_allclose(transform, pre_affine)
+
+
+class TestRegisterVolumeConvergesBeforeFirstIteration:
+    """`final_metric_value` falls back to the optimizer's metric when no iteration event fires."""
+
+    def test_final_metric_value_pulled_from_optimizer_when_no_iterations(
+        self, sample_2d_dataarray_spatial
+    ):
+        """When SimpleITK converges before any iteration event, final_metric_value is
+        the optimizer's current metric, not NaN.
+
+        Achieved by raising `convergence_minimum_value` above the metric for identical
+        images and shrinking the window to 1, so the convergence checker passes at
+        iteration 0 before any iteration event fires.
+        """
+        _, _, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            number_of_iterations=100,
+            convergence_minimum_value=1.0,
+            convergence_window_size=1,
+        )
+
+        assert diagnostics.n_iterations == 0
+        assert diagnostics.status == "completed"
+        assert np.isfinite(diagnostics.final_metric_value)
+        assert "Convergence checker passed at iteration 0" in diagnostics.stop_condition
+
+
+class TestRegisterVolumeFromWorkerThread:
+    """`register_volume` works when called from a non-main thread."""
+
+    def test_register_volume_runs_in_non_main_thread(self, sample_2d_dataarray_spatial):
+        """Calling `register_volume` from a worker thread bypasses SIGINT wiring.
+
+        The non-main-thread branch of `abort_on_sigint` skips installing a SIGINT
+        handler and simply yields the abort event, so registration runs to
+        completion without trying to mutate the main thread's signal handlers.
+        """
+        import threading
+
+        from confusius.registration.diagnostics import RegistrationDiagnostics
+
+        result_holder: dict[str, object] = {}
+
+        def worker() -> None:
+            assert threading.current_thread() is not threading.main_thread()
+            result, transform, diagnostics = register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+                number_of_iterations=2,
+            )
+            result_holder["result"] = result
+            result_holder["transform"] = transform
+            result_holder["diagnostics"] = diagnostics
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+
+        result = result_holder["result"]
+        diagnostics = result_holder["diagnostics"]
+        assert isinstance(result, xr.DataArray)
+        assert isinstance(diagnostics, RegistrationDiagnostics)
+        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert diagnostics.status == "completed"

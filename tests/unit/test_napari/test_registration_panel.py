@@ -12,10 +12,14 @@ from qtpy.QtWidgets import QApplication
 
 from confusius._napari._registration._transforms import (
     affine_transform_from_payload,
+    bspline_transform_from_payload,
     load_affine_transform_payload,
+    load_transform_payload,
     make_affine_transform_payload,
+    make_bspline_transform_payload,
     output_grid_from_payload,
     save_affine_transform_payload,
+    save_transform_payload,
 )
 from confusius.registration import resample_like
 
@@ -40,6 +44,24 @@ class _FakeDiagnostics:
     n_iterations: int = 1
     stop_condition: str = "done"
     status: str = "completed"
+
+
+def _make_bspline_transform() -> xr.DataArray:
+    return xr.DataArray(
+        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+        dims=["component", "y", "x"],
+        coords={
+            "component": xr.DataArray([0, 1], dims=["component"]),
+            "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+            "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+        },
+        attrs={
+            "type": "bspline_transform",
+            "order": 3,
+            "direction": [[1.0, 0.0], [0.0, 1.0]],
+            "affines": {"bspline_initialization": np.eye(3).tolist()},
+        },
+    )
 
 
 class TestRefreshLayers:
@@ -853,6 +875,151 @@ class TestTransforms:
         assert output_grid_from_payload(loaded)["shape"] == [4, 6]
         np.testing.assert_array_equal(affine_transform_from_payload(loaded), np.eye(3))
 
+    def test_bspline_payload_roundtrip(self, tmp_path):
+        reference = xr.DataArray(
+            np.ones((3, 4), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+            },
+        )
+        transform = _make_bspline_transform()
+        payload = make_bspline_transform_payload(
+            transform,
+            reference=reference,
+            source_layer_name="moving",
+            target_layer_name="fixed",
+            operation="register_volume",
+            transform_model="bspline",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+
+        path = tmp_path / "bspline.zarr"
+        save_transform_payload(path, payload)
+        loaded = load_transform_payload(path)
+
+        assert loaded["name"] == "moving → fixed (bspline)"
+        assert loaded["kind"] == "bspline"
+        assert output_grid_from_payload(loaded)["shape"] == [3, 4]
+        xr.testing.assert_identical(
+            bspline_transform_from_payload(loaded),
+            transform.astype(float),
+        )
+
+    def test_bspline_transform_is_not_offered_for_initialization(
+        self, viewer, registration_panel
+    ):
+        moving = xr.DataArray(
+            np.zeros((3, 4), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+            },
+        )
+        payload = make_bspline_transform_payload(
+            _make_bspline_transform(),
+            reference=moving,
+            source_layer_name="moving",
+            target_layer_name="fixed",
+            operation="register_volume",
+            transform_model="bspline",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+        viewer.add_image(
+            moving.values,
+            name="Registered (bspline)",
+            metadata={"xarray": moving, "confusius_transform": payload},
+        )
+
+        registration_panel._refresh_transform_controls()
+
+        transform_items = [
+            registration_panel._transform_source_combo.itemText(i)
+            for i in range(registration_panel._transform_source_combo.count())
+        ]
+        initialization_items = [
+            registration_panel._initialization_combo.itemText(i)
+            for i in range(registration_panel._initialization_combo.count())
+        ]
+
+        assert "moving → fixed (bspline)" in transform_items
+        assert "moving → fixed (bspline)" not in initialization_items
+
+    def test_apply_transform_uses_bspline_payload(self, viewer, registration_panel, monkeypatch):
+        moving = xr.DataArray(
+            np.zeros((3, 4), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+            },
+        )
+        payload = make_bspline_transform_payload(
+            _make_bspline_transform(),
+            reference=moving,
+            source_layer_name="moving",
+            target_layer_name="fixed",
+            operation="register_volume",
+            transform_model="bspline",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+        viewer.add_image(
+            moving.values,
+            name="moving",
+            metadata={"xarray": moving},
+        )
+        viewer.add_image(
+            moving.values,
+            name="Registered (bspline)",
+            metadata={"xarray": moving, "confusius_transform": payload},
+        )
+        registration_panel._refresh_transform_controls()
+        registration_panel._transform_source_combo.setCurrentText("moving → fixed (bspline)")
+        registration_panel._transform_target_combo.setCurrentText("moving")
+
+        captured: dict[str, object] = {}
+
+        class _FakeSignal:
+            def connect(self, _slot):
+                return None
+
+        class _FakeWorker:
+            def __init__(self) -> None:
+                self.returned = _FakeSignal()
+                self.errored = _FakeSignal()
+                self.finished = _FakeSignal()
+
+            def start(self) -> None:
+                return None
+
+        def _fake_thread_worker(func):
+            def _runner(*args, **kwargs):
+                captured["func"] = func
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return _FakeWorker()
+
+            return _runner
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.thread_worker",
+            _fake_thread_worker,
+        )
+
+        registration_panel._apply_transform()
+
+        assert captured["func"].__name__ == "resample_volume"
+        xr.testing.assert_identical(
+            captured["args"][1],
+            _make_bspline_transform().astype(float),
+        )
+        assert registration_panel._worker is not None
+
 
 class TestPluginWidget:
     def test_registration_panel_is_present_in_main_widget(self, viewer):
@@ -1012,6 +1179,46 @@ class TestFinishedCallbacks:
         assert (
             layer.metadata["xarray"].attrs["registration_operation"]
             == "register_volume"
+        )
+
+    def test_volume_result_adds_bspline_transform_metadata(
+        self, viewer, registration_panel
+    ):
+        fixed = xr.DataArray(
+            np.ones((3, 4), dtype=np.float32),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+            },
+        )
+        registered = fixed.copy()
+        transform = _make_bspline_transform()
+        diagnostics = _FakeDiagnostics()
+
+        payload = {
+            "operation": "register_volume",
+            "moving_layer_name": "moving",
+            "fixed_layer_name": "fixed",
+            "transform": "bspline",
+            "metric": "correlation",
+            "learning_rate": "auto",
+            "number_of_iterations": 100,
+            "use_multi_resolution": False,
+            "resample_interpolation": "linear",
+        }
+
+        registration_panel._on_registration_finished(
+            payload,
+            (registered, transform, diagnostics),
+        )
+
+        layer = viewer.layers["Registered (bspline)"]
+        assert layer.metadata["registration_status"] == "completed"
+        assert layer.metadata["confusius_transform"]["kind"] == "bspline"
+        xr.testing.assert_identical(
+            bspline_transform_from_payload(layer.metadata["confusius_transform"]),
+            transform.astype(float),
         )
 
     def test_volume_result_replaces_preview_layer(

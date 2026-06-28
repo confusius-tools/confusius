@@ -1,6 +1,6 @@
 """B-spline transform helpers for fUSI registration.
 
-A B-spline deformation field is represented as a DataArray with:
+A B-spline control-point grid is represented as a DataArray with:
 
 - **dims**: `("component", <spatial dims>)` — e.g. `("component", "z", "y", "x")`.
 - **coords**: physical mm positions of the control-point grid along each spatial axis.
@@ -22,8 +22,12 @@ A B-spline deformation field is represented as a DataArray with:
 When a pre-affine is stored in `attrs["affines"]["bspline_initialization"]`, the full
 transform is a `CompositeTransform(pre_affine, bspline)` — i.e. the pre-affine is
 applied *first* (coarse global alignment) and the B-spline is applied *second* (local
-deformation refinement).  This mirrors the `inPlace=True` composite that SimpleITK
+deformation refinement). This mirrors the `inPlace=True` composite that SimpleITK
 optimises during registration.
+
+This object is not a dense deformation field sampled on every voxel of the moving or
+fixed image. Instead, it stores the sparse B-spline coefficient lattice that defines
+the smooth deformation.
 """
 
 from typing import TYPE_CHECKING
