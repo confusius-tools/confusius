@@ -19,6 +19,17 @@ Current development version for the next ConfUSIus release.
   Both `mode='temporal'` and `mode='spatial'` are supported
   ([#117](https://github.com/confusius-tools/confusius/issues/117)).
 
+### :boom: Breaking changes
+
+- Registration now takes a single `initialization` parameter in place of
+  `centering_initialization` and `initial_transform`. `initialization` accepts
+  `"center_geometry"`, `"center_moments"`, a homogeneous affine matrix or `None` for an
+  identity initialization. Affects
+  [`register_volume`][confusius.registration.register_volume],
+  [`register_volumewise`][confusius.registration.register_volumewise], and the
+  `data.fusi.register` accessor
+  ([#215](https://github.com/confusius-tools/confusius/pull/215)).
+
 ## 0.4.0
 
 *Released 2026-06-25.*
