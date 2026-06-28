@@ -1,10 +1,10 @@
 """Bottom-dock widget that plots the registration optimizer metric.
 
 Mirrors the [`SignalPlotter`][confusius._napari._signals._plotter.SignalPlotter]
-layout — a small matplotlib figure in the bottom dock — but stays deliberately
-simple: a single line chart of the per-iteration metric value. The widget is
-created lazily by `RegistrationPanel` when a registration starts, and torn down
-on completion so the dock returns to its pre-run layout.
+layout—a small matplotlib figure in the bottom dock—but stays deliberately simple: a
+single line chart of the per-iteration metric value. The widget is created lazily by
+`RegistrationPanel` when a registration starts, and torn down on completion so the dock
+returns to its pre-run layout.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from matplotlib.backends.backend_qtagg import (
     FigureCanvasQTAgg as FigureCanvas,
+)
+from matplotlib.backends.backend_qtagg import (
     NavigationToolbar2QT as NavigationToolbar,
 )
 from matplotlib.figure import Figure
@@ -29,11 +31,11 @@ if TYPE_CHECKING:
 class RegistrationMetricPlotter(QWidget):
     """Bottom-dock widget that plots the per-iteration optimizer metric.
 
-    The widget is intentionally minimal: a single matplotlib axes, a
-    navigation toolbar, and a thin status footer. Layout decisions (e.g.
-    y-axis limits, line width) follow the same conventions as
-    [`SignalPlotter`][confusius._napari._signals._plotter.SignalPlotter] for
-    visual consistency between the two bottom-dock tabs.
+    The widget is intentionally minimal: a single matplotlib axes, a navigation toolbar,
+    and a thin status footer. Layout decisions (e.g. y-axis limits, line width) follow
+    the same conventions as
+    [`SignalPlotter`][confusius._napari._signals._plotter.SignalPlotter] for visual
+    consistency between the two bottom-dock tabs.
 
     Parameters
     ----------
@@ -56,7 +58,7 @@ class RegistrationMetricPlotter(QWidget):
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
         )
-        self.setMinimumHeight(160)
+        self.setMinimumHeight(300)
         self._setup_ui()
         self._apply_theme()
         self._viewer.events.theme.connect(self._on_theme_changed)
@@ -67,9 +69,9 @@ class RegistrationMetricPlotter(QWidget):
         Returns
         -------
         QSize
-            Preferred initial size of 800 x 240 pixels.
+            Preferred initial size of 800 x 370 pixels.
         """
-        return QSize(800, 240)
+        return QSize(800, 370)
 
     def _setup_ui(self) -> None:
         """Build the matplotlib canvas and toolbar."""
