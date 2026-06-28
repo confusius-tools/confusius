@@ -2118,8 +2118,7 @@ class RegistrationPanel(QWidget):
 
     def _begin_work(self) -> None:
         """Put the panel into its busy state."""
-        self._run_btn.setEnabled(False)
-        self._run_btn.setText("Registering…")
+        self._run_btn.hide()
         self._abort_btn.setEnabled(True)
         self._abort_btn.setText("Abort")
         self._abort_btn.show()
@@ -2495,7 +2494,7 @@ class RegistrationPanel(QWidget):
         self._progress_bridge = None
 
     def _ensure_metric_plotter(self) -> RegistrationMetricPlotter | None:
-        """Return the bottom-dock metric plotter, creating and docking it on first use.
+        """Return the right-dock metric plotter, creating and docking it on first use.
 
         Mirrors the lazy-dock pattern used by `SignalPanel`. The plotter widget is
         reused across runs; `_setup_volume_progress` resets its data buffer
@@ -2510,7 +2509,7 @@ class RegistrationPanel(QWidget):
             dock = self.viewer.window.add_dock_widget(
                 self._metric_plotter,
                 name="Registration Metric",
-                area="bottom",
+                area="right",
             )
             self._metric_dock = cast("QDockWidget", dock)
 
@@ -2577,6 +2576,7 @@ class RegistrationPanel(QWidget):
         """Restore the idle UI state after background work."""
         self._worker = None
         self._abort_event = None
+        self._run_btn.show()
         self._run_btn.setEnabled(True)
         self._run_btn.setText("Run registration")
         self._abort_btn.setEnabled(True)

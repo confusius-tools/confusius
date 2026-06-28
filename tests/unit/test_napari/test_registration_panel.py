@@ -8,6 +8,7 @@ from threading import Event
 import numpy as np
 import pytest
 import xarray as xr
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import QApplication
 
 from confusius._napari._registration._transforms import (
@@ -462,6 +463,9 @@ class TestAbort:
         registration_panel._worker = object()
         registration_panel._abort_event = Event()
         registration_panel._begin_work()
+
+        assert registration_panel._run_btn.isHidden()
+        assert not registration_panel._abort_btn.isHidden()
 
         registration_panel._abort_registration()
 
@@ -1133,6 +1137,18 @@ class TestVolumewiseProgress:
 
         assert registration_panel._progress.maximum() == 3
         assert registration_panel._progress.value() == 3
+
+
+class TestMetricPlotter:
+    def test_metric_plotter_docks_on_the_right(self, registration_panel):
+        plotter = registration_panel._ensure_metric_plotter()
+
+        assert plotter is not None
+        dock = registration_panel._metric_dock
+        assert dock is not None
+        main_window = registration_panel._find_main_window(dock)
+        assert main_window is not None
+        assert main_window.dockWidgetArea(dock) == Qt.DockWidgetArea.RightDockWidgetArea
 
 
 class TestFinishedCallbacks:
