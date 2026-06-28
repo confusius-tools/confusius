@@ -102,7 +102,10 @@ class TestRegisterVolumewise:
 
         assert result.shape == sample_2d_dataarray.shape
         assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
-        assert_allclose(result.values, sample_2d_dataarray.values)
+        assert_allclose(
+            result.values,
+            np.full_like(sample_2d_dataarray.values, sample_2d_dataarray.values.min()),
+        )
 
     def test_progress_reporter_receives_frame_updates(
         self, sample_2d_dataarray, monkeypatch

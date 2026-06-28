@@ -52,6 +52,26 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
+    def test_invalid_initialization_raises(self, sample_2d_dataarray_spatial):
+        """Unknown initialization mode raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization="moments",
+            )
+
+    def test_non_array_initialization_raises_value_error(
+        self, sample_2d_dataarray_spatial
+    ):
+        """A non-ndarray sequence raises ValueError, not an unhashable TypeError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -565,6 +585,30 @@ class TestInitialization:
         assert isinstance(bspline_tx, xr.DataArray)
         affines = bspline_tx.attrs.get("affines", {})
         assert "bspline_initialization" not in affines
+
+    def test_center_moments_uses_moments_initializer(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """center_moments uses SimpleITK's moments-based centering initializer."""
+        import SimpleITK as sitk
+
+        original_initializer = sitk.CenteredTransformInitializer
+        calls = []
+
+        def wrapped_initializer(fixed, moving, transform, operation_mode):
+            calls.append(operation_mode)
+            return original_initializer(fixed, moving, transform, operation_mode)
+
+        monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
+
+        register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="affine",
+            initialization="center_moments",
+        )
+
+        assert calls == [sitk.CenteredTransformInitializerFilter.MOMENTS]
 
 
 class TestResampleVolumeWithBspline:

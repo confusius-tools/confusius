@@ -68,7 +68,7 @@ def _validate_register_volume_inputs(
         Maximum number of optimizer iterations.
     convergence_window_size : int
         Window size for convergence checking.
-    initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray, optional
+    initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray
         Transform initialization mode or precomputed affine transform.
     shrink_factors : sequence of int
         Downsampling factors per pyramid level.
@@ -141,13 +141,18 @@ def _validate_register_volume_inputs(
         )
 
     valid_initializations = {"center_geometry", "center_moments"}
-    if initialization is not None and not isinstance(initialization, np.ndarray):
-        if initialization not in valid_initializations:
-            raise ValueError(
-                f"Invalid initialization {initialization!r}. "
-                f"Expected one of {sorted(valid_initializations)}, None, or a "
-                "homogeneous affine matrix."
-            )
+    if (
+        initialization is not None
+        and not isinstance(initialization, np.ndarray)
+        and not (
+            isinstance(initialization, str) and initialization in valid_initializations
+        )
+    ):
+        raise ValueError(
+            f"Invalid initialization {initialization!r}. "
+            f"Expected one of {sorted(valid_initializations)}, None, or a "
+            "homogeneous affine matrix."
+        )
 
     valid_interpolations = {"linear", "bspline"}
     if resample_interpolation not in valid_interpolations:
@@ -431,7 +436,8 @@ def register_volume(
         Number of values of the similarity metric which are used to estimate the energy
         profile of the similarity metric.
     initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray, default: "center_geometry"
-        Initial transform applied before optimization:
+        Initial transform mapping `fixed` to `moving` coordinates, applied before
+        optimization:
 
         - `"center_geometry"`: aligns image centers.
         - `"center_moments"`: aligns centers of mass.
@@ -714,8 +720,6 @@ def register_volume(
                 sitk_centering_transform,
                 sitk.CenteredTransformInitializerFilter.MOMENTS,
             )
-        else:
-            sitk_centering_transform = sitk_centering_transform
 
     if affine_initialization is not None:
         pre_tx = affine_to_sitk_linear_transform(affine_initialization)

@@ -80,7 +80,8 @@ class FUSIRegistrationAccessor:
         convergence_window_size : int, default: 10
             Window size for convergence check.
         initialization : {"center_geometry", "center_moments"} or (N+1, N+1) numpy.ndarray, default: "center_geometry"
-            Initial transform applied before optimization:
+            Initial transform mapping `fixed` to `moving` coordinates, applied before
+            optimization:
 
             - `"center_geometry"`: aligns image centers.
             - `"center_moments"`: aligns centers of mass.
@@ -220,11 +221,13 @@ class FUSIRegistrationAccessor:
         convergence_window_size : int, default: 10
             Window size for convergence check.
         initialization : {"center_geometry", "center_moments"}, default: "center_geometry"
-            Initial transform applied before optimization:
+            Initial transform mapping `fixed` to `moving` coordinates, applied before
+            optimization:
 
             - `"center_geometry"`: aligns image centers.
             - `"center_moments"`: aligns centers of mass.
             - `None`: uses the identity transform.
+
         optimizer_weights : list of float, optional
             Per-parameter weights applied on top of auto-estimated scales via
             `SetOptimizerWeights()`. If not provided, no additional weighting is
