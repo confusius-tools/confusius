@@ -515,10 +515,12 @@ def load_affine_transform_payload(path: str | Path) -> AffineTransformPayload:
 
 def _validate_bspline_dataarray(da: xr.DataArray) -> None:
     """Raise ValueError if *da* does not look like a valid B-spline transform."""
-    if da.attrs.get("type") != "bspline_transform":
+    transform_type = da.attrs.get("transform_type")
+    if transform_type != "bspline_transform":
         raise ValueError(
-            f"Expected a DataArray with attrs['type'] == 'bspline_transform'; "
-            f"got {da.attrs.get('type')!r}."
+            "Expected a DataArray with attrs['transform_type'] == "
+            "'bspline_transform'; "
+            f"got {transform_type!r}."
         )
     for key in ("order", "direction"):
         if key not in da.attrs:

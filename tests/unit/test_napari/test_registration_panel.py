@@ -56,7 +56,7 @@ def _make_bspline_transform() -> xr.DataArray:
             "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
         },
         attrs={
-            "type": "bspline_transform",
+            "transform_type": "bspline_transform",
             "order": 3,
             "direction": [[1.0, 0.0], [0.0, 1.0]],
             "affines": {"bspline_initialization": np.eye(3).tolist()},

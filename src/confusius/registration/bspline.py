@@ -8,13 +8,13 @@ A B-spline control-point grid is represented as a DataArray with:
 
   ```python
   {
-      "type":      "bspline_transform",
-      "order":     3,                          # B-spline polynomial order
-      "direction": [[...], [...], [...]],      # (ndim, ndim) direction cosine matrix
-      "affines":   {
-          "bspline_initialization": [[...]]   # optional (N+1, N+1) pre-affine;
-                                              # only present when register_volume
-                                              # was called with affine initialization.
+      "transform_type": "bspline_transform",
+      "order":          3,                       # B-spline polynomial order
+      "direction":      [[...], [...], [...]],  # (ndim, ndim) direction cosine matrix
+      "affines":        {
+          "bspline_initialization": [[...]]     # optional (N+1, N+1) pre-affine;
+                                                 # only present when register_volume
+                                                 # was called with affine initialization.
       }
   }
   ```
@@ -62,7 +62,8 @@ def sitk_bspline_to_dataarray(
     Returns
     -------
     xarray.DataArray
-        B-spline control-point DataArray with `attrs["type"] == "bspline_transform"`.
+        B-spline control-point DataArray with
+        `attrs["transform_type"] == "bspline_transform"`.
 
     Raises
     ------
@@ -106,7 +107,7 @@ def sitk_bspline_to_dataarray(
         coords[dim] = origin[i] + np.arange(grid_shape[i]) * spacing[i]
 
     attrs: dict[str, object] = {
-        "type": "bspline_transform",
+        "transform_type": "bspline_transform",
         "order": order,
         "direction": direction.tolist(),
     }
@@ -250,12 +251,15 @@ def _validate_bspline_dataarray(da: xr.DataArray) -> None:
     Raises
     ------
     ValueError
-        If `da.attrs["type"] != "bspline_transform"` or required attrs are missing.
+        If `da.attrs["transform_type"] != "bspline_transform"` or required attrs are
+        missing.
     """
-    if da.attrs.get("type") != "bspline_transform":
+    transform_type = da.attrs.get("transform_type")
+    if transform_type != "bspline_transform":
         raise ValueError(
-            f"Expected a DataArray with attrs['type'] == 'bspline_transform'; "
-            f"got {da.attrs.get('type')!r}."
+            "Expected a DataArray with attrs['transform_type'] == "
+            "'bspline_transform'; "
+            f"got {transform_type!r}."
         )
     for key in ("order", "direction"):
         if key not in da.attrs:

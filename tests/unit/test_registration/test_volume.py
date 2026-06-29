@@ -253,7 +253,7 @@ class TestRegisterVolumeOutput:
             transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        assert bspline_tx.attrs.get("type") == "bspline_transform"
+        assert bspline_tx.attrs.get("transform_type") == "bspline_transform"
         assert bspline_tx.dims[0] == "component"
 
     def test_resample_true_coords_match_fixed(
@@ -1129,7 +1129,7 @@ class TestRegisterVolumePreSetAbort:
         # The returned DataArray wraps the initial (unoptimised) bspline — its
         # coefficients differ from a real registration only in that no iterations ran.
         assert isinstance(transform, xr.DataArray)
-        assert transform.attrs.get("type") == "bspline_transform"
+        assert transform.attrs.get("transform_type") == "bspline_transform"
 
     def test_affine_initialization_abort_returns_initialization_affine(
         self, sample_2d_dataarray_spatial
