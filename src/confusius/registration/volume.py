@@ -507,7 +507,9 @@ def register_volume(
     progress_plotter : callable, optional
         Factory that builds the progress reporter, called inside `register_volume`
         as `progress_plotter(registration_method, fixed_img, moving_img, *,
-        plot_metric, plot_composite, resample_kwargs)`. The returned object must
+        plot_metric, plot_composite, resample_kwargs)`. Here `resample_kwargs`
+        carries `interpolation`, `fill_value`, and `sitk_threads`. The returned
+        object must
         implement the
         [`RegistrationProgress`][confusius.registration.RegistrationProgress]
         protocol (`update()` / `close()`). If not provided, defaults to
@@ -765,10 +767,9 @@ def register_volume(
 
             resample_kwargs: dict[str, object] = {
                 "interpolation": resample_interpolation,
+                "fill_value": _fill_value,
                 "sitk_threads": sitk_threads,
             }
-            if _fill_value is not None:
-                resample_kwargs["default_value"] = _fill_value
 
             plotter_factory = progress_plotter or MatplotlibRegistrationProgressPlotter
             plotter: RegistrationProgress = plotter_factory(

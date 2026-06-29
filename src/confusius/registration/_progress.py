@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import numpy as np
 
@@ -58,7 +58,10 @@ def _resample_intermediate(
     registration_method: "sitk.ImageRegistrationMethod",
     moving_img: "sitk.Image",
     fixed_img: "sitk.Image",
-    resample_kwargs: dict[str, Any],
+    *,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float = 0.0,
+    sitk_threads: int = -1,
 ) -> "sitk.Image":
     """Resample the moving image onto the fixed grid using the current transform.
 
@@ -74,10 +77,12 @@ def _resample_intermediate(
         Moving image to resample.
     fixed_img : SimpleITK.Image
         Reference image defining the output grid.
-    resample_kwargs : dict[str, Any]
-        Keyword arguments forwarded to `sitk.Resample`. Must contain
-        `"interpolation"` and `"default_value"`. May contain
-        `"sitk_threads"`.
+    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolator used for the intermediate resample.
+    fill_value : float, default: 0.0
+        Fill value used outside the moving image field of view.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use for the intermediate resample.
 
     Returns
     -------
@@ -88,10 +93,7 @@ def _resample_intermediate(
 
     from confusius.registration._utils import set_sitk_thread_count
 
-    interpolation = resample_kwargs.get("interpolation", "linear")
     sitk_interp = _resolve_sitk_interpolation(interpolation)
-    fill_value = resample_kwargs.get("default_value", 0.0)
-    sitk_threads = resample_kwargs.get("sitk_threads", -1)
 
     transform = registration_method.GetInitialTransform()
     with set_sitk_thread_count(sitk_threads):
@@ -143,8 +145,8 @@ class MatplotlibRegistrationProgressPlotter:
         Whether to display a blended fixed/moving composite at each iteration.
         Requires an additional `sitk.Resample` call per iteration.
     resample_kwargs : dict, optional
-        Extra keyword arguments forwarded to the internal resample call at each
-        iteration.
+        Extra keyword arguments for the internal resample call at each iteration.
+        Supported keys are `interpolation`, `fill_value`, and `sitk_threads`.
     """
 
     def __init__(
@@ -168,11 +170,17 @@ class MatplotlibRegistrationProgressPlotter:
         self._metric_values: list[float] = []
 
         _kw: dict[str, Any] = dict(resample_kwargs or {})
-        if "default_value" not in _kw:
+        self._interpolation = cast(
+            'Literal["linear", "nearest", "bspline"]',
+            _kw.get("interpolation", "linear"),
+        )
+        if "fill_value" in _kw:
+            self._fill_value = float(_kw["fill_value"])
+        else:
             import SimpleITK as sitk
 
-            _kw["default_value"] = float(sitk.GetArrayFromImage(moving_img).min())
-        self._resample_kwargs = _kw
+            self._fill_value = float(sitk.GetArrayFromImage(moving_img).min())
+        self._sitk_threads = int(_kw.get("sitk_threads", -1))
 
         # Detect Jupyter notebook environment. A plain IPython terminal shell
         # also has get_ipython() != None, so we check the kernel class name to
@@ -260,7 +268,9 @@ class MatplotlibRegistrationProgressPlotter:
                 self._method,
                 self._moving_img,
                 self._fixed_img,
-                self._resample_kwargs,
+                interpolation=self._interpolation,
+                fill_value=self._fill_value,
+                sitk_threads=self._sitk_threads,
             )
 
             import SimpleITK as sitk
