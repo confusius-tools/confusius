@@ -1,37 +1,34 @@
-"""Napari-layer-backed progress reporting for ``register_volume``.
+"""Napari-layer-backed progress reporting for `register_volume`.
 
 This module provides a progress reporter that mirrors the matplotlib-based
-[`RegistrationProgressPlotter`][confusius.registration.RegistrationProgressPlotter]
-but streams the intermediate resampled volume into a napari Image layer instead
-of a matplotlib figure.
+[`RegistrationProgressPlotter`][confusius.registration.RegistrationProgressPlotter] but
+streams the intermediate resampled volume into a napari Image layer instead of a
+matplotlib figure.
 
 The reporter is intentionally split into two pieces so that napari layers can be
-constructed and signal slots connected on the GUI thread before the
-registration worker thread starts:
+constructed and signal slots connected on the GUI thread before the registration worker
+thread starts:
 
 - [`NapariProgressBridge`][confusius._napari._registration._progress.NapariProgressBridge]
-  is a lightweight `QObject` that lives on the GUI thread and exposes Qt
-  signals. The worker thread calls `emit` on it; Qt marshals the slot
-  invocations back to the GUI thread via an automatically-detected queued
-  connection.
+  is a lightweight `QObject` that lives on the GUI thread and exposes Qt signals. The
+  worker thread calls `emit` on it; Qt marshals the slot invocations back to the GUI
+  thread via an automatically-detected queued connection.
 - [`NapariVolumeProgress`][confusius._napari._registration._progress.NapariVolumeProgress]
-  implements the
-  [`RegistrationProgress`][confusius.registration.RegistrationProgress]
-  protocol. It is constructed inside `register_volume` (i.e. on the worker
-  thread) and resamples the moving image at every iteration using the current
-  tentative transform, forwarding the resulting array to the bridge.
+  implements the [`RegistrationProgress`][confusius.registration.RegistrationProgress]
+  protocol. It is constructed inside `register_volume` (i.e. on the worker thread) and
+  resamples the moving image at every iteration using the current tentative transform,
+  forwarding the resulting array to the bridge.
 
 Connection lifecycle:
 
-1. The panel constructs a `NapariProgressBridge` on the GUI thread and connects
-   its `iterated` signal to a slot that writes the array into the resampled
-   napari layer.
+1. The panel constructs a `NapariProgressBridge` on the GUI thread and connects its
+  `iterated` signal to a slot that writes the array into the resampled napari layer.
 2. The panel builds a factory (via
-   [`make_napari_progress_factory`][confusius._napari._registration._progress.make_napari_progress_factory])
-   that closes over the bridge and returns a `NapariVolumeProgress` instance
-   when called by `register_volume`.
-3. `register_volume` instantiates the progress inside the worker thread and
-   wires it to SimpleITK's iteration and end events as usual.
+  [`make_napari_progress_factory`][confusius._napari._registration._progress.make_napari_progress_factory])
+  that closes over the bridge and returns a `NapariVolumeProgress` instance when called
+  by `register_volume`.
+3. `register_volume` instantiates the progress inside the worker thread and wires it to
+  SimpleITK's iteration and end events as usual.
 """
 
 from __future__ import annotations
@@ -54,12 +51,11 @@ if TYPE_CHECKING:
 class NapariProgressBridge(QObject):
     """Thread-boundary signal bridge for napari registration progress.
 
-    Construct this on the GUI thread before starting the registration worker.
-    Connect `iterated` to a slot that mutates a napari layer (e.g. writes
-    `layer.data = arr`); the slot will be invoked on the GUI thread thanks to
-    Qt's automatic cross-thread connection. The bridge itself never touches the
-    napari layer, keeping a clean separation between the worker's data path and
-    the GUI update path.
+    Construct this on the GUI thread before starting the registration worker. Connect
+    `iterated` to a slot that mutates a napari layer (e.g. writes `layer.data = arr`);
+    the slot will be invoked on the GUI thread thanks to Qt's automatic cross-thread
+    connection. The bridge itself never touches the napari layer, keeping a clean
+    separation between the worker's data path and the GUI update path.
 
     See Also
     --------
@@ -67,32 +63,31 @@ class NapariProgressBridge(QObject):
     """
 
     iterated = Signal(object)
-    """:pyqtSignal: Emitted at every optimizer iteration with the resampled
-    moving image as a numpy array in numpy axis order (matching `fixed`)."""
+    """Emitted at every optimizer iteration with the resampled moving image as a numpy
+    array in numpy axis order (matching `fixed`)."""
 
     metric_updated = Signal(float)
-    """:pyqtSignal: Emitted at every optimizer iteration with the current
-    optimizer metric value (a float)."""
+    """Emitted at every optimizer iteration with the current optimizer metric value (a
+    float)."""
 
     finished = Signal()
-    """:pyqtSignal: Emitted once when the registration end event fires."""
+    """Emitted once when the registration end event fires."""
 
 
 class NapariVolumeProgress:
     """Napari-layer progress reporter for `register_volume`.
 
-    Implements the
-    [`RegistrationProgress`][confusius.registration.RegistrationProgress]
-    protocol. Stores the registration method and SimpleITK images it needs to
-    resample the moving image at each iteration. The resampled array is
-    forwarded to the bridge via a Qt signal, so this object is safe to call
-    from the SimpleITK command callback running on the worker thread.
+    Implements the [`RegistrationProgress`][confusius.registration.RegistrationProgress]
+    protocol. Stores the registration method and SimpleITK images it needs to resample
+    the moving image at each iteration. The resampled array is forwarded to the bridge
+    via a Qt signal, so this object is safe to call from the SimpleITK command callback
+    running on the worker thread.
 
     Parameters
     ----------
     bridge : NapariProgressBridge
-        GUI-thread signal bridge. Stored by reference; never accessed for GUI
-        APIs from this object.
+        GUI-thread signal bridge. Stored by reference; never accessed for GUI APIs from
+        this object.
     registration_method : SimpleITK.ImageRegistrationMethod
         Active registration method whose `GetInitialTransform` is used to
         resample the moving image at each iteration.
@@ -175,16 +170,14 @@ class NapariVolumewiseProgressBridge(QObject):
     """Thread-boundary signal bridge for volumewise registration progress."""
 
     frame_progress = Signal(int, int)
-    """:pyqtSignal: Emitted with `(completed_frames, total_frames)`.
-    """
+    """Emitted with `(completed_frames, total_frames)`."""
 
     frame_completed = Signal(int, object)
-    """:pyqtSignal: Emitted with `(frame_index, registered_frame_array)` when one
-    frame finishes.
-    """
+    """Emitted with `(frame_index, registered_frame_array)` when one frame
+    finishes."""
 
     finished = Signal()
-    """:pyqtSignal: Emitted once when the volumewise run ends."""
+    """Emitted once when the volumewise run ends."""
 
 
 class NapariVolumewiseProgress:
