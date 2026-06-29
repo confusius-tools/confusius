@@ -47,10 +47,9 @@ CorrectionMethod = Literal[
 ]
 """Multiple-comparison correction methods accepted by `apply_statistical_threshold`.
 
-The family-wise-error methods (`"bonferroni"`, `"sidak"`, `"holm"`, `"holm-sidak"`,
-`"simes-hochberg"`, `"hommel"`) control the probability of any false positive; the
-false-discovery-rate methods (`"fdr_bh"`, `"fdr_by"`) control the expected proportion of
-false positives. `"uncorrected"` applies no correction.
+See
+[`apply_statistical_threshold`][confusius.glm.thresholding.apply_statistical_threshold]
+for a description of each method.
 """
 
 # Methods whose rejection threshold is a fixed p-value cutoff independent of the data.
@@ -343,24 +342,17 @@ def apply_statistical_threshold(
         below `alpha`. Ignored when `method` is not provided.
     method : CorrectionMethod, optional
         Multiple-comparison correction method, by default `"fdr_bh"`. If not provided,
-        `threshold` is applied directly with no statistical control.
+        `threshold` is applied directly with no statistical control. Available methods:
 
-        Family-wise-error methods (control the probability of any false positive):
-        - `"bonferroni"`: single-step, valid under any dependence.
-        - `"sidak"`: single-step, assumes independence.
-        - `"holm"`: step-down, valid under any dependence.
-        - `"holm-sidak"`: step-down, assumes independence.
-        - `"simes-hochberg"`: step-up, valid under positive dependence.
-        - `"hommel"`: step-up, valid under positive dependence, most powerful of this
-          family.
-
-        False-discovery-rate methods (control the expected proportion of false
-        positives):
-        - `"fdr_bh"`: Benjamini-Hochberg, valid under positive dependence. The
-          recommended default for spatially correlated maps.
-        - `"fdr_by"`: Benjamini-Yekutieli, valid under any dependence, more conservative.
-
-        `"uncorrected"` applies no correction.
+        - `"uncorrected"`: no correction.
+        - `"bonferroni"`: one-step correction.
+        - `"sidak"`: one-step correction.
+        - `"holm-sidak"`: step down method using Sidak adjustments.
+        - `"holm"`: step-down method using Bonferroni adjustments.
+        - `"simes-hochberg"`: step-up method (independent).
+        - `"hommel"`: closed method based on Simes tests (non-negative).
+        - `"fdr_bh"`: Benjamini/Hochberg (non-negative).
+        - `"fdr_by"`: Benjamini/Yekutieli (negative).
     threshold : float, optional
         Explicit z-score threshold, used only when `method` is not provided. If not
         provided in that case, defaults to 3.0. Ignored (with a warning) when `method` is
