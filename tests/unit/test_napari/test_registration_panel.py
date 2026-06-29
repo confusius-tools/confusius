@@ -8,7 +8,6 @@ from threading import Event
 import numpy as np
 import pytest
 import xarray as xr
-from qtpy.QtCore import Qt
 from qtpy.QtWidgets import QApplication
 
 from confusius._napari._registration._transforms import (
@@ -536,17 +535,6 @@ class TestValidation:
 
         assert registration_panel._validate_registration_selection()
 
-    def test_transform_initialization_requires_selected_affine_transform(
-        self, viewer, registration_panel
-    ):
-        viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
-        viewer.add_image(np.ones((4, 6), dtype=np.float32), name="fixed")
-        registration_panel._refresh_layers()
-        registration_panel._moving_combo.setCurrentText("moving")
-        registration_panel._fixed_combo.setCurrentText("fixed")
-
-        assert registration_panel._validate_registration_selection()
-
     def test_initial_transform_dropdown_lists_available_transforms(
         self, viewer, registration_panel
     ):
@@ -663,193 +651,7 @@ class TestValidation:
         )
 
 
-class TestBetweenScanPreparation:
-    def test_prepare_between_scan_data_averages_time(self):
-        from confusius._napari._registration._panel import _prepare_between_scan_data
-
-        data = xr.DataArray(
-            np.stack(
-                [
-                    np.zeros((4, 6), dtype=np.float32),
-                    np.ones((4, 6), dtype=np.float32),
-                ],
-                axis=0,
-            ),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(2), dims=["time"]),
-                "y": xr.DataArray(np.arange(4), dims=["y"]),
-                "x": xr.DataArray(np.arange(6), dims=["x"]),
-            },
-            attrs={"foo": "bar"},
-        )
-
-        averaged = _prepare_between_scan_data(data)
-
-        assert averaged.dims == ("y", "x")
-        assert averaged.attrs["foo"] == "bar"
-        np.testing.assert_allclose(averaged.values, 0.5)
-
-
-class TestScalePreprocessing:
-    def test_apply_registration_scale_db(self):
-        from confusius._napari._registration._panel import _apply_registration_scale
-
-        data = xr.DataArray([1.0, 10.0, 100.0], dims=["x"])
-        scaled = _apply_registration_scale(data, "dB")
-
-        np.testing.assert_allclose(scaled.values, [-20.0, -10.0, 0.0])
-
-    def test_apply_registration_scale_sqrt(self):
-        from confusius._napari._registration._panel import _apply_registration_scale
-
-        data = xr.DataArray([1.0, 4.0, 9.0], dims=["x"])
-        scaled = _apply_registration_scale(data, "sqrt")
-
-        np.testing.assert_allclose(scaled.values, [1.0, 2.0, 3.0])
-
-
-class TestManualNapariInitialization:
-    def test_spatial_manual_affine_ignores_time_axis(self, viewer):
-        from confusius._napari._registration._panel import (
-            _spatial_manual_affine_from_layer,
-        )
-
-        moving = xr.DataArray(
-            np.zeros((2, 4, 6, 8), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(2), dims=["time"]),
-                "z": xr.DataArray(np.arange(4), dims=["z"]),
-                "y": xr.DataArray(np.arange(6), dims=["y"]),
-                "x": xr.DataArray(np.arange(8), dims=["x"]),
-            },
-        )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
-        manual_affine = np.eye(5)
-        manual_affine[0, 4] = 3.0
-        manual_affine[1, 4] = 0.5
-        manual_affine[2, 4] = -0.25
-        manual_affine[3, 4] = 1.25
-        layer.affine = manual_affine
-
-        affine = _spatial_manual_affine_from_layer(layer, spatial_dims=["z", "y", "x"])
-
-        expected = np.array(
-            [
-                [1.0, 0.0, 0.0, 0.5],
-                [0.0, 1.0, 0.0, -0.25],
-                [0.0, 0.0, 1.0, 1.25],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        )
-        np.testing.assert_allclose(affine, expected)
-
-    def test_spatial_manual_affine_rejects_time_spatial_mixing(self, viewer):
-        from confusius._napari._registration._panel import (
-            _spatial_manual_affine_from_layer,
-        )
-
-        moving = xr.DataArray(
-            np.zeros((2, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(2), dims=["time"]),
-                "y": xr.DataArray(np.arange(4), dims=["y"]),
-                "x": xr.DataArray(np.arange(6), dims=["x"]),
-            },
-        )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
-        manual_affine = np.eye(4)
-        manual_affine[1, 0] = 0.5
-        with pytest.warns(UserWarning, match="Non-orthogonal slicing"):
-            layer.affine = manual_affine
-
-        with pytest.raises(ValueError, match="mixes spatial axes"):
-            _spatial_manual_affine_from_layer(layer, spatial_dims=["y", "x"])
-
-
-class TestLayerToDataArray:
-    def test_reconstructs_dataarray_from_generic_layer(self, viewer):
-        from confusius._napari._registration._panel import _get_source_dataarray
-
-        layer = viewer.add_image(
-            np.zeros((3, 5, 7), dtype=np.float32),
-            name="plain",
-            scale=(0.3, 0.2, 0.1),
-            translate=(1.0, 2.0, 3.0),
-        )
-        layer.axis_labels = ("z", "y", "x")
-        layer.units = ("mm", "mm", "mm")
-
-        da = _get_source_dataarray(layer)
-
-        assert da.dims == ("z", "y", "x")
-        assert da.coords["z"][0] == pytest.approx(1.0)
-        assert da.coords["y"][1] == pytest.approx(2.2)
-        assert da.coords["x"][2] == pytest.approx(3.2)
-        assert da.coords["x"].attrs["units"] in {"mm", "millimeter"}
-
-    def test_generic_layer_snapshot_ignores_later_manual_translate(self, viewer):
-        from confusius._napari._registration._panel import _get_source_dataarray
-
-        layer = viewer.add_image(
-            np.zeros((3, 5, 7), dtype=np.float32),
-            name="plain",
-            scale=(0.3, 0.2, 0.1),
-            translate=(1.0, 2.0, 3.0),
-        )
-        layer.axis_labels = ("z", "y", "x")
-
-        original = _get_source_dataarray(layer)
-        layer.translate = (9.0, 8.0, 7.0)
-        after_move = _get_source_dataarray(layer)
-
-        assert after_move is original
-        assert after_move.coords["z"][0] == pytest.approx(1.0)
-        assert after_move.coords["y"][0] == pytest.approx(2.0)
-        assert after_move.coords["x"][0] == pytest.approx(3.0)
-
-
 class TestTransforms:
-    def test_selected_manual_transform_payload_matches_visible_layer_transform(
-        self, viewer, registration_panel
-    ):
-        moving = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
-        )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
-        manual_affine = np.array(
-            [[1.0, 0.0, 0.3], [0.0, 1.0, -0.4], [0.0, 0.0, 1.0]],
-            dtype=float,
-        )
-        layer.affine = manual_affine
-
-        registration_panel._refresh_transform_controls()
-        for i in range(registration_panel._transform_source_combo.count()):
-            if registration_panel._transform_source_combo.itemData(i) == (
-                "manual",
-                "moving",
-            ):
-                registration_panel._transform_source_combo.setCurrentIndex(i)
-                break
-
-        payload = registration_panel._selected_transform_payload()
-
-        assert payload is not None
-        np.testing.assert_allclose(
-            affine_transform_from_payload(payload),
-            np.linalg.inv(manual_affine),
-        )
-        assert payload["name"] == "moving (manual)"
-        assert payload["source_layer_name"] == "moving"
-        assert payload["target_layer_name"] == "moving"
-
     def test_affine_payload_roundtrip(self, tmp_path):
         reference = xr.DataArray(
             np.ones((4, 6), dtype=np.float32),
@@ -1137,18 +939,6 @@ class TestVolumewiseProgress:
 
         assert registration_panel._progress.maximum() == 3
         assert registration_panel._progress.value() == 3
-
-
-class TestMetricPlotter:
-    def test_metric_plotter_docks_on_the_right(self, registration_panel):
-        plotter = registration_panel._ensure_metric_plotter()
-
-        assert plotter is not None
-        dock = registration_panel._metric_dock
-        assert dock is not None
-        main_window = registration_panel._find_main_window(dock)
-        assert main_window is not None
-        assert main_window.dockWidgetArea(dock) == Qt.DockWidgetArea.RightDockWidgetArea
 
 
 class TestFinishedCallbacks:

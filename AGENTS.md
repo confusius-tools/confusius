@@ -332,6 +332,17 @@ request, e.g. `([#123](https://github.com/confusius-tools/confusius/pull/123))`.
 - Keep tests fast by using small array sizes.
 - Use seeded random number generators for reproducibility.
 
+### Napari Plugin Tests
+- Follow napari's plugin testing guidelines:
+  <https://napari.org/dev/plugins/testing_and_publishing/test.html>.
+- Main message: prefer **small unit tests** over full GUI/integration tests. Trust napari
+  to deliver callbacks/events correctly; test our plugin logic and observable widget/viewer
+  state directly instead of trying to simulate every napari interaction end-to-end.
+- Use napari pytest fixtures such as `make_napari_viewer` / `make_napari_viewer_proxy`
+  rather than building custom viewer setup/teardown by hand.
+- For ConfUSIus napari tests, prefer assertions on public/observable behavior
+  (widget state, layer state, metadata, outputs) over module-private helper return values.
+
 ### Visual Regression Tests
 - Use `@pytest.mark.mpl_image_compare` for plot output tests.
 - Run `just generate-baselines` to regenerate baseline images after intentional plot changes.

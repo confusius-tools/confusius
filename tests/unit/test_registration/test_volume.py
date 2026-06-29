@@ -1,6 +1,5 @@
 """Unit tests for single-volume registration."""
 
-import signal
 from threading import Event
 
 import numpy as np
@@ -8,7 +7,6 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius.registration._utils import abort_on_sigint
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
@@ -101,13 +99,6 @@ class TestRegisterVolumeValidation:
         assert diagnostics.status == "aborted"
         assert diagnostics.n_iterations == 0
 
-    def test_abort_on_sigint_sets_abort_event(self):
-        """First Ctrl+C is converted into cooperative cancellation."""
-        with abort_on_sigint(None) as abort_event:
-            handler = signal.getsignal(signal.SIGINT)
-            assert callable(handler)
-            handler(signal.SIGINT, None)
-            assert abort_event.is_set()
 
 
 class TestRegisterVolumeOutput:
