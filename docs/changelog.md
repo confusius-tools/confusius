@@ -21,6 +21,13 @@ Current development version for the next ConfUSIus release.
   `data.fusi.register` accessor
   ([#215](https://github.com/confusius-tools/confusius/pull/215)).
 
+### :bug: Fixes
+
+- `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
+  `bspline_initialization` written by the registration pipeline) when merging in the
+  NIfTI qform/sform affines
+  ([#222](https://github.com/confusius-tools/confusius/pull/222)).
+
 ## 0.4.0
 
 *Released 2026-06-25.*
@@ -50,10 +57,6 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
-  `bspline_initialization` written by the registration pipeline) when merging in the
-  NIfTI qform/sform affines
-  ([#221](https://github.com/confusius-tools/confusius/issues/221)).
 - Masks are now coerced to boolean by `validate_mask` (added `return_dtype_as_bool`
   parameter that defaults to `True`) to avoid DataArrays using *positional indexing*.
   Previously these masks could select the wrong voxels or, for `register_volume`,
