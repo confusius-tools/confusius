@@ -79,6 +79,8 @@ class NMF(_BaseFUSIDecomposer):
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting voxels to include during fitting and projection.
         Must match the spatial dimensions and coordinates of the input data.
+    verbose : int, default: 0
+        Whether to be verbose.
 
     Attributes
     ----------
@@ -156,6 +158,7 @@ class NMF(_BaseFUSIDecomposer):
         l1_ratio: float = 0.0,
         mode: Literal["temporal", "spatial"] = "temporal",
         mask: xr.DataArray | None = None,
+        verbose: int = 0,
     ) -> None:
         self.n_components = n_components
         self.init = init
@@ -169,6 +172,7 @@ class NMF(_BaseFUSIDecomposer):
         self.l1_ratio = l1_ratio
         self.mode = mode
         self.mask = mask
+        self.verbose = verbose
 
     def fit(self, X: xr.DataArray, y: None = None) -> "NMF":
         """Fit NMF on `(time, ...)` fUSI data.
@@ -223,6 +227,7 @@ class NMF(_BaseFUSIDecomposer):
             alpha_W=self.alpha_W,
             alpha_H=self.alpha_H,
             l1_ratio=self.l1_ratio,
+            verbose=self.verbose,
         )
 
         self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)
