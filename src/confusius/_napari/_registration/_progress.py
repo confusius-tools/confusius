@@ -89,18 +89,18 @@ class NapariVolumeProgress:
         GUI-thread signal bridge. Stored by reference; never accessed for GUI APIs from
         this object.
     registration_method : SimpleITK.ImageRegistrationMethod
-        Active registration method whose `GetInitialTransform` is used to
-        resample the moving image at each iteration.
+        Active registration method whose `GetInitialTransform` is used to resample the
+        moving image at each iteration.
     fixed_img : SimpleITK.Image
         Fixed image defining the resample grid.
     moving_img : SimpleITK.Image
         Moving image to resample.
     plot_metric : bool, default: True
-        Currently unused by the napari path; kept for signature compatibility
-        with the matplotlib plotter factory.
+        Whether to emit `metric_updated` on each iteration. Kept aligned with the
+        matplotlib plotter factory signature.
     plot_composite : bool, default: True
-        Currently unused by the napari path (the resampled layer *is* the
-        composite view); kept for signature compatibility.
+        Kept for signature compatibility with the matplotlib plotter factory. The
+        napari preview always shows the resampled moving image directly.
     resample_kwargs : dict, optional
         Extra keyword arguments forwarded to
         [`_resample_intermediate`][confusius.registration._progress._resample_intermediate].
@@ -123,10 +123,8 @@ class NapariVolumeProgress:
         self._fixed_img = fixed_img
         self._moving_img = moving_img
         self._resample_kwargs = dict(resample_kwargs or {})
-        # The resampled layer acts as the composite view; the matplotlib-style
-        # composite overlay is always implied, regardless of plot_composite.
         self._plot_metric = plot_metric
-        self._plot_composite = plot_composite
+        del plot_composite
 
     def update(self) -> None:
         """Resample the moving image with the current transform and emit it.
@@ -279,9 +277,9 @@ def make_napari_progress_factory(
         moving_img : SimpleITK.Image
             Moving image to resample.
         plot_metric : bool, default: True
-            Unused by the napari path; kept for signature compatibility.
+            Whether to emit `metric_updated` on each iteration.
         plot_composite : bool, default: True
-            Unused by the napari path; kept for signature compatibility.
+            Kept for signature compatibility with the matplotlib plotter factory.
         resample_kwargs : dict, optional
             Extra keyword arguments forwarded to
             [`_resample_intermediate`][confusius.registration._progress._resample_intermediate].
