@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius.registration._progress import RegistrationProgress
+from confusius.registration.progress import RegistrationProgress
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise

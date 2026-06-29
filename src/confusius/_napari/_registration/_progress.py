@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 import numpy as np
 from qtpy.QtCore import QObject, Signal
 
-from confusius.registration._progress import _resample_intermediate
+from confusius.registration.progress import _resample_intermediate
 
 if TYPE_CHECKING:
     import SimpleITK as sitk

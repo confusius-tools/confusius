@@ -7,7 +7,7 @@ import SimpleITK as sitk
 
 matplotlib.use("Agg")
 
-from confusius.registration._progress import (  # noqa: E402
+from confusius.registration.progress import (  # noqa: E402
     MatplotlibRegistrationProgressPlotter,
 )
 

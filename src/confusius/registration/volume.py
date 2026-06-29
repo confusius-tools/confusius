@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     import SimpleITK as sitk
 
-    from confusius.registration._progress import RegistrationProgress
+    from confusius.registration.progress import RegistrationProgress
 
 
 def _validate_register_volume_inputs(
@@ -760,7 +760,7 @@ def register_volume(
         )
 
         if show_progress:
-            from confusius.registration._progress import (
+            from confusius.registration.progress import (
                 RegistrationProgress,
                 MatplotlibRegistrationProgressPlotter,
             )

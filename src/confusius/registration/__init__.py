@@ -1,6 +1,6 @@
 """Registration module for fUSI data."""
 
-from confusius.registration._progress import (
+from confusius.registration.progress import (
     RegistrationProgress,
     MatplotlibRegistrationProgressPlotter,
 )
