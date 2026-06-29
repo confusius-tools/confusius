@@ -362,7 +362,7 @@ class FUSIPlotAccessor:
         norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
-        alpha: float = 1.0,
+        alpha: float | None = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         show_titles: bool = True,
@@ -422,8 +422,9 @@ class FUSIPlotAccessor:
             Upper bound of the colormap. Defaults to the 98th percentile. Ignored
             when `norm` is provided explicitly (that is, not just inherited from data
             attributes).
-        alpha : float, default: 1.0
-            Opacity of the image.
+        alpha : float, optional
+            Opacity of the image. If not provided, the colormap's own alpha
+            channel is respected.
         show_colorbar : bool, default: True
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
@@ -634,7 +635,7 @@ class FUSIPlotAccessor:
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: list[float] | None = None,
         slice_mode: str = "z",
-        alpha: float = 1.0,
+        alpha: float | None = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -697,8 +698,9 @@ class FUSIPlotAccessor:
         slice_mode : str, default: "z"
             Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
             slicing, each panel must be 2D.
-        alpha : float, default: 1.0
-            Opacity of the composite image.
+        alpha : float, optional
+            Opacity of the composite image. If not provided, the image is fully
+            opaque.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
