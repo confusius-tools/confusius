@@ -24,9 +24,10 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - Added [`apply_statistical_threshold`][confusius.glm.apply_statistical_threshold] to
-  apply voxel-level height threshold (uncorrected false positive rate,
-  false-discovery-rate, or Bonferroni) and an optional cluster-extent threshold to a
-  statistical DataArray ([#204](https://github.com/confusius-tools/confusius/pull/204)).
+  threshold a statistical DataArray with a choice of family-wise-error (Bonferroni,
+  Šidák, Holm, Holm-Šidák, Simes-Hochberg, Hommel) or false-discovery-rate
+  (Benjamini-Hochberg, Benjamini-Yekutieli) correction, plus an optional cluster-extent
+  threshold ([#204](https://github.com/confusius-tools/confusius/pull/204)).
 
 ## 0.4.0
 
