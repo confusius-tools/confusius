@@ -27,6 +27,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
+  `bspline_initialization` written by the registration pipeline) when merging in the
+  NIfTI qform/sform affines
+  ([#221](https://github.com/confusius-tools/confusius/issues/221)).
 - `process_iq_blocks` now handles strongly overlapping IQ windows without corrupting
   the output time dimension, so power Doppler and related IQ reducers work when
   `window_stride < window_width / 2`
