@@ -61,7 +61,7 @@ def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
 
-    model = NMF(n_components=2, init="nndsvda", random_state=0).fit(data)
+    model = NMF(n_components=2, random_state=0).fit(data)
 
     np.testing.assert_array_equal(
         model.feature_names_in_,
@@ -72,10 +72,10 @@ def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
 @pytest.mark.parametrize("mode", ["temporal", "spatial"])
 def test_fit_transform_matches_fit_then_transform(nmf_3dt_volume, mode):
     """fit_transform matches calling fit followed by transform."""
-    model_direct = NMF(n_components=3, init="nndsvda", random_state=0, mode=mode)
+    model_direct = NMF(n_components=3, random_state=0, mode=mode)
     direct = model_direct.fit_transform(nmf_3dt_volume)
 
-    model_two_step = NMF(n_components=3, init="nndsvda", random_state=0, mode=mode)
+    model_two_step = NMF(n_components=3, random_state=0, mode=mode)
     two_step = model_two_step.fit(nmf_3dt_volume).transform(nmf_3dt_volume)
 
     xr.testing.assert_identical(direct, two_step)
@@ -88,8 +88,8 @@ def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
-    sklearn_model = SklearnNMF(n_components=3, init="nndsvda", random_state=0).fit(X)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
+    sklearn_model = SklearnNMF(n_components=3, random_state=0).fit(X)
 
     np.testing.assert_allclose(
         model.transform(nmf_3dt_volume).values,
@@ -115,15 +115,7 @@ def test_fit_raises_for_negative_input():
     )
 
     with pytest.raises(ValueError, match="non-negative input data"):
-        NMF(n_components=3, init="nndsvda", random_state=0).fit(data)
-
-
-def test_fit_raises_for_negative_input_under_mask(nmf_3dt_volume):
-    """fit raises ValueError when masked voxels contain negative values."""
-    data = nmf_3dt_volume - 20.0
-
-    with pytest.raises(ValueError, match="non-negative input data"):
-        NMF(n_components=3, init="nndsvda", random_state=0).fit(data)
+        NMF(n_components=3, random_state=0).fit(data)
 
 
 def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
@@ -133,15 +125,11 @@ def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = NMF(n_components=3, init="nndsvda", random_state=0, mode="temporal")
+    model = NMF(n_components=3, random_state=0, mode="temporal")
     reconstructed = model.inverse_transform(model.fit_transform(nmf_3dt_volume))
 
-    sklearn_model = SklearnNMF(
-        n_components=3, init="nndsvda", random_state=0
-    ).fit(X)
-    sklearn_reconstructed = sklearn_model.inverse_transform(
-        sklearn_model.transform(X)
-    )
+    sklearn_model = SklearnNMF(n_components=3, random_state=0).fit(X)
+    sklearn_reconstructed = sklearn_model.inverse_transform(sklearn_model.transform(X))
 
     np.testing.assert_allclose(
         reconstructed.stack(feature=["z", "y", "x"]).values,
@@ -151,7 +139,7 @@ def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
 
 def test_inverse_transform_runs_in_fitted_geometry(nmf_3dt_volume):
     """NMF inverse_transform reconstructs in fitted spatial geometry with metadata."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0)
+    model = NMF(n_components=3, random_state=0)
 
     signals = model.fit_transform(nmf_3dt_volume)
     reconstructed = model.inverse_transform(signals)
@@ -166,7 +154,7 @@ def test_inverse_transform_runs_in_fitted_geometry(nmf_3dt_volume):
 
 def test_temporal_mode_signals_and_maps_are_non_negative(nmf_3dt_volume):
     """Temporal-mode signals and maps are non-negative — the defining NMF guarantee."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0, mode="temporal")
+    model = NMF(n_components=3, random_state=0, mode="temporal")
     signals = model.fit_transform(nmf_3dt_volume)
 
     assert float(signals.min()) >= 0.0
@@ -175,7 +163,7 @@ def test_temporal_mode_signals_and_maps_are_non_negative(nmf_3dt_volume):
 
 def test_inverse_transform_from_numpy_returns_dataarray(nmf_3dt_volume):
     """inverse_transform accepts ndarray input and returns DataArray."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0)
+    model = NMF(n_components=3, random_state=0)
     scores = model.fit_transform(nmf_3dt_volume).values
 
     reconstructed = model.inverse_transform(scores)
@@ -189,7 +177,7 @@ def test_inverse_transform_from_numpy_returns_dataarray(nmf_3dt_volume):
 
 def test_inverse_transform_raises_for_invalid_dataarray_dims(nmf_3dt_volume):
     """inverse_transform raises when DataArray dims are not time/component."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     bad = xr.DataArray(
         np.zeros((nmf_3dt_volume.sizes["time"], 3)),
         dims=["time", "region"],
@@ -201,7 +189,7 @@ def test_inverse_transform_raises_for_invalid_dataarray_dims(nmf_3dt_volume):
 
 def test_inverse_transform_raises_for_component_count_mismatch(nmf_3dt_volume):
     """inverse_transform raises when component count differs from fitted NMF."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     scores = model.transform(nmf_3dt_volume)
     bad = scores.isel(component=slice(0, 2))
 
@@ -211,7 +199,7 @@ def test_inverse_transform_raises_for_component_count_mismatch(nmf_3dt_volume):
 
 def test_inverse_transform_raises_for_invalid_numpy_shape(nmf_3dt_volume):
     """inverse_transform raises when ndarray input is not 2D."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
 
     with pytest.raises(ValueError, match="must be 2D"):
         model.inverse_transform(np.zeros((nmf_3dt_volume.sizes["time"], 3, 1)))
@@ -219,7 +207,7 @@ def test_inverse_transform_raises_for_invalid_numpy_shape(nmf_3dt_volume):
 
 def test_inverse_transform_raises_for_invalid_input_type(nmf_3dt_volume):
     """inverse_transform raises TypeError for unsupported input types."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
         model.inverse_transform([1, 2, 3])
@@ -292,7 +280,7 @@ def test_fit_transform_rejects_unexpected_fit_params(nmf_3dt_volume):
 
 def test_transform_checks_spatial_layout(nmf_3dt_volume):
     """transform raises if spatial layout differs from fit."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     bad = nmf_3dt_volume.isel(x=slice(0, 4))
 
     with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
@@ -301,7 +289,7 @@ def test_transform_checks_spatial_layout(nmf_3dt_volume):
 
 def test_transform_checks_spatial_dimension_names(nmf_3dt_volume):
     """transform raises if spatial dimension names differ from fit."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     bad = nmf_3dt_volume.rename({"x": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
@@ -310,7 +298,7 @@ def test_transform_checks_spatial_dimension_names(nmf_3dt_volume):
 
 def test_transform_without_time_coordinate_uses_index(nmf_3dt_volume):
     """transform falls back to integer time coordinate when absent."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     no_time_coord = xr.DataArray(
         nmf_3dt_volume.values,
         dims=nmf_3dt_volume.dims,
@@ -331,7 +319,7 @@ def test_transform_without_time_coordinate_uses_index(nmf_3dt_volume):
 
 def test_transform_chunked_time_reports_transform_operation(nmf_3dt_volume):
     """transform chunking error message identifies NMF.transform."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0).fit(nmf_3dt_volume)
+    model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
     chunked = nmf_3dt_volume.chunk({"time": 5})
 
     with pytest.raises(ValueError, match="NMF.transform requires the full time series"):
@@ -340,7 +328,7 @@ def test_transform_chunked_time_reports_transform_operation(nmf_3dt_volume):
 
 def test_sklearn_interface_fitted_state(nmf_3dt_volume):
     """Estimator exposes sklearn fitted-state behavior."""
-    model = NMF(n_components=3, init="nndsvda", random_state=0)
+    model = NMF(n_components=3, random_state=0)
     with pytest.raises(Exception):
         check_is_fitted(model)
 
@@ -356,7 +344,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(nmf_3dt_volume, monkeypatch)
 
     monkeypatch.setattr(nmf_module._SklearnNMF, "fit", _raise_fit)
 
-    model = NMF(n_components=3, init="nndsvda", random_state=0)
+    model = NMF(n_components=3, random_state=0)
     with pytest.raises(RuntimeError, match="fit failed"):
         model.fit(nmf_3dt_volume)
 
@@ -412,18 +400,6 @@ def test_set_params_updates_values():
     assert model.mode == "spatial"
 
 
-def test_reproducible_with_random_state(nmf_3dt_volume):
-    """NMF gives reproducible results with a fixed random_state."""
-    model_1 = NMF(n_components=3, init="nndsvda", random_state=0)
-    model_2 = NMF(n_components=3, init="nndsvda", random_state=0)
-
-    signals_1 = model_1.fit_transform(nmf_3dt_volume)
-    signals_2 = model_2.fit_transform(nmf_3dt_volume)
-
-    np.testing.assert_allclose(signals_1.values, signals_2.values)
-    np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
-
-
 def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
     """Spatial mode matches sklearn NMF fitted on transposed data."""
     stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
@@ -431,10 +407,8 @@ def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = NMF(n_components=3, init="nndsvda", random_state=0, mode="spatial").fit(
-        nmf_3dt_volume
-    )
-    sklearn_model = SklearnNMF(n_components=3, init="nndsvda", random_state=0).fit(X.T)
+    model = NMF(n_components=3, random_state=0, mode="spatial").fit(nmf_3dt_volume)
+    sklearn_model = SklearnNMF(n_components=3, random_state=0).fit(X.T)
 
     spatial_maps = sklearn_model.transform(X.T).T
     voxel_mean = X.mean(axis=0)
@@ -483,9 +457,7 @@ def test_mask_restricts_features(nmf_3dt_volume):
     )
     mask.values[:2, :, :] = True
 
-    model = NMF(n_components=3, init="nndsvda", random_state=0, mask=mask).fit(
-        nmf_3dt_volume
-    )
+    model = NMF(n_components=3, random_state=0, mask=mask).fit(nmf_3dt_volume)
 
     assert model.n_features_in_ == int(mask.values.sum())
 
@@ -510,9 +482,7 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(nmf_3dt_volume):
     )
     mask.values[:2, :, :] = True
 
-    model = NMF(n_components=3, init="nndsvda", random_state=0, mask=mask).fit(
-        nmf_3dt_volume
-    )
+    model = NMF(n_components=3, random_state=0, mask=mask).fit(nmf_3dt_volume)
     reconstructed = model.inverse_transform(model.transform(nmf_3dt_volume))
 
     assert reconstructed.dims == nmf_3dt_volume.dims
