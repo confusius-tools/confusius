@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
@@ -74,6 +75,47 @@ if TYPE_CHECKING:
     from napari.layers import Image, Layer
 
     from confusius.registration import RegistrationDiagnostics, RegistrationProgress
+
+
+@contextmanager
+def _preserve_view(viewer: "napari.Viewer") -> Iterator[None]:
+    """Keep the viewer camera and dims state across a block that adds layers.
+
+    Adding image layers makes napari recompute `camera.center` and re-apply
+    `napari.imshow`'s default `ndisplay`/`order` to the dims, which yanks the
+    canvas back to a default framing. Wrapping the layer creation in this
+    context manager snapshots the current pan, zoom, rotation, and slider
+    position and restores them once the block exits, so the user keeps the view
+    they were on when starting a registration run.
+
+    Parameters
+    ----------
+    viewer : napari.Viewer
+        Viewer whose camera and dims state are snapshotted and restored.
+
+    Yields
+    ------
+    None
+        Control returns to the wrapped block; the saved state is restored when
+        it exits, including on early return or exception.
+    """
+    camera = viewer.camera
+    dims = viewer.dims
+    center = tuple(camera.center)
+    zoom = camera.zoom
+    angles = tuple(camera.angles)
+    ndisplay = dims.ndisplay
+    order = tuple(dims.order)
+    current_step = tuple(dims.current_step)
+    try:
+        yield
+    finally:
+        dims.ndisplay = ndisplay
+        dims.order = order
+        dims.current_step = current_step
+        camera.center = center
+        camera.zoom = zoom
+        camera.angles = angles
 
 
 def _default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
@@ -2208,45 +2250,49 @@ class RegistrationPanel(QWidget):
             attrs=moving.attrs.copy(),
         )
 
-        try:
-            moving_preview_layer = cast(
-                "Image",
-                self.viewer.layers[self._volumewise_moving_preview_layer_name()],
-            )
-        except KeyError:
-            _, moving_preview_layer = plot_napari(
-                moving,
+        # Adding the preview/progress layers makes napari recompute the camera
+        # and reset the dims; snapshot and restore so the run starts from the
+        # user's current view.
+        with _preserve_view(self.viewer):
+            try:
+                moving_preview_layer = cast(
+                    "Image",
+                    self.viewer.layers[self._volumewise_moving_preview_layer_name()],
+                )
+            except KeyError:
+                _, moving_preview_layer = plot_napari(
+                    moving,
+                    viewer=self.viewer,
+                    name=self._volumewise_moving_preview_layer_name(),
+                    show_colorbar=False,
+                    contrast_limits=contrast_limits,
+                    **moving_display_kwargs,
+                )
+            else:
+                moving_preview_layer.data = np.asarray(moving.data)  # type: ignore[invalid-assignment]
+                moving_preview_layer.colormap = moving_display_kwargs["colormap"]
+                moving_preview_layer.gamma = cast(
+                    "float", moving_display_kwargs.get("gamma", 1.0)
+                )
+                moving_preview_layer.contrast_limits = contrast_limits
+
+            try:
+                fixed_preview_layer = cast(
+                    "Image", self.viewer.layers[self._volume_fixed_preview_layer_name()]
+                )
+            except KeyError:
+                fixed_preview_layer = None
+            else:
+                fixed_preview_layer.visible = False
+
+            _, layer = plot_napari(
+                preview,
                 viewer=self.viewer,
-                name=self._volumewise_moving_preview_layer_name(),
+                name=layer_name,
                 show_colorbar=False,
                 contrast_limits=contrast_limits,
-                **moving_display_kwargs,
+                **display_kwargs,
             )
-        else:
-            moving_preview_layer.data = np.asarray(moving.data)  # type: ignore[invalid-assignment]
-            moving_preview_layer.colormap = moving_display_kwargs["colormap"]
-            moving_preview_layer.gamma = cast(
-                "float", moving_display_kwargs.get("gamma", 1.0)
-            )
-            moving_preview_layer.contrast_limits = contrast_limits
-
-        try:
-            fixed_preview_layer = cast(
-                "Image", self.viewer.layers[self._volume_fixed_preview_layer_name()]
-            )
-        except KeyError:
-            fixed_preview_layer = None
-        else:
-            fixed_preview_layer.visible = False
-
-        _, layer = plot_napari(
-            preview,
-            viewer=self.viewer,
-            name=layer_name,
-            show_colorbar=False,
-            contrast_limits=contrast_limits,
-            **display_kwargs,
-        )
         bridge = NapariRegistrationProgressReporterBridge()
         bridge.frame_progress.connect(self._update_volumewise_progress_bar)
         bridge.frame_completed.connect(self._update_volumewise_progress_frame)
@@ -2410,62 +2456,67 @@ class RegistrationPanel(QWidget):
             )
             preview_contrast_limits = tuple(calc_data_range(preview.data))
 
-        try:
+        # Adding the preview/progress layers makes napari recompute the camera
+        # and reset the dims; snapshot and restore so the run starts from the
+        # user's current view.
+        with _preserve_view(self.viewer):
             try:
-                fixed_preview_layer = cast(
-                    "Image", self.viewer.layers[self._volume_fixed_preview_layer_name()]
-                )
-            except KeyError:
-                _, fixed_preview_layer = plot_napari(
-                    fixed,
-                    viewer=self.viewer,
-                    name=self._volume_fixed_preview_layer_name(),
-                    show_colorbar=False,
-                    **fixed_display_kwargs,
-                )
-            else:
-                fixed_preview_layer.data = np.asarray(fixed.data)  # type: ignore[invalid-assignment]
-                fixed_preview_layer.colormap = fixed_display_kwargs["colormap"]
-                fixed_preview_layer.gamma = cast(
-                    "float", fixed_display_kwargs.get("gamma", 1.0)
-                )
-                fixed_preview_layer.visible = True
+                try:
+                    fixed_preview_layer = cast(
+                        "Image",
+                        self.viewer.layers[self._volume_fixed_preview_layer_name()],
+                    )
+                except KeyError:
+                    _, fixed_preview_layer = plot_napari(
+                        fixed,
+                        viewer=self.viewer,
+                        name=self._volume_fixed_preview_layer_name(),
+                        show_colorbar=False,
+                        **fixed_display_kwargs,
+                    )
+                else:
+                    fixed_preview_layer.data = np.asarray(fixed.data)  # type: ignore[invalid-assignment]
+                    fixed_preview_layer.colormap = fixed_display_kwargs["colormap"]
+                    fixed_preview_layer.gamma = cast(
+                        "float", fixed_display_kwargs.get("gamma", 1.0)
+                    )
+                    fixed_preview_layer.visible = True
 
-            try:
-                moving_preview_layer = cast(
-                    "Image",
-                    self.viewer.layers[self._volume_moving_preview_layer_name()],
-                )
-            except KeyError:
-                _, moving_preview_layer = plot_napari(
+                try:
+                    moving_preview_layer = cast(
+                        "Image",
+                        self.viewer.layers[self._volume_moving_preview_layer_name()],
+                    )
+                except KeyError:
+                    _, moving_preview_layer = plot_napari(
+                        preview,
+                        viewer=self.viewer,
+                        name=self._volume_moving_preview_layer_name(),
+                        show_colorbar=False,
+                        contrast_limits=preview_contrast_limits,
+                        **moving_display_kwargs,
+                    )
+                else:
+                    moving_preview_layer.data = np.asarray(preview.data)  # type: ignore[invalid-assignment]
+                    moving_preview_layer.colormap = moving_display_kwargs["colormap"]
+                    moving_preview_layer.blending = moving_display_kwargs["blending"]
+                    moving_preview_layer.gamma = cast(
+                        "float", moving_display_kwargs.get("gamma", 1.0)
+                    )
+                    moving_preview_layer.contrast_limits = preview_contrast_limits
+                moving_preview_layer.visible = False
+
+                _, layer = plot_napari(
                     preview,
                     viewer=self.viewer,
-                    name=self._volume_moving_preview_layer_name(),
+                    name=layer_name,
                     show_colorbar=False,
                     contrast_limits=preview_contrast_limits,
-                    **moving_display_kwargs,
+                    **display_kwargs,
                 )
-            else:
-                moving_preview_layer.data = np.asarray(preview.data)  # type: ignore[invalid-assignment]
-                moving_preview_layer.colormap = moving_display_kwargs["colormap"]
-                moving_preview_layer.blending = moving_display_kwargs["blending"]
-                moving_preview_layer.gamma = cast(
-                    "float", moving_display_kwargs.get("gamma", 1.0)
-                )
-                moving_preview_layer.contrast_limits = preview_contrast_limits
-            moving_preview_layer.visible = False
-
-            _, layer = plot_napari(
-                preview,
-                viewer=self.viewer,
-                name=layer_name,
-                show_colorbar=False,
-                contrast_limits=preview_contrast_limits,
-                **display_kwargs,
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._set_error(f"Could not create progress layer: {exc}")
-            return None
+            except Exception as exc:  # noqa: BLE001
+                self._set_error(f"Could not create progress layer: {exc}")
+                return None
 
         bridge = NapariProgressBridge()
         bridge.iterated.connect(self._update_progress_layer)

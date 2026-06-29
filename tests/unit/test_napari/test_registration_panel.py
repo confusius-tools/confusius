@@ -227,6 +227,43 @@ class TestOperationMode:
         assert viewer.layers["Moving"].gamma == pytest.approx(0.4)
         assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(0.4)
 
+    def test_setup_volume_progress_preserves_camera_view(
+        self, viewer, registration_panel
+    ):
+        moving_data = xr.DataArray(
+            np.ones((5, 4, 6), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.DataArray(np.arange(5) * 0.3, dims=["z"]),
+                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+            },
+        )
+        fixed = xr.DataArray(
+            2 * np.ones((5, 4, 6), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords=moving_data.coords,
+        )
+        moving = viewer.add_image(moving_data.values, name="moving")
+        fixed_layer = viewer.add_image(fixed.values, name="fixed")
+
+        # User navigates to a custom 3D view before launching the run.
+        viewer.dims.ndisplay = 3
+        viewer.camera.center = (1.0, 2.0, 3.0)
+        viewer.camera.zoom = 7.0
+        before = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
+
+        registration_panel._setup_volume_progress(
+            moving_layer=moving,
+            fixed_layer=fixed_layer,
+            moving=moving_data,
+            fixed=fixed,
+            layer_name="Registered (rigid)",
+        )
+
+        after = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
+        assert after == before
+
     def test_metric_specific_rows_follow_metric(self, registration_panel):
         registration_panel._advanced_toggle.setChecked(True)
         assert registration_panel._metric_combo.currentText() == "correlation"
