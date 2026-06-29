@@ -370,8 +370,8 @@ class ConfUSIusWidget(QWidget):
         header.setObjectName("confusius_header")
 
         layout = QVBoxLayout(header)
-        layout.setContentsMargins(4, 6, 12, 14)
-        layout.setSpacing(2)
+        layout.setContentsMargins(4, 12, 12, 14)
+        layout.setSpacing(0)
 
         tour_btn = QPushButton("Take a Tour")
         tour_btn.setObjectName("tour_btn")
@@ -381,11 +381,11 @@ class ConfUSIusWidget(QWidget):
         tour_btn.adjustSize()
 
         logo_widget = self._load_logo()
-        logo_row = QHBoxLayout()
-        logo_row.setContentsMargins(0, 0, 0, 6)
-        logo_row.setSpacing(10)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 6)
+        header_row.setSpacing(10)
         if logo_widget is not None:
-            logo_row.addWidget(logo_widget)
+            header_row.addWidget(logo_widget, alignment=Qt.AlignmentFlag.AlignTop)
 
         title = QLabel("ConfUSIus")
         title.setObjectName("confusius_title")
@@ -395,24 +395,18 @@ class ConfUSIusWidget(QWidget):
         subtitle.setObjectName("confusius_subtitle")
         subtitle.setIndent(0)
 
-        tour_btn_title_and_subtitle = QWidget()
-        tour_btn_title_and_subtitle_layout = QVBoxLayout(tour_btn_title_and_subtitle)
-        tour_btn_title_and_subtitle_layout.setContentsMargins(0, 0, 0, 0)
-        tour_btn_title_and_subtitle_layout.setSpacing(0)
+        title_block = QWidget()
+        title_block_layout = QVBoxLayout(title_block)
+        title_block_layout.setContentsMargins(0, 4, 0, 0)
+        title_block_layout.setSpacing(0)
+        title_block_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignLeft)
+        title_block_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
+        title_block_layout.addStretch()
 
-        tour_btn_title_and_subtitle_layout.addStretch()
-        tour_btn_title_and_subtitle_layout.addWidget(
-            tour_btn, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
-        )
-        tour_btn_title_and_subtitle_layout.addWidget(
-            title, alignment=Qt.AlignmentFlag.AlignLeft
-        )
-        tour_btn_title_and_subtitle_layout.addWidget(
-            subtitle, alignment=Qt.AlignmentFlag.AlignLeft
-        )
-
-        logo_row.addWidget(tour_btn_title_and_subtitle)
-        layout.addLayout(logo_row)
+        header_row.addWidget(title_block, alignment=Qt.AlignmentFlag.AlignTop)
+        header_row.addStretch()
+        header_row.addWidget(tour_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(header_row)
 
         return header
 
