@@ -29,6 +29,16 @@ Current development version for the next ConfUSIus release.
   (Benjamini-Hochberg, Benjamini-Yekutieli) correction, plus an optional cluster-extent
   threshold ([#204](https://github.com/confusius-tools/confusius/pull/204)).
 
+### :bug: Fixes
+
+- Image plotting functions now leave `alpha` unset by default (`None`), so a
+  colormap's built-in alpha channel is respected
+  ([#225](https://github.com/confusius-tools/confusius/pull/225)).
+- `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
+  `bspline_initialization` written by the registration pipeline) when merging in the
+  NIfTI qform/sform affines
+  ([#222](https://github.com/confusius-tools/confusius/pull/222)).
+
 ## 0.4.0
 
 *Released 2026-06-25.*
