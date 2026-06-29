@@ -176,16 +176,61 @@ _ = fig.suptitle(
 # ## Spatial NMF
 #
 # [`NMF`][confusius.decomposition.NMF] also accepts `mode="spatial"`, which transposes
-# the data to `(voxels, time)` before fitting. In this orientation, the dictionaries
-# are non-negative time courses and the projected signals are non-negative spatial
-# maps. The rest of the API is identical and the choice between the two modes mirrors
-# the temporal/spatial choice offered by [PCA](pca_single_recording.md) and
+# the data to `(voxels, time)` before fitting. The output convention is identical to
+# temporal mode — [`maps_`][confusius.decomposition.NMF] holds the non-negative spatial
+# maps and [`fit_transform`][confusius.decomposition.NMF.fit_transform] returns their
+# non-negative time courses — so the choice between the two modes mirrors the
+# temporal/spatial choice offered by [PCA](pca_single_recording.md) and
 # [FastICA](fastica_single_recording.md).
 
 # %%
 nmf_spatial = NMF(n_components=10, mode="spatial", random_state=0, max_iter=500)
-spatial_maps = nmf_spatial.fit_transform(data_nmf)
-spatial_maps
+signals_s = nmf_spatial.fit_transform(data_nmf)
+signals_s
+
+# %% [markdown]
+# ### Spatial maps and time courses
+#
+# As in temporal mode, we inspect the spatial maps and their corresponding time courses
+# side by side.
+
+# %%
+n_show = 10
+fig = plt.figure(figsize=(10.5, 12.0), constrained_layout=True)
+fig.patch.set_facecolor(bg_color)
+gs = fig.add_gridspec(n_show, 2, width_ratios=[1, 3])
+
+axes_tc = [fig.add_subplot(gs[i, 1]) for i in range(n_show)]
+for ax in axes_tc[1:]:
+    ax.sharex(axes_tc[0])
+
+for i, comp in enumerate(range(n_show)):
+    component_map = nmf_spatial.maps_.isel(component=[comp])
+    vmax = float(component_map.max())
+    cf.plotting.plot_volume(
+        component_map,
+        axes=fig.add_subplot(gs[i, 0]),
+        slice_mode="component",
+        cmap="viridis",
+        vmin=0,
+        vmax=vmax,
+        show_axes=False,
+        show_colorbar=False,
+        show_titles=False,
+        bg_color=bg_color,
+    )
+
+    signals_s.sel(component=comp).plot(ax=axes_tc[i], lw=1.1)
+    axes_tc[i].set_title(f"Component {comp + 1}")
+    axes_tc[i].set_ylabel("Signal")
+    axes_tc[i].set_xlabel("")
+
+for ax in axes_tc[:-1]:
+    ax.tick_params(labelbottom=False)
+axes_tc[-1].set_xlabel("Time (s)")
+_ = fig.suptitle(
+    "Spatial NMF: spatial maps and time courses (first 10 components)", fontsize=21
+)
 
 # %% [markdown]
 # [^1]: Lee, D. D., and Seung, H. S. (1999). "Learning the parts of objects by

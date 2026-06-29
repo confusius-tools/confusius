@@ -222,7 +222,9 @@ for i, comp in enumerate(range(n_show)):
 for ax in axes_tc[:-1]:
     ax.tick_params(labelbottom=False)
 axes_tc[-1].set_xlabel("Time (s)")
-_ = fig.suptitle("Spatial ICA: maps and time courses (first 10 components)", fontsize=21)
+_ = fig.suptitle(
+    "Spatial ICA: maps and time courses (first 10 components)", fontsize=21
+)
 
 # %% [markdown]
 # [^1]: Hyvärinen, A., and Oja, E. (2000). "Independent component analysis:
