@@ -226,9 +226,15 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
     )
 
     fixed = sample_3d_volume.copy()
+    fixed_mask = fixed > 0
+    moving_mask = sample_3d_volume > 0
+    progress_plotter = object()
+    abort_event = object()
     assert (
         sample_3d_volume.fusi.register.to_volume(
             fixed,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
             transform="affine",
             metric="mattes_mi",
             number_of_histogram_bins=40,
@@ -248,6 +254,9 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
             plot_metric=False,
             plot_composite=False,
             fill_value=-1.0,
+            sitk_threads=2,
+            progress_plotter=progress_plotter,
+            abort_event=abort_event,
         )
         is reg_result
     )
@@ -255,6 +264,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
         sample_3d_volume,
         fixed,
         {
+            "fixed_mask": fixed_mask,
+            "moving_mask": moving_mask,
             "transform_type": "affine",
             "metric": "mattes_mi",
             "number_of_histogram_bins": 40,
@@ -270,13 +281,18 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
             "smoothing_sigmas": (3, 1, 0),
             "resample": True,
             "resample_interpolation": "bspline",
+            "fill_value": -1.0,
+            "sitk_threads": 2,
             "show_progress": True,
             "plot_metric": False,
             "plot_composite": False,
-            "fill_value": -1.0,
+            "progress_plotter": progress_plotter,
+            "abort_event": abort_event,
         },
     )
 
+    progress_reporter = object()
+    abort_event = object()
     assert (
         sample_3d_volume.fusi.register.volumewise(
             reference_time=2,
@@ -295,6 +311,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
             smoothing_sigmas=(2, 0),
             resample_interpolation="bspline",
             show_progress=False,
+            progress_reporter=progress_reporter,
+            abort_event=abort_event,
             keep_diagnostics=True,
         )
         is volumewise_result
@@ -318,6 +336,8 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
             "smoothing_sigmas": (2, 0),
             "resample_interpolation": "bspline",
             "show_progress": False,
+            "progress_reporter": progress_reporter,
+            "abort_event": abort_event,
             "keep_diagnostics": True,
         },
     )

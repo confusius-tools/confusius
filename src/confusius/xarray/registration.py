@@ -1,15 +1,18 @@
 """Xarray accessor for registration."""
 
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Callable, Sequence
+from threading import Event
+from typing import Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius.registration._progress import RegistrationProgress
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
+from confusius.registration.volumewise_progress import VolumewiseProgressReporter
 
 
 class FUSIRegistrationAccessor:
@@ -34,6 +37,8 @@ class FUSIRegistrationAccessor:
         self,
         fixed: xr.DataArray,
         *,
+        fixed_mask: xr.DataArray | None = None,
+        moving_mask: xr.DataArray | None = None,
         transform: Literal["translation", "rigid", "affine", "bspline"] = "rigid",
         metric: Literal["correlation", "mattes_mi"] = "correlation",
         number_of_histogram_bins: int = 50,
@@ -52,9 +57,12 @@ class FUSIRegistrationAccessor:
         resample: bool = False,
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         fill_value: float | None = None,
+        sitk_threads: int = -1,
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
+        progress_plotter: Callable[..., RegistrationProgress] | None = None,
+        abort_event: Event | None = None,
     ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":  # noqa: E501
         """Register this volume to a fixed reference volume.
 
@@ -62,6 +70,10 @@ class FUSIRegistrationAccessor:
         ----------
         fixed : xarray.DataArray
             Reference volume to register to.
+        fixed_mask : xarray.DataArray, optional
+            Boolean mask for the fixed volume.
+        moving_mask : xarray.DataArray, optional
+            Boolean mask for this moving volume.
         transform : {"translation", "rigid", "affine", "bspline"}, default: "rigid"
             Type of transform to use for registration.
         metric : {"correlation", "mattes_mi"}, default: "correlation"
@@ -119,6 +131,8 @@ class FUSIRegistrationAccessor:
             Fill value for voxels outside the moving image's field of view after
             resampling. If not provided, defaults to the minimum of the moving
             image. See [`register_volume`][confusius.registration.register_volume].
+        sitk_threads : int, default: -1
+            Number of threads SimpleITK may use internally.
         show_progress : bool, default: False
             Whether to display a live progress plot during registration.
         plot_metric : bool, default: True
@@ -127,6 +141,11 @@ class FUSIRegistrationAccessor:
         plot_composite : bool, default: True
             Whether to include a fixed/moving composite overlay in the
             progress plot. Ignored when `show_progress=False`.
+        progress_plotter : callable, optional
+            Custom progress reporter factory. See
+            [`register_volume`][confusius.registration.register_volume].
+        abort_event : threading.Event, optional
+            Cooperative cancellation flag.
 
         Returns
         -------
@@ -151,6 +170,8 @@ class FUSIRegistrationAccessor:
         return register_volume(
             self._obj,
             fixed,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
             transform_type=transform,
             metric=metric,
             number_of_histogram_bins=number_of_histogram_bins,
@@ -167,9 +188,14 @@ class FUSIRegistrationAccessor:
             resample=resample,
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
+            sitk_threads=sitk_threads,
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
+            progress_plotter=cast(
+                "Callable[..., RegistrationProgress] | None", progress_plotter
+            ),
+            abort_event=abort_event,
         )
 
     def volumewise(
@@ -192,6 +218,8 @@ class FUSIRegistrationAccessor:
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         show_progress: bool = True,
+        progress_reporter: VolumewiseProgressReporter | None = None,
+        abort_event: Event | None = None,
         keep_diagnostics: bool = False,
     ) -> xr.DataArray:
         """Register all volumes to a reference time point.
@@ -248,6 +276,10 @@ class FUSIRegistrationAccessor:
             Interpolation method used for the final resample step.
         show_progress : bool, default: True
             Whether to display a progress bar while registering volumes.
+        progress_reporter : VolumewiseProgressReporter, optional
+            Thread-safe reporter notified whenever one frame completes.
+        abort_event : threading.Event, optional
+            Cooperative cancellation flag shared across frames.
         keep_diagnostics : bool, default: False
             Whether to keep per-frame registration diagnostics on the result.
             See
@@ -282,5 +314,7 @@ class FUSIRegistrationAccessor:
             smoothing_sigmas=smoothing_sigmas,
             resample_interpolation=resample_interpolation,
             show_progress=show_progress,
+            progress_reporter=progress_reporter,
+            abort_event=abort_event,
             keep_diagnostics=keep_diagnostics,
         )
