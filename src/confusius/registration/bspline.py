@@ -147,7 +147,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     """
     import SimpleITK as sitk
 
-    _validate_bspline_dataarray(da)
+    validate_bspline_dataarray(da)
 
     ndim = da.ndim - 1  # subtract the component axis
     order = int(da.attrs["order"])
@@ -240,7 +240,7 @@ def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
     )
 
 
-def _validate_bspline_dataarray(da: xr.DataArray) -> None:
+def validate_bspline_dataarray(da: xr.DataArray) -> None:
     """Raise ValueError if *da* does not look like a valid B-spline transform DataArray.
 
     Parameters

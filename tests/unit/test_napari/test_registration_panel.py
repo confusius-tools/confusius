@@ -13,12 +13,10 @@ from qtpy.QtWidgets import QApplication
 from confusius._napari._registration._transforms import (
     affine_transform_from_payload,
     bspline_transform_from_payload,
-    load_affine_transform_payload,
     load_transform_payload,
     make_affine_transform_payload,
     make_bspline_transform_payload,
     output_grid_from_payload,
-    save_affine_transform_payload,
     save_transform_payload,
 )
 from confusius.registration import resample_like
@@ -684,8 +682,8 @@ class TestTransforms:
         )
 
         path = tmp_path / "transform.json"
-        save_affine_transform_payload(path, payload)
-        loaded = load_affine_transform_payload(path)
+        save_transform_payload(path, payload)
+        loaded = load_transform_payload(path)
 
         assert loaded["source_layer_name"] == "moving"
         assert loaded["name"] == "moving → fixed (rigid)"

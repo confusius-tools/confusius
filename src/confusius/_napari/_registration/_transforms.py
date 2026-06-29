@@ -10,6 +10,8 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius.registration.bspline import validate_bspline_dataarray
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -179,7 +181,7 @@ def make_affine_transform_payload(
 
 def _serialize_bspline_dataarray(transform: "xr.DataArray") -> BSplineDataArrayPayload:
     """Return a JSON-serializable B-spline DataArray payload."""
-    _validate_bspline_dataarray(transform)
+    validate_bspline_dataarray(transform)
     return {
         "dims": [str(dim) for dim in transform.dims],
         "data": np.asarray(transform, dtype=float).tolist(),
@@ -205,7 +207,7 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
         coords=coords,
         attrs=dict(payload["attrs"]),
     )
-    _validate_bspline_dataarray(transform)
+    validate_bspline_dataarray(transform)
     return transform
 
 
@@ -410,7 +412,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
     finally:
         ds.close()
 
-    _validate_bspline_dataarray(transform)
+    validate_bspline_dataarray(transform)
     payload: BSplineTransformPayload = {
         "kind": "bspline",
         "bspline": _serialize_bspline_dataarray(transform),
@@ -478,64 +480,3 @@ def load_transform_payload(path: str | Path) -> TransformPayload:
     affine_transform_from_payload(payload)
     output_grid_from_payload(payload)
     return cast("TransformPayload", payload)
-
-
-def save_affine_transform_payload(
-    path: str | Path, payload: AffineTransformPayload
-) -> None:
-    """Save an affine transform payload as JSON.
-
-    Parameters
-    ----------
-    path : str or pathlib.Path
-        Output JSON path.
-    payload : AffineTransformPayload
-        Transform payload to save.
-    """
-    save_transform_payload(path, payload)
-
-
-def load_affine_transform_payload(path: str | Path) -> AffineTransformPayload:
-    """Load an affine transform payload from JSON.
-
-    Parameters
-    ----------
-    path : str or pathlib.Path
-        Input JSON path.
-
-    Returns
-    -------
-    AffineTransformPayload
-        Loaded affine transform payload.
-    """
-    payload = load_transform_payload(path)
-    affine_transform_from_payload(payload)
-    return cast("AffineTransformPayload", payload)
-
-
-def _validate_bspline_dataarray(da: xr.DataArray) -> None:
-    """Raise ValueError if *da* does not look like a valid B-spline transform."""
-    transform_type = da.attrs.get("transform_type")
-    if transform_type != "bspline_transform":
-        raise ValueError(
-            "Expected a DataArray with attrs['transform_type'] == "
-            "'bspline_transform'; "
-            f"got {transform_type!r}."
-        )
-    for key in ("order", "direction"):
-        if key not in da.attrs:
-            raise ValueError(
-                f"B-spline transform DataArray is missing required attribute {key!r}."
-            )
-    if not da.dims or da.dims[0] != "component":
-        raise ValueError(
-            "B-spline transform DataArray must have 'component' as its first "
-            f"dimension; got {da.dims[0] if da.dims else None!r}."
-        )
-    ndim = da.ndim - 1
-    if da.sizes["component"] != ndim:
-        raise ValueError(
-            "B-spline transform DataArray component axis must match the number of "
-            f"spatial dimensions; got {da.sizes['component']} components for {ndim} "
-            "spatial dims."
-        )
