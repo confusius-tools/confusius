@@ -799,6 +799,11 @@ def load_nifti(
     spatial_coords, affine_attrs = _create_spatial_coords_from_nifti(
         img=img, extractor=extractor, dims=nifti_dims
     )
+    # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
+    # from the sidecar) so sidecar entries like `bspline_initialization` are not
+    # clobbered by the qform/sform keys coming from the file header.
+    if "affines" in attrs and "affines" in affine_attrs:
+        affine_attrs["affines"] = {**attrs["affines"], **affine_attrs["affines"]}
     attrs.update(affine_attrs)
 
     if "time" in nifti_dims:
