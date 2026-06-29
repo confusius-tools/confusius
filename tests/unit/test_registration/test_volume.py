@@ -1,5 +1,6 @@
 """Unit tests for single-volume registration."""
 
+import signal
 from threading import Event
 
 import numpy as np
@@ -10,6 +11,130 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
+
+
+class TestRegisterVolumeSigint:
+    """Ctrl+C handling exposed through the public `register_volume` API."""
+
+    def test_first_ctrl_c_returns_aborted_result_and_restores_handler(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """First Ctrl+C sets the cooperative abort event and restores SIGINT afterwards."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        _result, _transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+        )
+
+        assert diagnostics.status == "aborted"
+        assert signal.getsignal(signal.SIGINT) is previous_handler
+
+    def test_second_ctrl_c_raises_keyboardinterrupt(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Second Ctrl+C falls back to the previous default SIGINT handler."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(KeyboardInterrupt):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+
+        assert signal.getsignal(signal.SIGINT) is previous_handler
+
+    def test_second_ctrl_c_ignores_when_previous_handler_ignores(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Second Ctrl+C is ignored when the previous SIGINT handler ignored it."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        try:
+            _result, _transform, diagnostics = register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+
+        assert diagnostics.status == "aborted"
+
+    def test_second_ctrl_c_calls_previous_custom_handler(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Second Ctrl+C delegates to a previous custom handler when one is installed."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+        calls: list[tuple[int, object]] = []
+
+        def custom_handler(signum: int, frame: object) -> None:
+            calls.append((signum, frame))
+
+        signal.signal(signal.SIGINT, custom_handler)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        try:
+            _result, _transform, diagnostics = register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+
+        assert diagnostics.status == "aborted"
+        assert len(calls) == 1
+        assert calls[0][0] == signal.SIGINT
 
 
 class TestRegisterVolumeValidation:
