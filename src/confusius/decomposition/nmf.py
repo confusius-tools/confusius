@@ -36,9 +36,7 @@ class NMF(_BaseFUSIDecomposer):
         `"mle"`: it must be an integer or `"auto"`.
     init : {"nndsvda", "nndsvdar", "random"}, optional
         Method used to initialize the procedure. If not set, lets sklearn pick
-        `"nndsvda"` for non-negative sparse data and `"random"` otherwise. `"nndsvda"`
-        (or its randomized variant `"nndsvdar"`) is a good default for sparse fUSI Power
-        Doppler data.
+        `"nndsvda"` for non-negative sparse data and `"random"` otherwise.
     solver : {"cd", "mu"}, default: "cd"
         Numerical solver to use: `"cd"` is a Coordinate Descent solver (only one
         supporting beta-loss different from `"frobenius"`) while `"mu"` is a
