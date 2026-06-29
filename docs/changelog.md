@@ -41,15 +41,20 @@ Current development version for the next ConfUSIus release.
 - `save_nifti` no longer maps non-time additional axes to the NIfTI 4th slot. A
   degenerate length-1 `time` axis is always inserted at NIfTI axis 4 (NIfTI's
   conventional time slot), so non-time additional axes always land at NIfTI axes
-  5, 6, 7. The original dim name and coordinate values for each additional axis
-  are written to the sidecar as `ConfUSIusDim{N}Name` / `ConfUSIusDim{N}Coordinates`
-  (with `N` in 4, 5, 6, matching the 0-based NIfTI axis of the extra dim), and
-  `load_nifti` reads them back to restore the original axis name and coordinate.
-  This lets B-spline control grids and any other non-time payload round-trip
-  through NIfTI without their leading axis being mislabeled as time on reload.
-  `save_nifti` now raises `ValueError` when the DataArray has more than 3
-  non-spatial, non-time dims (the NIfTI 7-axis limit)
-  ([#223](https://github.com/confusius-tools/confusius/pull/223)).
+  5, 6, 7. The original dim name for each additional axis is always written to the
+  sidecar as `ConfUSIusDim{N}Name` (with `N` in 4, 5, 6, matching the 0-based
+  NIfTI axis of the extra dim). The matching `ConfUSIusDim{N}Coordinates` entry
+  is only written when the coord cannot be reconstructed from `pixdim` (i.e.
+  when the coord does not start at 0 with regular spacing); otherwise the spacing
+  is stored in `pixdim` and the coord is rebuilt as `step * arange(size)` on
+  load. `load_nifti` falls back to the `pixdim` reconstruction when no
+  `ConfUSIusDim{N}Coordinates` is present, and to plain `arange(size)` when
+  `pixdim` is zero. When the sidecar is missing the `ConfUSIusDim{N}Name` entry,
+  the axis defaults to a `dim{N}` placeholder. This lets B-spline control grids
+  and any other non-time payload round-trip through NIfTI without their leading
+  axis being mislabeled as time on reload. `save_nifti` now raises `ValueError`
+  when the DataArray has more than 3 non-spatial, non-time dims (the NIfTI
+  7-axis limit) ([#223](https://github.com/confusius-tools/confusius/pull/223)).
 - **[Napari plugin]** Fixed the Signals plot x-axis for volumes without a time
   dimension. It now follows the slider axis world coordinates, with a matching label and
   dropdown option ([#180](https://github.com/confusius-tools/confusius/pull/180)).

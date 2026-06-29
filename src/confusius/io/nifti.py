@@ -758,27 +758,53 @@ def _resolve_nifti_extra_dims(
 def _build_extra_dim_coords(
     nifti_dims: tuple[str, ...],
     extra_coord_values: dict[str, npt.NDArray[np.floating]],
+    nifti_pixdim: npt.NDArray[np.floating],
+    nifti_axis_sizes: tuple[int, ...],
 ) -> dict[str, xr.DataArray]:
-    """Build extra-dim coordinate DataArrays from sidecar coord values.
+    """Build extra-dim coordinate DataArrays from sidecar or pixdim values.
+
+    For each extra dim in `nifti_dims`:
+    - If a sidecar value is present (from `ConfUSIusDimNCoordinates`), use it.
+    - Otherwise, build `[0, step, 2*step, ...]` from `nifti_pixdim[N]` when
+      the zoom is strictly positive.
+    - Otherwise, fall back to `[0, 1, 2, ...]` (unit spacing).
 
     Parameters
     ----------
     nifti_dims : tuple[str, ...]
         Resolved NIfTI axis order, with sidecar dim names applied.
     extra_coord_values : dict[str, numpy.ndarray]
-        Mapping from extra dim name to its coordinate values.
+        Mapping from extra dim name to its sidecar-supplied coord values.
+    nifti_pixdim : numpy.ndarray
+        Raw NIfTI `pixdim` array, where `pixdim[N]` is the zoom for the
+        NIfTI axis with 0-based index `N`.
+    nifti_axis_sizes : tuple[int, ...]
+        Size of the data along each NIfTI axis, in NIfTI order
+        `(x, y, z, time, *extras)`. Used to size the fallback coord.
 
     Returns
     -------
     dict[str, xarray.DataArray]
-        Coordinate DataArrays keyed by name, for each extra dim in `nifti_dims`
-        that has matching values in `extra_coord_values`.
+        Coordinate DataArrays keyed by name, for each extra dim in `nifti_dims`.
     """
     coords: dict[str, xr.DataArray] = {}
-    for dim_name in nifti_dims:
-        if dim_name in ("x", "y", "z", "time") or dim_name not in extra_coord_values:
+    for nifti_axis, dim_name in enumerate(nifti_dims):
+        if dim_name in ("x", "y", "z", "time"):
             continue
-        coords[dim_name] = xr.DataArray(extra_coord_values[dim_name], dims=[dim_name])
+        if dim_name in extra_coord_values:
+            coords[dim_name] = xr.DataArray(
+                extra_coord_values[dim_name], dims=[dim_name]
+            )
+            continue
+        size = nifti_axis_sizes[nifti_axis]
+        step = (
+            float(nifti_pixdim[nifti_axis]) if nifti_axis < len(nifti_pixdim) else 0.0
+        )
+        if step > 0.0:
+            coord_values = step * np.arange(size, dtype=np.float64)
+        else:
+            coord_values = np.arange(size, dtype=np.float64)
+        coords[dim_name] = xr.DataArray(coord_values, dims=[dim_name])
     return coords
 
 
@@ -906,7 +932,12 @@ def load_nifti(
     )
     attrs.update(affine_attrs)
 
-    extra_coords = _build_extra_dim_coords(nifti_dims, extra_coord_values)
+    extra_coords = _build_extra_dim_coords(
+        nifti_dims,
+        extra_coord_values,
+        np.asarray(img.header.get_zooms()),
+        tuple(int(s) for s in img.shape),
+    )
 
     if "time" in nifti_dims:
         temporal_coords, attrs = _create_temporal_coords_from_nifti(
@@ -1255,12 +1286,13 @@ def _build_extra_dim_sidecar_metadata(
     """Build sidecar entries for non-time, non-spatial extra dimensions.
 
     NIfTI's 5th/6th/7th axes are anonymous. To preserve the original DataArray
-    dim names and coordinates across a save/load roundtrip, each extra dim is
-    written under `dim{N}_name` and `dim{N}_coordinates`, where `N` is the
-    position in the extra-dim sequence (4, 5, or 6 — matching the 0-based
-    NIfTI axis of the extra dim, which is always 4 + extra_index since
-    NIfTI axis 3 is reserved for time). The keys get the `ConfUSIus` prefix
-    in the BIDS sidecar (e.g. `ConfUSIusDim4Name`).
+    dim names across a save/load roundtrip, each extra dim is written under
+    `dim{N}_name` (where `N` is the 0-based NIfTI axis, always 4 + extra_index
+    since NIfTI axis 3 is reserved for time). The corresponding coordinate
+    values are written under `dim{N}_coordinates` only when they cannot be
+    reconstructed from `pixdim` alone — i.e. when the coord does not start at
+    0 with regular spacing. The keys get the `ConfUSIus` prefix in the BIDS
+    sidecar (e.g. `ConfUSIusDim4Name`).
 
     Parameters
     ----------
@@ -1270,8 +1302,9 @@ def _build_extra_dim_sidecar_metadata(
     Returns
     -------
     dict[str, Any]
-        Mapping from `dim{N}_name` / `dim{N}_coordinates` keys to their values.
-        Empty when the DataArray has no extra (non-spatial, non-time) dimensions.
+        Mapping from `dim{N}_name` and (when needed) `dim{N}_coordinates` keys
+        to their values. Empty when the DataArray has no extra (non-spatial,
+        non-time) dimensions.
     """
     current_dims = tuple(str(dim) for dim in data_array.dims)
     _, extras = _split_nifti_dims(current_dims)
@@ -1281,11 +1314,32 @@ def _build_extra_dim_sidecar_metadata(
         nifti_axis = 4 + extra_index
         extra_metadata[f"dim{nifti_axis}_name"] = dim_name
         if dim_name in data_array.coords:
-            extra_metadata[f"dim{nifti_axis}_coordinates"] = np.asarray(
-                data_array.coords[dim_name].values
-            ).tolist()
+            coord_values = np.asarray(data_array.coords[dim_name].values)
+            if not _coord_starts_at_zero_with_regular_spacing(coord_values):
+                extra_metadata[f"dim{nifti_axis}_coordinates"] = coord_values.tolist()
 
     return extra_metadata
+
+
+def _coord_starts_at_zero_with_regular_spacing(
+    coord_values: npt.NDArray[np.floating],
+) -> bool:
+    """Whether a coord is `[0, step, 2*step, ...]` (recoverable from `pixdim`).
+
+    A coord matching this pattern can be reconstructed on load from the NIfTI
+    `pixdim[N]` entry, so storing it in the sidecar would be redundant.
+    """
+    if len(coord_values) == 0:
+        return True
+    if not np.isclose(coord_values[0], 0.0):
+        return False
+    if len(coord_values) < 2:
+        return True
+    step, _ = get_representative_step(coord_values)
+    if step is None or np.isclose(step, 0.0):
+        return False
+    expected = step * np.arange(len(coord_values))
+    return bool(np.allclose(coord_values, expected, rtol=1e-5, atol=0.0))
 
 
 def _split_nifti_dims(current_dims: tuple[str, ...]) -> tuple[list[str], list[str]]:
@@ -1969,7 +2023,16 @@ def save_nifti(
     # inserted on save when the DataArray has no `time` dim (see
     # `_prepare_data_for_nifti`), so `tr_pixdim` is still the right zoom here.
     zooms.append(tr_pixdim if tr_pixdim is not None else 1.0)
-    zooms.extend(1.0 for dim in current_dims if dim not in ("x", "y", "z", "time"))
+    for dim_name in current_dims:
+        if dim_name in ("x", "y", "z", "time"):
+            continue
+        spacing = get_coordinate_spacing_info(
+            dim_name, data_array, uniformity_tolerance=1e-2
+        )
+        if spacing.value is not None:
+            zooms.append(abs(spacing.value))
+        else:
+            zooms.append(1.0)
 
     (
         stored_affines,

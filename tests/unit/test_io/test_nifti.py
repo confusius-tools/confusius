@@ -206,7 +206,7 @@ class TestLoadNifti:
     def test_load_5d_nifti_dim4_name_without_coordinates(
         self, tmp_path: Path
     ) -> None:
-        """A `ConfUSIusDim4Name` without `ConfUSIusDim4Coordinates` still renames the axis."""
+        """A `ConfUSIusDim4Name` without `ConfUSIusDim4Coordinates` renames the axis and falls back to `pixdim`."""
         data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
         nifti_path = tmp_path / "no_coords.nii.gz"
         nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
@@ -217,7 +217,34 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert da.dims == ("component", "time", "z", "y", "x")
-        assert "component" not in da.coords
+        # pixdim[4] defaults to 1.0 in this NIfTI, so the fallback coord is
+        # `1.0 * arange(3) = [0.0, 1.0, 2.0]`.
+        np.testing.assert_array_equal(
+            da.coords["component"].values, np.array([0.0, 1.0, 2.0])
+        )
+
+    def test_load_5d_nifti_dim4_name_with_zero_pixdim_uses_unit_spacing(
+        self, tmp_path: Path
+    ) -> None:
+        """When `pixdim[N]` is 0, the fallback coord uses unit spacing."""
+        data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
+        img = nib.Nifti1Image(data, np.eye(4))
+        # Set pixdim[4] (5th NIfTI axis) to 0.
+        zooms = list(img.header.get_zooms())
+        zooms[4] = 0.0
+        img.header.set_zooms(zooms)
+        nifti_path = tmp_path / "zero_pixdim.nii.gz"
+        img.to_filename(nifti_path)
+
+        with open(tmp_path / "zero_pixdim.json", "w") as f:
+            json.dump({"ConfUSIusDim4Name": "component"}, f)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("component", "time", "z", "y", "x")
+        np.testing.assert_array_equal(
+            da.coords["component"].values, np.array([0.0, 1.0, 2.0])
+        )
 
     def test_load_consumes_extra_dim_attrs(self, tmp_path: Path) -> None:
         """After loading, the consumed `dim{N}_*` sidecar entries are not in `attrs`."""
@@ -1003,12 +1030,40 @@ class TestSaveNifti:
         loaded = nib.load(output_path)
         # NIfTI shape: (x, y, z, time=1, component=3)
         assert loaded.shape == (6, 5, 4, 1, 3)
+        # The component coord starts at 0 with regular spacing 1.0, so the
+        # sidecar only needs the name (the coord is recoverable from pixdim).
+        assert loaded.header.get_zooms()[4] == pytest.approx(1.0)
 
         sidecar_path = output_path.with_suffix("").with_suffix(".json")
         with open(sidecar_path) as f:
             sidecar = json.load(f)
         assert sidecar["ConfUSIusDim4Name"] == "component"
-        assert sidecar["ConfUSIusDim4Coordinates"] == [0.0, 1.0, 2.0]
+        assert "ConfUSIusDim4Coordinates" not in sidecar
+
+    def test_save_irregular_extra_coord_writes_dim_coordinates(
+        self, tmp_path
+    ) -> None:
+        """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""
+        data = np.zeros((2, 4, 8, 10), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["channel", "z", "y", "x"],
+            coords={
+                "channel": [3.5, 7.0],  # not 0-based regular spacing
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(8, dtype=np.float64),
+                "x": np.arange(10, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "irregular.nii.gz"
+        save_nifti(da, output_path)
+
+        sidecar_path = output_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert sidecar["ConfUSIusDim4Name"] == "channel"
+        assert sidecar["ConfUSIusDim4Coordinates"] == [3.5, 7.0]
 
     def test_save_5d_with_time_writes_dim4_sidecar(self, tmp_path) -> None:
         """Saving a 5D payload with `time` writes `ConfUSIusDim4Name` (1st extra)."""
@@ -1032,7 +1087,7 @@ class TestSaveNifti:
         with open(sidecar_path) as f:
             sidecar = json.load(f)
         assert sidecar["ConfUSIusDim4Name"] == "channel"
-        assert sidecar["ConfUSIusDim4Coordinates"] == [0.0, 1.0]
+        assert "ConfUSIusDim4Coordinates" not in sidecar
 
     def test_save_too_many_extras_raises(self, tmp_path) -> None:
         """Saving more extra dims than NIfTI supports raises ValueError."""
