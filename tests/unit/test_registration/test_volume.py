@@ -48,6 +48,26 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
+    def test_invalid_initialization_raises(self, sample_2d_dataarray_spatial):
+        """Unknown initialization mode raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization="moments",
+            )
+
+    def test_non_array_initialization_raises_value_error(
+        self, sample_2d_dataarray_spatial
+    ):
+        """A non-ndarray sequence raises ValueError, not an unhashable TypeError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -129,6 +149,77 @@ class TestRegisterVolumeOutput:
             result.attrs["affines"]["physical_to_lab"],
             fixed.attrs["affines"]["physical_to_lab"],
         )
+
+
+class TestRegisterVolumeMask:
+    """Metric masks for register_volume."""
+
+    def test_integer_label_mask_matches_boolean_mask(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """A single-label integer mask registers identically to its boolean form.
+
+        Guards against single-label integer masks (e.g. ``{0, 512}`` from
+        `Atlas.get_masks`) reaching SimpleITK's metric mask uncoerced: 512 wraps to 0
+        under the `numpy.uint8` cast, which silently empties the mask and turns
+        registration into a no-op.
+        """
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True  # covers the bright square in both volumes
+        bool_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        # 512 is a multiple of 256: a uint8 cast of the raw integer mask wraps it to 0.
+        int_mask = xr.DataArray(
+            region.astype(np.int32) * 512, dims=fixed.dims, coords=fixed.coords
+        )
+
+        _, affine_bool, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=bool_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        _, affine_int, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=int_mask,
+            transform_type="translation",
+            resample=False,
+        )
+
+        # The masked registration must actually recover the planted shift; otherwise the
+        # equality check would also pass for a silently-emptied (no-op) mask.
+        assert not np.allclose(affine_bool, np.eye(3), atol=1e-2)
+        assert_allclose(affine_int, affine_bool)
+
+    def test_both_masks_coerced_to_bool(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """Both fixed_mask and moving_mask are coerced to boolean."""
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True
+        fixed_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        moving_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+
+        _, affine, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        assert not np.allclose(affine, np.eye(3), atol=1e-2)
 
 
 class TestRegisterVolumeResample:
@@ -426,38 +517,38 @@ class TestResampleVolume:
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
-class TestInitialTransform:
-    """Tests for the initial_transform parameter of register_volume."""
+class TestInitialization:
+    """Tests for the initialization parameter of register_volume."""
 
     def test_wrong_shape_raises(self, sample_2d_dataarray_spatial):
-        """initial_transform with wrong shape raises ValueError."""
-        with pytest.raises(ValueError, match="initial_transform shape"):
+        """Affine initialization with wrong shape raises ValueError."""
+        with pytest.raises(ValueError, match="initialization shape"):
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
                 transform_type="bspline",
-                initial_transform=np.eye(4),  # wrong: 3D affine for 2D images
+                initialization=np.eye(4),  # wrong: 3D affine for 2D images
             )
 
-    def test_bspline_with_initial_transform_stores_pre_affine(
+    def test_bspline_with_affine_initialization_stores_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
-        """B-spline result DataArray stores the pre-affine in attrs when initial_transform is given."""
+        """B-spline result stores the pre-affine when affine initialization is given."""
         pre_affine = np.eye(3)
         _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
-            initial_transform=pre_affine,
+            initialization=pre_affine,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         assert "affines" in bspline_tx.attrs
         assert "bspline_initialization" in bspline_tx.attrs["affines"]
 
-    def test_bspline_without_initial_transform_has_no_pre_affine(
+    def test_bspline_without_affine_initialization_has_no_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
-        """B-spline result DataArray without initial_transform has no bspline_initialization key."""
+        """B-spline result without affine initialization has no bspline_initialization key."""
         _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
@@ -466,6 +557,30 @@ class TestInitialTransform:
         assert isinstance(bspline_tx, xr.DataArray)
         affines = bspline_tx.attrs.get("affines", {})
         assert "bspline_initialization" not in affines
+
+    def test_center_moments_uses_moments_initializer(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """center_moments uses SimpleITK's moments-based centering initializer."""
+        import SimpleITK as sitk
+
+        original_initializer = sitk.CenteredTransformInitializer
+        calls = []
+
+        def wrapped_initializer(fixed, moving, transform, operation_mode):
+            calls.append(operation_mode)
+            return original_initializer(fixed, moving, transform, operation_mode)
+
+        monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
+
+        register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="affine",
+            initialization="center_moments",
+        )
+
+        assert calls == [sitk.CenteredTransformInitializerFilter.MOMENTS]
 
 
 class TestResampleVolumeWithBspline:
@@ -498,7 +613,7 @@ class TestResampleVolumeWithBspline:
     def test_resample_like_with_composite_bspline_matches_direct_resample(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
-        """resample_like with composite B-spline (with initial_transform) matches register_volume(resample=True)."""
+        """resample_like with composite B-spline matches register_volume(resample=True)."""
         rng = np.random.default_rng(1)
         shift = rng.integers(2, 4, size=2)
         shifted = np.roll(
@@ -520,7 +635,7 @@ class TestResampleVolumeWithBspline:
             moving,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
-            initial_transform=affine_tx,
+            initialization=affine_tx,
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -580,7 +695,9 @@ class TestResampleLike:
                 "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
             },
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0)
+        result = resample_like(
+            moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0
+        )
         assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
 
     def test_output_coords_match_reference(
@@ -655,10 +772,10 @@ class TestResampleLike:
         result = resample_like(moving, sample_3d_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
-    def test_matches_register_volume_with_initial_transform(
+    def test_matches_register_volume_with_affine_initialization(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
-        """resample_like matches register_volume(resample=True) when initial_transform is used.
+        """resample_like matches register_volume(resample=True) when affine initialization is used.
 
         Regression test for a bug where CompositeTransform sub-transforms were
         composed in the wrong order in _sitk_linear_transform_to_affine, causing
@@ -682,7 +799,7 @@ class TestResampleLike:
             moving,
             sample_2d_dataarray_spatial,
             transform_type="affine",
-            initial_transform=affine_init,
+            initialization=affine_init,
             resample=True,
         )
         result = resample_like(moving, sample_2d_dataarray_spatial, affine)
@@ -811,4 +928,6 @@ class TestRegisterVolumeFillValue:
             transform_type="translation",
         )
         # Default fill should be moving.min() == 2.0, not 0.0.
-        assert float(result.values[0, 0]) == pytest.approx(float(moving.min()), abs=1e-5)
+        assert float(result.values[0, 0]) == pytest.approx(
+            float(moving.min()), abs=1e-5
+        )
