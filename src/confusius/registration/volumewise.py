@@ -126,9 +126,8 @@ def register_volumewise(
         that were not started are left blank (filled with the data minimum), and
         per-frame `motion_params` rows are marked via the diagnostics status.
     progress_reporter : VolumewiseProgressReporter, optional
-        Thread-safe reporter notified whenever one frame completes. Useful for
-        GUI progress bars or progressively filling an output layer while frames
-        finish.
+        Thread-safe reporter notified whenever one frame completes. Useful for GUI
+        progress bars or progressively filling an output layer while frames finish.
     keep_diagnostics : bool, default: False
         Whether to keep the full per-frame
         [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]

@@ -1,4 +1,4 @@
-"""Unit tests for RegistrationProgressPlotter."""
+"""Unit tests for MatplotlibRegistrationProgressPlotter."""
 
 import matplotlib
 import numpy as np
@@ -8,7 +8,7 @@ import SimpleITK as sitk
 matplotlib.use("Agg")
 
 from confusius.registration._progress import (  # noqa: E402
-    RegistrationProgressPlotter,
+    MatplotlibRegistrationProgressPlotter,
 )
 
 # ---------------------------------------------------------------------------
@@ -75,17 +75,17 @@ def _make_registration_method():
 
 
 # ---------------------------------------------------------------------------
-# RegistrationProgressPlotter
+# MatplotlibRegistrationProgressPlotter
 # ---------------------------------------------------------------------------
 
 
-class TestRegistrationProgressPlotterInstantiation:
+class TestMatplotlibRegistrationProgressPlotterInstantiation:
     """Smoke tests for plotter construction."""
 
     def test_metric_only(self, fixed_img_2d, moving_img_2d):
         """Plotter with only metric panel is created without error."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -97,7 +97,7 @@ class TestRegistrationProgressPlotterInstantiation:
     def test_composite_only(self, fixed_img_2d, moving_img_2d):
         """Plotter with only composite panel is created without error."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -109,7 +109,7 @@ class TestRegistrationProgressPlotterInstantiation:
     def test_both_panels(self, fixed_img_2d, moving_img_2d):
         """Plotter with both panels is created without error."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -119,7 +119,7 @@ class TestRegistrationProgressPlotterInstantiation:
         plotter.figure.clf()
 
 
-class TestRegistrationProgressPlotterUpdate:
+class TestMatplotlibRegistrationProgressPlotterUpdate:
     """Tests for metric_values population and composite rendering."""
 
     def test_metric_values_populated_after_registration(
@@ -127,7 +127,7 @@ class TestRegistrationProgressPlotterUpdate:
     ):
         """metric_values contains one entry per iteration after registration."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -146,7 +146,7 @@ class TestRegistrationProgressPlotterUpdate:
     def test_metric_values_are_floats(self, fixed_img_2d, moving_img_2d):
         """All recorded metric values are finite floats."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -167,7 +167,7 @@ class TestRegistrationProgressPlotterUpdate:
     ):
         """Composite panel renders without error after at least one iteration."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -198,7 +198,7 @@ class TestRegistrationProgressPlotterUpdate:
         reg.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
         reg.SetInitialTransform(sitk.TranslationTransform(3), inPlace=True)
 
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_3d,
             moving_img_3d,
@@ -214,13 +214,13 @@ class TestRegistrationProgressPlotterUpdate:
         plotter.figure.clf()
 
 
-class TestRegistrationProgressPlotterResampleKwargs:
+class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     """Tests for resample_kwargs fill-value behaviour."""
 
     def test_default_fill_value_is_moving_min(self, fixed_img_2d, moving_img_2d):
         """When resample_kwargs omits default_value, it is set to moving_img.min()."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg, fixed_img_2d, moving_img_2d, plot_metric=False, plot_composite=True
         )
         expected = float(sitk.GetArrayFromImage(moving_img_2d).min())
@@ -230,7 +230,7 @@ class TestRegistrationProgressPlotterResampleKwargs:
     def test_explicit_fill_value_is_respected(self, fixed_img_2d, moving_img_2d):
         """Explicit default_value in resample_kwargs overrides the auto-default."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -244,7 +244,7 @@ class TestRegistrationProgressPlotterResampleKwargs:
     def test_explicit_interpolation_is_stored(self, fixed_img_2d, moving_img_2d):
         """interpolation key in resample_kwargs is stored and later used."""
         reg = _make_registration_method()
-        plotter = RegistrationProgressPlotter(
+        plotter = MatplotlibRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,

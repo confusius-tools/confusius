@@ -511,7 +511,7 @@ def register_volume(
         implement the
         [`RegistrationProgress`][confusius.registration.RegistrationProgress]
         protocol (`update()` / `close()`). If not provided, defaults to
-        [`RegistrationProgressPlotter`][confusius.registration.RegistrationProgressPlotter]
+        [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
         (matplotlib). Ignored when `show_progress=False`. Custom factories are expected
         to be safe to call from a non-GUI thread; GUI side effects must be marshalled
         via thread-safe primitives such as Qt signals.
@@ -760,7 +760,7 @@ def register_volume(
         if show_progress:
             from confusius.registration._progress import (
                 RegistrationProgress,
-                RegistrationProgressPlotter,
+                MatplotlibRegistrationProgressPlotter,
             )
 
             resample_kwargs: dict[str, object] = {
@@ -770,7 +770,7 @@ def register_volume(
             if _fill_value is not None:
                 resample_kwargs["default_value"] = _fill_value
 
-            plotter_factory = progress_plotter or RegistrationProgressPlotter
+            plotter_factory = progress_plotter or MatplotlibRegistrationProgressPlotter
             plotter: RegistrationProgress = plotter_factory(
                 registration,
                 fixed_sitk,

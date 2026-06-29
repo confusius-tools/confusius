@@ -122,7 +122,7 @@ class RegistrationProgress(Protocol):
         ...
 
 
-class RegistrationProgressPlotter:
+class MatplotlibRegistrationProgressPlotter:
     """Plot registration progress in real time.
 
     Displays an optimizer metric curve, a composite fixed/moving overlay, or

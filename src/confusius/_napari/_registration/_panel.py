@@ -44,8 +44,8 @@ from confusius._napari._registration._metric_plotter import (
 )
 from confusius._napari._registration._progress import (
     NapariProgressBridge,
-    NapariVolumewiseProgress,
-    NapariVolumewiseProgressBridge,
+    NapariRegistrationProgressReporter,
+    NapariRegistrationProgressReporterBridge,
     make_napari_progress_factory,
 )
 from confusius._napari._registration._transforms import (
@@ -693,7 +693,7 @@ def _run_register_volumewise(
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     keep_diagnostics: bool = False,
     abort_event: Event | None = None,
-    progress_reporter: NapariVolumewiseProgress | None = None,
+    progress_reporter: NapariRegistrationProgressReporter | None = None,
 ) -> xr.DataArray:
     """Run `register_volumewise` from the GUI.
 
@@ -733,7 +733,7 @@ def _run_register_volumewise(
         Store detailed optimization diagnostics.
     abort_event : threading.Event, optional
         Cooperative cancellation flag forwarded to `register_volumewise`.
-    progress_reporter : NapariVolumewiseProgress, optional
+    progress_reporter : NapariRegistrationProgressReporter, optional
         GUI-thread bridge-backed reporter forwarded to `register_volumewise`.
 
     Returns
@@ -785,7 +785,9 @@ class RegistrationPanel(QWidget):
         self._progress_fixed_layer: Image | None = None
         self._progress_moving_layer: Image | None = None
         self._manual_transform_event_layers: list[Layer] = []
-        self._volumewise_progress_bridge: NapariVolumewiseProgressBridge | None = None
+        self._volumewise_progress_bridge: (
+            NapariRegistrationProgressReporterBridge | None
+        ) = None
         self._volumewise_progress_layer: Image | None = None
         self._volumewise_moving_preview_layer: Image | None = None
         self._volumewise_progress_time_axis: int | None = None
@@ -2181,7 +2183,7 @@ class RegistrationPanel(QWidget):
         moving: xr.DataArray,
         layer_name: str,
         scale_mode: str = "off",
-    ) -> NapariVolumewiseProgress:
+    ) -> NapariRegistrationProgressReporter:
         """Create a progress bridge and output layer for volumewise registration."""
         self._teardown_volumewise_progress(remove_layer=True)
 
@@ -2245,7 +2247,7 @@ class RegistrationPanel(QWidget):
             contrast_limits=contrast_limits,
             **display_kwargs,
         )
-        bridge = NapariVolumewiseProgressBridge()
+        bridge = NapariRegistrationProgressReporterBridge()
         bridge.frame_progress.connect(self._update_volumewise_progress_bar)
         bridge.frame_completed.connect(self._update_volumewise_progress_frame)
 
@@ -2256,7 +2258,7 @@ class RegistrationPanel(QWidget):
         self._volumewise_progress_total = moving.sizes[TIME_DIM]
         self._progress.setRange(0, self._volumewise_progress_total)
         self._progress.setValue(0)
-        return NapariVolumewiseProgress(
+        return NapariRegistrationProgressReporter(
             bridge,
             n_frames=moving.sizes[TIME_DIM],
         )

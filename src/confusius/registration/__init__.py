@@ -2,7 +2,7 @@
 
 from confusius.registration._progress import (
     RegistrationProgress,
-    RegistrationProgressPlotter,
+    MatplotlibRegistrationProgressPlotter,
 )
 from confusius.registration.affines import (
     compose_affine,
@@ -27,7 +27,7 @@ __all__ = [
     "RegistrationAbortedError",
     "RegistrationDiagnostics",
     "RegistrationProgress",
-    "RegistrationProgressPlotter",
+    "MatplotlibRegistrationProgressPlotter",
     "compose_affine",
     "decompose_affine",
     "register_volume",
