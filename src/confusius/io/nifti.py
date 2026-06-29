@@ -765,8 +765,9 @@ def _build_extra_dim_coords(
 
     For each extra dim in `nifti_dims`:
     - If a sidecar value is present (from `ConfUSIusDimNCoordinates`), use it.
-    - Otherwise, build `[0, step, 2*step, ...]` from `nifti_pixdim[N]` when
-      the zoom is strictly positive.
+    - Otherwise, build `[0, step, 2*step, ...]` from `|nifti_pixdim[N]|` when
+      the zoom is non-zero. The sign of the zoom is ignored since the extra
+      dim has no spatial orientation.
     - Otherwise, fall back to `[0, 1, 2, ...]` (unit spacing).
 
     Parameters
@@ -798,7 +799,9 @@ def _build_extra_dim_coords(
             continue
         size = nifti_axis_sizes[nifti_axis]
         step = (
-            float(nifti_pixdim[nifti_axis]) if nifti_axis < len(nifti_pixdim) else 0.0
+            abs(float(nifti_pixdim[nifti_axis]))
+            if nifti_axis < len(nifti_pixdim)
+            else 0.0
         )
         if step > 0.0:
             coord_values = step * np.arange(size, dtype=np.float64)

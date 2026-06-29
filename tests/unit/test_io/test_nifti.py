@@ -246,6 +246,32 @@ class TestLoadNifti:
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
 
+    def test_load_5d_nifti_dim4_name_with_negative_pixdim_uses_abs(
+        self, tmp_path: Path
+    ) -> None:
+        """Negative `pixdim[N]` is treated as its absolute value for the fallback coord."""
+        data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
+        img = nib.Nifti1Image(data, np.eye(4))
+        nifti_path = tmp_path / "neg_pixdim.nii.gz"
+        img.to_filename(nifti_path)
+
+        # Patch the saved header directly to set pixdim[5] (the 5th NIfTI axis)
+        # to -2.0 (bypasses nibabel's `set_zooms` positivity check).
+        loaded = nib.load(nifti_path)
+        loaded.header.structarr["pixdim"][5] = np.float32(-2.0)
+        loaded.to_filename(nifti_path)
+
+        with open(tmp_path / "neg_pixdim.json", "w") as f:
+            json.dump({"ConfUSIusDim4Name": "component"}, f)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("component", "time", "z", "y", "x")
+        # |pixdim[5]| = 2.0, so the fallback coord is `2.0 * arange(3)`.
+        np.testing.assert_array_equal(
+            da.coords["component"].values, np.array([0.0, 2.0, 4.0])
+        )
+
     def test_load_consumes_extra_dim_attrs(self, tmp_path: Path) -> None:
         """After loading, the consumed `dim{N}_*` sidecar entries are not in `attrs`."""
         data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
