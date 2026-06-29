@@ -179,6 +179,22 @@ def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
     return xr.DataArray(data, dims=axis_labels, coords=coords)
 
 
+def _layer_supports_registration_source(layer: "Layer") -> bool:
+    """Return whether `layer` can be converted to a registration source.
+
+    ConfUSIus-managed layers carry the original `xarray.DataArray` in metadata.
+    For plain napari image layers we can reconstruct one from eager NumPy data.
+    Lazy non-NumPy layers (for example the video panel's frame-on-demand array)
+    are intentionally excluded: forcing `np.asarray` on them can trigger expensive
+    decoding or backend errors while the registration panel is merely refreshing.
+    """
+    if layer.metadata.get("xarray") is not None:
+        return True
+    if layer.metadata.get("confusius_cached_registration_xarray") is not None:
+        return True
+    return isinstance(layer.data, np.ndarray)
+
+
 def _get_source_dataarray(layer: "Layer") -> xr.DataArray:
     """Return the stable source DataArray for a napari layer.
 
@@ -193,17 +209,29 @@ def _get_source_dataarray(layer: "Layer") -> xr.DataArray:
         Original ConfUSIus DataArray when present in `layer.metadata`,
         otherwise a cached reconstruction captured before later manual napari
         transforms mutate the layer pose.
+
+    Raises
+    ------
+    TypeError
+        If the layer is backed by a lazy non-NumPy array that the registration
+        panel should ignore.
     """
     existing = layer.metadata.get("xarray")
     if existing is not None:
         return cast("xr.DataArray", existing)
 
-    cached = layer.metadata.get("confusius_original_xarray")
+    cached = layer.metadata.get("confusius_cached_registration_xarray")
     if cached is not None:
         return cast("xr.DataArray", cached)
 
+    if not isinstance(layer.data, np.ndarray):
+        raise TypeError(
+            f"Layer {layer.name!r} is not backed by eager NumPy data and cannot be used "
+            "for registration."
+        )
+
     reconstructed = _reconstruct_layer_dataarray(layer)
-    layer.metadata["confusius_original_xarray"] = reconstructed
+    layer.metadata["confusius_cached_registration_xarray"] = reconstructed
     return reconstructed
 
 
@@ -1403,6 +1431,8 @@ class RegistrationPanel(QWidget):
         self._manual_transform_event_layers = []
 
         for layer in self.viewer.layers:
+            if not _layer_supports_registration_source(cast("Layer", layer)):
+                continue
             _get_source_dataarray(cast("Layer", layer))
             layer.events.affine.connect(self._refresh_transform_controls)
             self._manual_transform_event_layers.append(cast("Layer", layer))
@@ -1412,7 +1442,11 @@ class RegistrationPanel(QWidget):
         moving_name = self._moving_combo.currentText()
         fixed_name = self._fixed_combo.currentText()
 
-        layer_names = [layer.name for layer in self.viewer.layers]
+        layer_names = [
+            layer.name
+            for layer in self.viewer.layers
+            if _layer_supports_registration_source(cast("Layer", layer))
+        ]
 
         self._moving_combo.blockSignals(True)
         self._fixed_combo.blockSignals(True)

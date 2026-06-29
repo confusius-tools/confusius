@@ -414,6 +414,19 @@ def _open_accordion(widget, idx: int) -> None:
     get_qapp().processEvents()
 
 
+def _open_accordion_panel(widget, title: str):
+    """Open accordion panel *title* and return its widget.
+
+    This avoids hard-coding panel indices in the screenshot script, which is
+    brittle when the plugin adds or reorders sections.
+    """
+    for idx, (btn, _) in enumerate(widget._accordion_btns):
+        if btn.text() == title:
+            _open_accordion(widget, idx)
+            return widget._accordion_panels[title]
+    raise KeyError(f"Accordion panel not found: {title}")
+
+
 # ---------------------------------------------------------------------------
 # 1. Data I/O panel — file loaded, save section visible
 # ---------------------------------------------------------------------------
@@ -462,12 +475,7 @@ try:
     viewer2.window.add_dock_widget(widget2, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 2).
-    _open_accordion(widget2, 2)
-
-    # Retrieve the Signals panel from the accordion container layout.
-    _container2 = widget2._accordion_btns[0][0].parent()
-    ts_panel = _container2.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel = _open_accordion_panel(widget2, "Signals")
 
     # Open the bottom dock with the signals plotter.
     plotter = ts_panel._ensure_plotter()
@@ -511,13 +519,7 @@ try:
     viewer3.window.add_dock_widget(widget3, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open QC panel (index 3).
-    _open_accordion(widget3, 3)
-
-    # Retrieve the QCPanel widget from the accordion container layout.
-    # Layout interleaves buttons and panels: btn0, panel0, btn1, panel1, …
-    _container3 = widget3._accordion_btns[0][0].parent()
-    qc_panel = _container3.layout().itemAt(2 * 3 + 1).widget()
+    qc_panel = _open_accordion_panel(widget3, "Quality Control")
 
     # Select the layer in the QC panel.
     idx = qc_panel._layer_combo.findText(layer_name)
@@ -567,10 +569,7 @@ try:
     viewer4.window.add_dock_widget(widget4, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 2).
-    _open_accordion(widget4, 2)
-    _container4 = widget4._accordion_btns[0][0].parent()
-    ts_panel4 = _container4.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel4 = _open_accordion_panel(widget4, "Signals")
 
     layer4 = viewer4.layers[0]
     shape4 = layer4.data.shape[1:]  # (z, y, x)
@@ -633,10 +632,7 @@ try:
     viewer5.window.add_dock_widget(widget5, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 2).
-    _open_accordion(widget5, 2)
-    _container5 = widget5._accordion_btns[0][0].parent()
-    ts_panel5 = _container5.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel5 = _open_accordion_panel(widget5, "Signals")
 
     layer5 = viewer5.layers[0]
     shape5 = layer5.data.shape[1:]  # (z, y, x)
@@ -722,8 +718,13 @@ try:
     video_panel._load_from_path()
     _qt_sleep(200)
 
-    # Open the Video accordion section (index 1).
-    _open_accordion(widget6, 1)
+    video_layer = next(
+        layer
+        for layer in viewer6.layers
+        if layer is not fusi_layer and layer.name.startswith("Video:")
+    )
+
+    _open_accordion_panel(widget6, "Video")
 
     # Size the window, then refit camera to layers (napari "home" button).
     win6 = viewer6.window._qt_window
@@ -740,18 +741,26 @@ try:
     N_GIF_FRAMES = 60
     GIF_FPS = 12
     GIF_WIDTH = 1100
-    # Scrub from 2 s to 17 s of scan world time. Use `set_point` (world
-    # coordinate) instead of `set_current_step` (index), because fUSI and
-    # video layers have different time scales in the shared grid.
-    GIF_T_START_S, GIF_T_STOP_S = 2.0, 17.0
-    step_times = np.linspace(GIF_T_START_S, GIF_T_STOP_S, N_GIF_FRAMES)
+    # Scrub inside the actual time overlap between the fUSI and video layers.
+    # Use `set_point` (world coordinate) instead of `set_current_step` (index),
+    # because the layers have different time scales in the shared grid.
+    fusi_min, fusi_max = fusi_layer.extent.world[:, VIDEO_TIME_AXIS]
+    video_min, video_max = video_layer.extent.world[:, VIDEO_TIME_AXIS]
+    gif_t_start_s = max(float(fusi_min), float(video_min)) + 0.5
+    gif_t_stop_s = min(float(fusi_max), float(video_max)) - 0.5
+    if gif_t_stop_s <= gif_t_start_s:
+        raise RuntimeError("No overlapping fUSI/video time range available for GIF")
+    step_times = np.linspace(gif_t_start_s, gif_t_stop_s, N_GIF_FRAMES)
 
     frames_pil: list = []
     for t in step_times:
         viewer6.dims.set_point(VIDEO_TIME_AXIS, float(t))
         get_qapp().processEvents()
         get_qapp().processEvents()
-        raw = viewer6.screenshot(canvas_only=False)[..., :3]
+        raw = viewer6.screenshot(canvas_only=False)
+        if raw.size == 0:
+            raise RuntimeError("napari returned an empty screenshot frame")
+        raw = raw[..., :3]
         h, w = raw.shape[:2]
         scale = GIF_WIDTH / w
         frames_pil.append(

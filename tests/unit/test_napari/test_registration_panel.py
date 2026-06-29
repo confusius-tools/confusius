@@ -71,6 +71,17 @@ class TestRefreshLayers:
         assert registration_panel._moving_combo.count() == 1
         assert registration_panel._moving_combo.itemText(0) == "vol"
 
+    def test_ignores_lazy_non_numpy_layers(self, viewer, registration_panel):
+        import dask.array as da
+
+        viewer.add_image(np.zeros((4, 6, 8)), name="vol")
+        viewer.add_image(da.zeros((5, 4, 6), chunks=(1, 4, 6)), name="video")
+
+        registration_panel._refresh_layers()
+
+        assert registration_panel._moving_combo.count() == 1
+        assert registration_panel._moving_combo.itemText(0) == "vol"
+
 
 class TestOperationMode:
     def test_panel_switch_shows_one_subpanel(self, registration_panel):
