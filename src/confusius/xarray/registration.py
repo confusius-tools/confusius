@@ -51,10 +51,10 @@ class FUSIRegistrationAccessor:
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
         resample: bool = False,
         resample_interpolation: Literal["linear", "bspline"] = "linear",
+        fill_value: float | None = None,
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
-        fill_value: float | None = None,
     ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":  # noqa: E501
         """Register this volume to a fixed reference volume.
 
@@ -115,6 +115,10 @@ class FUSIRegistrationAccessor:
             estimated and the moving volume is returned unchanged.
         resample_interpolation : {"linear", "bspline"}, default: "linear"
             Interpolation method used for the final resample step.
+        fill_value : float, optional
+            Fill value for voxels outside the moving image's field of view after
+            resampling. If not provided, defaults to the minimum of the moving
+            image. See [`register_volume`][confusius.registration.register_volume].
         show_progress : bool, default: False
             Whether to display a live progress plot during registration.
         plot_metric : bool, default: True
@@ -123,10 +127,6 @@ class FUSIRegistrationAccessor:
         plot_composite : bool, default: True
             Whether to include a fixed/moving composite overlay in the
             progress plot. Ignored when `show_progress=False`.
-        fill_value : float, optional
-            Fill value for voxels outside the moving image's field of view after
-            resampling. If not provided, defaults to the minimum of the moving
-            image. See [`register_volume`][confusius.registration.register_volume].
 
         Returns
         -------
@@ -166,10 +166,10 @@ class FUSIRegistrationAccessor:
             smoothing_sigmas=smoothing_sigmas,
             resample=resample,
             resample_interpolation=resample_interpolation,
+            fill_value=fill_value,
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
-            fill_value=fill_value,
         )
 
     def volumewise(

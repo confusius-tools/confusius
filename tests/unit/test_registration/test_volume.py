@@ -1077,32 +1077,6 @@ class TestRegisterVolumeFillValue:
         )
 
 
-class TestRegisterVolumeIterationCallback:
-    """The `iteration_callback` is invoked at every optimizer iteration."""
-
-    def test_callback_receives_one_indexed_iteration_and_metric(
-        self, sample_2d_dataarray_spatial
-    ):
-        """Each callback call is (iteration, metric) with iteration starting at 1."""
-        calls: list[tuple[int, float]] = []
-
-        def callback(iteration: int, metric: float) -> None:
-            calls.append((iteration, metric))
-
-        register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
-            transform_type="translation",
-            number_of_iterations=5,
-            iteration_callback=callback,
-        )
-
-        assert len(calls) == 5
-        assert [c[0] for c in calls] == [1, 2, 3, 4, 5]
-        for _, metric in calls:
-            assert np.isfinite(metric)
-
-
 class TestRegisterVolumePreSetAbort:
     """Pre-set abort_event short-circuits before SimpleITK Execute is called."""
 

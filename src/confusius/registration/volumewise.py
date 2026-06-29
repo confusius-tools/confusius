@@ -40,9 +40,9 @@ def register_volumewise(
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     show_progress: bool = True,
-    keep_diagnostics: bool = False,
     abort_event: "Event | None" = None,
     progress_reporter: "VolumewiseProgressReporter | None" = None,
+    keep_diagnostics: bool = False,
 ) -> xr.DataArray:
     """Register all volumes in a fUSI recording to a reference volume.
 
@@ -119,15 +119,6 @@ def register_volumewise(
         cost of speed.
     show_progress : bool, default: True
         Whether to display a progress bar while registering volumes.
-    keep_diagnostics : bool, default: False
-        Whether to keep the full per-frame
-        [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
-        list on the returned DataArray under
-        `attrs["registration_diagnostics"]`. Disabled by default because each
-        diagnostics object carries the full optimizer metric trace, which adds
-        up over long recordings. The cheap per-frame summaries
-        (`final_metric_value`, `n_iterations`) are always added to
-        `motion_params` regardless of this flag.
     abort_event : threading.Event, optional
         Cooperative cancellation flag shared across frames. If set before or during
         execution, in-flight frame registrations stop at the next optimiser iteration
@@ -138,6 +129,15 @@ def register_volumewise(
         Thread-safe reporter notified whenever one frame completes. Useful for
         GUI progress bars or progressively filling an output layer while frames
         finish.
+    keep_diagnostics : bool, default: False
+        Whether to keep the full per-frame
+        [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
+        list on the returned DataArray under
+        `attrs["registration_diagnostics"]`. Disabled by default because each
+        diagnostics object carries the full optimizer metric trace, which adds
+        up over long recordings. The cheap per-frame summaries
+        (`final_metric_value`, `n_iterations`) are always added to
+        `motion_params` regardless of this flag.
 
     Returns
     -------

@@ -20,8 +20,9 @@ from confusius.registration.affines import (
 from confusius.registration.diagnostics import RegistrationDiagnostics
 
 if TYPE_CHECKING:
-    import SimpleITK as sitk
     from threading import Event
+
+    import SimpleITK as sitk
 
     from confusius.registration._progress import RegistrationProgress
 
@@ -268,14 +269,13 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     smoothing_sigmas: Sequence[int] = ...,
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
+    fill_value: float | None = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    fill_value: float | None = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
-    iteration_callback: Callable[[int, float], None] | None = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
     ...
@@ -305,14 +305,13 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     smoothing_sigmas: Sequence[int] = ...,
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
+    fill_value: float | None = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    fill_value: float | None = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
-    iteration_callback: Callable[[int, float], None] | None = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
     ...
@@ -341,14 +340,13 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     smoothing_sigmas: Sequence[int] = ...,
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
+    fill_value: float | None = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    fill_value: float | None = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
-    iteration_callback: Callable[[int, float], None] | None = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
     ...
@@ -377,14 +375,13 @@ def register_volume(
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
+    fill_value: float | None = None,
     sitk_threads: int = -1,
     show_progress: bool = False,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     plot_metric: bool = True,
     plot_composite: bool = True,
-    fill_value: float | None = None,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
-    iteration_callback: Callable[[int, float], None] | None = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":  # noqa: E501
     """Register a single 2D or 3D volume to a fixed reference.
 
@@ -483,6 +480,13 @@ def register_volume(
         `"linear"` is fast and appropriate for most cases. `"bspline"` (3rd-order
         B-spline) produces smoother results and reduces ringing, useful for atlas
         registration. Only used when `resample=True`.
+    fill_value : float, optional
+        Fill value for voxels that fall outside the moving image's field of view after
+        resampling. Applied to both the final registered output (when `resample=True`)
+        and the progress composite overlay (when `show_progress=True` and
+        `plot_composite=True`). If not provided, defaults to the minimum value of
+        `moving`, which renders out-of-FOV regions as background regardless of intensity
+        scale (important for dB data where 0 is maximum intensity).
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -493,6 +497,13 @@ def register_volume(
         Whether to display a live progress plot during registration. The plot is shown
         in a Jupyter notebook or in an interactive matplotlib window depending on the
         active backend.
+    plot_metric : bool, default: True
+        Whether to include the optimizer metric curve in the progress plot. Ignored when
+        `show_progress=False`.
+    plot_composite : bool, default: True
+        Whether to include a fixed/moving composite overlay in the progress plot.
+        Requires resampling the moving image at every iteration. Ignored when
+        `show_progress=False`.
     progress_plotter : callable, optional
         Factory that builds the progress reporter, called inside `register_volume`
         as `progress_plotter(registration_method, fixed_img, moving_img, *,
@@ -501,32 +512,13 @@ def register_volume(
         [`RegistrationProgress`][confusius.registration.RegistrationProgress]
         protocol (`update()` / `close()`). If not provided, defaults to
         [`RegistrationProgressPlotter`][confusius.registration.RegistrationProgressPlotter]
-        (matplotlib). Ignored when `show_progress=False`. Custom factories are
-        expected to be safe to call from a non-GUI thread; GUI side effects must
-        be marshalled via thread-safe primitives such as Qt signals.
-    plot_metric : bool, default: True
-        Whether to include the optimizer metric curve in the progress plot. Ignored when
-        `show_progress=False`.
-    plot_composite : bool, default: True
-        Whether to include a fixed/moving composite overlay in the progress plot.
-        Requires resampling the moving image at every iteration. Ignored when
-        `show_progress=False`.
-    fill_value : float, optional
-        Fill value for voxels that fall outside the moving image's field of view after
-        resampling. Applied to both the final registered output (when `resample=True`)
-        and the progress composite overlay (when `show_progress=True` and
-        `plot_composite=True`). If not provided, defaults to the minimum value of
-        `moving`, which renders out-of-FOV regions as background regardless of intensity
-        scale (important for dB data where 0 is maximum intensity).
+        (matplotlib). Ignored when `show_progress=False`. Custom factories are expected
+        to be safe to call from a non-GUI thread; GUI side effects must be marshalled
+        via thread-safe primitives such as Qt signals.
     abort_event : threading.Event, optional
         Cooperative cancellation flag. If set before or during optimisation, the
         registration stops at the next SimpleITK iteration boundary and returns
         the current intermediate result with `diagnostics.status="aborted"`.
-    iteration_callback : callable, optional
-        Callback invoked at every optimizer iteration as
-        `iteration_callback(iteration, metric_value)`, where `iteration` is
-        1-indexed. Useful for higher-level progress aggregation such as
-        `register_volumewise`.
 
     Returns
     -------
@@ -746,8 +738,6 @@ def register_volume(
     def _record_iteration() -> None:
         metric_value = float(registration.GetMetricValue())
         metric_values.append(metric_value)
-        if iteration_callback is not None:
-            iteration_callback(len(metric_values), metric_value)
 
     needs_fill_value = resample or (show_progress and plot_composite)
     _fill_value = (
