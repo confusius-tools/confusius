@@ -100,11 +100,27 @@ CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
         "axial_velocity_absolute",
         "axial_velocity_spatial_kernel",
         "axial_velocity_estimation_method",
+        "dim4_name",
+        "dim4_coordinates",
+        "dim5_name",
+        "dim5_coordinates",
+        "dim6_name",
+        "dim6_coordinates",
     }
 )
 """ConfUSIus-only fields that should be prefixed with `ConfUSIus` in BIDS.
 
 These are stored with ConfUSIus prefix in PascalCase in the sidecar.
+
+The `dim{N}_name` and `dim{N}_coordinates` fields (with `N` in 4, 5, 6)
+carry the original dimension name and coordinate values for the
+corresponding NIfTI axis when it is not time. They round-trip through BIDS
+as `ConfUSIusDim{N}Name` and `ConfUSIusDim{N}Coordinates` so non-time 4D
+payloads (e.g. B-spline control grids with a leading `component` axis)
+survive a save/load cycle without their non-time axis being mislabeled as
+time. Whether `dim4_*` (no `time` in payload) or `dim5_*` / `dim6_*` (with
+`time`) is used depends on the payload's dim layout; see
+[`_build_extra_dim_sidecar_metadata`][confusius.io.nifti._build_extra_dim_sidecar_metadata].
 """
 
 _CONFUSIUS_INTERNAL_TO_BIDS: Final[dict[str, str]] = {

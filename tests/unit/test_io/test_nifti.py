@@ -115,6 +115,143 @@ class TestLoadNifti:
         assert da.shape == (6, 5, 4, 3, 2)
         np.testing.assert_array_equal(da.values, data.transpose(4, 3, 2, 1, 0))
 
+    def test_load_5d_nifti_with_dim4_sidecar_renames_axis(
+        self, tmp_path: Path
+    ) -> None:
+        """A 5D NIfTI with a degenerate time slot and `ConfUSIusDim4Name` loads with that dim name."""
+        # 5D NIfTI shape: (x, y, z, time=1, component=3)
+        data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
+        nifti_path = tmp_path / "bspline.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "bspline.json", "w") as f:
+            json.dump(
+                {
+                    "ConfUSIusDim4Name": "component",
+                    "ConfUSIusDim4Coordinates": [0.0, 1.0, 2.0],
+                },
+                f,
+            )
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("component", "time", "z", "y", "x")
+        assert da.shape == (3, 1, 4, 5, 6)
+        np.testing.assert_array_equal(
+            da.coords["component"].values, np.array([0.0, 1.0, 2.0])
+        )
+
+    def test_load_5d_nifti_with_random_dim_name(
+        self, tmp_path: Path
+    ) -> None:
+        """Any user-defined dim name round-trips through the sidecar."""
+        data = np.zeros((5, 4, 3, 1, 2), dtype=np.float32)
+        nifti_path = tmp_path / "custom.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "custom.json", "w") as f:
+            json.dump(
+                {
+                    "ConfUSIusDim4Name": "blahblah",
+                    "ConfUSIusDim4Coordinates": [10.0, 20.0],
+                },
+                f,
+            )
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("blahblah", "time", "z", "y", "x")
+        assert da.sizes["blahblah"] == 2
+
+    def test_load_4d_nifti_without_dim4_sidecar_keeps_time(
+        self, tmp_path: Path
+    ) -> None:
+        """A 4D NIfTI without a `ConfUSIusDim4Name` sidecar maps the 4th axis to time."""
+        data = np.arange(3 * 4 * 5 * 6, dtype=np.float32).reshape(3, 4, 5, 6)
+        nifti_path = tmp_path / "no_dim4.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("time", "z", "y", "x")
+        assert "time" in da.coords
+
+    def test_load_6d_nifti_with_dim5_sidecar(self, tmp_path: Path) -> None:
+        """A 6D NIfTI (time + 2 extras) uses `ConfUSIusDim5Name` for the 2nd extra."""
+        data = np.zeros((6, 5, 3, 4, 2, 3), dtype=np.float32)
+        nifti_path = tmp_path / "two_extras.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "two_extras.json", "w") as f:
+            json.dump(
+                {
+                    "ConfUSIusDim4Name": "channel",
+                    "ConfUSIusDim5Name": "echo",
+                    "ConfUSIusDim4Coordinates": [0.0, 1.0],
+                    "ConfUSIusDim5Coordinates": [10.0, 20.0, 30.0],
+                },
+                f,
+            )
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("echo", "channel", "time", "z", "y", "x")
+        np.testing.assert_array_equal(
+            da.coords["channel"].values, np.array([0.0, 1.0])
+        )
+        np.testing.assert_array_equal(
+            da.coords["echo"].values, np.array([10.0, 20.0, 30.0])
+        )
+
+    def test_load_5d_nifti_dim4_name_without_coordinates(
+        self, tmp_path: Path
+    ) -> None:
+        """A `ConfUSIusDim4Name` without `ConfUSIusDim4Coordinates` still renames the axis."""
+        data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
+        nifti_path = tmp_path / "no_coords.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "no_coords.json", "w") as f:
+            json.dump({"ConfUSIusDim4Name": "component"}, f)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("component", "time", "z", "y", "x")
+        assert "component" not in da.coords
+
+    def test_load_consumes_extra_dim_attrs(self, tmp_path: Path) -> None:
+        """After loading, the consumed `dim{N}_*` sidecar entries are not in `attrs`."""
+        data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
+        nifti_path = tmp_path / "consume.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "consume.json", "w") as f:
+            json.dump(
+                {
+                    "ConfUSIusDim4Name": "component",
+                    "ConfUSIusDim4Coordinates": [0.0, 1.0, 2.0],
+                },
+                f,
+            )
+
+        da = load_nifti(nifti_path)
+
+        assert "dim4_name" not in da.attrs
+        assert "dim4_coordinates" not in da.attrs
+
+    def test_load_4d_nifti_without_dim4_sidecar_keeps_time(
+        self, tmp_path: Path
+    ) -> None:
+        """A 4D NIfTI without a `ConfUSIusDim4Name` sidecar maps the 4th axis to time."""
+        data = np.arange(3 * 4 * 5 * 6, dtype=np.float32).reshape(3, 4, 5, 6)
+        nifti_path = tmp_path / "no_dim4.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("time", "z", "y", "x")
+        assert "time" in da.coords
+
     def test_load_nifti_units_from_header(self, tmp_path: Path) -> None:
         """Units on coordinate attrs come from the NIfTI header, not hardcoded."""
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
@@ -778,7 +915,7 @@ class TestSaveNifti:
             save_nifti(da, tmp_path / "not_nifti.json")
 
     def test_save_2d_dataarray(self, tmp_path) -> None:
-        """Saving 2D DataArray inserts missing spatial axes in NIfTI order."""
+        """Saving 2D DataArray inserts missing spatial axes and a degenerate time slot."""
         data = np.random.default_rng(0).random((6, 8)).astype(np.float32)
         da = xr.DataArray(data, dims=["y", "x"])
 
@@ -787,13 +924,14 @@ class TestSaveNifti:
             save_nifti(da, output_path)
 
         loaded = nib.load(output_path)
-        assert loaded.shape == (8, 6, 1)
+        # NIfTI order: (x, y, z, time) — degenerate z and time slots.
+        assert loaded.shape == (8, 6, 1, 1)
         np.testing.assert_array_almost_equal(
-            np.asarray(loaded.dataobj), data.T[..., None]
+            np.asarray(loaded.dataobj), data.T[..., None, None]
         )
 
     def test_save_3d_dataarray(self, tmp_path):
-        """Saving 3D DataArray creates valid NIfTI file."""
+        """Saving 3D DataArray inserts a degenerate time slot at the 4th NIfTI axis."""
         data = np.random.default_rng(0).random((6, 8, 10)).astype(np.float32)
         da = xr.DataArray(data, dims=["z", "y", "x"])
 
@@ -803,9 +941,10 @@ class TestSaveNifti:
 
         assert output_path.exists()
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
-        assert loaded.shape == (10, 8, 6)  # NIfTI order: (x, y, z)
+        # NIfTI order: (x, y, z, time) — degenerate time slot.
+        assert loaded.shape == (10, 8, 6, 1)
         np.testing.assert_array_almost_equal(
-            np.asarray(loaded.dataobj), data.transpose(2, 1, 0)
+            np.asarray(loaded.dataobj), data.transpose(2, 1, 0)[..., None]
         )
 
     def test_save_4d_dataarray(self, tmp_path):
@@ -841,8 +980,125 @@ class TestSaveNifti:
         )
 
         roundtripped = load_nifti(output_path)
-        assert roundtripped.dims == ("dim4", "time", "z", "y", "x")
+        assert roundtripped.dims == ("channel", "time", "z", "y", "x")
         np.testing.assert_array_equal(roundtripped.values, data)
+
+    def test_save_4d_no_time_writes_dim4_sidecar(self, tmp_path) -> None:
+        """Saving a 4D non-time payload writes a 5D NIfTI with degenerate time and `ConfUSIusDim4Name`."""
+        data = np.arange(3 * 4 * 5 * 6, dtype=np.float64).reshape(3, 4, 5, 6)
+        da = xr.DataArray(
+            data,
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3, dtype=np.float64),
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(5, dtype=np.float64),
+                "x": np.arange(6, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "bspl.nii.gz"
+        save_nifti(da, output_path)
+
+        loaded = nib.load(output_path)
+        # NIfTI shape: (x, y, z, time=1, component=3)
+        assert loaded.shape == (6, 5, 4, 1, 3)
+
+        sidecar_path = output_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert sidecar["ConfUSIusDim4Name"] == "component"
+        assert sidecar["ConfUSIusDim4Coordinates"] == [0.0, 1.0, 2.0]
+
+    def test_save_5d_with_time_writes_dim4_sidecar(self, tmp_path) -> None:
+        """Saving a 5D payload with `time` writes `ConfUSIusDim4Name` (1st extra)."""
+        data = np.arange(2 * 6 * 4 * 8 * 10, dtype=np.float32).reshape(2, 6, 4, 8, 10)
+        da = xr.DataArray(
+            data,
+            dims=["channel", "time", "z", "y", "x"],
+            coords={
+                "channel": np.arange(2, dtype=np.float64),
+                "time": np.arange(6) * 0.1,
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(8, dtype=np.float64),
+                "x": np.arange(10, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "vol5d.nii.gz"
+        save_nifti(da, output_path)
+
+        sidecar_path = output_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert sidecar["ConfUSIusDim4Name"] == "channel"
+        assert sidecar["ConfUSIusDim4Coordinates"] == [0.0, 1.0]
+
+    def test_save_too_many_extras_raises(self, tmp_path) -> None:
+        """Saving more extra dims than NIfTI supports raises ValueError."""
+        data = np.zeros((2, 2, 2, 2, 4, 8, 10), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["a", "b", "c", "d", "z", "y", "x"],
+            coords={
+                **{name: np.arange(2, dtype=np.float64) for name in ("a", "b", "c", "d")},
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(8, dtype=np.float64),
+                "x": np.arange(10, dtype=np.float64),
+            },
+        )
+
+        with pytest.raises(ValueError, match="extra dimensions"):
+            save_nifti(da, tmp_path / "too_many.nii.gz")
+
+    def test_save_three_extras_no_time_ok(self, tmp_path) -> None:
+        """3 extras without `time` is allowed (uses NIfTI axes 4, 5, 6)."""
+        data = np.zeros((2, 2, 2, 4, 8, 10), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["a", "b", "c", "z", "y", "x"],
+            coords={
+                **{name: np.arange(2, dtype=np.float64) for name in ("a", "b", "c")},
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(8, dtype=np.float64),
+                "x": np.arange(10, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "three_extras.nii.gz"
+        save_nifti(da, output_path)
+
+        sidecar_path = output_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert sidecar["ConfUSIusDim4Name"] == "a"
+        assert sidecar["ConfUSIusDim5Name"] == "b"
+        assert sidecar["ConfUSIusDim6Name"] == "c"
+
+    def test_save_three_extras_with_time_ok(self, tmp_path) -> None:
+        """3 extras with `time` fit NIfTI's 7-axis limit (uses NIfTI axes 4, 5, 6)."""
+        data = np.zeros((2, 2, 2, 6, 4, 8, 10), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["a", "b", "c", "time", "z", "y", "x"],
+            coords={
+                **{name: np.arange(2, dtype=np.float64) for name in ("a", "b", "c")},
+                "time": np.arange(6) * 0.1,
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(8, dtype=np.float64),
+                "x": np.arange(10, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "three_extras_with_time.nii.gz"
+        save_nifti(da, output_path)
+
+        sidecar_path = output_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert sidecar["ConfUSIusDim4Name"] == "a"
+        assert sidecar["ConfUSIusDim5Name"] == "b"
+        assert sidecar["ConfUSIusDim6Name"] == "c"
 
     def test_save_non_uniform_coords_warns(self, tmp_path):
         """Saving a DataArray with non-uniform coordinate spacing emits a warning."""
@@ -1160,7 +1416,8 @@ class TestSaveNifti:
         loaded = nib.load(output_path)
         assert loaded.get_data_dtype() == np.dtype(np.uint8)
         np.testing.assert_array_equal(
-            np.asarray(loaded.dataobj), da.values.transpose(2, 1, 0).astype(np.uint8)
+            np.asarray(loaded.dataobj),
+            da.values.transpose(2, 1, 0).astype(np.uint8)[..., None],
         )
 
     def test_save_nifti2_writes_nifti2_image(self, tmp_path, sample_3d_volume) -> None:
@@ -1886,7 +2143,7 @@ class TestRoundtrip:
         nifti_path = tmp_path / "roundtrip_3d.nii.gz"
         save_nifti(original, nifti_path)
 
-        loaded = load_nifti(nifti_path)
+        loaded = load_nifti(nifti_path).squeeze("time", drop=True)
 
         np.testing.assert_array_almost_equal(
             np.asarray(loaded), original.values, decimal=5

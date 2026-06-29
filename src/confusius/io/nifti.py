@@ -703,6 +703,104 @@ def _get_volume_acquisition_reference(
     return reference
 
 
+_RESOLVABLE_NIFTI_AXES: frozenset[int] = frozenset({4, 5, 6})
+"""NIfTI axis indices (0-based) whose dim name can be overridden by the sidecar.
+
+NIfTI axis 3 is reserved for time and is never an extra-dim slot, so the
+load side only consults the sidecar for the 5th, 6th, and 7th NIfTI axes.
+"""
+
+
+def _resolve_nifti_extra_dims(
+    nifti_dims: tuple[str, ...], attrs: dict[str, Any]
+) -> tuple[tuple[str, ...], dict[str, npt.NDArray[np.floating]]]:
+    """Apply sidecar dim-name overrides to the NIfTI axis order.
+
+    For each NIfTI extra-dim axis (4, 5, 6) with a `dim{N}_name` entry in the
+    sidecar attrs (where `N` is the 0-based NIfTI axis), the corresponding
+    placeholder name in `nifti_dims` is replaced by the sidecar value. NIfTI
+    axis 3 is always `time` and is never overridden.
+
+    Parameters
+    ----------
+    nifti_dims : tuple[str, ...]
+        NIfTI axis order, e.g. `("x", "y", "z", "time", "dim4", "dim5", "dim6")`.
+    attrs : dict[str, Any]
+        DataArray attributes merged from the NIfTI header and sidecar.
+
+    Returns
+    -------
+    resolved_dims : tuple[str, ...]
+        NIfTI axis order with sidecar dim-name overrides applied.
+    extra_coord_values : dict[str, numpy.ndarray]
+        Mapping from resolved extra dim name to its coordinate values, sourced
+        from `dim{N}_coordinates` in the sidecar.
+    """
+    resolved: list[str] = []
+    extra_coord_values: dict[str, npt.NDArray[np.floating]] = {}
+
+    for nifti_axis, dim_name in enumerate(nifti_dims):
+        if nifti_axis in _RESOLVABLE_NIFTI_AXES:
+            sidecar_name = attrs.get(f"dim{nifti_axis}_name")
+            if sidecar_name is not None:
+                resolved.append(str(sidecar_name))
+                sidecar_coords = attrs.get(f"dim{nifti_axis}_coordinates")
+                if sidecar_coords is not None:
+                    extra_coord_values[str(sidecar_name)] = np.asarray(
+                        sidecar_coords, dtype=np.float64
+                    )
+                continue
+        resolved.append(dim_name)
+
+    return tuple(resolved), extra_coord_values
+
+
+def _build_extra_dim_coords(
+    nifti_dims: tuple[str, ...],
+    extra_coord_values: dict[str, npt.NDArray[np.floating]],
+) -> dict[str, xr.DataArray]:
+    """Build extra-dim coordinate DataArrays from sidecar coord values.
+
+    Parameters
+    ----------
+    nifti_dims : tuple[str, ...]
+        Resolved NIfTI axis order, with sidecar dim names applied.
+    extra_coord_values : dict[str, numpy.ndarray]
+        Mapping from extra dim name to its coordinate values.
+
+    Returns
+    -------
+    dict[str, xarray.DataArray]
+        Coordinate DataArrays keyed by name, for each extra dim in `nifti_dims`
+        that has matching values in `extra_coord_values`.
+    """
+    coords: dict[str, xr.DataArray] = {}
+    for dim_name in nifti_dims:
+        if dim_name in ("x", "y", "z", "time") or dim_name not in extra_coord_values:
+            continue
+        coords[dim_name] = xr.DataArray(extra_coord_values[dim_name], dims=[dim_name])
+    return coords
+
+
+_EXTRA_DIM_ATTR_KEYS: frozenset[str] = frozenset(
+    {f"dim{n}_name" for n in (4, 5, 6)} | {f"dim{n}_coordinates" for n in (4, 5, 6)}
+)
+"""Sidecar attribute keys consumed when reconstructing extra-dim metadata."""
+
+
+def _pop_extra_dim_attrs(attrs: dict[str, Any]) -> None:
+    """Remove consumed extra-dim metadata entries from `attrs` in place.
+
+    The `dim{N}_name` and `dim{N}_coordinates` entries are read from the sidecar
+    by [`_resolve_nifti_extra_dims`][confusius.io.nifti._resolve_nifti_extra_dims]
+    to rename axes and rebuild extra-dim coordinates. Once applied, they have
+    no remaining role on the in-memory DataArray and are removed so `attrs`
+    only carries user-meaningful metadata.
+    """
+    for key in _EXTRA_DIM_ATTR_KEYS:
+        attrs.pop(key, None)
+
+
 def load_nifti(
     path: str | Path, chunks: int | tuple[int, ...] | str | None = "auto"
 ) -> xr.DataArray:
@@ -796,21 +894,30 @@ def load_nifti(
     # NIfTI dim order is (x, y, z, time, ...); ConfUSIus order is the reverse.
     nifti_dims = _NIFTI_DIM_ORDER[: dask_arr.ndim]
 
+    # When the sidecar declares a non-time dim name for the NIfTI 4th/5th/6th axes,
+    # the corresponding axis is not time. Rename it to the sidecar's dim name and
+    # drop the time coord for that axis; the 4th axis falls back to "time" only when
+    # no override is present.
+    nifti_dims, extra_coord_values = _resolve_nifti_extra_dims(nifti_dims, attrs)
+    _pop_extra_dim_attrs(attrs)
+
     spatial_coords, affine_attrs = _create_spatial_coords_from_nifti(
         img=img, extractor=extractor, dims=nifti_dims
     )
     attrs.update(affine_attrs)
 
+    extra_coords = _build_extra_dim_coords(nifti_dims, extra_coord_values)
+
     if "time" in nifti_dims:
         temporal_coords, attrs = _create_temporal_coords_from_nifti(
             img=img, extractor=extractor, attrs=attrs
         )
-        coords = {**spatial_coords, **temporal_coords}
+        coords = {**spatial_coords, **extra_coords, **temporal_coords}
     else:
         scalar_temporal_coords, attrs = _create_scalar_temporal_coords_from_nifti(
             extractor=extractor, attrs=attrs
         )
-        coords = {**spatial_coords, **scalar_temporal_coords}
+        coords = {**spatial_coords, **extra_coords, **scalar_temporal_coords}
 
     nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
     data_array = xr.DataArray(
@@ -1130,6 +1237,70 @@ def _build_nifti_affine(
     return out
 
 
+_NIFTI_EXTRA_DIM_NAMES: tuple[str, ...] = ("dim4", "dim5", "dim6")
+"""Generic dim names for non-time, non-spatial extra axes in NIfTI order.
+
+A NIfTI file can hold up to 7 axes: `(x, y, z, time, dim4, dim5, dim6)`. The last
+three are the fallback names used when a sidecar does not declare a more
+specific dim name (e.g. `"component"` for a B-spline control grid).
+"""
+
+_MAX_NIFTI_EXTRA_DIMS: int = len(_NIFTI_EXTRA_DIM_NAMES)
+"""Maximum number of non-time, non-spatial extra dimensions NIfTI can store."""
+
+
+def _build_extra_dim_sidecar_metadata(
+    data_array: xr.DataArray,
+) -> dict[str, Any]:
+    """Build sidecar entries for non-time, non-spatial extra dimensions.
+
+    NIfTI's 5th/6th/7th axes are anonymous. To preserve the original DataArray
+    dim names and coordinates across a save/load roundtrip, each extra dim is
+    written under `dim{N}_name` and `dim{N}_coordinates`, where `N` is the
+    position in the extra-dim sequence (4, 5, or 6 — matching the 0-based
+    NIfTI axis of the extra dim, which is always 4 + extra_index since
+    NIfTI axis 3 is reserved for time). The keys get the `ConfUSIus` prefix
+    in the BIDS sidecar (e.g. `ConfUSIusDim4Name`).
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        Array being serialized.
+
+    Returns
+    -------
+    dict[str, Any]
+        Mapping from `dim{N}_name` / `dim{N}_coordinates` keys to their values.
+        Empty when the DataArray has no extra (non-spatial, non-time) dimensions.
+    """
+    current_dims = tuple(str(dim) for dim in data_array.dims)
+    _, extras = _split_nifti_dims(current_dims)
+
+    extra_metadata: dict[str, Any] = {}
+    for extra_index, dim_name in enumerate(extras):
+        nifti_axis = 4 + extra_index
+        extra_metadata[f"dim{nifti_axis}_name"] = dim_name
+        if dim_name in data_array.coords:
+            extra_metadata[f"dim{nifti_axis}_coordinates"] = np.asarray(
+                data_array.coords[dim_name].values
+            ).tolist()
+
+    return extra_metadata
+
+
+def _split_nifti_dims(current_dims: tuple[str, ...]) -> tuple[list[str], list[str]]:
+    """Split DataArray dims into (canonical, extras) in NIfTI axis order.
+
+    Canonical dims are those in `(x, y, z, time)`; extras are the remaining
+    dims in their original order. The result preserves the NIfTI convention
+    `(x, y, z, time, *extras)` for the layout, where the 4th NIfTI axis is
+    always reserved for time (a degenerate length-1 axis is inserted when the
+    DataArray has no `time` dim).
+    """
+    extras = [d for d in current_dims if d not in ("x", "y", "z", "time")]
+    return ["x", "y", "z", "time"], extras
+
+
 def _prepare_data_for_nifti(
     data_array: xr.DataArray,
 ) -> tuple[np.ndarray, tuple[str, ...]]:
@@ -1143,23 +1314,44 @@ def _prepare_data_for_nifti(
     Returns
     -------
     data : numpy.ndarray
-        Array reordered to NIfTI axis order `(x, y, z, time, ...)`, with singleton
-        spatial axes inserted for any missing spatial dimensions. Boolean arrays are
-        cast to `uint8` because NIfTI does not support `bool` payload dtypes.
+        Array reordered to NIfTI axis order `(x, y, z, time, *extras)`. A
+        degenerate length-1 time axis is always inserted at position 3 (NIfTI's
+        conventional time slot) — even when the DataArray has no `time` dim —
+        so non-time extra axes land at NIfTI axes 4, 5, 6. Missing spatial
+        axes are also inserted as singletons. Boolean arrays are cast to
+        `uint8` because NIfTI does not support `bool` payload dtypes.
     current_dims : tuple[str, ...]
-        Original dimension names from `data_array`, preserved so later header logic can
-        decide whether a time zoom should be written and where extra dimensions belong.
+        Original dimension names from `data_array`, preserved so later header logic
+        can decide whether a time zoom should be written and where extra
+        dimensions belong.
+
+    Raises
+    ------
+    ValueError
+        If `data_array` has more than `_MAX_NIFTI_EXTRA_DIMS` non-spatial,
+        non-time dimensions. NIfTI supports at most 7 axes total
+        (3 spatial + time + 3 extras), so the limit is 3 extras regardless of
+        whether `time` is present.
     """
     data = np.asarray(data_array)
     current_dims = tuple(str(dim) for dim in data_array.dims)
 
+    canonical_order, extras = _split_nifti_dims(current_dims)
+    if len(extras) > _MAX_NIFTI_EXTRA_DIMS:
+        raise ValueError(
+            f"Cannot save DataArray with {len(extras)} extra (non-spatial, "
+            f"non-time) dimensions to NIfTI: NIfTI supports at most "
+            f"{_MAX_NIFTI_EXTRA_DIMS} extra dimensions. Extra dims found: "
+            f"{extras!r}."
+        )
+
     target_order = []
-    for dim in ("x", "y", "z", "time"):
+    for dim in canonical_order:
         if dim in current_dims:
             target_order.append(current_dims.index(dim))
 
     for i, dim in enumerate(current_dims):
-        if dim not in ("x", "y", "z", "time"):
+        if dim not in canonical_order:
             target_order.append(i)
 
     data = np.transpose(data, target_order)
@@ -1167,6 +1359,11 @@ def _prepare_data_for_nifti(
     for insert_pos, dim in enumerate(("x", "y", "z")):
         if dim not in current_dims:
             data = np.expand_dims(data, axis=insert_pos)
+
+    # NIfTI's 4th axis is conventionally time. Always reserve it for time:
+    # insert a degenerate length-1 axis if the DataArray has no `time` dim.
+    if "time" not in current_dims:
+        data = np.expand_dims(data, axis=3)
 
     if np.issubdtype(data.dtype, np.bool_):
         data = data.astype(np.uint8, copy=False)
@@ -1613,6 +1810,7 @@ def _build_nifti_sidecar_metadata(
     if extra_affines:
         sidecar_attrs["affines"] = extra_affines
 
+    sidecar_attrs.update(_build_extra_dim_sidecar_metadata(data_array))
     sidecar_attrs.update(timing_metadata)
     return sidecar_attrs
 
@@ -1767,8 +1965,10 @@ def save_nifti(
     timing_metadata, tr_pixdim = _build_nifti_timing_metadata(data_array)
 
     zooms = spatial_zooms.copy()
-    if "time" in current_dims:
-        zooms.append(tr_pixdim if tr_pixdim is not None else 1.0)
+    # The 4th NIfTI axis is always time. A degenerate length-1 time axis is
+    # inserted on save when the DataArray has no `time` dim (see
+    # `_prepare_data_for_nifti`), so `tr_pixdim` is still the right zoom here.
+    zooms.append(tr_pixdim if tr_pixdim is not None else 1.0)
     zooms.extend(1.0 for dim in current_dims if dim not in ("x", "y", "z", "time"))
 
     (
