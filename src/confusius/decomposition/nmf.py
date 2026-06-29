@@ -34,10 +34,10 @@ class NMF(_BaseFUSIDecomposer):
         Number of components to keep. If not set, `n_components == min(n_samples,
         n_features)`. Note that NMF does not support a fractional `n_components` or
         `"mle"`: it must be an integer or `"auto"`.
-    init : {"auto", "nndsvda", "nndsvdar", "random"}, default: "auto"
-        Method used to initialize the procedure. `"auto"` lets sklearn pick `"nndsvda"`
-        for non-negative sparse data and `"random"` otherwise. `"nndsvda"` (or its
-        randomized variant `"nndsvdar"`) is a good default for sparse fUSI Power
+    init : {"nndsvda", "nndsvdar", "random"}, optional
+        Method used to initialize the procedure. If not set, lets sklearn pick
+        `"nndsvda"` for non-negative sparse data and `"random"` otherwise. `"nndsvda"`
+        (or its randomized variant `"nndsvdar"`) is a good default for sparse fUSI Power
         Doppler data.
     solver : {"cd", "mu"}, default: "cd"
         Numerical solver to use: `"cd"` is a Coordinate Descent solver (only one
@@ -143,7 +143,7 @@ class NMF(_BaseFUSIDecomposer):
         self,
         *,
         n_components: int | Literal["auto"] = "auto",
-        init: Literal["auto", "nndsvda", "nndsvdar", "random"] = "auto",
+        init: Literal["nndsvda", "nndsvdar", "random"] | None = None,
         solver: Literal["cd", "mu"] = "cd",
         beta_loss: float | Literal["frobenius", "kullback-leibler", "itakura-saito"] = (
             "frobenius"
