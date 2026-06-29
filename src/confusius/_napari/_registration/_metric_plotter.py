@@ -61,7 +61,7 @@ class RegistrationMetricPlotter(QWidget):
         self.setMinimumHeight(300)
         self._setup_ui()
         self._apply_theme()
-        self._viewer.events.theme.connect(self._on_theme_changed)
+        self._viewer.events.theme.connect(lambda *_: self._apply_theme())
 
     def sizeHint(self) -> QSize:
         """Return the preferred initial size of the widget.
@@ -111,10 +111,6 @@ class RegistrationMetricPlotter(QWidget):
             self._metric_line.set_color(colors["accent"])
         style_plot_toolbar(self._toolbar, colors)
         self._canvas.draw_idle()
-
-    def _on_theme_changed(self) -> None:
-        """Handle napari theme change by re-applying the matplotlib style."""
-        self._apply_theme()
 
     def add_metric(self, value: float) -> None:
         """Append a metric value and schedule a redraw.
