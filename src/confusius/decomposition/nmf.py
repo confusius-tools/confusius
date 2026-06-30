@@ -11,7 +11,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class NMF(_BaseFUSIDecomposer):
-    """Non-negative matrix factorization (NMF) for fUSI data.
+    r"""Non-negative matrix factorization (NMF) for fUSI data.
 
     Find two non-negative matrices, i.e. matrices with all non-negative elements,
     (`W`, `H`) whose product approximates the non-negative matrix `X`. This
@@ -22,21 +22,21 @@ class NMF(_BaseFUSIDecomposer):
 
     $$
         \begin{aligned}
-        L(W, H) &= 0.5 * ||X - WH||_{loss}^2 \\
-                &+ alpha_W * l1_ratio * n_features * ||vec(W)||_1 \\
-                &+ alpha_H * l1_ratio * n_samples * ||vec(H)||_1 \\
-                &+ 0.5 * alpha_W * (1 - l1_ratio) * n_features * ||W||_{F}^2 \\
-                &+ 0.5 * alpha_H * (1 - l1_ratio) * n_samples * ||H||_{F}^2,
+        L(W, H) &= 0.5 * ||X - WH||_{\text{loss}}^2 \\
+                &+ \alpha_W \, l_{1,\text{ratio}} \, n_{\text{features}} \, ||\mathrm{vec}(W)||_1 \\
+                &+ \alpha_H \, l_{1,\text{ratio}} \, n_{\text{samples}} \, ||\mathrm{vec}(H)||_1 \\
+                &+ 0.5 \, \alpha_W \, (1 - l_{1,\text{ratio}}) \, n_{\text{features}} \, ||W||_{F}^2 \\
+                &+ 0.5 \, \alpha_H \, (1 - l_{1,\text{ratio}}) \, n_{\text{samples}} \, ||H||_{F}^2,
         \end{aligned}
     $$
 
-    where $||A||_{F}^2 = \sum_{i,j} A_{ij}^2$ is the Frobenius norm and
-    $||vec(A)||_1 = \sum_{i,j} abs(A_{ij})$ is the elementwise L1 norm.
+    where $||A||_{F}^2 = \sum_{i,j} A_{ij}^2$ is the Frobenius norm and $||vec(A)||_1 =
+    \sum_{i,j} abs(A_{ij})$ is the elementwise L1 norm.
 
-    The generic norm `||X - WH||_loss` may represent the Frobenius norm or
-    another supported beta-divergence loss. The regularization terms are scaled
-    by `n_features` for `W` and by `n_samples` for `H` to keep their impact
-    balanced with respect to one another and to the data fit term.
+    The generic norm `||X - WH||_{\text{loss}}` may represent the Frobenius norm or
+    another supported beta-divergence loss. The regularization terms are scaled by
+    `n_features` for `W` and by `n_samples` for `H` to keep their impact balanced with
+    respect to one another and to the data fit term.
 
     This estimator wraps [`sklearn.decomposition.NMF`][sklearn.decomposition.NMF]
     while keeping xarray metadata through
