@@ -74,6 +74,7 @@ nav = [
         { "Decomposition" = [
             { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },
             { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
+            { "NMF on a single fUSI recording" = "examples/_built/decomposition/nmf_single_recording.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },

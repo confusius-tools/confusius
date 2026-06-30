@@ -10,6 +10,21 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Added [`NMF`][confusius.decomposition.NMF] for non-negative matrix factorization
+  of fUSI time series, wrapping `sklearn.decomposition.NMF` with the same
+  xarray-aware `fit`/`transform`/`inverse_transform` interface as
+  [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
+  Both `mode='temporal'` and `mode='spatial'` are supported
+  ([#117](https://github.com/confusius-tools/confusius/issues/117)).
+
+### :books: Documentation
+
+- Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
+  gallery, demonstrating the z-score + absolute-value standardization that makes
+  signed fUSI signals NMF-compatible.
+
 ### :boom: Breaking changes
 
 - Registration now takes a single `initialization` parameter in place of
@@ -23,6 +38,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Image plotting functions now leave `alpha` unset by default (`None`), so a
+  colormap's built-in alpha channel is respected
+  ([#225](https://github.com/confusius-tools/confusius/pull/225)).
 - `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
   `bspline_initialization` written by the registration pipeline) when merging in the
   NIfTI qform/sform affines
