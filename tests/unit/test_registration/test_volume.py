@@ -224,6 +224,29 @@ class TestRegisterVolumeValidation:
         assert diagnostics.status == "aborted"
         assert diagnostics.n_iterations == 0
 
+    def test_bspline_scale_error_raises_clearer_message(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Known SimpleITK scale failures are rewritten to actionable errors."""
+        import SimpleITK as sitk
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise RuntimeError(
+                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "ITK ERROR: GradientDescentOptimizerv4Template: "
+                "m_Scales values must be > epsilon.[1e-20, 1e-12]"
+            )
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(RuntimeError, match="could not compute valid optimizer scales"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="bspline",
+                learning_rate=1.0,
+            )
 
 
 class TestRegisterVolumeOutput:

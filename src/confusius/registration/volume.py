@@ -245,6 +245,56 @@ def _expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
     return sitk.Expand(img, factors.tolist())
 
 
+def _translate_registration_runtime_error(
+    exc: RuntimeError,
+    *,
+    transform_type: Literal["translation", "rigid", "affine", "bspline"],
+    learning_rate: float | Literal["auto"],
+) -> RuntimeError:
+    """Return a clearer registration error for known SimpleITK failures.
+
+    Parameters
+    ----------
+    exc : RuntimeError
+        Exception raised by SimpleITK during optimizer execution.
+    transform_type : {"translation", "rigid", "affine", "bspline"}
+        Registration model used for the failed run.
+    learning_rate : float or "auto"
+        User-requested learning rate mode.
+
+    Returns
+    -------
+    RuntimeError
+        Translated exception when the failure mode is recognized, otherwise `exc`.
+    """
+    message = str(exc)
+    if "m_Scales values must be > epsilon" not in message:
+        return exc
+
+    parts = [
+        "SimpleITK could not compute valid optimizer scales for this registration.",
+        "Some transform parameters have near-zero physical effect, so the gradient-descent optimizer cannot choose a stable step size.",
+    ]
+    if transform_type == "bspline":
+        parts.append(
+            "This is most common for `transform_type='bspline'`, especially when the control-point grid is too fine for the image extent or overlap."
+        )
+    if learning_rate == "auto":
+        parts.append(
+            'Retry with a fixed `learning_rate` such as `0.1` or `0.01` instead of `"auto"`.'
+        )
+    else:
+        parts.append(
+            "Changing `learning_rate` alone may not help because this failure happens before optimisation starts."
+        )
+    if transform_type == "bspline":
+        parts.append(
+            "If that still fails, use a coarser `mesh_size` or run affine/rigid registration first and pass the result as `initialization`."
+        )
+
+    return RuntimeError(" ".join(parts))
+
+
 @overload
 def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
@@ -624,6 +674,8 @@ def register_volume(
                 f"image dimensionality {ndim}D (expected {expected_shape})."
             )
 
+    requested_learning_rate = learning_rate
+
     registration = sitk.ImageRegistrationMethod()
 
     # --- Metric ---
@@ -796,8 +848,17 @@ def register_volume(
             aborted = True
             stop_condition = "Registration aborted before optimisation started."
         else:
-            with set_sitk_thread_count(sitk_threads):
-                sitk_optimized_transform = registration.Execute(fixed_reg, moving_reg)
+            try:
+                with set_sitk_thread_count(sitk_threads):
+                    sitk_optimized_transform = registration.Execute(
+                        fixed_reg, moving_reg
+                    )
+            except RuntimeError as exc:
+                raise _translate_registration_runtime_error(
+                    exc,
+                    transform_type=transform_type,
+                    learning_rate=requested_learning_rate,
+                ) from exc
             executed = True
             aborted = effective_abort_event.is_set()
             stop_condition = registration.GetOptimizerStopConditionDescription()
