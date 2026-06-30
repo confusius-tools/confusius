@@ -4,6 +4,6 @@ This package provides shared statistical utilities that apply across multiple an
 workflows, such as statistical-map thresholding with multiple-comparison correction.
 """
 
-from confusius.stats.thresholding import apply_statistical_threshold
+from confusius.stats.thresholding import adjust_pvalues, apply_statistical_threshold
 
-__all__ = ["apply_statistical_threshold"]
+__all__ = ["adjust_pvalues", "apply_statistical_threshold"]

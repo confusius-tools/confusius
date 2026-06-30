@@ -23,11 +23,14 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- Added [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] to
-  threshold a statistical DataArray with a choice of family-wise-error (Bonferroni,
-  Šidák, Holm, Holm-Šidák, Simes-Hochberg, Hommel) or false-discovery-rate
-  (Benjamini-Hochberg, Benjamini-Yekutieli) correction, plus an optional cluster-extent
-  threshold ([#204](https://github.com/confusius-tools/confusius/pull/204)).
+- Added [`adjust_pvalues`][confusius.stats.adjust_pvalues] for generic
+  multiple-comparison correction of p-value maps, and
+  [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] to
+  threshold z-scaled statistical DataArrays with the same family-wise-error
+  (Bonferroni, Šidák, Holm, Holm-Šidák, Simes-Hochberg, Hommel) or
+  false-discovery-rate (Benjamini-Hochberg, Benjamini-Yekutieli) corrections, plus an
+  optional cluster-extent threshold
+  ([#204](https://github.com/confusius-tools/confusius/pull/204)).
 
 ### :bug: Fixes
 

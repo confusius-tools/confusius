@@ -8,7 +8,7 @@ import scipy.stats as sps
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius.stats import apply_statistical_threshold
+from confusius.stats import adjust_pvalues, apply_statistical_threshold
 
 FWER_AND_FDR = [
     "uncorrected",
@@ -100,6 +100,42 @@ def zmap(rng):
     z = rng.standard_normal(60) * 0.7
     z[:8] = [2.6, 3.0, 3.4, 3.9, 4.5, -3.2, -4.0, 2.9]
     return xr.DataArray(z, dims=["x"])
+
+
+@pytest.fixture
+def pmap(zmap):
+    """A `(x,)` p-value map derived from `zmap`."""
+    return xr.DataArray(_two_sided_pvalues(zmap.values), dims=["x"])
+
+
+class TestAdjustPvalues:
+    """Tests for the generic p-value adjustment helper."""
+
+    @pytest.mark.parametrize("method", FWER_AND_FDR)
+    def test_adjusted_map_matches_reference_rejection_rule(self, pmap, method):
+        """Adjusted p-values reject the same voxels as the textbook rule."""
+        adjusted = adjust_pvalues(pmap, method=method)
+        expected = _reference_reject(pmap.values, method, 0.05)
+        assert_array_equal(adjusted.values <= 0.05, expected)
+
+    def test_hommel_matches_closed_testing(self):
+        """Hommel-adjusted p-values match the brute-force closed-Simes rule."""
+        pmap = xr.DataArray([2e-5, 9e-4, 0.005, 0.016, 0.058, 0.55], dims=["x"])
+        adjusted = adjust_pvalues(pmap, method="hommel")
+        expected = _reference_reject_hommel(pmap.values, 0.05)
+        assert_array_equal(adjusted.values <= 0.05, expected)
+
+    def test_untested_voxels_are_one(self):
+        """Untested voxels are set to one so they are never significant."""
+        pmap = xr.DataArray([0.0, 0.02, np.nan, 0.04], dims=["x"])
+        adjusted = adjust_pvalues(pmap, skipzero=True, skipna=True)
+        assert_array_equal(adjusted.values, [1.0, 0.04, 1.0, 0.04])
+
+    def test_invalid_tested_pvalues_raise(self):
+        """Tested voxels must be finite p-values in [0, 1]."""
+        pmap = xr.DataArray([0.1, 1.2], dims=["x"])
+        with pytest.raises(ValueError, match=r"finite p-values in \[0, 1\]"):
+            adjust_pvalues(pmap)
 
 
 class TestCorrectionMethods:

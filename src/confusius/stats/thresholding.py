@@ -1,18 +1,18 @@
-"""Statistical thresholding with multiple-comparison correction for z-maps.
+"""Statistical thresholding and multiple-comparison correction utilities.
 
 This module provides
+[`adjust_pvalues`][confusius.stats.thresholding.adjust_pvalues], which adjusts a
+p-value map for multiple comparisons, and
 [`apply_statistical_threshold`][confusius.stats.thresholding.apply_statistical_threshold],
-which applies a voxel-level statistical threshold (with a choice of family-wise-error or
-false-discovery-rate correction) and an optional cluster-extent threshold to a
-statistical map. The maps are expected to be z-scaled, such as those returned by
-[`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast].
+which applies the same correction machinery to a z-scaled statistical map and returns a
+thresholded copy.
 
-The correction is performed in p-value space: the z-scores are converted to p-values,
-the p-values are adjusted for multiple comparisons, and voxels whose adjusted p-value is
-at or below `alpha` are kept. The Benjamini-Hochberg and Benjamini-Yekutieli
+The correction is performed in p-value space: z-scores are converted to p-values, the
+p-values are adjusted for multiple comparisons, and voxels whose adjusted p-value is at
+or below `alpha` are kept. The Benjamini-Hochberg and Benjamini-Yekutieli
 false-discovery-rate adjustments are delegated to
-[`scipy.stats.false_discovery_control`][]; the family-wise-error adjustments are computed
-directly.
+[`scipy.stats.false_discovery_control`][]; the family-wise-error adjustments are
+computed directly.
 
 Portions of this file are derived from Nilearn, which is licensed under the BSD-3-Clause
 License. See `NOTICE` file for details.
@@ -45,9 +45,9 @@ CorrectionMethod = Literal[
     "fdr_bh",
     "fdr_by",
 ]
-"""Multiple-comparison correction methods accepted by `apply_statistical_threshold`.
+"""Multiple-comparison correction methods accepted by the public stats helpers.
 
-See
+See [`adjust_pvalues`][confusius.stats.thresholding.adjust_pvalues] and
 [`apply_statistical_threshold`][confusius.stats.thresholding.apply_statistical_threshold]
 for a description of each method.
 """
@@ -304,6 +304,78 @@ def _apply_cluster_threshold(
     arr[small] = 0.0
 
 
+def adjust_pvalues(
+    pvalue_map: xr.DataArray,
+    mask: xr.DataArray | None = None,
+    *,
+    method: CorrectionMethod = "fdr_bh",
+    skipzero: bool = False,
+    skipna: bool = False,
+) -> xr.DataArray:
+    """Adjust a p-value map for multiple comparisons.
+
+    The selected voxels are adjusted according to `method`; untested voxels are set to
+    `1.0` in the output so they are never significant under any `alpha <= 1`.
+
+    Parameters
+    ----------
+    pvalue_map : xarray.DataArray
+        P-value map with spatial dimensions. Tested voxels must lie in `[0, 1]`.
+    mask : xarray.DataArray, optional
+        Boolean (or single-label integer) mask of the tested voxels. If not provided,
+        the tested voxels are derived from `pvalue_map` according to `skipzero` and
+        `skipna`.
+    method : CorrectionMethod, default: "fdr_bh"
+        Multiple-comparison correction method. Available methods:
+
+        - `"uncorrected"`: no correction.
+        - `"bonferroni"`: one-step correction.
+        - `"sidak"`: one-step correction.
+        - `"holm-sidak"`: step down method using Sidak adjustments.
+        - `"holm"`: step-down method using Bonferroni adjustments.
+        - `"simes-hochberg"`: step-up method (independent).
+        - `"hommel"`: closed method based on Simes tests (non-negative).
+        - `"fdr_bh"`: Benjamini/Hochberg (non-negative).
+        - `"fdr_by"`: Benjamini/Yekutieli (negative).
+    skipzero : bool, default: False
+        Whether to exclude voxels equal to zero from the tested voxels when `mask` is not
+        provided.
+    skipna : bool, default: False
+        Whether to exclude non-finite voxels from the tested voxels when `mask` is not
+        provided. Set to True for maps containing NaNs.
+
+    Returns
+    -------
+    xarray.DataArray
+        Copy of `pvalue_map` containing adjusted p-values at tested voxels and `1.0` at
+        untested voxels.
+
+    Raises
+    ------
+    ValueError
+        If `method` is not one of the allowed values, any tested voxel lies outside
+        `[0, 1]`, or no voxel is tested.
+    """
+    if method not in get_args(CorrectionMethod):
+        raise ValueError(
+            f"method must be one of {get_args(CorrectionMethod)}, got {method!r}."
+        )
+
+    selected = _build_mask(pvalue_map, mask, skipzero, skipna)
+    pvalues = pvalue_map.values[selected]
+    if pvalues.size == 0:
+        raise ValueError("No voxels are tested; check the mask, skipzero, and skipna.")
+    if np.any((pvalues < 0) | (pvalues > 1) | ~np.isfinite(pvalues)):
+        raise ValueError("Tested voxels must contain finite p-values in [0, 1].")
+
+    adjusted = pvalue_map.copy(deep=True)
+    adjusted.values[...] = 1.0
+    adjusted.values[selected] = _adjust_pvalues(
+        pvalues.astype(np.float64, copy=False), method
+    )
+    return adjusted
+
+
 def apply_statistical_threshold(
     stat_map: xr.DataArray,
     mask: xr.DataArray | None = None,
@@ -323,8 +395,9 @@ def apply_statistical_threshold(
     [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast].
 
     The z-scores are converted to p-values, adjusted for multiple comparisons with
-    `method`, and voxels whose adjusted p-value is at or below `alpha` are kept. Set
-    `method` to `None` to instead apply the explicit `threshold` z-score cutoff.
+    [`adjust_pvalues`][confusius.stats.thresholding.adjust_pvalues], and voxels whose
+    adjusted p-value is at or below `alpha` are kept. Set `method` to `None` to instead
+    apply the explicit `threshold` z-score cutoff.
 
     If a mask is not provided, `skipzero` and `skipna` can be used to exclude zero and
     non-finite voxels from the tested voxels.
@@ -417,8 +490,17 @@ def apply_statistical_threshold(
         else:
             rejected = stats <= z_threshold
     else:
-        pvalues = _stat_to_pvalue(stats, two_sided)
-        rejected = _adjust_pvalues(pvalues, method) <= alpha
+        pvalue_map = stat_map.copy(deep=True)
+        pvalue_map.values[...] = 1.0
+        pvalue_map.values[selected] = _stat_to_pvalue(stats, two_sided)
+        adjusted_pvalues = adjust_pvalues(
+            pvalue_map,
+            mask=mask,
+            method=method,
+            skipzero=skipzero,
+            skipna=skipna,
+        )
+        rejected = adjusted_pvalues.values[selected] <= alpha
         z_threshold = _report_threshold(stats, rejected, method, alpha, two_sided)
 
     keep = np.zeros(stat_map.shape, dtype=bool)
