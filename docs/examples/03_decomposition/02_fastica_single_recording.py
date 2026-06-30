@@ -46,9 +46,6 @@ import numpy as np
 import xarray as xr
 
 import confusius as cf
-from confusius.datasets import fetch_nunez_elizalde_2022
-from confusius.decomposition import FastICA
-from confusius.signal import standardize
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -56,7 +53,7 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 # Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
-bids_root = fetch_nunez_elizalde_2022(
+bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022",
     sessions="20201011",
     tasks="spontaneous",
@@ -74,14 +71,14 @@ data = cf.load(pwd_path).compute()
 data
 
 # %% [markdown]
-# ## Correct for brain motion
+## Correct for brain motion
 #
 # This recording contains some brain motion, which we can mitigate by performing a rigid
-# translation correction with
+# transform correction with
 # [`register_volumewise`][confusius.registration.register_volumewise]. This is the same
 # preprocessing step used in the [PCA
-# example](pca_single_recording.md#correct-for-brain-motion), and it helps
-# avoid components dominated by motion artefacts.
+# example](pca_single_recording.md#correct-for-brain-motion), and it helps avoid
+# components dominated by motion artefacts.
 
 # %%
 data = cf.registration.register_volumewise(data, learning_rate=1e-2)
@@ -99,7 +96,7 @@ data = cf.registration.register_volumewise(data, learning_rate=1e-2)
 # [PCA example](pca_single_recording.md#temporal-pca-modetemporal).
 
 # %%
-data_std = standardize(data)
+data_std = cf.signal.standardize(data)
 
 # %% [markdown]
 # With `mode="temporal"`, [FastICA][confusius.decomposition.FastICA] operates on the
@@ -110,7 +107,7 @@ data_std = standardize(data)
 # which each independent time course has its strongest influence).
 
 # %%
-ica_t = FastICA(
+ica_t = cf.decomposition.FastICA(
     n_components=10,
     mode="temporal",
     random_state=42,
@@ -173,7 +170,7 @@ _ = fig.suptitle(
 # reducing whole-brain motion-related structure.
 
 # %%
-ica_s = FastICA(
+ica_s = cf.decomposition.FastICA(
     n_components=10, mode="spatial", random_state=42, fun="cube", max_iter=500
 )
 signals_s = ica_s.fit_transform(data_std)

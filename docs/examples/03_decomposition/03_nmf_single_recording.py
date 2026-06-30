@@ -1,5 +1,4 @@
-# %% [markdown]
-# # NMF on a single fUSI recording
+# %% [markdown] # NMF on a single fUSI recording
 #
 # This example shows how to use non-negative matrix factorization (NMF) to decompose a
 # fUSI recording into non-negative spatial maps and their associated non-negative time
@@ -8,17 +7,13 @@
 #
 # NMF is unique among the decomposers in ConfUSIus because it requires strictly
 # non-negative inputs[^1]. Power Doppler fUSI signals are non-negative by construction,
-# so they pass the constraint directly. Other modalities (e.g. contrast-based signals,
-# B-mode, or demeaned timeseries) contain negative values; the wrapper raises a clear
-# `ValueError` in that case, since the underlying optimization has no real solution.
+# so they pass the constraint directly. However, raw power is dominated by each voxel's
+# baseline intensity, which can make bright vessels dominate the factorization.
 #
-# A practical way to make signed signals NMF-compatible is to **z-score each voxel and
-# take the absolute value**. The z-score rescales every voxel to a comparable dynamic
-# range so that high-variance voxels (e.g. near large vessels) do not dominate the
-# decomposition, and the absolute value restores the non-negativity constraint at the
-# cost of losing the sign. NMF then factorizes the resulting *magnitude* signal, which
-# empirically highlights the same local spatiotemporal patterns as correlation-based
-# methods (PCA, ICA) but with strictly non-negative parts.
+# A practical workaround is to center and scale each voxel across time, then split the
+# standardized signal into separate positive and negative channels, preserving NMF's
+# non-negativity constraint. NMF can then discover additive components in above-baseline
+# and below-baseline fluctuations separately.
 
 # %% [markdown]
 # ## Load a fUSI recording
@@ -34,13 +29,9 @@ from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import numpy as np
 import xarray as xr
 
 import confusius as cf
-from confusius.datasets import fetch_nunez_elizalde_2022
-from confusius.decomposition import NMF
-from confusius.signal import standardize
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -48,7 +39,7 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 # Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
-bids_root = fetch_nunez_elizalde_2022(
+bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022",
     sessions="20201011",
     tasks="spontaneous",
@@ -66,11 +57,11 @@ data = cf.load(pwd_path).compute()
 data
 
 # %% [markdown]
-# ## Correct for brain motion
+## Correct for brain motion
 #
 # As in the [PCA](pca_single_recording.md#correct-for-brain-motion) and
 # [FastICA](fastica_single_recording.md#correct-for-brain-motion) examples, we first
-# perform a rigid translation correction with
+# perform a rigid transformation correction with
 # [`register_volumewise`][confusius.registration.register_volumewise] to mitigate brain
 # motion.
 
@@ -80,19 +71,23 @@ data = cf.registration.register_volumewise(data, learning_rate=1e-2)
 # %% [markdown]
 # ## Standardize for NMF
 #
-# NMF requires non-negative inputs but a raw Power Doppler timeseries is dominated by
-# each voxel's own mean intensity, which is unrelated to the fluctuations we want to
-# capture. We therefore:
+# NMF requires non-negative inputs, but raw Power Doppler is dominated by each voxel's
+# baseline intensity rather than the temporal fluctuations we want to group. We
+# therefore:
 #
-# 1. Z-score each voxel's time series with
-#    [`standardize`][confusius.signal.standardize] to put every voxel on a common
-#    scale and remove its mean.
-# 2. Take the absolute value to satisfy NMF's non-negativity constraint.
+# 1. Z-score each voxel's time series with [`standardize`][confusius.signal.standardize]
+#    to remove its mean and put voxels on a comparable scale.
+# 2. Split the standardized signal into separate positive and negative parts.
 #
-# The result is a non-negative *magnitude* signal that NMF can decompose additively.
+# This keeps the sign information— above-baseline versus below-baseline
+# fluctuations—while still presenting a non-negative matrix to NMF.
 
 # %%
-data_nmf = np.abs(standardize(data))
+z = cf.signal.standardize(data)
+data_nmf = xr.concat(
+    [z.clip(min=0), (-z).clip(min=0)],
+    dim=xr.IndexVariable("sign", ["pos", "neg"]),
+)
 
 # %% [markdown]
 # ## Fit temporal NMF
@@ -102,13 +97,14 @@ data_nmf = np.abs(standardize(data))
 # and coordinates. With `mode="temporal"` (the default), it fits on `(time, voxels)`
 # and returns:
 #
-# - [`maps_`][confusius.decomposition.NMF]: non-negative spatial maps of shape
-#   `(component, z, y, x)`.
+# - [`maps_`][confusius.decomposition.NMF]: non-negative spatial maps. Because we split
+#   the input into positive and negative channels, the maps here have shape
+#   `(component, sign, z, y, x)`.
 # - [`fit_transform`][confusius.decomposition.NMF.fit_transform]: non-negative time
 #   courses of shape `(time, component)`.
 
 # %%
-nmf = NMF(n_components=10, random_state=0, max_iter=500)
+nmf = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=500)
 signals = nmf.fit_transform(data_nmf)
 signals
 
@@ -129,36 +125,41 @@ print(f"n_iter_: {nmf.n_iter_}")
 # ## Spatial maps and time courses
 #
 # Looking at the spatial maps and the associated time courses side by side is a useful
-# first sanity check. Maps with localized, anatomically plausible structure paired with
-# a single dominant transient in the time course tend to reflect a coherent
-# spatiotemporal pattern, while diffuse maps paired with noisy or drift-like
-# fluctuations often indicate residual motion or physiological artefacts.
+# first sanity check. Here each component has two map panels: one for above-baseline
+# fluctuations (`pos`) and one for below-baseline fluctuations (`neg`). Localized,
+# anatomically plausible structure paired with a clear transient in the time course
+# tends to reflect a coherent spatiotemporal pattern, while diffuse maps paired with
+# noisy or drift-like fluctuations often indicate residual motion or physiological
+# artefacts.
 
 # %% tags=["thumbnail"]
 n_show = 10
-fig = plt.figure(figsize=(10.5, 12.0), constrained_layout=True)
+fig = plt.figure(figsize=(11.5, 12.0), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
-gs = fig.add_gridspec(n_show, 2, width_ratios=[1, 3])
+gs = fig.add_gridspec(n_show, 2, width_ratios=[1.4, 3])
 
 axes_tc = [fig.add_subplot(gs[i, 1]) for i in range(n_show)]
 for ax in axes_tc[1:]:
     ax.sharex(axes_tc[0])
 
 for i, comp in enumerate(range(n_show)):
-    component_map = nmf.maps_.isel(component=[comp])
+    component_map = nmf.maps_.isel(component=comp, drop=True)
     vmax = float(component_map.max())
-    cf.plotting.plot_volume(
-        component_map,
-        axes=fig.add_subplot(gs[i, 0]),
-        slice_mode="component",
-        cmap="viridis",
-        vmin=0,
-        vmax=vmax,
-        show_axes=False,
-        show_colorbar=False,
-        show_titles=False,
-        bg_color=bg_color,
-    )
+    map_gs = gs[i, 0].subgridspec(1, 2, wspace=0.02)
+
+    for j, sign in enumerate(["pos", "neg"]):
+        cf.plotting.plot_volume(
+            component_map.sel(sign=sign, drop=True),
+            axes=fig.add_subplot(map_gs[0, j]),
+            slice_mode="z",
+            cmap="viridis",
+            vmin=0,
+            vmax=vmax,
+            show_axes=False,
+            show_colorbar=False,
+            show_titles=False,
+            bg_color=bg_color,
+        )
 
     signals.sel(component=comp).plot(ax=axes_tc[i], lw=1.1)
     axes_tc[i].set_title(f"Component {comp + 1}")
@@ -169,7 +170,8 @@ for ax in axes_tc[:-1]:
     ax.tick_params(labelbottom=False)
 axes_tc[-1].set_xlabel("Time (s)")
 _ = fig.suptitle(
-    "Temporal NMF: spatial maps and time courses (first 10 components)", fontsize=21
+    "Temporal NMF: positive/negative maps and time courses (first 10 components)",
+    fontsize=21,
 )
 
 # %% [markdown]
@@ -177,48 +179,54 @@ _ = fig.suptitle(
 #
 # [`NMF`][confusius.decomposition.NMF] also accepts `mode="spatial"`, which transposes
 # the data to `(voxels, time)` before fitting. The output convention is identical to
-# temporal mode — [`maps_`][confusius.decomposition.NMF] holds the non-negative spatial
-# maps and [`fit_transform`][confusius.decomposition.NMF.fit_transform] returns their
+# temporal mode — [`maps_`][confusius.decomposition.NMF] still holds the non-negative
+# spatial maps (here with `pos`/`neg` channels) and
+# [`fit_transform`][confusius.decomposition.NMF.fit_transform] returns their
 # non-negative time courses — so the choice between the two modes mirrors the
 # temporal/spatial choice offered by [PCA](pca_single_recording.md) and
 # [FastICA](fastica_single_recording.md).
 
 # %%
-nmf_spatial = NMF(n_components=10, mode="spatial", random_state=0, max_iter=500)
+nmf_spatial = cf.decomposition.NMF(
+    n_components=10, mode="spatial", random_state=0, max_iter=500
+)
 signals_s = nmf_spatial.fit_transform(data_nmf)
 signals_s
 
 # %% [markdown]
 # ### Spatial maps and time courses
 #
-# As in temporal mode, we inspect the spatial maps and their corresponding time courses
-# side by side.
+# As in temporal mode, we inspect the positive and negative spatial maps and their
+# corresponding time courses side by side.
 
 # %%
 n_show = 10
-fig = plt.figure(figsize=(10.5, 12.0), constrained_layout=True)
+fig = plt.figure(figsize=(11.5, 12.0), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
-gs = fig.add_gridspec(n_show, 2, width_ratios=[1, 3])
+gs = fig.add_gridspec(n_show, 2, width_ratios=[1.4, 3])
 
 axes_tc = [fig.add_subplot(gs[i, 1]) for i in range(n_show)]
 for ax in axes_tc[1:]:
     ax.sharex(axes_tc[0])
 
 for i, comp in enumerate(range(n_show)):
-    component_map = nmf_spatial.maps_.isel(component=[comp])
+    component_map = nmf_spatial.maps_.isel(component=comp, drop=True)
     vmax = float(component_map.max())
-    cf.plotting.plot_volume(
-        component_map,
-        axes=fig.add_subplot(gs[i, 0]),
-        slice_mode="component",
-        cmap="viridis",
-        vmin=0,
-        vmax=vmax,
-        show_axes=False,
-        show_colorbar=False,
-        show_titles=False,
-        bg_color=bg_color,
-    )
+    map_gs = gs[i, 0].subgridspec(1, 2, wspace=0.02)
+
+    for j, sign in enumerate(["pos", "neg"]):
+        cf.plotting.plot_volume(
+            component_map.sel(sign=sign, drop=True),
+            axes=fig.add_subplot(map_gs[0, j]),
+            slice_mode="z",
+            cmap="viridis",
+            vmin=0,
+            vmax=vmax,
+            show_axes=False,
+            show_colorbar=False,
+            show_titles=False,
+            bg_color=bg_color,
+        )
 
     signals_s.sel(component=comp).plot(ax=axes_tc[i], lw=1.1)
     axes_tc[i].set_title(f"Component {comp + 1}")
@@ -229,7 +237,8 @@ for ax in axes_tc[:-1]:
     ax.tick_params(labelbottom=False)
 axes_tc[-1].set_xlabel("Time (s)")
 _ = fig.suptitle(
-    "Spatial NMF: spatial maps and time courses (first 10 components)", fontsize=21
+    "Spatial NMF: positive/negative maps and time courses (first 10 components)",
+    fontsize=21,
 )
 
 # %% [markdown]
