@@ -152,40 +152,6 @@ def _hommel_adjust(pvalues: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
     return adjusted
 
 
-def _adjust_pvalues(
-    pvalues: npt.NDArray[np.float64],
-    method: CorrectionMethod,
-) -> npt.NDArray[np.float64]:
-    """Adjust p-values for multiple comparisons.
-
-    Parameters
-    ----------
-    pvalues : (n,) numpy.ndarray
-        Raw p-values of the tested voxels.
-    method : CorrectionMethod
-        Correction method. `"fdr_bh"` and `"fdr_by"` are delegated to
-        [`scipy.stats.false_discovery_control`][]; the others are computed directly.
-
-    Returns
-    -------
-    (n,) numpy.ndarray
-        Adjusted p-values, in the order of `pvalues`.
-    """
-    n = pvalues.size
-    if method == "uncorrected":
-        return pvalues
-    if method == "bonferroni":
-        return np.minimum(pvalues * n, 1.0)
-    if method == "sidak":
-        return -np.expm1(n * np.log1p(-pvalues))
-    if method == "hommel":
-        return _hommel_adjust(pvalues)
-    if method in ("holm", "holm-sidak", "simes-hochberg"):
-        return _step_adjust(pvalues, method)
-    # "fdr_bh" / "fdr_by".
-    return sps.false_discovery_control(pvalues, method=method.removeprefix("fdr_"))
-
-
 def _report_threshold(
     stats: npt.NDArray[np.floating],
     rejected: npt.NDArray[np.bool_],
@@ -368,11 +334,26 @@ def adjust_pvalues(
     if np.any((pvalues < 0) | (pvalues > 1) | ~np.isfinite(pvalues)):
         raise ValueError("Tested voxels must contain finite p-values in [0, 1].")
 
+    adjusted_values = pvalues.astype(np.float64, copy=False)
+    n = adjusted_values.size
+    if method == "uncorrected":
+        corrected = adjusted_values
+    elif method == "bonferroni":
+        corrected = np.minimum(adjusted_values * n, 1.0)
+    elif method == "sidak":
+        corrected = -np.expm1(n * np.log1p(-adjusted_values))
+    elif method == "hommel":
+        corrected = _hommel_adjust(adjusted_values)
+    elif method in ("holm", "holm-sidak", "simes-hochberg"):
+        corrected = _step_adjust(adjusted_values, method)
+    else:  # "fdr_bh" / "fdr_by".
+        corrected = sps.false_discovery_control(
+            adjusted_values, method=method.removeprefix("fdr_")
+        )
+
     adjusted = pvalue_map.copy(deep=True)
     adjusted.values[...] = 1.0
-    adjusted.values[selected] = _adjust_pvalues(
-        pvalues.astype(np.float64, copy=False), method
-    )
+    adjusted.values[selected] = corrected
     return adjusted
 
 
