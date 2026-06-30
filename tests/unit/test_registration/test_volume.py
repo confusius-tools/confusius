@@ -224,6 +224,29 @@ class TestRegisterVolumeValidation:
         assert diagnostics.status == "aborted"
         assert diagnostics.n_iterations == 0
 
+    def test_unknown_runtime_error_is_passed_through(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Unknown SimpleITK runtime errors are re-raised unchanged."""
+        import SimpleITK as sitk
+
+        error = RuntimeError("boom")
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise error
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+
+        assert excinfo.value is error
+
     def test_bspline_scale_error_raises_clearer_message(
         self, sample_2d_dataarray_spatial, monkeypatch
     ):
@@ -246,6 +269,33 @@ class TestRegisterVolumeValidation:
                 sample_2d_dataarray_spatial,
                 transform_type="bspline",
                 learning_rate=1.0,
+            )
+
+    def test_bspline_scale_error_with_auto_learning_rate_suggests_fixed_rate(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Auto-learning-rate scale failures suggest retrying with a fixed rate."""
+        import SimpleITK as sitk
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise RuntimeError(
+                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "ITK ERROR: GradientDescentOptimizerv4Template: "
+                "m_Scales values must be > epsilon.[1e-20, 1e-12]"
+            )
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(
+            RuntimeError,
+            match='Retry with a fixed `learning_rate` such as `0.1` or `0.01`',
+        ):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="bspline",
+                learning_rate="auto",
             )
 
 

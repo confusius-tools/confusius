@@ -1,5 +1,9 @@
 """Unit tests for MatplotlibRegistrationProgressPlotter."""
 
+import builtins
+import sys
+import types
+
 import matplotlib
 import numpy as np
 import pytest
@@ -82,6 +86,31 @@ def _make_registration_method():
 class TestMatplotlibRegistrationProgressPlotterInstantiation:
     """Smoke tests for plotter construction."""
 
+    def test_importerror_from_ipython_detection_falls_back_to_script_mode(
+        self, fixed_img_2d, moving_img_2d, monkeypatch
+    ):
+        """Missing IPython support falls back cleanly to non-notebook mode."""
+        reg = _make_registration_method()
+        original_import = builtins.__import__
+
+        def _guarded_import(name, *args, **kwargs):
+            if name == "IPython.core.getipython":
+                raise ImportError("no ipython")
+            return original_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _guarded_import)
+
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=True,
+            plot_composite=False,
+        )
+
+        assert plotter._notebook is False
+        plotter.figure.clf()
+
     def test_metric_only(self, fixed_img_2d, moving_img_2d):
         """Plotter with only metric panel is created without error."""
         reg = _make_registration_method()
@@ -121,6 +150,46 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
 
 class TestMatplotlibRegistrationProgressPlotterUpdate:
     """Tests for metric_values population and composite rendering."""
+
+    def test_notebook_mode_uses_display_and_closes_figure(
+        self, fixed_img_2d, moving_img_2d, monkeypatch
+    ):
+        """Notebook mode renders via IPython display and closes on finish."""
+        import matplotlib.pyplot as plt
+
+        reg = _make_registration_method()
+        display_calls: list[tuple[object, bool]] = []
+        closed_figures: list[object] = []
+
+        fake_getipython = types.ModuleType("IPython.core.getipython")
+
+        class ZMQInteractiveShell:
+            pass
+
+        fake_getipython.get_ipython = lambda: ZMQInteractiveShell()
+        fake_display = types.ModuleType("IPython.display")
+        fake_display.display = (
+            lambda fig, clear=False: display_calls.append((fig, clear))
+        )
+        monkeypatch.setitem(sys.modules, "IPython.core.getipython", fake_getipython)
+        monkeypatch.setitem(sys.modules, "IPython.display", fake_display)
+        monkeypatch.setattr(plt, "close", lambda fig: closed_figures.append(fig))
+
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=False,
+            plot_composite=True,
+        )
+
+        plotter.update()
+        plotter.close()
+
+        assert display_calls
+        assert display_calls[-1][0] is plotter.figure
+        assert display_calls[-1][1] is True
+        assert closed_figures == [plotter.figure]
 
     def test_metric_values_populated_after_registration(
         self, fixed_img_2d, moving_img_2d
@@ -216,6 +285,44 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
 
 class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     """Tests for intermediate-resample settings."""
+
+    def test_none_interpolation_falls_back_to_linear(
+        self, fixed_img_2d, moving_img_2d
+    ):
+        """A `None` interpolation override falls back to linear at render time."""
+        reg = _make_registration_method()
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=False,
+            plot_composite=True,
+            resample_kwargs={"interpolation": None},
+        )
+
+        plotter.update()
+
+        assert plotter._composite_im is not None
+        plotter.figure.clf()
+
+    def test_invalid_interpolation_raises_on_update(
+        self, fixed_img_2d, moving_img_2d
+    ):
+        """Unknown interpolation names raise a clear ValueError during rendering."""
+        reg = _make_registration_method()
+        plotter = MatplotlibRegistrationProgressPlotter(
+            reg,
+            fixed_img_2d,
+            moving_img_2d,
+            plot_metric=False,
+            plot_composite=True,
+            resample_kwargs={"interpolation": "bogus"},
+        )
+
+        with pytest.raises(ValueError, match="Invalid `interpolation`"):
+            plotter.update()
+
+        plotter.figure.clf()
 
     def test_default_fill_value_is_moving_min(self, fixed_img_2d, moving_img_2d):
         """When resample_kwargs omits fill_value, it defaults to moving_img.min()."""

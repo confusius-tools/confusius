@@ -145,7 +145,9 @@ class TestRegisterVolumewise:
     def test_abort_during_run_skips_not_yet_started_frames(
         self, sample_2d_dataarray, monkeypatch
     ):
-        """Frames starting after abort reuse the cheap aborted-frame path."""
+        """Already-scheduled frames hit the cheap aborted-frame fast path."""
+        import joblib
+
         abort_event = Event()
         calls = {"count": 0}
 
@@ -163,14 +165,35 @@ class TestRegisterVolumewise:
             )
             return volume.copy(), np.eye(3), diagnostics
 
+        class _FakeParallel:
+            def __init__(self, *args, **kwargs):
+                del args, kwargs
+
+            def __call__(self, tasks):
+                scheduled = list(tasks)
+
+                def _run():
+                    for task in scheduled:
+                        yield task()
+
+                return _run()
+
+        def _fake_delayed(func):
+            def _wrap(*args, **kwargs):
+                return lambda: func(*args, **kwargs)
+
+            return _wrap
+
         monkeypatch.setattr(
             "confusius.registration.volumewise.register_volume",
             _fake_register_volume,
         )
+        monkeypatch.setattr(joblib, "Parallel", _FakeParallel)
+        monkeypatch.setattr(joblib, "delayed", _fake_delayed)
 
         result = register_volumewise(
             sample_2d_dataarray,
-            n_jobs=1,
+            n_jobs=2,
             transform="translation",
             show_progress=False,
             abort_event=abort_event,
@@ -179,6 +202,7 @@ class TestRegisterVolumewise:
         statuses = list(result.attrs["motion_params"]["status"])
         assert statuses[0] == "completed"
         assert all(status == "aborted" for status in statuses[1:])
+        assert calls["count"] == 1
 
         background = sample_2d_dataarray.values.min()
         assert np.all(result.values[1:] == background)
