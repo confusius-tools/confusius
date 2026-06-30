@@ -13,15 +13,35 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 class NMF(_BaseFUSIDecomposer):
     """Non-negative matrix factorization (NMF) for fUSI data.
 
-    Linear dimensionality reduction that factorizes a non-negative data matrix into two
-    non-negative factors: a dictionary of spatial maps (`maps_`) and their associated
-    non-negative temporal signals. The decomposition is computed by minimizing the
-    Frobenius norm (or a beta-divergence, depending on the `beta_loss` parameter)
-    between the input data and the reconstructed product of the two factors.
+    Find two non-negative matrices, i.e. matrices with all non-negative elements,
+    (`W`, `H`) whose product approximates the non-negative matrix `X`. This
+    factorization can be used for example for dimensionality reduction, source
+    separation, or topic extraction.
 
-    This estimator wraps [`sklearn.decomposition.NMF`][sklearn.decomposition.NMF] while
-    keeping xarray metadata through [`transform`][confusius.decomposition.NMF.transform]
-    and [`inverse_transform`][confusius.decomposition.NMF.inverse_transform]:
+    The objective function is:
+
+    $$
+        \begin{aligned}
+        L(W, H) &= 0.5 * ||X - WH||_{loss}^2 \\
+                &+ alpha_W * l1_ratio * n_features * ||vec(W)||_1 \\
+                &+ alpha_H * l1_ratio * n_samples * ||vec(H)||_1 \\
+                &+ 0.5 * alpha_W * (1 - l1_ratio) * n_features * ||W||_{F}^2 \\
+                &+ 0.5 * alpha_H * (1 - l1_ratio) * n_samples * ||H||_{F}^2,
+        \end{aligned}
+    $$
+
+    where $||A||_{F}^2 = \sum_{i,j} A_{ij}^2$ is the Frobenius norm and
+    $||vec(A)||_1 = \sum_{i,j} abs(A_{ij})$ is the elementwise L1 norm.
+
+    The generic norm `||X - WH||_loss` may represent the Frobenius norm or
+    another supported beta-divergence loss. The regularization terms are scaled
+    by `n_features` for `W` and by `n_samples` for `H` to keep their impact
+    balanced with respect to one another and to the data fit term.
+
+    This estimator wraps [`sklearn.decomposition.NMF`][sklearn.decomposition.NMF]
+    while keeping xarray metadata through
+    [`transform`][confusius.decomposition.NMF.transform] and
+    [`inverse_transform`][confusius.decomposition.NMF.inverse_transform]:
 
     - Input data are expected as `(time, ...)` where `...` are spatial dimensions.
     - `transform` returns a `(time, component)` DataArray.
@@ -30,87 +50,111 @@ class NMF(_BaseFUSIDecomposer):
 
     Parameters
     ----------
-    n_components : int, default: "auto"
-        Number of components to keep. If not set, `n_components == min(n_samples,
-        n_features)`. Note that NMF does not support a fractional `n_components` or
-        `"mle"`: it must be an integer or `"auto"`.
-    init : {"nndsvda", "nndsvdar", "random"}, optional
-        Method used to initialize the procedure. If not set, lets sklearn pick
-        `"nndsvda"` for non-negative sparse data and `"random"` otherwise.
+    n_components : int or {"auto"} or None, default: "auto"
+        Number of components. If `None`, all features are kept. If
+        `n_components="auto"`, the number of components is automatically inferred from
+        `W` or `H` shapes.
+    init : {"random", "nndsvd", "nndsvda", "nndsvdar"}, optional
+        Method used to initialize the procedure.
+
+        - `None`: `"nndsvda"` if `n_components <= min(n_samples, n_features)`,
+          otherwise `"random"`.
+        - `"random"`: non-negative random matrices, scaled with
+          `sqrt(X.mean() / n_components)`.
+        - `"nndsvd"`: non-negative double singular value decomposition (NNDSVD)
+          initialization, better for sparseness.
+        - `"nndsvda"`: NNDSVD with zeros filled with the average of `X`, better when
+          sparsity is not desired.
+        - `"nndsvdar"`: NNDSVD with zeros filled with small random values, generally
+          faster but less accurate than `"nndsvda"` when sparsity is not desired.
+
     solver : {"cd", "mu"}, default: "cd"
-        Numerical solver to use: `"cd"` is a Coordinate Descent solver (only one
-        supporting beta-loss different from `"frobenius"`) while `"mu"` is a
-        Multiplicative Update solver.
+        Numerical solver to use:
+
+        - `"cd"`: coordinate descent solver.
+        - `"mu"`: multiplicative update solver.
+
     beta_loss : float or {"frobenius", "kullback-leibler", "itakura-saito"}, \
             default: "frobenius"
-        Beta divergence to be minimized, measuring the distance between `X` and the
-        dot product `WH`. Note that values different from `"frobenius"` (or
-        `"kullback-leibler"`, `"itakura-saito"` with beta values equal to 1 or 2
-        respectively) are not strictly beta divergences and may lead to significantly
-        slower convergence. See details in the [`sklearn` user guide][sklearn-nmf].
+        Beta divergence to be minimized, measuring the distance between `X` and the dot
+        product `WH`. Note that values different from `"frobenius"` (or `2`) and
+        `"kullback-leibler"` (or `1`) lead to significantly slower fits. Note that for
+        `beta_loss <= 0` (or `"itakura-saito"`), the input matrix `X` cannot contain
+        zeros. Used only in the `"mu"` solver.
     tol : float, default: 1e-4
         Tolerance of the stopping condition.
     max_iter : int, default: 200
         Maximum number of iterations before timing out.
-    random_state : int, optional
-        Used for initialisation when `init == "random"` and for `"nndsvdar"`. Pass an
-        int for reproducible results across multiple function calls.
+    random_state : int or numpy.random.RandomState, optional
+        Used for initialisation (when `init == "nndsvdar"` or `"random"`) and in
+        coordinate descent. Pass an int for reproducible results across multiple
+        function calls.
     alpha_W : float, default: 0.0
-        Constant that multiplies the regularization terms of `W`. Set it to zero (the
-        default) to have no regularization on `W`.
+        Constant that multiplies the regularization terms of `W`. Set it to zero to have
+        no regularization on `W`.
     alpha_H : float or "same", default: "same"
-        Constant that multiplies the regularization terms of `H`. If `"same"` (the
-        default), the value depends on `alpha_W`: if `alpha_W == 0`, `alpha_H == 0`,
-        else `alpha_H == alpha_W`.
+        Constant that multiplies the regularization terms of `H`. Set it to zero to have
+        no regularization on `H`. If `"same"`, it takes the same value as `alpha_W`.
     l1_ratio : float, default: 0.0
-        The regularization mixing parameter, with `0 <= l1_ratio <= 1`. For `l1_ratio
-        == 0` the penalty is an elementwise L2 penalty (aka Frobenius Norm). For
-        `l1_ratio == 1` it is an elementwise L1 penalty. For `0 < l1_ratio < 1`, the
-        penalty is a combination of L1 and L2.
+        The regularization mixing parameter, with `0 <= l1_ratio <= 1`.
+
+        - For `l1_ratio = 0`, the penalty is an elementwise L2 penalty (aka
+          Frobenius Norm).
+        - For `l1_ratio = 1`, it is an elementwise L1 penalty.
+        - For `0 < l1_ratio < 1`, the penalty is a combination of L1 and L2.
+
+    verbose : int, default: 0
+        Whether to be verbose.
+    shuffle : bool, default: False
+        Whether to randomize the order of coordinates in the coordinate descent solver.
     mode : {"temporal", "spatial"}, default: "temporal"
         Whether to fit NMF along temporal or spatial orientation:
 
-        - `"temporal"`: fit on `(time, voxels)`. The dictionaries are spatial maps; the
-          component signals are non-negative temporal time courses.
-        - `"spatial"`: fit on `(voxels, time)`. The dictionaries are non-negative time
-          courses; the component signals are spatial maps.
+        - `"temporal"`: fit on `(time, voxels)`. The transformed data `W` are
+          non-negative temporal time courses and the components matrix `H` reshapes to
+          spatial maps.
+        - `"spatial"`: fit on `(voxels, time)`. In the underlying sklearn fit, `W` lives
+          on voxels and `H` lives on timepoints because the data matrix is transposed.
+          This wrapper still exposes `maps_` as spatial maps and `transform` as `(time,
+          component)` signals.
+
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting voxels to include during fitting and projection.
         Must match the spatial dimensions and coordinates of the input data.
-    verbose : int, default: 0
-        Whether to be verbose.
 
     Attributes
     ----------
     maps_ : (n_components, ...) xarray.DataArray
-        Non-negative dictionary elements, sorted by decreasing reconstruction
-        contribution. In `"temporal"` mode these are spatial maps; in `"spatial"` mode
-        these are time courses. Reshaped to the fitted spatial geometry.
+        Non-negative component maps reshaped to the original spatial geometry.
+
+        - In `"temporal"` mode: the components matrix `H`, interpreted as spatial maps.
+        - In `"spatial"` mode: spatial projection maps derived from the fitted NMF model
+          on transposed data.
     n_components_ : int
-        The estimated number of components. When `n_components` is `"auto"`, this is
-        `min(n_samples, n_features)`.
-    n_iter_ : int
-        Actual number of iterations run by the solver.
+        The number of components. It is the same as the `n_components` parameter if it
+        was given. Otherwise, it is inferred from the fitted factorization.
     reconstruction_err_ : float
-        Frobenius norm of the matrix difference between the training data and the
-        reconstructed data from the fit, equal to `||X - WH||_F`.
+        Frobenius norm of the matrix difference, or beta-divergence, between the
+        training data `X` and the reconstructed data `WH` from the fitted model.
+    n_iter_ : int
+        Actual number of iterations.
     n_features_in_ : int
         Number of features seen during fit.
     feature_names_in_ : (n_features_in_,) numpy.ndarray
-        Feature names seen during fit. Defined only when flattened feature labels are
-        all strings.
+        Names of features seen during fit. Defined only when flattened feature
+        labels are all strings.
 
     Notes
     -----
-    NMF requires strictly non-negative input data. fUSI Power Doppler signals are
-    non-negative by construction. The wrapper raises a clear `ValueError` if the
-    (masked) input data contains negative values.
+    In sklearn's notation, the transformed data are named `W` and the components matrix
+    is named `H`. In much of the NMF literature the convention is often the opposite
+    because the data matrix is transposed.
 
-    The `"spatial"` mode fits NMF on the transposed data and exposes a manual
-    projection rather than relying on `sklearn.decomposition.NMF.transform`, because
-    `sklearn`'s NMF `transform` is only defined for `(n_samples, n_features)` input.
-    As a consequence, `transform` and `inverse_transform` do not call into
-    `sklearn.decomposition.NMF` in `"spatial"` mode.
+    In `"spatial"` mode, the estimator is still fitted with `sklearn.decomposition.NMF`,
+    but on the transposed data matrix `(voxels, time)`. The wrapper then computes
+    `(time, component)` signals by projecting the original `(time, voxel)` matrix onto
+    the fitted spatial maps, so that `transform` and `inverse_transform` keep the same
+    public API in both modes.
 
     Examples
     --------
@@ -142,21 +186,22 @@ class NMF(_BaseFUSIDecomposer):
     def __init__(
         self,
         *,
-        n_components: int | Literal["auto"] = "auto",
-        init: Literal["nndsvda", "nndsvdar", "random"] | None = None,
+        n_components: int | Literal["auto"] | None = "auto",
+        init: Literal["random", "nndsvd", "nndsvda", "nndsvdar"] | None = None,
         solver: Literal["cd", "mu"] = "cd",
         beta_loss: float | Literal["frobenius", "kullback-leibler", "itakura-saito"] = (
             "frobenius"
         ),
         tol: float = 1e-4,
         max_iter: int = 200,
-        random_state: int | None = None,
+        random_state: int | np.random.RandomState | None = None,
         alpha_W: float = 0.0,
         alpha_H: float | Literal["same"] = "same",
         l1_ratio: float = 0.0,
+        verbose: int = 0,
+        shuffle: bool = False,
         mode: Literal["temporal", "spatial"] = "temporal",
         mask: xr.DataArray | None = None,
-        verbose: int = 0,
     ) -> None:
         self.n_components = n_components
         self.init = init
@@ -168,9 +213,10 @@ class NMF(_BaseFUSIDecomposer):
         self.alpha_W = alpha_W
         self.alpha_H = alpha_H
         self.l1_ratio = l1_ratio
+        self.verbose = verbose
+        self.shuffle = shuffle
         self.mode = mode
         self.mask = mask
-        self.verbose = verbose
 
     def fit(self, X: xr.DataArray, y: None = None) -> "NMF":
         """Fit NMF on `(time, ...)` fUSI data.
@@ -226,6 +272,7 @@ class NMF(_BaseFUSIDecomposer):
             alpha_H=self.alpha_H,
             l1_ratio=self.l1_ratio,
             verbose=self.verbose,
+            shuffle=self.shuffle,
         )
 
         self._store_fit_metadata(X, X_proc, spatial_dims, feature_mask)

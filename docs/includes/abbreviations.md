@@ -7,7 +7,9 @@
 *[SVD]: Singular Value Decomposition
 *[PCA]: Principal Component Analysis
 *[ICA]: Independent Component Analysis
+*[IC]: Independent Component
 *[NMF]: Non-negative Matrix Factorization
+*[NNDSVD]: Non-negative Double Singular Value Decomposition
 *[GLM]: General Linear Model
 *[GLMs]: General Linear Models
 *[OLS]: Ordinary Least Squares

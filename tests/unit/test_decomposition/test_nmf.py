@@ -367,6 +367,7 @@ def test_get_params_includes_constructor_arguments():
         alpha_W=0.1,
         alpha_H=0.1,
         l1_ratio=0.5,
+        shuffle=True,
         mode="spatial",
     )
     params = model.get_params()
@@ -381,6 +382,7 @@ def test_get_params_includes_constructor_arguments():
     assert params["alpha_W"] == 0.1
     assert params["alpha_H"] == 0.1
     assert params["l1_ratio"] == 0.5
+    assert params["shuffle"] is True
     assert params["mode"] == "spatial"
 
 
@@ -391,12 +393,14 @@ def test_set_params_updates_values():
         n_components=2,
         init="nndsvdar",
         random_state=7,
+        shuffle=True,
         mode="spatial",
     )
 
     assert model.n_components == 2
     assert model.init == "nndsvdar"
     assert model.random_state == 7
+    assert model.shuffle is True
     assert model.mode == "spatial"
 
 
