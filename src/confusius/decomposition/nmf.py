@@ -156,6 +156,18 @@ class NMF(_BaseFUSIDecomposer):
     the fitted spatial maps, so that `transform` and `inverse_transform` keep the same
     public API in both modes.
 
+    References
+    ----------
+    [^1]:
+        Cichocki, A., and Anh-Huy, P. H. A. N. (2009). "Fast local algorithms
+        for large scale nonnegative matrix and tensor factorizations". IEICE
+        Transactions on Fundamentals of Electronics, Communications and Computer
+        Sciences, 92(3), 708-721.
+
+    [^2]:
+        Fevotte, C., and Idier, J. (2011). "Algorithms for nonnegative matrix
+        factorization with the beta-divergence". Neural Computation, 23(9).
+
     Examples
     --------
     >>> import numpy as np
