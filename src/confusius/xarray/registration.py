@@ -2,14 +2,14 @@
 
 from collections.abc import Callable, Sequence
 from threading import Event
-from typing import Literal, cast
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius.registration.progress import RegistrationProgress
 from confusius.registration.diagnostics import RegistrationDiagnostics
+from confusius.registration.progress import RegistrationProgress
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
 from confusius.registration.volumewise_progress import VolumewiseProgressReporter
@@ -142,8 +142,9 @@ class FUSIRegistrationAccessor:
             Whether to include a fixed/moving composite overlay in the
             progress plot. Ignored when `show_progress=False`.
         progress_plotter : callable, optional
-            Custom progress reporter factory. See
-            [`register_volume`][confusius.registration.register_volume].
+            Custom progress reporter factory. If not provided, the default
+            [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
+            is used. See [`register_volume`][confusius.registration.register_volume].
         abort_event : threading.Event, optional
             Cooperative cancellation flag.
 
@@ -192,9 +193,7 @@ class FUSIRegistrationAccessor:
             show_progress=show_progress,
             plot_metric=plot_metric,
             plot_composite=plot_composite,
-            progress_plotter=cast(
-                "Callable[..., RegistrationProgress] | None", progress_plotter
-            ),
+            progress_plotter=progress_plotter,
             abort_event=abort_event,
         )
 
@@ -277,7 +276,8 @@ class FUSIRegistrationAccessor:
         show_progress : bool, default: True
             Whether to display a progress bar while registering volumes.
         progress_reporter : VolumewiseProgressReporter, optional
-            Thread-safe reporter notified whenever one frame completes.
+            Thread-safe reporter notified whenever one frame completes. If not
+            provided, no per-frame callback is used.
         abort_event : threading.Event, optional
             Cooperative cancellation flag shared across frames.
         keep_diagnostics : bool, default: False

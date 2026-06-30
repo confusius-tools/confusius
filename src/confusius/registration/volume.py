@@ -555,18 +555,17 @@ def register_volume(
         Requires resampling the moving image at every iteration. Ignored when
         `show_progress=False`.
     progress_plotter : callable, optional
-        Factory that builds the progress reporter, called inside `register_volume`
-        as `progress_plotter(registration_method, fixed_img, moving_img, *,
-        plot_metric, plot_composite, resample_kwargs)`. Here `resample_kwargs`
-        carries `interpolation`, `fill_value`, and `sitk_threads`. The returned
-        object must
+        Factory that builds the progress reporter, called inside `register_volume` as
+        `progress_plotter(registration_method, fixed_img, moving_img, *, plot_metric,
+        plot_composite, resample_kwargs)`. Here `resample_kwargs` carries
+        `interpolation`, `fill_value`, and `sitk_threads`. The returned object must
         implement the
-        [`RegistrationProgress`][confusius.registration.RegistrationProgress]
-        protocol (`update()` / `close()`). If not provided, defaults to
+        [`RegistrationProgress`][confusius.registration.RegistrationProgress] protocol
+        (`update()` / `close()`). If not provided, the default
         [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
-        (matplotlib). Ignored when `show_progress=False`. Custom factories are expected
-        to be safe to call from a non-GUI thread; GUI side effects must be marshalled
-        via thread-safe primitives such as Qt signals.
+        is used. Ignored when `show_progress=False`. Custom factories are expected to
+        be safe to call from a non-GUI thread; GUI side effects must be marshalled via
+        thread-safe primitives such as Qt signals.
     abort_event : threading.Event, optional
         Cooperative cancellation flag. If set before or during optimisation, the
         registration stops at the next SimpleITK iteration boundary and returns
@@ -813,7 +812,6 @@ def register_volume(
 
         if show_progress:
             from confusius.registration.progress import (
-                RegistrationProgress,
                 MatplotlibRegistrationProgressPlotter,
             )
 
@@ -824,7 +822,7 @@ def register_volume(
             }
 
             plotter_factory = progress_plotter or MatplotlibRegistrationProgressPlotter
-            plotter: RegistrationProgress = plotter_factory(
+            plotter = plotter_factory(
                 registration,
                 fixed_sitk,
                 moving_sitk,

@@ -142,6 +142,47 @@ class TestRegisterVolumewise:
         )
         assert reporter.closed
 
+    def test_abort_during_run_skips_not_yet_started_frames(
+        self, sample_2d_dataarray, monkeypatch
+    ):
+        """Frames starting after abort reuse the cheap aborted-frame path."""
+        abort_event = Event()
+        calls = {"count": 0}
+
+        def _fake_register_volume(volume, _ref_da, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                abort_event.set()
+            diagnostics = RegistrationDiagnostics(
+                metric="correlation",
+                metric_values=np.asarray([-1.0]),
+                final_metric_value=-1.0,
+                n_iterations=1,
+                stop_condition="done",
+                status="completed",
+            )
+            return volume.copy(), np.eye(3), diagnostics
+
+        monkeypatch.setattr(
+            "confusius.registration.volumewise.register_volume",
+            _fake_register_volume,
+        )
+
+        result = register_volumewise(
+            sample_2d_dataarray,
+            n_jobs=1,
+            transform="translation",
+            show_progress=False,
+            abort_event=abort_event,
+        )
+
+        statuses = list(result.attrs["motion_params"]["status"])
+        assert statuses[0] == "completed"
+        assert all(status == "aborted" for status in statuses[1:])
+
+        background = sample_2d_dataarray.values.min()
+        assert np.all(result.values[1:] == background)
+
     def test_wrong_dimensionality_raises(self):
         """Data that is neither 2D+t nor 3D+t raises ValueError."""
         # 1D+time = 2D total.
