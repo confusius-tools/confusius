@@ -1,4 +1,4 @@
-"""Tests for confusius.glm.thresholding."""
+"""Tests for confusius.stats.thresholding."""
 
 from itertools import combinations
 
@@ -8,7 +8,7 @@ import scipy.stats as sps
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius.glm import apply_statistical_threshold
+from confusius.stats import apply_statistical_threshold
 
 FWER_AND_FDR = [
     "uncorrected",

@@ -1,7 +1,7 @@
-"""Statistical thresholding with multiple-comparison correction for GLM maps.
+"""Statistical thresholding with multiple-comparison correction for z-maps.
 
 This module provides
-[`apply_statistical_threshold`][confusius.glm.thresholding.apply_statistical_threshold],
+[`apply_statistical_threshold`][confusius.stats.thresholding.apply_statistical_threshold],
 which applies a voxel-level statistical threshold (with a choice of family-wise-error or
 false-discovery-rate correction) and an optional cluster-extent threshold to a
 statistical map. The maps are expected to be z-scaled, such as those returned by
@@ -48,7 +48,7 @@ CorrectionMethod = Literal[
 """Multiple-comparison correction methods accepted by `apply_statistical_threshold`.
 
 See
-[`apply_statistical_threshold`][confusius.glm.thresholding.apply_statistical_threshold]
+[`apply_statistical_threshold`][confusius.stats.thresholding.apply_statistical_threshold]
 for a description of each method.
 """
 

@@ -20,6 +20,7 @@ __all__ = [
     "registration",
     "signal",
     "spatial",
+    "stats",
     "timing",
     "validation",
     "xarray",
@@ -47,6 +48,7 @@ _SUBMODULES = {
     "registration",
     "signal",
     "spatial",
+    "stats",
     "timing",
     "validation",
 }
@@ -94,6 +96,7 @@ if TYPE_CHECKING:
         registration,
         signal,
         spatial,
+        stats,
         timing,
         validation,
         xarray,
