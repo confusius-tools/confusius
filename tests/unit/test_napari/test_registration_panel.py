@@ -10,13 +10,13 @@ import pytest
 import xarray as xr
 from qtpy.QtWidgets import QApplication
 
-from confusius._napari._registration._transforms import (
-    affine_transform_from_payload,
-    bspline_transform_from_payload,
+from confusius._napari._registration._panel_transform_helpers import (
+    get_affine_transform_from_payload,
+    get_bspline_transform_from_payload,
+    get_output_grid_from_payload,
     load_transform_payload,
     make_affine_transform_payload,
     make_bspline_transform_payload,
-    output_grid_from_payload,
     save_transform_payload,
 )
 from confusius.registration import resample_like
@@ -185,7 +185,9 @@ class TestOperationMode:
     def test_scale_defaults_to_db(self, registration_panel):
         assert registration_panel._scale_combo.currentText() == "decibel"
 
-    def test_scale_preprocessing_resets_gamma_for_previews(self, viewer, registration_panel):
+    def test_scale_preprocessing_resets_gamma_for_previews(
+        self, viewer, registration_panel
+    ):
         moving_data = xr.DataArray(
             np.ones((4, 6), dtype=np.float32),
             dims=["y", "x"],
@@ -605,7 +607,11 @@ class TestValidation:
             diagnostics=_FakeDiagnostics(),
         )
 
-        viewer.add_image(reference.values, name="Registered", metadata={"confusius_transform": payload})
+        viewer.add_image(
+            reference.values,
+            name="Registered",
+            metadata={"confusius_transform": payload},
+        )
         registration_panel._refresh_transform_controls()
 
         assert registration_panel._initialization_combo.itemText(0) == "center_geometry"
@@ -628,7 +634,9 @@ class TestValidation:
                 "x": xr.DataArray(np.arange(6), dims=["x"]),
             },
         )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        layer = viewer.add_image(
+            moving.values, name="moving", metadata={"xarray": moving}
+        )
         manual_affine = np.eye(4)
         manual_affine[0, 3] = 1.0
         layer.affine = manual_affine
@@ -636,8 +644,7 @@ class TestValidation:
         registration_panel._refresh_transform_controls()
 
         assert any(
-            registration_panel._initialization_combo.itemData(i)
-            == ("manual", "moving")
+            registration_panel._initialization_combo.itemData(i) == ("manual", "moving")
             for i in range(registration_panel._initialization_combo.count())
         )
 
@@ -653,7 +660,9 @@ class TestValidation:
                 "x": xr.DataArray(np.arange(6), dims=["x"]),
             },
         )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        layer = viewer.add_image(
+            moving.values, name="moving", metadata={"xarray": moving}
+        )
         manual_affine = np.eye(4)
         manual_affine[0, 3] = 1.0
         layer.affine = manual_affine
@@ -678,12 +687,13 @@ class TestValidation:
                 "x": xr.DataArray(np.arange(6), dims=["x"]),
             },
         )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        layer = viewer.add_image(
+            moving.values, name="moving", metadata={"xarray": moving}
+        )
         registration_panel._refresh_layers()
 
         assert not any(
-            registration_panel._initialization_combo.itemData(i)
-            == ("manual", "moving")
+            registration_panel._initialization_combo.itemData(i) == ("manual", "moving")
             for i in range(registration_panel._initialization_combo.count())
         )
 
@@ -693,8 +703,7 @@ class TestValidation:
         QApplication.processEvents()
 
         assert any(
-            registration_panel._initialization_combo.itemData(i)
-            == ("manual", "moving")
+            registration_panel._initialization_combo.itemData(i) == ("manual", "moving")
             for i in range(registration_panel._initialization_combo.count())
         )
 
@@ -726,8 +735,10 @@ class TestTransforms:
 
         assert loaded["source_layer_name"] == "moving"
         assert loaded["name"] == "moving → fixed (rigid)"
-        assert output_grid_from_payload(loaded)["shape"] == [4, 6]
-        np.testing.assert_array_equal(affine_transform_from_payload(loaded), np.eye(3))
+        assert get_output_grid_from_payload(loaded)["shape"] == [4, 6]
+        np.testing.assert_array_equal(
+            get_affine_transform_from_payload(loaded), np.eye(3)
+        )
 
     def test_bspline_payload_roundtrip(self, tmp_path):
         reference = xr.DataArray(
@@ -756,9 +767,9 @@ class TestTransforms:
 
         assert loaded["name"] == "moving → fixed (bspline)"
         assert loaded["kind"] == "bspline"
-        assert output_grid_from_payload(loaded)["shape"] == [3, 4]
+        assert get_output_grid_from_payload(loaded)["shape"] == [3, 4]
         xr.testing.assert_identical(
-            bspline_transform_from_payload(loaded),
+            get_bspline_transform_from_payload(loaded),
             transform.astype(float),
         )
 
@@ -803,7 +814,9 @@ class TestTransforms:
         assert "moving → fixed (bspline)" in transform_items
         assert "moving → fixed (bspline)" not in initialization_items
 
-    def test_apply_transform_uses_bspline_payload(self, viewer, registration_panel, monkeypatch):
+    def test_apply_transform_uses_bspline_payload(
+        self, viewer, registration_panel, monkeypatch
+    ):
         moving = xr.DataArray(
             np.zeros((3, 4), dtype=np.float32),
             dims=["y", "x"],
@@ -833,7 +846,9 @@ class TestTransforms:
             metadata={"xarray": moving, "confusius_transform": payload},
         )
         registration_panel._refresh_transform_controls()
-        registration_panel._transform_source_combo.setCurrentText("moving → fixed (bspline)")
+        registration_panel._transform_source_combo.setCurrentText(
+            "moving → fixed (bspline)"
+        )
         registration_panel._transform_target_combo.setCurrentText("moving")
 
         captured: dict[str, object] = {}
@@ -948,10 +963,7 @@ class TestVolumewiseProgress:
             np.asarray(frame.values),
         )
 
-
-    def test_frame_completion_updates_frame_progress(
-        self, viewer, registration_panel
-    ):
+    def test_frame_completion_updates_frame_progress(self, viewer, registration_panel):
         moving = xr.DataArray(
             np.zeros((3, 4, 6), dtype=np.float32),
             dims=["time", "y", "x"],
@@ -1027,7 +1039,7 @@ class TestFinishedCallbacks:
         assert layer.metadata["registration_diagnostics"] is diagnostics
         assert layer.metadata["registration_status"] == "completed"
         np.testing.assert_array_equal(
-            affine_transform_from_payload(layer.metadata["confusius_transform"]),
+            get_affine_transform_from_payload(layer.metadata["confusius_transform"]),
             transform,
         )
         assert (
@@ -1071,7 +1083,7 @@ class TestFinishedCallbacks:
         assert layer.metadata["registration_status"] == "completed"
         assert layer.metadata["confusius_transform"]["kind"] == "bspline"
         xr.testing.assert_identical(
-            bspline_transform_from_payload(layer.metadata["confusius_transform"]),
+            get_bspline_transform_from_payload(layer.metadata["confusius_transform"]),
             transform.astype(float),
         )
 
@@ -1371,9 +1383,7 @@ class TestFinishedCallbacks:
             == "register_volumewise"
         )
 
-    def test_volumewise_finished_keeps_preview_layers(
-        self, viewer, registration_panel
-    ):
+    def test_volumewise_finished_keeps_preview_layers(self, viewer, registration_panel):
         moving = xr.DataArray(
             np.zeros((3, 4, 6), dtype=np.float32),
             dims=["time", "y", "x"],

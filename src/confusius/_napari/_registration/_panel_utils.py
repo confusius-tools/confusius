@@ -293,6 +293,10 @@ def _image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
 def _should_reset_gamma(scale_mode: str) -> bool:
     """Return whether registration preview/result gamma should be reset.
 
+    When using intensity scaling, the gamma of the preview and result layers is forced
+    to 1.0 to avoid double scaling. When scaling is off, the original layer gamma is
+    preserved.
+
     Parameters
     ----------
     scale_mode : str

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 from threading import Event
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
 import numpy as np
 import xarray as xr
@@ -41,41 +41,19 @@ from confusius._dims import SPATIAL_DIMS, TIME_DIM
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
-from confusius._napari._registration._progress import (
-    NapariProgressBridge,
-    NapariRegistrationProgressReporter,
-    NapariRegistrationProgressReporterBridge,
-    make_napari_progress_factory,
-)
-from confusius._napari._registration._transforms import (
+from confusius._napari._registration._panel_transform_helpers import (
     AffineTransformPayload,
     TransformPayload,
-    affine_transform_from_payload,
-    bspline_transform_from_payload,
+    _get_affine_payload_from_layer,
+    _get_spatial_manual_affine_from_layer,
+    _make_manual_transform_payload,
+    get_affine_transform_from_payload,
+    get_bspline_transform_from_payload,
+    get_output_grid_from_payload,
     load_transform_payload,
     make_affine_transform_payload,
     make_bspline_transform_payload,
-    output_grid_from_payload,
     save_transform_payload,
-)
-from confusius.plotting.napari import plot_napari
-from confusius.registration import (
-    resample_like,
-    resample_volume,
-)
-
-if TYPE_CHECKING:
-    import napari
-    import numpy.typing as npt
-    from napari.layers import Image, Layer
-
-    from confusius.registration import RegistrationDiagnostics, RegistrationProgress
-
-
-from confusius._napari._registration._panel_transform_helpers import (
-    _affine_payload_from_layer,
-    _make_manual_transform_payload,
-    _spatial_manual_affine_from_layer,
 )
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
@@ -92,6 +70,132 @@ from confusius._napari._registration._panel_workers import (
     _run_register_volume,
     _run_register_volumewise,
 )
+from confusius._napari._registration._progress import (
+    NapariProgressBridge,
+    NapariRegistrationProgressReporter,
+    NapariRegistrationProgressReporterBridge,
+    make_napari_progress_factory,
+)
+from confusius.plotting.napari import plot_napari
+from confusius.registration import (
+    resample_like,
+    resample_volume,
+)
+
+if TYPE_CHECKING:
+    import napari
+    import numpy.typing as npt
+    from napari.layers import Image, Layer
+
+    from confusius.registration import RegistrationDiagnostics, RegistrationProgress
+
+
+ScaleMode = Literal["off", "dB", "sqrt"]
+"""Allowed registration intensity-scaling modes used by the panel."""
+
+MetricName = Literal["correlation", "mattes_mi"]
+"""Allowed registration metric names exposed by the panel."""
+
+VolumeTransformType = Literal["translation", "rigid", "affine", "bspline"]
+"""Allowed transform models for between-scan registration."""
+
+VolumewiseTransformType = Literal["translation", "rigid", "affine"]
+"""Allowed transform models for within-scan registration."""
+
+ResampleInterpolation = Literal["linear", "bspline"]
+"""Allowed interpolation modes for resampling previews and outputs."""
+
+CenterInitialization = Literal["center_geometry", "center_moments"]
+"""Allowed built-in center-based initialization modes."""
+
+RegistrationOperation = Literal["register_volume", "register_volumewise"]
+"""Allowed registration workflows handled by the panel."""
+
+TransformSourceKind = Literal["loaded", "layer", "manual"]
+"""Kinds of transform sources offered in the transforms UI."""
+
+TransformSourceData = tuple[TransformSourceKind, str]
+"""Validated transform-source selector payload `(kind, name)`."""
+
+InitializationSelection = CenterInitialization | TransformSourceData | None
+"""Validated initialization selection from the registration UI."""
+
+RegistrationParameterMode = Literal["volume", "volumewise"]
+"""Registration-parameter mode used for UI snapshot and restore helpers."""
+
+
+class ModeParameters(TypedDict):
+    """Session-scoped UI parameters for one registration mode."""
+
+    transform: str
+    metric: MetricName
+    scale: ScaleMode
+    initialization: InitializationSelection
+    learning_rate_auto: bool
+    learning_rate_value: float
+    number_of_iterations: int
+    number_of_histogram_bins: int
+    mesh_size: tuple[int, int, int]
+    convergence_minimum_value: float
+    convergence_window_size: int
+    use_multi_resolution: bool
+    shrink_factors: str
+    smoothing_sigmas: str
+    resample_interpolation: ResampleInterpolation
+    fill_value_auto: bool
+    fill_value: float
+    reference_time: int
+    n_jobs: int
+    keep_diagnostics: bool
+    advanced_open: bool
+
+
+class RegistrationRunPayloadBase(TypedDict):
+    """Shared UI snapshot fields captured before a registration worker starts."""
+
+    moving_layer_name: str
+    metric: MetricName
+    scale: ScaleMode
+    learning_rate: float | Literal["auto"]
+    number_of_iterations: int
+    use_multi_resolution: bool
+    resample_interpolation: ResampleInterpolation
+    number_of_histogram_bins: int
+    convergence_minimum_value: float
+    convergence_window_size: int
+    initialization: InitializationSelection
+    shrink_factors: tuple[int, ...] | None
+    smoothing_sigmas: tuple[int, ...] | None
+    keep_diagnostics: bool
+    fill_value: float | None
+
+
+class VolumeRegistrationRunPayload(RegistrationRunPayloadBase):
+    """UI snapshot for between-scan registration."""
+
+    operation: Literal["register_volume"]
+    transform: VolumeTransformType
+    mesh_size: tuple[int, int, int]
+    fixed_layer_name: str
+    initial_transform_source: NotRequired[str]
+
+
+class VolumewiseRegistrationRunPayload(RegistrationRunPayloadBase):
+    """UI snapshot for within-scan registration."""
+
+    operation: Literal["register_volumewise"]
+    transform: VolumewiseTransformType
+    mesh_size: tuple[int, int, int]
+    reference_time: int
+    n_jobs: int
+
+
+class ApplyTransformPayload(TypedDict):
+    """UI snapshot for applying an existing transform."""
+
+    moving_layer_name: str
+    target_layer_name: str
+    transform_source: str
 
 
 class RegistrationPanel(QWidget):
@@ -126,16 +230,31 @@ class RegistrationPanel(QWidget):
         # across subsequent runs, and torn down with the progress state.
         self._metric_plotter: RegistrationMetricPlotter | None = None
         self._metric_dock: QDockWidget | None = None
-        self._active_mode: Literal["register_volume", "register_volumewise"] = (
+        self._active_operation: Literal["register_volume", "register_volumewise"] = (
             "register_volume"
         )
-        self._mode_parameters: dict[str, dict[str, Any]] = {}
+        self._registration_parameters_by_operation: dict[
+            RegistrationOperation, ModeParameters
+        ] = {}
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
 
     def _make_form_label(self, text: str, *, tooltip: str | None = None) -> QLabel:
-        """Return a form label with an optional tooltip."""
+        """Return a form label with an optional tooltip.
+
+        Parameters
+        ----------
+        text : str
+            Label text.
+        tooltip : str, optional
+            Tooltip shown when hovering the label.
+
+        Returns
+        -------
+        QLabel
+            Configured label widget.
+        """
         label = QLabel(text)
         if tooltip is not None:
             label.setToolTip(tooltip)
@@ -149,7 +268,24 @@ class RegistrationPanel(QWidget):
         *,
         tooltip: str | None = None,
     ) -> QWidget:
-        """Create a row container for advanced parameters that can be shown/hidden together."""
+        """Create a show/hide-able row container for one advanced parameter.
+
+        Parameters
+        ----------
+        layout : QFormLayout
+            Parent form layout receiving the row.
+        label : str
+            Row-label text.
+        widget : QWidget
+            Input widget shown on the row.
+        tooltip : str, optional
+            Tooltip shown on the row label.
+
+        Returns
+        -------
+        QWidget
+            Container widget added to `layout`.
+        """
         container = QWidget()
         row_layout = QHBoxLayout(container)
         row_layout.setContentsMargins(0, 0, 0, 0)
@@ -741,16 +877,11 @@ class RegistrationPanel(QWidget):
             lambda checked: self._learning_rate_edit.setEnabled(not checked)
         )
 
-        self._mode_parameters = {
-            "register_volume": self._snapshot_mode_parameters(is_volumewise=False),
-            "register_volumewise": {
-                **self._snapshot_mode_parameters(is_volumewise=False),
-                "transform": "rigid",
-                "learning_rate_auto": False,
-                "learning_rate_value": 0.01,
-                "n_jobs": -1,
-                "keep_diagnostics": False,
-            },
+        self._registration_parameters_by_operation = {
+            "register_volume": self._default_registration_parameters(mode="volume"),
+            "register_volumewise": self._default_registration_parameters(
+                mode="volumewise"
+            ),
         }
 
         self._refresh_layers()
@@ -767,11 +898,11 @@ class RegistrationPanel(QWidget):
         self._manual_transform_event_layers = []
 
         for layer in self.viewer.layers:
-            if not _layer_supports_registration_source(cast("Layer", layer)):
+            if not _layer_supports_registration_source(layer):
                 continue
-            _get_source_dataarray(cast("Layer", layer))
+            _get_source_dataarray(layer)
             layer.events.affine.connect(self._refresh_transform_controls)
-            self._manual_transform_event_layers.append(cast("Layer", layer))
+            self._manual_transform_event_layers.append(layer)
 
     def _refresh_layers(self) -> None:
         """Repopulate the layer selectors from the viewer."""
@@ -781,7 +912,7 @@ class RegistrationPanel(QWidget):
         layer_names = [
             layer.name
             for layer in self.viewer.layers
-            if _layer_supports_registration_source(cast("Layer", layer))
+            if _layer_supports_registration_source(layer)
         ]
 
         self._moving_combo.blockSignals(True)
@@ -811,6 +942,24 @@ class RegistrationPanel(QWidget):
         self._refresh_transform_controls()
         self._validate_registration_selection()
 
+    def _get_layer_by_name(self, name: str) -> Layer | None:
+        """Return a viewer layer by name, if present.
+
+        Parameters
+        ----------
+        name : str
+            Layer name to look up in the viewer.
+
+        Returns
+        -------
+        napari.layers.Layer or None
+            Matching layer when present, otherwise `None`.
+        """
+        try:
+            return cast("Layer", self.viewer.layers[name])
+        except KeyError:
+            return None
+
     def _selected_layer(self, combo: QComboBox) -> Layer | None:
         """Return the currently selected viewer layer for a combo box.
 
@@ -827,20 +976,198 @@ class RegistrationPanel(QWidget):
         name = combo.currentText()
         if not name:
             return None
-        try:
-            return cast("Layer", self.viewer.layers[name])
-        except KeyError:
+        return self._get_layer_by_name(name)
+
+    def _current_scale_mode(self) -> ScaleMode:
+        """Return the validated registration scale mode from the combo box.
+
+        Returns
+        -------
+        {"off", "dB", "sqrt"}
+            Selected registration scale mode.
+
+        Raises
+        ------
+        ValueError
+            If the combo box contains an unexpected value.
+        """
+        value = self._scale_combo.currentData()
+        if value in {"off", "dB", "sqrt"}:
+            return value
+        raise ValueError(f"Unknown registration scale mode: {value!r}.")
+
+    def _current_metric(self) -> MetricName:
+        """Return the validated registration metric from the combo box.
+
+        Returns
+        -------
+        {"correlation", "mattes_mi"}
+            Selected registration metric.
+
+        Raises
+        ------
+        ValueError
+            If the combo box contains an unexpected value.
+        """
+        value = self._metric_combo.currentText()
+        if value == "correlation":
+            return "correlation"
+        if value == "mattes_mi":
+            return "mattes_mi"
+        raise ValueError(f"Unknown registration metric: {value!r}.")
+
+    def _current_resample_interpolation(self) -> ResampleInterpolation:
+        """Return the validated resampling interpolation from the combo box.
+
+        Returns
+        -------
+        {"linear", "bspline"}
+            Selected resampling interpolation.
+
+        Raises
+        ------
+        ValueError
+            If the combo box contains an unexpected value.
+        """
+        value = self._interpolation_combo.currentText()
+        if value == "linear":
+            return "linear"
+        if value == "bspline":
+            return "bspline"
+        raise ValueError(f"Unknown resampling interpolation: {value!r}.")
+
+    def _current_transform_model(self) -> VolumeTransformType | VolumewiseTransformType:
+        """Return the validated transform model for the active mode.
+
+        Returns
+        -------
+        {"translation", "rigid", "affine", "bspline"}
+            Selected transform model, constrained by the active workflow.
+
+        Raises
+        ------
+        ValueError
+            If the combo box contains an unexpected value.
+        """
+        value = self._transform_combo.currentText()
+        if self._operation() == "register_volume":
+            if value == "translation":
+                return "translation"
+            if value == "rigid":
+                return "rigid"
+            if value == "affine":
+                return "affine"
+            if value == "bspline":
+                return "bspline"
+        else:
+            if value == "translation":
+                return "translation"
+            if value == "rigid":
+                return "rigid"
+            if value == "affine":
+                return "affine"
+        raise ValueError(f"Unknown transform model: {value!r}.")
+
+    def _transform_source_data(self, value: object) -> TransformSourceData | None:
+        """Return validated transform-source combo data.
+
+        Parameters
+        ----------
+        value : object
+            Raw combo-box payload to validate.
+
+        Returns
+        -------
+        tuple[str, str] or None
+            Validated `(kind, name)` pair, or `None` when the payload does not
+            match the expected transform-source schema.
+        """
+        if not isinstance(value, tuple) or len(value) != 2:
             return None
+        source_kind, source_name = value
+        if not isinstance(source_name, str):
+            return None
+        if source_kind == "loaded":
+            return ("loaded", source_name)
+        if source_kind == "layer":
+            return ("layer", source_name)
+        if source_kind == "manual":
+            return ("manual", source_name)
+        return None
+
+    def _transform_payload_from_metadata(
+        self, payload: object
+    ) -> TransformPayload | None:
+        """Return a validated transform payload stored in layer metadata.
+
+        Parameters
+        ----------
+        payload : object
+            Raw metadata payload to validate.
+
+        Returns
+        -------
+        TransformPayload or None
+            Validated transform payload, or `None` when the metadata does not
+            contain a supported transform payload.
+        """
+        if not isinstance(payload, dict):
+            return None
+        payload_mapping = cast("dict[str, object]", payload)
+        kind = payload_mapping.get("kind")
+        if kind == "affine":
+            get_affine_transform_from_payload(payload_mapping)
+            return cast("TransformPayload", payload_mapping)
+        if kind == "bspline":
+            get_bspline_transform_from_payload(payload_mapping)
+            return cast("TransformPayload", payload_mapping)
+        return None
+
+    def _set_image_layer_data(self, layer: Image, data: npt.NDArray[Any]) -> None:
+        """Assign image data despite the current napari stub mismatch.
+
+        Parameters
+        ----------
+        layer : napari.layers.Image
+            Image layer whose data should be replaced.
+        data : numpy.ndarray
+            Replacement array.
+        """
+        cast("Any", layer).data = data
 
     def _transform_source_label(
         self, payload: TransformPayload, *, suffix: str | None = None
     ) -> str:
-        """Return a user-facing label for a transform payload."""
+        """Return a user-facing label for a transform payload.
+
+        Parameters
+        ----------
+        payload : TransformPayload
+            Transform payload to label.
+        suffix : str, optional
+            Unused legacy suffix parameter kept to avoid wider churn.
+
+        Returns
+        -------
+        str
+            Label shown in transform selectors.
+        """
         del suffix
         return payload["name"]
 
     def _make_unique_layer_name(self, base_name: str) -> str:
-        """Return a viewer-unique layer name based on `base_name`."""
+        """Return a viewer-unique layer name based on `base_name`.
+
+        Parameters
+        ----------
+        base_name : str
+            Desired layer name.
+
+        Returns
+        -------
+        str
+            Unique layer name for the current viewer.
+        """
         existing_names = {layer.name for layer in self.viewer.layers}
         if base_name not in existing_names:
             return base_name
@@ -852,7 +1179,18 @@ class RegistrationPanel(QWidget):
             index += 1
 
     def _make_unique_transform_name(self, base_name: str) -> str:
-        """Return a viewer-unique transform payload name based on `base_name`."""
+        """Return a viewer-unique transform payload name based on `base_name`.
+
+        Parameters
+        ----------
+        base_name : str
+            Desired transform name.
+
+        Returns
+        -------
+        str
+            Unique transform payload name for the current viewer.
+        """
         existing_names = {
             payload["name"] for payload in self._available_transform_payloads()
         }
@@ -895,20 +1233,22 @@ class RegistrationPanel(QWidget):
         return "Moving"
 
     def _available_transform_payloads(self) -> list[TransformPayload]:
-        """Return all transform payloads currently available in the UI."""
+        """Return all transform payloads currently available in the UI.
+
+        Returns
+        -------
+        list of TransformPayload
+            Loaded payload plus any validated payloads found on viewer layers.
+        """
         payloads: list[TransformPayload] = []
         if self._loaded_transform_payload is not None:
             payloads.append(self._loaded_transform_payload)
         for layer in self.viewer.layers:
-            payload = layer.metadata.get("confusius_transform")
-            if isinstance(payload, dict):
-                kind = payload.get("kind")
-                if kind == "affine":
-                    affine_transform_from_payload(payload)
-                    payloads.append(cast("TransformPayload", payload))
-                elif kind == "bspline":
-                    bspline_transform_from_payload(payload)
-                    payloads.append(cast("TransformPayload", payload))
+            payload = self._transform_payload_from_metadata(
+                layer.metadata.get("confusius_transform")
+            )
+            if payload is not None:
+                payloads.append(payload)
         return payloads
 
     def _refresh_transform_controls(self) -> None:
@@ -929,21 +1269,14 @@ class RegistrationPanel(QWidget):
                 )
             )
         for layer in self.viewer.layers:
-            payload = layer.metadata.get("confusius_transform")
-            if not isinstance(payload, dict):
-                continue
-            kind = payload.get("kind")
-            if kind == "affine":
-                affine_transform_from_payload(payload)
-            elif kind == "bspline":
-                bspline_transform_from_payload(payload)
-            else:
+            payload = self._transform_payload_from_metadata(
+                layer.metadata.get("confusius_transform")
+            )
+            if payload is None:
                 continue
             transform_options.append(
                 (
-                    self._transform_source_label(
-                        cast("TransformPayload", payload), suffix=layer.name
-                    ),
+                    self._transform_source_label(payload, suffix=layer.name),
                     ("layer", layer.name),
                 )
             )
@@ -956,7 +1289,7 @@ class RegistrationPanel(QWidget):
                 spatial_dims = [str(dim) for dim in data.dims if dim in SPATIAL_DIMS]
                 if not spatial_dims:
                     continue
-                manual_affine = _spatial_manual_affine_from_layer(
+                manual_affine = _get_spatial_manual_affine_from_layer(
                     layer,
                     spatial_dims=spatial_dims,
                 )
@@ -989,11 +1322,8 @@ class RegistrationPanel(QWidget):
                 if self._loaded_transform_payload["kind"] != "affine":
                     continue
             elif source_kind == "layer":
-                try:
-                    layer = cast("Layer", self.viewer.layers[source_name])
-                except KeyError:
-                    continue
-                if _affine_payload_from_layer(layer) is None:
+                layer = self._get_layer_by_name(source_name)
+                if layer is None or _get_affine_payload_from_layer(layer) is None:
                     continue
             self._initialization_combo.addItem(label, data)
         for label, data in manual_initialization_options:
@@ -1025,8 +1355,10 @@ class RegistrationPanel(QWidget):
 
     def _selected_transform_payload(self) -> TransformPayload | None:
         """Return the currently selected transform payload."""
-        source_data = self._transform_source_combo.currentData()
-        if not isinstance(source_data, tuple) or len(source_data) != 2:
+        source_data = self._transform_source_data(
+            self._transform_source_combo.currentData()
+        )
+        if source_data is None:
             return None
 
         source_kind, source_name = source_data
@@ -1034,21 +1366,13 @@ class RegistrationPanel(QWidget):
             return self._loaded_transform_payload
         if not source_name:
             return None
-        try:
-            layer = cast("Layer", self.viewer.layers[source_name])
-        except KeyError:
+        layer = self._get_layer_by_name(source_name)
+        if layer is None:
             return None
         if source_kind == "layer":
-            payload = layer.metadata.get("confusius_transform")
-            if isinstance(payload, dict):
-                kind = payload.get("kind")
-                if kind == "affine":
-                    affine_transform_from_payload(payload)
-                    return cast("TransformPayload", payload)
-                if kind == "bspline":
-                    bspline_transform_from_payload(payload)
-                    return cast("TransformPayload", payload)
-            return None
+            return self._transform_payload_from_metadata(
+                layer.metadata.get("confusius_transform")
+            )
         if source_kind == "manual":
             return _make_manual_transform_payload(layer)
         return None
@@ -1059,13 +1383,15 @@ class RegistrationPanel(QWidget):
         """Return the selected built-in centering initialization, if any."""
         value = self._initialization_combo.currentData()
         if value in {"center_geometry", "center_moments"}:
-            return cast("Literal['center_geometry', 'center_moments']", value)
+            return value
         return None
 
     def _selected_initial_transform_payload(self) -> AffineTransformPayload | None:
         """Return the payload selected for registration initialization, if any."""
-        source_data = self._initialization_combo.currentData()
-        if not isinstance(source_data, tuple) or len(source_data) != 2:
+        source_data = self._transform_source_data(
+            self._initialization_combo.currentData()
+        )
+        if source_data is None:
             return None
 
         source_kind, source_name = source_data
@@ -1078,25 +1404,23 @@ class RegistrationPanel(QWidget):
             return None
         if source_kind != "layer" or not source_name:
             return None
-        try:
-            layer = cast("Layer", self.viewer.layers[source_name])
-        except KeyError:
+        layer = self._get_layer_by_name(source_name)
+        if layer is None:
             return None
-        return _affine_payload_from_layer(layer)
+        return _get_affine_payload_from_layer(layer)
 
     def _selected_manual_initialization_layer(self) -> Layer | None:
         """Return the layer selected for manual napari initialization, if any."""
-        source_data = self._initialization_combo.currentData()
-        if not isinstance(source_data, tuple) or len(source_data) != 2:
+        source_data = self._transform_source_data(
+            self._initialization_combo.currentData()
+        )
+        if source_data is None:
             return None
 
         source_kind, source_name = source_data
         if source_kind != "manual" or not source_name:
             return None
-        try:
-            return cast("Layer", self.viewer.layers[source_name])
-        except KeyError:
-            return None
+        return self._get_layer_by_name(source_name)
 
     def _selected_initial_transform(
         self,
@@ -1108,7 +1432,7 @@ class RegistrationPanel(QWidget):
         """Return the selected initialization affine and its source label."""
         payload = self._selected_initial_transform_payload()
         if payload is not None:
-            return affine_transform_from_payload(payload), payload["name"]
+            return get_affine_transform_from_payload(payload), payload["name"]
 
         layer = self._selected_manual_initialization_layer()
         if layer is None:
@@ -1122,11 +1446,11 @@ class RegistrationPanel(QWidget):
             )
 
         spatial_dims = [str(dim) for dim in moving.dims if dim in SPATIAL_DIMS]
-        moving_affine = _spatial_manual_affine_from_layer(
+        moving_affine = _get_spatial_manual_affine_from_layer(
             moving_layer,
             spatial_dims=spatial_dims,
         )
-        fixed_affine = _spatial_manual_affine_from_layer(
+        fixed_affine = _get_spatial_manual_affine_from_layer(
             fixed_layer,
             spatial_dims=spatial_dims,
         )
@@ -1355,12 +1679,58 @@ class RegistrationPanel(QWidget):
             self._operation() == "register_volume" and transform == "bspline"
         )
 
-    def _snapshot_mode_parameters(self, *, is_volumewise: bool) -> dict[str, Any]:
-        """Capture the current parameter state for one registration mode."""
+    def _default_registration_parameters(
+        self, *, mode: RegistrationParameterMode
+    ) -> ModeParameters:
+        """Return the default parameter state for one registration mode.
+
+        Parameters
+        ----------
+        mode : {"volume", "volumewise"}
+            Registration workflow whose defaults should be returned.
+
+        Returns
+        -------
+        ModeParameters
+            Default parameter values for the requested workflow.
+        """
+        is_volumewise = mode == "volumewise"
+        return {
+            "transform": "rigid",
+            "metric": "correlation",
+            "scale": "dB",
+            "initialization": "center_geometry",
+            "learning_rate_auto": not is_volumewise,
+            "learning_rate_value": 0.01 if is_volumewise else 0.1,
+            "number_of_iterations": 100,
+            "number_of_histogram_bins": 50,
+            "mesh_size": (10, 10, 10),
+            "convergence_minimum_value": 1e-6,
+            "convergence_window_size": 10,
+            "use_multi_resolution": False,
+            "shrink_factors": "6, 2, 1",
+            "smoothing_sigmas": "6, 2, 1",
+            "resample_interpolation": "linear",
+            "fill_value_auto": True,
+            "fill_value": 0.0,
+            "reference_time": 0,
+            "n_jobs": -1,
+            "keep_diagnostics": False,
+            "advanced_open": False,
+        }
+
+    def _get_registration_parameters(self) -> ModeParameters:
+        """Return the current parameter state shown in the panel.
+
+        Returns
+        -------
+        ModeParameters
+            Current parameter values read from the visible widgets.
+        """
         return {
             "transform": self._transform_combo.currentText() or "rigid",
-            "metric": self._metric_combo.currentText(),
-            "scale": cast("str", self._scale_combo.currentData()),
+            "metric": self._current_metric(),
+            "scale": self._current_scale_mode(),
             "initialization": self._initialization_combo.currentData(),
             "learning_rate_auto": self._learning_rate_auto_check.isChecked(),
             "learning_rate_value": self._learning_rate_edit.value(),
@@ -1376,29 +1746,37 @@ class RegistrationPanel(QWidget):
             "use_multi_resolution": self._multi_resolution_check.isChecked(),
             "shrink_factors": self._shrink_factors_edit.text(),
             "smoothing_sigmas": self._smoothing_sigmas_edit.text(),
-            "resample_interpolation": self._interpolation_combo.currentText(),
+            "resample_interpolation": self._current_resample_interpolation(),
             "fill_value_auto": self._fill_value_auto_check.isChecked(),
             "fill_value": self._fill_value_spin.value(),
             "reference_time": self._reference_time_spin.value(),
             "n_jobs": self._n_jobs_spin.value(),
             "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
             "advanced_open": self._advanced_toggle.isChecked(),
-            "is_volumewise": is_volumewise,
         }
 
-    def _apply_mode_parameters(
-        self, params: dict[str, Any], *, is_volumewise: bool
+    def _set_registration_parameters(
+        self, params: ModeParameters, *, mode: RegistrationParameterMode
     ) -> None:
-        """Restore the parameter state for one registration mode."""
+        """Restore the parameter state for one registration mode.
+
+        Parameters
+        ----------
+        params : ModeParameters
+            Parameter values to push back into the widgets.
+        mode : {"volume", "volumewise"}
+            Registration workflow whose UI should be restored.
+        """
         self._transform_combo.blockSignals(True)
         self._transform_combo.clear()
+        is_volumewise = mode == "volumewise"
         if is_volumewise:
             self._transform_combo.addItems(["translation", "rigid", "affine"])
         else:
             self._transform_combo.addItems(
                 ["translation", "rigid", "affine", "bspline"]
             )
-        transform = cast("str", params.get("transform", "rigid"))
+        transform = params["transform"]
         transform_index = self._transform_combo.findText(transform)
         if transform_index < 0:
             transform_index = self._transform_combo.findText("rigid")
@@ -1406,8 +1784,8 @@ class RegistrationPanel(QWidget):
             self._transform_combo.setCurrentIndex(transform_index)
         self._transform_combo.blockSignals(False)
 
-        self._metric_combo.setCurrentText(cast("str", params["metric"]))
-        scale_mode = cast("str", params.get("scale", "dB"))
+        self._metric_combo.setCurrentText(params["metric"])
+        scale_mode = params["scale"]
         scale_index = self._scale_combo.findData(scale_mode)
         if scale_index >= 0:
             self._scale_combo.setCurrentIndex(scale_index)
@@ -1417,39 +1795,27 @@ class RegistrationPanel(QWidget):
                 self._initialization_combo.setCurrentIndex(i)
                 break
         self._learning_rate_auto_check.setChecked(
-            False if is_volumewise else cast("bool", params["learning_rate_auto"])
+            False if is_volumewise else params["learning_rate_auto"]
         )
-        self._learning_rate_edit.setValue(cast("float", params["learning_rate_value"]))
-        self._iterations_spin.setValue(cast("int", params["number_of_iterations"]))
-        self._histogram_bins_spin.setValue(
-            cast("int", params["number_of_histogram_bins"])
-        )
-        mesh_size = cast("tuple[int, int, int]", params["mesh_size"])
+        self._learning_rate_edit.setValue(params["learning_rate_value"])
+        self._iterations_spin.setValue(params["number_of_iterations"])
+        self._histogram_bins_spin.setValue(params["number_of_histogram_bins"])
+        mesh_size = params["mesh_size"]
         self._mesh_size_z_spin.setValue(mesh_size[0])
         self._mesh_size_y_spin.setValue(mesh_size[1])
         self._mesh_size_x_spin.setValue(mesh_size[2])
-        self._convergence_min_edit.setValue(
-            cast("float", params["convergence_minimum_value"])
-        )
-        self._convergence_window_spin.setValue(
-            cast("int", params["convergence_window_size"])
-        )
-        self._multi_resolution_check.setChecked(
-            cast("bool", params["use_multi_resolution"])
-        )
-        self._shrink_factors_edit.setText(cast("str", params["shrink_factors"]))
-        self._smoothing_sigmas_edit.setText(cast("str", params["smoothing_sigmas"]))
-        self._interpolation_combo.setCurrentText(
-            cast("str", params["resample_interpolation"])
-        )
-        self._fill_value_auto_check.setChecked(cast("bool", params["fill_value_auto"]))
-        self._fill_value_spin.setValue(cast("float", params["fill_value"]))
-        self._reference_time_spin.setValue(cast("int", params["reference_time"]))
-        self._n_jobs_spin.setValue(cast("int", params["n_jobs"]))
-        self._keep_diagnostics_check.setChecked(
-            cast("bool", params["keep_diagnostics"])
-        )
-        self._advanced_toggle.setChecked(cast("bool", params["advanced_open"]))
+        self._convergence_min_edit.setValue(params["convergence_minimum_value"])
+        self._convergence_window_spin.setValue(params["convergence_window_size"])
+        self._multi_resolution_check.setChecked(params["use_multi_resolution"])
+        self._shrink_factors_edit.setText(params["shrink_factors"])
+        self._smoothing_sigmas_edit.setText(params["smoothing_sigmas"])
+        self._interpolation_combo.setCurrentText(params["resample_interpolation"])
+        self._fill_value_auto_check.setChecked(params["fill_value_auto"])
+        self._fill_value_spin.setValue(params["fill_value"])
+        self._reference_time_spin.setValue(params["reference_time"])
+        self._n_jobs_spin.setValue(params["n_jobs"])
+        self._keep_diagnostics_check.setChecked(params["keep_diagnostics"])
+        self._advanced_toggle.setChecked(params["advanced_open"])
         self._on_advanced_toggled(self._advanced_toggle.isChecked())
         self._update_metric_dependent_visibility(self._metric_combo.currentText())
         self._update_multi_resolution_enabled(self._multi_resolution_check.isChecked())
@@ -1458,13 +1824,12 @@ class RegistrationPanel(QWidget):
     def _on_mode_changed(self) -> None:
         """Update the panel when the registration mode changes."""
         new_mode = self._operation()
-        previous_mode = self._active_mode
-        previous_is_volumewise = previous_mode == "register_volumewise"
+        previous_mode = self._active_operation
         is_volumewise = new_mode == "register_volumewise"
 
-        if previous_mode in self._mode_parameters:
-            self._mode_parameters[previous_mode] = self._snapshot_mode_parameters(
-                is_volumewise=previous_is_volumewise
+        if previous_mode in self._registration_parameters_by_operation:
+            self._registration_parameters_by_operation[previous_mode] = (
+                self._get_registration_parameters()
             )
 
         self._fixed_label.setVisible(not is_volumewise)
@@ -1478,11 +1843,11 @@ class RegistrationPanel(QWidget):
         self._fill_value_row.setVisible(not is_volumewise)
         self._keep_diagnostics_row.setVisible(is_volumewise)
 
-        self._apply_mode_parameters(
-            self._mode_parameters[new_mode],
-            is_volumewise=is_volumewise,
+        self._set_registration_parameters(
+            self._registration_parameters_by_operation[new_mode],
+            mode="volumewise" if is_volumewise else "volume",
         )
-        self._active_mode = new_mode
+        self._active_operation = new_mode
 
         self._update_reference_time_bounds()
         self._validate_registration_selection()
@@ -1562,10 +1927,12 @@ class RegistrationPanel(QWidget):
                     **moving_display_kwargs,
                 )
             else:
-                cast("Any", moving_preview_layer).data = np.asarray(moving.data)
+                self._set_image_layer_data(
+                    moving_preview_layer, np.asarray(moving.data)
+                )
                 moving_preview_layer.colormap = moving_display_kwargs["colormap"]
-                moving_preview_layer.gamma = cast(
-                    "float", moving_display_kwargs.get("gamma", 1.0)
+                moving_preview_layer.gamma = float(
+                    moving_display_kwargs.get("gamma", 1.0)
                 )
                 moving_preview_layer.contrast_limits = contrast_limits
 
@@ -1731,10 +2098,7 @@ class RegistrationPanel(QWidget):
                 moving,
                 fixed,
                 seed_transform,
-                interpolation=cast(
-                    "Literal['linear', 'bspline']",
-                    "linear",
-                ),
+                interpolation="linear",
             )
             preview_contrast_limits = tuple(calc_data_range(preview.data))
         except Exception as exc:  # noqa: BLE001
@@ -1768,10 +2132,12 @@ class RegistrationPanel(QWidget):
                         **fixed_display_kwargs,
                     )
                 else:
-                    cast("Any", fixed_preview_layer).data = np.asarray(fixed.data)
+                    self._set_image_layer_data(
+                        fixed_preview_layer, np.asarray(fixed.data)
+                    )
                     fixed_preview_layer.colormap = fixed_display_kwargs["colormap"]
-                    fixed_preview_layer.gamma = cast(
-                        "float", fixed_display_kwargs.get("gamma", 1.0)
+                    fixed_preview_layer.gamma = float(
+                        fixed_display_kwargs.get("gamma", 1.0)
                     )
                     fixed_preview_layer.visible = True
 
@@ -1790,11 +2156,13 @@ class RegistrationPanel(QWidget):
                         **moving_display_kwargs,
                     )
                 else:
-                    cast("Any", moving_preview_layer).data = np.asarray(preview.data)
+                    self._set_image_layer_data(
+                        moving_preview_layer, np.asarray(preview.data)
+                    )
                     moving_preview_layer.colormap = moving_display_kwargs["colormap"]
                     moving_preview_layer.blending = moving_display_kwargs["blending"]
-                    moving_preview_layer.gamma = cast(
-                        "float", moving_display_kwargs.get("gamma", 1.0)
+                    moving_preview_layer.gamma = float(
+                        moving_display_kwargs.get("gamma", 1.0)
                     )
                     moving_preview_layer.contrast_limits = preview_contrast_limits
                 moving_preview_layer.visible = False
@@ -1852,7 +2220,7 @@ class RegistrationPanel(QWidget):
             return
         if arr.shape != layer.data.shape:
             return
-        cast("Any", layer).data = arr
+        self._set_image_layer_data(layer, arr)
 
     def _teardown_volume_progress(self) -> None:
         """Remove the progress preview layer and bridge references, if any.
@@ -2045,10 +2413,10 @@ class RegistrationPanel(QWidget):
         try:
             moving = _get_source_dataarray(moving_layer)
             if payload["kind"] == "affine":
-                transform = affine_transform_from_payload(payload)
+                transform = get_affine_transform_from_payload(payload)
             else:
-                transform = bspline_transform_from_payload(payload)
-            output_grid = output_grid_from_payload(payload)
+                transform = get_bspline_transform_from_payload(payload)
+            output_grid = get_output_grid_from_payload(payload)
         except Exception as exc:  # noqa: BLE001
             self._set_error(str(exc))
             return
@@ -2060,11 +2428,9 @@ class RegistrationPanel(QWidget):
             spacing=output_grid["spacing"],
             origin=output_grid["origin"],
             dims=output_grid["dims"],
-            interpolation=cast(
-                "Literal['linear', 'bspline']", self._interpolation_combo.currentText()
-            ),
+            interpolation=self._current_resample_interpolation(),
         )
-        apply_payload = {
+        apply_payload: ApplyTransformPayload = {
             "moving_layer_name": moving_layer.name,
             "target_layer_name": payload["target_layer_name"],
             "transform_source": payload["name"],
@@ -2111,32 +2477,13 @@ class RegistrationPanel(QWidget):
             shrink_factors = None
             smoothing_sigmas = None
 
-        payload: dict[str, Any] = {
-            "operation": operation,
-            "moving_layer_name": moving_layer.name,
-            "transform": self._transform_combo.currentText(),
-            "metric": self._metric_combo.currentText(),
-            "scale": cast("str", self._scale_combo.currentData()),
-            "learning_rate": learning_rate,
-            "number_of_iterations": self._iterations_spin.value(),
-            "use_multi_resolution": use_multi_res,
-            "resample_interpolation": self._interpolation_combo.currentText(),
-            "mesh_size": (
-                self._mesh_size_z_spin.value(),
-                self._mesh_size_y_spin.value(),
-                self._mesh_size_x_spin.value(),
-            ),
-            "number_of_histogram_bins": self._histogram_bins_spin.value(),
-            "convergence_minimum_value": convergence_minimum_value,
-            "convergence_window_size": self._convergence_window_spin.value(),
-            "initialization": self._initialization_combo.currentData(),
-            "shrink_factors": shrink_factors,
-            "smoothing_sigmas": smoothing_sigmas,
-            "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
-            "fill_value": None
-            if self._fill_value_auto_check.isChecked()
-            else self._fill_value_spin.value(),
-        }
+        metric = self._current_metric()
+        scale_mode = self._current_scale_mode()
+        resample_interpolation = self._current_resample_interpolation()
+        transform = self._current_transform_model()
+        initialization = cast(
+            "InitializationSelection", self._initialization_combo.currentData()
+        )
         self._abort_event = Event()
 
         if operation == "register_volume":
@@ -2155,14 +2502,8 @@ class RegistrationPanel(QWidget):
 
             moving = _prepare_between_scan_data(moving)
             fixed = _prepare_between_scan_data(fixed)
-            moving = _apply_registration_scale(
-                moving,
-                cast("Literal['off', 'dB', 'sqrt']", payload["scale"]),
-            )
-            fixed = _apply_registration_scale(
-                fixed,
-                cast("Literal['off', 'dB', 'sqrt']", payload["scale"]),
-            )
+            moving = _apply_registration_scale(moving, scale_mode)
+            fixed = _apply_registration_scale(fixed, scale_mode)
 
             initial_transform: npt.NDArray[np.floating] | None = None
             try:
@@ -2176,10 +2517,39 @@ class RegistrationPanel(QWidget):
             except Exception as exc:  # noqa: BLE001
                 self._set_error(str(exc))
                 return
-            if initial_transform_source is not None:
-                payload["initial_transform_source"] = initial_transform_source
 
-            payload["fixed_layer_name"] = fixed_layer.name
+            if transform not in {"translation", "rigid", "affine", "bspline"}:
+                self._set_error(f"Unknown transform model: {transform!r}.")
+                return
+            volume_payload: VolumeRegistrationRunPayload = {
+                "operation": "register_volume",
+                "moving_layer_name": moving_layer.name,
+                "transform": transform,
+                "metric": metric,
+                "scale": scale_mode,
+                "learning_rate": learning_rate,
+                "number_of_iterations": self._iterations_spin.value(),
+                "use_multi_resolution": use_multi_res,
+                "resample_interpolation": resample_interpolation,
+                "number_of_histogram_bins": self._histogram_bins_spin.value(),
+                "convergence_minimum_value": convergence_minimum_value,
+                "convergence_window_size": self._convergence_window_spin.value(),
+                "initialization": initialization,
+                "shrink_factors": shrink_factors,
+                "smoothing_sigmas": smoothing_sigmas,
+                "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
+                "fill_value": None
+                if self._fill_value_auto_check.isChecked()
+                else self._fill_value_spin.value(),
+                "mesh_size": (
+                    self._mesh_size_z_spin.value(),
+                    self._mesh_size_y_spin.value(),
+                    self._mesh_size_x_spin.value(),
+                ),
+                "fixed_layer_name": fixed_layer.name,
+            }
+            if initial_transform_source is not None:
+                volume_payload["initial_transform_source"] = initial_transform_source
 
             progress_plotter = self._setup_volume_progress(
                 moving_layer=cast("Image", moving_layer),
@@ -2188,40 +2558,42 @@ class RegistrationPanel(QWidget):
                 fixed=fixed,
                 layer_name=self._make_unique_layer_name(
                     self._volume_result_layer_name(
-                        payload["moving_layer_name"],
-                        payload["fixed_layer_name"],
-                        transform_model=payload["transform"],
+                        volume_payload["moving_layer_name"],
+                        volume_payload["fixed_layer_name"],
+                        transform_model=volume_payload["transform"],
                     )
                 ),
                 initial_transform=initial_transform,
-                scale_mode=payload["scale"],
+                scale_mode=volume_payload["scale"],
             )
 
             worker = thread_worker(_run_register_volume)(
                 moving,
                 fixed,
-                transform_type=cast(
-                    "Literal['translation', 'rigid', 'affine', 'bspline']",
-                    payload["transform"],
-                ),
-                metric=cast("Literal['correlation', 'mattes_mi']", payload["metric"]),
+                transform_type=volume_payload["transform"],
+                metric=volume_payload["metric"],
                 learning_rate=learning_rate,
-                number_of_iterations=payload["number_of_iterations"],
-                use_multi_resolution=payload["use_multi_resolution"],
-                resample_interpolation=cast(
-                    "Literal['linear', 'bspline']", payload["resample_interpolation"]
-                ),
-                mesh_size=payload["mesh_size"] or (10, 10, 10),
-                number_of_histogram_bins=payload["number_of_histogram_bins"],
-                convergence_minimum_value=payload["convergence_minimum_value"],
-                convergence_window_size=payload["convergence_window_size"],
+                number_of_iterations=volume_payload["number_of_iterations"],
+                use_multi_resolution=volume_payload["use_multi_resolution"],
+                resample_interpolation=volume_payload["resample_interpolation"],
+                mesh_size=volume_payload["mesh_size"],
+                number_of_histogram_bins=volume_payload["number_of_histogram_bins"],
+                convergence_minimum_value=volume_payload["convergence_minimum_value"],
+                convergence_window_size=volume_payload["convergence_window_size"],
                 center_initialization=self._selected_center_initialization(),
                 initial_transform=initial_transform,
-                shrink_factors=payload["shrink_factors"] or (6, 2, 1),
-                smoothing_sigmas=payload["smoothing_sigmas"] or (6, 2, 1),
-                fill_value=payload["fill_value"],
+                shrink_factors=volume_payload["shrink_factors"] or (6, 2, 1),
+                smoothing_sigmas=volume_payload["smoothing_sigmas"] or (6, 2, 1),
+                fill_value=volume_payload["fill_value"],
                 progress_plotter=progress_plotter,
                 abort_event=self._abort_event,
+            )
+            self._worker = worker
+            self._begin_work()
+            worker.returned.connect(
+                lambda result: self._on_volume_registration_finished(
+                    volume_payload, result
+                )
             )
         else:
             if TIME_DIM not in moving.dims:
@@ -2229,163 +2601,142 @@ class RegistrationPanel(QWidget):
                     "register_volumewise requires a layer with a time dimension."
                 )
                 return
+            if transform == "bspline":
+                self._set_error(f"Unknown transform model: {transform!r}.")
+                return
 
-            payload["reference_time"] = self._reference_time_spin.value()
-            payload["n_jobs"] = self._n_jobs_spin.value()
-            moving = _apply_registration_scale(
-                moving,
-                cast("Literal['off', 'dB', 'sqrt']", payload["scale"]),
-            )
+            volumewise_payload: VolumewiseRegistrationRunPayload = {
+                "operation": "register_volumewise",
+                "moving_layer_name": moving_layer.name,
+                "transform": transform,
+                "metric": metric,
+                "scale": scale_mode,
+                "learning_rate": learning_rate,
+                "number_of_iterations": self._iterations_spin.value(),
+                "use_multi_resolution": use_multi_res,
+                "resample_interpolation": resample_interpolation,
+                "number_of_histogram_bins": self._histogram_bins_spin.value(),
+                "convergence_minimum_value": convergence_minimum_value,
+                "convergence_window_size": self._convergence_window_spin.value(),
+                "initialization": initialization,
+                "shrink_factors": shrink_factors,
+                "smoothing_sigmas": smoothing_sigmas,
+                "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
+                "fill_value": None
+                if self._fill_value_auto_check.isChecked()
+                else self._fill_value_spin.value(),
+                "mesh_size": (
+                    self._mesh_size_z_spin.value(),
+                    self._mesh_size_y_spin.value(),
+                    self._mesh_size_x_spin.value(),
+                ),
+                "reference_time": self._reference_time_spin.value(),
+                "n_jobs": self._n_jobs_spin.value(),
+            }
+            moving = _apply_registration_scale(moving, volumewise_payload["scale"])
 
             progress_reporter = self._setup_volumewise_progress(
                 moving_layer=cast("Image", moving_layer),
                 moving=moving,
                 layer_name=self._make_unique_layer_name(
-                    self._volumewise_result_layer_name(payload["moving_layer_name"])
+                    self._volumewise_result_layer_name(
+                        volumewise_payload["moving_layer_name"]
+                    )
                 ),
-                scale_mode=payload["scale"],
+                scale_mode=volumewise_payload["scale"],
             )
 
             worker = thread_worker(_run_register_volumewise)(
                 moving,
-                reference_time=payload["reference_time"],
-                n_jobs=payload["n_jobs"],
-                transform=cast(
-                    "Literal['translation', 'rigid', 'affine']", payload["transform"]
-                ),
-                metric=cast("Literal['correlation', 'mattes_mi']", payload["metric"]),
+                reference_time=volumewise_payload["reference_time"],
+                n_jobs=volumewise_payload["n_jobs"],
+                transform=volumewise_payload["transform"],
+                metric=volumewise_payload["metric"],
                 learning_rate=learning_rate,
-                number_of_iterations=payload["number_of_iterations"],
-                use_multi_resolution=payload["use_multi_resolution"],
-                resample_interpolation=cast(
-                    "Literal['linear', 'bspline']", payload["resample_interpolation"]
-                ),
-                number_of_histogram_bins=payload["number_of_histogram_bins"],
-                convergence_minimum_value=payload["convergence_minimum_value"],
-                convergence_window_size=payload["convergence_window_size"],
+                number_of_iterations=volumewise_payload["number_of_iterations"],
+                use_multi_resolution=volumewise_payload["use_multi_resolution"],
+                resample_interpolation=volumewise_payload["resample_interpolation"],
+                number_of_histogram_bins=volumewise_payload["number_of_histogram_bins"],
+                convergence_minimum_value=volumewise_payload[
+                    "convergence_minimum_value"
+                ],
+                convergence_window_size=volumewise_payload["convergence_window_size"],
                 initialization=self._selected_center_initialization(),
-                shrink_factors=payload["shrink_factors"] or (6, 2, 1),
-                smoothing_sigmas=payload["smoothing_sigmas"] or (6, 2, 1),
-                keep_diagnostics=payload["keep_diagnostics"],
+                shrink_factors=volumewise_payload["shrink_factors"] or (6, 2, 1),
+                smoothing_sigmas=volumewise_payload["smoothing_sigmas"] or (6, 2, 1),
+                keep_diagnostics=volumewise_payload["keep_diagnostics"],
                 abort_event=self._abort_event,
                 progress_reporter=progress_reporter,
             )
-
-        self._worker = worker
-        self._begin_work()
-        worker.returned.connect(
-            lambda result: self._on_registration_finished(payload, result)
-        )
+            self._worker = worker
+            self._begin_work()
+            worker.returned.connect(
+                lambda result: self._on_volumewise_registration_finished(
+                    volumewise_payload, result
+                )
+            )
         worker.errored.connect(self._on_registration_failed)
         worker.finished.connect(self._end_work)
         worker.start()
 
-    def _on_registration_finished(self, payload: dict[str, Any], result: Any) -> None:
-        """Add a successful registration result back to the viewer.
+    def _coerce_volume_registration_payload(
+        self, payload: dict[str, Any] | VolumeRegistrationRunPayload
+    ) -> VolumeRegistrationRunPayload:
+        """Return a typed between-scan registration payload."""
+        if payload.get("operation") != "register_volume":
+            raise ValueError("Expected a register_volume payload.")
+        return cast("VolumeRegistrationRunPayload", payload)
 
-        Parameters
-        ----------
-        payload : dict[str, Any]
-            UI parameter snapshot captured before the worker started.
-        result : Any
-            Worker return value.
-        """
-        operation = cast(str, payload["operation"])
+    def _coerce_volumewise_registration_payload(
+        self, payload: dict[str, Any] | VolumewiseRegistrationRunPayload
+    ) -> VolumewiseRegistrationRunPayload:
+        """Return a typed within-scan registration payload."""
+        if payload.get("operation") != "register_volumewise":
+            raise ValueError("Expected a register_volumewise payload.")
+        return cast("VolumewiseRegistrationRunPayload", payload)
 
-        if operation == "register_volume":
-            registered, transform, diagnostics = cast(
-                "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]",
-                result,
-            )
-            registered = registered.copy(deep=False)
-            registered.attrs = registered.attrs.copy()
-            registered.attrs["registration_transform"] = transform
-            registered.attrs["registration_diagnostics"] = diagnostics
-            registered.attrs["registration_operation"] = operation
-            registered.attrs["registration_status"] = diagnostics.status
-            layer_name = self._volume_result_layer_name(
-                cast("str", payload["moving_layer_name"]),
-                cast("str", payload["fixed_layer_name"]),
-                transform_model=cast("str", payload["transform"]),
-            )
-            metadata: dict[str, Any] = {
-                "registration_transform": transform,
-                "registration_diagnostics": diagnostics,
-                "registration_status": diagnostics.status,
-            }
-            transform_name = self._make_unique_transform_name(
-                f"{payload['moving_layer_name']} → {payload['fixed_layer_name']} ({payload['transform']})"
-            )
-            if isinstance(transform, np.ndarray):
-                affine_transform = np.asarray(transform, dtype=float)
-                metadata["confusius_transform"] = make_affine_transform_payload(
-                    affine_transform,
-                    reference=registered,
-                    source_layer_name=cast(str, payload["moving_layer_name"]),
-                    target_layer_name=cast(str, payload["fixed_layer_name"]),
-                    operation=operation,
-                    transform_model=cast(str, payload["transform"]),
-                    metric=cast(str, payload["metric"]),
-                    diagnostics=diagnostics,
-                    name=transform_name,
-                )
-            else:
-                metadata["confusius_transform"] = make_bspline_transform_payload(
-                    transform,
-                    reference=registered,
-                    source_layer_name=cast(str, payload["moving_layer_name"]),
-                    target_layer_name=cast(str, payload["fixed_layer_name"]),
-                    operation=operation,
-                    transform_model=cast(str, payload["transform"]),
-                    metric=cast(str, payload["metric"]),
-                    diagnostics=diagnostics,
-                    name=transform_name,
-                )
-        else:
-            registered = cast("xr.DataArray", result).copy(deep=False)
-            registered.attrs = registered.attrs.copy()
-            registered.attrs["registration_operation"] = operation
-            layer_name = self._volumewise_result_layer_name(
-                cast("str", payload["moving_layer_name"])
-            )
-            metadata = {
-                "motion_params": registered.attrs.get("motion_params"),
-                "reference_time": payload["reference_time"],
-            }
-
-        metadata["registration_operation"] = operation
+    def _finalize_registration_layer(
+        self,
+        *,
+        payload: VolumeRegistrationRunPayload | VolumewiseRegistrationRunPayload,
+        registered: xr.DataArray,
+        layer_name: str,
+        metadata: dict[str, Any],
+        registration_status: Literal["completed", "aborted"],
+    ) -> None:
+        """Attach registration metadata and add or update the result layer."""
+        metadata["registration_operation"] = payload["operation"]
         metadata["registration_parameters"] = payload.copy()
 
-        source_layer_name = cast(str, payload["moving_layer_name"])
-        try:
-            source_layer = self.viewer.layers[source_layer_name]
-        except KeyError:
-            display_kwargs: dict[str, Any] = {}
-        else:
-            display_kwargs = _image_display_kwargs_from_layer(source_layer)
-        if _should_reset_gamma(cast("str", payload.get("scale", "off"))):
+        source_layer = self._get_layer_by_name(payload["moving_layer_name"])
+        display_kwargs = (
+            _image_display_kwargs_from_layer(source_layer)
+            if source_layer is not None
+            else {}
+        )
+        if _should_reset_gamma(payload.get("scale", "off")):
             display_kwargs["gamma"] = 1.0
-        # The result layer is the registered stand-in for the moving layer:
-        # it must use the same cyan + additive styling so the red/cyan
-        # overlay persists after the run.
-        if operation == "register_volume":
+        if payload["operation"] == "register_volume":
             display_kwargs["colormap"] = "cyan"
             display_kwargs["blending"] = "additive"
         contrast_limits = tuple(calc_data_range(registered.data))
 
-        if operation == "register_volume" and self._progress_layer is not None:
+        if (
+            payload["operation"] == "register_volume"
+            and self._progress_layer is not None
+        ):
             layer = self._progress_layer
-            cast("Any", layer).data = np.asarray(registered.data)
+            self._set_image_layer_data(layer, np.asarray(registered.data))
             if hasattr(layer, "contrast_limits"):
                 layer.contrast_limits = contrast_limits
             self._progress_bridge = None
             self._progress_layer = None
         elif (
-            operation == "register_volumewise"
+            payload["operation"] == "register_volumewise"
             and self._volumewise_progress_layer is not None
         ):
             layer = self._volumewise_progress_layer
-            cast("Any", layer).data = np.asarray(registered.data)
+            self._set_image_layer_data(layer, np.asarray(registered.data))
             if hasattr(layer, "contrast_limits"):
                 layer.contrast_limits = contrast_limits
             self._teardown_volumewise_progress(remove_layer=False)
@@ -2403,21 +2754,7 @@ class RegistrationPanel(QWidget):
         self.viewer.layers.selection.active = layer
         self._refresh_transform_controls()
 
-        motion_params = metadata.get("motion_params")
-        volumewise_aborted = False
-        if operation == "register_volumewise" and motion_params is not None:
-            try:
-                statuses = motion_params["status"]
-            except Exception:  # noqa: BLE001
-                statuses = None
-            if statuses is not None:
-                volumewise_aborted = bool((statuses == "aborted").any())
-        registration_status = (
-            cast("str", metadata["registration_status"])
-            if operation == "register_volume"
-            else ("aborted" if volumewise_aborted else "completed")
-        )
-        if operation == "register_volumewise":
+        if payload["operation"] == "register_volumewise":
             self._progress.setValue(self._progress.maximum())
 
         if registration_status == "aborted":
@@ -2427,8 +2764,152 @@ class RegistrationPanel(QWidget):
         else:
             show_info(f"Added registered layer: {layer.name}")
 
+    def _on_registration_finished(
+        self,
+        payload: dict[str, Any],
+        result: object,
+    ) -> None:
+        """Dispatch a finished registration callback to the typed handler.
+
+        Parameters
+        ----------
+        payload : dict[str, Any]
+            Untyped compatibility payload captured when the worker started.
+        result : object
+            Worker result to forward to the operation-specific handler.
+
+        Raises
+        ------
+        ValueError
+            If `payload["operation"]` is not recognized.
+        """
+        if payload.get("operation") == "register_volume":
+            self._on_volume_registration_finished(
+                self._coerce_volume_registration_payload(payload),
+                cast(
+                    "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]",
+                    result,
+                ),
+            )
+            return
+        if payload.get("operation") == "register_volumewise":
+            self._on_volumewise_registration_finished(
+                self._coerce_volumewise_registration_payload(payload),
+                cast("xr.DataArray", result),
+            )
+            return
+        raise ValueError(
+            f"Unknown registration operation: {payload.get('operation')!r}."
+        )
+
+    def _on_volume_registration_finished(
+        self,
+        payload: VolumeRegistrationRunPayload,
+        result: tuple[
+            xr.DataArray,
+            npt.NDArray[np.floating] | xr.DataArray,
+            RegistrationDiagnostics,
+        ],
+    ) -> None:
+        """Add a between-scan registration result back to the viewer.
+
+        Parameters
+        ----------
+        payload : VolumeRegistrationRunPayload
+            Typed UI snapshot captured before the worker started.
+        result : tuple
+            Registered volume, estimated transform, and diagnostics.
+        """
+        registered, transform, diagnostics = result
+        registered = registered.copy(deep=False)
+        registered.attrs = registered.attrs.copy()
+        registered.attrs["registration_transform"] = transform
+        registered.attrs["registration_diagnostics"] = diagnostics
+        registered.attrs["registration_operation"] = payload["operation"]
+        registered.attrs["registration_status"] = diagnostics.status
+        metadata: dict[str, Any] = {
+            "registration_transform": transform,
+            "registration_diagnostics": diagnostics,
+            "registration_status": diagnostics.status,
+        }
+        transform_name = self._make_unique_transform_name(
+            f"{payload['moving_layer_name']} → {payload['fixed_layer_name']} ({payload['transform']})"
+        )
+        if isinstance(transform, np.ndarray):
+            metadata["confusius_transform"] = make_affine_transform_payload(
+                np.asarray(transform, dtype=float),
+                reference=registered,
+                source_layer_name=payload["moving_layer_name"],
+                target_layer_name=payload["fixed_layer_name"],
+                operation=payload["operation"],
+                transform_model=payload["transform"],
+                metric=payload["metric"],
+                diagnostics=diagnostics,
+                name=transform_name,
+            )
+        else:
+            metadata["confusius_transform"] = make_bspline_transform_payload(
+                transform,
+                reference=registered,
+                source_layer_name=payload["moving_layer_name"],
+                target_layer_name=payload["fixed_layer_name"],
+                operation=payload["operation"],
+                transform_model=payload["transform"],
+                metric=payload["metric"],
+                diagnostics=diagnostics,
+                name=transform_name,
+            )
+        self._finalize_registration_layer(
+            payload=payload,
+            registered=registered,
+            layer_name=self._volume_result_layer_name(
+                payload["moving_layer_name"],
+                payload["fixed_layer_name"],
+                transform_model=payload["transform"],
+            ),
+            metadata=metadata,
+            registration_status=diagnostics.status,
+        )
+
+    def _on_volumewise_registration_finished(
+        self,
+        payload: VolumewiseRegistrationRunPayload,
+        result: xr.DataArray,
+    ) -> None:
+        """Add a within-scan registration result back to the viewer.
+
+        Parameters
+        ----------
+        payload : VolumewiseRegistrationRunPayload
+            Typed UI snapshot captured before the worker started.
+        result : xarray.DataArray
+            Motion-corrected time series returned by the worker.
+        """
+        registered = result.copy(deep=False)
+        registered.attrs = registered.attrs.copy()
+        registered.attrs["registration_operation"] = payload["operation"]
+        motion_params = registered.attrs.get("motion_params")
+        registration_status = "completed"
+        if motion_params is not None:
+            try:
+                statuses = motion_params["status"]
+            except Exception:  # noqa: BLE001
+                statuses = None
+            if statuses is not None and bool((statuses == "aborted").any()):
+                registration_status = "aborted"
+        self._finalize_registration_layer(
+            payload=payload,
+            registered=registered,
+            layer_name=self._volumewise_result_layer_name(payload["moving_layer_name"]),
+            metadata={
+                "motion_params": motion_params,
+                "reference_time": payload["reference_time"],
+            },
+            registration_status=registration_status,
+        )
+
     def _on_apply_transform_finished(
-        self, payload: dict[str, str], result: xr.DataArray
+        self, payload: ApplyTransformPayload, result: xr.DataArray
     ) -> None:
         """Add a resampled layer produced from an existing affine transform.
 
