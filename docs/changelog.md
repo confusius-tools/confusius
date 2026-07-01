@@ -29,9 +29,6 @@ Current development version for the next ConfUSIus release.
   [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
   Both `mode='temporal'` and `mode='spatial'` are supported
   ([#117](https://github.com/confusius-tools/confusius/issues/117)).
-
-### :sparkles: Enhancements
-
 - Added [`adjust_pvalues`][confusius.stats.adjust_pvalues] for generic
   multiple-comparison correction of p-value maps, and
   [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] to
