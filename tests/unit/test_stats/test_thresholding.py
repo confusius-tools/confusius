@@ -131,6 +131,17 @@ class TestAdjustPvalues:
         adjusted = adjust_pvalues(pmap, skipzero=True, skipna=True)
         assert_array_equal(adjusted.values, [1.0, 0.04, 1.0, 0.04])
 
+    def test_invalid_method_raises(self, pmap):
+        """An unknown correction method is rejected."""
+        with pytest.raises(ValueError, match="method must be one of"):
+            adjust_pvalues(pmap, method="hochberg")
+
+    def test_no_tested_voxels_raises(self):
+        """An all-zero p-map with skipzero leaves nothing to test."""
+        pmap = xr.DataArray(np.zeros(4), dims=["x"])
+        with pytest.raises(ValueError, match="No voxels are tested"):
+            adjust_pvalues(pmap, skipzero=True)
+
     def test_invalid_tested_pvalues_raise(self):
         """Tested voxels must be finite p-values in [0, 1]."""
         pmap = xr.DataArray([0.1, 1.2], dims=["x"])
@@ -246,6 +257,24 @@ class TestExplicitThreshold:
         )
         assert_array_equal(out.values != 0, expected)
         assert_allclose(threshold, sps.norm.isf(0.025 / zmap.size))
+
+    def test_positive_threshold_keeps_positive_tail_when_one_sided(self):
+        """A positive explicit threshold keeps only sufficiently positive voxels."""
+        z = xr.DataArray([-4.0, 2.5, 3.5, 4.0], dims=["x"])
+        out, threshold = apply_statistical_threshold(
+            z, method=None, threshold=3.0, two_sided=False
+        )
+        assert threshold == 3.0
+        assert_array_equal(out.values != 0, [False, False, True, True])
+
+    def test_negative_threshold_keeps_negative_tail_when_one_sided(self):
+        """A negative explicit threshold keeps only sufficiently negative voxels."""
+        z = xr.DataArray([-4.0, -2.5, 0.5, 4.0], dims=["x"])
+        out, threshold = apply_statistical_threshold(
+            z, method=None, threshold=-3.0, two_sided=False
+        )
+        assert threshold == -3.0
+        assert_array_equal(out.values != 0, [True, False, False, False])
 
 
 class TestMask:
