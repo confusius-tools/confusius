@@ -402,14 +402,14 @@ class ScientificDoubleSpinBox(QDoubleSpinBox):
         self.setAccelerated(True)
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
-    def validate(  # ty: ignore[invalid-method-override]
-        self, text: str | None, pos: int
+    def validate(
+        self, input: str | None, pos: int
     ) -> tuple[QValidator.State, str, int]:
         """Validate decimals and scientific notation while the user types.
 
         Parameters
         ----------
-        text : str, optional
+        input : str, optional
             Current text being edited.
         pos : int
             Cursor position.
@@ -423,7 +423,7 @@ class ScientificDoubleSpinBox(QDoubleSpinBox):
         pos : int
             Cursor position.
         """
-        normalized = text or ""
+        normalized = input or ""
         if normalized in {"", "+", "-", ".", "+.", "-."}:
             return (QValidator.State.Intermediate, normalized, pos)
         if self._ACCEPTABLE_RE.match(normalized).hasMatch():
@@ -432,7 +432,7 @@ class ScientificDoubleSpinBox(QDoubleSpinBox):
             return (QValidator.State.Intermediate, normalized, pos)
         return (QValidator.State.Invalid, normalized, pos)
 
-    def valueFromText(self, text):
+    def valueFromText(self, text: str | None) -> float:
         """Parse the current text into a float value.
 
         Parameters
@@ -447,12 +447,12 @@ class ScientificDoubleSpinBox(QDoubleSpinBox):
         """
         return float(text or 0.0)
 
-    def textFromValue(self, value: float) -> str:  # ty: ignore[invalid-method-override]
+    def textFromValue(self, v: float) -> str:
         """Format values compactly, using scientific notation when helpful.
 
         Parameters
         ----------
-        value : float
+        v : float
             Value to format.
 
         Returns
@@ -460,7 +460,7 @@ class ScientificDoubleSpinBox(QDoubleSpinBox):
         str
             Formatted text.
         """
-        return f"{value:.12g}"
+        return f"{v:.12g}"
 
     def stepBy(self, steps: int) -> None:
         """Apply additive stepping using the configured single-step size.
@@ -2274,7 +2274,7 @@ class RegistrationPanel(QWidget):
                     **moving_display_kwargs,
                 )
             else:
-                moving_preview_layer.data = np.asarray(moving.data)  # type: ignore[invalid-assignment]
+                cast("Any", moving_preview_layer).data = np.asarray(moving.data)
                 moving_preview_layer.colormap = moving_display_kwargs["colormap"]
                 moving_preview_layer.gamma = cast(
                     "float", moving_display_kwargs.get("gamma", 1.0)
@@ -2480,7 +2480,7 @@ class RegistrationPanel(QWidget):
                         **fixed_display_kwargs,
                     )
                 else:
-                    fixed_preview_layer.data = np.asarray(fixed.data)  # type: ignore[invalid-assignment]
+                    cast("Any", fixed_preview_layer).data = np.asarray(fixed.data)
                     fixed_preview_layer.colormap = fixed_display_kwargs["colormap"]
                     fixed_preview_layer.gamma = cast(
                         "float", fixed_display_kwargs.get("gamma", 1.0)
@@ -2502,7 +2502,7 @@ class RegistrationPanel(QWidget):
                         **moving_display_kwargs,
                     )
                 else:
-                    moving_preview_layer.data = np.asarray(preview.data)  # type: ignore[invalid-assignment]
+                    cast("Any", moving_preview_layer).data = np.asarray(preview.data)
                     moving_preview_layer.colormap = moving_display_kwargs["colormap"]
                     moving_preview_layer.blending = moving_display_kwargs["blending"]
                     moving_preview_layer.gamma = cast(
@@ -2564,7 +2564,7 @@ class RegistrationPanel(QWidget):
             return
         if arr.shape != layer.data.shape:
             return
-        layer.data = arr  # type: ignore[invalid-assignment]
+        cast("Any", layer).data = arr
 
     def _teardown_volume_progress(self) -> None:
         """Remove the progress preview layer and bridge references, if any.
@@ -3087,7 +3087,7 @@ class RegistrationPanel(QWidget):
 
         if operation == "register_volume" and self._progress_layer is not None:
             layer = self._progress_layer
-            layer.data = np.asarray(registered.data)  # type: ignore[invalid-assignment]
+            cast("Any", layer).data = np.asarray(registered.data)
             if hasattr(layer, "contrast_limits"):
                 layer.contrast_limits = contrast_limits
             self._progress_bridge = None
@@ -3097,7 +3097,7 @@ class RegistrationPanel(QWidget):
             and self._volumewise_progress_layer is not None
         ):
             layer = self._volumewise_progress_layer
-            layer.data = np.asarray(registered.data)  # type: ignore[invalid-assignment]
+            cast("Any", layer).data = np.asarray(registered.data)
             if hasattr(layer, "contrast_limits"):
                 layer.contrast_limits = contrast_limits
             self._teardown_volumewise_progress(remove_layer=False)

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import napari
+from typing import Any, cast
+
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QButtonGroup,
@@ -169,7 +171,11 @@ class SignalPanel(QWidget):
         self._autoscale_check.toggled.connect(self._on_autoscale_changed)
         autoscale_label = QLabel("Autoscale <i>y</i>-axis")
         autoscale_label.setTextFormat(Qt.TextFormat.RichText)
-        autoscale_label.mousePressEvent = lambda _e: self._autoscale_check.toggle()  # type: ignore[method-assign]
+        setattr(
+            cast("Any", autoscale_label),
+            "mousePressEvent",
+            lambda _e: self._autoscale_check.toggle(),
+        )
         autoscale_row.addWidget(self._autoscale_check)
         autoscale_row.addWidget(autoscale_label)
         autoscale_row.addStretch()

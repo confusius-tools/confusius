@@ -30,7 +30,7 @@ fixed image. Instead, it stores the sparse B-spline coefficient lattice that def
 the smooth deformation.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -227,13 +227,16 @@ def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
 
     name = transform.GetName()
     if "BSpline" in name:
-        return transform  # type: ignore[return-value]
+        return cast("sitk.BSplineTransform", transform)
     if name == "CompositeTransform":
-        n = transform.GetNumberOfTransforms()  # type: ignore[attr-defined]
-        # The B-spline is the last sub-transform (it was added last and is optimised).
-        last = transform.GetNthTransform(n - 1)  # type: ignore[attr-defined]
-        if "BSpline" in last.GetName():
-            return last
+        get_count = getattr(transform, "GetNumberOfTransforms", None)
+        get_nth = getattr(transform, "GetNthTransform", None)
+        if callable(get_count) and callable(get_nth):
+            n = int(get_count())
+            # The B-spline is the last sub-transform (it was added last and is optimised).
+            last = get_nth(n - 1)
+            if "BSpline" in last.GetName():
+                return cast("sitk.BSplineTransform", last)
     raise TypeError(
         f"Expected a BSplineTransform or a CompositeTransform ending with a "
         f"BSplineTransform; got {transform.GetName()!r}."
