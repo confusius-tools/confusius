@@ -123,6 +123,38 @@ def test_compute_compcor_xarray_noise_mask(sample_timeseries):
     assert components.shape == (100, 5)
 
 
+@pytest.mark.parametrize("region_id", [1009, 1008])
+def test_compute_compcor_integer_label_mask(sample_timeseries, region_id):
+    """Integer single-label masks ({0, region_id}) must select only in-region voxels.
+
+    `Atlas.get_masks` returns integer masks whose foreground voxels carry the region
+    id rather than `True`. The selection must be identical to the equivalent boolean
+    mask and must not fall back to selecting every voxel. Both odd and even region ids
+    are checked because a bitwise (rather than logical) AND is parity-dependent.
+    """
+    signals = sample_timeseries(n_time=100, n_voxels=50)
+
+    int_values = np.zeros(50, dtype=np.int32)
+    int_values[10:20] = region_id
+    int_mask = _create_mask_like(signals.isel(time=0), int_values)
+    bool_mask = _create_mask_like(signals.isel(time=0), int_values.astype(bool))
+
+    from_int = compute_compcor_confounds(signals, noise_mask=int_mask, n_components=3)
+    from_bool = compute_compcor_confounds(signals, noise_mask=bool_mask, n_components=3)
+    explicit = compute_compcor_confounds(
+        signals.isel(space=slice(10, 20)),
+        noise_mask=_create_mask_like(
+            signals.isel(time=0, space=slice(10, 20)), np.ones(10, dtype=bool)
+        ),
+        n_components=3,
+    )
+
+    assert from_int.shape == (100, 3)
+    # Absolute value guards against arbitrary SVD sign flips.
+    assert_allclose(np.abs(from_int.values), np.abs(from_bool.values))
+    assert_allclose(np.abs(from_int.values), np.abs(explicit.values))
+
+
 def test_compute_compcor_requires_mode():
     """Test error when neither noise_mask nor variance_threshold specified."""
     signals = xr.DataArray(
