@@ -2125,7 +2125,7 @@ class RegistrationPanel(QWidget):
                 self._initialization_combo.setCurrentIndex(i)
                 break
         self._learning_rate_auto_check.setChecked(
-            cast("bool", params["learning_rate_auto"])
+            False if is_volumewise else cast("bool", params["learning_rate_auto"])
         )
         self._learning_rate_edit.setValue(cast("float", params["learning_rate_value"]))
         self._iterations_spin.setValue(cast("int", params["number_of_iterations"]))
@@ -2182,6 +2182,7 @@ class RegistrationPanel(QWidget):
         self._reference_time_spin.setVisible(is_volumewise)
         self._n_jobs_row.setVisible(is_volumewise)
 
+        self._learning_rate_auto_check.setVisible(not is_volumewise)
         self._fill_value_row.setVisible(not is_volumewise)
         self._keep_diagnostics_row.setVisible(is_volumewise)
 

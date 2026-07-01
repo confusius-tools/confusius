@@ -133,23 +133,25 @@ class TestOperationMode:
     def test_volumewise_learning_rate_defaults_to_fixed_0_01(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
 
+        assert registration_panel._learning_rate_auto_check.isHidden()
         assert not registration_panel._learning_rate_auto_check.isChecked()
         assert registration_panel._learning_rate_edit.isEnabled()
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
 
     def test_mode_switch_preserves_session_parameters(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
-        registration_panel._learning_rate_auto_check.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.23)
         registration_panel._n_jobs_spin.setValue(3)
         registration_panel._scale_combo.setCurrentText("square root")
 
         registration_panel._single_volume_radio.setChecked(True)
+        registration_panel._learning_rate_auto_check.setChecked(True)
         registration_panel._learning_rate_edit.setValue(0.42)
         registration_panel._scale_combo.setCurrentText("none")
         registration_panel._time_series_radio.setChecked(True)
 
-        assert registration_panel._learning_rate_auto_check.isChecked()
+        assert registration_panel._learning_rate_auto_check.isHidden()
+        assert not registration_panel._learning_rate_auto_check.isChecked()
         assert registration_panel._learning_rate_edit.value() == pytest.approx(0.23)
         assert registration_panel._n_jobs_spin.value() == 3
         assert registration_panel._scale_combo.currentText() == "square root"
