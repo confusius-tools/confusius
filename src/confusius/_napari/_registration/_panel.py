@@ -970,11 +970,12 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._fixed_label, self._fixed_combo)
 
-        self._reference_time_label = QLabel("Ref. time")
+        self._reference_time_label = QLabel("Reference volume")
         self._reference_time_spin = QSpinBox()
         self._reference_time_spin.setMinimum(0)
+        self._reference_time_spin.setMaximumWidth(64)
         self._reference_time_label.setToolTip(
-            "Time index used as the registration target for within-scan motion correction."
+            "Volume index used as the registration target for within-scan motion correction."
         )
         operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
 
@@ -1121,12 +1122,14 @@ class RegistrationPanel(QWidget):
         self._learning_rate_edit.setToolTip(
             "Optimizer step size. Accepts decimal (0.1) or scientific notation (1e-5)."
         )
+        self._learning_rate_edit.setMaximumWidth(96)
         self._learning_rate_edit.setEnabled(False)
         self._learning_rate_auto_check.toggled.connect(
             lambda checked: self._learning_rate_edit.setEnabled(not checked)
         )
         learning_rate_row.addWidget(self._learning_rate_auto_check)
-        learning_rate_row.addWidget(self._learning_rate_edit, stretch=1)
+        learning_rate_row.addWidget(self._learning_rate_edit)
+        learning_rate_row.addStretch(1)
         params_layout.addRow(
             self._make_form_label(
                 "Learning rate",
@@ -1139,6 +1142,7 @@ class RegistrationPanel(QWidget):
         self._iterations_spin.setRange(1, 100_000)
         self._iterations_spin.setSingleStep(100)
         self._iterations_spin.setValue(100)
+        self._iterations_spin.setMaximumWidth(96)
         params_layout.addRow(
             self._make_form_label(
                 "Iterations",

@@ -304,7 +304,7 @@ Use **Within-scan** for motion correction inside a single time series.
 
 1. Switch **Mode** to **Within-scan**.
 2. Select the time-series **Moving layer**.
-3. Choose the **Ref. time** time point used as the registration target.
+3. Choose the **Reference volume** index used as the registration target.
 4. Pick a transform model (`translation`, `rigid`, or `affine`).
 5. Click **Run registration**.
 
@@ -312,7 +312,7 @@ Use **Within-scan** for motion correction inside a single time series.
 
 | Parameter | What it does | When it is useful |
 |---|---|---|
-| **Ref. time** | Chooses the time point used as the motion-correction target. | Pick a representative, sharp frame with little motion. |
+| **Reference volume** | Chooses the volume index used as the motion-correction target. | Pick a representative, sharp frame with little motion. |
 | **Transform** | Chooses the volume-wise motion model. | `rigid` is the safest starting point; `affine` is available when motion is more complex. |
 | **Metric** | Chooses the volume-to-reference similarity criterion. | `correlation` is usually a good default for within-recording motion correction. |
 | **Scale** | Applies optional preprocessing before registration. | Useful when an intensity transform makes anatomy more stable across time for the optimizer. |

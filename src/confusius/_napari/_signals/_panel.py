@@ -146,7 +146,7 @@ class SignalPanel(QWidget):
 
         # X-axis dimension selection.
         xaxis_row = QHBoxLayout()
-        xaxis_label = QLabel("<i>x</i>-axis:")
+        xaxis_label = QLabel("<i>x</i>-axis")
         xaxis_label.setTextFormat(Qt.TextFormat.RichText)
         xaxis_row.addWidget(xaxis_label)
         self._xaxis_combo = QComboBox()
@@ -161,25 +161,6 @@ class SignalPanel(QWidget):
         xaxis_row.addWidget(self._xaxis_combo, stretch=1)
         axis_layout.addLayout(xaxis_row)
 
-        spinbox: list[QDoubleSpinBox] = []
-        for lim in ("min", "max"):
-            ylim_layout = QHBoxLayout()
-            ylim_label = QLabel(f"<i>y</i> {lim}:")
-            ylim_label.setTextFormat(Qt.TextFormat.RichText)
-            ylim_layout.addWidget(ylim_label)
-            spin = QDoubleSpinBox()
-            spin.setObjectName(f"y{lim}_spin")
-            spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            spin.setRange(-1e9, 1e9)
-            spin.setValue(-1.0 if lim == "min" else 1.0)
-            spin.valueChanged.connect(self._apply_settings)
-            spinbox.append(spin)
-            ylim_layout.addWidget(spin)
-
-            axis_layout.addLayout(ylim_layout)
-
-        self._ymin_spin, self._ymax_spin = spinbox
-
         # Autoscale checkbox. QCheckBox does not support rich text, so we pair a
         # text-less checkbox with a clickable QLabel to get the italic "y".
         autoscale_row = QHBoxLayout()
@@ -193,6 +174,26 @@ class SignalPanel(QWidget):
         autoscale_row.addWidget(autoscale_label)
         autoscale_row.addStretch()
         axis_layout.addLayout(autoscale_row)
+
+        yminmax_row = QHBoxLayout()
+        spinbox: list[QDoubleSpinBox] = []
+        for lim in ("min", "max"):
+            ylim_label = QLabel(f"<i>y</i> {lim}")
+            ylim_label.setTextFormat(Qt.TextFormat.RichText)
+            yminmax_row.addWidget(ylim_label)
+            spin = QDoubleSpinBox()
+            spin.setObjectName(f"y{lim}_spin")
+            spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spin.setRange(-1e9, 1e9)
+            spin.setValue(-1.0 if lim == "min" else 1.0)
+            spin.setMaximumWidth(96)
+            spin.valueChanged.connect(self._apply_settings)
+            spinbox.append(spin)
+            yminmax_row.addWidget(spin)
+        yminmax_row.addStretch(1)
+        axis_layout.addLayout(yminmax_row)
+
+        self._ymin_spin, self._ymax_spin = spinbox
 
         # Apply initial autoscale state so spinboxes start disabled.
         self._on_autoscale_changed(True)
