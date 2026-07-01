@@ -4,7 +4,7 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains four collapsible panels. Each panel operates
+The ConfUSIus sidebar contains five collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
@@ -12,6 +12,7 @@ introduction, click **Take a Tour** in the sidebar header.
 - [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
 - [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
 - [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
+- [**Registration**](#registration-panel) — run between-scan or within-scan registration, inspect progress, and save/apply transforms.
 
 ## Data I/O Panel
 
@@ -234,3 +235,19 @@ Select a layer from the **Layer** dropdown, check the metrics you want, and clic
         shadow zones behind the skull can appear bright. CV correctly highlights regions
         with high temporal variability. See the [Quality Control
         guide](../user-guide/quality-control.md#temporal-snr) for a full explanation.
+
+## Registration Panel
+
+The Registration Panel runs ConfUSIus registration workflows directly from napari.
+Use **Between scans** for moving/fixed registration and **Within-scan** for
+frame-to-reference motion correction of a time series. The panel supports live preview
+layers, a registration metric plot, cooperative aborts, and transform save/load/apply
+workflows.
+
+![ConfUSIus Registration panel — rigid between-session angiography run](../images/gui/plugin-registration.gif)
+
+For between-scan registration, pick the moving and fixed layers, choose a transform
+model such as `rigid`, then click **Run registration**. The guide animation below uses
+between-session angiography volumes from the same animal. ConfUSIus keeps the original
+layers untouched, adds dedicated preview layers for inspection, and stores the final
+registered result as a new layer when the run completes.

@@ -46,9 +46,10 @@ There are two ways to start the plugin:
     uvx -p 3.13 confusius
     ```
 
-The widget contains three collapsible panels—[Data I/O](plugin.md#data-io-panel),
-[Signals](plugin.md#signals-panel), and [QC](plugin.md#qc-panel)—that can each be
-expanded or collapsed independently. If you want a quick walkthrough inside napari
+The widget contains five collapsible panels—[Data I/O](plugin.md#data-io-panel),
+[Video](plugin.md#video-panel), [Signals](plugin.md#signals-panel),
+[QC](plugin.md#qc-panel), and [Registration](plugin.md#registration-panel)—that can
+be expanded or collapsed independently. If you want a quick walkthrough inside napari
 itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 
 !!! tip "Running napari programmatically"

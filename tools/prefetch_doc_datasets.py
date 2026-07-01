@@ -42,7 +42,7 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/images/gui/generate.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
-        sessions="20201011",
+        sessions=["20201007", "20201011"],
         tasks="spontaneous",
         acqs="slice04",
     )
