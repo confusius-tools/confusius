@@ -73,6 +73,14 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice37",
     )
 
+    # docs/images/gui/generate.py (within-scan registration GIF)
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220523",
+        acqs="slice32",
+    )
+
     # docs/examples/registration/register_volume_same_subject.py
     fetch_cybis_pereira_2026(
         datasets="rawdata",

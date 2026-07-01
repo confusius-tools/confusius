@@ -251,3 +251,10 @@ model such as `rigid`, then click **Run registration**. The guide animation belo
 between-session angiography volumes from the same animal. ConfUSIus keeps the original
 layers untouched, adds dedicated preview layers for inspection, and stores the final
 registered result as a new layer when the run completes.
+
+For within-scan motion correction, switch to **Within-scan**, choose the moving layer,
+set the reference frame, and run the correction. The animation below uses a short
+open-field recording chunk and shows the `Motion corrected` result filling in as frames
+finish.
+
+![ConfUSIus Registration panel — within-scan motion correction](../images/gui/plugin-registration-volumewise.gif)

@@ -26,6 +26,7 @@ Outputs (all saved to docs/images/gui/):
 - `plugin-qc.png` — QC panel with DVARS, carpet, and CV computed.
 - `plugin-video.gif` — Video panel with video synced to the fUSI acquisition.
 - `plugin-registration.gif` — Registration panel during a rigid between-session angiography run.
+- `plugin-registration-volumewise.gif` — Registration panel during within-scan motion correction.
 
 Notes
 -----
@@ -59,6 +60,10 @@ _ACQ_SLICE = "slice04"
 _REGISTRATION_SUBJECT = "CR022"
 _REGISTRATION_FIXED_SESSION = "20201007"
 _REGISTRATION_MOVING_SESSION = "20201011"
+
+_VOLUMEWISE_SUBJECT = "rat75"
+_VOLUMEWISE_SESSION = "20220523"
+_VOLUMEWISE_ACQ_SLICE = "slice32"
 
 _SLICE_INDEX = int(_ACQ_SLICE.replace("slice", ""))
 
@@ -327,12 +332,12 @@ _VIDEO_SUBJECT = "rat75"
 _VIDEO_SESSION = "20220525"
 _VIDEO_ACQ_SLICE = "slice37"
 
-console.print("Fetching Cybis-Pereira 2026 dataset (for video GIF)")
+console.print("Fetching Cybis-Pereira 2026 dataset (for video and registration GIFs)")
 video_bids_root = fetch_cybis_pereira_2026(
     datasets=_VIDEO_DATASETS,
-    subjects=[_VIDEO_SUBJECT],
-    sessions=[_VIDEO_SESSION],
-    acqs=[_VIDEO_ACQ_SLICE],
+    subjects=[_VIDEO_SUBJECT, _VOLUMEWISE_SUBJECT],
+    sessions=[_VIDEO_SESSION, _VOLUMEWISE_SESSION],
+    acqs=[_VIDEO_ACQ_SLICE, _VOLUMEWISE_ACQ_SLICE],
 )
 
 _VIDEO_FUSI_PATH = (
@@ -965,6 +970,169 @@ try:
     _ok("Saved plugin-registration.gif")
 except Exception as exc:
     _warn(f"plugin-registration.gif failed: {exc}")
+
+# ---------------------------------------------------------------------------
+# 8. Registration panel — within-scan motion-correction GIF via the plugin
+# ---------------------------------------------------------------------------
+
+try:
+    from PIL import Image as _PILImage
+
+    from confusius._napari._registration._panel import RegistrationPanel
+    from confusius.plotting.napari import plot_napari
+
+    volumewise_path = (
+        video_bids_root
+        / f"sub-{_VOLUMEWISE_SUBJECT}/ses-{_VOLUMEWISE_SESSION}/fusi"
+        / f"sub-{_VOLUMEWISE_SUBJECT}_ses-{_VOLUMEWISE_SESSION}_task-openfield_acq-{_VOLUMEWISE_ACQ_SLICE}_pwd.nii.gz"
+    )
+
+    volumewise_da = cf.load(volumewise_path).isel(time=slice(220, 340)).compute()
+    volumewise_contrast = (
+        float(volumewise_da.min()),
+        float(volumewise_da.quantile(0.9995)),
+    )
+    n_frames = volumewise_da.sizes["time"]
+
+    viewer8 = napari.Viewer(show=False)
+    _viewer8, moving_layer8 = plot_napari(
+        volumewise_da,
+        viewer=viewer8,
+        name=f"Open field ({_VOLUMEWISE_SESSION})",
+        gamma=0.4,
+        contrast_limits=volumewise_contrast,
+    )
+
+    widget8 = ConfUSIusWidget(viewer8)
+    viewer8.window.add_dock_widget(widget8, name="ConfUSIus", area="right")
+    _qt_sleep(250)
+
+    registration_panel8 = widget8.findChild(RegistrationPanel)
+    if registration_panel8 is None:
+        raise RuntimeError("RegistrationPanel not found in ConfUSIusWidget")
+
+    _open_accordion_panel(widget8, "Registration")
+
+    moving_idx = registration_panel8._moving_combo.findText(moving_layer8.name)
+    if moving_idx >= 0:
+        registration_panel8._moving_combo.setCurrentIndex(moving_idx)
+    registration_panel8._time_series_radio.setChecked(True)
+    registration_panel8._transform_combo.setCurrentText("rigid")
+    registration_panel8._metric_combo.setCurrentText("correlation")
+    scale_idx = registration_panel8._scale_combo.findData("off")
+    if scale_idx >= 0:
+        registration_panel8._scale_combo.setCurrentIndex(scale_idx)
+    registration_panel8._reference_time_spin.setValue(n_frames // 2)
+    registration_panel8._learning_rate_auto_check.setChecked(False)
+    registration_panel8._learning_rate_edit.setValue(1.0)
+    registration_panel8._n_jobs_spin.setValue(-1)
+    registration_panel8._keep_diagnostics_check.setChecked(False)
+    registration_panel8._validate_registration_selection()
+    _qt_sleep(100)
+
+    win8 = viewer8.window._qt_window
+    win8.setAttribute(Qt.WA_DontShowOnScreen)
+    win8.show()
+    win8.resize(1500, 950)
+    get_qapp().processEvents()
+    viewer8.reset_view()
+    viewer8.dims.set_current_step(0, 0)
+    _qt_sleep(100)
+
+    frames_pil: list = []
+
+    def _capture_volumewise_frame() -> None:
+        raw = viewer8.screenshot(canvas_only=False)
+        if raw.size == 0:
+            raise RuntimeError(
+                "napari returned an empty volumewise registration GIF frame"
+            )
+        raw = raw[..., :3]
+        h, w = raw.shape[:2]
+        gif_width = 1200
+        scale = gif_width / w
+        frames_pil.append(
+            _PILImage.fromarray(raw).resize(
+                (gif_width, int(h * scale)), _PILImage.Resampling.LANCZOS
+            )
+        )
+
+    def _capture_time_sweep(n_frames_sweep: int = 18) -> None:
+        forward = np.linspace(0, n_frames - 1, n_frames_sweep)
+        backward = np.linspace(n_frames - 1, 0, n_frames_sweep)[1:]
+        for t in np.concatenate([forward, backward]):
+            viewer8.dims.set_current_step(0, int(round(float(t))))
+            get_qapp().processEvents()
+            _qt_sleep(70)
+            _capture_volumewise_frame()
+
+    _capture_time_sweep()
+    viewer8.dims.set_current_step(0, 0)
+    for _ in range(4):
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_volumewise_frame()
+
+    registration_panel8._run_registration()
+    if registration_panel8._worker is None:
+        raise RuntimeError("Volumewise registration worker did not start")
+
+    registration_start_frames = len(frames_pil)
+    while (
+        registration_panel8._worker is not None
+        and len(frames_pil) - registration_start_frames < 140
+    ):
+        viewer8.dims.set_current_step(0, 0)
+        get_qapp().processEvents()
+        _qt_sleep(100)
+        _capture_volumewise_frame()
+
+    while registration_panel8._worker is not None:
+        get_qapp().processEvents()
+        _qt_sleep(100)
+
+    moving_layer8.visible = False
+    try:
+        viewer8.layers["Moving"].visible = False
+    except KeyError:
+        pass
+    try:
+        motion_corrected_layer = viewer8.layers["Motion corrected"]
+    except KeyError:
+        pass
+    else:
+        motion_corrected_layer.colormap = "gray"
+        motion_corrected_layer.blending = "translucent_no_depth"
+    get_qapp().processEvents()
+
+    viewer8.dims.set_current_step(0, n_frames // 2)
+    for _ in range(4):
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_volumewise_frame()
+
+    _capture_time_sweep()
+    viewer8.dims.set_current_step(0, n_frames // 2)
+    for _ in range(4):
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_volumewise_frame()
+
+    palette_src = frames_pil[0].quantize(colors=256, dither=0)
+    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
+
+    gif_path = str(HERE / "plugin-registration-volumewise.gif")
+    quantized[0].save(
+        gif_path,
+        save_all=True,
+        append_images=quantized[1:],
+        duration=1000 // 16,
+        loop=0,
+    )
+    viewer8.close()
+    _ok("Saved plugin-registration-volumewise.gif")
+except Exception as exc:
+    _warn(f"plugin-registration-volumewise.gif failed: {exc}")
 
 # ---------------------------------------------------------------------------
 
