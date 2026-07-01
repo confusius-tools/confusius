@@ -6,24 +6,9 @@ icon: lucide/history
 
 # Changelog
 
-## 0.4.1.dev0
+## 0.5.0.dev0
 
 Current development version for the next ConfUSIus release.
-
-### :sparkles: Enhancements
-
-- Added [`NMF`][confusius.decomposition.NMF] for non-negative matrix factorization
-  of fUSI time series, wrapping `sklearn.decomposition.NMF` with the same
-  xarray-aware `fit`/`transform`/`inverse_transform` interface as
-  [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
-  Both `mode='temporal'` and `mode='spatial'` are supported
-  ([#117](https://github.com/confusius-tools/confusius/issues/117)).
-
-### :books: Documentation
-
-- Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
-  gallery, demonstrating the z-score + absolute-value standardization that makes
-  signed fUSI signals NMF-compatible.
 
 ### :boom: Breaking changes
 
@@ -36,6 +21,26 @@ Current development version for the next ConfUSIus release.
   `data.fusi.register` accessor
   ([#215](https://github.com/confusius-tools/confusius/pull/215)).
 
+### :sparkles: Enhancements
+
+- Added [`NMF`][confusius.decomposition.NMF] for non-negative matrix factorization
+  of fUSI time series, wrapping `sklearn.decomposition.NMF` with the same
+  xarray-aware `fit`/`transform`/`inverse_transform` interface as
+  [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
+  Both `mode='temporal'` and `mode='spatial'` are supported
+  ([#117](https://github.com/confusius-tools/confusius/issues/117)).
+
+### :sparkles: Enhancements
+
+- Added [`adjust_pvalues`][confusius.stats.adjust_pvalues] for generic
+  multiple-comparison correction of p-value maps, and
+  [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] to
+  threshold z-scaled statistical DataArrays with the same family-wise-error
+  (Bonferroni, Šidák, Holm, Holm-Šidák, Simes-Hochberg, Hommel) or
+  false-discovery-rate (Benjamini-Hochberg, Benjamini-Yekutieli) corrections, plus an
+  optional cluster-extent threshold
+  ([#204](https://github.com/confusius-tools/confusius/pull/204)).
+
 ### :bug: Fixes
 
 - Image plotting functions now leave `alpha` unset by default (`None`), so a
@@ -45,6 +50,12 @@ Current development version for the next ConfUSIus release.
   `bspline_initialization` written by the registration pipeline) when merging in the
   NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
+
+### :books: Documentation
+
+- Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
+  gallery, demonstrating the z-score + absolute-value standardization that makes
+  signed fUSI signals NMF-compatible.
 
 ## 0.4.0
 
@@ -151,14 +162,12 @@ Current development version for the next ConfUSIus release.
 - Added example gallery helper utilities to streamline writing and maintaining docs
   examples ([#102](https://github.com/confusius-tools/confusius/pull/102)).
 
-### :books: Documentation
+### :zap: Performance
 
-- Added a [Registration of two sessions from the same
-  subject](examples/registration/register_volume_same_subject.py) example
-  demonstrating `register_volume`, the new diagnostics, and confusius's
-  [`plot_composite`][confusius.plotting.plot_composite] overlay pattern for
-  inspecting alignment before and after registration
-  ([#139](https://github.com/confusius-tools/confusius/pull/139)).
+- Top-level `confusius` and `confusius.xarray` namespaces now use
+  [SPEC-0001](https://scientific-python.org/specs/spec-0001/) PEP 562 lazy loading.
+  Submodules and exported functions are only imported on first access, reducing `import
+  confusius` overhead for workflows that use a subset of the package.
 
 ### :bug: Fixes
 
@@ -177,12 +186,14 @@ Current development version for the next ConfUSIus release.
   preventing incorrect plot bounds
   ([#111](https://github.com/confusius-tools/confusius/pull/111)).
 
-### :zap: Performance
+### :books: Documentation
 
-- Top-level `confusius` and `confusius.xarray` namespaces now use
-  [SPEC-0001](https://scientific-python.org/specs/spec-0001/) PEP 562 lazy loading.
-  Submodules and exported functions are only imported on first access, reducing `import
-  confusius` overhead for workflows that use a subset of the package.
+- Added a [Registration of two sessions from the same
+  subject](examples/registration/register_volume_same_subject.py) example
+  demonstrating `register_volume`, the new diagnostics, and confusius's
+  [`plot_composite`][confusius.plotting.plot_composite] overlay pattern for
+  inspecting alignment before and after registration
+  ([#139](https://github.com/confusius-tools/confusius/pull/139)).
 
 ### :wrench: Maintenance
 
