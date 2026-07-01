@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING
 from qtpy.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, Signal
 from qtpy.QtGui import QColor, QFont, QPainter, QPen
 from qtpy.QtWidgets import (
+    QAbstractButton,
     QDockWidget,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -545,6 +547,7 @@ def build_default_tour(
     from confusius._napari._data._load_panel import DataPanel
     from confusius._napari._data._save_panel import SavePanel
     from confusius._napari._qc._panel import QCPanel
+    from confusius._napari._registration._panel import RegistrationPanel
     from confusius._napari._signals._panel import SignalPanel
     from confusius._napari._video._video_panel import VideoPanel
 
@@ -642,6 +645,36 @@ def build_default_tour(
 
         return _find
 
+    def _panel_label(
+        label: str,
+        widget_type: type[QWidget],
+        text: str,
+    ) -> Callable[[], QWidget | None]:
+        def _find() -> QWidget | None:
+            panel = _panel_descendant(label, widget_type)()
+            if panel is None:
+                return None
+            for child in panel.findChildren(QLabel):
+                if child.text() == text:
+                    return child
+            return None
+
+        return _find
+
+    def _panel_attr_ancestor_rect(
+        label: str,
+        widget_type: type[QWidget],
+        attr: str,
+        ancestor_type: type[QWidget],
+    ) -> Callable[[], QRect | None]:
+        def _find() -> QRect | None:
+            widget = _panel_attr(label, widget_type, attr)()
+            while widget is not None and not isinstance(widget, ancestor_type):
+                widget = widget.parentWidget()
+            return _widget_rect(widget)
+
+        return _find
+
     def _expand_section(label: str) -> Callable[[], None]:
         def _action() -> None:
             for btn, _icon in getattr(plugin_widget, "_accordion_btns", []):
@@ -650,6 +683,37 @@ def build_default_tour(
                     break
 
         return _action
+
+    def _run_actions(*actions: Callable[[], None]) -> Callable[[], None]:
+        def _action() -> None:
+            for step_action in actions:
+                step_action()
+
+        return _action
+
+    def _registration_panel() -> RegistrationPanel | None:
+        panel = _panel_descendant("Registration", RegistrationPanel)()
+        return panel if isinstance(panel, RegistrationPanel) else None
+
+    def _set_panel_button(
+        label: str,
+        attr: str,
+        *,
+        checked: bool = True,
+    ) -> Callable[[], None]:
+        def _action() -> None:
+            _expand_section(label)()
+            panel = _registration_panel()
+            if panel is None:
+                return
+            button = getattr(panel, attr, None)
+            if isinstance(button, QAbstractButton) and button.isChecked() != checked:
+                button.click()
+
+        return _action
+
+    def _select_sub_panel(label: str, attr: str) -> Callable[[], None]:
+        return _set_panel_button(label, attr)
 
     # Record the open panel before the tour starts so we can restore it when
     # the tour is closed or skipped.
@@ -662,7 +726,36 @@ def build_default_tour(
         None,
     )
 
+    registration_panel = _registration_panel()
+    initial_registration_state = None
+    if registration_panel is not None:
+        initial_registration_state = {
+            "register_panel": registration_panel._register_panel_radio.isChecked(),
+            "single_volume": registration_panel._single_volume_radio.isChecked(),
+            "advanced_open": registration_panel._advanced_toggle.isChecked(),
+        }
+
     def _restore_state() -> None:
+        if initial_registration_state is not None:
+            _expand_section("Registration")()
+            panel = _registration_panel()
+            if panel is not None:
+                if (
+                    panel._register_panel_radio.isChecked()
+                    != initial_registration_state["register_panel"]
+                ):
+                    panel._transforms_panel_radio.click()
+                if (
+                    panel._single_volume_radio.isChecked()
+                    != initial_registration_state["single_volume"]
+                ):
+                    panel._time_series_radio.click()
+                if (
+                    panel._advanced_toggle.isChecked()
+                    != initial_registration_state["advanced_open"]
+                ):
+                    panel._advanced_toggle.click()
+
         if initial_open is None:
             return
         for btn, _ in getattr(plugin_widget, "_accordion_btns", []):
@@ -859,6 +952,200 @@ def build_default_tour(
             pre_action=_expand_section("Signals"),
         ),
         TourStep(
+            target=_accordion_panel("Registration"),
+            title="Registration",
+            body=(
+                "Use this section to align fUSI scans. The <b>Register</b> sub-panel "
+                "runs new registrations; the <b>Transforms</b> sub-panel saves, "
+                "loads, and reapplies them."
+            ),
+            anchor="left",
+            spotlight_rect=_accordion_tab_rect("Registration"),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Registration"),
+        ),
+        TourStep(
+            target=_panel_attr(
+                "Registration", RegistrationPanel, "_register_panel_radio"
+            ),
+            title="Register and Transforms",
+            body=(
+                "Use <b>Register</b> to compute a new alignment. Switch to "
+                "<b>Transforms</b> to reuse, save, load, or apply transforms."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Registration",
+                RegistrationPanel,
+                "_register_panel_radio",
+                "_transforms_panel_radio",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_select_sub_panel("Registration", "_register_panel_radio"),
+        ),
+        TourStep(
+            target=_panel_attr(
+                "Registration", RegistrationPanel, "_single_volume_radio"
+            ),
+            title="Between scans and Within-scan",
+            body=(
+                "Pick <b>Between scans</b> to align one layer to another, or "
+                "<b>Within-scan</b> to motion-correct a time series against one "
+                "reference volume."
+            ),
+            anchor="left",
+            spotlight_rect=lambda: _united_rect(
+                _panel_label("Registration", RegistrationPanel, "Mode")(),
+                _panel_attr(
+                    "Registration", RegistrationPanel, "_single_volume_radio"
+                )(),
+                _panel_attr("Registration", RegistrationPanel, "_time_series_radio")(),
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_single_volume_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr("Registration", RegistrationPanel, "_moving_combo"),
+            title="Moving and Fixed Layers",
+            body=(
+                "For <b>Between scans</b>, choose the <b>Moving layer</b> to align "
+                "and the <b>Fixed layer</b> that defines the target space."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Registration",
+                RegistrationPanel,
+                "_moving_label",
+                "_moving_combo",
+                "_fixed_label",
+                "_fixed_combo",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_single_volume_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr("Registration", RegistrationPanel, "_transform_combo"),
+            title="Parameters",
+            body=(
+                "This box contains the registration settings: transform, metric, "
+                "scale, initialization, and the main optimizer controls."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_ancestor_rect(
+                "Registration",
+                RegistrationPanel,
+                "_transform_combo",
+                QGroupBox,
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_single_volume_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr("Registration", RegistrationPanel, "_advanced_toggle"),
+            title="Advanced Parameters",
+            body=(
+                "If you need finer control, open <b>Advanced</b> for extra optimizer, "
+                "multi-resolution, metric, and resampling settings."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Registration",
+                RegistrationPanel,
+                "_advanced_toggle",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_single_volume_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr("Registration", RegistrationPanel, "_run_btn"),
+            title="Run Registration",
+            body=(
+                "Click <b>Run registration</b> to start. ConfUSIus shows progress "
+                "while the alignment runs and adds the result as a new layer."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_single_volume_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr(
+                "Registration", RegistrationPanel, "_reference_time_spin"
+            ),
+            title="Within-scan Inputs",
+            body=(
+                "For <b>Within-scan</b>, choose one layer with a time dimension, then "
+                "pick the <b>Reference volume</b> that every frame should align to."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Registration",
+                RegistrationPanel,
+                "_time_series_radio",
+                "_moving_label",
+                "_moving_combo",
+                "_reference_time_label",
+                "_reference_time_spin",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_time_series_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr("Registration", RegistrationPanel, "_transform_combo"),
+            title="Within-scan Parameters",
+            body=(
+                "The parameter box is similar in <b>Within-scan</b> mode, but some "
+                "defaults are adjusted for motion correction."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_ancestor_rect(
+                "Registration",
+                RegistrationPanel,
+                "_transform_combo",
+                QGroupBox,
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_run_actions(
+                _select_sub_panel("Registration", "_register_panel_radio"),
+                _set_panel_button("Registration", "_time_series_radio"),
+                _set_panel_button("Registration", "_advanced_toggle", checked=False),
+            ),
+        ),
+        TourStep(
+            target=_panel_attr("Registration", RegistrationPanel, "_transforms_panel"),
+            title="Transforms",
+            body=(
+                "The <b>Transforms</b> tab lets you inspect available transforms and "
+                "save, load, or apply them to other layers."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_select_sub_panel("Registration", "_transforms_panel_radio"),
+        ),
+        TourStep(
             target=_accordion_panel("Quality Control"),
             title="Quality Control",
             body=(
@@ -907,8 +1194,9 @@ def build_default_tour(
             title="You're Ready to Explore!",
             body=(
                 "You're all set to start exploring. Load a dataset in Data I/O, "
-                "overlay a behavioral video, explore signals, run a few QC checks, "
-                "and have fun digging into some fUSI data!"
+                "overlay a behavioral video, explore signals, align scans in "
+                "Registration, run a few QC checks, and have fun digging into "
+                "some fUSI data!"
             ),
             anchor="left",
             spotlight_rect=lambda: _widget_rect(plugin_widget),
