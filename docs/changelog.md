@@ -17,6 +17,7 @@ Current development version for the next ConfUSIus release.
   the residual orientation as a 4x4 affine (the identity for diagonal affines)
   for the caller to use as they wish
   ([#188](https://github.com/confusius-tools/confusius/pull/188)).
+
 ### :zap: Performance
 
 - [`process_iq_blocks`][confusius.iq.process.process_iq_blocks] now uses
