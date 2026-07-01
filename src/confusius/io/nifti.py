@@ -118,12 +118,15 @@ class _NiftiHeaderExtractor:
         -------
         float or None
             Repetition time in the units declared by the NIfTI header (see
-            `get_unit_strings`), or `None` if not available.
+            `get_unit_strings`), or `None` if not available. A non-positive
+            `pixdim[4]` is treated as "TR not set" and yields `None` so the
+            caller can fall back to a default sampling grid instead of an
+            all-zeros time coordinate.
         """
         zooms = self.header.get_zooms()
-        if len(zooms) < 4:
-            return None
-        return float(zooms[3])
+        assert len(zooms) >= 4
+        tr = float(zooms[3])
+        return tr if tr > 0 else None
 
     def get_unit_strings(self) -> tuple[str | None, str | None]:
         """Get spatial and temporal unit strings in ConfUSIus conventions.
@@ -821,7 +824,7 @@ def _build_extra_dim_coords(
         if step != 0.0:
             coord_values = step * np.arange(size, dtype=np.float64)
         else:
-            coord_values = np.arange(size, dtype=np.float64)
+            coord_values = np.zeros(size, dtype=np.float64)
         coords[dim_name] = xr.DataArray(
             coord_values,
             dims=[dim_name],
@@ -1406,8 +1409,7 @@ def _coord_starts_at_zero_with_regular_spacing(
     if len(coord_values) < 2:
         return True
     step, _ = get_representative_step(coord_values)
-    if step is None or np.isclose(step, 0.0):
-        return False
+    assert step is not None
     expected = step * np.arange(len(coord_values))
     return bool(np.allclose(coord_values, expected, rtol=1e-5, atol=0.0))
 

@@ -215,10 +215,10 @@ class TestLoadNifti:
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
 
-    def test_load_5d_nifti_dim4_name_with_zero_pixdim_uses_unit_spacing(
+    def test_load_5d_nifti_dim4_name_with_zero_pixdim_uses_constant_zero_coord(
         self, tmp_path: Path
     ) -> None:
-        """When `pixdim[N]` is 0, the fallback coord uses unit spacing."""
+        """When `pixdim[N]` is 0, the fallback extra coord is constant zero."""
         data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
         img = nib.Nifti1Image(data, np.eye(4))
         # Set pixdim[4] (5th NIfTI axis) to 0.
@@ -235,7 +235,7 @@ class TestLoadNifti:
 
         assert da.dims == ("component", "z", "y", "x")
         np.testing.assert_array_equal(
-            da.coords["component"].values, np.array([0.0, 1.0, 2.0])
+            da.coords["component"].values, np.array([0.0, 0.0, 0.0])
         )
 
     def test_load_5d_nifti_dim4_name_with_negative_pixdim_preserves_sign(
@@ -263,6 +263,26 @@ class TestLoadNifti:
         # values are `[0.0, -2.0, -4.0]`.
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, -2.0, -4.0])
+        )
+
+    def test_load_4d_nifti_with_zero_pixdim_tr_uses_unit_spacing(
+        self, tmp_path: Path
+    ) -> None:
+        """When `pixdim[4]` is 0 (no TR), the time coord falls back to `arange`."""
+        data = np.zeros((4, 6, 4, 5), dtype=np.float32)
+        img = nib.Nifti1Image(data, np.eye(4))
+        # Set pixdim[4] (the 4th NIfTI axis) to 0 to indicate "no TR set".
+        zooms = list(img.header.get_zooms())
+        zooms[3] = 0.0
+        img.header.set_zooms(zooms)
+        nifti_path = tmp_path / "no_tr.nii.gz"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("time", "z", "y", "x")
+        np.testing.assert_array_equal(
+            da.coords["time"].values, np.arange(5, dtype=np.float64)
         )
 
     def test_load_consumes_extra_dim_attrs(self, tmp_path: Path) -> None:
@@ -978,6 +998,14 @@ class TestSaveNifti:
         with pytest.raises(ValueError, match=r"\.nii or \.nii\.gz"):
             save_nifti(da, tmp_path / "not_nifti.json")
 
+    def test_save_non_4x4_affine_raises(self, tmp_path, sample_3d_volume) -> None:
+        """A stored affine in `da.attrs["affines"]` with the wrong shape raises `ValueError`."""
+        da = sample_3d_volume.drop_vars("time")
+        da.attrs["affines"] = {"physical_to_qform": np.zeros((3, 3))}
+
+        with pytest.raises(ValueError, match="must have shape"):
+            save_nifti(da, tmp_path / "bad_affine.nii.gz")
+
     def test_save_2d_dataarray(self, tmp_path) -> None:
         """Saving 2D DataArray inserts only the missing spatial axis."""
         data = np.random.default_rng(0).random((6, 8)).astype(np.float32)
@@ -1129,6 +1157,85 @@ class TestSaveNifti:
             sidecar = json.load(f)
         assert sidecar["ConfUSIusDim4Name"] == "channel"
         assert sidecar["ConfUSIusDim4Coordinates"] == [3.5, 7.0]
+
+    def test_save_constant_extra_coord_uses_zero_pixdim(self, tmp_path) -> None:
+        """A constant extra-dim coord is recoverable from `pixdim=0`."""
+        data = np.zeros((3, 4, 6, 8), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": [0.0, 0.0, 0.0],  # degenerate step = 0
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(6, dtype=np.float64),
+                "x": np.arange(8, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "constant.nii.gz"
+        save_nifti(da, output_path)
+
+        loaded = nib.load(output_path)
+        assert loaded.header.structarr["pixdim"][5] == pytest.approx(0.0)
+
+        sidecar_path = output_path.with_suffix("").with_suffix(".json")
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert sidecar["ConfUSIusDim4Name"] == "component"
+        assert "ConfUSIusDim4Coordinates" not in sidecar
+
+        roundtripped = load_nifti(output_path)
+        np.testing.assert_array_equal(
+            roundtripped.coords["component"].values, np.array([0.0, 0.0, 0.0])
+        )
+
+    def test_save_singleton_extra_coord_roundtrips(self, tmp_path) -> None:
+        """A singleton extra-dim coord is treated as vacuously regular and roundtrips."""
+        data = np.zeros((1, 4, 6, 8), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": [0.0],
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(6, dtype=np.float64),
+                "x": np.arange(8, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "singleton.nii.gz"
+        save_nifti(da, output_path)
+
+        roundtripped = load_nifti(output_path)
+        assert roundtripped.dims == ("component", "z", "y", "x")
+        assert roundtripped.sizes["component"] == 1
+        np.testing.assert_array_equal(
+            roundtripped.coords["component"].values, [0.0]
+        )
+
+    def test_save_empty_extra_coord_roundtrips(self, tmp_path) -> None:
+        """An empty extra-dim coord is vacuously regular; the save writes an empty-axis NIfTI.
+
+        The load path is not exercised here because nibabel flattens 0-length axes when
+        proxying the data array, so the roundtrip cannot be verified through ``load_nifti``.
+        """
+        data = np.zeros((0, 4, 6, 8), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.array([], dtype=np.float64),
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(6, dtype=np.float64),
+                "x": np.arange(8, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "empty.nii.gz"
+        save_nifti(da, output_path)
+
+        # NIfTI shape: (x=8, y=6, z=4, time=1, component=0).
+        assert nib.load(output_path).shape == (8, 6, 4, 1, 0)
 
     def test_save_extra_dim_coord_attrs_roundtrip_through_sidecar(
         self, tmp_path
