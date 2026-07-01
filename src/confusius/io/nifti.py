@@ -854,23 +854,16 @@ def _pop_extra_dim_attrs(attrs: dict[str, Any]) -> None:
 def _squeeze_synthetic_singleton_dims(
     data_array: xr.DataArray, *, drop_time: bool
 ) -> xr.DataArray:
-    """Drop singleton canonical dims that were inserted only for NIfTI layout.
+    """Drop singleton `time` axis that was inserted only for NIfTI layout.
 
-    This keeps extra dims declared via `ConfUSIusDimN*` while removing singleton
-    `x`, `y`, `z` axes that exist only because NIfTI requires the payload to fit
-    its canonical axis slots. The singleton `time` axis is removed only when the
-    caller marks it as synthetic.
+    Singleton spatial axes (`x`, `y`, `z`) are preserved: the loader cannot
+    distinguish a real singleton spatial axis from one that was inserted on
+    save to fit NIfTI's canonical axis slots, so keeping them is the only safe
+    choice.
     """
-    dims_to_drop = [
-        dim
-        for dim in ("z", "y", "x")
-        if dim in data_array.dims and data_array.sizes[dim] == 1
-    ]
-    if drop_time and "time" in data_array.dims and data_array.sizes["time"] == 1:
-        dims_to_drop.append("time")
-    if not dims_to_drop:
+    if not (drop_time and "time" in data_array.dims and data_array.sizes["time"] == 1):
         return data_array
-    return data_array.squeeze(dim=dims_to_drop, drop=True)
+    return data_array.squeeze(dim="time", drop=True)
 
 
 def load_nifti(

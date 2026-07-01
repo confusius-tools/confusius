@@ -1080,7 +1080,7 @@ class TestSaveNifti:
     def test_save_non_time_payload_roundtrips_original_dim_layout(
         self, tmp_path
     ) -> None:
-        """Synthetic singleton NIfTI axes are dropped again on load."""
+        """Missing spatial axes are inserted as singletons on save and preserved on load."""
         data = np.arange(3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6)
         da = xr.DataArray(
             data,
@@ -1097,12 +1097,15 @@ class TestSaveNifti:
             save_nifti(da, output_path)
 
         roundtripped = load_nifti(output_path)
-        assert roundtripped.dims == ("component", "z", "x")
-        assert roundtripped.shape == da.shape
+        # `y` was missing on save; NIfTI requires a length-1 `y` slot, so the
+        # roundtrip exposes it as a singleton axis (the loader cannot tell it
+        # apart from a genuine unitary `y`).
+        assert roundtripped.dims == ("component", "z", "y", "x")
+        assert roundtripped.sizes == {"component": 3, "z": 4, "y": 1, "x": 6}
         np.testing.assert_array_equal(
             roundtripped.coords["component"].values, [0, 1, 2]
         )
-        np.testing.assert_array_equal(roundtripped.values, data)
+        np.testing.assert_array_equal(roundtripped.squeeze("y", drop=True).values, data)
 
     def test_save_irregular_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""

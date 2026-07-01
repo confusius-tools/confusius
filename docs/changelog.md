@@ -58,6 +58,11 @@ Current development version for the next ConfUSIus release.
   in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
   preserved in `ConfUSIusDim{N}Attributes` entries.
   ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
+- `load_nifti` no longer drops singleton `x`, `y`, or `z` axes on load. The loader cannot
+  distinguish a real unitary spatial axis from one inserted on save to fit NIfTI's
+  canonical axis slots, so spatial axes are always preserved. Synthetic `time` axes are
+  still dropped when the payload had no real `time` dim
+  ([#219](https://github.com/confusius-tools/confusius/pull/219)).
 
 ### :books: Documentation
 
