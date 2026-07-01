@@ -11,8 +11,9 @@ icon: lucide/layers
     - [`PCA`][confusius.decomposition.PCA]: Principal component analysis for
       `(time, ...)` `xarray.DataArray` inputs while preserving metadata through
       `transform` and `inverse_transform`.
-    - `NMF`: Non-negative matrix factorization for `(time, ...)`
-      `xarray.DataArray` inputs.
+    - [`NMF`][confusius.decomposition.NMF]: Non-negative matrix factorization
+      for `(time, ...)` `xarray.DataArray` inputs while preserving metadata
+      through `transform` and `inverse_transform`.
     - [`FastICA`][confusius.decomposition.FastICA]: Fast independent component
       analysis for `(time, ...)` `xarray.DataArray` inputs while preserving
       metadata through `transform` and `inverse_transform`.
