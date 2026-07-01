@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
@@ -12,7 +11,7 @@ import xarray as xr
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
-from qtpy.QtCore import Qt, QTimer
+from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -26,7 +25,6 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMainWindow,
     QProgressBar,
     QPushButton,
     QRadioButton,
@@ -40,6 +38,17 @@ from qtpy.QtWidgets import (
 from confusius._dims import SPATIAL_DIMS, TIME_DIM
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
+)
+from confusius._napari._registration._panel_parameters import (
+    get_default_registration_parameters,
+    get_registration_parameters,
+    set_registration_parameters,
+)
+from confusius._napari._registration._panel_progress import (
+    setup_volume_progress,
+    setup_volumewise_progress,
+    teardown_volume_progress,
+    teardown_volumewise_progress,
 )
 from confusius._napari._registration._panel_transform_helpers import (
     AffineTransformPayload,
@@ -64,7 +73,6 @@ from confusius._napari._registration._panel_utils import (
     _is_registration_source_layer,
     _parse_comma_separated_ints,
     _prepare_between_scan_data,
-    _preserve_view,
 )
 from confusius._napari._registration._panel_workers import (
     _run_register_volume,
@@ -72,13 +80,10 @@ from confusius._napari._registration._panel_workers import (
 )
 from confusius._napari._registration._progress import (
     NapariProgressBridge,
-    NapariRegistrationProgressReporter,
     NapariRegistrationProgressReporterBridge,
-    make_napari_progress_factory,
 )
 from confusius.plotting.napari import plot_napari
 from confusius.registration import (
-    resample_like,
     resample_volume,
 )
 
@@ -87,7 +92,7 @@ if TYPE_CHECKING:
     import numpy.typing as npt
     from napari.layers import Image, Layer
 
-    from confusius.registration import RegistrationDiagnostics, RegistrationProgress
+    from confusius.registration import RegistrationDiagnostics
 
 
 ScaleMode = Literal["off", "dB", "sqrt"]
@@ -406,7 +411,6 @@ class RegistrationPanel(QWidget):
         self._n_jobs_spin = QSpinBox()
         self._n_jobs_spin.setRange(-128, 128)
         self._n_jobs_spin.setSpecialValueText("auto")
-        self._n_jobs_spin.setValue(-1)
         self._n_jobs_spin.setToolTip(
             "Number of workers for time-series registration. -1 uses all CPUs."
         )
@@ -443,17 +447,14 @@ class RegistrationPanel(QWidget):
 
         self._mesh_size_z_spin = QSpinBox()
         self._mesh_size_z_spin.setRange(1, 512)
-        self._mesh_size_z_spin.setValue(10)
         self._mesh_size_z_spin.setMaximumWidth(48)
         self._mesh_size_z_spin.setToolTip("B-spline mesh size along z.")
         self._mesh_size_y_spin = QSpinBox()
         self._mesh_size_y_spin.setRange(1, 512)
-        self._mesh_size_y_spin.setValue(10)
         self._mesh_size_y_spin.setMaximumWidth(48)
         self._mesh_size_y_spin.setToolTip("B-spline mesh size along y.")
         self._mesh_size_x_spin = QSpinBox()
         self._mesh_size_x_spin.setRange(1, 512)
-        self._mesh_size_x_spin.setValue(10)
         self._mesh_size_x_spin.setMaximumWidth(48)
         self._mesh_size_x_spin.setToolTip("B-spline mesh size along x.")
         self._mesh_size_row = QWidget()
@@ -538,11 +539,9 @@ class RegistrationPanel(QWidget):
 
         learning_rate_row = QHBoxLayout()
         self._learning_rate_auto_check = QCheckBox("Auto")
-        self._learning_rate_auto_check.setChecked(True)
         self._learning_rate_edit = ScientificDoubleSpinBox()
         self._learning_rate_edit.setRange(1e-10, 1e3)
         self._learning_rate_edit.setSingleStep(0.1)
-        self._learning_rate_edit.setValue(0.1)
         self._learning_rate_edit.setToolTip(
             "Optimizer step size. Accepts decimal (0.1) or scientific notation (1e-5)."
         )
@@ -565,7 +564,6 @@ class RegistrationPanel(QWidget):
         self._iterations_spin = QSpinBox()
         self._iterations_spin.setRange(1, 100_000)
         self._iterations_spin.setSingleStep(100)
-        self._iterations_spin.setValue(100)
         self._iterations_spin.setMaximumWidth(96)
         params_layout.addRow(
             self._make_form_label(
@@ -587,7 +585,6 @@ class RegistrationPanel(QWidget):
 
         self._advanced_toggle = QToolButton()
         self._advanced_toggle.setCheckable(True)
-        self._advanced_toggle.setChecked(False)
         self._advanced_toggle.setAutoRaise(True)
         self._advanced_toggle.setToolButtonStyle(
             Qt.ToolButtonStyle.ToolButtonTextBesideIcon
@@ -608,7 +605,6 @@ class RegistrationPanel(QWidget):
 
         self._histogram_bins_spin = QSpinBox()
         self._histogram_bins_spin.setRange(8, 512)
-        self._histogram_bins_spin.setValue(50)
         self._histogram_bins_spin.setToolTip(
             "Number of histogram bins for Mattes mutual information metric."
         )
@@ -622,7 +618,6 @@ class RegistrationPanel(QWidget):
         self._convergence_min_edit = ScientificDoubleSpinBox()
         self._convergence_min_edit.setRange(1e-10, 1.0)
         self._convergence_min_edit.setSingleStep(1e-6)
-        self._convergence_min_edit.setValue(1e-6)
         self._convergence_min_edit.setToolTip(
             "Convergence threshold. Accepts decimal (0.000001) or scientific notation (1e-6)."
         )
@@ -635,7 +630,6 @@ class RegistrationPanel(QWidget):
 
         self._convergence_window_spin = QSpinBox()
         self._convergence_window_spin.setRange(1, 100)
-        self._convergence_window_spin.setValue(10)
         self._convergence_window_spin.setToolTip(
             "Number of recent metric values for convergence estimation."
         )
@@ -653,7 +647,6 @@ class RegistrationPanel(QWidget):
         self._multi_resolution_check.setToolTip(
             "Run registration from coarse to fine resolution levels."
         )
-        self._multi_resolution_check.setChecked(False)
         self._multi_resolution_row = self._make_advanced_row(
             advanced_layout,
             "Multi-resolution",
@@ -661,7 +654,7 @@ class RegistrationPanel(QWidget):
             tooltip="Whether to optimize from coarse to fine resolution levels.",
         )
 
-        self._shrink_factors_edit = QLineEdit("6, 2, 1")
+        self._shrink_factors_edit = QLineEdit()
         self._shrink_factors_edit.setToolTip(
             "Comma-separated shrink factors per resolution level for multi-resolution."
         )
@@ -672,7 +665,7 @@ class RegistrationPanel(QWidget):
             tooltip="Comma-separated downsampling factors for each multi-resolution level.",
         )
 
-        self._smoothing_sigmas_edit = QLineEdit("6, 2, 1")
+        self._smoothing_sigmas_edit = QLineEdit()
         self._smoothing_sigmas_edit.setToolTip(
             "Comma-separated smoothing sigmas per resolution level for multi-resolution."
         )
@@ -703,7 +696,6 @@ class RegistrationPanel(QWidget):
         )
 
         self._fill_value_auto_check = QCheckBox("minimum")
-        self._fill_value_auto_check.setChecked(True)
         self._fill_value_auto_check.setToolTip(
             "Automatically use the minimum intensity of the fixed image as fill value."
         )
@@ -713,7 +705,6 @@ class RegistrationPanel(QWidget):
         )
         self._fill_value_spin.setRange(-1e6, 1e6)
         self._fill_value_spin.setDecimals(3)
-        self._fill_value_spin.setValue(0.0)
         self._fill_value_spin.setEnabled(False)
         self._fill_value_spin.setToolTip(
             "Fill value for resampled output outside the input domain."
@@ -766,9 +757,6 @@ class RegistrationPanel(QWidget):
             self._update_transform_dependent_visibility
         )
         self._on_advanced_toggled(False)
-        self._update_multi_resolution_enabled(False)
-        self._update_metric_dependent_visibility(self._metric_combo.currentText())
-        self._update_transform_dependent_visibility(self._transform_combo.currentText())
 
         self._register_panel = QWidget()
         register_layout = QVBoxLayout(self._register_panel)
@@ -878,11 +866,16 @@ class RegistrationPanel(QWidget):
         )
 
         self._registration_parameters_by_operation = {
-            "register_volume": self._default_registration_parameters(mode="volume"),
-            "register_volumewise": self._default_registration_parameters(
+            "register_volume": get_default_registration_parameters(mode="volume"),
+            "register_volumewise": get_default_registration_parameters(
                 mode="volumewise"
             ),
         }
+        set_registration_parameters(
+            self,
+            self._registration_parameters_by_operation["register_volume"],
+            mode="volume",
+        )
 
         self._refresh_layers()
         self._on_panel_changed()
@@ -1132,6 +1125,11 @@ class RegistrationPanel(QWidget):
             Image layer whose data should be replaced.
         data : numpy.ndarray
             Replacement array.
+
+        Returns
+        -------
+        None
+            Updates `layer` in place.
         """
         cast("Any", layer).data = data
 
@@ -1210,7 +1208,22 @@ class RegistrationPanel(QWidget):
         *,
         transform_model: str | None = None,
     ) -> str:
-        """Return the napari layer name for between-scan registration output."""
+        """Return the napari layer name for between-scan registration output.
+
+        Parameters
+        ----------
+        moving_name : str
+            Moving-layer name. Unused, but kept for call-site clarity.
+        fixed_name : str
+            Fixed-layer name. Unused, but kept for call-site clarity.
+        transform_model : str, optional
+            Transform model to include in the result-layer label.
+
+        Returns
+        -------
+        str
+            Result-layer name.
+        """
         del moving_name, fixed_name
         model = transform_model or self._transform_combo.currentText()
         return f"Registered ({model})"
@@ -1224,7 +1237,18 @@ class RegistrationPanel(QWidget):
         return "Moving"
 
     def _volumewise_result_layer_name(self, moving_name: str) -> str:
-        """Return the napari layer name for within-scan registration output."""
+        """Return the napari layer name for within-scan registration output.
+
+        Parameters
+        ----------
+        moving_name : str
+            Moving-layer name. Unused, but kept for call-site symmetry.
+
+        Returns
+        -------
+        str
+            Result-layer name.
+        """
         del moving_name
         return "Motion corrected"
 
@@ -1252,7 +1276,13 @@ class RegistrationPanel(QWidget):
         return payloads
 
     def _refresh_transform_controls(self) -> None:
-        """Refresh transform-related layer selectors."""
+        """Refresh transform-related layer selectors.
+
+        Returns
+        -------
+        None
+            Updates transform, initialization, and target selectors in place.
+        """
         source_data = self._transform_source_combo.currentData()
         initialization_data = self._initialization_combo.currentData()
         target_name = self._transform_target_combo.currentText()
@@ -1354,7 +1384,14 @@ class RegistrationPanel(QWidget):
             self._transform_target_combo.setCurrentIndex(target_index)
 
     def _selected_transform_payload(self) -> TransformPayload | None:
-        """Return the currently selected transform payload."""
+        """Return the currently selected transform payload.
+
+        Returns
+        -------
+        TransformPayload or None
+            Selected transform payload, or `None` when no valid selection is
+            available.
+        """
         source_data = self._transform_source_data(
             self._transform_source_combo.currentData()
         )
@@ -1380,14 +1417,28 @@ class RegistrationPanel(QWidget):
     def _selected_center_initialization(
         self,
     ) -> Literal["center_geometry", "center_moments"] | None:
-        """Return the selected built-in centering initialization, if any."""
+        """Return the selected built-in centering initialization, if any.
+
+        Returns
+        -------
+        {"center_geometry", "center_moments"} or None
+            Selected built-in initialization, or `None` when the selection is
+            an explicit transform or identity.
+        """
         value = self._initialization_combo.currentData()
         if value in {"center_geometry", "center_moments"}:
             return value
         return None
 
     def _selected_initial_transform_payload(self) -> AffineTransformPayload | None:
-        """Return the payload selected for registration initialization, if any."""
+        """Return the payload selected for registration initialization, if any.
+
+        Returns
+        -------
+        AffineTransformPayload or None
+            Selected affine initialization payload, or `None` when the current
+            initialization does not point to an affine payload.
+        """
         source_data = self._transform_source_data(
             self._initialization_combo.currentData()
         )
@@ -1410,7 +1461,14 @@ class RegistrationPanel(QWidget):
         return _get_affine_payload_from_layer(layer)
 
     def _selected_manual_initialization_layer(self) -> Layer | None:
-        """Return the layer selected for manual napari initialization, if any."""
+        """Return the layer selected for manual napari initialization, if any.
+
+        Returns
+        -------
+        napari.layers.Layer or None
+            Selected manual-initialization layer, or `None` when the current
+            initialization is not a manual layer transform.
+        """
         source_data = self._transform_source_data(
             self._initialization_combo.currentData()
         )
@@ -1679,148 +1737,6 @@ class RegistrationPanel(QWidget):
             self._operation() == "register_volume" and transform == "bspline"
         )
 
-    def _default_registration_parameters(
-        self, *, mode: RegistrationParameterMode
-    ) -> ModeParameters:
-        """Return the default parameter state for one registration mode.
-
-        Parameters
-        ----------
-        mode : {"volume", "volumewise"}
-            Registration workflow whose defaults should be returned.
-
-        Returns
-        -------
-        ModeParameters
-            Default parameter values for the requested workflow.
-        """
-        is_volumewise = mode == "volumewise"
-        return {
-            "transform": "rigid",
-            "metric": "correlation",
-            "scale": "dB",
-            "initialization": "center_geometry",
-            "learning_rate_auto": not is_volumewise,
-            "learning_rate_value": 0.01 if is_volumewise else 0.1,
-            "number_of_iterations": 100,
-            "number_of_histogram_bins": 50,
-            "mesh_size": (10, 10, 10),
-            "convergence_minimum_value": 1e-6,
-            "convergence_window_size": 10,
-            "use_multi_resolution": False,
-            "shrink_factors": "6, 2, 1",
-            "smoothing_sigmas": "6, 2, 1",
-            "resample_interpolation": "linear",
-            "fill_value_auto": True,
-            "fill_value": 0.0,
-            "reference_time": 0,
-            "n_jobs": -1,
-            "keep_diagnostics": False,
-            "advanced_open": False,
-        }
-
-    def _get_registration_parameters(self) -> ModeParameters:
-        """Return the current parameter state shown in the panel.
-
-        Returns
-        -------
-        ModeParameters
-            Current parameter values read from the visible widgets.
-        """
-        return {
-            "transform": self._transform_combo.currentText() or "rigid",
-            "metric": self._current_metric(),
-            "scale": self._current_scale_mode(),
-            "initialization": self._initialization_combo.currentData(),
-            "learning_rate_auto": self._learning_rate_auto_check.isChecked(),
-            "learning_rate_value": self._learning_rate_edit.value(),
-            "number_of_iterations": self._iterations_spin.value(),
-            "number_of_histogram_bins": self._histogram_bins_spin.value(),
-            "mesh_size": (
-                self._mesh_size_z_spin.value(),
-                self._mesh_size_y_spin.value(),
-                self._mesh_size_x_spin.value(),
-            ),
-            "convergence_minimum_value": self._convergence_min_edit.value(),
-            "convergence_window_size": self._convergence_window_spin.value(),
-            "use_multi_resolution": self._multi_resolution_check.isChecked(),
-            "shrink_factors": self._shrink_factors_edit.text(),
-            "smoothing_sigmas": self._smoothing_sigmas_edit.text(),
-            "resample_interpolation": self._current_resample_interpolation(),
-            "fill_value_auto": self._fill_value_auto_check.isChecked(),
-            "fill_value": self._fill_value_spin.value(),
-            "reference_time": self._reference_time_spin.value(),
-            "n_jobs": self._n_jobs_spin.value(),
-            "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
-            "advanced_open": self._advanced_toggle.isChecked(),
-        }
-
-    def _set_registration_parameters(
-        self, params: ModeParameters, *, mode: RegistrationParameterMode
-    ) -> None:
-        """Restore the parameter state for one registration mode.
-
-        Parameters
-        ----------
-        params : ModeParameters
-            Parameter values to push back into the widgets.
-        mode : {"volume", "volumewise"}
-            Registration workflow whose UI should be restored.
-        """
-        self._transform_combo.blockSignals(True)
-        self._transform_combo.clear()
-        is_volumewise = mode == "volumewise"
-        if is_volumewise:
-            self._transform_combo.addItems(["translation", "rigid", "affine"])
-        else:
-            self._transform_combo.addItems(
-                ["translation", "rigid", "affine", "bspline"]
-            )
-        transform = params["transform"]
-        transform_index = self._transform_combo.findText(transform)
-        if transform_index < 0:
-            transform_index = self._transform_combo.findText("rigid")
-        if transform_index >= 0:
-            self._transform_combo.setCurrentIndex(transform_index)
-        self._transform_combo.blockSignals(False)
-
-        self._metric_combo.setCurrentText(params["metric"])
-        scale_mode = params["scale"]
-        scale_index = self._scale_combo.findData(scale_mode)
-        if scale_index >= 0:
-            self._scale_combo.setCurrentIndex(scale_index)
-        initialization_data = params.get("initialization")
-        for i in range(self._initialization_combo.count()):
-            if self._initialization_combo.itemData(i) == initialization_data:
-                self._initialization_combo.setCurrentIndex(i)
-                break
-        self._learning_rate_auto_check.setChecked(
-            False if is_volumewise else params["learning_rate_auto"]
-        )
-        self._learning_rate_edit.setValue(params["learning_rate_value"])
-        self._iterations_spin.setValue(params["number_of_iterations"])
-        self._histogram_bins_spin.setValue(params["number_of_histogram_bins"])
-        mesh_size = params["mesh_size"]
-        self._mesh_size_z_spin.setValue(mesh_size[0])
-        self._mesh_size_y_spin.setValue(mesh_size[1])
-        self._mesh_size_x_spin.setValue(mesh_size[2])
-        self._convergence_min_edit.setValue(params["convergence_minimum_value"])
-        self._convergence_window_spin.setValue(params["convergence_window_size"])
-        self._multi_resolution_check.setChecked(params["use_multi_resolution"])
-        self._shrink_factors_edit.setText(params["shrink_factors"])
-        self._smoothing_sigmas_edit.setText(params["smoothing_sigmas"])
-        self._interpolation_combo.setCurrentText(params["resample_interpolation"])
-        self._fill_value_auto_check.setChecked(params["fill_value_auto"])
-        self._fill_value_spin.setValue(params["fill_value"])
-        self._reference_time_spin.setValue(params["reference_time"])
-        self._n_jobs_spin.setValue(params["n_jobs"])
-        self._keep_diagnostics_check.setChecked(params["keep_diagnostics"])
-        self._advanced_toggle.setChecked(params["advanced_open"])
-        self._on_advanced_toggled(self._advanced_toggle.isChecked())
-        self._update_metric_dependent_visibility(self._metric_combo.currentText())
-        self._update_multi_resolution_enabled(self._multi_resolution_check.isChecked())
-        self._update_transform_dependent_visibility(self._transform_combo.currentText())
-
     def _on_mode_changed(self) -> None:
         """Update the panel when the registration mode changes."""
         new_mode = self._operation()
@@ -1829,7 +1745,7 @@ class RegistrationPanel(QWidget):
 
         if previous_mode in self._registration_parameters_by_operation:
             self._registration_parameters_by_operation[previous_mode] = (
-                self._get_registration_parameters()
+                get_registration_parameters(self)
             )
 
         self._fixed_label.setVisible(not is_volumewise)
@@ -1843,7 +1759,8 @@ class RegistrationPanel(QWidget):
         self._fill_value_row.setVisible(not is_volumewise)
         self._keep_diagnostics_row.setVisible(is_volumewise)
 
-        self._set_registration_parameters(
+        set_registration_parameters(
+            self,
             self._registration_parameters_by_operation[new_mode],
             mode="volumewise" if is_volumewise else "volume",
         )
@@ -1875,450 +1792,6 @@ class RegistrationPanel(QWidget):
         self._abort_btn.setEnabled(False)
         self._abort_btn.setText("Aborting…")
         self._set_error("Aborting registration…")
-
-    def _setup_volumewise_progress(
-        self,
-        *,
-        moving_layer: "Image",
-        moving: xr.DataArray,
-        layer_name: str,
-        scale_mode: str = "off",
-    ) -> NapariRegistrationProgressReporter:
-        """Create a progress bridge and output layer for volumewise registration."""
-        self._teardown_volumewise_progress(remove_layer=True)
-
-        moving_display_kwargs = _get_image_display_kwargs_from_layer(moving_layer)
-        moving_display_kwargs["colormap"] = "red"
-        if _gamma_needs_reset(scale_mode):
-            moving_display_kwargs["gamma"] = 1.0
-
-        display_kwargs = dict(moving_display_kwargs)
-        display_kwargs["colormap"] = "cyan"
-        display_kwargs["blending"] = "additive"
-        contrast_limits = tuple(calc_data_range(moving.data))
-        preview_data = np.full(
-            moving.shape,
-            fill_value=float(np.min(moving.data)),
-            dtype=np.asarray(moving.data).dtype,
-        )
-        preview = xr.DataArray(
-            preview_data,
-            dims=moving.dims,
-            coords=moving.coords,
-            attrs=moving.attrs.copy(),
-        )
-
-        # Adding the preview/progress layers makes napari recompute the camera
-        # and reset the dims; snapshot and restore so the run starts from the
-        # user's current view.
-        with _preserve_view(self.viewer):
-            try:
-                moving_preview_layer = cast(
-                    "Image",
-                    self.viewer.layers[self._volumewise_moving_preview_layer_name()],
-                )
-            except KeyError:
-                _, moving_preview_layer = plot_napari(
-                    moving,
-                    viewer=self.viewer,
-                    name=self._volumewise_moving_preview_layer_name(),
-                    show_colorbar=False,
-                    contrast_limits=contrast_limits,
-                    **moving_display_kwargs,
-                )
-            else:
-                self._set_image_layer_data(
-                    moving_preview_layer, np.asarray(moving.data)
-                )
-                moving_preview_layer.colormap = moving_display_kwargs["colormap"]
-                moving_preview_layer.gamma = float(
-                    moving_display_kwargs.get("gamma", 1.0)
-                )
-                moving_preview_layer.contrast_limits = contrast_limits
-
-            try:
-                fixed_preview_layer = cast(
-                    "Image", self.viewer.layers[self._volume_fixed_preview_layer_name()]
-                )
-            except KeyError:
-                fixed_preview_layer = None
-            else:
-                fixed_preview_layer.visible = False
-
-            _, layer = plot_napari(
-                preview,
-                viewer=self.viewer,
-                name=layer_name,
-                show_colorbar=False,
-                contrast_limits=contrast_limits,
-                **display_kwargs,
-            )
-        bridge = NapariRegistrationProgressReporterBridge()
-        bridge.frame_progress.connect(self._update_volumewise_progress_bar)
-        bridge.frame_completed.connect(self._update_volumewise_progress_frame)
-
-        self._volumewise_progress_bridge = bridge
-        self._volumewise_progress_layer = cast("Image", layer)
-        self._volumewise_moving_preview_layer = cast("Image", moving_preview_layer)
-        self._volumewise_progress_time_axis = moving.dims.index(TIME_DIM)
-        self._volumewise_progress_total = moving.sizes[TIME_DIM]
-        self._progress.setRange(0, self._volumewise_progress_total)
-        self._progress.setValue(0)
-        return NapariRegistrationProgressReporter(
-            bridge,
-            n_frames=moving.sizes[TIME_DIM],
-        )
-
-    def _update_volumewise_progress_bar(
-        self,
-        completed_frames: int,
-        total_frames: int,
-    ) -> None:
-        """Update the determinate progress bar for volumewise registration."""
-        self._progress.setRange(0, max(total_frames, 1))
-        self._progress.setValue(min(completed_frames, total_frames))
-
-    def _update_volumewise_progress_frame(
-        self,
-        frame_index: int,
-        arr: object,
-    ) -> None:
-        """Write one completed registered frame into the volumewise output layer."""
-        layer = self._volumewise_progress_layer
-        time_axis = self._volumewise_progress_time_axis
-        if layer is None or time_axis is None or not isinstance(arr, np.ndarray):
-            return
-
-        data = np.asarray(layer.data)
-        if time_axis >= data.ndim:
-            return
-        index = tuple(
-            frame_index if axis == time_axis else slice(None)
-            for axis in range(data.ndim)
-        )
-        data[index] = arr
-        layer.refresh()
-
-    def _teardown_volumewise_progress(self, *, remove_layer: bool) -> None:
-        """Reset volumewise progress-layer state."""
-        if remove_layer and self._volumewise_progress_layer is not None:
-            try:
-                self.viewer.layers.remove(self._volumewise_progress_layer)
-            except (KeyError, ValueError):
-                pass
-            self._volumewise_progress_layer = None
-        self._volumewise_progress_bridge = None
-        if not remove_layer:
-            self._volumewise_progress_layer = None
-        self._volumewise_progress_time_axis = None
-        self._volumewise_progress_total = None
-
-    def _setup_volume_progress(
-        self,
-        *,
-        moving_layer: "Image",
-        fixed_layer: "Image",
-        moving: xr.DataArray,
-        fixed: xr.DataArray,
-        layer_name: str,
-        initial_transform: npt.NDArray[np.floating] | None = None,
-        scale_mode: str = "off",
-    ) -> "Callable[..., RegistrationProgress] | None":
-        """Build a napari progress bridge and preview layer for register_volume.
-
-        Creates an empty image layer on the fixed grid (with the final target
-        name) and wires a
-        [`NapariProgressBridge`][confusius._napari._registration._progress.NapariProgressBridge]
-        so that every iteration of SimpleITK's optimizer streams the resampled
-        array into that layer. The returned factory is forwarded to
-        `register_volume` via its `progress_plotter` argument.
-
-        Parameters
-        ----------
-        moving_layer : napari.layers.Layer
-            Moving source layer. Used for display defaults (colormap,
-            contrast limits) on the preview layer, since the resampled output
-            lives in the moved intensity space.
-        fixed_layer : napari.layers.Layer
-            Fixed reference layer. Defines the shape, scale, translate, and
-            coordinate system of the preview/output layer.
-        moving : xarray.DataArray
-            Spatial-only moving data used to seed the preview layer.
-        fixed : xarray.DataArray
-            Spatial-only DataArray view of `fixed_layer`, used to build the
-            empty preview grid.
-        layer_name : str
-            Name for the preview (and later final) layer.
-        initial_transform : numpy.ndarray, optional
-            Explicit affine initialization used to seed the preview layers. If
-            not provided, the preview starts from the identity transform.
-
-        Returns
-        -------
-        callable or None
-            Factory suited for `register_volume`'s `progress_plotter`
-            argument, or `None` when the preview layer could not be created
-            (in which case `register_volume` runs without live progress).
-        """
-        self._teardown_volume_progress()
-
-        fixed_display_kwargs = _get_image_display_kwargs_from_layer(fixed_layer)
-        fixed_display_kwargs["colormap"] = "red"
-
-        moving_display_kwargs = _get_image_display_kwargs_from_layer(moving_layer)
-        moving_display_kwargs["colormap"] = "cyan"
-        moving_display_kwargs["blending"] = "additive"
-        if _gamma_needs_reset(scale_mode):
-            fixed_display_kwargs["gamma"] = 1.0
-            moving_display_kwargs["gamma"] = 1.0
-
-        display_kwargs = dict(moving_display_kwargs)
-
-        # Render the preview in cyan with additive blending. napari sums the
-        # RGB channels of the two layers, so red+cyan highlights
-        # misregistered regions as a pure colour. `_get_image_display_kwargs_from_layer`
-        # copies the moving layer's colormap, so we override it explicitly
-        # rather than rely on `setdefault`.
-        display_kwargs["colormap"] = "cyan"
-        display_kwargs["blending"] = "additive"
-
-        # Seed the preview with the moving image resampled onto the fixed
-        # grid using an identity transform. This makes the first frame a
-        # meaningful "unaligned moving on fixed grid" view that the user can
-        # compare against the red fixed, instead of a zero-valued blank that
-        # would flash a full-FOV tint. The SimpleITK iteration events then
-        # overwrite the data in place as the registration progresses.
-        try:
-            seed_transform = (
-                np.asarray(initial_transform, dtype=float)
-                if initial_transform is not None
-                else np.eye(fixed.ndim + 1, dtype=float)
-            )
-            preview = resample_like(
-                moving,
-                fixed,
-                seed_transform,
-                interpolation="linear",
-            )
-            preview_contrast_limits = tuple(calc_data_range(preview.data))
-        except Exception as exc:  # noqa: BLE001
-            # Fall back to a zero-valued seed if the initial resample fails
-            # for any reason. The first iteration will populate the preview.
-            self._set_error(f"Could not seed progress layer: {exc}")
-            preview = xr.DataArray(
-                np.zeros(fixed.shape, dtype=np.float32),
-                coords=fixed.coords,
-                dims=fixed.dims,
-                attrs=fixed.attrs.copy(),
-            )
-            preview_contrast_limits = tuple(calc_data_range(preview.data))
-
-        # Adding the preview/progress layers makes napari recompute the camera
-        # and reset the dims; snapshot and restore so the run starts from the
-        # user's current view.
-        with _preserve_view(self.viewer):
-            try:
-                try:
-                    fixed_preview_layer = cast(
-                        "Image",
-                        self.viewer.layers[self._volume_fixed_preview_layer_name()],
-                    )
-                except KeyError:
-                    _, fixed_preview_layer = plot_napari(
-                        fixed,
-                        viewer=self.viewer,
-                        name=self._volume_fixed_preview_layer_name(),
-                        show_colorbar=False,
-                        **fixed_display_kwargs,
-                    )
-                else:
-                    self._set_image_layer_data(
-                        fixed_preview_layer, np.asarray(fixed.data)
-                    )
-                    fixed_preview_layer.colormap = fixed_display_kwargs["colormap"]
-                    fixed_preview_layer.gamma = float(
-                        fixed_display_kwargs.get("gamma", 1.0)
-                    )
-                    fixed_preview_layer.visible = True
-
-                try:
-                    moving_preview_layer = cast(
-                        "Image",
-                        self.viewer.layers[self._volume_moving_preview_layer_name()],
-                    )
-                except KeyError:
-                    _, moving_preview_layer = plot_napari(
-                        preview,
-                        viewer=self.viewer,
-                        name=self._volume_moving_preview_layer_name(),
-                        show_colorbar=False,
-                        contrast_limits=preview_contrast_limits,
-                        **moving_display_kwargs,
-                    )
-                else:
-                    self._set_image_layer_data(
-                        moving_preview_layer, np.asarray(preview.data)
-                    )
-                    moving_preview_layer.colormap = moving_display_kwargs["colormap"]
-                    moving_preview_layer.blending = moving_display_kwargs["blending"]
-                    moving_preview_layer.gamma = float(
-                        moving_display_kwargs.get("gamma", 1.0)
-                    )
-                    moving_preview_layer.contrast_limits = preview_contrast_limits
-                moving_preview_layer.visible = False
-
-                _, layer = plot_napari(
-                    preview,
-                    viewer=self.viewer,
-                    name=layer_name,
-                    show_colorbar=False,
-                    contrast_limits=preview_contrast_limits,
-                    **display_kwargs,
-                )
-            except Exception as exc:  # noqa: BLE001
-                self._set_error(f"Could not create progress layer: {exc}")
-                return None
-
-        bridge = NapariProgressBridge()
-        bridge.iterated.connect(self._update_progress_layer)
-        # `finished` is informational: we tear the preview down on
-        # `_on_registration_finished` / `_on_registration_failed` instead, so
-        # no extra slot is required here.
-        self._progress_bridge = bridge
-        self._progress_layer = cast("Image", layer)
-        self._progress_fixed_layer = cast("Image", fixed_preview_layer)
-        self._progress_moving_layer = cast("Image", moving_preview_layer)
-        self._progress_moving_layer.visible = False
-
-        # Lazily build the bottom-dock metric plotter. The widget is reused
-        # across runs; only the data buffer is reset.
-        self._ensure_metric_plotter()
-        plotter = self._metric_plotter
-        if plotter is not None:
-            plotter.reset()
-            bridge.metric_updated.connect(plotter.add_metric)
-        return make_napari_progress_factory(bridge)
-
-    def _update_progress_layer(self, arr: object) -> None:
-        """Write an intermediate resampled array into the preview layer.
-
-        Invoked on the GUI thread via `NapariProgressBridge.iterated`. The
-        payload is a numpy array in numpy axis order matching the fixed grid
-        shape. Shape/coordinate mismatches are silently ignored: they
-        indicate that another run's stale signal slipped through or that the
-        preview layer has already been torn down.
-
-        Parameters
-        ----------
-        arr : numpy.ndarray
-            Resampled moving image for the current iteration.
-        """
-        layer = self._progress_layer
-        if layer is None:
-            return
-        if not isinstance(arr, np.ndarray):
-            return
-        if arr.shape != layer.data.shape:
-            return
-        self._set_image_layer_data(layer, arr)
-
-    def _teardown_volume_progress(self) -> None:
-        """Remove the progress preview layer and bridge references, if any.
-
-        Called by `_on_registration_finished` and `_on_registration_failed`
-        so the newly added result layer replaces the preview without leaving
-        duplicates behind. The moving layer's hidden state is not restored.
-        The metric plotter is kept (docked, with its final trace) so the
-        user can inspect the convergence curve after the run.
-        """
-        if self._progress_layer is not None:
-            try:
-                self.viewer.layers.remove(self._progress_layer)
-            except (KeyError, ValueError):
-                pass
-            self._progress_layer = None
-        # Drop the bridge reference; the plotter connection becomes inert
-        # when the bridge is garbage-collected.
-        self._progress_bridge = None
-
-    def _ensure_metric_plotter(self) -> RegistrationMetricPlotter | None:
-        """Return the right-dock metric plotter, creating and docking it on first use.
-
-        Mirrors the lazy-dock pattern used by `SignalPanel`. The plotter widget is
-        reused across runs; `_setup_volume_progress` resets its data buffer
-        before each run. Returns `None` only when the dock could not be created
-        (in which case the registration still runs, just without a live metric
-        view).
-        """
-        if self._metric_plotter is None:
-            self._metric_plotter = RegistrationMetricPlotter(self.viewer)
-
-        if self._metric_dock is None or self._metric_plotter.parent() is None:
-            dock = self.viewer.window.add_dock_widget(
-                self._metric_plotter,
-                name="Registration Metric",
-                area="right",
-            )
-            self._metric_dock = cast("QDockWidget", dock)
-
-            # Mirror the HiDPI click-offset fix from the SignalPanel so the
-            # canvas paints at the right device-pixel ratio the first time.
-            def _settle_layout() -> None:
-                try:
-                    main_win = self._find_main_window(dock)
-                except RuntimeError:
-                    return
-                if main_win is None:
-                    return
-                from qtpy.QtCore import QSize
-
-                central = main_win.centralWidget()
-                if central is None:
-                    return
-                central.setMinimumSize(QSize(0, 0))
-                for w in central.findChildren(QWidget):
-                    w.setMinimumSize(QSize(0, 0))
-                for side_dock in main_win.findChildren(QDockWidget):
-                    if side_dock is dock:
-                        continue
-                    side_dock.setMinimumHeight(0)
-                    widget = side_dock.widget()
-                    if widget is not None:
-                        widget.setMinimumSize(QSize(0, 0))
-                current = main_win.size()
-                if current.height() < 800:
-                    main_win.resize(current.width(), 800)
-                main_win.resizeDocks([dock], [220], Qt.Orientation.Vertical)
-
-            QTimer.singleShot(200, _settle_layout)
-
-        return self._metric_plotter
-
-    def _find_main_window(self, widget: QWidget) -> QMainWindow | None:
-        """Traverse up the widget hierarchy to find the QMainWindow.
-
-        Parameters
-        ----------
-        widget : QWidget
-            Starting widget to search from.
-
-        Returns
-        -------
-        QMainWindow or None
-            The main window if found, otherwise None.
-        """
-        try:
-            parent = widget.parent()
-        except RuntimeError:
-            return None
-        while parent is not None:
-            if isinstance(parent, QMainWindow):
-                return parent
-            try:
-                parent = parent.parent()
-            except RuntimeError:
-                return None
-        return None
 
     def _end_work(self) -> None:
         """Restore the idle UI state after background work."""
@@ -2553,7 +2026,8 @@ class RegistrationPanel(QWidget):
             if initial_transform_source is not None:
                 volume_payload["initial_transform_source"] = initial_transform_source
 
-            progress_plotter = self._setup_volume_progress(
+            progress_plotter = setup_volume_progress(
+                self,
                 moving_layer=cast("Image", moving_layer),
                 fixed_layer=cast("Image", fixed_layer),
                 moving=moving,
@@ -2637,7 +2111,8 @@ class RegistrationPanel(QWidget):
             }
             moving = _apply_registration_scale(moving, volumewise_payload["scale"])
 
-            progress_reporter = self._setup_volumewise_progress(
+            progress_reporter = setup_volumewise_progress(
+                self,
                 moving_layer=cast("Image", moving_layer),
                 moving=moving,
                 layer_name=self._make_unique_layer_name(
@@ -2741,7 +2216,7 @@ class RegistrationPanel(QWidget):
             self._set_image_layer_data(layer, np.asarray(registered.data))
             if hasattr(layer, "contrast_limits"):
                 layer.contrast_limits = contrast_limits
-            self._teardown_volumewise_progress(remove_layer=False)
+            teardown_volumewise_progress(self, remove_layer=False)
         else:
             _, layer = plot_napari(
                 registered,
@@ -2950,7 +2425,7 @@ class RegistrationPanel(QWidget):
         exc : BaseException
             Exception raised by the worker.
         """
-        self._teardown_volume_progress()
-        self._teardown_volumewise_progress(remove_layer=True)
+        teardown_volume_progress(self)
+        teardown_volumewise_progress(self, remove_layer=True)
         self._set_error(str(exc))
         show_error(str(exc))

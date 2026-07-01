@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from threading import Event
+from typing import Any, cast
 
 import numpy as np
 import pytest
 import xarray as xr
 from qtpy.QtWidgets import QApplication
 
+from confusius._napari._registration._panel_progress import (
+    setup_volume_progress,
+    setup_volumewise_progress,
+    teardown_volume_progress,
+    update_progress_layer,
+)
 from confusius._napari._registration._panel_transform_helpers import (
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
@@ -19,7 +25,7 @@ from confusius._napari._registration._panel_transform_helpers import (
     make_bspline_transform_payload,
     save_transform_payload,
 )
-from confusius.registration import resample_like
+from confusius.registration import RegistrationDiagnostics, resample_like
 
 
 @pytest.fixture
@@ -34,14 +40,23 @@ def registration_panel(viewer):
     return RegistrationPanel(viewer)
 
 
-@dataclass(frozen=True)
-class _FakeDiagnostics:
-    metric: str = "correlation"
-    metric_values: np.ndarray = field(default_factory=lambda: np.array([-1.0]))
-    final_metric_value: float = -1.0
-    n_iterations: int = 1
-    stop_condition: str = "done"
-    status: str = "completed"
+def _FakeDiagnostics(
+    *,
+    metric: str = "correlation",
+    metric_values: np.ndarray | None = None,
+    final_metric_value: float = -1.0,
+    n_iterations: int = 1,
+    stop_condition: str = "done",
+    status: str = "completed",
+) -> RegistrationDiagnostics:
+    return RegistrationDiagnostics(
+        metric=cast("Any", metric),
+        metric_values=np.array([-1.0]) if metric_values is None else metric_values,
+        final_metric_value=final_metric_value,
+        n_iterations=n_iterations,
+        stop_condition=stop_condition,
+        status=cast("Any", status),
+    )
 
 
 def _make_bspline_transform() -> xr.DataArray:
@@ -206,7 +221,8 @@ class TestOperationMode:
         moving.gamma = 0.4
         fixed_layer.gamma = 0.6
 
-        registration_panel._setup_volume_progress(
+        setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -218,8 +234,9 @@ class TestOperationMode:
         assert viewer.layers["Moving"].gamma == pytest.approx(1.0)
         assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
 
-        registration_panel._teardown_volume_progress()
-        registration_panel._setup_volume_progress(
+        teardown_volume_progress(registration_panel)
+        setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -257,12 +274,14 @@ class TestOperationMode:
         viewer.camera.zoom = 7.0
         before = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
 
-        registration_panel._setup_volume_progress(
+        setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
+            scale_mode="off",
         )
 
         after = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
@@ -398,17 +417,18 @@ class TestRunRegistration:
             _fake_thread_worker,
         )
         monkeypatch.setattr(
-            registration_panel,
-            "_setup_volume_progress",
-            lambda **_kwargs: None,
+            "confusius._napari._registration._panel.setup_volume_progress",
+            lambda *_args, **_kwargs: None,
         )
 
         registration_panel._run_registration()
 
-        np.testing.assert_array_equal(captured["kwargs"]["initial_transform"], affine)
-        assert captured["kwargs"]["center_initialization"] is None
-        np.testing.assert_allclose(captured["args"][0].values, np.sqrt(moving.values))
-        np.testing.assert_allclose(captured["args"][1].values, np.sqrt(fixed.values))
+        kwargs = cast("dict[str, Any]", captured["kwargs"])
+        args = cast("tuple[Any, ...]", captured["args"])
+        np.testing.assert_array_equal(kwargs["initial_transform"], affine)
+        assert kwargs["center_initialization"] is None
+        np.testing.assert_allclose(args[0].values, np.sqrt(moving.values))
+        np.testing.assert_allclose(args[1].values, np.sqrt(fixed.values))
         assert registration_panel._worker is not None
 
     def test_between_scan_run_uses_selected_manual_napari_transform(
@@ -486,13 +506,14 @@ class TestRunRegistration:
             _fake_thread_worker,
         )
         monkeypatch.setattr(
-            registration_panel,
-            "_setup_volume_progress",
-            lambda **_kwargs: None,
+            "confusius._napari._registration._panel.setup_volume_progress",
+            lambda *_args, **_kwargs: None,
         )
 
         registration_panel._run_registration()
 
+        kwargs = cast("dict[str, Any]", captured["kwargs"])
+        args = cast("tuple[Any, ...]", captured["args"])
         expected = np.array(
             [
                 [1.0, 0.0, 0.0, -0.5],
@@ -501,9 +522,9 @@ class TestRunRegistration:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        np.testing.assert_allclose(captured["kwargs"]["initial_transform"], expected)
-        assert captured["kwargs"]["center_initialization"] is None
-        assert captured["args"][0].dims == ("z", "y", "x")
+        np.testing.assert_allclose(kwargs["initial_transform"], expected)
+        assert kwargs["center_initialization"] is None
+        assert args[0].dims == ("z", "y", "x")
         assert registration_panel._worker is not None
 
 
@@ -882,9 +903,11 @@ class TestTransforms:
 
         registration_panel._apply_transform()
 
-        assert captured["func"].__name__ == "resample_volume"
+        func = cast("Any", captured["func"])
+        args = cast("tuple[Any, ...]", captured["args"])
+        assert func.__name__ == "resample_volume"
         xr.testing.assert_identical(
-            captured["args"][1],
+            args[1],
             _make_bspline_transform().astype(float),
         )
         assert registration_panel._worker is not None
@@ -921,7 +944,8 @@ class TestVolumewiseProgress:
         )
         moving = _get_source_dataarray(moving_layer)
 
-        progress = registration_panel._setup_volumewise_progress(
+        progress = setup_volumewise_progress(
+            registration_panel,
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
@@ -978,7 +1002,8 @@ class TestVolumewiseProgress:
             name="series",
             metadata={"xarray": moving},
         )
-        progress = registration_panel._setup_volumewise_progress(
+        progress = setup_volumewise_progress(
+            registration_panel,
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",
@@ -1112,12 +1137,14 @@ class TestFinishedCallbacks:
         )
         fixed_layer = viewer.add_image(np.ones((4, 6), dtype=np.float32), name="fixed")
 
-        factory = registration_panel._setup_volume_progress(
+        factory = setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
+            scale_mode="off",
         )
         assert factory is not None
         assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
@@ -1217,13 +1244,15 @@ class TestFinishedCallbacks:
             dtype=float,
         )
 
-        registration_panel._setup_volume_progress(
+        setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
             initial_transform=initial_transform,
+            scale_mode="off",
         )
 
         expected = resample_like(moving_data, fixed, initial_transform)
@@ -1260,12 +1289,14 @@ class TestFinishedCallbacks:
         )
         fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
 
-        registration_panel._setup_volume_progress(
+        setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
+            scale_mode="off",
         )
         # The preview is seeded with the moving image resampled onto the
         # fixed grid, so it's visible and meaningful from the start.
@@ -1273,21 +1304,21 @@ class TestFinishedCallbacks:
         assert preview_layer.visible
 
         next_arr = np.full((4, 6), 0.5, dtype=np.float32)
-        registration_panel._update_progress_layer(next_arr)
+        update_progress_layer(registration_panel, next_arr)
 
         np.testing.assert_array_equal(
             np.asarray(viewer.layers["Registered (rigid)"].data), next_arr
         )
 
         # Shape mismatch is silently ignored.
-        registration_panel._update_progress_layer(np.zeros((3, 6), dtype=np.float32))
+        update_progress_layer(registration_panel, np.zeros((3, 6), dtype=np.float32))
         np.testing.assert_array_equal(
             np.asarray(viewer.layers["Registered (rigid)"].data), next_arr
         )
 
         # Teardown removes only the in-flight registered layer while leaving
         # the reusable fixed / moving previews and originals untouched.
-        registration_panel._teardown_volume_progress()
+        teardown_volume_progress(registration_panel)
         assert registration_panel._progress_layer is None
         assert registration_panel._progress_bridge is None
         assert "Registered (rigid)" not in {layer.name for layer in viewer.layers}
@@ -1321,12 +1352,14 @@ class TestFinishedCallbacks:
         assert registration_panel._metric_plotter is None
         assert registration_panel._metric_dock is None
 
-        registration_panel._setup_volume_progress(
+        setup_volume_progress(
+            registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
             fixed=fixed,
             layer_name="Registered (rigid)",
+            scale_mode="off",
         )
 
         assert registration_panel._metric_plotter is not None
@@ -1340,13 +1373,13 @@ class TestFinishedCallbacks:
         assert bridge is not None
         bridge.metric_updated.emit(0.5)
         # Force a render so the throttled redraw is observed synchronously.
-        registration_panel._metric_plotter._render()  # type: ignore[attr-defined]
-        assert registration_panel._metric_plotter.metric_values == [0.5]  # type: ignore[attr-defined]
+        registration_panel._metric_plotter._render()
+        assert registration_panel._metric_plotter.metric_values == [0.5]
 
         # Tearing down keeps the plotter (so the user can inspect the trace).
-        registration_panel._teardown_volume_progress()
+        teardown_volume_progress(registration_panel)
         assert registration_panel._metric_plotter is not None
-        assert registration_panel._metric_plotter.metric_values == [0.5]  # type: ignore[attr-defined]
+        assert registration_panel._metric_plotter.metric_values == [0.5]
 
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
         registered = xr.DataArray(
@@ -1398,7 +1431,8 @@ class TestFinishedCallbacks:
             name="series",
             metadata={"xarray": moving},
         )
-        registration_panel._setup_volumewise_progress(
+        setup_volumewise_progress(
+            registration_panel,
             moving_layer=moving_layer,
             moving=moving,
             layer_name="Motion corrected",

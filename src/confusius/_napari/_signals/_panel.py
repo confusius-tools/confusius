@@ -15,7 +15,6 @@ from qtpy.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QMainWindow,
     QPushButton,
     QRadioButton,
     QVBoxLayout,
@@ -23,6 +22,7 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
+from confusius._napari._qt import find_main_window
 from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._signals._store import SignalStore
@@ -286,7 +286,7 @@ class SignalPanel(QWidget):
             # before the canvas first paints. This mirrors the pattern used in the QC
             # panel and prevents the HiDPI click-offset bug.
             def _settle_layout() -> None:
-                main_win = self._find_main_window(dock)
+                main_win = find_main_window(dock)
                 if main_win is None:
                     return
                 # Zero minimum sizes on the central widget and all its children so the
@@ -449,26 +449,6 @@ class SignalPanel(QWidget):
             self._plotter.on_theme_changed()
         if self._signals_manager is not None:
             self._signals_manager.apply_theme(self._viewer.theme)
-
-    def _find_main_window(self, widget: QWidget) -> QMainWindow | None:
-        """Traverse up the widget hierarchy to find the QMainWindow.
-
-        Parameters
-        ----------
-        widget : QWidget
-            Starting widget to search from.
-
-        Returns
-        -------
-        QMainWindow | None
-            The main window if found, None otherwise.
-        """
-        parent = widget.parent()
-        while parent is not None:
-            if isinstance(parent, QMainWindow):
-                return parent
-            parent = parent.parent()
-        return None
 
     # ------------------------------------------------------------------
     # Source management
