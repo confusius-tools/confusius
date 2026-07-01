@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import napari
 from typing import Any, cast
 
+import napari
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
     QButtonGroup,
@@ -433,7 +433,7 @@ class SignalPanel(QWidget):
     def _on_frame_clicked(self, frame: float) -> None:
         """Navigate the viewer to the clicked x-axis coordinate.
 
-        ``frame`` is the x-axis plot value (a world coordinate, e.g. time
+        `frame` is the x-axis plot value (a world coordinate, e.g. time
         in seconds).  Using `dims.set_point` avoids the double-conversion
         bug that occurs when setting `current_step` directly — the step
         index depends on `dims.range.step`, which changes when a video

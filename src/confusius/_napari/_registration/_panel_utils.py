@@ -326,7 +326,7 @@ def parse_comma_separated_ints(text: str, expected_len: int = 3) -> tuple[int, .
     Parameters
     ----------
     text : str
-        Comma-separated text to parse, e.g. ``"1, 2, 3"``.
+        Comma-separated text to parse, e.g. `"1, 2, 3"`.
     expected_len : int, default: 3
         Required number of integers in the parsed result.
 

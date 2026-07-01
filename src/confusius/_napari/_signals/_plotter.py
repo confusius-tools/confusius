@@ -464,7 +464,7 @@ class SignalPlotter(QWidget):
         """Handle layer insertion/removal or active-layer change events.
 
         When the newly active layer is not a valid signal source (e.g., a
-        video layer without xarray metadata), ``_current_layer`` is left
+        video layer without xarray metadata), `_current_layer` is left
         unchanged so that the plotter continues to reference the previous
         valid layer for signal extraction, cursor mapping, and
         click-to-navigate.
