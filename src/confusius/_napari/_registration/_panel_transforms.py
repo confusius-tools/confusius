@@ -495,7 +495,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
 
 
 def save_transform_payload(path: str | Path, payload: TransformPayload) -> None:
-    """Save a transform payload to disk.
+    """Save a transform payload to disk as JSON for affine payloads or Zarr for B-spline payloads.
 
     Parameters
     ----------
@@ -791,17 +791,12 @@ def get_available_transform_payloads(
 
 
 def refresh_transform_controls(panel: "RegistrationPanel") -> None:
-    """Refresh transform-related layer selectors.
+    """Refresh the transform, initialization, and target selectors from the current viewer state.
 
     Parameters
     ----------
     panel : RegistrationPanel
         Registration panel whose transform selectors are updated.
-
-    Returns
-    -------
-    None
-        Updates transform, initialization, and target selectors in place.
     """
     source_data = panel._transform_source_combo.currentData()
     initialization_data = panel._initialization_combo.currentData()
@@ -1151,19 +1146,12 @@ def validate_initial_transform_selection(
 
 
 def save_selected_transform(panel: "RegistrationPanel") -> None:
-    """Save the selected transform payload to disk.
+    """Prompt for a destination path and save the currently selected transform payload.
 
     Parameters
     ----------
     panel : RegistrationPanel
         Registration panel whose selected transform should be saved.
-
-    Returns
-    -------
-    None
-        Prompts the user for a destination path and writes the payload. The chosen file
-        format is JSON for affine payloads and Zarr for B-spline payloads. Updates the
-        panel status on success or failure.
     """
     payload = get_selected_transform_payload(panel)
     if payload is None:
@@ -1187,19 +1175,12 @@ def save_selected_transform(panel: "RegistrationPanel") -> None:
 
 
 def load_transform(panel: "RegistrationPanel") -> None:
-    """Load a transform payload from disk.
+    """Prompt for a transform file, load it into the panel state, and refresh the selectors.
 
     Parameters
     ----------
     panel : RegistrationPanel
         Registration panel that should receive the loaded transform.
-
-    Returns
-    -------
-    None
-        Prompts the user for a `.json` or `.zarr` path, stores the resulting payload on
-        the panel, and refreshes the transform selectors. Errors raised while parsing
-        the file are surfaced through the panel error label and a napari notification.
     """
     start = str(Path.home())
     path_str, _ = QFileDialog.getOpenFileName(
@@ -1227,20 +1208,12 @@ def load_transform(panel: "RegistrationPanel") -> None:
 
 
 def apply_selected_transform(panel: "RegistrationPanel") -> None:
-    """Apply the selected transform to the chosen input layer.
+    """Start a background resampling worker for the selected transform and target layer.
 
     Parameters
     ----------
     panel : RegistrationPanel
         Registration panel whose selected transform and target layer should be used.
-
-    Returns
-    -------
-    None
-        Reads the selected payload and the chosen input layer, dispatches a background
-        [`resample_volume`][confusius.registration.resample_volume] worker, and connects
-        it to the panel worker lifecycle. The resampled DataArray is added to the viewer
-        once the worker finishes; failures are forwarded to the panel's error handler.
     """
     payload = get_selected_transform_payload(panel)
     if payload is None:
@@ -1290,7 +1263,7 @@ def apply_selected_transform(panel: "RegistrationPanel") -> None:
 def on_apply_transform_finished(
     panel: "RegistrationPanel", payload: "ApplyTransformPayload", result: xr.DataArray
 ) -> None:
-    """Add a resampled layer produced from an existing transform.
+    """Add the finished transformed layer to the viewer and attach apply-transform metadata.
 
     Parameters
     ----------
@@ -1302,10 +1275,18 @@ def on_apply_transform_finished(
     result : xarray.DataArray
         Resampled DataArray returned by the worker.
     """
+    registered = result.copy(deep=False)
+    registered.attrs = registered.attrs.copy()
+    registered.attrs["registration_operation"] = "apply_transform"
+
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"
     )
-    layer = cast("Any", panel.viewer.add_image(result.values, name=name))
-    layer.metadata["xarray"] = result
+    layer = cast("Any", panel.viewer.add_image(registered.values, name=name))
+    layer.metadata["xarray"] = registered
     layer.metadata["transform_source"] = payload["transform_source"]
+    layer.metadata["registration_operation"] = "apply_transform"
+    layer.metadata["registration_parameters"] = payload.copy()
+    panel.viewer.layers.selection.active = layer
     panel._status.hide()
+    show_info(f"Added transformed layer: {layer.name}")
