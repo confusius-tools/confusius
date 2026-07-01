@@ -11,7 +11,7 @@ import xarray as xr
 from qtpy.QtWidgets import QApplication
 
 from confusius._napari._registration._panel_progress import (
-    setup_volume_progress,
+    create_volume_progress_plotter,
     setup_volumewise_progress,
     teardown_volume_progress,
     update_progress_layer,
@@ -221,7 +221,7 @@ class TestOperationMode:
         moving.gamma = 0.4
         fixed_layer.gamma = 0.6
 
-        setup_volume_progress(
+        create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
@@ -235,7 +235,7 @@ class TestOperationMode:
         assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
 
         teardown_volume_progress(registration_panel)
-        setup_volume_progress(
+        create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
@@ -248,7 +248,7 @@ class TestOperationMode:
         assert viewer.layers["Moving"].gamma == pytest.approx(0.4)
         assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(0.4)
 
-    def test_setup_volume_progress_preserves_camera_view(
+    def test_create_volume_progress_plotter_preserves_camera_view(
         self, viewer, registration_panel
     ):
         moving_data = xr.DataArray(
@@ -274,7 +274,7 @@ class TestOperationMode:
         viewer.camera.zoom = 7.0
         before = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
 
-        setup_volume_progress(
+        create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
@@ -417,7 +417,7 @@ class TestRunRegistration:
             _fake_thread_worker,
         )
         monkeypatch.setattr(
-            "confusius._napari._registration._panel.setup_volume_progress",
+            "confusius._napari._registration._panel.create_volume_progress_plotter",
             lambda *_args, **_kwargs: None,
         )
 
@@ -425,8 +425,7 @@ class TestRunRegistration:
 
         kwargs = cast("dict[str, Any]", captured["kwargs"])
         args = cast("tuple[Any, ...]", captured["args"])
-        np.testing.assert_array_equal(kwargs["initial_transform"], affine)
-        assert kwargs["center_initialization"] is None
+        np.testing.assert_array_equal(kwargs["initialization"], affine)
         np.testing.assert_allclose(args[0].values, np.sqrt(moving.values))
         np.testing.assert_allclose(args[1].values, np.sqrt(fixed.values))
         assert registration_panel._worker is not None
@@ -506,7 +505,7 @@ class TestRunRegistration:
             _fake_thread_worker,
         )
         monkeypatch.setattr(
-            "confusius._napari._registration._panel.setup_volume_progress",
+            "confusius._napari._registration._panel.create_volume_progress_plotter",
             lambda *_args, **_kwargs: None,
         )
 
@@ -522,8 +521,7 @@ class TestRunRegistration:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        np.testing.assert_allclose(kwargs["initial_transform"], expected)
-        assert kwargs["center_initialization"] is None
+        np.testing.assert_allclose(kwargs["initialization"], expected)
         assert args[0].dims == ("z", "y", "x")
         assert registration_panel._worker is not None
 
@@ -1115,7 +1113,7 @@ class TestFinishedCallbacks:
     def test_volume_result_replaces_preview_layer(
         self, viewer, registration_panel, qtbot
     ):
-        """A preview layer created by `_setup_volume_progress` is removed
+        """A preview layer created by `create_volume_progress_plotter` is removed
         after `_on_registration_finished` so the final result is the only
         layer with that name."""
         moving_data = xr.DataArray(
@@ -1137,7 +1135,7 @@ class TestFinishedCallbacks:
         )
         fixed_layer = viewer.add_image(np.ones((4, 6), dtype=np.float32), name="fixed")
 
-        factory = setup_volume_progress(
+        factory = create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
@@ -1221,7 +1219,7 @@ class TestFinishedCallbacks:
             np.asarray(registered.values),
         )
 
-    def test_setup_volume_progress_applies_initial_transform_to_preview_layers(
+    def test_create_volume_progress_plotter_applies_initial_transform_to_preview_layers(
         self, viewer, registration_panel
     ):
         moving_data = xr.DataArray(
@@ -1244,7 +1242,7 @@ class TestFinishedCallbacks:
             dtype=float,
         )
 
-        setup_volume_progress(
+        create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
@@ -1289,7 +1287,7 @@ class TestFinishedCallbacks:
         )
         fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
 
-        setup_volume_progress(
+        create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
@@ -1328,8 +1326,8 @@ class TestFinishedCallbacks:
         assert moving.colormap.name != "cyan"
         assert moving.blending != "additive"
 
-    def test_setup_creates_metric_plotter_dock(self, viewer, registration_panel):
-        """`_setup_volume_progress` lazily creates and docks the metric plotter."""
+    def test_create_volume_progress_plotter_creates_metric_plotter_dock(self, viewer, registration_panel):
+        """`create_volume_progress_plotter` lazily creates and docks the metric plotter."""
         moving_data = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
             dims=["y", "x"],
@@ -1352,7 +1350,7 @@ class TestFinishedCallbacks:
         assert registration_panel._metric_plotter is None
         assert registration_panel._metric_dock is None
 
-        setup_volume_progress(
+        create_volume_progress_plotter(
             registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,

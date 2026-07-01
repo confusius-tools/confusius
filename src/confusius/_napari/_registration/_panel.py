@@ -45,7 +45,7 @@ from confusius._napari._registration._panel_parameters import (
     set_registration_parameters,
 )
 from confusius._napari._registration._panel_progress import (
-    setup_volume_progress,
+    create_volume_progress_plotter,
     setup_volumewise_progress,
     teardown_volume_progress,
     teardown_volumewise_progress,
@@ -74,18 +74,12 @@ from confusius._napari._registration._panel_utils import (
     _parse_comma_separated_ints,
     _prepare_between_scan_data,
 )
-from confusius._napari._registration._panel_workers import (
-    _run_register_volume,
-    _run_register_volumewise,
-)
 from confusius._napari._registration._progress import (
     NapariProgressBridge,
     NapariRegistrationProgressReporterBridge,
 )
 from confusius.plotting.napari import plot_napari
-from confusius.registration import (
-    resample_volume,
-)
+from confusius.registration import register_volume, register_volumewise, resample_volume
 
 if TYPE_CHECKING:
     import napari
@@ -2026,7 +2020,13 @@ class RegistrationPanel(QWidget):
             if initial_transform_source is not None:
                 volume_payload["initial_transform_source"] = initial_transform_source
 
-            progress_plotter = setup_volume_progress(
+            initialization_arg = (
+                initial_transform
+                if initial_transform is not None
+                else self._selected_center_initialization()
+            )
+
+            progress_plotter = create_volume_progress_plotter(
                 self,
                 moving_layer=cast("Image", moving_layer),
                 fixed_layer=cast("Image", fixed_layer),
@@ -2043,7 +2043,7 @@ class RegistrationPanel(QWidget):
                 scale_mode=volume_payload["scale"],
             )
 
-            worker = thread_worker(_run_register_volume)(
+            worker = thread_worker(register_volume)(
                 moving,
                 fixed,
                 transform_type=volume_payload["transform"],
@@ -2051,16 +2051,17 @@ class RegistrationPanel(QWidget):
                 learning_rate=learning_rate,
                 number_of_iterations=volume_payload["number_of_iterations"],
                 use_multi_resolution=volume_payload["use_multi_resolution"],
+                resample=True,
                 resample_interpolation=volume_payload["resample_interpolation"],
                 mesh_size=volume_payload["mesh_size"],
                 number_of_histogram_bins=volume_payload["number_of_histogram_bins"],
                 convergence_minimum_value=volume_payload["convergence_minimum_value"],
                 convergence_window_size=volume_payload["convergence_window_size"],
-                center_initialization=self._selected_center_initialization(),
-                initial_transform=initial_transform,
+                initialization=initialization_arg,
                 shrink_factors=volume_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volume_payload["smoothing_sigmas"] or (6, 2, 1),
                 fill_value=volume_payload["fill_value"],
+                show_progress=progress_plotter is not None,
                 progress_plotter=progress_plotter,
                 abort_event=self._abort_event,
             )
@@ -2123,7 +2124,7 @@ class RegistrationPanel(QWidget):
                 scale_mode=volumewise_payload["scale"],
             )
 
-            worker = thread_worker(_run_register_volumewise)(
+            worker = thread_worker(register_volumewise)(
                 moving,
                 reference_time=volumewise_payload["reference_time"],
                 n_jobs=volumewise_payload["n_jobs"],
@@ -2142,6 +2143,7 @@ class RegistrationPanel(QWidget):
                 shrink_factors=volumewise_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volumewise_payload["smoothing_sigmas"] or (6, 2, 1),
                 keep_diagnostics=volumewise_payload["keep_diagnostics"],
+                show_progress=False,
                 abort_event=self._abort_event,
                 progress_reporter=progress_reporter,
             )

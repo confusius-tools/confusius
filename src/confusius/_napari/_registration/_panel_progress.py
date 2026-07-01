@@ -27,6 +27,8 @@ from confusius.plotting.napari import plot_napari
 from confusius.registration import resample_like
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import numpy.typing as npt
     from napari.layers import Image
 
@@ -34,6 +36,7 @@ if TYPE_CHECKING:
         RegistrationMetricPlotter,
     )
     from confusius._napari._registration._panel import RegistrationPanel
+    from confusius.registration import RegistrationProgress
 
 
 def setup_volumewise_progress(
@@ -240,7 +243,7 @@ def teardown_volumewise_progress(
     panel._volumewise_progress_total = None
 
 
-def setup_volume_progress(
+def create_volume_progress_plotter(
     panel: "RegistrationPanel",
     *,
     moving_layer: "Image",
@@ -250,7 +253,7 @@ def setup_volume_progress(
     layer_name: str,
     initial_transform: "npt.NDArray[np.floating] | None" = None,
     scale_mode: str,
-):
+) -> "Callable[..., RegistrationProgress] | None":
     """Create between-scan preview layers and a progress-plotter factory.
 
     Parameters
@@ -275,7 +278,7 @@ def setup_volume_progress(
     Returns
     -------
     callable or None
-        Progress-factory callback for `register_volume`, or `None` if the
+        Progress-plotter factory for `register_volume`, or `None` if the
         preview layer could not be created.
     """
     teardown_volume_progress(panel)
