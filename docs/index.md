@@ -97,6 +97,13 @@ describes or you invent.
 
     Task-based fUSI analysis with HRF convolution and contrast estimation.
 
+-   [:lucide-sigma:{ .lg .middle } **Statistical Inference**](user-guide/stats.md)
+
+    ---
+
+    Multiple-comparison correction and thresholding helpers for p-value maps and
+    z-maps.
+
 -   [:lucide-app-window:{ .lg .middle } **Napari Plugin**](gui/overview.md)
 
     ---
