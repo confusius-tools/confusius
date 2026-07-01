@@ -61,7 +61,7 @@ def _preserve_view(viewer: "napari.Viewer") -> Iterator[None]:
         camera.angles = angles
 
 
-def get_default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
+def _get_default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
     """Return fallback dimension names for a raw napari layer.
 
     Parameters
@@ -133,7 +133,7 @@ def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
     axis_labels = tuple(
         str(label) if label not in (None, "") else default
         for label, default in zip(
-            raw_labels, get_default_dims_for_ndim(ndim), strict=False
+            raw_labels, _get_default_dims_for_ndim(ndim), strict=False
         )
     )
 
@@ -162,7 +162,7 @@ def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
     return xr.DataArray(data, dims=axis_labels, coords=coords)
 
 
-def is_registration_source_layer(layer: "Layer") -> bool:
+def _is_registration_source_layer(layer: "Layer") -> bool:
     """Return whether `layer` can be converted to a registration source.
 
     ConfUSIus-managed layers carry the original `xarray.DataArray` in metadata. For
@@ -280,7 +280,7 @@ def _apply_registration_scale(
     raise ValueError(f"Unknown registration scale mode: {scale_mode}.")
 
 
-def get_image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
+def _get_image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
     """Return image-display kwargs copied from an existing napari layer.
 
     Parameters
@@ -300,7 +300,7 @@ def get_image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
     return kwargs
 
 
-def gamma_needs_reset(scale_mode: str) -> bool:
+def _gamma_needs_reset(scale_mode: str) -> bool:
     """Return whether registration preview/result gamma should be reset.
 
     When using intensity scaling, the gamma of the preview and result layers is forced
@@ -320,7 +320,7 @@ def gamma_needs_reset(scale_mode: str) -> bool:
     return scale_mode != "off"
 
 
-def parse_comma_separated_ints(text: str, expected_len: int = 3) -> tuple[int, ...]:
+def _parse_comma_separated_ints(text: str, expected_len: int = 3) -> tuple[int, ...]:
     """Parse comma-separated integers from a text field.
 
     Parameters
