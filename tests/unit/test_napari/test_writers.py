@@ -170,7 +170,7 @@ class TestWriteNiftiFromReconstruction:
         }
         path = tmp_path / "labels.nii.gz"
         write_nifti(str(path), labels, meta)
-        loaded = load(path).squeeze("time", drop=True)
+        loaded = load(path)
         npt.assert_array_equal(loaded.values, labels)
 
 
