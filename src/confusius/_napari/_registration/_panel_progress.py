@@ -253,7 +253,7 @@ def create_volume_progress_plotter(
     layer_name: str,
     initial_transform: "npt.NDArray[np.floating] | None" = None,
     scale_mode: str,
-) -> "Callable[..., RegistrationProgress] | None":
+) -> "Callable[..., RegistrationProgress]":
     """Create between-scan preview layers and a progress-plotter factory.
 
     Parameters
@@ -277,9 +277,13 @@ def create_volume_progress_plotter(
 
     Returns
     -------
-    callable or None
-        Progress-plotter factory for `register_volume`, or `None` if the
-        preview layer could not be created.
+    callable
+        Progress-plotter factory for `register_volume`.
+
+    Raises
+    ------
+    Exception
+        If the preview layer could not be created.
     """
     teardown_volume_progress(panel)
 
@@ -377,7 +381,7 @@ def create_volume_progress_plotter(
             )
         except Exception as exc:  # noqa: BLE001
             panel._set_error(f"Could not create progress layer: {exc}")
-            return None
+            raise
 
     bridge = NapariProgressBridge()
     bridge.iterated.connect(lambda arr: update_progress_layer(panel, arr))

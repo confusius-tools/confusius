@@ -2026,22 +2026,25 @@ class RegistrationPanel(QWidget):
                 else self._selected_center_initialization()
             )
 
-            progress_plotter = create_volume_progress_plotter(
-                self,
-                moving_layer=cast("Image", moving_layer),
-                fixed_layer=cast("Image", fixed_layer),
-                moving=moving,
-                fixed=fixed,
-                layer_name=self._make_unique_layer_name(
-                    self._volume_result_layer_name(
-                        volume_payload["moving_layer_name"],
-                        volume_payload["fixed_layer_name"],
-                        transform_model=volume_payload["transform"],
-                    )
-                ),
-                initial_transform=initial_transform,
-                scale_mode=volume_payload["scale"],
-            )
+            try:
+                progress_plotter = create_volume_progress_plotter(
+                    self,
+                    moving_layer=cast("Image", moving_layer),
+                    fixed_layer=cast("Image", fixed_layer),
+                    moving=moving,
+                    fixed=fixed,
+                    layer_name=self._make_unique_layer_name(
+                        self._volume_result_layer_name(
+                            volume_payload["moving_layer_name"],
+                            volume_payload["fixed_layer_name"],
+                            transform_model=volume_payload["transform"],
+                        )
+                    ),
+                    initial_transform=initial_transform,
+                    scale_mode=volume_payload["scale"],
+                )
+            except Exception:
+                return
 
             worker = thread_worker(register_volume)(
                 moving,
@@ -2061,7 +2064,7 @@ class RegistrationPanel(QWidget):
                 shrink_factors=volume_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volume_payload["smoothing_sigmas"] or (6, 2, 1),
                 fill_value=volume_payload["fill_value"],
-                show_progress=progress_plotter is not None,
+                show_progress=True,
                 progress_plotter=progress_plotter,
                 abort_event=self._abort_event,
             )
