@@ -36,6 +36,7 @@ nav = [
         { "Decomposition" = "user-guide/decomposition.md" },
         { "Functional Connectivity" = "user-guide/connectivity.md" },
         { "General Linear Model" = "user-guide/glm.md" },
+        { "Statistical Inference" = "user-guide/stats.md" },
         { "Datasets" = "user-guide/datasets.md" },
     ]},
     { "Graphical Interface" = [
@@ -60,6 +61,7 @@ nav = [
         { "Decomposition" = "api/decomposition.md" },
         { "Functional Connectivity" = "api/connectivity.md" },
         { "General Linear Model" = "api/glm.md" },
+        { "Statistical Inference" = "api/stats.md" },
         { "Xarray Integration" = "api/xarray.md" },
         { "Datasets" = "api/datasets.md" },
     ]},
