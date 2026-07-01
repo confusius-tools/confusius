@@ -6,25 +6,18 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import (
-    QByteArray,
-    QEasingCurve,
-    QPropertyAnimation,
-    QRectF,
-    QSize,
-    Qt,
-    QTimer,
-)
+from qtpy.QtCore import QByteArray, QRectF, QSize, Qt, QTimer
 from qtpy.QtGui import QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
-    QWIDGETSIZE_MAX,
     QApplication,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -38,9 +31,6 @@ if TYPE_CHECKING:
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
-
-ACCORDION_ANIMATION_DURATION_MS = 200
-"""Duration of accordion expand/collapse animations, in milliseconds."""
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -109,26 +99,30 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
 }}
 #confusius_version  {{ color: {version_fg};  font-size: 10px; background: transparent; }}
 
-/* ---- Accordion section headers ---- */
-QPushButton#accordion_header {{
-    background: {tab_bg};
-    color: {tab_fg};
-    border: none;
-    border-radius: 0;
-    padding: 8px 12px;
-    font-weight: bold;
-    font-size: 12px;
-    text-align: left;
-    margin-bottom: 0;
-}}
-QPushButton#accordion_header:hover:!checked {{
-    background: {tab_hover_bg};
-}}
-QPushButton#accordion_header:checked {{
+/* ---- Section selector ---- */
+QComboBox#section_selector {{
     background: {tab_selected_bg};
     color: {accent};
+    border: none;
     border-left: 3px solid {accent};
-    padding-left: 9px;
+    border-radius: 0;
+    padding: 8px 12px 8px 9px;
+    font-weight: bold;
+    font-size: 12px;
+}}
+QComboBox#section_selector:hover {{
+    background: {tab_hover_bg};
+}}
+QComboBox#section_selector::drop-down {{
+    border: none;
+    width: 24px;
+}}
+QComboBox#section_selector QAbstractItemView {{
+    background: {tab_bg};
+    color: {tab_fg};
+    border: 1px solid {input_border};
+    selection-background-color: {tab_selected_bg};
+    selection-color: {accent};
 }}
 
 /* ---- Placeholder labels ---- */
@@ -313,9 +307,7 @@ class ConfUSIusWidget(QWidget):
 
     def _on_theme_changed(self) -> None:
         self._apply_theme()
-        accent = "#e94b5f" if self._is_dark() else "#d93a54"
-        for btn, icon_name in getattr(self, "_accordion_btns", []):
-            btn.setIcon(make_lucide_icon(icon_name, accent))
+        self._refresh_section_icons()
 
     # ------------------------------------------------------------------
     # Guided tour
@@ -483,8 +475,37 @@ class ConfUSIusWidget(QWidget):
         label.setStyleSheet("background: transparent;")
         return label
 
+    def _refresh_section_icons(self) -> None:
+        """Retint the section selector icons for the active napari theme."""
+        selector = getattr(self, "_section_selector", None)
+        entries = getattr(self, "_section_entries", [])
+        if not isinstance(selector, QComboBox):
+            return
+        accent = "#e94b5f" if self._is_dark() else "#d93a54"
+        for i, (_title, icon_name) in enumerate(entries):
+            selector.setItemIcon(i, make_lucide_icon(icon_name, accent))
+
+    def _set_active_section(self, label: str) -> None:
+        """Show the requested top-level section."""
+        labels = [title for title, _icon_name in getattr(self, "_section_entries", [])]
+        try:
+            index = labels.index(label)
+        except ValueError:
+            return
+
+        selector = getattr(self, "_section_selector", None)
+        stack = getattr(self, "_section_stack", None)
+        if not isinstance(selector, QComboBox) or not isinstance(stack, QStackedWidget):
+            return
+
+        if selector.currentIndex() != index:
+            selector.blockSignals(True)
+            selector.setCurrentIndex(index)
+            selector.blockSignals(False)
+        stack.setCurrentIndex(index)
+
     def _make_accordion(self) -> QWidget:
-        """Build a stacked accordion where the open section fills all space."""
+        """Build a top dropdown plus one visible section panel."""
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._qc._panel import QCPanel
@@ -508,7 +529,6 @@ class ConfUSIusWidget(QWidget):
         # Video panel (own section).
         video_panel = VideoPanel(self.viewer)
 
-        accent = "#e94b5f" if self._is_dark() else "#d93a54"
         tab_entries = [
             ("Data I/O", "file-input"),
             ("Video", "video"),
@@ -521,99 +541,34 @@ class ConfUSIusWidget(QWidget):
             SignalPanel(self.viewer),
             QCPanel(self.viewer),
         ]
-        btns: list[QPushButton] = []
 
-        for i, ((title, icon_name), panel) in enumerate(zip(tab_entries, panels)):
-            btn = QPushButton(title)
-            btn.setIcon(make_lucide_icon(icon_name, accent))
-            btn.setIconSize(QSize(16, 16))
-            btn.setObjectName("accordion_header")
-            btn.setCheckable(True)
-            btn.setChecked(i == 0)
-            btn.setMinimumHeight(36)
-            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            layout.addWidget(btn)
-            # stretch=100 dominates the trailing spacer (stretch=1) so the visible panel
-            # fills almost all remaining height. Hidden panels are excluded from
-            # stretch allocation by Qt automatically.
-            layout.addWidget(panel, stretch=100)
+        selector = QComboBox()
+        selector.setObjectName("section_selector")
+        selector.setIconSize(QSize(16, 16))
+        selector.setMinimumHeight(36)
+        selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        for title, _icon_name in tab_entries:
+            selector.addItem(title)
+        layout.addWidget(selector)
+
+        stack = QStackedWidget()
+        stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        for panel in panels:
             panel.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
             )
-            # Allow the collapse animation to shrink the panel below its
-            # content's minimum size hint.
-            panel.setMinimumHeight(0)
-            panel.setVisible(i == 0)
-            btns.append(btn)
+            stack.addWidget(panel)
+        layout.addWidget(stack, stretch=1)
 
-        # Trailing spacer: takes all space when every panel is hidden so the header
-        # buttons stack at the top of the accordion area.
-        layout.addStretch(1)
-
-        # Maps each panel to its in-flight animation; also keeps the Python-side
-        # reference alive until the animation finishes or is replaced.
-        panel_anims: dict[QWidget, QPropertyAnimation] = {}
-
-        def _replace_panel_anim(
-            panel: QWidget, anim: QPropertyAnimation | None
-        ) -> None:
-            previous = panel_anims.pop(panel, None)
-            if previous is not None:
-                previous.stop()
-            if anim is not None:
-                panel_anims[panel] = anim
-
-        def _animate_panel(
-            panel: QWidget, start: int, end: int, *, hide_on_done: bool
-        ) -> None:
-            anim = QPropertyAnimation(panel, b"maximumHeight")
-            anim.setDuration(ACCORDION_ANIMATION_DURATION_MS)
-            anim.setStartValue(start)
-            anim.setEndValue(end)
-            anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-            _replace_panel_anim(panel, anim)
-
-            def _on_done() -> None:
-                # Stale callback — this animation was replaced (stop() also
-                # emits finished).
-                if panel_anims.get(panel) is not anim:
-                    return
-                if hide_on_done:
-                    panel.hide()
-                panel.setMaximumHeight(QWIDGETSIZE_MAX)
-                _replace_panel_anim(panel, None)
-
-            anim.finished.connect(_on_done)
-            anim.start()
-
-        def _activate_panel(panel_index: int) -> None:
-            # Clicking the already-open panel collapses it (all closed).
-            already_open = panels[panel_index].isVisible()
-            target = -1 if already_open else panel_index
-            available_height = max(
-                container.height() - sum(b.height() for b in btns), 50
-            )
-
-            for j, (button, panel) in enumerate(zip(btns, panels)):
-                active = j == target
-                button.blockSignals(True)
-                button.setChecked(active)
-                button.blockSignals(False)
-
-                if active and not panel.isVisible():
-                    panel.setMaximumHeight(0)
-                    panel.show()
-                    _animate_panel(panel, 0, available_height, hide_on_done=False)
-                elif not active and panel.isVisible():
-                    _animate_panel(panel, panel.height(), 0, hide_on_done=True)
-
-        for i, btn in enumerate(btns):
-            btn.clicked.connect(lambda _checked, i=i: _activate_panel(i))
-
-        # Store for icon re-tinting on theme change and tour access.
-        self._accordion_btns = list(zip(btns, [e[1] for e in tab_entries]))
+        self._section_entries = tab_entries
+        self._section_selector = selector
+        self._section_stack = stack
+        self._accordion_btns = []
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
-        # Exposed so the guided tour can follow in-flight panel animations.
-        self._accordion_anims = panel_anims
+        self._accordion_anims = {}
+
+        selector.currentTextChanged.connect(self._set_active_section)
+        self._refresh_section_icons()
+        self._set_active_section(tab_entries[0][0])
 
         return container

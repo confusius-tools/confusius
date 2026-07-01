@@ -578,6 +578,13 @@ def build_default_tour(
             for btn, _icon in getattr(plugin_widget, "_accordion_btns", []):
                 if btn.text() == label:
                     return btn
+            labels = [
+                title
+                for title, _icon_name in getattr(plugin_widget, "_section_entries", [])
+            ]
+            selector = getattr(plugin_widget, "_section_selector", None)
+            if label in labels and isinstance(selector, QWidget):
+                return selector
             return None
 
         return _find
@@ -644,6 +651,10 @@ def build_default_tour(
 
     def _expand_section(label: str) -> Callable[[], None]:
         def _action() -> None:
+            set_active = getattr(plugin_widget, "_set_active_section", None)
+            if callable(set_active):
+                set_active(label)
+                return
             for btn, _icon in getattr(plugin_widget, "_accordion_btns", []):
                 if btn.text() == label and not btn.isChecked():
                     btn.click()
@@ -653,17 +664,26 @@ def build_default_tour(
 
     # Record the open panel before the tour starts so we can restore it when
     # the tour is closed or skipped.
-    initial_open: str | None = next(
-        (
-            btn.text()
-            for btn, _ in getattr(plugin_widget, "_accordion_btns", [])
-            if btn.isChecked()
-        ),
-        None,
-    )
+    initial_open: str | None = None
+    selector = getattr(plugin_widget, "_section_selector", None)
+    if hasattr(selector, "currentText"):
+        initial_open = selector.currentText()
+    if not initial_open:
+        initial_open = next(
+            (
+                btn.text()
+                for btn, _ in getattr(plugin_widget, "_accordion_btns", [])
+                if btn.isChecked()
+            ),
+            None,
+        )
 
     def _restore_state() -> None:
         if initial_open is None:
+            return
+        set_active = getattr(plugin_widget, "_set_active_section", None)
+        if callable(set_active):
+            set_active(initial_open)
             return
         for btn, _ in getattr(plugin_widget, "_accordion_btns", []):
             if btn.text() == initial_open and not btn.isChecked():
