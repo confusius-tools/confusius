@@ -59,12 +59,12 @@ from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
     _apply_registration_scale,
     _get_source_dataarray,
-    _image_display_kwargs_from_layer,
-    _layer_supports_registration_source,
-    _parse_sequence,
     _prepare_between_scan_data,
     _preserve_view,
-    _should_reset_gamma,
+    gamma_needs_reset,
+    get_image_display_kwargs_from_layer,
+    is_registration_source_layer,
+    parse_comma_separated_ints,
 )
 from confusius._napari._registration._panel_workers import (
     _run_register_volume,
@@ -898,7 +898,7 @@ class RegistrationPanel(QWidget):
         self._manual_transform_event_layers = []
 
         for layer in self.viewer.layers:
-            if not _layer_supports_registration_source(layer):
+            if not is_registration_source_layer(layer):
                 continue
             _get_source_dataarray(layer)
             layer.events.affine.connect(self._refresh_transform_controls)
@@ -912,7 +912,7 @@ class RegistrationPanel(QWidget):
         layer_names = [
             layer.name
             for layer in self.viewer.layers
-            if _layer_supports_registration_source(layer)
+            if is_registration_source_layer(layer)
         ]
 
         self._moving_combo.blockSignals(True)
@@ -1887,9 +1887,9 @@ class RegistrationPanel(QWidget):
         """Create a progress bridge and output layer for volumewise registration."""
         self._teardown_volumewise_progress(remove_layer=True)
 
-        moving_display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        moving_display_kwargs = get_image_display_kwargs_from_layer(moving_layer)
         moving_display_kwargs["colormap"] = "red"
-        if _should_reset_gamma(scale_mode):
+        if gamma_needs_reset(scale_mode):
             moving_display_kwargs["gamma"] = 1.0
 
         display_kwargs = dict(moving_display_kwargs)
@@ -2062,13 +2062,13 @@ class RegistrationPanel(QWidget):
         """
         self._teardown_volume_progress()
 
-        fixed_display_kwargs = _image_display_kwargs_from_layer(fixed_layer)
+        fixed_display_kwargs = get_image_display_kwargs_from_layer(fixed_layer)
         fixed_display_kwargs["colormap"] = "red"
 
-        moving_display_kwargs = _image_display_kwargs_from_layer(moving_layer)
+        moving_display_kwargs = get_image_display_kwargs_from_layer(moving_layer)
         moving_display_kwargs["colormap"] = "cyan"
         moving_display_kwargs["blending"] = "additive"
-        if _should_reset_gamma(scale_mode):
+        if gamma_needs_reset(scale_mode):
             fixed_display_kwargs["gamma"] = 1.0
             moving_display_kwargs["gamma"] = 1.0
 
@@ -2076,7 +2076,7 @@ class RegistrationPanel(QWidget):
 
         # Render the preview in cyan with additive blending. napari sums the
         # RGB channels of the two layers, so red+cyan highlights
-        # misregistered regions as a pure colour. `_image_display_kwargs_from_layer`
+        # misregistered regions as a pure colour. `get_image_display_kwargs_from_layer`
         # copies the moving layer's colormap, so we override it explicitly
         # rather than rely on `setdefault`.
         display_kwargs["colormap"] = "cyan"
@@ -2470,8 +2470,10 @@ class RegistrationPanel(QWidget):
         convergence_minimum_value = self._convergence_min_edit.value()
 
         # Parse advanced parameters
-        shrink_factors = _parse_sequence(self._shrink_factors_edit.text())
-        smoothing_sigmas = _parse_sequence(self._smoothing_sigmas_edit.text())
+        shrink_factors = parse_comma_separated_ints(self._shrink_factors_edit.text())
+        smoothing_sigmas = parse_comma_separated_ints(
+            self._smoothing_sigmas_edit.text()
+        )
         use_multi_res = self._multi_resolution_check.isChecked()
         if not use_multi_res:
             shrink_factors = None
@@ -2710,11 +2712,11 @@ class RegistrationPanel(QWidget):
 
         source_layer = self._get_layer_by_name(payload["moving_layer_name"])
         display_kwargs = (
-            _image_display_kwargs_from_layer(source_layer)
+            get_image_display_kwargs_from_layer(source_layer)
             if source_layer is not None
             else {}
         )
-        if _should_reset_gamma(payload.get("scale", "off")):
+        if gamma_needs_reset(payload.get("scale", "off")):
             display_kwargs["gamma"] = 1.0
         if payload["operation"] == "register_volume":
             display_kwargs["colormap"] = "cyan"

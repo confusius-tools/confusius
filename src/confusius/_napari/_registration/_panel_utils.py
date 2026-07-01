@@ -61,7 +61,7 @@ def _preserve_view(viewer: "napari.Viewer") -> Iterator[None]:
         camera.angles = angles
 
 
-def _default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
+def get_default_dims_for_ndim(ndim: int) -> tuple[str, ...]:
     """Return fallback dimension names for a raw napari layer.
 
     Parameters
@@ -133,7 +133,7 @@ def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
     axis_labels = tuple(
         str(label) if label not in (None, "") else default
         for label, default in zip(
-            raw_labels, _default_dims_for_ndim(ndim), strict=False
+            raw_labels, get_default_dims_for_ndim(ndim), strict=False
         )
     )
 
@@ -162,7 +162,7 @@ def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
     return xr.DataArray(data, dims=axis_labels, coords=coords)
 
 
-def _layer_supports_registration_source(layer: "Layer") -> bool:
+def is_registration_source_layer(layer: "Layer") -> bool:
     """Return whether `layer` can be converted to a registration source.
 
     ConfUSIus-managed layers carry the original `xarray.DataArray` in metadata. For
@@ -170,6 +170,16 @@ def _layer_supports_registration_source(layer: "Layer") -> bool:
     non-NumPy layers (for example the video panel's frame-on-demand array) are
     intentionally excluded: forcing `np.asarray` on them can trigger expensive decoding
     or backend errors while the registration panel is merely refreshing.
+
+    Parameters
+    ----------
+    layer : napari.layers.Layer
+        Layer whose registration-source eligibility should be checked.
+
+    Returns
+    -------
+    bool
+        Whether `layer` can be converted into a registration source.
     """
     if layer.metadata.get("xarray") is not None:
         return True
@@ -270,7 +280,7 @@ def _apply_registration_scale(
     raise ValueError(f"Unknown registration scale mode: {scale_mode}.")
 
 
-def _image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
+def get_image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
     """Return image-display kwargs copied from an existing napari layer.
 
     Parameters
@@ -290,7 +300,7 @@ def _image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
     return kwargs
 
 
-def _should_reset_gamma(scale_mode: str) -> bool:
+def gamma_needs_reset(scale_mode: str) -> bool:
     """Return whether registration preview/result gamma should be reset.
 
     When using intensity scaling, the gamma of the preview and result layers is forced
@@ -310,8 +320,23 @@ def _should_reset_gamma(scale_mode: str) -> bool:
     return scale_mode != "off"
 
 
-def _parse_sequence(text: str, expected_len: int = 3) -> tuple[int, ...]:
-    """Parse comma-separated integers from a text field."""
+def parse_comma_separated_ints(text: str, expected_len: int = 3) -> tuple[int, ...]:
+    """Parse comma-separated integers from a text field.
+
+    Parameters
+    ----------
+    text : str
+        Comma-separated text to parse, e.g. ``"1, 2, 3"``.
+    expected_len : int, default: 3
+        Required number of integers in the parsed result.
+
+    Returns
+    -------
+    tuple of int
+        Parsed integers of length `expected_len` on success, or an empty tuple
+        when the input is empty, contains a non-numeric value, or does not yield
+        exactly `expected_len` integers.
+    """
     parts = [p.strip() for p in text.split(",") if p.strip()]
     if not parts:
         return tuple()
