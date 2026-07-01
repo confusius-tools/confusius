@@ -53,6 +53,9 @@ Current development version for the next ConfUSIus release.
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
+- Added a first-level GLM gallery example that fits a voxel-wise first-level model to
+  a stimulus-evoked olfactory task in the [Khallaf et al. 2026](TODO: url) fUSI dataset
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 
 ## 0.4.0
 
