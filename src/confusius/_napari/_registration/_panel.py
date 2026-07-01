@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
@@ -19,7 +18,6 @@ from qtpy.QtWidgets import (
     QComboBox,
     QDockWidget,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -35,7 +33,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._dims import TIME_DIM
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -50,19 +48,18 @@ from confusius._napari._registration._panel_progress import (
     teardown_volume_progress,
     teardown_volumewise_progress,
 )
-from confusius._napari._registration._panel_transform_helpers import (
-    AffineTransformPayload,
+from confusius._napari._registration._panel_transforms import (
     TransformPayload,
-    _get_affine_payload_from_layer,
-    _get_spatial_manual_affine_from_layer,
-    _make_manual_transform_payload,
-    get_affine_transform_from_payload,
-    get_bspline_transform_from_payload,
-    get_output_grid_from_payload,
-    load_transform_payload,
+    apply_selected_transform,
+    get_available_transform_payloads,
+    get_selected_center_initialization,
+    get_selected_initial_transform,
+    load_transform,
     make_affine_transform_payload,
     make_bspline_transform_payload,
-    save_transform_payload,
+    refresh_transform_controls,
+    save_selected_transform,
+    validate_initial_transform_selection,
 )
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
@@ -79,7 +76,7 @@ from confusius._napari._registration._progress import (
     NapariRegistrationProgressReporterBridge,
 )
 from confusius.plotting.napari import plot_napari
-from confusius.registration import register_volume, register_volumewise, resample_volume
+from confusius.registration import register_volume, register_volumewise
 
 if TYPE_CHECKING:
     import napari
@@ -235,6 +232,12 @@ class RegistrationPanel(QWidget):
         self._registration_parameters_by_operation: dict[
             RegistrationOperation, ModeParameters
         ] = {}
+        self._refresh_transform_controls_callback = lambda: refresh_transform_controls(
+            self
+        )
+        self._save_transform_callback = lambda: save_selected_transform(self)
+        self._load_transform_callback = lambda: load_transform(self)
+        self._apply_transform_callback = lambda: apply_selected_transform(self)
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
@@ -814,11 +817,11 @@ class RegistrationPanel(QWidget):
 
         transform_buttons = QHBoxLayout()
         self._save_transform_btn = QPushButton("Save")
-        self._save_transform_btn.clicked.connect(self._save_transform)
+        self._save_transform_btn.clicked.connect(self._save_transform_callback)
         self._load_transform_btn = QPushButton("Load")
-        self._load_transform_btn.clicked.connect(self._load_transform)
+        self._load_transform_btn.clicked.connect(self._load_transform_callback)
         self._apply_transform_btn = QPushButton("Apply")
-        self._apply_transform_btn.clicked.connect(self._apply_transform)
+        self._apply_transform_btn.clicked.connect(self._apply_transform_callback)
         transform_buttons.addWidget(self._save_transform_btn)
         transform_buttons.addWidget(self._load_transform_btn)
         transform_buttons.addWidget(self._apply_transform_btn)
@@ -879,7 +882,9 @@ class RegistrationPanel(QWidget):
         """Keep manual-transform refresh hooks in sync with viewer layers."""
         for layer in self._manual_transform_event_layers:
             try:
-                layer.events.affine.disconnect(self._refresh_transform_controls)
+                layer.events.affine.disconnect(
+                    self._refresh_transform_controls_callback
+                )
             except (TypeError, RuntimeError):
                 pass
         self._manual_transform_event_layers = []
@@ -888,7 +893,7 @@ class RegistrationPanel(QWidget):
             if not _is_registration_source_layer(layer):
                 continue
             _get_source_dataarray(layer)
-            layer.events.affine.connect(self._refresh_transform_controls)
+            layer.events.affine.connect(self._refresh_transform_controls_callback)
             self._manual_transform_event_layers.append(layer)
 
     def _refresh_layers(self) -> None:
@@ -926,7 +931,7 @@ class RegistrationPanel(QWidget):
 
         self._update_reference_time_bounds()
         self._sync_manual_transform_event_connections()
-        self._refresh_transform_controls()
+        refresh_transform_controls(self)
         self._validate_registration_selection()
 
     def _get_layer_by_name(self, name: str) -> Layer | None:
@@ -1055,61 +1060,6 @@ class RegistrationPanel(QWidget):
                 return "affine"
         raise ValueError(f"Unknown transform model: {value!r}.")
 
-    def _transform_source_data(self, value: object) -> TransformSourceData | None:
-        """Return validated transform-source combo data.
-
-        Parameters
-        ----------
-        value : object
-            Raw combo-box payload to validate.
-
-        Returns
-        -------
-        tuple[str, str] or None
-            Validated `(kind, name)` pair, or `None` when the payload does not
-            match the expected transform-source schema.
-        """
-        if not isinstance(value, tuple) or len(value) != 2:
-            return None
-        source_kind, source_name = value
-        if not isinstance(source_name, str):
-            return None
-        if source_kind == "loaded":
-            return ("loaded", source_name)
-        if source_kind == "layer":
-            return ("layer", source_name)
-        if source_kind == "manual":
-            return ("manual", source_name)
-        return None
-
-    def _transform_payload_from_metadata(
-        self, payload: object
-    ) -> TransformPayload | None:
-        """Return a validated transform payload stored in layer metadata.
-
-        Parameters
-        ----------
-        payload : object
-            Raw metadata payload to validate.
-
-        Returns
-        -------
-        TransformPayload or None
-            Validated transform payload, or `None` when the metadata does not
-            contain a supported transform payload.
-        """
-        if not isinstance(payload, dict):
-            return None
-        payload_mapping = cast("dict[str, object]", payload)
-        kind = payload_mapping.get("kind")
-        if kind == "affine":
-            get_affine_transform_from_payload(payload_mapping)
-            return cast("TransformPayload", payload_mapping)
-        if kind == "bspline":
-            get_bspline_transform_from_payload(payload_mapping)
-            return cast("TransformPayload", payload_mapping)
-        return None
-
     def _set_image_layer_data(self, layer: Image, data: npt.NDArray[Any]) -> None:
         """Assign image data despite the current napari stub mismatch.
 
@@ -1126,26 +1076,6 @@ class RegistrationPanel(QWidget):
             Updates `layer` in place.
         """
         cast("Any", layer).data = data
-
-    def _transform_source_label(
-        self, payload: TransformPayload, *, suffix: str | None = None
-    ) -> str:
-        """Return a user-facing label for a transform payload.
-
-        Parameters
-        ----------
-        payload : TransformPayload
-            Transform payload to label.
-        suffix : str, optional
-            Unused legacy suffix parameter kept to avoid wider churn.
-
-        Returns
-        -------
-        str
-            Label shown in transform selectors.
-        """
-        del suffix
-        return payload["name"]
 
     def _make_unique_layer_name(self, base_name: str) -> str:
         """Return a viewer-unique layer name based on `base_name`.
@@ -1184,7 +1114,7 @@ class RegistrationPanel(QWidget):
             Unique transform payload name for the current viewer.
         """
         existing_names = {
-            payload["name"] for payload in self._available_transform_payloads()
+            payload["name"] for payload in get_available_transform_payloads(self)
         }
         if base_name not in existing_names:
             return base_name
@@ -1249,306 +1179,6 @@ class RegistrationPanel(QWidget):
     def _volumewise_moving_preview_layer_name(self) -> str:
         """Return the napari layer name for the within-scan moving preview."""
         return "Moving"
-
-    def _available_transform_payloads(self) -> list[TransformPayload]:
-        """Return all transform payloads currently available in the UI.
-
-        Returns
-        -------
-        list of TransformPayload
-            Loaded payload plus any validated payloads found on viewer layers.
-        """
-        payloads: list[TransformPayload] = []
-        if self._loaded_transform_payload is not None:
-            payloads.append(self._loaded_transform_payload)
-        for layer in self.viewer.layers:
-            payload = self._transform_payload_from_metadata(
-                layer.metadata.get("confusius_transform")
-            )
-            if payload is not None:
-                payloads.append(payload)
-        return payloads
-
-    def _refresh_transform_controls(self) -> None:
-        """Refresh transform-related layer selectors.
-
-        Returns
-        -------
-        None
-            Updates transform, initialization, and target selectors in place.
-        """
-        source_data = self._transform_source_combo.currentData()
-        initialization_data = self._initialization_combo.currentData()
-        target_name = self._transform_target_combo.currentText()
-
-        transform_options: list[tuple[str, tuple[str, str]]] = []
-        if self._loaded_transform_payload is not None:
-            transform_options.append(
-                (
-                    self._transform_source_label(
-                        self._loaded_transform_payload,
-                        suffix="loaded",
-                    ),
-                    ("loaded", ""),
-                )
-            )
-        for layer in self.viewer.layers:
-            payload = self._transform_payload_from_metadata(
-                layer.metadata.get("confusius_transform")
-            )
-            if payload is None:
-                continue
-            transform_options.append(
-                (
-                    self._transform_source_label(payload, suffix=layer.name),
-                    ("layer", layer.name),
-                )
-            )
-
-        manual_transform_options: list[tuple[str, tuple[str, str]]] = []
-        manual_initialization_options: list[tuple[str, tuple[str, str]]] = []
-        for layer in self.viewer.layers:
-            try:
-                data = _get_source_dataarray(layer)
-                spatial_dims = [str(dim) for dim in data.dims if dim in SPATIAL_DIMS]
-                if not spatial_dims:
-                    continue
-                manual_affine = _get_spatial_manual_affine_from_layer(
-                    layer,
-                    spatial_dims=spatial_dims,
-                )
-            except Exception:  # noqa: BLE001
-                continue
-            if np.allclose(manual_affine, np.eye(len(spatial_dims) + 1)):
-                continue
-            manual_option = (f"{layer.name} (manual)", ("manual", layer.name))
-            manual_transform_options.append(manual_option)
-            manual_initialization_options.append(manual_option)
-
-        self._transform_source_combo.blockSignals(True)
-        self._transform_source_combo.clear()
-        for label, data in transform_options:
-            self._transform_source_combo.addItem(label, data)
-        for label, data in manual_transform_options:
-            self._transform_source_combo.addItem(label, data)
-        self._transform_source_combo.blockSignals(False)
-
-        self._initialization_combo.blockSignals(True)
-        self._initialization_combo.clear()
-        self._initialization_combo.addItem("center_geometry", "center_geometry")
-        self._initialization_combo.addItem("center_moments", "center_moments")
-        self._initialization_combo.addItem("none", None)
-        for label, data in transform_options:
-            source_kind, source_name = data
-            if source_kind == "loaded":
-                if self._loaded_transform_payload is None:
-                    continue
-                if self._loaded_transform_payload["kind"] != "affine":
-                    continue
-            elif source_kind == "layer":
-                layer = self._get_layer_by_name(source_name)
-                if layer is None or _get_affine_payload_from_layer(layer) is None:
-                    continue
-            self._initialization_combo.addItem(label, data)
-        for label, data in manual_initialization_options:
-            self._initialization_combo.addItem(label, data)
-        self._initialization_combo.blockSignals(False)
-
-        self._transform_target_combo.blockSignals(True)
-        self._transform_target_combo.clear()
-        self._transform_target_combo.addItems(
-            [layer.name for layer in self.viewer.layers]
-        )
-        self._transform_target_combo.blockSignals(False)
-
-        if source_data is not None:
-            for i in range(self._transform_source_combo.count()):
-                if self._transform_source_combo.itemData(i) == source_data:
-                    self._transform_source_combo.setCurrentIndex(i)
-                    break
-
-        if initialization_data is not None:
-            for i in range(self._initialization_combo.count()):
-                if self._initialization_combo.itemData(i) == initialization_data:
-                    self._initialization_combo.setCurrentIndex(i)
-                    break
-
-        target_index = self._transform_target_combo.findText(target_name)
-        if target_index >= 0:
-            self._transform_target_combo.setCurrentIndex(target_index)
-
-    def _selected_transform_payload(self) -> TransformPayload | None:
-        """Return the currently selected transform payload.
-
-        Returns
-        -------
-        TransformPayload or None
-            Selected transform payload, or `None` when no valid selection is
-            available.
-        """
-        source_data = self._transform_source_data(
-            self._transform_source_combo.currentData()
-        )
-        if source_data is None:
-            return None
-
-        source_kind, source_name = source_data
-        if source_kind == "loaded":
-            return self._loaded_transform_payload
-        if not source_name:
-            return None
-        layer = self._get_layer_by_name(source_name)
-        if layer is None:
-            return None
-        if source_kind == "layer":
-            return self._transform_payload_from_metadata(
-                layer.metadata.get("confusius_transform")
-            )
-        if source_kind == "manual":
-            return _make_manual_transform_payload(layer)
-        return None
-
-    def _selected_center_initialization(
-        self,
-    ) -> Literal["center_geometry", "center_moments"] | None:
-        """Return the selected built-in centering initialization, if any.
-
-        Returns
-        -------
-        {"center_geometry", "center_moments"} or None
-            Selected built-in initialization, or `None` when the selection is
-            an explicit transform or identity.
-        """
-        value = self._initialization_combo.currentData()
-        if value in {"center_geometry", "center_moments"}:
-            return value
-        return None
-
-    def _selected_initial_transform_payload(self) -> AffineTransformPayload | None:
-        """Return the payload selected for registration initialization, if any.
-
-        Returns
-        -------
-        AffineTransformPayload or None
-            Selected affine initialization payload, or `None` when the current
-            initialization does not point to an affine payload.
-        """
-        source_data = self._transform_source_data(
-            self._initialization_combo.currentData()
-        )
-        if source_data is None:
-            return None
-
-        source_kind, source_name = source_data
-        if source_kind == "loaded":
-            if (
-                self._loaded_transform_payload is not None
-                and self._loaded_transform_payload["kind"] == "affine"
-            ):
-                return self._loaded_transform_payload
-            return None
-        if source_kind != "layer" or not source_name:
-            return None
-        layer = self._get_layer_by_name(source_name)
-        if layer is None:
-            return None
-        return _get_affine_payload_from_layer(layer)
-
-    def _selected_manual_initialization_layer(self) -> Layer | None:
-        """Return the layer selected for manual napari initialization, if any.
-
-        Returns
-        -------
-        napari.layers.Layer or None
-            Selected manual-initialization layer, or `None` when the current
-            initialization is not a manual layer transform.
-        """
-        source_data = self._transform_source_data(
-            self._initialization_combo.currentData()
-        )
-        if source_data is None:
-            return None
-
-        source_kind, source_name = source_data
-        if source_kind != "manual" or not source_name:
-            return None
-        return self._get_layer_by_name(source_name)
-
-    def _selected_initial_transform(
-        self,
-        moving: xr.DataArray,
-        *,
-        moving_layer: Layer | None = None,
-        fixed_layer: Layer | None = None,
-    ) -> tuple[npt.NDArray[np.float64] | None, str | None]:
-        """Return the selected initialization affine and its source label."""
-        payload = self._selected_initial_transform_payload()
-        if payload is not None:
-            return get_affine_transform_from_payload(payload), payload["name"]
-
-        layer = self._selected_manual_initialization_layer()
-        if layer is None:
-            return None, None
-        if moving_layer is None or fixed_layer is None:
-            raise ValueError("Select moving and fixed layers.")
-        if layer not in {moving_layer, fixed_layer}:
-            raise ValueError(
-                "Selected manual initialization must come from the current moving "
-                "or fixed layer."
-            )
-
-        spatial_dims = [str(dim) for dim in moving.dims if dim in SPATIAL_DIMS]
-        moving_affine = _get_spatial_manual_affine_from_layer(
-            moving_layer,
-            spatial_dims=spatial_dims,
-        )
-        fixed_affine = _get_spatial_manual_affine_from_layer(
-            fixed_layer,
-            spatial_dims=spatial_dims,
-        )
-        affine = np.linalg.inv(moving_affine) @ fixed_affine
-        return affine, f"{layer.name} (manual)"
-
-    def _validate_initial_transform_selection(
-        self,
-        *,
-        operation: Literal["register_volume", "register_volumewise"],
-        moving: xr.DataArray,
-        fixed: xr.DataArray | None = None,
-    ) -> str | None:
-        """Return an inline validation message for transform initialization."""
-        if operation != "register_volume":
-            return None
-        if (
-            self._selected_initial_transform_payload() is None
-            and self._selected_manual_initialization_layer() is None
-        ):
-            return None
-        if fixed is None:
-            return "Select a fixed layer."
-
-        moving_layer = self._selected_layer(self._moving_combo)
-        fixed_layer = self._selected_layer(self._fixed_combo)
-
-        try:
-            affine, _ = self._selected_initial_transform(
-                moving,
-                moving_layer=moving_layer,
-                fixed_layer=fixed_layer,
-            )
-        except Exception as exc:  # noqa: BLE001
-            return str(exc)
-
-        if affine is None:
-            return None
-
-        expected_shape = (moving.ndim + 1, moving.ndim + 1)
-        if affine.shape != expected_shape:
-            return (
-                f"Selected initialization transform has shape {affine.shape}, "
-                f"but this registration expects {expected_shape}."
-            )
-        return None
 
     def _update_reference_time_bounds(self) -> None:
         """Clamp the volumewise reference-time widget to the moving layer."""
@@ -1639,7 +1269,8 @@ class RegistrationPanel(QWidget):
                 )
                 self._set_run_btn_enabled(False)
                 return False
-            init_message = self._validate_initial_transform_selection(
+            init_message = validate_initial_transform_selection(
+                self,
                 operation=operation,
                 moving=moving,
             )
@@ -1676,7 +1307,8 @@ class RegistrationPanel(QWidget):
             message = "Moving and fixed layers must be different."
 
         if message is None:
-            message = self._validate_initial_transform_selection(
+            message = validate_initial_transform_selection(
+                self,
                 operation=operation,
                 moving=_prepare_between_scan_data(moving),
                 fixed=_prepare_between_scan_data(fixed),
@@ -1694,7 +1326,7 @@ class RegistrationPanel(QWidget):
     def _on_moving_layer_changed(self, _name: str) -> None:
         """Update dependent widgets when the moving layer changes."""
         self._update_reference_time_bounds()
-        self._refresh_transform_controls()
+        refresh_transform_controls(self)
         self._validate_registration_selection()
 
     def _operation(self) -> Literal["register_volume", "register_volumewise"]:
@@ -1812,105 +1444,6 @@ class RegistrationPanel(QWidget):
         self._status.setText(message)
         self._status.show()
 
-    def _save_transform(self) -> None:
-        """Save the selected transform payload to disk."""
-        payload = self._selected_transform_payload()
-        if payload is None:
-            self._set_error("Select a transform to save.")
-            return
-
-        default_name = payload["name"].replace("/", "-")
-        suffix = ".json" if payload["kind"] == "affine" else ".zarr"
-        file_filter = (
-            "JSON files (*.json)"
-            if payload["kind"] == "affine"
-            else "Zarr stores (*.zarr)"
-        )
-        start = str(Path.home() / f"{default_name}{suffix}")
-        path_str, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save transform",
-            start,
-            file_filter,
-        )
-        if not path_str:
-            return
-
-        save_transform_payload(path_str, payload)
-        show_info(f"Saved transform: {path_str}")
-
-    def _load_transform(self) -> None:
-        """Load a transform payload from disk."""
-        start = str(Path.home())
-        path_str, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load transform",
-            start,
-            "Transform files (*.json *.zarr)",
-        )
-        if not path_str:
-            return
-
-        try:
-            self._loaded_transform_payload = load_transform_payload(path_str)
-        except Exception as exc:  # noqa: BLE001
-            self._set_error(str(exc))
-            show_error(str(exc))
-            return
-
-        self._refresh_transform_controls()
-        for i in range(self._transform_source_combo.count()):
-            if self._transform_source_combo.itemData(i) == ("loaded", ""):
-                self._transform_source_combo.setCurrentIndex(i)
-                break
-        show_info(f"Loaded transform: {self._loaded_transform_payload['name']}")
-
-    def _apply_transform(self) -> None:
-        """Apply the selected affine transform to a layer."""
-        payload = self._selected_transform_payload()
-        if payload is None:
-            self._set_error("Select a transform to apply.")
-            return
-
-        moving_layer = self._selected_layer(self._transform_target_combo)
-        if moving_layer is None:
-            self._set_error("Select an input layer to transform.")
-            return
-
-        try:
-            moving = _get_source_dataarray(moving_layer)
-            if payload["kind"] == "affine":
-                transform = get_affine_transform_from_payload(payload)
-            else:
-                transform = get_bspline_transform_from_payload(payload)
-            output_grid = get_output_grid_from_payload(payload)
-        except Exception as exc:  # noqa: BLE001
-            self._set_error(str(exc))
-            return
-
-        worker = thread_worker(resample_volume)(
-            moving,
-            transform,
-            shape=output_grid["shape"],
-            spacing=output_grid["spacing"],
-            origin=output_grid["origin"],
-            dims=output_grid["dims"],
-            interpolation=self._current_resample_interpolation(),
-        )
-        apply_payload: ApplyTransformPayload = {
-            "moving_layer_name": moving_layer.name,
-            "target_layer_name": payload["target_layer_name"],
-            "transform_source": payload["name"],
-        }
-        self._worker = worker
-        self._begin_work()
-        worker.returned.connect(
-            lambda result: self._on_apply_transform_finished(apply_payload, result)
-        )
-        worker.errored.connect(self._on_registration_failed)
-        worker.finished.connect(self._end_work)
-        worker.start()
-
     def _run_registration(self) -> None:
         """Validate inputs and start the selected registration workflow."""
         operation = self._operation()
@@ -1977,7 +1510,8 @@ class RegistrationPanel(QWidget):
             initial_transform: npt.NDArray[np.floating] | None = None
             try:
                 initial_transform, initial_transform_source = (
-                    self._selected_initial_transform(
+                    get_selected_initial_transform(
+                        self,
                         moving,
                         moving_layer=moving_layer,
                         fixed_layer=fixed_layer,
@@ -2023,7 +1557,7 @@ class RegistrationPanel(QWidget):
             initialization_arg = (
                 initial_transform
                 if initial_transform is not None
-                else self._selected_center_initialization()
+                else get_selected_center_initialization(self)
             )
 
             try:
@@ -2142,7 +1676,7 @@ class RegistrationPanel(QWidget):
                     "convergence_minimum_value"
                 ],
                 convergence_window_size=volumewise_payload["convergence_window_size"],
-                initialization=self._selected_center_initialization(),
+                initialization=get_selected_center_initialization(self),
                 shrink_factors=volumewise_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volumewise_payload["smoothing_sigmas"] or (6, 2, 1),
                 keep_diagnostics=volumewise_payload["keep_diagnostics"],
@@ -2234,7 +1768,7 @@ class RegistrationPanel(QWidget):
         layer.metadata.update(metadata)
         layer.metadata["xarray"] = registered
         self.viewer.layers.selection.active = layer
-        self._refresh_transform_controls()
+        refresh_transform_controls(self)
 
         if payload["operation"] == "register_volumewise":
             self._progress.setValue(self._progress.maximum())
@@ -2389,38 +1923,6 @@ class RegistrationPanel(QWidget):
             },
             registration_status=registration_status,
         )
-
-    def _on_apply_transform_finished(
-        self, payload: ApplyTransformPayload, result: xr.DataArray
-    ) -> None:
-        """Add a resampled layer produced from an existing affine transform.
-
-        Parameters
-        ----------
-        payload : dict[str, str]
-            UI snapshot captured before the worker started.
-        result : xarray.DataArray
-            Resampled output.
-        """
-        registered = result.copy(deep=False)
-        registered.attrs = registered.attrs.copy()
-        registered.attrs["registration_operation"] = "apply_transform"
-
-        layer_name = f"{payload['moving_layer_name']} → {payload['target_layer_name']}"
-        contrast_limits = tuple(calc_data_range(registered.data))
-
-        _, layer = plot_napari(
-            registered,
-            viewer=self.viewer,
-            name=layer_name,
-            show_colorbar=False,
-            contrast_limits=contrast_limits,
-        )
-        layer.metadata["xarray"] = registered
-        layer.metadata["registration_operation"] = "apply_transform"
-        layer.metadata["registration_parameters"] = payload.copy()
-        self.viewer.layers.selection.active = layer
-        show_info(f"Added transformed layer: {layer.name}")
 
     def _on_registration_failed(self, exc: BaseException) -> None:
         """Handle a failed worker execution.

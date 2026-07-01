@@ -16,14 +16,16 @@ from confusius._napari._registration._panel_progress import (
     teardown_volume_progress,
     update_progress_layer,
 )
-from confusius._napari._registration._panel_transform_helpers import (
+from confusius._napari._registration._panel_transforms import (
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
     get_output_grid_from_payload,
     load_transform_payload,
     make_affine_transform_payload,
     make_bspline_transform_payload,
+    refresh_transform_controls,
     save_transform_payload,
+    apply_selected_transform,
 )
 from confusius.registration import RegistrationDiagnostics, resample_like
 
@@ -376,7 +378,7 @@ class TestRunRegistration:
             metadata={"confusius_transform": transform_payload},
         )
         registration_panel._refresh_layers()
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
         registration_panel._moving_combo.setCurrentText("moving")
         registration_panel._fixed_combo.setCurrentText("fixed")
         registration_panel._scale_combo.setCurrentText("square root")
@@ -465,7 +467,7 @@ class TestRunRegistration:
         moving_layer.affine = manual_affine
 
         registration_panel._refresh_layers()
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
         registration_panel._moving_combo.setCurrentText("moving")
         registration_panel._fixed_combo.setCurrentText("fixed")
         for i in range(registration_panel._initialization_combo.count()):
@@ -631,7 +633,7 @@ class TestValidation:
             name="Registered",
             metadata={"confusius_transform": payload},
         )
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
 
         assert registration_panel._initialization_combo.itemText(0) == "center_geometry"
         assert registration_panel._initialization_combo.count() >= 4
@@ -660,7 +662,7 @@ class TestValidation:
         manual_affine[0, 3] = 1.0
         layer.affine = manual_affine
 
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
 
         assert any(
             registration_panel._initialization_combo.itemData(i) == ("manual", "moving")
@@ -686,7 +688,7 @@ class TestValidation:
         manual_affine[0, 3] = 1.0
         layer.affine = manual_affine
 
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
 
         assert any(
             registration_panel._transform_source_combo.itemData(i)
@@ -819,7 +821,7 @@ class TestTransforms:
             metadata={"xarray": moving, "confusius_transform": payload},
         )
 
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
 
         transform_items = [
             registration_panel._transform_source_combo.itemText(i)
@@ -864,7 +866,7 @@ class TestTransforms:
             name="Registered (bspline)",
             metadata={"xarray": moving, "confusius_transform": payload},
         )
-        registration_panel._refresh_transform_controls()
+        refresh_transform_controls(registration_panel)
         registration_panel._transform_source_combo.setCurrentText(
             "moving → fixed (bspline)"
         )
@@ -895,11 +897,11 @@ class TestTransforms:
             return _runner
 
         monkeypatch.setattr(
-            "confusius._napari._registration._panel.thread_worker",
+            "confusius._napari._registration._panel_transforms.thread_worker",
             _fake_thread_worker,
         )
 
-        registration_panel._apply_transform()
+        apply_selected_transform(registration_panel)
 
         func = cast("Any", captured["func"])
         args = cast("tuple[Any, ...]", captured["args"])
