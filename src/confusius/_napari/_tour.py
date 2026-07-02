@@ -544,6 +544,7 @@ def build_default_tour(
     """
     from confusius._napari._data._load_panel import DataPanel
     from confusius._napari._data._save_panel import SavePanel
+    from confusius._napari._events._panel import EventPanel
     from confusius._napari._qc._panel import QCPanel
     from confusius._napari._signals._panel import SignalPanel
     from confusius._napari._video._video_panel import VideoPanel
@@ -857,6 +858,68 @@ def build_default_tour(
             ),
             tooltip_target=_dock_widget,
             pre_action=_expand_section("Signals"),
+        ),
+        TourStep(
+            target=_accordion_panel("Events"),
+            title="Events",
+            body=(
+                "Use this section to mark time ranges such as stimuli, behaviors, or "
+                "other moments you want to compare against the signal plot and time "
+                "overlay."
+            ),
+            anchor="left",
+            spotlight_rect=_accordion_tab_rect("Events"),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Events"),
+        ),
+        TourStep(
+            target=_panel_attr("Events", EventPanel, "_annotate_group"),
+            title="Annotate an Event",
+            body=(
+                "Type an event name, press <b>Start</b> at the onset, move forward in "
+                "time, then press <b>End</b> to save the event. The <b>S</b>, <b>E</b>, "
+                "and <b>Esc</b> shortcuts work while this panel is open."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Events",
+                EventPanel,
+                "_annotate_group",
+                "_start_btn",
+                "_end_btn",
+                "_cancel_btn",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Events"),
+        ),
+        TourStep(
+            target=_panel_attr("Events", EventPanel, "_list_group"),
+            title="Review and Save Events",
+            body=(
+                "Saved events appear in the table, where you can remove selected rows "
+                "or clear everything. Use <b>Load</b> and <b>Save</b> to work with "
+                "BIDS events TSV files."
+            ),
+            anchor="left",
+            spotlight_rect=_panel_attr_rect(
+                "Events",
+                EventPanel,
+                "_list_group",
+                "_file_group",
+            ),
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Events"),
+        ),
+        TourStep(
+            target=_panel_attr("Events", EventPanel, "_display_group"),
+            title="Event Display Options",
+            body=(
+                "These toggles control whether events shade the signal plot and whether "
+                "the currently active event name appears in the time overlay."
+            ),
+            anchor="left",
+            tooltip_target=_dock_widget,
+            pre_action=_expand_section("Events"),
         ),
         TourStep(
             target=_accordion_panel("Quality Control"),

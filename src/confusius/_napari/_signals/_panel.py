@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import napari
 from qtpy.QtCore import Qt, QTimer
 from qtpy.QtWidgets import (
@@ -25,6 +27,9 @@ from confusius._napari._signals._manager import SignalsManagerDialog
 from confusius._napari._signals._plotter import SignalPlotter
 from confusius._napari._signals._store import SignalStore
 
+if TYPE_CHECKING:
+    from confusius._napari._events._store import EventStore
+
 
 class SignalPanel(QWidget):
     """Right-side panel for configuring signal plots.
@@ -36,11 +41,16 @@ class SignalPanel(QWidget):
     ----------
     viewer : napari.Viewer
         The active napari viewer instance.
+    event_store : EventStore, optional
+        Shared store of temporal events whose intervals are shaded on the plot.
     """
 
-    def __init__(self, viewer: napari.Viewer) -> None:
+    def __init__(
+        self, viewer: napari.Viewer, event_store: EventStore | None = None
+    ) -> None:
         super().__init__()
         self._viewer = viewer
+        self._event_store = event_store
         self._plotter: SignalPlotter | None = None
         self._signals_manager: SignalsManagerDialog | None = None
         self._signals_store = SignalStore(self)
@@ -260,7 +270,11 @@ class SignalPanel(QWidget):
         plotter is already in a live dock this is a no-op.
         """
         if self._plotter is None:
-            self._plotter = SignalPlotter(self._viewer, store=self._signals_store)
+            self._plotter = SignalPlotter(
+                self._viewer,
+                store=self._signals_store,
+                event_store=self._event_store,
+            )
             self._plotter.frame_clicked.connect(self._on_frame_clicked)
 
         if self._plotter.parent() is None:

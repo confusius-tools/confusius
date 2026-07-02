@@ -10,6 +10,7 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+
 ### :boom: Breaking changes
 
 - Registration now takes a single `initialization` parameter in place of
@@ -23,6 +24,14 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
+  Events shade the signal plot; active event names appear in the time overlay; load
+  from / save to a BIDS `.tsv`
+  ([#176](https://github.com/confusius-tools/confusius/pull/176)).
+- [`confusius.bids`][confusius.bids] module is now public with new
+  [`read_events`][confusius.bids.read_events] and
+  [`write_events`][confusius.bids.write_events]
+  ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - Added a `datasets` CLI namespace, listed in `confusius --help`:
   `confusius datasets --list` prints the table of available datasets, their sizes,
   and whether each is cached on disk. A bare `confusius PATH...` still launches the
