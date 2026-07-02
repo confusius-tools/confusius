@@ -192,7 +192,9 @@ Or in BibTeX format:
   doi = {10.1016/j.celrep.2025.116791},
   urldate = {2025-12-30},
   langid = {english},
-  keywords = {animal speed,cerebral blood volume,continuous attractor network,CP: neuroscience,freely moving,functional ultrasound imaging,hippocampus,locomotion,path integration,spatial navigation},
+  keywords = {animal speed,cerebral blood volume,continuous attractor network,
+              CP: neuroscience,freely moving,functional ultrasound imaging,
+              hippocampus,locomotion,path integration,spatial navigation},
 }
 ```
 
