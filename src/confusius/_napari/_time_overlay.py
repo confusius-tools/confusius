@@ -10,6 +10,7 @@ import napari.layers
 from confusius._dims import TIME_DIM
 from confusius._napari._timeaxis import (
     find_time_dim_index,
+    read_frame_window,
     read_time_units,
     read_time_value,
 )
@@ -56,20 +57,6 @@ class _TimeOverlay:
         viewer.dims.events.axis_labels.connect(self.check)
         viewer.layers.selection.events.changed.connect(self._on_selection_changed)
 
-    # -- helpers ----------------------------------------------------------
-
-    def _find_time_dim_index(self) -> int | None:
-        """Return the viewer axis index for "time", or `None` if absent."""
-        return find_time_dim_index(self._viewer)
-
-    def _read_time_units(self) -> str | None:
-        """Read time units from the reference layer's metadata."""
-        return read_time_units(self._ref_layer)
-
-    def _read_time_value(self) -> float | None:
-        """Read the actual time coordinate from the reference layer."""
-        return read_time_value(self._ref_layer, self._viewer)
-
     # -- events -----------------------------------------------------------
 
     def set_event_store(self, store: EventStore | None) -> None:
@@ -85,35 +72,54 @@ class _TimeOverlay:
         self.update()
 
     def _event_status(self, time_val: float) -> str:
-        """Return a suffix naming the events active at *time_val*.
+        """Return a suffix naming the events active on the current frame.
+
+        Uses the reference layer's acquisition window (when its time coordinate
+        carries `volume_acquisition_reference`/`volume_acquisition_duration`
+        attributes) so that events overlapping the frame's acquisition are
+        reported, and events too short to overlap any frame are reported on the
+        next frame.
 
         Parameters
         ----------
         time_val : float
-            Current time coordinate value.
+            Current time coordinate value, used when no frame window can be
+            resolved from the reference layer.
 
         Returns
         -------
         str
-            A leading separator and comma-separated trial types of the active
-            events, or an empty string when no events are active or the store is
+            A leading separator and one `name [onset, end)` entry per active
+            event, or an empty string when no events are active or the store is
             disabled.
         """
         store = self._event_store
         if store is None or not store.show_in_overlay:
             return ""
-        active = store.active_events(time_val)
+        frame = read_frame_window(self._ref_layer, self._viewer)
+        if frame is None:
+            active = store.active_events(time_val)
+        else:
+            window, previous_window = frame
+            active = store.active_events(
+                time_val, window=window, previous_window=previous_window
+            )
         if active.empty:
             return ""
-        # Preserve order while removing duplicate trial types.
-        names = list(dict.fromkeys(active["trial_type"]))
-        return "  ●  " + ", ".join(names)
+        unit = f" {self._units}" if self._units else ""
+        parts = [
+            f"{trial_type} [{onset:.2f}{unit}, {onset + duration:.2f}{unit})"
+            for onset, duration, trial_type in zip(
+                active["onset"], active["duration"], active["trial_type"], strict=True
+            )
+        ]
+        return "  ●  " + ", ".join(parts)
 
     # -- lifecycle --------------------------------------------------------
 
     def _activate(self) -> None:
         """Cache time axis index, units, and configure overlay appearance."""
-        self._time_idx = self._find_time_dim_index()
+        self._time_idx = find_time_dim_index(self._viewer)
 
         # Pick a default reference layer when none is set.
         if self._ref_layer is None:
@@ -122,7 +128,7 @@ class _TimeOverlay:
                     self._ref_layer = layer
                     break
 
-        self._units = self._read_time_units()
+        self._units = read_time_units(self._ref_layer)
 
         overlay = self._viewer.text_overlay
         overlay.position = "bottom_left"
@@ -159,12 +165,12 @@ class _TimeOverlay:
         ]
         if len(selected_with_time) == 1:
             self._ref_layer = selected_with_time[0]
-            self._units = self._read_time_units()
+            self._units = read_time_units(self._ref_layer)
             self.update()
 
     def check(self) -> None:
         """Activate or deactivate the overlay based on current dims."""
-        time_idx = self._find_time_dim_index()
+        time_idx = find_time_dim_index(self._viewer)
         is_sliced = time_idx is not None and time_idx not in self._viewer.dims.displayed
 
         if is_sliced:
@@ -178,7 +184,7 @@ class _TimeOverlay:
         """Set the overlay text to the current time value."""
         if not self._active or self._time_idx is None:
             return
-        time_val = self._read_time_value()
+        time_val = read_time_value(self._ref_layer, self._viewer)
         if time_val is None:
             # Fall back to napari's linear approximation when no xarray metadata is
             # available.

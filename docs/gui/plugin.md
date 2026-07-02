@@ -209,7 +209,9 @@ active.
    an in-progress annotation. The shortcuts are active whenever the panel is open.
 3. The event appears in the table with its trial type, onset, end, and duration.
 
-Events must have a positive duration; the End time must be strictly after the Start time.
+The End time must not be before the Start time. Ending at the Start time creates an
+instantaneous (zero-duration) event, as allowed by BIDS; it is drawn as a vertical line
+instead of a shaded band.
 
 ### Loading and saving
 
@@ -236,7 +238,7 @@ out as a BIDS events `.tsv`.
 | Option | Description |
 |--------|-------------|
 | **Shade events on signal plot** | Draw each event as a colored band spanning its interval on the bottom-dock signal plot, colored by trial type. |
-| **Show active events in time overlay** | Append the trial types of the events active at the current time to the time overlay. |
+| **Show active events in time overlay** | Append each active event to the time overlay as `name [onset, end)`. An event is active while the current frame's acquisition window overlaps it. The window comes from the layer's `volume_acquisition_reference`/`volume_acquisition_duration` metadata, using the frame spacing as the duration when only the reference is present, and the frame's timestamp alone when neither is; an event too short to be sampled by any frame is shown on the next frame instead. |
 
 ## QC Panel
 

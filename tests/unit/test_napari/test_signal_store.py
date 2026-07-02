@@ -7,9 +7,7 @@ import numpy.testing as npt
 import pytest
 
 
-def test_import_csv_creates_one_signal_per_value_column(
-    signals_store, signals_csv
-):
+def test_import_csv_creates_one_signal_per_value_column(signals_store, signals_csv):
     imported = signals_store.import_file(signals_csv)
 
     assert [signal.name for signal in imported] == ["a", "b"]
@@ -49,9 +47,7 @@ def test_import_rejects_non_numeric_value_columns(signals_store, tmp_path):
         signals_store.import_file(path)
 
 
-def test_store_can_rename_toggle_recolor_and_remove_signals(
-    signals_store, signals_csv
-):
+def test_store_can_rename_toggle_recolor_and_remove_signals(signals_store, signals_csv):
     imported = signals_store.import_file(signals_csv)
 
     signals_store.rename_signal(imported[0].id, "baseline")
@@ -83,9 +79,7 @@ def test_store_rejects_empty_color(signals_store, signals_csv):
         signals_store.set_signal_color(imported[0].id, "")
 
 
-def test_store_generates_unique_ids_after_removal(
-    signals_store, signals_csv, tmp_path
-):
+def test_store_generates_unique_ids_after_removal(signals_store, signals_csv, tmp_path):
     """IDs should be unique even after removing and importing new signals."""
     imported1 = signals_store.import_file(signals_csv)
     id1 = imported1[0].id
@@ -111,9 +105,7 @@ def test_store_clear_removes_all_signals(signals_store, signals_csv):
 class TestStoreSignals:
     """Test that signals are emitted correctly."""
 
-    def test_import_emits_both_signals(
-        self, signals_store, signals_csv, signal_spy
-    ):
+    def test_import_emits_both_signals(self, signals_store, signals_csv, signal_spy):
         changed_spy = signal_spy()
         plot_spy = signal_spy()
         signals_store.changed.connect(changed_spy)
@@ -124,9 +116,7 @@ class TestStoreSignals:
         assert changed_spy.count == 1
         assert plot_spy.count == 1
 
-    def test_clear_emits_both_signals(
-        self, signals_store, signals_csv, signal_spy
-    ):
+    def test_clear_emits_both_signals(self, signals_store, signals_csv, signal_spy):
         signals_store.import_file(signals_csv)
 
         changed_spy = signal_spy()
@@ -150,9 +140,7 @@ class TestStoreSignals:
         assert changed_spy.count == 0
         assert plot_spy.count == 0
 
-    def test_remove_emits_both_signals(
-        self, signals_store, signals_csv, signal_spy
-    ):
+    def test_remove_emits_both_signals(self, signals_store, signals_csv, signal_spy):
         imported = signals_store.import_file(signals_csv)
 
         changed_spy = signal_spy()
@@ -176,9 +164,7 @@ class TestStoreSignals:
         assert changed_spy.count == 0
         assert plot_spy.count == 0
 
-    def test_rename_emits_changed_signal(
-        self, signals_store, signals_csv, signal_spy
-    ):
+    def test_rename_emits_changed_signal(self, signals_store, signals_csv, signal_spy):
         imported = signals_store.import_file(signals_csv)
 
         changed_spy = signal_spy()

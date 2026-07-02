@@ -294,9 +294,9 @@ class EventPanel(QWidget):
         if value is None:
             show_error("No time axis is active.")
             return
-        if value <= self._pending_onset:
+        if value < self._pending_onset:
             show_error(
-                f"End time ({value:.2f} {units}) must be strictly after the start "
+                f"End time ({value:.2f} {units}) must not be before the start "
                 f"time ({self._pending_onset:.2f} {units}). Move forward in time, "
                 "then press End again."
             )

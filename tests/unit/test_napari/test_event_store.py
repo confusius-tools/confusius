@@ -1,5 +1,6 @@
 """Unit tests for the EventStore."""
 
+import numpy as np
 import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
@@ -24,12 +25,12 @@ class TestEventStore:
         assert frame["onset"].tolist() == [1.0]
         assert frame["duration"].tolist() == [2.0]
 
-    def test_add_event_rejects_non_positive_duration(self, store):
-        """A zero or negative duration raises ValueError."""
-        with pytest.raises(ValueError, match="positive"):
-            store.add_event(1.0, 0.0, "stim")
-        with pytest.raises(ValueError, match="positive"):
+    def test_add_event_rejects_negative_duration(self, store):
+        """A negative duration raises ValueError; zero is allowed by BIDS."""
+        with pytest.raises(ValueError, match="non-negative"):
             store.add_event(1.0, -1.0, "stim")
+        store.add_event(1.0, 0.0, "stim")
+        assert store.events_dataframe()["duration"].tolist() == [0.0]
 
     def test_color_is_stable_per_trial_type(self, store):
         """The same trial type always maps to the same color; distinct types differ."""
@@ -45,15 +46,47 @@ class TestEventStore:
         assert list(store.active_events(2.9)["trial_type"]) == ["stim"]
         assert store.active_events(3.0).empty
 
-    def test_active_events_instantaneous(self, store, tmp_path):
-        """A loaded zero-duration event is active only exactly at its onset."""
-        # Zero-duration events cannot be created interactively, only loaded
-        # from a BIDS events file.
-        path = tmp_path / "events.tsv"
-        path.write_text("onset\tduration\ttrial_type\n5.0\t0.0\tblip\n")
-        store.load_file(path)
+    def test_active_events_instantaneous(self, store):
+        """A zero-duration event is active only exactly at its onset."""
+        store.add_event(5.0, 0.0, "blip")
         assert list(store.active_events(5.0)["trial_type"]) == ["blip"]
         assert store.active_events(5.001).empty
+
+    def test_active_events_window_overlap(self, store):
+        """An event overlapping the frame's acquisition window is active."""
+        store.add_event(2.5, 0.1, "stim")  # inside [2.0, 2.8) but off the 2.0 point
+        assert store.active_events(2.0).empty
+        active = store.active_events(2.0, window=(2.0, 2.8))
+        assert list(active["trial_type"]) == ["stim"]
+        # An event ending exactly at the window start does not overlap (half-open).
+        assert store.active_events(2.6, window=(2.6, 3.4)).empty
+
+    def test_active_events_gap_snaps_to_next_frame(self, store):
+        """Events sampled by no frame are reported on the next frame."""
+        store.add_event(1.2, 0.1, "stim")  # entirely between frames at 1.0 and 2.0
+        store.add_event(-1.0, 0.0, "blip")  # before the recording
+        # First frame: a (-inf, -inf) previous window catches pre-recording events.
+        neg_inf = (-np.inf, -np.inf)
+        assert list(
+            store.active_events(0.0, previous_window=neg_inf)["trial_type"]
+        ) == ["blip"]
+        assert store.active_events(1.0, previous_window=(0.0, 0.0)).empty
+        assert list(
+            store.active_events(2.0, previous_window=(1.0, 1.0))["trial_type"]
+        ) == ["stim"]
+        assert store.active_events(3.0, previous_window=(2.0, 2.0)).empty
+
+    def test_active_events_not_repeated_on_next_frame(self, store):
+        """An event shown on a frame is not re-reported through the next gap.
+
+        Regression: an instantaneous event at exactly a frame's timestamp used to
+        appear on that frame and again on the following one.
+        """
+        store.add_event(6.0, 0.0, "blip")
+        assert list(
+            store.active_events(6.0, previous_window=(0.0, 0.0))["trial_type"]
+        ) == ["blip"]
+        assert store.active_events(12.0, previous_window=(6.0, 6.0)).empty
 
     def test_remove_and_clear(self, store):
         """Events can be removed by index and cleared entirely."""

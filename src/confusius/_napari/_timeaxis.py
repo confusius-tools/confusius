@@ -13,9 +13,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from confusius._dims import TIME_DIM
+from confusius.timing import convert_time_reference, get_representative_time_step
 
 if TYPE_CHECKING:
     import napari
+    import xarray as xr
     from napari.layers import Layer
 
 
@@ -85,14 +87,48 @@ def read_time_units(layer: Layer | None) -> str | None:
     return layer.metadata.get("time_units")
 
 
-def read_time_value(layer: Layer | None, viewer: napari.Viewer) -> float | None:
-    """Read the true time coordinate from a layer at the current viewer position.
+def _resolve_time_step(
+    layer: Layer, viewer: napari.Viewer, da: xr.DataArray
+) -> int | None:
+    """Return the layer's integer time index at the current viewer position.
 
     Maps the viewer's world coordinate to the layer's data index via
     `world_to_data` so that layers with different time origins or scales are
-    resolved correctly. The data index is then used to look up the true xarray
-    coordinate, avoiding napari's linear scale/translate approximation for
-    non-uniform spacing.
+    resolved correctly.
+
+    Parameters
+    ----------
+    layer : napari.layers.Layer
+        Reference layer whose time index to resolve.
+    viewer : napari.Viewer
+        The active napari viewer instance.
+    da : xarray.DataArray
+        The layer's xarray metadata, which must have a time coordinate.
+
+    Returns
+    -------
+    int | None
+        The time index into the layer's time coordinate, or `None` when the
+        resolved index is out of range.
+    """
+    world_point = np.array(viewer.dims.point)
+    offset = viewer.dims.ndim - layer.ndim
+    layer_world_point = world_point[offset:]
+    data_point = layer.world_to_data(layer_world_point)
+
+    time_local_idx = list(da.dims).index(TIME_DIM)
+    step = int(np.round(data_point[time_local_idx]))
+
+    if 0 <= step < da.coords[TIME_DIM].size:
+        return step
+    return None
+
+
+def read_time_value(layer: Layer | None, viewer: napari.Viewer) -> float | None:
+    """Read the true time coordinate from a layer at the current viewer position.
+
+    Uses the true xarray coordinate at the resolved data index, avoiding
+    napari's linear scale/translate approximation for non-uniform spacing.
 
     Parameters
     ----------
@@ -113,19 +149,90 @@ def read_time_value(layer: Layer | None, viewer: napari.Viewer) -> float | None:
     da = layer.metadata.get("xarray")
     if da is None or TIME_DIM not in da.coords:
         return None
+    step = _resolve_time_step(layer, viewer, da)
+    if step is None:
+        return None
+    return float(da.coords[TIME_DIM].values[step])
 
-    world_point = np.array(viewer.dims.point)
-    offset = viewer.dims.ndim - layer.ndim
-    layer_world_point = world_point[offset:]
-    data_point = layer.world_to_data(layer_world_point)
 
-    time_local_idx = list(da.dims).index(TIME_DIM)
-    step = int(np.round(data_point[time_local_idx]))
+def read_frame_window(
+    layer: Layer | None, viewer: napari.Viewer
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    """Return the acquisition windows of the current and previous frames.
+
+    The window is derived from the time coordinate's
+    `volume_acquisition_reference` (`"start"`, `"center"`, or `"end"`) and
+    `volume_acquisition_duration` attributes. When the reference is present but
+    the duration is missing or invalid, the representative time step is used as
+    the duration so the windows tile the recording. Without a valid reference,
+    each frame's window degenerates to the point at its timestamp. The first
+    frame's previous window is `(-inf, -inf)`, so events before the recording
+    are attributed to the first frame.
+
+    Parameters
+    ----------
+    layer : napari.layers.Layer, optional
+        Reference layer whose time coordinate to read. If not provided, returns
+        `None`.
+    viewer : napari.Viewer
+        The active napari viewer instance.
+
+    Returns
+    -------
+    tuple[tuple[float, float], tuple[float, float]] | None
+        `((start, end), (previous_start, previous_end))` of the current and
+        previous frames' windows in the time coordinate's units, or `None` when
+        the layer lacks xarray time metadata or the resolved index is out of
+        range.
+    """
+    if layer is None:
+        return None
+    da = layer.metadata.get("xarray")
+    if da is None or TIME_DIM not in da.coords:
+        return None
+    step = _resolve_time_step(layer, viewer, da)
+    if step is None:
+        return None
 
     coords = da.coords[TIME_DIM].values
-    if 0 <= step < len(coords):
-        return float(coords[step])
-    return None
+    attrs = da.coords[TIME_DIM].attrs
+    reference = attrs.get("volume_acquisition_reference")
+    attr_duration = attrs.get("volume_acquisition_duration")
+    duration: float | None = None
+    if reference in ("start", "center", "end"):
+        if isinstance(attr_duration, int | float) and attr_duration > 0:
+            duration = float(attr_duration)
+        else:
+            step_duration, _ = get_representative_time_step(da)
+            if step_duration is not None and step_duration > 0:
+                duration = float(step_duration)
+
+    def _window(timestamp: float) -> tuple[float, float]:
+        """Return the acquisition window `(start, end)` of one frame timestamp.
+
+        Parameters
+        ----------
+        timestamp : float
+            The frame's time coordinate value.
+
+        Returns
+        -------
+        tuple[float, float]
+            Window bounds; degenerates to `(timestamp, timestamp)` when no
+            window duration could be resolved.
+        """
+        if duration is None:
+            return float(timestamp), float(timestamp)
+        start = float(
+            convert_time_reference(
+                timestamp, duration, from_reference=reference, to_reference="start"
+            )
+        )
+        return start, start + duration
+
+    current = _window(coords[step])
+    previous = (-np.inf, -np.inf) if step == 0 else _window(coords[step - 1])
+    return current, previous
 
 
 def resolve_reference_layer(viewer: napari.Viewer) -> Layer | None:

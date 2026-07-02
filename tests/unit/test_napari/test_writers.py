@@ -70,10 +70,14 @@ class TestWriteNiftiWithDataArray:
         )
         assert result == [path]
 
-    def test_file_created(self, tmp_path: Path, sample_3dt_volume: xr.DataArray) -> None:
+    def test_file_created(
+        self, tmp_path: Path, sample_3dt_volume: xr.DataArray
+    ) -> None:
         """NIfTI file is created on disk."""
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume))
+        write_nifti(
+            str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume)
+        )
         assert path.exists()
 
     def test_roundtrip_values(
@@ -83,7 +87,9 @@ class TestWriteNiftiWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume))
+        write_nifti(
+            str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume)
+        )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_3dt_volume.values, rtol=1e-5)
 
@@ -94,7 +100,9 @@ class TestWriteNiftiWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume))
+        write_nifti(
+            str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume)
+        )
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
@@ -118,7 +126,9 @@ class TestWriteNiftiFromReconstruction:
         )
         assert result == [path]
 
-    def test_file_created(self, tmp_path: Path, sample_3dt_volume: xr.DataArray) -> None:
+    def test_file_created(
+        self, tmp_path: Path, sample_3dt_volume: xr.DataArray
+    ) -> None:
         """NIfTI file is created when reconstructing from layer state."""
         path = tmp_path / "out.nii.gz"
         write_nifti(
@@ -195,7 +205,9 @@ class TestWriteZarrWithDataArray:
     ) -> None:
         """Zarr store directory is created on disk."""
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume))
+        write_zarr(
+            str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume)
+        )
         assert path.is_dir()
 
     def test_roundtrip_values(
@@ -205,7 +217,9 @@ class TestWriteZarrWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume))
+        write_zarr(
+            str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume)
+        )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_3dt_volume.values, rtol=1e-6)
 
@@ -216,7 +230,9 @@ class TestWriteZarrWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume))
+        write_zarr(
+            str(path), sample_3dt_volume.values, _meta_with_da(sample_3dt_volume)
+        )
         loaded = load(path)
         for dim in ("time", "z", "y", "x"):
             npt.assert_allclose(
@@ -397,6 +413,11 @@ class TestDaFromNapariLayer:
         data = np.zeros((4,))
         da = _compute_dataarray_from_layer(
             data,
-            {"axis_labels": ["z"], "scale": [0.2], "translate": [0.0], "units": [pixel_unit]},
+            {
+                "axis_labels": ["z"],
+                "scale": [0.2],
+                "translate": [0.0],
+                "units": [pixel_unit],
+            },
         )
         assert "units" not in da["z"].attrs

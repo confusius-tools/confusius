@@ -163,28 +163,84 @@ class EventStore(QObject):
             ]
         return self._colors[trial_type]
 
-    def active_events(self, time: float) -> pd.DataFrame:
-        """Return the events that are ON at a given time.
+    def active_events(
+        self,
+        time: float,
+        *,
+        window: tuple[float, float] | None = None,
+        previous_window: tuple[float, float] | None = None,
+    ) -> pd.DataFrame:
+        """Return the events that are ON at a given time or frame window.
 
-        An event is active over the half-open interval ``[onset, onset + duration)``.
-        Instantaneous events (zero duration) are active only exactly at their onset.
+        An event spans the half-open interval ``[onset, onset + duration)``. Without
+        a `window`, an event is active when it contains `time` exactly;
+        instantaneous events (zero duration) are active only at their onset. With a
+        `window`, an event is active when its span overlaps the half-open window.
+        With `previous_window`, events that fall entirely in the gap between the
+        previous frame's window and this one are also active, so short events that
+        no frame samples are still reported on the next frame. Events already
+        active on the previous frame are never re-reported through the gap.
 
         Parameters
         ----------
         time : float
-            Time value to test, in the same units as the events' onsets.
+            Time value to test, in the same units as the events' onsets. Ignored
+            when `window` is provided.
+        window : tuple[float, float], optional
+            Half-open acquisition window `(start, end)` of the current frame. A
+            degenerate window (`start == end`) is treated as the point `start`.
+            If not provided, the frame is treated as the point `time`.
+        previous_window : tuple[float, float], optional
+            Window of the previous frame. Use `(-inf, -inf)` on the first frame to
+            attribute events preceding the recording to it. If not provided, gap
+            events are not reported.
 
         Returns
         -------
         pandas.DataFrame
-            The subset of the events table active at *time*, preserving columns and
-            row order.
+            The subset of the events table active on this frame, preserving
+            columns and row order.
         """
+        start, end = window if window is not None else (time, time)
         onsets = self._events[ONSET_COLUMN]
         durations = self._events[DURATION_COLUMN]
         ends = onsets + durations
         instantaneous = durations <= 0
-        mask = ((onsets <= time) & (time < ends)) | (instantaneous & (onsets == time))
+
+        def _overlaps(window_start: float, window_end: float) -> pd.Series:
+            """Return the per-event mask of overlap with one frame window.
+
+            Parameters
+            ----------
+            window_start : float
+                Window start; a degenerate window (`start == end`) is treated as
+                the point `window_start`.
+            window_end : float
+                Window end (exclusive).
+
+            Returns
+            -------
+            pandas.Series
+                Boolean mask over the events table.
+            """
+            if window_end > window_start:
+                return ((onsets < window_end) & (window_start < ends)) | (
+                    instantaneous & (window_start <= onsets) & (onsets < window_end)
+                )
+            return ((onsets <= window_start) & (window_start < ends)) | (
+                instantaneous & (onsets == window_start)
+            )
+
+        mask = _overlaps(start, end)
+        if previous_window is not None:
+            previous_start = previous_window[0]
+            # Events that ended in the gap before this frame, unless they were
+            # already reported on the previous frame (overlap) or earlier (ended
+            # before the previous window started).
+            in_gap = (
+                (ends <= start) & (ends > previous_start) & ~_overlaps(*previous_window)
+            )
+            mask = mask | in_gap
         return self._events[mask]
 
     # -- mutations -------------------------------------------------------------
@@ -199,17 +255,18 @@ class EventStore(QObject):
         onset : float
             Event onset in seconds.
         duration : float
-            Event duration in seconds. Must be positive.
+            Event duration in seconds. Must be non-negative; zero marks an
+            instantaneous event, as allowed by BIDS.
         trial_type : str, optional
             Trial type name. Missing or blank values use the default trial type.
 
         Raises
         ------
         ValueError
-            If `duration` is negative or zero.
+            If `duration` is negative.
         """
-        if duration <= 0:
-            raise ValueError("Event duration must be positive.")
+        if duration < 0:
+            raise ValueError("Event duration must be non-negative.")
         name = (trial_type or "").strip() or DEFAULT_TRIAL_TYPE
         self.color_for(name)
         new_row = pd.DataFrame(
