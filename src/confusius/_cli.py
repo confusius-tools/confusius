@@ -3,12 +3,35 @@
 from __future__ import annotations
 
 import argparse
+from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import napari
     import napari.layers
+
+
+def _add_help_option(parser: argparse.ArgumentParser) -> None:
+    """Add a harmonized `-h`/`--help` option to a parser.
+
+    Registered explicitly (with `add_help=False` on the parser) so its help
+    string follows the same capitalized, full-stop style as the other
+    arguments, instead of argparse's lowercase default.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        The parser to add the option to. It must be created with
+        `add_help=False`.
+    """
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="Show this help message and exit.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -32,6 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
             "listed under `namespaces` below."
         ),
         epilog="Run `confusius <namespace> --help` for the namespace's own options.",
+        add_help=False,
+    )
+    _add_help_option(parser)
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"ConfUSIus {metadata.version('confusius')}",
+        help="Show the version number and exit.",
     )
     parser.add_argument(
         "path",
@@ -72,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
             dest=argparse.SUPPRESS,
             nargs=0,
             metavar="datasets",
-            help="Work with datasets, e.g. `confusius datasets --list`",
+            help="Work with datasets, e.g. `confusius datasets --list`.",
         )
     )
     return parser
@@ -89,7 +121,9 @@ def build_datasets_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="confusius datasets",
         description="Work with ConfUSIus fetchable datasets.",
+        add_help=False,
     )
+    _add_help_option(parser)
     parser.add_argument(
         "--list",
         action="store_true",

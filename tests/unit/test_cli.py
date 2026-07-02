@@ -41,6 +41,18 @@ class TestBuildParser:
         assert ns.lazy is True
         assert ns.video == Path("v.mp4")
 
+    def test_version_flag(self, capsys) -> None:
+        from importlib import metadata
+
+        import pytest
+
+        from confusius._cli import build_parser
+
+        with pytest.raises(SystemExit) as exc:
+            build_parser().parse_args(["--version"])
+        assert exc.value.code == 0
+        assert metadata.version("confusius") in capsys.readouterr().out
+
 
 class TestDatasetsNamespace:
     """The `datasets` namespace parses `--list` and dispatches to `list_datasets`."""
