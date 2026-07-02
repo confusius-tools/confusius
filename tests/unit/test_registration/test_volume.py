@@ -697,6 +697,28 @@ class TestDisplacementField:
             dims=list(da.dims),
         )
 
+    def test_invert_displacement_field_wrong_type_attr_raises(self):
+        """A DataArray with the wrong `type` attr is rejected."""
+        field = xr.DataArray(
+            np.zeros((2, 4, 4)),
+            dims=["component", "y", "x"],
+            coords={"component": [0, 1], "y": np.arange(4.0), "x": np.arange(4.0)},
+            attrs={"type": "bspline_transform"},
+        )
+        with pytest.raises(ValueError, match="displacement_field_transform"):
+            invert_displacement_field(field)
+
+    def test_invert_displacement_field_wrong_first_dim_raises(self):
+        """A DataArray without 'component' as its first dimension is rejected."""
+        field = xr.DataArray(
+            np.zeros((4, 4, 2)),
+            dims=["y", "x", "component"],
+            coords={"y": np.arange(4.0), "x": np.arange(4.0), "component": [0, 1]},
+            attrs={"type": "displacement_field_transform"},
+        )
+        with pytest.raises(ValueError, match="'component' as its first dimension"):
+            invert_displacement_field(field)
+
     def test_bspline_to_displacement_field_returns_valid_dataarray(
         self, sample_2d_dataarray_spatial
     ):
