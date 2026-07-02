@@ -1,6 +1,6 @@
 """Volume-to-volume registration for fUSI data."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Literal, overload
 
 import numpy as np
@@ -8,6 +8,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius.registration._utils import (
+    abort_on_sigint,
     dataarray_to_sitk_image,
     replace_affines_attr,
     set_sitk_thread_count,
@@ -19,7 +20,11 @@ from confusius.registration.affines import (
 from confusius.registration.diagnostics import RegistrationDiagnostics
 
 if TYPE_CHECKING:
+    from threading import Event
+
     import SimpleITK as sitk
+
+    from confusius.registration.progress import RegistrationProgress
 
 
 def _validate_register_volume_inputs(
@@ -240,6 +245,56 @@ def _expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
     return sitk.Expand(img, factors.tolist())
 
 
+def _translate_registration_runtime_error(
+    exc: RuntimeError,
+    *,
+    transform_type: Literal["translation", "rigid", "affine", "bspline"],
+    learning_rate: float | Literal["auto"],
+) -> RuntimeError:
+    """Return a clearer registration error for known SimpleITK failures.
+
+    Parameters
+    ----------
+    exc : RuntimeError
+        Exception raised by SimpleITK during optimizer execution.
+    transform_type : {"translation", "rigid", "affine", "bspline"}
+        Registration model used for the failed run.
+    learning_rate : float or "auto"
+        User-requested learning rate mode.
+
+    Returns
+    -------
+    RuntimeError
+        Translated exception when the failure mode is recognized, otherwise `exc`.
+    """
+    message = str(exc)
+    if "m_Scales values must be > epsilon" not in message:
+        return exc
+
+    parts = [
+        "SimpleITK could not compute valid optimizer scales for this registration.",
+        "Some transform parameters have near-zero physical effect, so the gradient-descent optimizer cannot choose a stable step size.",
+    ]
+    if transform_type == "bspline":
+        parts.append(
+            "This is most common for `transform_type='bspline'`, especially when the control-point grid is too fine for the image extent or overlap."
+        )
+    if learning_rate == "auto":
+        parts.append(
+            'Retry with a fixed `learning_rate` such as `0.1` or `0.01` instead of `"auto"`.'
+        )
+    else:
+        parts.append(
+            "Changing `learning_rate` alone may not help because this failure happens before optimisation starts."
+        )
+    if transform_type == "bspline":
+        parts.append(
+            "If that still fails, use a coarser `mesh_size` or run affine/rigid registration first and pass the result as `initialization`."
+        )
+
+    return RuntimeError(" ".join(parts))
+
+
 @overload
 def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     moving: xr.DataArray,
@@ -264,11 +319,13 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     smoothing_sigmas: Sequence[int] = ...,
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
+    fill_value: float | None = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    fill_value: float | None = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
     ...
@@ -298,11 +355,13 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     smoothing_sigmas: Sequence[int] = ...,
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
+    fill_value: float | None = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    fill_value: float | None = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
     ...
@@ -331,11 +390,13 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     smoothing_sigmas: Sequence[int] = ...,
     resample: bool = ...,
     resample_interpolation: Literal["linear", "bspline"] = ...,
+    fill_value: float | None = ...,
     sitk_threads: int = ...,
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    fill_value: float | None = ...,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
     ...
@@ -364,11 +425,13 @@ def register_volume(
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample: bool = True,
     resample_interpolation: Literal["linear", "bspline"] = "linear",
+    fill_value: float | None = None,
     sitk_threads: int = -1,
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
-    fill_value: float | None = None,
+    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    abort_event: "Event | None" = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":  # noqa: E501
     """Register a single 2D or 3D volume to a fixed reference.
 
@@ -467,6 +530,13 @@ def register_volume(
         `"linear"` is fast and appropriate for most cases. `"bspline"` (3rd-order
         B-spline) produces smoother results and reduces ringing, useful for atlas
         registration. Only used when `resample=True`.
+    fill_value : float, optional
+        Fill value for voxels that fall outside the moving image's field of view after
+        resampling. Applied to both the final registered output (when `resample=True`)
+        and the progress composite overlay (when `show_progress=True` and
+        `plot_composite=True`). If not provided, defaults to the minimum value of
+        `moving`, which renders out-of-FOV regions as background regardless of intensity
+        scale (important for dB data where 0 is maximum intensity).
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -484,13 +554,22 @@ def register_volume(
         Whether to include a fixed/moving composite overlay in the progress plot.
         Requires resampling the moving image at every iteration. Ignored when
         `show_progress=False`.
-    fill_value : float, optional
-        Fill value for voxels that fall outside the moving image's field of view after
-        resampling. Applied to both the final registered output (when `resample=True`)
-        and the progress composite overlay (when `show_progress=True` and
-        `plot_composite=True`). If not provided, defaults to the minimum value of
-        `moving`, which renders out-of-FOV regions as background regardless of intensity
-        scale (important for dB data where 0 is maximum intensity).
+    progress_plotter : callable, optional
+        Factory that builds the progress reporter, called inside `register_volume` as
+        `progress_plotter(registration_method, fixed_img, moving_img, *, plot_metric,
+        plot_composite, resample_kwargs)`. Here `resample_kwargs` carries
+        `interpolation`, `fill_value`, and `sitk_threads`. The returned object must
+        implement the
+        [`RegistrationProgress`][confusius.registration.RegistrationProgress] protocol
+        (`update()` / `close()`). If not provided, the default
+        [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
+        is used. Ignored when `show_progress=False`. Custom factories are expected to
+        be safe to call from a non-GUI thread; GUI side effects must be marshalled via
+        thread-safe primitives such as Qt signals.
+    abort_event : threading.Event, optional
+        Cooperative cancellation flag. If set before or during optimisation, the
+        registration stops at the next SimpleITK iteration boundary and returns
+        the current intermediate result with `diagnostics.status="aborted"`.
 
     Returns
     -------
@@ -505,11 +584,16 @@ def register_volume(
         N+1)` in physical space, where `N` is the spatial dimensionality (2 or 3).
         Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
-        returns a DataArray encoding the B-spline control-point grid (see
-        [`confusius.registration.bspline`][confusius.registration.bspline] for the
-        DataArray schema). When an affine `initialization` was also supplied, the DataArray
-        includes `attrs["affines"]["bspline_initialization"]` so that the full composite
-        (pre-affine + B-spline) can be reconstructed for resampling.
+        returns an `xarray.DataArray` containing the B-spline control-point grid, not a
+        dense deformation field. The first dimension is `component` with length `N`,
+        followed by spatial dimensions in ConfUSIus order (`("y", "x")` in 2D or
+        `("z", "y", "x")` in 3D). The coordinate values along each spatial axis are
+        the physical positions of the control points. Attributes include `type =
+        "bspline_transform"`, the spline `order`, and the control-grid `direction`
+        matrix. When an affine `initialization` was also supplied, the DataArray also
+        includes `attrs["affines"]["bspline_initialization"]` so that the full
+        composite transform (pre-affine + B-spline) can be reconstructed for later
+        resampling.
     diagnostics : confusius.registration.RegistrationDiagnostics
         Per-iteration metric values, final metric value, iteration count, and the
         optimizer stop condition. Useful for plotting convergence curves, comparing
@@ -588,6 +672,8 @@ def register_volume(
                 f"initialization shape {affine_initialization.shape} does not match "
                 f"image dimensionality {ndim}D (expected {expected_shape})."
             )
+
+    requested_learning_rate = learning_rate
 
     registration = sitk.ImageRegistrationMethod()
 
@@ -687,10 +773,12 @@ def register_volume(
 
     if affine_initialization is not None:
         pre_tx = affine_to_sitk_linear_transform(affine_initialization)
-
-        sitk_initial_transform: sitk.Transform = sitk.CompositeTransform(ndim)
-        sitk_initial_transform.AddTransform(pre_tx)
-        sitk_initial_transform.AddTransform(sitk_centering_transform)
+        if transform_type == "bspline":
+            sitk_initial_transform = sitk.CompositeTransform(ndim)
+            sitk_initial_transform.AddTransform(pre_tx)
+            sitk_initial_transform.AddTransform(sitk_centering_transform)
+        else:
+            sitk_initial_transform = pre_tx
     else:
         sitk_initial_transform = sitk_centering_transform
 
@@ -699,10 +787,10 @@ def register_volume(
     # Always collect per-iteration metric values so callers get convergence
     # diagnostics regardless of whether the live progress plot is enabled.
     metric_values: list[float] = []
-    registration.AddCommand(
-        sitk.sitkIterationEvent,
-        lambda: metric_values.append(registration.GetMetricValue()),
-    )
+
+    def _record_iteration() -> None:
+        metric_value = float(registration.GetMetricValue())
+        metric_values.append(metric_value)
 
     needs_fill_value = resample or (show_progress and plot_composite)
     _fill_value = (
@@ -711,29 +799,69 @@ def register_volume(
         else (float(moving.min()) if needs_fill_value else None)
     )
 
-    if show_progress:
-        from confusius.registration._progress import RegistrationProgressPlotter
-
-        resample_kwargs: dict[str, object] = {
-            "interpolation": resample_interpolation,
-            "sitk_threads": sitk_threads,
-        }
-        if _fill_value is not None:
-            resample_kwargs["default_value"] = _fill_value
-
-        plotter = RegistrationProgressPlotter(
-            registration,
-            fixed_sitk,
-            moving_sitk,
-            plot_metric=plot_metric,
-            plot_composite=plot_composite,
-            resample_kwargs=resample_kwargs,
+    with abort_on_sigint(abort_event) as effective_abort_event:
+        registration.AddCommand(sitk.sitkIterationEvent, _record_iteration)
+        registration.AddCommand(
+            sitk.sitkIterationEvent,
+            lambda: (
+                registration.StopRegistration()
+                if effective_abort_event.is_set()
+                else None
+            ),
         )
-        registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
-        registration.AddCommand(sitk.sitkEndEvent, plotter.close)
 
-    with set_sitk_thread_count(sitk_threads):
-        sitk_optimized_transform = registration.Execute(fixed_reg, moving_reg)
+        if show_progress:
+            from confusius.registration.progress import (
+                MatplotlibRegistrationProgressPlotter,
+            )
+
+            resample_kwargs: dict[str, object] = {
+                "interpolation": resample_interpolation,
+                "fill_value": _fill_value,
+                "sitk_threads": sitk_threads,
+            }
+
+            plotter_factory = progress_plotter or MatplotlibRegistrationProgressPlotter
+            plotter = plotter_factory(
+                registration,
+                fixed_sitk,
+                moving_sitk,
+                plot_metric=plot_metric,
+                plot_composite=plot_composite,
+                resample_kwargs=resample_kwargs,
+            )
+            registration.AddCommand(sitk.sitkIterationEvent, plotter.update)
+            registration.AddCommand(sitk.sitkEndEvent, plotter.close)
+
+        executed = False
+        if effective_abort_event.is_set():
+            if transform_type == "bspline":
+                sitk_optimized_transform = sitk_initial_transform
+            elif affine_initialization is not None:
+                sitk_optimized_transform = affine_to_sitk_linear_transform(
+                    affine_initialization
+                )
+            else:
+                sitk_optimized_transform = sitk.TranslationTransform(ndim)
+            aborted = True
+            stop_condition = "Registration aborted before optimisation started."
+        else:
+            try:
+                with set_sitk_thread_count(sitk_threads):
+                    sitk_optimized_transform = registration.Execute(
+                        fixed_reg, moving_reg
+                    )
+            except RuntimeError as exc:
+                raise _translate_registration_runtime_error(
+                    exc,
+                    transform_type=transform_type,
+                    learning_rate=requested_learning_rate,
+                ) from exc
+            executed = True
+            aborted = effective_abort_event.is_set()
+            stop_condition = registration.GetOptimizerStopConditionDescription()
+            if aborted and not stop_condition.strip():
+                stop_condition = "Registration aborted."
 
     # When resampling, the output lives on the fixed grid; otherwise the moving volume
     # is returned unchanged and its own coordinates are preserved.
@@ -778,17 +906,20 @@ def register_volume(
     else:
         optimized_transform = sitk_linear_transform_to_affine(sitk_optimized_transform)
 
-    final_metric_value = (
-        float(metric_values[-1])
-        if metric_values
-        else float(registration.GetMetricValue())
-    )
+    final_metric_value: float
+    if metric_values:
+        final_metric_value = float(metric_values[-1])
+    elif executed:
+        final_metric_value = float(registration.GetMetricValue())
+    else:
+        final_metric_value = float("nan")
     diagnostics = RegistrationDiagnostics(
         metric=metric,
         metric_values=np.asarray(metric_values, dtype=float),
         final_metric_value=final_metric_value,
         n_iterations=len(metric_values),
-        stop_condition=registration.GetOptimizerStopConditionDescription(),
+        stop_condition=stop_condition,
+        status="aborted" if aborted else "completed",
     )
 
     return result, optimized_transform, diagnostics

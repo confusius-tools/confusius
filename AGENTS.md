@@ -144,6 +144,7 @@ Coverage reports are generated automatically (terminal, HTML in `htmlcov/`, and 
 
 ### Naming Conventions
 - Functions/methods: `snake_case`
+- Prefer imperative verb phrases for function names (for example, `get_source_dataarray`, `reconstruct_layer_dataarray`, `validate_inputs`), not noun phrases.
 - Classes: `PascalCase`
 - Constants: `UPPER_CASE`
 - Private functions/methods: leading underscore `_function_name`
@@ -330,6 +331,17 @@ request, e.g. `([#123](https://github.com/confusius-tools/confusius/pull/123))`.
 - Use `pytest.warns` for expected warnings.
 - Keep tests fast by using small array sizes.
 - Use seeded random number generators for reproducibility.
+
+### Napari Plugin Tests
+- Follow napari's plugin testing guidelines:
+  <https://napari.org/dev/plugins/testing_and_publishing/test.html>.
+- Main message: prefer **small unit tests** over full GUI/integration tests. Trust napari
+  to deliver callbacks/events correctly; test our plugin logic and observable widget/viewer
+  state directly instead of trying to simulate every napari interaction end-to-end.
+- Use napari pytest fixtures such as `make_napari_viewer` / `make_napari_viewer_proxy`
+  rather than building custom viewer setup/teardown by hand.
+- For ConfUSIus napari tests, prefer assertions on public/observable behavior
+  (widget state, layer state, metadata, outputs) over module-private helper return values.
 
 ### Visual Regression Tests
 - Use `@pytest.mark.mpl_image_compare` for plot output tests.

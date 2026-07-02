@@ -1,5 +1,8 @@
 """Unit tests for single-volume registration."""
 
+import signal
+from threading import Event
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -8,6 +11,130 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
+
+
+class TestRegisterVolumeSigint:
+    """Ctrl+C handling exposed through the public `register_volume` API."""
+
+    def test_first_ctrl_c_returns_aborted_result_and_restores_handler(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """First Ctrl+C sets the cooperative abort event and restores SIGINT afterwards."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        _result, _transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+        )
+
+        assert diagnostics.status == "aborted"
+        assert signal.getsignal(signal.SIGINT) is previous_handler
+
+    def test_second_ctrl_c_raises_keyboardinterrupt(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Second Ctrl+C falls back to the previous default SIGINT handler."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(KeyboardInterrupt):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+
+        assert signal.getsignal(signal.SIGINT) is previous_handler
+
+    def test_second_ctrl_c_ignores_when_previous_handler_ignores(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Second Ctrl+C is ignored when the previous SIGINT handler ignored it."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        try:
+            _result, _transform, diagnostics = register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+
+        assert diagnostics.status == "aborted"
+
+    def test_second_ctrl_c_calls_previous_custom_handler(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Second Ctrl+C delegates to a previous custom handler when one is installed."""
+        import SimpleITK as sitk
+
+        previous_handler = signal.getsignal(signal.SIGINT)
+        calls: list[tuple[int, object]] = []
+
+        def custom_handler(signum: int, frame: object) -> None:
+            calls.append((signum, frame))
+
+        signal.signal(signal.SIGINT, custom_handler)
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            handler = signal.getsignal(signal.SIGINT)
+            assert callable(handler)
+            handler(signal.SIGINT, None)
+            handler(signal.SIGINT, None)
+            return sitk.TranslationTransform(2)
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        try:
+            _result, _transform, diagnostics = register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+        finally:
+            signal.signal(signal.SIGINT, previous_handler)
+
+        assert diagnostics.status == "aborted"
+        assert len(calls) == 1
+        assert calls[0][0] == signal.SIGINT
 
 
 class TestRegisterVolumeValidation:
@@ -81,6 +208,96 @@ class TestRegisterVolumeValidation:
         )
         assert result.shape == moving.shape
 
+    def test_abort_event_returns_partial_result(self, sample_2d_dataarray_spatial):
+        """A pre-set abort event returns an aborted diagnostics record."""
+        abort_event = Event()
+        abort_event.set()
+
+        result, _transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            abort_event=abort_event,
+        )
+
+        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+
+    def test_unknown_runtime_error_is_passed_through(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Unknown SimpleITK runtime errors are re-raised unchanged."""
+        import SimpleITK as sitk
+
+        error = RuntimeError("boom")
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise error
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+
+        assert excinfo.value is error
+
+    def test_bspline_scale_error_raises_clearer_message(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Known SimpleITK scale failures are rewritten to actionable errors."""
+        import SimpleITK as sitk
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise RuntimeError(
+                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "ITK ERROR: GradientDescentOptimizerv4Template: "
+                "m_Scales values must be > epsilon.[1e-20, 1e-12]"
+            )
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(RuntimeError, match="could not compute valid optimizer scales"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="bspline",
+                learning_rate=1.0,
+            )
+
+    def test_bspline_scale_error_with_auto_learning_rate_suggests_fixed_rate(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Auto-learning-rate scale failures suggest retrying with a fixed rate."""
+        import SimpleITK as sitk
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise RuntimeError(
+                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "ITK ERROR: GradientDescentOptimizerv4Template: "
+                "m_Scales values must be > epsilon.[1e-20, 1e-12]"
+            )
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(
+            RuntimeError,
+            match='Retry with a fixed `learning_rate` such as `0.1` or `0.01`',
+        ):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="bspline",
+                learning_rate="auto",
+            )
+
 
 class TestRegisterVolumeOutput:
     """Output properties for register_volume."""
@@ -109,7 +326,7 @@ class TestRegisterVolumeOutput:
             transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        assert bspline_tx.attrs.get("type") == "bspline_transform"
+        assert bspline_tx.attrs.get("transform_type") == "bspline_transform"
         assert bspline_tx.dims[0] == "component"
 
     def test_resample_true_coords_match_fixed(
@@ -931,3 +1148,126 @@ class TestRegisterVolumeFillValue:
         assert float(result.values[0, 0]) == pytest.approx(
             float(moving.min()), abs=1e-5
         )
+
+
+class TestRegisterVolumePreSetAbort:
+    """Pre-set abort_event short-circuits before SimpleITK Execute is called."""
+
+    def test_bspline_abort_returns_initial_bspline_transform(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Pre-aborted bspline returns a DataArray without forcing a bspline fit."""
+        abort_event = Event()
+        abort_event.set()
+
+        _, transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+            abort_event=abort_event,
+        )
+
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+        assert (
+            diagnostics.stop_condition
+            == "Registration aborted before optimisation started."
+        )
+        # The returned DataArray wraps the initial (unoptimised) bspline — its
+        # coefficients differ from a real registration only in that no iterations ran.
+        assert isinstance(transform, xr.DataArray)
+        assert transform.attrs.get("transform_type") == "bspline_transform"
+
+    def test_affine_initialization_abort_returns_initialization_affine(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Pre-aborted linear registration returns the provided affine initialization.
+
+        The transform must match the initialization matrix — not the default
+        identity/TranslationTransform fallback used when no initialization is set —
+        so downstream consumers can rely on a coherent aborted transform.
+        """
+        pre_affine = np.array([[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [0.0, 0.0, 1.0]])
+
+        abort_event = Event()
+        abort_event.set()
+
+        _, transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="rigid",
+            initialization=pre_affine,
+            abort_event=abort_event,
+        )
+
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+        assert_allclose(transform, pre_affine)
+
+
+class TestRegisterVolumeConvergesBeforeFirstIteration:
+    """`final_metric_value` falls back to the optimizer's metric when no iteration event fires."""
+
+    def test_final_metric_value_pulled_from_optimizer_when_no_iterations(
+        self, sample_2d_dataarray_spatial
+    ):
+        """When SimpleITK converges before any iteration event, final_metric_value is
+        the optimizer's current metric, not NaN.
+
+        Achieved by raising `convergence_minimum_value` above the metric for identical
+        images and shrinking the window to 1, so the convergence checker passes at
+        iteration 0 before any iteration event fires.
+        """
+        _, _, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            number_of_iterations=100,
+            convergence_minimum_value=1.0,
+            convergence_window_size=1,
+        )
+
+        assert diagnostics.n_iterations == 0
+        assert diagnostics.status == "completed"
+        assert np.isfinite(diagnostics.final_metric_value)
+        assert "Convergence checker passed at iteration 0" in diagnostics.stop_condition
+
+
+class TestRegisterVolumeFromWorkerThread:
+    """`register_volume` works when called from a non-main thread."""
+
+    def test_register_volume_runs_in_non_main_thread(self, sample_2d_dataarray_spatial):
+        """Calling `register_volume` from a worker thread bypasses SIGINT wiring.
+
+        The non-main-thread branch of `abort_on_sigint` skips installing a SIGINT
+        handler and simply yields the abort event, so registration runs to
+        completion without trying to mutate the main thread's signal handlers.
+        """
+        import threading
+
+        from confusius.registration.diagnostics import RegistrationDiagnostics
+
+        result_holder: dict[str, object] = {}
+
+        def worker() -> None:
+            assert threading.current_thread() is not threading.main_thread()
+            result, transform, diagnostics = register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+                number_of_iterations=2,
+            )
+            result_holder["result"] = result
+            result_holder["transform"] = transform
+            result_holder["diagnostics"] = diagnostics
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+
+        result = result_holder["result"]
+        diagnostics = result_holder["diagnostics"]
+        assert isinstance(result, xr.DataArray)
+        assert isinstance(diagnostics, RegistrationDiagnostics)
+        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert diagnostics.status == "completed"

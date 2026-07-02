@@ -42,7 +42,7 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/images/gui/generate.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
-        sessions="20201011",
+        sessions=["20201007", "20201011"],
         tasks="spontaneous",
         acqs="slice04",
     )
@@ -71,6 +71,14 @@ def _prefetch_cybis_pereira() -> None:
         subjects="rat75",
         sessions="20220525",
         acqs="slice37",
+    )
+
+    # docs/images/gui/generate.py (within-scan registration GIF)
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220523",
+        acqs="slice32",
     )
 
     # docs/examples/registration/register_volume_same_subject.py

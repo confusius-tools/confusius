@@ -85,7 +85,7 @@ class _TimeOverlay:
         scale/translate approximation for non-uniform spacing.
 
         For layers without xarray metadata (e.g., video layers), returns
-        `None` so that the caller falls back to ``dims.point`` which is
+        `None` so that the caller falls back to `dims.point` which is
         correct as long as the layer's time scale is set properly.
         """
         if self._ref_layer is None:

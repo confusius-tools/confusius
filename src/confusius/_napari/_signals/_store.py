@@ -73,17 +73,17 @@ class LiveSignal:
     Attributes
     ----------
     id : str
-        Stable identifier (e.g. ``"mouse-0"``, ``"point-3"``, ``"label-5"``).
+        Stable identifier (e.g. `"mouse-0"`, `"point-3"`, `"label-5"`).
     name : str
         Display name used in legends (editable by the user).
     color : str
         Hex color for the plot line.
     visible : bool
         Whether the signal should be plotted.
-    source_type : ``"mouse"`` | ``"point"`` | ``"label"``
+    source_type : `"mouse"` | `"point"` | `"label"`
         Kind of napari source that produces this signal.
     source_id : int | None
-        ``None`` for mouse, point index for points, label integer for labels.
+        `None` for mouse, point index for points, label integer for labels.
     """
 
     id: str
@@ -328,7 +328,7 @@ class SignalStore(QObject):
         Returns
         -------
         LiveSignal | None
-            The signal, or ``None`` if not found.
+            The signal, or `None` if not found.
         """
         return self._live_signals.get(signal_id)
 

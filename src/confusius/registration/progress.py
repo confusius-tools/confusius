@@ -1,7 +1,9 @@
 """Registration progress visualization."""
 
+from __future__ import annotations
+
 import warnings
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 import numpy as np
 
@@ -12,6 +14,7 @@ if TYPE_CHECKING:
     import SimpleITK as sitk
     from matplotlib.figure import Figure
 
+
 _INTERPOLATION_MAP = {
     "linear": "sitkLinear",
     "nearest": "sitkNearestNeighbor",
@@ -19,7 +22,109 @@ _INTERPOLATION_MAP = {
 }
 
 
-class RegistrationProgressPlotter:
+def _resolve_sitk_interpolation(interpolation: str | None) -> Any:
+    """Return the SimpleITK interpolator enum for a named interpolation.
+
+    Parameters
+    ----------
+    interpolation : str
+        One of `"linear"`, `"nearest"`, `"bspline"`.
+
+    Returns
+    -------
+    SimpleITK interpolator enum
+        The matching `sitk.sitk*` interpolator constant.
+
+    Raises
+    ------
+    ValueError
+        If `interpolation` is not one of the supported names.
+    """
+    import SimpleITK as sitk
+
+    if interpolation is None:
+        interpolation = "linear"
+    interp_name = _INTERPOLATION_MAP.get(interpolation)
+    if interp_name is None:
+        supported = ", ".join(sorted(_INTERPOLATION_MAP))
+        msg = (
+            f"Invalid `interpolation`: {interpolation!r}. Expected one of: {supported}."
+        )
+        raise ValueError(msg)
+    return getattr(sitk, interp_name)
+
+
+def _resample_intermediate(
+    registration_method: "sitk.ImageRegistrationMethod",
+    moving_img: "sitk.Image",
+    fixed_img: "sitk.Image",
+    *,
+    interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float = 0.0,
+    sitk_threads: int = -1,
+) -> "sitk.Image":
+    """Resample the moving image onto the fixed grid using the current transform.
+
+    Shared by the matplotlib and napari progress plotters so the per-iteration
+    resample logic stays in one place.
+
+    Parameters
+    ----------
+    registration_method : SimpleITK.ImageRegistrationMethod
+        The active registration method whose initial transform is used to
+        resample.
+    moving_img : SimpleITK.Image
+        Moving image to resample.
+    fixed_img : SimpleITK.Image
+        Reference image defining the output grid.
+    interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+        Interpolator used for the intermediate resample.
+    fill_value : float, default: 0.0
+        Fill value used outside the moving image field of view.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use for the intermediate resample.
+
+    Returns
+    -------
+    SimpleITK.Image
+        Resampled image on the fixed grid.
+    """
+    import SimpleITK as sitk
+
+    from confusius.registration._utils import set_sitk_thread_count
+
+    sitk_interp = _resolve_sitk_interpolation(interpolation)
+
+    transform = registration_method.GetInitialTransform()
+    with set_sitk_thread_count(sitk_threads):
+        return sitk.Resample(
+            moving_img,
+            fixed_img,
+            transform,
+            sitk_interp,
+            fill_value,
+            moving_img.GetPixelID(),
+        )
+
+
+class RegistrationProgress(Protocol):
+    """Duck-typed contract for an iteration progress reporter.
+
+    Implementations are called from the registration thread (SimpleITK's
+    iteration/end callbacks). They must be safe to call from a non-GUI thread;
+    any GUI side effects must be marshalled via Qt signals or similar.
+    """
+
+    def update(self) -> None:
+        """Called at every optimizer iteration event."""
+        ...
+
+    def close(self) -> None:
+        """Called once at the registration end event."""
+        ...
+
+
+class MatplotlibRegistrationProgressPlotter:
     """Plot registration progress in real time.
 
     Displays an optimizer metric curve, a composite fixed/moving overlay, or
@@ -40,8 +145,8 @@ class RegistrationProgressPlotter:
         Whether to display a blended fixed/moving composite at each iteration.
         Requires an additional `sitk.Resample` call per iteration.
     resample_kwargs : dict, optional
-        Extra keyword arguments forwarded to the internal resample call at each
-        iteration.
+        Extra keyword arguments for the internal resample call at each iteration.
+        Supported keys are `interpolation`, `fill_value`, and `sitk_threads`.
     """
 
     def __init__(
@@ -65,11 +170,17 @@ class RegistrationProgressPlotter:
         self._metric_values: list[float] = []
 
         _kw: dict[str, Any] = dict(resample_kwargs or {})
-        if "default_value" not in _kw:
+        self._interpolation = cast(
+            'Literal["linear", "nearest", "bspline"]',
+            _kw.get("interpolation", "linear"),
+        )
+        if "fill_value" in _kw:
+            self._fill_value = float(_kw["fill_value"])
+        else:
             import SimpleITK as sitk
 
-            _kw["default_value"] = float(sitk.GetArrayFromImage(moving_img).min())
-        self._resample_kwargs = _kw
+            self._fill_value = float(sitk.GetArrayFromImage(moving_img).min())
+        self._sitk_threads = int(_kw.get("sitk_threads", -1))
 
         # Detect Jupyter notebook environment. A plain IPython terminal shell
         # also has get_ipython() != None, so we check the kernel class name to
@@ -153,36 +264,19 @@ class RegistrationProgressPlotter:
             self._metric_ax.autoscale_view()
 
         if self._plot_composite:
+            resampled = _resample_intermediate(
+                self._method,
+                self._moving_img,
+                self._fixed_img,
+                interpolation=self._interpolation,
+                fill_value=self._fill_value,
+                sitk_threads=self._sitk_threads,
+            )
+
             import SimpleITK as sitk
 
-            from confusius.registration._utils import set_sitk_thread_count
-
-            interpolation = self._resample_kwargs.get("interpolation", "linear")
-            interp_name = _INTERPOLATION_MAP.get(interpolation)
-            if interp_name is None:
-                supported = ", ".join(sorted(_INTERPOLATION_MAP))
-                msg = (
-                    "Invalid `interpolation` in `resample_kwargs`: "
-                    f"{interpolation!r}. Expected one of: {supported}."
-                )
-                raise ValueError(msg)
-            sitk_interp = getattr(sitk, interp_name)
-            fill_value = self._resample_kwargs["default_value"]
-            sitk_threads = self._resample_kwargs.get("sitk_threads", -1)
-
-            transform = self._method.GetInitialTransform()
-            with set_sitk_thread_count(sitk_threads):
-                resampled = sitk.Resample(
-                    self._moving_img,
-                    self._fixed_img,
-                    transform,
-                    sitk_interp,
-                    fill_value,
-                    self._moving_img.GetPixelID(),
-                )
-
-            fixed_arr = sitk.GetArrayFromImage(self._fixed_img).T
-            moving_arr = sitk.GetArrayFromImage(resampled).T
+            fixed_arr = np.asarray(sitk.GetArrayFromImage(self._fixed_img).T)
+            moving_arr = np.asarray(sitk.GetArrayFromImage(resampled).T)
 
             if fixed_arr.ndim == 3:
                 rgb = make_mosaic(
