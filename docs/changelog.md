@@ -37,6 +37,10 @@ Current development version for the next ConfUSIus release.
   false-discovery-rate (Benjamini-Hochberg, Benjamini-Yekutieli) corrections, plus an
   optional cluster-extent threshold
   ([#204](https://github.com/confusius-tools/confusius/pull/204)).
+- Added [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] for
+  downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
+  `datasets`, `subjects`, `acqs`, and `datatypes` filters
+  ([#228](https://github.com/confusius-tools/confusius/issues/228)).
 
 ### :bug: Fixes
 
