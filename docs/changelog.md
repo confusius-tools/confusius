@@ -60,12 +60,24 @@ Current development version for the next ConfUSIus release.
   `bspline_initialization` written by the registration pipeline) when merging in the
   NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
+- B-spline control-point DataArrays returned by
+  [`register_volume`][confusius.registration.register_volume] no longer have their
+  per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
+  images. The bug was invisible on isotropic data, which is why it went unnoticed since
+  it shipped
+  ([#236](https://github.com/confusius-tools/confusius/issues/236),
+  [#235](https://github.com/confusius-tools/confusius/pull/235)).
 
 ### :books: Documentation
 
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
+- The [same-subject registration
+  example](examples/_built/registration/register_volume_same_subject.md) now follows
+  the rigid registration step with a B-spline refinement, showing the extra local
+  correction it adds and how its parameters differ from the rigid step's
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 
 ## 0.4.0
 
