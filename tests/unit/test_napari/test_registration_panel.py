@@ -36,7 +36,12 @@ from confusius.registration import RegistrationDiagnostics, resample_like
 
 
 @pytest.fixture
-def viewer(make_napari_viewer):
+def viewer(make_napari_viewer_proxy):
+    return make_napari_viewer_proxy()
+
+
+@pytest.fixture
+def real_viewer(make_napari_viewer):
     return make_napari_viewer()
 
 
@@ -45,6 +50,13 @@ def registration_panel(viewer):
     from confusius._napari._registration._panel import RegistrationPanel
 
     return RegistrationPanel(viewer)
+
+
+@pytest.fixture
+def real_registration_panel(real_viewer):
+    from confusius._napari._registration._panel import RegistrationPanel
+
+    return RegistrationPanel(real_viewer)
 
 
 def _FakeDiagnostics(
@@ -259,7 +271,7 @@ class TestOperationMode:
         assert registration_panel._scale_combo.currentText() == "decibel"
 
     def test_scale_preprocessing_resets_gamma_for_previews(
-        self, viewer, registration_panel
+        self, real_viewer, real_registration_panel
     ):
         moving_data = xr.DataArray(
             np.ones((4, 6), dtype=np.float32),
@@ -274,13 +286,13 @@ class TestOperationMode:
             dims=["y", "x"],
             coords=moving_data.coords,
         )
-        moving = viewer.add_image(moving_data.values, name="moving")
-        fixed_layer = viewer.add_image(fixed.values, name="fixed")
+        moving = real_viewer.add_image(moving_data.values, name="moving")
+        fixed_layer = real_viewer.add_image(fixed.values, name="fixed")
         moving.gamma = 0.4
         fixed_layer.gamma = 0.6
 
         create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -288,13 +300,13 @@ class TestOperationMode:
             layer_name="Registered (rigid)",
             scale_mode="sqrt",
         )
-        assert viewer.layers["Fixed"].gamma == pytest.approx(1.0)
-        assert viewer.layers["Moving"].gamma == pytest.approx(1.0)
-        assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
+        assert real_viewer.layers["Fixed"].gamma == pytest.approx(1.0)
+        assert real_viewer.layers["Moving"].gamma == pytest.approx(1.0)
+        assert real_viewer.layers["Registered (rigid)"].gamma == pytest.approx(1.0)
 
-        teardown_volume_progress(registration_panel)
+        teardown_volume_progress(real_registration_panel)
         create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -302,12 +314,12 @@ class TestOperationMode:
             layer_name="Registered (rigid)",
             scale_mode="off",
         )
-        assert viewer.layers["Fixed"].gamma == pytest.approx(0.6)
-        assert viewer.layers["Moving"].gamma == pytest.approx(0.4)
-        assert viewer.layers["Registered (rigid)"].gamma == pytest.approx(0.4)
+        assert real_viewer.layers["Fixed"].gamma == pytest.approx(0.6)
+        assert real_viewer.layers["Moving"].gamma == pytest.approx(0.4)
+        assert real_viewer.layers["Registered (rigid)"].gamma == pytest.approx(0.4)
 
     def test_create_volume_progress_plotter_preserves_camera_view(
-        self, viewer, registration_panel
+        self, real_viewer, real_registration_panel
     ):
         moving_data = xr.DataArray(
             np.ones((5, 4, 6), dtype=np.float32),
@@ -323,17 +335,21 @@ class TestOperationMode:
             dims=["z", "y", "x"],
             coords=moving_data.coords,
         )
-        moving = viewer.add_image(moving_data.values, name="moving")
-        fixed_layer = viewer.add_image(fixed.values, name="fixed")
+        moving = real_viewer.add_image(moving_data.values, name="moving")
+        fixed_layer = real_viewer.add_image(fixed.values, name="fixed")
 
         # User navigates to a custom 3D view before launching the run.
-        viewer.dims.ndisplay = 3
-        viewer.camera.center = (1.0, 2.0, 3.0)
-        viewer.camera.zoom = 7.0
-        before = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
+        real_viewer.dims.ndisplay = 3
+        real_viewer.camera.center = (1.0, 2.0, 3.0)
+        real_viewer.camera.zoom = 7.0
+        before = (
+            tuple(real_viewer.camera.center),
+            real_viewer.camera.zoom,
+            real_viewer.dims.ndisplay,
+        )
 
         create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -342,7 +358,11 @@ class TestOperationMode:
             scale_mode="off",
         )
 
-        after = (tuple(viewer.camera.center), viewer.camera.zoom, viewer.dims.ndisplay)
+        after = (
+            tuple(real_viewer.camera.center),
+            real_viewer.camera.zoom,
+            real_viewer.dims.ndisplay,
+        )
         assert after == before
 
     def test_metric_specific_rows_follow_metric(self, registration_panel):
@@ -791,25 +811,27 @@ class TestAbort:
 
 
 class TestValidation:
-    def test_same_moving_and_fixed_is_flagged(self, viewer, registration_panel):
-        viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="same")
-        registration_panel._refresh_layers()
-        registration_panel._moving_combo.setCurrentText("same")
-        registration_panel._fixed_combo.setCurrentText("same")
+    def test_same_moving_and_fixed_is_flagged(
+        self, real_viewer, real_registration_panel
+    ):
+        real_viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="same")
+        real_registration_panel._refresh_layers()
+        real_registration_panel._moving_combo.setCurrentText("same")
+        real_registration_panel._fixed_combo.setCurrentText("same")
 
-        assert not registration_panel._validate_registration_selection()
-        assert not registration_panel._layer_validation.isHidden()
-        assert "must be different" in registration_panel._layer_validation.text()
+        assert not real_registration_panel._validate_registration_selection()
+        assert not real_registration_panel._layer_validation.isHidden()
+        assert "must be different" in real_registration_panel._layer_validation.text()
 
     def test_between_scans_with_single_layer_flags_fixed(
-        self, viewer, registration_panel
+        self, real_viewer, real_registration_panel
     ):
-        viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="only")
-        registration_panel._refresh_layers()
-        registration_panel._moving_combo.setCurrentText("only")
+        real_viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="only")
+        real_registration_panel._refresh_layers()
+        real_registration_panel._moving_combo.setCurrentText("only")
 
-        assert not registration_panel._validate_registration_selection()
-        assert "must be different" in registration_panel._layer_validation.text()
+        assert not real_registration_panel._validate_registration_selection()
+        assert "must be different" in real_registration_panel._layer_validation.text()
 
     def test_within_scan_requires_time_dimension(self, viewer, registration_panel):
         viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="vol")
@@ -1253,10 +1275,10 @@ class TestTransforms:
 
 
 class TestPluginWidget:
-    def test_registration_panel_is_present_in_main_widget(self, viewer):
+    def test_registration_panel_is_present_in_main_widget(self, real_viewer):
         from confusius._napari._widget import ConfUSIusWidget
 
-        widget = ConfUSIusWidget(viewer)
+        widget = ConfUSIusWidget(real_viewer)
 
         assert "Registration" in widget._accordion_panels
 
@@ -1454,7 +1476,7 @@ class TestFinishedCallbacks:
         )
 
     def test_volume_result_replaces_preview_layer(
-        self, viewer, registration_panel, qtbot
+        self, real_viewer, real_registration_panel, qtbot
     ):
         """A preview layer created by `create_volume_progress_plotter` is removed
         after `_on_registration_finished` so the final result is the only
@@ -1467,7 +1489,9 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        moving = real_viewer.add_image(
+            np.zeros((4, 6), dtype=np.float32), name="moving"
+        )
         fixed = xr.DataArray(
             np.ones((4, 6), dtype=np.float32),
             dims=["y", "x"],
@@ -1476,10 +1500,12 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        fixed_layer = viewer.add_image(np.ones((4, 6), dtype=np.float32), name="fixed")
+        fixed_layer = real_viewer.add_image(
+            np.ones((4, 6), dtype=np.float32), name="fixed"
+        )
 
         factory = create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -1489,21 +1515,21 @@ class TestFinishedCallbacks:
         )
         assert factory is not None
         assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
-            {layer.name for layer in viewer.layers}
+            {layer.name for layer in real_viewer.layers}
         )
-        assert registration_panel._progress_layer is not None
-        assert registration_panel._progress_bridge is not None
-        assert registration_panel._progress_fixed_layer is not None
-        assert registration_panel._progress_moving_layer is not None
+        assert real_registration_panel._progress_layer is not None
+        assert real_registration_panel._progress_bridge is not None
+        assert real_registration_panel._progress_fixed_layer is not None
+        assert real_registration_panel._progress_moving_layer is not None
         # Original layers are left untouched.
         assert fixed_layer.colormap.name != "red"
         assert moving.colormap.name != "cyan"
         assert moving.blending != "additive"
         assert moving.visible
         # Dedicated preview layers carry the registration styling.
-        fixed_preview = viewer.layers["Fixed"]
-        moving_preview = viewer.layers["Moving"]
-        preview_layer = viewer.layers["Registered (rigid)"]
+        fixed_preview = real_viewer.layers["Fixed"]
+        moving_preview = real_viewer.layers["Moving"]
+        preview_layer = real_viewer.layers["Registered (rigid)"]
         assert fixed_preview.colormap.name == "red"
         assert moving_preview.colormap.name == "cyan"
         assert moving_preview.blending == "additive"
@@ -1536,7 +1562,7 @@ class TestFinishedCallbacks:
             "resample_interpolation": "linear",
         }
         on_registration_finished(
-            registration_panel,
+            real_registration_panel,
             payload,
             (registered, transform, diagnostics),
         )
@@ -1544,13 +1570,13 @@ class TestFinishedCallbacks:
         # The resampled preview is kept and promoted to the final registered
         # layer so the user can keep reviewing the fixed / moving / result
         # stack after the run.
-        assert registration_panel._progress_layer is None
-        assert registration_panel._progress_bridge is None
+        assert real_registration_panel._progress_layer is None
+        assert real_registration_panel._progress_bridge is None
         assert {"Fixed", "Moving", "Registered (rigid)"}.issubset(
-            {layer.name for layer in viewer.layers}
+            {layer.name for layer in real_viewer.layers}
         )
-        assert not viewer.layers["Moving"].visible
-        result_layer = viewer.layers["Registered (rigid)"]
+        assert not real_viewer.layers["Moving"].visible
+        result_layer = real_viewer.layers["Registered (rigid)"]
         assert result_layer.colormap.name == "cyan"
         assert result_layer.blending == "additive"
         # Original source layers remain untouched.
@@ -1564,7 +1590,7 @@ class TestFinishedCallbacks:
         )
 
     def test_create_volume_progress_plotter_applies_initial_transform_to_preview_layers(
-        self, viewer, registration_panel
+        self, real_viewer, real_registration_panel
     ):
         moving_data = xr.DataArray(
             np.arange(24, dtype=np.float32).reshape(4, 6),
@@ -1574,20 +1600,22 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        moving = viewer.add_image(moving_data.values, name="moving")
+        moving = real_viewer.add_image(moving_data.values, name="moving")
         fixed = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
             dims=["y", "x"],
             coords=moving_data.coords,
         )
-        fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
+        fixed_layer = real_viewer.add_image(
+            np.zeros((4, 6), dtype=np.float32), name="fixed"
+        )
         initial_transform = np.array(
             [[1.0, 0.0, 0.2], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
             dtype=float,
         )
 
         create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -1599,16 +1627,16 @@ class TestFinishedCallbacks:
 
         expected = resample_like(moving_data, fixed, initial_transform)
         np.testing.assert_allclose(
-            np.asarray(viewer.layers["Moving"].data),
+            np.asarray(real_viewer.layers["Moving"].data),
             np.asarray(expected.data),
         )
         np.testing.assert_allclose(
-            np.asarray(viewer.layers["Registered (rigid)"].data),
+            np.asarray(real_viewer.layers["Registered (rigid)"].data),
             np.asarray(expected.data),
         )
 
     def test_progress_layer_data_updates_on_iteration(
-        self, viewer, registration_panel, qtbot
+        self, real_viewer, real_registration_panel, qtbot
     ):
         """`_update_progress_layer` writes the iterated array into the preview
         layer's data, refreshing the canvas."""
@@ -1620,7 +1648,9 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        moving = real_viewer.add_image(
+            np.zeros((4, 6), dtype=np.float32), name="moving"
+        )
         fixed = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
             dims=["y", "x"],
@@ -1629,10 +1659,12 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
+        fixed_layer = real_viewer.add_image(
+            np.zeros((4, 6), dtype=np.float32), name="fixed"
+        )
 
         create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -1642,36 +1674,38 @@ class TestFinishedCallbacks:
         )
         # The preview is seeded with the moving image resampled onto the
         # fixed grid, so it's visible and meaningful from the start.
-        preview_layer = viewer.layers["Registered (rigid)"]
+        preview_layer = real_viewer.layers["Registered (rigid)"]
         assert preview_layer.visible
 
         next_arr = np.full((4, 6), 0.5, dtype=np.float32)
-        update_progress_layer(registration_panel, next_arr)
+        update_progress_layer(real_registration_panel, next_arr)
 
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["Registered (rigid)"].data), next_arr
+            np.asarray(real_viewer.layers["Registered (rigid)"].data), next_arr
         )
 
         # Shape mismatch is silently ignored.
-        update_progress_layer(registration_panel, np.zeros((3, 6), dtype=np.float32))
+        update_progress_layer(
+            real_registration_panel, np.zeros((3, 6), dtype=np.float32)
+        )
         np.testing.assert_array_equal(
-            np.asarray(viewer.layers["Registered (rigid)"].data), next_arr
+            np.asarray(real_viewer.layers["Registered (rigid)"].data), next_arr
         )
 
         # Teardown removes only the in-flight registered layer while leaving
         # the reusable fixed / moving previews and originals untouched.
-        teardown_volume_progress(registration_panel)
-        assert registration_panel._progress_layer is None
-        assert registration_panel._progress_bridge is None
-        assert "Registered (rigid)" not in {layer.name for layer in viewer.layers}
-        assert "Fixed" in {layer.name for layer in viewer.layers}
-        assert "Moving" in {layer.name for layer in viewer.layers}
+        teardown_volume_progress(real_registration_panel)
+        assert real_registration_panel._progress_layer is None
+        assert real_registration_panel._progress_bridge is None
+        assert "Registered (rigid)" not in {layer.name for layer in real_viewer.layers}
+        assert "Fixed" in {layer.name for layer in real_viewer.layers}
+        assert "Moving" in {layer.name for layer in real_viewer.layers}
         assert moving.visible
         assert moving.colormap.name != "cyan"
         assert moving.blending != "additive"
 
     def test_create_volume_progress_plotter_creates_metric_plotter_dock(
-        self, viewer, registration_panel
+        self, real_viewer, real_registration_panel
     ):
         """`create_volume_progress_plotter` lazily creates and docks the metric plotter."""
         moving_data = xr.DataArray(
@@ -1682,7 +1716,9 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        moving = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="moving")
+        moving = real_viewer.add_image(
+            np.zeros((4, 6), dtype=np.float32), name="moving"
+        )
         fixed = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
             dims=["y", "x"],
@@ -1691,13 +1727,15 @@ class TestFinishedCallbacks:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        fixed_layer = viewer.add_image(np.zeros((4, 6), dtype=np.float32), name="fixed")
+        fixed_layer = real_viewer.add_image(
+            np.zeros((4, 6), dtype=np.float32), name="fixed"
+        )
 
-        assert registration_panel._metric_plotter is None
-        assert registration_panel._metric_dock is None
+        assert real_registration_panel._metric_plotter is None
+        assert real_registration_panel._metric_dock is None
 
         create_volume_progress_plotter(
-            registration_panel,
+            real_registration_panel,
             moving_layer=moving,
             fixed_layer=fixed_layer,
             moving=moving_data,
@@ -1706,24 +1744,24 @@ class TestFinishedCallbacks:
             scale_mode="off",
         )
 
-        assert registration_panel._metric_plotter is not None
-        assert registration_panel._metric_dock is not None
+        assert real_registration_panel._metric_plotter is not None
+        assert real_registration_panel._metric_dock is not None
         # The plotter is parented to a dock (i.e. it has been re-parented
         # away from its original parent).
-        assert registration_panel._metric_plotter.parent() is not None
+        assert real_registration_panel._metric_plotter.parent() is not None
 
         # Feeding a value through the bridge populates the plotter's buffer.
-        bridge = registration_panel._progress_bridge
+        bridge = real_registration_panel._progress_bridge
         assert bridge is not None
         bridge.metric_updated.emit(0.5)
         # Force a render so the throttled redraw is observed synchronously.
-        registration_panel._metric_plotter._render()
-        assert registration_panel._metric_plotter.metric_values == [0.5]
+        real_registration_panel._metric_plotter._render()
+        assert real_registration_panel._metric_plotter.metric_values == [0.5]
 
         # Tearing down keeps the plotter (so the user can inspect the trace).
-        teardown_volume_progress(registration_panel)
-        assert registration_panel._metric_plotter is not None
-        assert registration_panel._metric_plotter.metric_values == [0.5]
+        teardown_volume_progress(real_registration_panel)
+        assert real_registration_panel._metric_plotter is not None
+        assert real_registration_panel._metric_plotter.metric_values == [0.5]
 
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
         registered = xr.DataArray(

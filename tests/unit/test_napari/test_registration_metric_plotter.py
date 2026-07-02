@@ -6,12 +6,12 @@ import pytest
 
 
 @pytest.fixture
-def registration_metric_plotter(make_napari_viewer):
+def registration_metric_plotter(make_napari_viewer_proxy):
     from confusius._napari._registration._metric_plotter import (
         RegistrationMetricPlotter,
     )
 
-    viewer = make_napari_viewer()
+    viewer = make_napari_viewer_proxy()
     return RegistrationMetricPlotter(viewer)
 
 
