@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import pooch
 import requests
@@ -90,7 +90,7 @@ def get_index(
     project_id: str,
     bids_root: str,
     refresh: bool = False,
-) -> dict[str, Any]:
+) -> dict[str, OsfFileInfo]:
     """Return the dataset index, preferring a locally cached copy.
 
     When `refresh` is `False` and a cached index exists in `data_dir`,
@@ -113,10 +113,12 @@ def get_index(
 
     Returns
     -------
-    dict[str, Any]
-        Mapping from BIDS-relative file paths to OSF-side identifiers.
-        The value schema is dataset-specific; callers narrow the type at
-        their assignment site.
+    dict[str, OsfFileInfo]
+        Mapping from BIDS-relative file paths to
+        [`OsfFileInfo`][confusius.datasets._osf.OsfFileInfo] entries (`osf_path` and
+        `size` in bytes). The schema is the same for every dataset: the index is
+        produced by the per-dataset upload script in the confusius-tools GitHub
+        organisation and stored on OSF as `dataset_index.json`.
     """
     index_path = data_dir / _INDEX_FILENAME
     if not refresh and index_path.exists():
