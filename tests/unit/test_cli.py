@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 class TestBuildParser:
-    """The CLI parser accepts zero, one, or many positional paths."""
+    """The default parser accepts zero, one, or many positional paths."""
 
     def test_no_path(self) -> None:
         from confusius._cli import build_parser
@@ -40,6 +40,49 @@ class TestBuildParser:
         ns = build_parser().parse_args(["fixed.nii", "--lazy", "--video", "v.mp4"])
         assert ns.lazy is True
         assert ns.video == Path("v.mp4")
+
+
+class TestDatasetsNamespace:
+    """The `datasets` namespace parses `--list` and dispatches to `list_datasets`."""
+
+    def test_list_flag_parsed(self) -> None:
+        from confusius._cli import build_datasets_parser
+
+        ns = build_datasets_parser().parse_args(["--list"])
+        assert ns.list is True
+
+    def test_list_defaults_false(self) -> None:
+        from confusius._cli import build_datasets_parser
+
+        ns = build_datasets_parser().parse_args([])
+        assert ns.list is False
+
+    def test_run_datasets_list_calls_list_datasets(self, monkeypatch) -> None:
+        import confusius.datasets
+        from confusius._cli import build_datasets_parser, run_datasets
+
+        called = False
+
+        def fake_list_datasets() -> None:
+            nonlocal called
+            called = True
+
+        monkeypatch.setattr(confusius.datasets, "list_datasets", fake_list_datasets)
+        run_datasets(build_datasets_parser().parse_args(["--list"]))
+        assert called
+
+    def test_main_dispatches_to_datasets(self, monkeypatch) -> None:
+        import confusius._cli as cli
+
+        seen = {}
+
+        def fake_run_datasets(args) -> None:
+            seen["list"] = args.list
+
+        monkeypatch.setattr("sys.argv", ["confusius", "datasets", "--list"])
+        monkeypatch.setattr(cli, "run_datasets", fake_run_datasets)
+        cli.main()
+        assert seen == {"list": True}
 
 
 class TestRun:
