@@ -47,17 +47,11 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius.registration._utils import expand_thin_dims
+from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
 from confusius.registration.affines import affine_to_sitk_linear_transform
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
-
-DISPLACEMENT_FIELD_INVERSION_ITERATIONS = 20
-"""Number of fixed-point iterations used by `InvertDisplacementFieldImageFilter`."""
-
-DISPLACEMENT_FIELD_INVERSION_MAX_ERROR = 0.1
-"""Maximum error tolerance (mm) used by `InvertDisplacementFieldImageFilter`."""
 
 
 def sitk_bspline_to_dataarray(
@@ -284,6 +278,7 @@ def bspline_to_displacement_field(
     spacing: Sequence[float],
     origin: Sequence[float],
     dims: Sequence[str],
+    sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Sample a B-spline (or composite) transform into a dense displacement field.
 
@@ -300,6 +295,10 @@ def bspline_to_displacement_field(
         dimension order.
     dims : sequence of str
         Dimension names of the output displacement field.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use internally. Negative values resolve to
+        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        means all minus one, and so on.
 
     Returns
     -------
@@ -318,7 +317,8 @@ def bspline_to_displacement_field(
 
     field_filter = sitk.TransformToDisplacementFieldFilter()
     field_filter.SetReferenceImage(ref)
-    field_sitk = field_filter.Execute(tx)
+    with set_sitk_thread_count(sitk_threads):
+        field_sitk = field_filter.Execute(tx)
 
     return _sitk_displacement_field_to_dataarray(
         field_sitk, shape, spacing, origin, dims
@@ -328,8 +328,9 @@ def bspline_to_displacement_field(
 def invert_displacement_field(
     field: xr.DataArray,
     *,
-    max_iterations: int = DISPLACEMENT_FIELD_INVERSION_ITERATIONS,
-    max_error_tolerance: float = DISPLACEMENT_FIELD_INVERSION_MAX_ERROR,
+    max_iterations: int = 20,
+    max_error_tolerance: float = 0.1,
+    sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Invert a dense displacement field DataArray with SimpleITK.
 
@@ -347,6 +348,10 @@ def invert_displacement_field(
         Maximum number of fixed-point iterations.
     max_error_tolerance : float, default: 0.1
         Maximum error tolerance (mm) at which the solver is considered converged.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use internally. Negative values resolve to
+        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        means all minus one, and so on.
 
     Returns
     -------
@@ -365,19 +370,20 @@ def invert_displacement_field(
 
     field_sitk = _dataarray_to_sitk_displacement_field(field)
 
-    # InvertDisplacementFieldImageFilter needs a real spatial neighborhood along
-    # every axis and silently returns an all-zero field otherwise -- exactly the
-    # case for fUSI data stored as a single 2D slice, e.g. (1, y, x). Reuse the same
-    # expand-then-crop trick register_volume already uses for its own thin-dimension
-    # images (see expand_thin_dims): a degenerate axis has no spatial variation to
-    # invert against anyway, so replicating its one slice and cropping back down
-    # afterward is lossless.
-    expanded = expand_thin_dims(field_sitk)
-
     invert_filter = sitk.InvertDisplacementFieldImageFilter()
     invert_filter.SetMaximumNumberOfIterations(max_iterations)
     invert_filter.SetMaxErrorToleranceThreshold(max_error_tolerance)
-    inverted_expanded = invert_filter.Execute(expanded)
+
+    with set_sitk_thread_count(sitk_threads):
+        # InvertDisplacementFieldImageFilter needs a real spatial neighborhood along
+        # every axis and silently returns an all-zero field otherwise -- exactly the
+        # case for fUSI data stored as a single 2D slice, e.g. (1, y, x). Reuse the
+        # same expand-then-crop trick register_volume already uses for its own
+        # thin-dimension images (see expand_thin_dims): a degenerate axis has no
+        # spatial variation to invert against anyway, so replicating its one slice
+        # and cropping back down afterward is lossless.
+        expanded = expand_thin_dims(field_sitk)
+        inverted_expanded = invert_filter.Execute(expanded)
 
     expanded_shape = list(inverted_expanded.GetSize())
     if expanded_shape != shape:
