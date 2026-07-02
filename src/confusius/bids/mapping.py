@@ -100,11 +100,25 @@ CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
         "axial_velocity_absolute",
         "axial_velocity_spatial_kernel",
         "axial_velocity_estimation_method",
+        "dim4_name",
+        "dim4_coordinates",
+        "dim4_attrs",
+        "dim5_name",
+        "dim5_coordinates",
+        "dim5_attrs",
+        "dim6_name",
+        "dim6_coordinates",
+        "dim6_attrs",
     }
 )
 """ConfUSIus-only fields that should be prefixed with `ConfUSIus` in BIDS.
 
 These are stored with ConfUSIus prefix in PascalCase in the sidecar.
+
+The `dim{N}_name`, `dim{N}_coordinates`, and `dim{N}_attrs` fields (with `N` in 4, 5, 6)
+carry the original dimension name, coordinate values, and coordinate attrs for the
+corresponding extra NIfTI axis after `(x, y, z, time)`. They round-trip through BIDS as
+`ConfUSIusDim{N}Name`, `ConfUSIusDim{N}Coordinates`, and `ConfUSIusDim{N}Attrs`.
 """
 
 _CONFUSIUS_INTERNAL_TO_BIDS: Final[dict[str, str]] = {
