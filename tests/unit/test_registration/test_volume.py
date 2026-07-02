@@ -846,9 +846,10 @@ class TestDisplacementField:
         inverse_field = invert_displacement_field(field)
 
         # The degenerate z axis has no spatial variation to invert against, so its
-        # displacement component is exactly zero -- but y/x must be genuinely
-        # inverted, not silently zeroed out along with it.
-        assert_allclose(inverse_field.values[0], 0.0)
+        # displacement component is ~zero (platform-dependent floating-point noise,
+        # not exactly 0.0) -- but y/x must be genuinely inverted, not silently
+        # zeroed out along with it.
+        assert_allclose(inverse_field.values[0], 0.0, atol=1e-9)
         assert np.abs(inverse_field.values[1:]).max() > 0.1
 
 
