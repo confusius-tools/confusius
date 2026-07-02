@@ -6,6 +6,8 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS
+from confusius._utils.coordinates import get_affine_in_axis_aligned_space
+from confusius.registration.affines import decompose_affine
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -66,43 +68,50 @@ def apply_affine(
     da: xr.DataArray,
     affine: "npt.NDArray[np.float64]",
     inplace: bool = False,
-) -> xr.DataArray:
-    """Apply a rigid affine to a DataArray's spatial coordinates.
+) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
+    """Apply an affine to a DataArray's spatial coordinates.
 
-    Only axis-aligned transforms are supported: the rotation block of `affine` must be
-    diagonal (each output axis maps to exactly one input axis, possibly with a sign flip
-    and a scale factor).  Transforms that mix axes (e.g. a 45° rotation) cannot be
-    represented as independent 1D coordinate arrays and therefore raise `ValueError`.
-    For such cases, resample the data instead.
+    A diagonal affine (any per-axis scale or sign flip, plus translation) maps
+    each spatial axis to itself and updates the independent 1D `z`, `y`, `x`
+    coordinate arrays: `new_coord = scale * old_coord + translation`. The whole
+    transform is absorbed into the coordinates, so the returned orientation is
+    the identity.
 
-    All stored affines in `da.attrs["affines"]` are updated by composing `affine` on the
-    right, keeping them valid in the new coordinate frame. Per-pose `(npose, 4, 4)`
-    stacks are handled correctly: `affine` is applied to each pose's `(4, 4)` slice
-    independently via broadcasting.
+    An affine that mixes axes (a rotation, shear, or axis permutation) cannot be
+    expressed as independent 1D coordinates. The coordinates then absorb only the
+    axis-aligned zoom and translation, and the residual orientation is returned
+    as a 4x4 affine mapping the new physical coordinates to the affine's target
+    world frame (`orientation @ new_physical == affine @ old_physical`). The
+    caller decides what to do with it (compose it with a stored affine, store it
+    under a key of their choosing, or ignore it).
+
+    All affines already in `da.attrs["affines"]` are re-expressed against the new
+    coordinate frame so they remain valid. Per-pose `(npose, 4, 4)` stacks are handled
+    per pose via broadcasting.
 
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan.  Must have at least one of `"z"`, `"y"`, `"x"` as dimensions with
-        associated 1D coordinates.
+        Input scan. Must have at least one of `"z"`, `"y"`, `"x"` as dimensions
+        with associated 1D coordinates.
     affine : numpy.ndarray, shape (4, 4)
-        Homogeneous affine matrix to apply.  The rotation block `affine[:3, :3]` must be
-        diagonal.
+        Homogeneous affine matrix to apply.
     inplace : bool, default: False
         Whether to modify the DataArray in-place.
 
     Returns
     -------
-    xarray.DataArray
+    result : xarray.DataArray
         `da` with updated spatial coordinates and updated `attrs["affines"]`.
+    orientation : (4, 4) numpy.ndarray
+        The residual orientation the coordinates could not absorb, mapping the
+        new physical coordinates to the affine's target world frame. The identity
+        when `affine` is diagonal.
 
     Raises
     ------
     ValueError
         If `affine` is not shape `(4, 4)`.
-    ValueError
-        If the rotation block of `affine` is not diagonal (axis-mixing
-        detected).  Use resampling for non-axis-aligned transforms.
 
     Examples
     --------
@@ -116,7 +125,7 @@ def apply_affine(
     ... )
     >>> shift = np.eye(4)
     >>> shift[:3, 3] = [10.0, 5.0, 0.0]
-    >>> result = data.fusi.affine.apply(shift)
+    >>> result, orientation = data.fusi.affine.apply(shift)
     >>> float(result.coords["z"].values[0])
     10.0
     """
@@ -124,56 +133,67 @@ def apply_affine(
     if affine.shape != (4, 4):
         raise ValueError(f"affine must have shape (4, 4), got {affine.shape}.")
 
-    rotation = affine[:3, :3]
-    off_diag_mask = ~np.eye(3, dtype=bool)
-    if np.any(np.abs(rotation[off_diag_mask]) > 1e-9):
-        raise ValueError(
-            "The rotation block of affine is not diagonal: this transform "
-            "mixes spatial axes and cannot be represented as independent 1D "
-            "coordinate arrays.  Use resampling for non-axis-aligned "
-            "transforms.\n"
-            f"Rotation block:\n{rotation}"
-        )
+    # Classify the transform from its decomposition A = R @ diag(Z) @ S:
+    #   - sign flips sit on the DIAGONAL of R (axis-aligned, not mixing),
+    #   - a true rotation or axis permutation fills R's OFF-diagonal,
+    #   - any shear is non-zero in S.
+    # A non-mixing affine is fully absorbed into the independent 1D coordinates;
+    # a mixing one absorbs only the axis-aligned zoom and leaves a residual
+    # orientation, which is returned to the caller.
+    translation, rotation, zoom, shear = decompose_affine(affine)
+    off_diagonal = rotation[~np.eye(3, dtype=bool)]
+    mixes_axes = bool(
+        np.any(np.abs(off_diagonal) > 1e-9) or np.any(np.abs(shear) > 1e-9)
+    )
 
-    # Apply the affine to each spatial dimension's 1D coordinate array.
-    # For a diagonal rotation the new coord for axis i is:
-    #   new_coord_i = rotation[i, i] * old_coord_i + translation[i]
+    if mixes_axes:
+        # When axes mix, the decomposition's signed zoom is not a canonical
+        # per-axis coordinate scaling: decompose_affine keeps `rotation`
+        # right-handed (`det(rotation) > 0`) by relocating any needed
+        # reflection into one zoom entry. Absorb only the zoom magnitudes into
+        # the independent 1D coordinates and leave permutations/reflections in
+        # the residual orientation.
+        zoom = np.abs(zoom)
+        orientation = get_affine_in_axis_aligned_space(affine, translation, zoom)
+    else:
+        # Diagonal affine: each axis keeps its own SIGNED scale. Use the raw
+        # diagonal, not the decomposed zoom -- decompose relocates a lone sign
+        # flip onto axis 0, which would otherwise flip the wrong coordinate. The
+        # coordinates absorb the whole transform, leaving no residual.
+        zoom = np.diag(affine[:3, :3])
+        orientation = np.eye(4)
+
+    # Apply the axis-aligned part to each present spatial dimension's 1D coords:
+    #   new_coord_i = zoom[i] * old_coord_i + translation[i].
     spatial_axes = [0, 1, 2]  # z, y, x map to affine rows 0, 1, 2.
     dim_names = list(SPATIAL_DIMS)
     new_coords = dict(da.coords)
-
     for axis, dim in zip(spatial_axes, dim_names):
         if dim not in da.dims:
             continue
         old_coord = da.coords[dim].values.astype(np.float64)
-        scale_factor = rotation[axis, axis]
-        translation = affine[axis, 3]
-        new_coord = scale_factor * old_coord + translation
+        new_coord = zoom[axis] * old_coord + translation[axis]
         new_coords[dim] = xr.DataArray(
             new_coord,
             dims=[dim],
             attrs=da.coords[dim].attrs,
         )
 
-    # Update all stored affines so they stay valid in the new coordinate frame.
-    # Each stored affine M satisfies: lab_pos = M @ physical_pos.
-    # After the coordinate change physical_pos_new = affine @ physical_pos_old,
-    # the updated affine M_new must satisfy: lab_pos = M_new @ physical_pos_new.
-    # Therefore: M_new = M_old @ inv(affine).
-    inv_affine = np.linalg.inv(affine)
-    new_affines: dict[str, "npt.NDArray[np.float64]"] = {}
+    # Re-express every stored affine against the new axis-aligned physical frame
+    # so it stays valid: M_new = M_old @ inv(axis_aligned(translation, zoom)).
+    # Per-pose (npose, 4, 4) stacks are handled via broadcasting in
+    # get_affine_in_axis_aligned_space.
     stored = da.attrs.get("affines", {})
-    for key, val in stored.items():
+    new_affines: dict[str, "npt.NDArray[np.float64]"] = {}
+    for stored_key, val in stored.items():
         arr = np.asarray(val, dtype=np.float64)
-        if arr.ndim == 2:
-            # Shape (4, 4): single affine.
-            new_affines[key] = arr @ inv_affine
-        elif arr.ndim == 3:
-            # Shape (npose, 4, 4): broadcast over poses.
-            new_affines[key] = arr @ inv_affine
+        if arr.ndim in (2, 3):
+            new_affines[stored_key] = get_affine_in_axis_aligned_space(
+                arr, translation, zoom
+            )
         else:
             # Unexpected shape: pass through unchanged.
-            new_affines[key] = arr
+            new_affines[stored_key] = arr
 
     new_attrs = {**da.attrs, "affines": new_affines}
     result = da.assign_coords(new_coords).assign_attrs(new_attrs)
@@ -182,8 +202,8 @@ def apply_affine(
         # in-place so callers holding a reference see the change.
         da.coords.update(result.coords)
         da.attrs.update(new_attrs)
-        return da
-    return result
+        return da, orientation
+    return result, orientation
 
 
 class FUSIAffineAccessor:
@@ -242,32 +262,49 @@ class FUSIAffineAccessor:
         return affine_to(self._obj, other, via)
 
     def apply(
-        self, affine: "npt.NDArray[np.float64]", inplace: bool = False
-    ) -> xr.DataArray:
-        """Apply an axis-aligned affine to the scan's spatial coordinates.
+        self,
+        affine: "npt.NDArray[np.float64]",
+        inplace: bool = False,
+    ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
+        """Apply an affine to the scan's spatial coordinates.
 
-        Updates `z`, `y`, and `x` coordinate arrays so that `plot_volume` places the
-        scan in the transformed frame without resampling data values. All affines stored
-        in `attrs["affines"]` are updated consistently.
+        A diagonal affine (any per-axis scale or sign flip, plus translation) maps
+        each spatial axis to itself and updates the independent 1D `z`, `y`, `x`
+        coordinate arrays: `new_coord = scale * old_coord + translation`. The whole
+        transform is absorbed into the coordinates, so the returned orientation is
+        the identity.
+
+        An affine that mixes axes (a rotation, shear, or axis permutation) cannot be
+        expressed as independent 1D coordinates. The coordinates then absorb only the
+        axis-aligned zoom and translation, and the residual orientation is returned
+        as a 4x4 affine mapping the new physical coordinates to the affine's target
+        world frame (`orientation @ new_physical == affine @ old_physical`). The
+        caller decides what to do with it.
+
+        All affines already in `attrs["affines"]` are re-expressed against the new
+        coordinate frame so they remain valid. Per-pose `(npose, 4, 4)` stacks are
+        handled per pose via broadcasting.
 
         Parameters
         ----------
         affine : numpy.ndarray, shape (4, 4)
-            Homogeneous affine matrix.  The rotation block must be diagonal
-            (axis-aligned transforms only).
+            Homogeneous affine matrix to apply.
         inplace : bool, default: False
             Whether to modify the DataArray in-place.
 
         Returns
         -------
-        xarray.DataArray
+        result : xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
+        orientation : (4, 4) numpy.ndarray
+            The residual orientation the coordinates could not absorb, mapping the
+            new physical coordinates to the affine's target world frame. The
+            identity when `affine` is diagonal.
 
         Raises
         ------
         ValueError
-            If `affine` shape is not `(4, 4)` or if the rotation block
-            mixes axes.
+            If `affine` shape is not `(4, 4)`.
 
         Examples
         --------
@@ -281,7 +318,7 @@ class FUSIAffineAccessor:
         ... )
         >>> shift = np.eye(4)
         >>> shift[:3, 3] = [10.0, 5.0, 0.0]
-        >>> result = data.fusi.affine.apply(shift)
+        >>> result, orientation = data.fusi.affine.apply(shift)
         >>> float(result.coords["z"].values[0])
         10.0
         """

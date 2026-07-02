@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 import pooch
 import requests
@@ -35,11 +35,7 @@ class OsfFileInfo(TypedDict):
     size: int
 
 
-def resolve_index_url(
-    project_id: str,
-    bids_root: str,
-    missing_index_hint: str | None = None,
-) -> str:
+def resolve_index_url(project_id: str, bids_root: str) -> str:
     """Return the OSF download URL for a dataset's index file.
 
     Makes two OSF API calls: one to locate the BIDS root folder within the
@@ -52,10 +48,6 @@ def resolve_index_url(
     bids_root : str
         Name of the BIDS root folder on OSF,
         e.g. `"nunez-elizalde-2022-bids"`.
-    missing_index_hint : str, optional
-        Additional sentence appended to the `RuntimeError` message when
-        the index file itself is not found on OSF. Useful for pointing
-        maintainers at the tool that generates the index.
 
     Returns
     -------
@@ -88,10 +80,9 @@ def resolve_index_url(
         if item["attributes"]["name"] == _INDEX_FILENAME:
             return item["links"]["download"]
 
-    message = f"{_INDEX_FILENAME!r} was not found on OSF (project {project_id})."
-    if missing_index_hint:
-        message = f"{message} {missing_index_hint}"
-    raise RuntimeError(message)
+    raise RuntimeError(
+        f"{_INDEX_FILENAME!r} was not found on OSF (project {project_id})."
+    )
 
 
 def get_index(
@@ -99,8 +90,7 @@ def get_index(
     project_id: str,
     bids_root: str,
     refresh: bool = False,
-    missing_index_hint: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, OsfFileInfo]:
     """Return the dataset index, preferring a locally cached copy.
 
     When `refresh` is `False` and a cached index exists in `data_dir`,
@@ -120,24 +110,21 @@ def get_index(
     refresh : bool, default: False
         If `True`, always re-fetch the latest index from OSF even if a
         local copy exists.
-    missing_index_hint : str, optional
-        Forwarded to
-        [`resolve_index_url`][confusius.datasets._osf.resolve_index_url].
 
     Returns
     -------
-    dict[str, Any]
-        Mapping from BIDS-relative file paths to OSF-side identifiers.
-        The value schema is dataset-specific; callers narrow the type at
-        their assignment site.
+    dict[str, OsfFileInfo]
+        Mapping from BIDS-relative file paths to
+        [`OsfFileInfo`][confusius.datasets._osf.OsfFileInfo] entries (`osf_path` and
+        `size` in bytes). The schema is the same for every dataset: the index is
+        produced by the per-dataset upload script in the confusius-tools GitHub
+        organisation and stored on OSF as `dataset_index.json`.
     """
     index_path = data_dir / _INDEX_FILENAME
     if not refresh and index_path.exists():
         return json.loads(index_path.read_text(encoding="utf-8"))
 
-    url = resolve_index_url(
-        project_id, bids_root, missing_index_hint=missing_index_hint
-    )
+    url = resolve_index_url(project_id, bids_root)
     response = requests.get(url)
     response.raise_for_status()
     index = response.json()

@@ -105,6 +105,31 @@ def test_build_index_preserves_section_order_from_input(tmp_path: Path) -> None:
     assert md.index("## IO") < md.index("## DECOMPOSITION")
 
 
+def test_build_index_flattens_links_in_summaries(tmp_path: Path) -> None:
+    """Relative links in a summary are flattened so they can't break the index page.
+
+    Summaries are copied verbatim onto the index page at the examples root, where an
+    example's relative cross-links (written against its own built page) would not
+    resolve and would fail ``zensical build --strict``.
+    """
+    src = tmp_path / "decomposition" / "nmf.py"
+    src.parent.mkdir(parents=True, exist_ok=True)
+    src.touch()
+    rendered = [
+        RenderedExample(
+            spec=_spec(src, "decomposition"),
+            title="NMF",
+            summary="Complements the [PCA](pca_single_recording.md) example.",
+            md_path=src.with_suffix(".md"),
+            thumbnail_light=None,
+            thumbnail_dark=None,
+        ),
+    ]
+    md = build_index(rendered, root=tmp_path)
+    assert "](pca_single_recording.md)" not in md
+    assert "Complements the PCA example." in md
+
+
 def test_build_index_demotes_h1_section_intros(tmp_path: Path) -> None:
     """Section intros starting with H1 are demoted to H2 so there's a single page title."""
     src = tmp_path / "io" / "ex.py"

@@ -110,6 +110,13 @@ guide](../user-guide/getting-started.md) for more detailed explanations and usag
     Voxel-wise GLM for first- and second-level analysis of fUSI data, including design
     matrix construction and contrast computation.
 
+- **[:lucide-sigma: Statistical Inference](stats.md)**
+
+    ---
+
+    Multiple-comparison correction and statistical-map thresholding utilities for
+    p-value maps and z-maps.
+
 - **[:lucide-brackets: Xarray Integration](xarray.md)**
 
     ---

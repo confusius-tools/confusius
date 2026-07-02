@@ -14,7 +14,7 @@ A B-spline deformation field is represented as a DataArray with:
       "affines":   {
           "bspline_initialization": [[...]]   # optional (N+1, N+1) pre-affine;
                                               # only present when register_volume
-                                              # was called with initial_transform.
+                                              # was called with affine initialization.
       }
   }
   ```

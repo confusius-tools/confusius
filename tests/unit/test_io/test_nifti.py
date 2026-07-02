@@ -746,6 +746,37 @@ class TestLoadNifti:
         assert da.attrs.get("custom_meta") == "test_value"
         assert da.attrs.get("acquisition") == "test_acq"
 
+    def test_load_nifti_preserves_sidecar_extra_affines(self, tmp_path: Path) -> None:
+        """Sidecar `ConfUSIusAffines` entries survive qform/sform merge (#221)."""
+        rng = np.random.default_rng(0)
+        data = rng.random((8, 6, 4)).astype(np.float32)
+        nifti_path = tmp_path / "extra_affines.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        extra_affine = [
+            [1.0, 0.0, 0.0, 0.5],
+            [0.0, 1.0, 0.0, -1.0],
+            [0.0, 0.0, 1.0, 2.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+        sidecar = {"ConfUSIusAffines": {"bspline_initialization": extra_affine}}
+        with open(tmp_path / "extra_affines.json", "w") as f:
+            json.dump(sidecar, f)
+
+        da = load_nifti(nifti_path)
+
+        assert "affines" in da.attrs
+        assert "bspline_initialization" in da.attrs["affines"]
+        np.testing.assert_allclose(
+            da.attrs["affines"]["bspline_initialization"], extra_affine
+        )
+        # The NIfTI header affines (qform/sform) must still be present alongside
+        # the sidecar entry.
+        nifti_affine_keys = {
+            k for k in da.attrs["affines"] if k.startswith("physical_to_")
+        }
+        assert nifti_affine_keys, "expected qform/sform from the NIfTI header"
+
     def test_load_nifti_invalid_sidecar_warns(self, tmp_path: Path) -> None:
         """Loading warns when the sidecar violates fUSI-BIDS validation rules."""
         data = np.arange(2 * 3 * 4 * 5, dtype=np.float32).reshape(2, 3, 4, 5)

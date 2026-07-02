@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import cast
 
 from ._osf import OsfFileInfo, download_missing_osf_files, get_index
 from ._utils import get_datasets_dir
@@ -293,10 +292,7 @@ def fetch_cybis_pereira_2026(
                 f"Valid options: {sorted(_VALID_DATATYPES)}"
             )
 
-    index = cast(
-        "dict[str, OsfFileInfo]",
-        get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh),
-    )
+    index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
     files = _filter_files(index, datasets, subjects, sessions, acqs, datatypes)
 
     download_missing_osf_files(bids_dir, files)

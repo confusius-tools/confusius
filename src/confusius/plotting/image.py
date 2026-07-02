@@ -733,7 +733,7 @@ class VolumePlotter:
         vmax: float | None = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
-        alpha: float = 1.0,
+        alpha: float | None = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         roi_labels: dict[int, str] | None = None,
@@ -779,8 +779,9 @@ class VolumePlotter:
             Threshold value for masking.
         threshold_mode : {"lower", "upper"}, default: "lower"
             Whether to mask values below or above threshold.
-        alpha : float, default: 1.0
-            Opacity of the image.
+        alpha : float, optional
+            Opacity of the image. If not provided, the colormap's own alpha
+            channel is respected.
         show_colorbar : bool, default: True
             Whether to add a colorbar.
         cbar_label : str, optional
@@ -969,7 +970,7 @@ class VolumePlotter:
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: Sequence[float] | None = None,
         match_coordinates: bool = False,
-        alpha: float = 1.0,
+        alpha: float | None = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -1037,8 +1038,9 @@ class VolumePlotter:
             If True, match slice coordinates to the stored coordinate mapping of an
             existing figure (for use as an overlay). If False, plot sequentially on
             a fresh grid of axes — the natural mode for a standalone composite plot.
-        alpha : float, default: 1.0
-            Opacity of the composite image.
+        alpha : float, optional
+            Opacity of the composite image. If not provided, the image is fully
+            opaque.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -1757,7 +1759,7 @@ def plot_volume(
     vmax: float | None = None,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
-    alpha: float = 1.0,
+    alpha: float | None = None,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
     roi_labels: dict[int, str] | None = None,
@@ -1817,8 +1819,9 @@ def plot_volume(
         - `"lower"`: set pixels where `|data| < threshold` to NaN.
         - `"upper"`: set pixels where `|data| > threshold` to NaN.
 
-    alpha : float, default: 1.0
-        Opacity of the image.
+    alpha : float, optional
+        Opacity of the image. If not provided, the colormap's own alpha channel
+        is respected.
     show_colorbar : bool, default: True
         Whether to add a shared colorbar to the figure.
     cbar_label : str, optional
@@ -1970,7 +1973,7 @@ def plot_composite(
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
     slice_coords: Sequence[float] | None = None,
     slice_mode: str = "z",
-    alpha: float = 1.0,
+    alpha: float | None = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
     show_axis_ticks: bool = True,
@@ -2038,8 +2041,9 @@ def plot_composite(
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
         panel must be 2D.
-    alpha : float, default: 1.0
-        Opacity of the composite image.
+    alpha : float, optional
+        Opacity of the composite image. If not provided, the image is fully
+        opaque.
     show_titles : bool, default: True
         Whether to display subplot titles showing the slice coordinate.
     show_axis_labels : bool, default: True

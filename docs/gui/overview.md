@@ -62,10 +62,10 @@ itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 ### Recommended: Data Panel and CLI
 
 The recommended way to open files is through the [Data Panel](plugin.md#data-io-panel) or
-by passing a path to the `confusius` command on launch:
+by passing one or multiple paths to the `confusius` command on launch:
 
 ```bash
-confusius path/to/data.zarr
+confusius path/to/data.zarr path/to/other/data.zarr
 ```
 
 Both routes use [`confusius.load()`][confusius.load] under the hood, which produces a
