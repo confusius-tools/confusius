@@ -39,6 +39,20 @@ from confusius._napari._registration._panel_parameters import (
     get_registration_parameters,
     set_registration_parameters,
 )
+from confusius._napari._registration._panel_selection import (
+    current_metric,
+    current_resample_interpolation,
+    current_scale_mode,
+    current_transform_model,
+    get_layer_by_name,
+    on_moving_layer_changed,
+    refresh_layers,
+    selected_layer,
+    set_layer_validation_style,
+    set_run_btn_enabled,
+    update_reference_time_bounds,
+    validate_registration_selection,
+)
 from confusius._napari._registration._panel_progress import (
     create_volume_progress_plotter,
     setup_volumewise_progress,
@@ -56,7 +70,6 @@ from confusius._napari._registration._panel_transforms import (
     load_transform,
     refresh_transform_controls,
     save_selected_transform,
-    validate_initial_transform_selection,
 )
 from confusius._napari._registration._transform_payloads import TransformPayload
 from confusius._napari._registration._panel_utils import (
@@ -889,169 +902,13 @@ class RegistrationPanel(QWidget):
             layer.events.affine.connect(self._refresh_transform_controls_callback)
             self._manual_transform_event_layers.append(layer)
 
-    def _refresh_layers(self) -> None:
-        """Repopulate the layer selectors from the viewer."""
-        moving_name = self._moving_combo.currentText()
-        fixed_name = self._fixed_combo.currentText()
-
-        layer_names = [
-            layer.name
-            for layer in self.viewer.layers
-            if _is_registration_source_layer(layer)
-        ]
-
-        self._moving_combo.blockSignals(True)
-        self._fixed_combo.blockSignals(True)
-        self._moving_combo.clear()
-        self._fixed_combo.clear()
-        self._moving_combo.addItems(layer_names)
-        self._fixed_combo.addItems(layer_names)
-        self._moving_combo.blockSignals(False)
-        self._fixed_combo.blockSignals(False)
-
-        moving_index = self._moving_combo.findText(moving_name)
-        if moving_index >= 0:
-            self._moving_combo.setCurrentIndex(moving_index)
-
-        fixed_index = self._fixed_combo.findText(fixed_name)
-        if fixed_index >= 0:
-            self._fixed_combo.setCurrentIndex(fixed_index)
-        elif (
-            self._fixed_combo.count() > 1
-            and self._fixed_combo.currentText() == self._moving_combo.currentText()
-        ):
-            self._fixed_combo.setCurrentIndex(1)
-
-        self._update_reference_time_bounds()
-        self._sync_manual_transform_event_connections()
-        refresh_transform_controls(self)
-        self._validate_registration_selection()
-
-    def _get_layer_by_name(self, name: str) -> Layer | None:
-        """Return a viewer layer by name, if present.
-
-        Parameters
-        ----------
-        name : str
-            Layer name to look up in the viewer.
-
-        Returns
-        -------
-        napari.layers.Layer or None
-            Matching layer when present, otherwise `None`.
-        """
-        try:
-            return cast("Layer", self.viewer.layers[name])
-        except KeyError:
-            return None
-
-    def _selected_layer(self, combo: QComboBox) -> Layer | None:
-        """Return the currently selected viewer layer for a combo box.
-
-        Parameters
-        ----------
-        combo : QComboBox
-            Combo box containing layer names.
-
-        Returns
-        -------
-        napari.layers.Layer or None
-            Selected layer, or `None` when no valid selection exists.
-        """
-        name = combo.currentText()
-        if not name:
-            return None
-        return self._get_layer_by_name(name)
-
-    def _current_scale_mode(self) -> ScaleMode:
-        """Return the validated registration scale mode from the combo box.
-
-        Returns
-        -------
-        {"off", "dB", "sqrt"}
-            Selected registration scale mode.
-
-        Raises
-        ------
-        ValueError
-            If the combo box contains an unexpected value.
-        """
-        value = self._scale_combo.currentData()
-        if value in {"off", "dB", "sqrt"}:
-            return value
-        raise ValueError(f"Unknown registration scale mode: {value!r}.")
-
-    def _current_metric(self) -> MetricName:
-        """Return the validated registration metric from the combo box.
-
-        Returns
-        -------
-        {"correlation", "mattes_mi"}
-            Selected registration metric.
-
-        Raises
-        ------
-        ValueError
-            If the combo box contains an unexpected value.
-        """
-        value = self._metric_combo.currentText()
-        if value == "correlation":
-            return "correlation"
-        if value == "mattes_mi":
-            return "mattes_mi"
-        raise ValueError(f"Unknown registration metric: {value!r}.")
-
-    def _current_resample_interpolation(self) -> ResampleInterpolation:
-        """Return the validated resampling interpolation from the combo box.
-
-        Returns
-        -------
-        {"linear", "bspline"}
-            Selected resampling interpolation.
-
-        Raises
-        ------
-        ValueError
-            If the combo box contains an unexpected value.
-        """
-        value = self._interpolation_combo.currentText()
-        if value == "linear":
-            return "linear"
-        if value == "bspline":
-            return "bspline"
-        raise ValueError(f"Unknown resampling interpolation: {value!r}.")
-
-    def _current_transform_model(self) -> VolumeTransformType | VolumewiseTransformType:
-        """Return the validated transform model for the active mode.
-
-        Returns
-        -------
-        {"translation", "rigid", "affine", "bspline"}
-            Selected transform model, constrained by the active workflow.
-
-        Raises
-        ------
-        ValueError
-            If the combo box contains an unexpected value.
-        """
-        value = self._transform_combo.currentText()
-        if self._operation() == "register_volume":
-            if value == "translation":
-                return "translation"
-            if value == "rigid":
-                return "rigid"
-            if value == "affine":
-                return "affine"
-            if value == "bspline":
-                return "bspline"
-        else:
-            if value == "translation":
-                return "translation"
-            if value == "rigid":
-                return "rigid"
-            if value == "affine":
-                return "affine"
-        raise ValueError(f"Unknown transform model: {value!r}.")
+    _refresh_layers = refresh_layers
+    _get_layer_by_name = get_layer_by_name
+    _selected_layer = selected_layer
+    _current_scale_mode = current_scale_mode
+    _current_metric = current_metric
+    _current_resample_interpolation = current_resample_interpolation
+    _current_transform_model = current_transform_model
 
     def _set_image_layer_data(self, layer: Image, data: npt.NDArray[Any]) -> None:
         """Assign image data despite the current napari stub mismatch.
@@ -1173,154 +1030,11 @@ class RegistrationPanel(QWidget):
         """Return the napari layer name for the within-scan moving preview."""
         return "Moving"
 
-    def _update_reference_time_bounds(self) -> None:
-        """Clamp the volumewise reference-time widget to the moving layer."""
-        moving_layer = self._selected_layer(self._moving_combo)
-        if moving_layer is None:
-            self._reference_time_spin.setMaximum(0)
-            self._reference_time_spin.setValue(0)
-            return
-
-        data = _get_source_dataarray(moving_layer)
-        if TIME_DIM not in data.dims:
-            self._reference_time_spin.setMaximum(0)
-            self._reference_time_spin.setValue(0)
-            return
-
-        self._reference_time_spin.setMaximum(max(0, data.sizes[TIME_DIM] - 1))
-
-    def _set_layer_validation_style(
-        self,
-        *,
-        moving_invalid: bool = False,
-        fixed_invalid: bool = False,
-        message: str | None = None,
-    ) -> None:
-        """Update inline validation state for the layer selectors."""
-        error_style = "border: 1px solid #e05555;"
-        normal_style = ""
-        self._moving_combo.setStyleSheet(
-            error_style if moving_invalid else normal_style
-        )
-        self._fixed_combo.setStyleSheet(error_style if fixed_invalid else normal_style)
-        self._moving_label.setStyleSheet("color: #e05555;" if moving_invalid else "")
-        self._fixed_label.setStyleSheet("color: #e05555;" if fixed_invalid else "")
-        self._reference_time_label.setStyleSheet("")
-        if message:
-            self._layer_validation.setText(message)
-            self._layer_validation.show()
-        else:
-            self._layer_validation.hide()
-            self._layer_validation.clear()
-
-    def _set_run_btn_enabled(self, enabled: bool) -> None:
-        """Enable or disable the Run button without changing its busy text.
-
-        The button is also disabled in `_begin_work` while a registration is
-        running; this helper only handles the idle-state gating driven by
-        layer-selection validation.
-        """
-        # Don't override the busy state.
-        if self._run_btn.text() == "Registering…":
-            return
-        self._run_btn.setEnabled(enabled)
-
-    def _validate_registration_selection(self) -> bool:
-        """Validate the current registration-layer selection and show inline feedback.
-
-        Returns
-        -------
-        bool
-            `True` when the selection is valid and a registration can be
-            started, `False` otherwise. As a side effect, the Run button is
-            enabled/disabled to match the validation result.
-        """
-        moving_layer = self._selected_layer(self._moving_combo)
-        fixed_layer = self._selected_layer(self._fixed_combo)
-        operation = self._operation()
-
-        if moving_layer is None:
-            self._set_layer_validation_style()
-            self._set_run_btn_enabled(False)
-            return False
-
-        try:
-            moving = _get_source_dataarray(moving_layer)
-        except Exception:
-            self._set_layer_validation_style(
-                moving_invalid=True,
-                message="Could not read the selected moving layer.",
-            )
-            self._set_run_btn_enabled(False)
-            return False
-
-        if operation == "register_volumewise":
-            if TIME_DIM not in moving.dims:
-                self._set_layer_validation_style(
-                    moving_invalid=True,
-                    message="Within-scan registration requires a layer with a time dimension.",
-                )
-                self._set_run_btn_enabled(False)
-                return False
-            init_message = validate_initial_transform_selection(
-                self,
-                operation=operation,
-                moving=moving,
-            )
-            self._set_layer_validation_style(message=init_message)
-            self._set_run_btn_enabled(init_message is None)
-            return init_message is None
-
-        moving_invalid = False
-        fixed_invalid = False
-        message: str | None = None
-
-        if fixed_layer is None:
-            self._set_layer_validation_style(
-                moving_invalid=moving_invalid,
-                fixed_invalid=True,
-                message="Between-scans registration requires different moving and fixed layers.",
-            )
-            self._set_run_btn_enabled(False)
-            return False
-
-        try:
-            fixed = _get_source_dataarray(fixed_layer)
-        except Exception:
-            self._set_layer_validation_style(
-                fixed_invalid=True,
-                message="Could not read the selected fixed layer.",
-            )
-            self._set_run_btn_enabled(False)
-            return False
-
-        if fixed_layer is moving_layer:
-            moving_invalid = True
-            fixed_invalid = True
-            message = "Moving and fixed layers must be different."
-
-        if message is None:
-            message = validate_initial_transform_selection(
-                self,
-                operation=operation,
-                moving=_prepare_between_scan_data(moving),
-                fixed=_prepare_between_scan_data(fixed),
-            )
-
-        valid = not (moving_invalid or fixed_invalid or message is not None)
-        self._set_layer_validation_style(
-            moving_invalid=moving_invalid,
-            fixed_invalid=fixed_invalid,
-            message=message,
-        )
-        self._set_run_btn_enabled(valid)
-        return valid
-
-    def _on_moving_layer_changed(self, _name: str) -> None:
-        """Update dependent widgets when the moving layer changes."""
-        self._update_reference_time_bounds()
-        refresh_transform_controls(self)
-        self._validate_registration_selection()
+    _update_reference_time_bounds = update_reference_time_bounds
+    _set_layer_validation_style = set_layer_validation_style
+    _set_run_btn_enabled = set_run_btn_enabled
+    _validate_registration_selection = validate_registration_selection
+    _on_moving_layer_changed = on_moving_layer_changed
 
     def _operation(self) -> Literal["register_volume", "register_volumewise"]:
         """Return the currently selected registration workflow."""
