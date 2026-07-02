@@ -16,6 +16,7 @@ from qtpy.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -30,7 +31,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import TIME_DIM
+from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -148,6 +149,9 @@ class ModeParameters(TypedDict):
     fill_value: float
     reference_time: int
     n_jobs: int
+    sitk_threads: int
+    optimizer_weights_enabled: bool
+    optimizer_weights_values: list[float]
     keep_diagnostics: bool
     advanced_open: bool
 
@@ -168,6 +172,7 @@ class RegistrationRunPayloadBase(TypedDict):
     initialization: InitializationSelection
     shrink_factors: tuple[int, ...] | None
     smoothing_sigmas: tuple[int, ...] | None
+    optimizer_weights: list[float] | None
     keep_diagnostics: bool
     fill_value: float | None
 
@@ -179,6 +184,9 @@ class VolumeRegistrationRunPayload(RegistrationRunPayloadBase):
     transform: VolumeTransformType
     mesh_size: tuple[int, int, int]
     fixed_layer_name: str
+    fixed_mask_layer_name: str | None
+    moving_mask_layer_name: str | None
+    sitk_threads: int
     initial_transform_source: NotRequired[str]
 
 
@@ -200,6 +208,40 @@ class ApplyTransformPayload(TypedDict):
     transform_source: str
 
 
+def _get_optimizer_weight_labels(
+    transform: VolumeTransformType | VolumewiseTransformType, ndim: int
+) -> list[str]:
+    """Return user-facing optimizer-weight labels for one transform model."""
+    if transform == "bspline":
+        return []
+    if transform == "translation":
+        return ["tx", "ty"] if ndim == 2 else ["tx", "ty", "tz"]
+    if transform == "rigid":
+        return (
+            ["angle", "tx", "ty"]
+            if ndim == 2
+            else ["angleX", "angleY", "angleZ", "tx", "ty", "tz"]
+        )
+    if transform == "affine":
+        if ndim == 2:
+            return ["a00", "a01", "a10", "a11", "tx", "ty"]
+        return [
+            "a00",
+            "a01",
+            "a02",
+            "a10",
+            "a11",
+            "a12",
+            "a20",
+            "a21",
+            "a22",
+            "tx",
+            "ty",
+            "tz",
+        ]
+    raise ValueError(f"Unknown transform model: {transform!r}.")
+
+
 class RegistrationPanel(QWidget):
     """Right-side panel for running registration from napari.
 
@@ -215,6 +257,7 @@ class RegistrationPanel(QWidget):
         self._worker = None
         self._abort_event: Event | None = None
         self._loaded_transform_payload: TransformPayload | None = None
+        self._optimizer_weight_spins: list[QDoubleSpinBox] = []
         # Per-run progress state. Set on the GUI thread before the worker starts.
         self._progress_bridge: NapariProgressBridge | None = None
         self._progress_layer: Image | None = None
@@ -267,6 +310,16 @@ class RegistrationPanel(QWidget):
         if tooltip is not None:
             label.setToolTip(tooltip)
         return label
+
+    def _left_aligned_widget(self, widget: QWidget) -> QWidget:
+        """Wrap a compact widget so it stays left-aligned inside a form row."""
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(widget)
+        layout.addStretch(1)
+        return container
 
     def _make_advanced_row(
         self,
@@ -388,6 +441,39 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._moving_label, self._moving_combo)
 
+        self._moving_mask_combo = QComboBox()
+        self._moving_mask_combo.setMinimumContentsLength(18)
+        self._moving_mask_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._moving_mask_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._moving_mask_combo.setToolTip(
+            "Optional Labels layer used as the moving-image metric mask. Nonzero labels are treated as True."
+        )
+        self._new_moving_mask_btn = QPushButton("+")
+        self._new_moving_mask_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._new_moving_mask_btn.setToolTip(
+            "Create a new 3D Labels layer (no time axis) aligned to the current image."
+        )
+        self._new_moving_mask_btn.clicked.connect(
+            lambda: self._create_labels_layer(name="Moving mask")
+        )
+        moving_mask_row = QHBoxLayout()
+        moving_mask_row.setContentsMargins(0, 0, 0, 0)
+        moving_mask_row.setSpacing(6)
+        moving_mask_row.addWidget(self._moving_mask_combo, stretch=1)
+        moving_mask_row.addWidget(self._new_moving_mask_btn)
+        moving_mask_container = QWidget()
+        moving_mask_container.setLayout(moving_mask_row)
+        self._moving_mask_row = moving_mask_container
+        self._moving_mask_label = self._make_form_label(
+            "Moving mask",
+            tooltip="Optional Labels layer used as the moving-image metric mask. Nonzero labels are treated as True.",
+        )
+        operation_layout.addRow(self._moving_mask_label, moving_mask_container)
+
         self._fixed_label = QLabel("Fixed layer")
         self._fixed_combo = QComboBox()
         self._fixed_combo.setMinimumContentsLength(18)
@@ -402,6 +488,39 @@ class RegistrationPanel(QWidget):
         )
         operation_layout.addRow(self._fixed_label, self._fixed_combo)
 
+        self._fixed_mask_combo = QComboBox()
+        self._fixed_mask_combo.setMinimumContentsLength(18)
+        self._fixed_mask_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._fixed_mask_combo.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._fixed_mask_combo.setToolTip(
+            "Optional Labels layer used as the fixed-image metric mask. Nonzero labels are treated as True."
+        )
+        self._new_fixed_mask_btn = QPushButton("+")
+        self._new_fixed_mask_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
+        self._new_fixed_mask_btn.setToolTip(
+            "Create a new 3D Labels layer (no time axis) aligned to the current image."
+        )
+        self._new_fixed_mask_btn.clicked.connect(
+            lambda: self._create_labels_layer(name="Fixed mask")
+        )
+        fixed_mask_row = QHBoxLayout()
+        fixed_mask_row.setContentsMargins(0, 0, 0, 0)
+        fixed_mask_row.setSpacing(6)
+        fixed_mask_row.addWidget(self._fixed_mask_combo, stretch=1)
+        fixed_mask_row.addWidget(self._new_fixed_mask_btn)
+        fixed_mask_container = QWidget()
+        fixed_mask_container.setLayout(fixed_mask_row)
+        self._fixed_mask_row = fixed_mask_container
+        self._fixed_mask_label = self._make_form_label(
+            "Fixed mask",
+            tooltip="Optional Labels layer used as the fixed-image metric mask. Nonzero labels are treated as True.",
+        )
+        operation_layout.addRow(self._fixed_mask_label, fixed_mask_container)
+
         self._reference_time_label = QLabel("Reference volume")
         self._reference_time_spin = QSpinBox()
         self._reference_time_spin.setMinimum(0)
@@ -413,6 +532,7 @@ class RegistrationPanel(QWidget):
 
         self._n_jobs_spin = QSpinBox()
         self._n_jobs_spin.setRange(-128, 128)
+        self._n_jobs_spin.setMaximumWidth(56)
         self._n_jobs_spin.setSpecialValueText("auto")
         self._n_jobs_spin.setToolTip(
             "Number of workers for time-series registration. -1 uses all CPUs."
@@ -621,25 +741,34 @@ class RegistrationPanel(QWidget):
         self._convergence_min_edit = ScientificDoubleSpinBox()
         self._convergence_min_edit.setRange(1e-10, 1.0)
         self._convergence_min_edit.setSingleStep(1e-6)
+        self._convergence_min_edit.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
+        )
+        self._convergence_min_edit.setMinimumWidth(260)
+        self._convergence_min_edit.setMaximumWidth(260)
+        convergence_min_line_edit = self._convergence_min_edit.lineEdit()
+        if convergence_min_line_edit is not None:
+            convergence_min_line_edit.setMinimumWidth(220)
         self._convergence_min_edit.setToolTip(
             "Convergence threshold. Accepts decimal (0.000001) or scientific notation (1e-6)."
         )
         self._convergence_min_row = self._make_advanced_row(
             advanced_layout,
             "Convergence min",
-            self._convergence_min_edit,
+            self._left_aligned_widget(self._convergence_min_edit),
             tooltip="Convergence threshold below which the optimizer stops early.",
         )
 
         self._convergence_window_spin = QSpinBox()
-        self._convergence_window_spin.setRange(1, 100)
+        self._convergence_window_spin.setRange(1, 1000)
+        self._convergence_window_spin.setMaximumWidth(40)
         self._convergence_window_spin.setToolTip(
             "Number of recent metric values for convergence estimation."
         )
         self._convergence_window_row = self._make_advanced_row(
             advanced_layout,
             "Convergence window",
-            self._convergence_window_spin,
+            self._left_aligned_widget(self._convergence_window_spin),
             tooltip="Number of recent metric values used to estimate convergence.",
         )
 
@@ -751,6 +880,54 @@ class RegistrationPanel(QWidget):
             tooltip="Number of parallel workers used for within-scan registration. -1 uses all CPUs.",
         )
 
+        self._sitk_threads_spin = QSpinBox()
+        self._sitk_threads_spin.setRange(-128, 128)
+        self._sitk_threads_spin.setMaximumWidth(56)
+        self._sitk_threads_spin.setSpecialValueText("auto")
+        self._sitk_threads_spin.setToolTip(
+            "Number of SimpleITK threads used for between-scan registration. -1 uses all CPUs."
+        )
+        self._sitk_threads_row = self._make_advanced_row(
+            advanced_layout,
+            "ITK Threads",
+            self._left_aligned_widget(self._sitk_threads_spin),
+            tooltip="Number of SimpleITK threads used for between-scan registration. -1 uses all CPUs.",
+        )
+
+        self._optimizer_weights_check = QCheckBox("Custom")
+        self._optimizer_weights_check.setToolTip(
+            "Apply per-parameter optimizer weights. 0 freezes a parameter; 1 leaves it unchanged. Not available for B-spline transforms."
+        )
+        self._optimizer_weights_widget = QWidget()
+        optimizer_layout = QVBoxLayout(self._optimizer_weights_widget)
+        optimizer_layout.setContentsMargins(0, 0, 0, 0)
+        optimizer_layout.setSpacing(4)
+        self._optimizer_weights_fields = QWidget()
+        self._optimizer_weights_fields_layout = QGridLayout(
+            self._optimizer_weights_fields
+        )
+        self._optimizer_weights_fields_layout.setContentsMargins(0, 0, 0, 0)
+        self._optimizer_weights_fields_layout.setHorizontalSpacing(8)
+        self._optimizer_weights_fields_layout.setVerticalSpacing(6)
+        optimizer_layout.addWidget(self._optimizer_weights_fields)
+        self._optimizer_weights_row = QWidget()
+        optimizer_row_layout = QVBoxLayout(self._optimizer_weights_row)
+        optimizer_row_layout.setContentsMargins(0, 0, 0, 0)
+        optimizer_row_layout.setSpacing(4)
+        optimizer_header_row = QHBoxLayout()
+        optimizer_header_row.setContentsMargins(0, 0, 0, 0)
+        optimizer_header_row.setSpacing(8)
+        self._optimizer_weights_label = self._make_form_label(
+            "Optimizer weights",
+            tooltip="Per-parameter weights multiplied into the optimizer step size. 0 freezes a parameter; 1 leaves it unchanged. Not available for B-spline transforms.",
+        )
+        optimizer_header_row.addWidget(self._optimizer_weights_label)
+        optimizer_header_row.addWidget(self._optimizer_weights_check)
+        optimizer_header_row.addStretch(1)
+        optimizer_row_layout.addLayout(optimizer_header_row)
+        optimizer_row_layout.addWidget(self._optimizer_weights_fields)
+        advanced_layout.addRow(self._optimizer_weights_row)
+
         advanced_group_layout.addWidget(self._advanced_content)
         self._advanced_toggle.toggled.connect(self._on_advanced_toggled)
         self._metric_combo.currentTextChanged.connect(
@@ -758,6 +935,12 @@ class RegistrationPanel(QWidget):
         )
         self._transform_combo.currentTextChanged.connect(
             self._update_transform_dependent_visibility
+        )
+        self._transform_combo.currentTextChanged.connect(
+            lambda _text: self._sync_optimizer_weight_editor()
+        )
+        self._optimizer_weights_check.toggled.connect(
+            lambda checked: self._optimizer_weights_fields.setVisible(checked)
         )
         self._on_advanced_toggled(False)
 
@@ -1036,6 +1219,171 @@ class RegistrationPanel(QWidget):
     _validate_registration_selection = validate_registration_selection
     _on_moving_layer_changed = on_moving_layer_changed
 
+    def _optimizer_weight_values(self) -> list[float]:
+        """Return the currently visible optimizer-weight values."""
+        return [spin.value() for spin in self._optimizer_weight_spins]
+
+    def _infer_registration_spatial_ndim(self) -> int | None:
+        """Return the spatial dimensionality of the current registration input."""
+        moving_layer = self._selected_layer(self._moving_combo)
+        if moving_layer is None:
+            return None
+        try:
+            data = _get_source_dataarray(moving_layer)
+        except Exception:
+            return None
+        if self._operation() == "register_volume":
+            data = _prepare_between_scan_data(data)
+        return len([dim for dim in data.dims if dim != TIME_DIM])
+
+    def _sync_optimizer_weight_editor(
+        self,
+        *,
+        values: list[float] | None = None,
+        enabled: bool | None = None,
+    ) -> None:
+        """Rebuild the optimizer-weight editor for the current transform."""
+        while self._optimizer_weights_fields_layout.count() > 0:
+            item = self._optimizer_weights_fields_layout.takeAt(0)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._optimizer_weight_spins = []
+
+        transform = self._current_transform_model()
+        ndim = self._infer_registration_spatial_ndim() or 3
+        labels = _get_optimizer_weight_labels(transform, ndim)
+        is_bspline = transform == "bspline"
+        if enabled is not None:
+            self._optimizer_weights_check.setChecked(enabled and not is_bspline)
+        elif is_bspline:
+            self._optimizer_weights_check.setChecked(False)
+
+        self._optimizer_weights_fields.setVisible(
+            self._optimizer_weights_check.isChecked() and not is_bspline
+        )
+
+        def _make_weight_cell(label: str, value: float) -> QWidget:
+            cell = QWidget()
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(2)
+            title = QLabel(label)
+            title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            spin = QDoubleSpinBox()
+            spin.setRange(0.0, 1e6)
+            spin.setDecimals(3)
+            spin.setSingleStep(0.1)
+            spin.setValue(value)
+            spin.setToolTip(
+                "Per-parameter optimizer weight. 0 freezes the parameter; 1 leaves it unchanged."
+            )
+            cell_layout.addWidget(title)
+            cell_layout.addWidget(spin)
+            self._optimizer_weight_spins.append(spin)
+            return cell
+
+        if transform == "affine":
+            matrix_labels = labels[: ndim * ndim]
+            translation_labels = labels[ndim * ndim :]
+            index = 0
+            for row in range(ndim):
+                for col in range(ndim):
+                    value = (
+                        values[index]
+                        if values is not None and index < len(values)
+                        else 1.0
+                    )
+                    self._optimizer_weights_fields_layout.addWidget(
+                        _make_weight_cell(matrix_labels[index], value), row, col
+                    )
+                    index += 1
+            for col, label in enumerate(translation_labels):
+                value = (
+                    values[index] if values is not None and index < len(values) else 1.0
+                )
+                self._optimizer_weights_fields_layout.addWidget(
+                    _make_weight_cell(label, value), ndim, col
+                )
+                index += 1
+            return
+
+        if transform == "rigid":
+            split_index = 1 if ndim == 2 else 3
+            angle_labels = labels[:split_index]
+            translation_labels = labels[split_index:]
+            index = 0
+            for col, label in enumerate(angle_labels):
+                value = (
+                    values[index] if values is not None and index < len(values) else 1.0
+                )
+                self._optimizer_weights_fields_layout.addWidget(
+                    _make_weight_cell(label, value), 0, col
+                )
+                index += 1
+            for col, label in enumerate(translation_labels):
+                value = (
+                    values[index] if values is not None and index < len(values) else 1.0
+                )
+                self._optimizer_weights_fields_layout.addWidget(
+                    _make_weight_cell(label, value), 1, col
+                )
+                index += 1
+            return
+
+        for index, label in enumerate(labels):
+            value = values[index] if values is not None and index < len(values) else 1.0
+            self._optimizer_weights_fields_layout.addWidget(
+                _make_weight_cell(label, value), 0, index
+            )
+
+    def _spatial_info(
+        self,
+    ) -> tuple[
+        tuple[int, ...] | None, tuple[float, ...] | None, tuple[float, ...] | None
+    ]:
+        """Return shape, scale, and translation for the first spatial image layer."""
+        for layer in self.viewer.layers:
+            if layer._type_string != "image":
+                continue
+            da = layer.metadata.get("xarray")
+            if da is not None:
+                spatial_indices = [
+                    i for i, dim in enumerate(da.dims) if dim in SPATIAL_DIMS_WITH_POSE
+                ]
+                if not spatial_indices:
+                    continue
+                shape = tuple(da.shape[i] for i in spatial_indices)
+                scale = tuple(float(layer.scale[i]) for i in spatial_indices)
+                translate = tuple(float(layer.translate[i]) for i in spatial_indices)
+                return shape, scale, translate
+            if layer.data.ndim >= 4:
+                return (
+                    layer.data.shape[1:],
+                    tuple(float(s) for s in layer.scale[1:]),
+                    tuple(float(t) for t in layer.translate[1:]),
+                )
+        return None, None, None
+
+    def _create_labels_layer(self, *, name: str = "Labels (3D)") -> None:
+        """Add a new Labels layer aligned to the current spatial image grid."""
+        import numpy as np
+
+        shape, scale, translate = self._spatial_info()
+        shape = shape or (64, 64, 64)
+        kwargs: dict[str, object] = {}
+        if scale is not None:
+            kwargs["scale"] = scale
+        if translate is not None:
+            kwargs["translate"] = translate
+        self.viewer.add_labels(
+            np.zeros(shape, dtype=np.int32),
+            name=name,
+            **kwargs,
+        )
+
     def _operation(self) -> Literal["register_volume", "register_volumewise"]:
         """Return the currently selected registration workflow."""
         if self._time_series_radio.isChecked():
@@ -1065,10 +1413,17 @@ class RegistrationPanel(QWidget):
         self._smoothing_sigmas_row.setVisible(checked)
 
     def _update_transform_dependent_visibility(self, transform: str) -> None:
-        """Show or hide transform-specific basic parameters."""
+        """Show or hide transform-specific parameter inputs."""
+        is_bspline = transform == "bspline"
         self._mesh_size_row.setVisible(
-            self._operation() == "register_volume" and transform == "bspline"
+            self._operation() == "register_volume" and is_bspline
         )
+        self._optimizer_weights_check.setEnabled(not is_bspline)
+        self._optimizer_weights_row.setVisible(
+            self._operation() == "register_volume" or not is_bspline
+        )
+        if is_bspline:
+            self._optimizer_weights_fields.hide()
 
     def _on_mode_changed(self) -> None:
         """Update the panel when the registration mode changes."""
@@ -1084,9 +1439,14 @@ class RegistrationPanel(QWidget):
         self._fixed_label.setVisible(not is_volumewise)
         self._fixed_combo.setVisible(not is_volumewise)
         self._fixed_combo.setEnabled(not is_volumewise)
+        self._fixed_mask_label.setVisible(not is_volumewise)
+        self._fixed_mask_row.setVisible(not is_volumewise)
+        self._moving_mask_label.setVisible(not is_volumewise)
+        self._moving_mask_row.setVisible(not is_volumewise)
         self._reference_time_label.setVisible(is_volumewise)
         self._reference_time_spin.setVisible(is_volumewise)
         self._n_jobs_row.setVisible(is_volumewise)
+        self._sitk_threads_row.setVisible(not is_volumewise)
 
         self._learning_rate_auto_check.setVisible(not is_volumewise)
         self._fill_value_row.setVisible(not is_volumewise)
@@ -1193,6 +1553,11 @@ class RegistrationPanel(QWidget):
         initialization = cast(
             "InitializationSelection", self._initialization_combo.currentData()
         )
+        optimizer_weights = (
+            self._optimizer_weight_values()
+            if self._optimizer_weights_check.isChecked() and transform != "bspline"
+            else None
+        )
         self._abort_event = Event()
 
         if operation == "register_volume":
@@ -1208,6 +1573,20 @@ class RegistrationPanel(QWidget):
             except Exception as exc:  # noqa: BLE001
                 self._set_error(str(exc))
                 return
+
+            fixed_mask = None
+            fixed_mask_layer_name = None
+            fixed_mask_layer = self._selected_layer(self._fixed_mask_combo)
+            if fixed_mask_layer is not None:
+                fixed_mask = _get_source_dataarray(fixed_mask_layer) > 0
+                fixed_mask_layer_name = fixed_mask_layer.name
+
+            moving_mask = None
+            moving_mask_layer_name = None
+            moving_mask_layer = self._selected_layer(self._moving_mask_combo)
+            if moving_mask_layer is not None:
+                moving_mask = _get_source_dataarray(moving_mask_layer) > 0
+                moving_mask_layer_name = moving_mask_layer.name
 
             moving = _prepare_between_scan_data(moving)
             fixed = _prepare_between_scan_data(fixed)
@@ -1247,6 +1626,7 @@ class RegistrationPanel(QWidget):
                 "initialization": initialization,
                 "shrink_factors": shrink_factors,
                 "smoothing_sigmas": smoothing_sigmas,
+                "optimizer_weights": optimizer_weights,
                 "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
                 "fill_value": None
                 if self._fill_value_auto_check.isChecked()
@@ -1257,6 +1637,9 @@ class RegistrationPanel(QWidget):
                     self._mesh_size_x_spin.value(),
                 ),
                 "fixed_layer_name": fixed_layer.name,
+                "fixed_mask_layer_name": fixed_mask_layer_name,
+                "moving_mask_layer_name": moving_mask_layer_name,
+                "sitk_threads": self._sitk_threads_spin.value(),
             }
             if initial_transform_source is not None:
                 volume_payload["initial_transform_source"] = initial_transform_source
@@ -1290,6 +1673,8 @@ class RegistrationPanel(QWidget):
             worker = thread_worker(register_volume)(
                 moving,
                 fixed,
+                fixed_mask=fixed_mask,
+                moving_mask=moving_mask,
                 transform_type=volume_payload["transform"],
                 metric=volume_payload["metric"],
                 learning_rate=learning_rate,
@@ -1302,9 +1687,11 @@ class RegistrationPanel(QWidget):
                 convergence_minimum_value=volume_payload["convergence_minimum_value"],
                 convergence_window_size=volume_payload["convergence_window_size"],
                 initialization=initialization_arg,
+                optimizer_weights=volume_payload["optimizer_weights"],
                 shrink_factors=volume_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volume_payload["smoothing_sigmas"] or (6, 2, 1),
                 fill_value=volume_payload["fill_value"],
+                sitk_threads=volume_payload["sitk_threads"],
                 show_progress=True,
                 progress_plotter=progress_plotter,
                 abort_event=self._abort_event,
@@ -1342,6 +1729,7 @@ class RegistrationPanel(QWidget):
                 "initialization": initialization,
                 "shrink_factors": shrink_factors,
                 "smoothing_sigmas": smoothing_sigmas,
+                "optimizer_weights": optimizer_weights,
                 "keep_diagnostics": self._keep_diagnostics_check.isChecked(),
                 "fill_value": None
                 if self._fill_value_auto_check.isChecked()
@@ -1384,6 +1772,7 @@ class RegistrationPanel(QWidget):
                 ],
                 convergence_window_size=volumewise_payload["convergence_window_size"],
                 initialization=get_selected_center_initialization(self),
+                optimizer_weights=volumewise_payload["optimizer_weights"],
                 shrink_factors=volumewise_payload["shrink_factors"] or (6, 2, 1),
                 smoothing_sigmas=volumewise_payload["smoothing_sigmas"] or (6, 2, 1),
                 keep_diagnostics=volumewise_payload["keep_diagnostics"],

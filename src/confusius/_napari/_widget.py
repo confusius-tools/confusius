@@ -243,7 +243,7 @@ class ConfUSIusWidget(QWidget):
     def __init__(self, napari_viewer: napari.Viewer) -> None:
         super().__init__()
         self.viewer = napari_viewer
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(430)
         self.setSizePolicy(
             QSizePolicy.Policy.MinimumExpanding,
             QSizePolicy.Policy.Expanding,

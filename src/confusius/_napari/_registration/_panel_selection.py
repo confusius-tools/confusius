@@ -40,21 +40,36 @@ def refresh_layers(panel: "RegistrationPanel") -> None:
     """
     moving_name = panel._moving_combo.currentText()
     fixed_name = panel._fixed_combo.currentText()
+    fixed_mask_name = panel._fixed_mask_combo.currentText()
+    moving_mask_name = panel._moving_mask_combo.currentText()
 
     layer_names = [
         layer.name
         for layer in panel.viewer.layers
         if _is_registration_source_layer(layer)
     ]
+    labels_layer_names = [
+        layer.name for layer in panel.viewer.layers if layer._type_string == "labels"
+    ]
 
     panel._moving_combo.blockSignals(True)
     panel._fixed_combo.blockSignals(True)
+    panel._fixed_mask_combo.blockSignals(True)
+    panel._moving_mask_combo.blockSignals(True)
     panel._moving_combo.clear()
     panel._fixed_combo.clear()
+    panel._fixed_mask_combo.clear()
+    panel._moving_mask_combo.clear()
     panel._moving_combo.addItems(layer_names)
     panel._fixed_combo.addItems(layer_names)
+    panel._fixed_mask_combo.addItem("")
+    panel._moving_mask_combo.addItem("")
+    panel._fixed_mask_combo.addItems(labels_layer_names)
+    panel._moving_mask_combo.addItems(labels_layer_names)
     panel._moving_combo.blockSignals(False)
     panel._fixed_combo.blockSignals(False)
+    panel._fixed_mask_combo.blockSignals(False)
+    panel._moving_mask_combo.blockSignals(False)
 
     moving_index = panel._moving_combo.findText(moving_name)
     if moving_index >= 0:
@@ -69,9 +84,18 @@ def refresh_layers(panel: "RegistrationPanel") -> None:
     ):
         panel._fixed_combo.setCurrentIndex(1)
 
+    fixed_mask_index = panel._fixed_mask_combo.findText(fixed_mask_name)
+    if fixed_mask_index >= 0:
+        panel._fixed_mask_combo.setCurrentIndex(fixed_mask_index)
+
+    moving_mask_index = panel._moving_mask_combo.findText(moving_mask_name)
+    if moving_mask_index >= 0:
+        panel._moving_mask_combo.setCurrentIndex(moving_mask_index)
+
     update_reference_time_bounds(panel)
     panel._sync_manual_transform_event_connections()
     refresh_transform_controls(panel)
+    panel._sync_optimizer_weight_editor()
     validate_registration_selection(panel)
 
 
@@ -429,4 +453,5 @@ def on_moving_layer_changed(panel: "RegistrationPanel", _name: str) -> None:
     del _name
     update_reference_time_bounds(panel)
     refresh_transform_controls(panel)
+    panel._sync_optimizer_weight_editor()
     validate_registration_selection(panel)

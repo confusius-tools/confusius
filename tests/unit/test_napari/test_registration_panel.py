@@ -89,6 +89,18 @@ class TestRefreshLayers:
         assert registration_panel._moving_combo.count() == 1
         assert registration_panel._moving_combo.itemText(0) == "vol"
 
+    def test_mask_combos_only_list_labels_layers(self, viewer, registration_panel):
+        viewer.add_image(np.zeros((4, 6, 8)), name="vol")
+        viewer.add_labels(np.zeros((4, 6, 8), dtype=np.int32), name="mask")
+
+        registration_panel._refresh_layers()
+
+        assert registration_panel._fixed_mask_combo.count() == 2
+        assert registration_panel._fixed_mask_combo.itemText(0) == ""
+        assert registration_panel._fixed_mask_combo.itemText(1) == "mask"
+        assert registration_panel._moving_mask_combo.count() == 2
+        assert registration_panel._moving_mask_combo.itemText(1) == "mask"
+
     def test_ignores_lazy_non_numpy_layers(self, viewer, registration_panel):
         import dask.array as da
 
@@ -124,6 +136,32 @@ class TestOperationMode:
 
         assert not registration_panel._n_jobs_row.isHidden()
         assert registration_panel._n_jobs_spin.parent() is not None
+
+    def test_between_scan_shows_masks_and_sitk_threads(self, registration_panel):
+        registration_panel._advanced_toggle.setChecked(True)
+
+        assert not registration_panel._fixed_mask_row.isHidden()
+        assert not registration_panel._moving_mask_row.isHidden()
+        assert not registration_panel._sitk_threads_row.isHidden()
+
+        registration_panel._time_series_radio.setChecked(True)
+
+        assert registration_panel._fixed_mask_row.isHidden()
+        assert registration_panel._moving_mask_row.isHidden()
+        assert registration_panel._sitk_threads_row.isHidden()
+
+    def test_operation_row_order_is_moving_moving_mask_fixed_fixed_mask(
+        self, registration_panel
+    ):
+        layout = registration_panel._register_panel.layout().itemAt(0).widget().layout()
+        labels = [
+            layout.itemAt(i, layout.ItemRole.LabelRole).widget().text()
+            for i in range(layout.rowCount())
+            if layout.itemAt(i, layout.ItemRole.LabelRole) is not None
+        ]
+        assert labels.index("Moving layer") < labels.index("Moving mask")
+        assert labels.index("Moving mask") < labels.index("Fixed layer")
+        assert labels.index("Fixed layer") < labels.index("Fixed mask")
 
     def test_transform_target_label_is_apply_to(self, registration_panel):
         label = registration_panel._transforms_panel.layout().labelForField(
@@ -323,6 +361,7 @@ class TestOperationMode:
 
         registration_panel._transform_combo.setCurrentText("bspline")
         assert not registration_panel._mesh_size_row.isHidden()
+        assert not registration_panel._optimizer_weights_check.isEnabled()
 
         registration_panel._mesh_size_z_spin.setValue(5)
         registration_panel._mesh_size_y_spin.setValue(7)
@@ -333,12 +372,56 @@ class TestOperationMode:
 
         registration_panel._transform_combo.setCurrentText("rigid")
         assert registration_panel._mesh_size_row.isHidden()
+        assert registration_panel._optimizer_weights_check.isEnabled()
 
         registration_panel._time_series_radio.setChecked(True)
         assert registration_panel._mesh_size_row.isHidden()
 
 
 class TestRunRegistration:
+    def test_create_labels_layer_matches_spatial_shape_of_time_series(
+        self, viewer, registration_panel
+    ):
+        moving = xr.DataArray(
+            np.zeros((2, 4, 6, 8), dtype=np.float32),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(2), dims=["time"]),
+                "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
+                "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
+            },
+        )
+        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        layer.scale = (1.0, 0.3, 0.2, 0.1)
+        layer.translate = (0.0, 1.0, 2.0, 3.0)
+
+        registration_panel._create_labels_layer()
+
+        labels = viewer.layers["Labels (3D)"]
+        assert np.asarray(labels.data).shape == (4, 6, 8)
+        assert tuple(labels.scale) == (0.3, 0.2, 0.1)
+        assert tuple(labels.translate) == (1.0, 2.0, 3.0)
+
+    def test_mask_buttons_create_named_layers(self, viewer, registration_panel):
+        moving = xr.DataArray(
+            np.zeros((2, 4, 6, 8), dtype=np.float32),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(2), dims=["time"]),
+                "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
+                "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
+            },
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+
+        registration_panel._new_moving_mask_btn.click()
+        registration_panel._new_fixed_mask_btn.click()
+
+        assert "Moving mask" in viewer.layers
+        assert "Fixed mask" in viewer.layers
+
     def test_between_scan_run_uses_selected_initial_transform(
         self, viewer, registration_panel, monkeypatch
     ):
@@ -528,6 +611,149 @@ class TestRunRegistration:
         )
         np.testing.assert_allclose(kwargs["initialization"], expected)
         assert args[0].dims == ("z", "y", "x")
+        assert registration_panel._worker is not None
+
+    def test_between_scan_run_passes_masks_sitk_threads_and_optimizer_weights(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        moving = xr.DataArray(
+            np.zeros((4, 6, 8), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
+                "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
+            },
+        )
+        fixed = xr.DataArray(
+            np.ones((4, 6, 8), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords=moving.coords,
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
+        viewer.add_labels(np.ones((4, 6, 8), dtype=np.int32), name="fixed mask")
+        viewer.add_labels(np.ones((4, 6, 8), dtype=np.int32), name="moving mask")
+        registration_panel._refresh_layers()
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._fixed_combo.setCurrentText("fixed")
+        registration_panel._fixed_mask_combo.setCurrentText("fixed mask")
+        registration_panel._moving_mask_combo.setCurrentText("moving mask")
+        registration_panel._sitk_threads_spin.setValue(3)
+        registration_panel._optimizer_weights_check.setChecked(True)
+        assert len(registration_panel._optimizer_weight_spins) == 6
+        for spin, value in zip(
+            registration_panel._optimizer_weight_spins,
+            [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
+            strict=False,
+        ):
+            spin.setValue(value)
+
+        captured: dict[str, object] = {}
+
+        class _FakeSignal:
+            def connect(self, _slot):
+                return None
+
+        class _FakeWorker:
+            def __init__(self) -> None:
+                self.returned = _FakeSignal()
+                self.errored = _FakeSignal()
+                self.finished = _FakeSignal()
+
+            def start(self) -> None:
+                return None
+
+        def _fake_thread_worker(func):
+            def _runner(*args, **kwargs):
+                captured["func"] = func
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return _FakeWorker()
+
+            return _runner
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.thread_worker",
+            _fake_thread_worker,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.create_volume_progress_plotter",
+            lambda *_args, **_kwargs: None,
+        )
+
+        registration_panel._run_registration()
+
+        kwargs = cast("dict[str, Any]", captured["kwargs"])
+        assert kwargs["sitk_threads"] == 3
+        assert kwargs["optimizer_weights"] == [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
+        assert kwargs["fixed_mask"].dtype == bool
+        assert kwargs["moving_mask"].dtype == bool
+        assert registration_panel._worker is not None
+
+    def test_volumewise_run_passes_optimizer_weights(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        moving = xr.DataArray(
+            np.zeros((2, 4, 6, 8), dtype=np.float32),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(2), dims=["time"]),
+                "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
+                "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
+            },
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        registration_panel._time_series_radio.setChecked(True)
+        registration_panel._refresh_layers()
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._transform_combo.setCurrentText("translation")
+        registration_panel._optimizer_weights_check.setChecked(True)
+        for spin, value in zip(
+            registration_panel._optimizer_weight_spins,
+            [0.7, 0.8, 0.9],
+            strict=False,
+        ):
+            spin.setValue(value)
+
+        captured: dict[str, object] = {}
+
+        class _FakeSignal:
+            def connect(self, _slot):
+                return None
+
+        class _FakeWorker:
+            def __init__(self) -> None:
+                self.returned = _FakeSignal()
+                self.errored = _FakeSignal()
+                self.finished = _FakeSignal()
+
+            def start(self) -> None:
+                return None
+
+        def _fake_thread_worker(func):
+            def _runner(*args, **kwargs):
+                captured["func"] = func
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return _FakeWorker()
+
+            return _runner
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.thread_worker",
+            _fake_thread_worker,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel.setup_volumewise_progress",
+            lambda *_args, **_kwargs: None,
+        )
+
+        registration_panel._run_registration()
+
+        kwargs = cast("dict[str, Any]", captured["kwargs"])
+        assert kwargs["optimizer_weights"] == [0.7, 0.8, 0.9]
         assert registration_panel._worker is not None
 
 

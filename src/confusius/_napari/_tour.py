@@ -1010,10 +1010,11 @@ def build_default_tour(
         ),
         TourStep(
             target=_panel_attr("Registration", RegistrationPanel, "_moving_combo"),
-            title="Moving and Fixed Layers",
+            title="Moving, Masks, and Fixed Layers",
             body=(
-                "For <b>Between scans</b>, choose the <b>Moving layer</b> to align "
-                "and the <b>Fixed layer</b> that defines the target space."
+                "For <b>Between scans</b>, choose the <b>Moving layer</b> to align, "
+                "optional <b>Moving/Fixed mask</b> label layers to restrict the "
+                "metric, and the <b>Fixed layer</b> that defines the target space."
             ),
             anchor="left",
             spotlight_rect=_panel_attr_rect(
@@ -1021,8 +1022,12 @@ def build_default_tour(
                 RegistrationPanel,
                 "_moving_label",
                 "_moving_combo",
+                "_moving_mask_label",
+                "_moving_mask_row",
                 "_fixed_label",
                 "_fixed_combo",
+                "_fixed_mask_label",
+                "_fixed_mask_row",
             ),
             tooltip_target=_dock_widget,
             pre_action=_run_actions(
