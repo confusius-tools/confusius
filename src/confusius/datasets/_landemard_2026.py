@@ -97,15 +97,16 @@ def _filter_files(
         if subjects is not None and sub_id not in subjects:
             continue
 
-        # Subject-level files (e.g. sub-ALD001_scans.tsv) — pass through.
-        if len(parts) == 1:
+        # Subject-level files (e.g. sub-ALD001/sub-ALD001_scans.tsv) pass
+        # through: they sit directly under the subject folder with no
+        # datatype layer, so the acq filter does not apply.
+        if len(parts) == 1 or parts[1] not in _VALID_DATATYPES:
             filtered[path] = file_info
             continue
 
         # Datatype filter (only applies when sitting under a known datatype).
-        if datatypes is not None and parts[1] in _VALID_DATATYPES:
-            if parts[1] not in datatypes:
-                continue
+        if datatypes is not None and parts[1] not in datatypes:
+            continue
 
         # Acquisition filter.
         if acqs is not None:
