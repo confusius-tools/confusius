@@ -120,7 +120,7 @@ def build_datasets_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="confusius datasets",
-        description="Work with ConfUSIus fetchable datasets.",
+        description="Interact with ConfUSIus fetchable datasets.",
         add_help=False,
     )
     _add_help_option(parser)
