@@ -9,8 +9,8 @@ import pytest
 import SimpleITK as sitk
 
 from confusius._napari._registration._progress import (
-    NapariProgressBridge,
     NapariRegistrationProgressPlotter,
+    NapariRegistrationProgressPlotterBridge,
     NapariRegistrationProgressReporter,
     NapariRegistrationProgressReporterBridge,
     make_napari_progress_factory,
@@ -65,11 +65,11 @@ class _SignalSpy:
         self.payloads.append(payload)
 
 
-class TestNapariProgressBridge:
+class TestNapariRegistrationProgressPlotterBridge:
     """Signal bridge behaviour."""
 
     def test_iterated_signal_is_emitted(self, qtbot):
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         spy = _SignalSpy()
         bridge.iterated.connect(spy)
         with qtbot.waitSignal(bridge.iterated, timeout=1000):
@@ -78,12 +78,12 @@ class TestNapariProgressBridge:
         np.testing.assert_array_equal(spy.payloads[0], np.zeros((2, 2)))
 
     def test_finished_signal_is_emitted(self, qtbot):
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         with qtbot.waitSignal(bridge.finished, timeout=1000):
             bridge.finished.emit()
 
     def test_metric_updated_signal_is_emitted(self, qtbot):
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         with qtbot.waitSignal(bridge.metric_updated, timeout=1000):
             bridge.metric_updated.emit(0.42)
 
@@ -93,7 +93,7 @@ class TestNapariRegistrationProgressPlotter:
 
     def test_update_resamples_and_emits_array(self, qtbot, fixed_img_2d, moving_img_2d):
         reg = _make_registration_method(ndim=2)
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         spy = _SignalSpy()
         bridge.iterated.connect(spy)
 
@@ -117,7 +117,7 @@ class TestNapariRegistrationProgressPlotter:
     def test_update_emits_metric_value(self, qtbot, fixed_img_2d, moving_img_2d):
         """`update()` also forwards the current optimizer metric value."""
         reg = _make_registration_method(ndim=2)
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         metric_spy = _SignalSpy()
         bridge.metric_updated.connect(metric_spy)
 
@@ -140,7 +140,7 @@ class TestNapariRegistrationProgressPlotter:
     ):
         """`plot_metric=False` suppresses the metric_updated emission."""
         reg = _make_registration_method(ndim=2)
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         metric_spy = _SignalSpy()
         bridge.metric_updated.connect(metric_spy)
 
@@ -161,7 +161,7 @@ class TestNapariRegistrationProgressPlotter:
 
     def test_close_emits_finished_signal(self, qtbot, fixed_img_2d, moving_img_2d):
         reg = _make_registration_method(ndim=2)
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         reporter = NapariRegistrationProgressPlotter(
             bridge,
             reg,
@@ -179,7 +179,9 @@ class TestNapariRegistrationProgressReporterBridge:
     def test_frame_progress_signal_is_emitted(self, qtbot):
         bridge = NapariRegistrationProgressReporterBridge()
         payloads: list[tuple[int, int]] = []
-        bridge.frame_progress.connect(lambda completed, total: payloads.append((completed, total)))
+        bridge.frame_progress.connect(
+            lambda completed, total: payloads.append((completed, total))
+        )
 
         with qtbot.waitSignal(bridge.frame_progress, timeout=1000):
             bridge.frame_progress.emit(1, 3)
@@ -250,7 +252,7 @@ class TestMakeNapariProgressFactory:
     def test_factory_returns_napari_volume_progress(
         self, qtbot, fixed_img_2d, moving_img_2d
     ):
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         factory = make_napari_progress_factory(bridge)
         reg = _make_registration_method(ndim=2)
 
@@ -289,7 +291,7 @@ class TestRegisterVolumeWithNapariFactory:
             },
         )
 
-        bridge = NapariProgressBridge()
+        bridge = NapariRegistrationProgressPlotterBridge()
         spy = _SignalSpy()
         bridge.iterated.connect(spy)
         factory = make_napari_progress_factory(bridge)

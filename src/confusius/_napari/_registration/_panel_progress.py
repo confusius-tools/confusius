@@ -18,7 +18,7 @@ from confusius._napari._registration._panel_utils import (
     _preserve_view,
 )
 from confusius._napari._registration._progress import (
-    NapariProgressBridge,
+    NapariRegistrationProgressPlotterBridge,
     NapariRegistrationProgressReporter,
     NapariRegistrationProgressReporterBridge,
     make_napari_progress_factory,
@@ -383,7 +383,7 @@ def create_volume_progress_plotter(
             panel._set_error(f"Could not create progress layer: {exc}")
             raise
 
-    bridge = NapariProgressBridge()
+    bridge = NapariRegistrationProgressPlotterBridge()
     bridge.iterated.connect(lambda arr: update_progress_layer(panel, arr))
     panel._progress_bridge = bridge
     panel._progress_layer = cast("Image", layer)

@@ -115,10 +115,10 @@ class RegistrationMetricPlotter(QWidget):
     def add_metric(self, value: float) -> None:
         """Append a metric value and schedule a redraw.
 
-        Called from the GUI thread via the `NapariProgressBridge.metric_updated`
-        signal. Rapid iteration events are coalesced through a single-shot
-        timer so the canvas is redrawn at most once per ~16 ms regardless of
-        the worker-side event rate.
+        Called from the GUI thread via the
+        `NapariRegistrationProgressPlotterBridge.metric_updated` signal. Rapid iteration
+        events are coalesced through a single-shot timer so the canvas is redrawn at
+        most once per ~16 ms regardless of the worker-side event rate.
 
         Parameters
         ----------

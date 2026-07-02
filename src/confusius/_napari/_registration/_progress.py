@@ -9,7 +9,7 @@ The reporter is intentionally split into two pieces so that napari layers can be
 constructed and signal slots connected on the GUI thread before the registration worker
 thread starts:
 
-- [`NapariProgressBridge`][confusius._napari._registration._progress.NapariProgressBridge]
+- [`NapariRegistrationProgressPlotterBridge`][confusius._napari._registration._progress.NapariRegistrationProgressPlotterBridge]
   is a lightweight `QObject` that lives on the GUI thread and exposes Qt signals. The
   worker thread calls `emit` on it; Qt marshals the slot invocations back to the GUI
   thread via an automatically-detected queued connection.
@@ -21,7 +21,7 @@ thread starts:
 
 Connection lifecycle:
 
-1. The panel constructs a `NapariProgressBridge` on the GUI thread and connects its
+1. The panel constructs a `NapariRegistrationProgressPlotterBridge` on the GUI thread and connects its
   `iterated` signal to a slot that writes the array into the resampled napari layer.
 2. The panel builds a factory (via
   [`make_napari_progress_factory`][confusius._napari._registration._progress.make_napari_progress_factory])
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from confusius.registration import RegistrationDiagnostics, RegistrationProgress
 
 
-class NapariProgressBridge(QObject):
+class NapariRegistrationProgressPlotterBridge(QObject):
     """Thread-boundary signal bridge for napari registration progress.
 
     Construct this on the GUI thread before starting the registration worker. Connect
@@ -85,7 +85,7 @@ class NapariRegistrationProgressPlotter:
 
     Parameters
     ----------
-    bridge : NapariProgressBridge
+    bridge : NapariRegistrationProgressPlotterBridge
         GUI-thread signal bridge. Stored by reference; never accessed for GUI APIs from
         this object.
     registration_method : SimpleITK.ImageRegistrationMethod
@@ -108,7 +108,7 @@ class NapariRegistrationProgressPlotter:
 
     def __init__(
         self,
-        bridge: NapariProgressBridge,
+        bridge: NapariRegistrationProgressPlotterBridge,
         registration_method: "sitk.ImageRegistrationMethod",
         fixed_img: "sitk.Image",
         moving_img: "sitk.Image",
@@ -240,7 +240,7 @@ class NapariRegistrationProgressReporter:
 
 
 def make_napari_progress_factory(
-    bridge: NapariProgressBridge,
+    bridge: NapariRegistrationProgressPlotterBridge,
 ) -> "Callable[..., RegistrationProgress]":
     """Return a progress-plotter factory bound to a bridge.
 
@@ -252,7 +252,7 @@ def make_napari_progress_factory(
 
     Parameters
     ----------
-    bridge : NapariProgressBridge
+    bridge : NapariRegistrationProgressPlotterBridge
         GUI-thread bridge the constructed reporter will emit through.
 
     Returns

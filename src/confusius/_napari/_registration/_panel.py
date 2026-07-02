@@ -82,7 +82,7 @@ from confusius._napari._registration._panel_utils import (
 )
 from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius._napari._registration._progress import (
-    NapariProgressBridge,
+    NapariRegistrationProgressPlotterBridge,
     NapariRegistrationProgressReporterBridge,
 )
 from confusius._napari._registration._transform_payloads import TransformPayload
@@ -261,7 +261,7 @@ class RegistrationPanel(QWidget):
         self._loaded_transform_payload: TransformPayload | None = None
         self._optimizer_weight_spins: list[QDoubleSpinBox] = []
         # Per-run progress state. Set on the GUI thread before the worker starts.
-        self._progress_bridge: NapariProgressBridge | None = None
+        self._progress_bridge: NapariRegistrationProgressPlotterBridge | None = None
         self._progress_layer: Image | None = None
         self._progress_fixed_layer: Image | None = None
         self._progress_moving_layer: Image | None = None
