@@ -63,14 +63,18 @@ def test_overlay_names_active_event(rng, make_napari_viewer):
     )
     store = EventStore()
     store.add_event(1.0, 2.0, "stim")  # active over [1, 3) seconds
+    store.add_event(1.0, 2.0, "whisker_stimulation_left")
 
     overlay = _TimeOverlay(viewer)
     overlay.set_event_store(store)
     overlay.check()
 
-    # Move to time = 2.0 s (frame 2), which is inside the event.
+    # Move to time = 2.0 s (frame 2), which is inside the events.
     viewer.dims.set_current_step(overlay._time_idx, 2)
     assert "stim [1.00 s, 3.00 s)" in viewer.text_overlay.text
+    # Names longer than 10 characters are truncated to 8 + ellipsis.
+    assert "whisker_... [1.00 s, 3.00 s)" in viewer.text_overlay.text
+    assert "whisker_stimulation_left" not in viewer.text_overlay.text
 
     # Move to time = 4.0 s (frame 4), outside the event.
     viewer.dims.set_current_step(overlay._time_idx, 4)

@@ -21,6 +21,23 @@ if TYPE_CHECKING:
     from confusius._napari._events._store import EventStore
 
 
+def _truncate_name(name: str) -> str:
+    """Shorten a trial type for the overlay readout.
+
+    Parameters
+    ----------
+    name : str
+        Trial type name.
+
+    Returns
+    -------
+    str
+        The name unchanged when it has at most 10 characters, otherwise its
+        first 8 characters followed by `...`.
+    """
+    return name if len(name) <= 10 else name[:8] + "..."
+
+
 class _TimeOverlay:
     """Manage the viewer text overlay that displays the current time coordinate.
 
@@ -108,7 +125,8 @@ class _TimeOverlay:
             return ""
         unit = f" {self._units}" if self._units else ""
         parts = [
-            f"{trial_type} [{onset:.2f}{unit}, {onset + duration:.2f}{unit})"
+            f"{_truncate_name(trial_type)} "
+            f"[{onset:.2f}{unit}, {onset + duration:.2f}{unit})"
             for onset, duration, trial_type in zip(
                 active["onset"], active["duration"], active["trial_type"], strict=True
             )
