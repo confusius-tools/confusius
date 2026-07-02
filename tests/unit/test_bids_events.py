@@ -7,9 +7,19 @@ from pandas.testing import assert_frame_equal
 
 from confusius.bids.events import (
     DEFAULT_TRIAL_TYPE,
+    DURATION_COLUMN,
+    ONSET_COLUMN,
+    TRIAL_TYPE_COLUMN,
     read_events,
     write_events,
 )
+
+
+def test_exports_canonical_bids_column_names():
+    """The module exposes the shared BIDS events column names."""
+    assert ONSET_COLUMN == "onset"
+    assert DURATION_COLUMN == "duration"
+    assert TRIAL_TYPE_COLUMN == "trial_type"
 
 
 class TestReadEvents:

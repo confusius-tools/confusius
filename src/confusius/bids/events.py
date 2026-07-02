@@ -23,18 +23,26 @@ import pandas as pd
 
 from confusius._utils.bids import DEFAULT_TRIAL_TYPE, normalize_trial_type
 
-__all__ = ["DEFAULT_TRIAL_TYPE", "normalize_trial_type", "read_events", "write_events"]
+__all__ = [
+    "DEFAULT_TRIAL_TYPE",
+    "normalize_trial_type",
+    "ONSET_COLUMN",
+    "DURATION_COLUMN",
+    "TRIAL_TYPE_COLUMN",
+    "read_events",
+    "write_events",
+]
 
-_ONSET_COLUMN = "onset"
+ONSET_COLUMN = "onset"
 """Required BIDS column holding the event onset in seconds."""
 
-_DURATION_COLUMN = "duration"
+DURATION_COLUMN = "duration"
 """Required BIDS column holding the event duration in seconds."""
 
-_TRIAL_TYPE_COLUMN = "trial_type"
+TRIAL_TYPE_COLUMN = "trial_type"
 """Optional BIDS column naming the kind of event."""
 
-_REQUIRED_COLUMNS = (_ONSET_COLUMN, _DURATION_COLUMN)
+_REQUIRED_COLUMNS = (ONSET_COLUMN, DURATION_COLUMN)
 """BIDS columns that every events file must contain."""
 
 
@@ -68,29 +76,29 @@ def read_events(path: str | Path) -> pd.DataFrame:
         names = ", ".join(repr(column) for column in missing)
         raise ValueError(f"BIDS events file is missing required column(s): {names}.")
 
-    onset = pd.to_numeric(frame[_ONSET_COLUMN], errors="coerce")
-    duration = pd.to_numeric(frame[_DURATION_COLUMN], errors="coerce")
+    onset = pd.to_numeric(frame[ONSET_COLUMN], errors="coerce")
+    duration = pd.to_numeric(frame[DURATION_COLUMN], errors="coerce")
     if onset.isna().any() or duration.isna().any():
         raise ValueError(
             "BIDS events 'onset' and 'duration' must all be numeric and present."
         )
     if (duration < 0).any():
         raise ValueError("BIDS events 'duration' values must be non-negative.")
-    frame[_ONSET_COLUMN] = onset.astype(float)
-    frame[_DURATION_COLUMN] = duration.astype(float)
-    if _TRIAL_TYPE_COLUMN in frame.columns:
-        frame[_TRIAL_TYPE_COLUMN] = [
-            normalize_trial_type(value) for value in frame[_TRIAL_TYPE_COLUMN]
+    frame[ONSET_COLUMN] = onset.astype(float)
+    frame[DURATION_COLUMN] = duration.astype(float)
+    if TRIAL_TYPE_COLUMN in frame.columns:
+        frame[TRIAL_TYPE_COLUMN] = [
+            normalize_trial_type(value) for value in frame[TRIAL_TYPE_COLUMN]
         ]
     else:
-        frame[_TRIAL_TYPE_COLUMN] = DEFAULT_TRIAL_TYPE
+        frame[TRIAL_TYPE_COLUMN] = DEFAULT_TRIAL_TYPE
 
     extra = [
         column
         for column in frame.columns
-        if column not in (_ONSET_COLUMN, _DURATION_COLUMN, _TRIAL_TYPE_COLUMN)
+        if column not in (ONSET_COLUMN, DURATION_COLUMN, TRIAL_TYPE_COLUMN)
     ]
-    ordered = [_ONSET_COLUMN, _DURATION_COLUMN, _TRIAL_TYPE_COLUMN, *extra]
+    ordered = [ONSET_COLUMN, DURATION_COLUMN, TRIAL_TYPE_COLUMN, *extra]
     return frame[ordered]
 
 
@@ -130,10 +138,10 @@ def write_events(path: str | Path, events: pd.DataFrame) -> None:
         names = ", ".join(repr(column) for column in missing)
         raise ValueError(f"events DataFrame is missing required column(s): {names}.")
 
-    leading = [_ONSET_COLUMN, _DURATION_COLUMN]
-    if _TRIAL_TYPE_COLUMN in events.columns:
-        leading.append(_TRIAL_TYPE_COLUMN)
+    leading = [ONSET_COLUMN, DURATION_COLUMN]
+    if TRIAL_TYPE_COLUMN in events.columns:
+        leading.append(TRIAL_TYPE_COLUMN)
     ordered = leading + [column for column in events.columns if column not in leading]
 
-    frame = events[ordered].sort_values(_ONSET_COLUMN, kind="stable")
+    frame = events[ordered].sort_values(ONSET_COLUMN, kind="stable")
     frame.to_csv(path, sep="\t", index=False, na_rep="n/a")

@@ -10,18 +10,12 @@ from qtpy.QtCore import QObject, Signal
 from confusius._napari._utils import CATEGORICAL_COLORS
 from confusius.bids.events import (
     DEFAULT_TRIAL_TYPE,
+    DURATION_COLUMN,
+    ONSET_COLUMN,
+    TRIAL_TYPE_COLUMN,
     read_events,
     write_events,
 )
-
-ONSET_COLUMN = "onset"
-"""Events DataFrame column holding the event onset in seconds."""
-
-DURATION_COLUMN = "duration"
-"""Events DataFrame column holding the event duration in seconds."""
-
-TRIAL_TYPE_COLUMN = "trial_type"
-"""Events DataFrame column naming the kind of event."""
 
 
 class EventStore(QObject):
@@ -172,14 +166,14 @@ class EventStore(QObject):
     ) -> pd.DataFrame:
         """Return the events that are ON at a given time or frame window.
 
-        An event spans the half-open interval ``[onset, onset + duration)``. Without
-        a `window`, an event is active when it contains `time` exactly;
-        instantaneous events (zero duration) are active only at their onset. With a
-        `window`, an event is active when its span overlaps the half-open window.
-        With `previous_window`, events that fall entirely in the gap between the
-        previous frame's window and this one are also active, so short events that
-        no frame samples are still reported on the next frame. Events already
-        active on the previous frame are never re-reported through the gap.
+        An event spans the half-open interval `[onset, onset + duration)`. Without a
+        `window`, an event is active when it contains `time` exactly; instantaneous
+        events (zero duration) are active only at their onset. With a `window`, an event
+        is active when its span overlaps the half-open window. With `previous_window`,
+        events that fall entirely in the gap between the previous frame's window and
+        this one are also active, so short events that no frame samples are still
+        reported on the next frame. Events already active on the previous frame are
+        never re-reported through the gap.
 
         Parameters
         ----------
@@ -303,7 +297,8 @@ class EventStore(QObject):
         """Load events from a BIDS events file and append them to the store.
 
         Every column from the file is retained, including ones the plugin does not
-        display, so they survive a later [save_file][confusius._napari._events._store.EventStore.save_file].
+        display, so they survive a later
+        [save_file][confusius._napari._events._store.EventStore.save_file].
 
         Parameters
         ----------
@@ -349,10 +344,9 @@ class EventStore(QObject):
         Returns
         -------
         pandas.DataFrame
-            The combined table sorted by onset (stable, so equal onsets keep
-            insertion order) with a fresh range index. Concatenation aligns on
-            column name, so extra columns present on either side are filled with
-            NaN where absent.
+            The combined table sorted by onset (stable, so equal onsets keep insertion
+            order) with a fresh range index. Concatenation aligns on column name, so
+            extra columns present on either side are filled with NaN where absent.
         """
         # Avoid pandas' deprecated all-NA/empty concatenation path by short-
         # circuiting when the store is still empty.
