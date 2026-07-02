@@ -27,9 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="confusius",
-        description="Launch the ConfUSIus napari plugin.",
+        description=(
+            "Launch the ConfUSIus napari plugin. Alternative subcommands are "
+            "listed under `namespaces` below."
+        ),
         epilog="Run `confusius <namespace> --help` for the namespace's own options.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "path",
