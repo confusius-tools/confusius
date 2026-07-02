@@ -85,6 +85,7 @@ list_datasets()
 ┃ Fetch function                   ┃     Size ┃ On disk ┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
 │ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
+│ fetch_landemard_2026             │ 42.04 GB │    ✗    │
 │ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
 │ fetch_template_huang_2025        │ 16.34 MB │    ✗    │
 │ fetch_template_pepe_mariani_2026 │ 5.508 MB │    ✗    │
@@ -177,6 +178,54 @@ fraction of this (see the examples below).
     )
     ```
 
+=== "Landemard 2026"
+
+    Functional ultrasound imaging recordings from awake, head-fixed,
+    freely-running mice, from Landemard et al. (2026)[^landemard2026],
+    hosted on [OSF (dkseb)](https://osf.io/dkseb/overview).
+    Total size: **~42 GB**.
+
+    Use [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] to
+    download the dataset. Four filters narrow the download:
+
+    | Filter      | BIDS entity / scope | Example                          |
+    |-------------|---------------------|----------------------------------|
+    | `datasets`  | dataset name        | `"atlas-mapping"`, `["rawdata", "processed-data"]` |
+    | `subjects`  | `sub-`              | `["ALD001", "ALD019"]`           |
+    | `acqs`      | `acq-`              | `["ref04", "ref11"]`             |
+    | `datatypes` | datatype directory  | `"fusi"`, `["fusi", "angio"]`    |
+
+    The Landemard dataset has no session layer: every recording sits directly
+    under `sub-*/fusi/` or `sub-*/angio/`. Compound acquisition labels such as
+    `ref11_run-1` are matched by their prefix — passing `acqs=["ref11"]`
+    selects both `ref11_run-1` and `ref11_run-2`. Files that lack an
+    `acq-` entity (e.g. `sub-ALD001_scans.tsv`,
+    `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always included regardless
+    of the `acqs` filter.
+
+    The `datasets` filter accepts:
+
+    | Name              | Contents                                                              |
+    |-------------------|-----------------------------------------------------------------------|
+    | `rawdata`         | Raw fUSI and angiography acquisitions per subject                     |
+    | `atlas-mapping`   | Per-subject Allen atlas alignment and region/session matches          |
+    | `processed-data`  | Dataset-level compact representations, PSTHs, and ephys→fUSI filters  |
+
+    ```python
+    from confusius.datasets import fetch_landemard_2026
+
+    # All subjects, atlas-mapping derivative only.
+    bids_root = fetch_landemard_2026(datasets="atlas-mapping")
+
+    # Or raw fUSI data for a single subject, with a single acquisition.
+    bids_root = fetch_landemard_2026(
+        datasets="rawdata",
+        subjects="ALD001",
+        acqs="ref04",
+        datatypes="fusi",
+    )
+    ```
+
 ## Working with fUSI-BIDS Datasets
 
 fUSI-BIDS dataset fetchers return a [`pathlib.Path`][pathlib.Path] to the dataset's root
@@ -263,6 +312,11 @@ parameters and return types.
     Cybis Pereira, F. et al. (2026). A vascular code for speed in the spatial
     navigation system. *Cell Reports*, 45(1).
     <https://doi.org/10.1016/j.celrep.2025.116791>
+
+[^landemard2026]:
+    Landemard, A. et al. (2026). Functional ultrasound imaging in head-fixed,
+    freely-running mice. *Nature*.
+    <https://doi.org/10.1038/s41586-026-10350-9>
 
 [^huang2025]:
     Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source

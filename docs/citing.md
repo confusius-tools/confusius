@@ -198,6 +198,18 @@ Or in BibTeX format:
 
 License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 
+### Landemard et al. (2026)
+
+The [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
+function provides an fUSI-BIDS re-export of this dataset. If you use it,
+please cite:
+
+> Landemard, A. et al. (2026). Functional ultrasound imaging in head-fixed,
+> freely-running mice. *Nature*.
+> https://doi.org/10.1038/s41586-026-10350-9
+
+License: **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)**.
+
 ## Templates
 
 ### Huang et al. (2025)
