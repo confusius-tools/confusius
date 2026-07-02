@@ -181,7 +181,10 @@ Or in BibTeX format:
 ```bibtex
 @article{cybispereiraVascularCodeSpeed2026,
   title = {A Vascular Code for Speed in the Spatial Navigation System},
-  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and {Meur-Diebolt}, Samuel Le and {Ialy-Radio}, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and Osmanski, Bruno F{\'e}lix and Cocco, Simona and Monasson, Remi and Pezet, Sophie and Tanter, Micka{\"e}l},
+  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and {Meur-Diebolt}, Samuel Le and
+            {Ialy-Radio}, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and
+            Osmanski, Bruno F{\'e}lix and Cocco, Simona and Monasson, Remi and
+            Pezet, Sophie and Tanter, Micka{\"e}l},
   year = 2026,
   month = jan,
   journal = {Cell Reports},
