@@ -95,6 +95,12 @@ list_datasets()
 The sizes shown are for the **full** dataset. Filtered fetches are typically a small
 fraction of this (see the examples below).
 
+The same table is available from the command line:
+
+```bash
+confusius datasets --list
+```
+
 ## Available fUSI-BIDS Datasets
 
 === "Nunez-Elizalde 2022"

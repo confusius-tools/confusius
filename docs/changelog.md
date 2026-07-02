@@ -32,6 +32,10 @@ Current development version for the next ConfUSIus release.
   [`read_events`][confusius.bids.read_events] and
   [`write_events`][confusius.bids.write_events]
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
+- Added a `datasets` CLI namespace, listed in `confusius --help`:
+  `confusius datasets --list` prints the table of available datasets, their sizes,
+  and whether each is cached on disk. A bare `confusius PATH...` still launches the
+  viewer ([#234](https://github.com/confusius-tools/confusius/pull/234)).
 - Added [`NMF`][confusius.decomposition.NMF] for non-negative matrix factorization
   of fUSI time series, wrapping `sklearn.decomposition.NMF` with the same
   xarray-aware `fit`/`transform`/`inverse_transform` interface as
@@ -60,6 +64,17 @@ Current development version for the next ConfUSIus release.
   `bspline_initialization` written by the registration pipeline) when merging in the
   NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
+- `save_nifti` no longer maps non-time additional axes to the NIfTI 4th slot. When
+  additional axes are present in the DataArray, a degenerate length-1 `time` axis is
+  inserted at NIfTI axis 4 (NIfTI's conventional time slot) so non-time additional axes
+  always land at NIfTI axes 5, 6, 7. The original dim name for each additional axis is
+  always written to the sidecar as `ConfUSIusDim{N}Name` (with `N` in 4, 5, 6, matching
+  the 0-based NIfTI axis of the extra dim). The matching `ConfUSIusDim{N}Coordinates`
+  entry is only written when the coord cannot be reconstructed from `pixdim` (i.e. when
+  the coord does not start at 0 with regular spacing); otherwise the spacing is stored
+  in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
+  preserved in `ConfUSIusDim{N}Attributes` entries.
+  ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
