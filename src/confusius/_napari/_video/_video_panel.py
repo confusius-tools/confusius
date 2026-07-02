@@ -366,7 +366,7 @@ class VideoPanel(QWidget):
         playback_layout.setSpacing(4)
 
         step_row = QHBoxLayout()
-        step_row.addWidget(QLabel("Frame step:"))
+        step_row.addWidget(QLabel("Frame step"))
         self._step_spin = QSpinBox()
         self._step_spin.setRange(1, 100)
         self._step_spin.setValue(1)

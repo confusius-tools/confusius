@@ -12,11 +12,13 @@ from qtpy.QtWidgets import (
     QComboBox,
     QDockWidget,
     QDoubleSpinBox,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -56,11 +58,14 @@ class SignalPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # Source group.
+        # Source group. A grid keeps the three combos left-aligned in one
+        # column regardless of the leading radio/label text widths.
         source_group = QGroupBox("Source")
         self._source_group = source_group
-        source_layout = QVBoxLayout(source_group)
-        source_layout.setSpacing(4)
+        source_layout = QGridLayout(source_group)
+        source_layout.setHorizontalSpacing(6)
+        source_layout.setVerticalSpacing(4)
+        source_layout.setColumnStretch(1, 1)
 
         self._source_btn_group = QButtonGroup(self)
 
@@ -68,20 +73,19 @@ class SignalPanel(QWidget):
         self._radio_mouse = QRadioButton("Mouse (Shift + hover)")
         self._radio_mouse.setChecked(True)
         self._source_btn_group.addButton(self._radio_mouse, 0)
-        source_layout.addWidget(self._radio_mouse)
+        source_layout.addWidget(self._radio_mouse, 0, 0, 1, 3)
 
         # Points row. Text is part of the radio button (same pattern as the Mouse row)
         # so the indicator and label are always flush with no gap.
-        points_row = QHBoxLayout()
-        self._radio_points = QRadioButton("Points:")
+        self._radio_points = QRadioButton("Points")
         self._source_btn_group.addButton(self._radio_points, 1)
-        points_row.addWidget(self._radio_points)
+        source_layout.addWidget(self._radio_points, 1, 0)
         self._points_combo = QComboBox()
         self._points_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
         self._points_combo.setEnabled(False)
-        points_row.addWidget(self._points_combo, stretch=1)
+        source_layout.addWidget(self._points_combo, 1, 1)
         self._new_points_btn = QPushButton("+")
         self._new_points_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
         self._new_points_btn.setToolTip(
@@ -89,20 +93,18 @@ class SignalPanel(QWidget):
             "Points will be visible at all time steps."
         )
         self._new_points_btn.clicked.connect(self._create_points_layer)
-        points_row.addWidget(self._new_points_btn)
-        source_layout.addLayout(points_row)
+        source_layout.addWidget(self._new_points_btn, 1, 2)
 
         # Labels row.
-        labels_row = QHBoxLayout()
-        self._radio_labels = QRadioButton("Labels:")
+        self._radio_labels = QRadioButton("Labels")
         self._source_btn_group.addButton(self._radio_labels, 2)
-        labels_row.addWidget(self._radio_labels)
+        source_layout.addWidget(self._radio_labels, 2, 0)
         self._labels_combo = QComboBox()
         self._labels_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
         self._labels_combo.setEnabled(False)
-        labels_row.addWidget(self._labels_combo, stretch=1)
+        source_layout.addWidget(self._labels_combo, 2, 1)
         self._new_labels_btn = QPushButton("+")
         self._new_labels_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
         self._new_labels_btn.setToolTip(
@@ -110,21 +112,19 @@ class SignalPanel(QWidget):
             "Labels will be visible at all time steps."
         )
         self._new_labels_btn.clicked.connect(self._create_labels_layer)
-        labels_row.addWidget(self._new_labels_btn)
-        source_layout.addLayout(labels_row)
+        source_layout.addWidget(self._new_labels_btn, 2, 2)
 
-        # Reference image (enabled in points/labels mode).
-        ref_row = QHBoxLayout()
-        self._ref_label = QLabel("Reference:")
+        # Reference image (enabled in points/labels mode). Spans the "+"
+        # column so its right edge stays flush with the buttons above.
+        self._ref_label = QLabel("Reference")
         self._ref_label.setEnabled(False)
-        ref_row.addWidget(self._ref_label)
+        source_layout.addWidget(self._ref_label, 3, 0)
         self._ref_combo = QComboBox()
         self._ref_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
         self._ref_combo.setEnabled(False)
-        ref_row.addWidget(self._ref_combo, stretch=1)
-        source_layout.addLayout(ref_row)
+        source_layout.addWidget(self._ref_combo, 3, 1, 1, 2)
 
         layout.addWidget(source_group)
 
@@ -190,13 +190,15 @@ class SignalPanel(QWidget):
             spin = QDoubleSpinBox()
             spin.setObjectName(f"y{lim}_spin")
             spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # Ignored horizontal policy: the minimum size hint spans the
+            # widest possible value ("-1000000000.00"), which overflowed the
+            # panel in issue #183. The layout stretch shares the row width.
+            spin.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             spin.setRange(-1e9, 1e9)
             spin.setValue(-1.0 if lim == "min" else 1.0)
-            spin.setMaximumWidth(96)
             spin.valueChanged.connect(self._apply_settings)
             spinbox.append(spin)
-            yminmax_row.addWidget(spin)
-        yminmax_row.addStretch(1)
+            yminmax_row.addWidget(spin, stretch=1)
         axis_layout.addLayout(yminmax_row)
 
         self._ymin_spin, self._ymax_spin = spinbox
