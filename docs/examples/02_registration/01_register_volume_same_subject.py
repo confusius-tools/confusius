@@ -179,3 +179,79 @@ _ = ax.set_title(diagnostics.stop_condition)
 # The resulting rigid transform is encoded in physical units and can be reused, composed
 # with other transforms, or applied to additional volumes from the same session with
 # [`resample_volume`][confusius.registration.resample_volume].
+
+# %% [markdown]
+# ## Refine with a B-spline transform
+#
+# A rigid transform only models a single global rotation and translation. Any residual
+# local mismatch—e.g. small elastic tissue deformation between sessions—needs a
+# nonrigid model. [`register_volume`][confusius.registration.register_volume] with
+# `transform_type="bspline"` fits a local displacement field on top of an initial
+# transform, here the rigid transform found above.
+#
+# !!! warning "B-spline registration needs different arguments than rigid"
+#     The optimizer's step size operates in a different space for a B-spline
+#     transform (per-control-point displacements) than for rigid (rotation and
+#     translation), so the `learning_rate=30` tuned for the rigid step above is not
+#     appropriate here. We fall back to `learning_rate="auto"` and only set
+#     `mesh_size`, which controls the density of the B-spline control-point grid.
+
+# %%
+registered_bspline, bspline_transform, diagnostics_bspline = register_volume(
+    moving=moving,
+    fixed=fixed,
+    transform_type="bspline",
+    mesh_size=(6, 6, 6),
+    learning_rate=30,
+    number_of_iterations=500,
+    initialization=transform,
+    resample=True,
+    show_progress=True,
+)
+
+print(f"Iterations: {diagnostics_bspline.n_iterations}")
+print(f"Final metric: {diagnostics_bspline.final_metric_value:.4f}")
+print(f"Stop condition: {diagnostics_bspline.stop_condition}")
+bspline_transform
+
+# %% [markdown]
+# ## Check the alignment after B-spline refinement
+#
+# Comparing the rigid-only result against the B-spline-refined result shows the extra
+# local correction the B-spline step adds on top of rigid.
+
+# %%
+print(f"Rigid final metric: {diagnostics.final_metric_value:.4f}")
+print(f"Rigid + B-spline final metric: {diagnostics_bspline.final_metric_value:.4f}")
+
+# %%
+fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+fig.patch.set_facecolor(bg_color)
+
+for ax, moving_view, title in [
+    (axes[0], registered, "Rigid"),
+    (axes[1], registered_bspline, "Rigid + B-spline"),
+]:
+    cf.plotting.plot_composite(fixed, moving_view, axes=ax, bg_color=bg_color)
+    ax.set_title(title)
+
+_ = fig.suptitle("Fixed (red) / moving (cyan)")
+
+# %% [markdown]
+# ## Inspect B-spline convergence
+
+# %%
+fig, ax = plt.subplots(figsize=(7, 3))
+fig.patch.set_facecolor(bg_color)
+ax.plot(diagnostics_bspline.metric_values, color="#d93a54")
+ax.set_xlabel("Iteration")
+ax.set_ylabel(f"Similarity metric ({diagnostics_bspline.metric})")
+_ = ax.set_title(diagnostics_bspline.stop_condition)
+
+# %% [markdown]
+# Unlike the rigid transform, `bspline_transform` is a control-point `xarray.DataArray`
+# rather than a homogeneous matrix—it has no closed-form inverse. To apply it (or its
+# inverse) as a warp on other data, sample it into a dense displacement field with
+# [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
+# and, if needed, invert that field with
+# [`invert_displacement_field`][confusius.registration.invert_displacement_field].
