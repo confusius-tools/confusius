@@ -138,6 +138,7 @@ class EventPanel(QWidget):
 
     def _make_annotate_group(self) -> QGroupBox:
         group = QGroupBox("Annotate")
+        self._annotate_group = group
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(4)
 
@@ -182,6 +183,7 @@ class EventPanel(QWidget):
 
     def _make_list_group(self) -> QGroupBox:
         group = QGroupBox("Events")
+        self._list_group = group
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(4)
 
@@ -214,23 +216,25 @@ class EventPanel(QWidget):
 
     def _make_file_group(self) -> QGroupBox:
         group = QGroupBox("Events File")
+        self._file_group = group
         group_layout = QHBoxLayout(group)
         group_layout.setSpacing(4)
 
-        load_btn = QPushButton("Load…")
-        load_btn.setToolTip("Load events from an events .tsv file.")
-        load_btn.clicked.connect(self._on_load)
-        group_layout.addWidget(load_btn)
+        self._load_btn = QPushButton("Load")
+        self._load_btn.setToolTip("Load events from an events .tsv file.")
+        self._load_btn.clicked.connect(self._on_load)
+        group_layout.addWidget(self._load_btn)
 
-        save_btn = QPushButton("Save…")
-        save_btn.setToolTip("Save events to an events .tsv file.")
-        save_btn.clicked.connect(self._on_save)
-        group_layout.addWidget(save_btn)
+        self._save_btn = QPushButton("Save")
+        self._save_btn.setToolTip("Save events to an events .tsv file.")
+        self._save_btn.clicked.connect(self._on_save)
+        group_layout.addWidget(self._save_btn)
 
         return group
 
     def _make_display_group(self) -> QGroupBox:
         group = QGroupBox("Display Options")
+        self._display_group = group
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(4)
 
