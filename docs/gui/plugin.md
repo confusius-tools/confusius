@@ -11,7 +11,8 @@ introduction, click **Take a Tour** in the sidebar header.
 - [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, SCAN).
 - [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
 - [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
-- [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on the signal plot.
+- [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
+  the signal plot.
 - [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
 
 ## Data I/O Panel
@@ -192,10 +193,11 @@ signals (from the current source mode) and imported signals:
 
 ## Events Panel
 
-The Events Panel annotates *periods of time* — not individual frames — following the
-[BIDS events](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/events.html)
+The Events Panel annotates *periods of time*—not individual frames—following the [BIDS
+events](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/events.html)
 convention (`onset`, `duration`, and an optional `trial_type`). Annotated events shade
-the [signal plot](#signals-panel) and are named in the time overlay while they are active.
+the [signal plot](#signals-panel) and are named in the time overlay while they are
+active.
 
 ![Creating events with the Start/End workflow](../images/gui/plugin-events-create.gif)
 
@@ -211,16 +213,15 @@ Events must have a positive duration; the End time must be strictly after the St
 
 ### Loading and saving
 
-Use **Load…** to import a BIDS events `.tsv` file (`onset` and `duration` are required;
-a missing `trial_type` defaults to `event`) and **Save…** to write the current events
-back out as a BIDS events `.tsv`.
+Use **Load** to import a BIDS events `.tsv` file (`onset` and `duration` are required; a
+missing `trial_type` defaults to `event`) and **Save** to write the current events back
+out as a BIDS events `.tsv`.
 
 !!! tip "Straight into analysis"
-    An events `.tsv` saved here is a standard BIDS events table, so it can be read
-    back with [read_events][confusius.bids.events.read_events] and fed directly to either
-    [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix]
-    or the `fit` method of a
-    [FirstLevelModel][confusius.glm.first_level.FirstLevelModel]:
+    An events `.tsv` saved here is a standard BIDS events table, so it can be read back
+    with [read_events][confusius.bids.read_events] and fed directly to either
+    [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix] or
+    the `fit` method of a [FirstLevelModel][confusius.glm.first_level.FirstLevelModel]:
 
     ```python
     from confusius.bids import read_events
