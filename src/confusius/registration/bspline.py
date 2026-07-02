@@ -188,8 +188,8 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     # Parameters vector: coefficient values concatenated across components in the
     # same flattened order that SimpleITK uses (C-order / row-major per component,
     # in sitk's own reversed-numpy-axis convention). da.values[d] is in DataArray
-    # axis order, so .T converts back to sitk's native layout -- the inverse of the
-    # .T applied in sitk_bspline_to_dataarray.
+    # axis order, so .T converts back to sitk's native layout, the inverse of the .T
+    # applied in sitk_bspline_to_dataarray.
     params = np.concatenate(
         [da.values[d].T.astype(np.float64).ravel() for d in range(ndim)]
     )
@@ -376,7 +376,7 @@ def invert_displacement_field(
 
     with set_sitk_thread_count(sitk_threads):
         # InvertDisplacementFieldImageFilter needs a real spatial neighborhood along
-        # every axis and silently returns an all-zero field otherwise -- exactly the
+        # every axis and silently returns an all-zero field otherwise, exactly the
         # case for fUSI data stored as a single 2D slice, e.g. (1, y, x). Reuse the
         # same expand-then-crop trick register_volume already uses for its own
         # thin-dimension images (see expand_thin_dims): a degenerate axis has no

@@ -818,9 +818,9 @@ class TestDisplacementField:
 
         Regression test: `InvertDisplacementFieldImageFilter` requires an N-D image
         with N-component vectors and silently returns an all-zero field when any
-        spatial axis has size 1 -- it has no local neighborhood to compute a
+        spatial axis has size 1, since it has no local neighborhood to compute a
         fixed-point update from along that axis. `invert_displacement_field` must
-        squeeze the degenerate axis out before inverting and reinsert it afterward,
+        expand the degenerate axis before inverting and crop it back down afterward,
         rather than passing the degenerate field straight to the filter.
         """
         fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
@@ -847,8 +847,8 @@ class TestDisplacementField:
 
         # The degenerate z axis has no spatial variation to invert against, so its
         # displacement component is ~zero (platform-dependent floating-point noise,
-        # not exactly 0.0) -- but y/x must be genuinely inverted, not silently
-        # zeroed out along with it.
+        # not exactly 0.0), but y/x must be genuinely inverted, not silently zeroed
+        # out along with it.
         assert_allclose(inverse_field.values[0], 0.0, atol=1e-9)
         assert np.abs(inverse_field.values[1:]).max() > 0.1
 
