@@ -41,6 +41,15 @@ Current development version for the next ConfUSIus release.
   downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
+- Added [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
+  and [`invert_displacement_field`][confusius.registration.invert_displacement_field] to
+  sample a B-spline (or composite affine + B-spline) registration transform into a dense
+  displacement field and invert it via SimpleITK's `InvertDisplacementFieldImageFilter`.
+  [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now also accept displacement
+  fields directly, so a saved B-spline transform's inverse can be applied without a
+  closed-form inverse
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 
 ### :bug: Fixes
 

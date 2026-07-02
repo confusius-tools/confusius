@@ -12,7 +12,10 @@ from confusius.registration._utils import (
     replace_affines_attr,
     set_sitk_thread_count,
 )
-from confusius.registration.bspline import _dataarray_to_sitk_bspline
+from confusius.registration.bspline import (
+    _dataarray_to_sitk_bspline,
+    _dataarray_to_sitk_displacement_field,
+)
 from confusius.validation import validate_fusi_dataarray
 
 
@@ -47,8 +50,13 @@ def resample_volume(
         - **Affine** (`numpy.ndarray`): homogeneous matrix of shape `(N+1, N+1)`
           mapping output (fixed) physical coordinates to moving physical coordinates
           (pull/inverse convention).
-        - **B-spline** (`xarray.DataArray`): control-point DataArray as returned by
-          `register_volume(transform="bspline")`.
+        - **B-spline** (`xarray.DataArray`): control-point DataArray with `attrs["type"]
+          == "bspline_transform"` as returned by `register_volume(transform="bspline")`.
+        - **Displacement field** (`xarray.DataArray`): dense field with
+          `attrs["type"] == "displacement_field_transform"`, as returned by
+          [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
+          or
+          [`invert_displacement_field`][confusius.registration.invert_displacement_field].
     shape : sequence of int
         Number of voxels along each output axis, in DataArray dimension order.
     spacing : sequence of float
@@ -115,6 +123,10 @@ def resample_volume(
         tx: sitk.Transform = sitk.AffineTransform(ndim)
         tx.SetMatrix(transform[:ndim, :ndim].flatten().tolist())
         tx.SetTranslation(transform[:ndim, ndim].tolist())
+    elif transform.attrs.get("type") == "displacement_field_transform":
+        tx = sitk.DisplacementFieldTransform(
+            _dataarray_to_sitk_displacement_field(transform)
+        )
     else:
         tx = _dataarray_to_sitk_bspline(transform)
 
@@ -196,6 +208,8 @@ def resample_like(
 
         - **Affine** (`numpy.ndarray`): homogeneous matrix.
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
+        - **Displacement field** (`xarray.DataArray`): dense field with
+          `attrs["type"] == "displacement_field_transform"`.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
     default_value : float, optional

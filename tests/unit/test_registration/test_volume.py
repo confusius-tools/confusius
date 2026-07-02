@@ -5,6 +5,10 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius.registration.bspline import (
+    bspline_to_displacement_field,
+    invert_displacement_field,
+)
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
@@ -111,6 +115,43 @@ class TestRegisterVolumeOutput:
         assert isinstance(bspline_tx, xr.DataArray)
         assert bspline_tx.attrs.get("type") == "bspline_transform"
         assert bspline_tx.dims[0] == "component"
+
+    def test_bspline_control_point_domain_matches_each_axis_extent(self):
+        """Each axis's control-point domain scales with its own physical extent.
+
+        Regression test for a bug where `sitk_bspline_to_dataarray` assumed
+        SimpleITK reverses axis order relative to the DataArray (`(x, y, z)` vs.
+        `(z, y, x)`), when in fact this codebase's convention (see
+        `dataarray_to_sitk_image`) never reverses axes: sitk axis `i` maps directly
+        to DataArray dim `i`. On an anisotropic image, the erroneous reversal
+        swapped the y/x control-point grids: `y`'s spacing was computed from `x`'s
+        physical domain and vice versa. Isotropic test fixtures never exposed this
+        because swapping equal-sized, equal-spacing axes is a no-op.
+        """
+        img = np.zeros((20, 40), dtype=np.float32)
+        img[6:14, 10:30] = 100.0
+        da = xr.DataArray(
+            img,
+            dims=("y", "x"),
+            coords={"y": np.arange(20) * 0.5, "x": np.arange(40) * 0.1},
+        )
+        _, bspline_tx, _ = register_volume(
+            da, da, transform_type="bspline", mesh_size=(4, 4)
+        )
+
+        y_span = float(
+            bspline_tx.coords["y"].values[-1] - bspline_tx.coords["y"].values[0]
+        )
+        x_span = float(
+            bspline_tx.coords["x"].values[-1] - bspline_tx.coords["x"].values[0]
+        )
+        # The control-point domain is padded beyond the image FOV for boundary
+        # support, so spans are somewhat larger than the raw physical extent (9.5 mm
+        # for y, 3.9 mm for x). Padding scales with each axis's own extent (same mesh
+        # size, so padding is proportional to domain size), so the span ratio should
+        # track the physical extent ratio (9.5 / 3.9 ~= 2.44) rather than being
+        # swapped with the other axis's.
+        assert y_span / x_span == pytest.approx(9.5 / 3.9, rel=0.3)
 
     def test_resample_true_coords_match_fixed(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -641,6 +682,174 @@ class TestResampleVolumeWithBspline:
         assert isinstance(bspline_tx, xr.DataArray)
         result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
+
+
+class TestDisplacementField:
+    """Tests for `bspline_to_displacement_field`, `invert_displacement_field`, and
+    `resample_volume` with a displacement field transform."""
+
+    def _grid_from_da(self, da: xr.DataArray) -> dict:
+        """Extract explicit grid kwargs from a DataArray."""
+        return dict(
+            shape=[da.sizes[d] for d in da.dims],
+            spacing=[float(da.coords[d].diff(d).mean()) for d in da.dims],
+            origin=[float(da.coords[d][0]) for d in da.dims],
+            dims=list(da.dims),
+        )
+
+    def test_bspline_to_displacement_field_returns_valid_dataarray(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Sampling an identity B-spline transform yields a near-zero dense field."""
+        _, bspline_tx, _ = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+        )
+        grid = self._grid_from_da(sample_2d_dataarray_spatial)
+        field = bspline_to_displacement_field(bspline_tx, **grid)
+
+        assert field.attrs["type"] == "displacement_field_transform"
+        assert field.dims[0] == "component"
+        assert field.shape == (2, *sample_2d_dataarray_spatial.shape)
+        assert_allclose(field.values, 0.0, atol=1e-6)
+
+    def test_invert_displacement_field_undoes_translation(self):
+        """Inverting a constant translation field approximately negates it.
+
+        Only the interior of the grid is checked: pixels near the boundary map
+        outside the field's domain under the translation, which the inversion
+        cannot resolve (there is nothing to invert against there).
+        """
+        shape = (12, 12)
+        dims = ["y", "x"]
+        translation = np.array([2.0, -1.5])
+        array = np.broadcast_to(translation[:, None, None], (2, *shape)).astype(
+            np.float64
+        )
+        field = xr.DataArray(
+            array.copy(),
+            dims=["component", *dims],
+            coords={
+                "component": [0, 1],
+                "y": np.arange(shape[0], dtype=np.float64),
+                "x": np.arange(shape[1], dtype=np.float64),
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        inverted = invert_displacement_field(field)
+
+        assert inverted.attrs["type"] == "displacement_field_transform"
+        interior = np.s_[:, 4:8, 4:8]
+        assert_allclose(inverted.values[interior], -array[interior], atol=1e-2)
+
+    def test_resample_volume_with_displacement_field_matches_bspline(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """resample_volume with a displacement field matches the equivalent B-spline resample."""
+        rng = np.random.default_rng(2)
+        shift = rng.integers(3, 6, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(
+            shifted,
+            dims=sample_2d_dataarray_spatial.dims,
+            coords=sample_2d_dataarray_spatial.coords,
+        )
+        _, bspline_tx, _ = register_volume(
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+        )
+        grid = self._grid_from_da(sample_2d_dataarray_spatial)
+        field = bspline_to_displacement_field(bspline_tx, **grid)
+
+        result_bspline = resample_volume(moving, bspline_tx, **grid)
+        result_field = resample_volume(moving, field, **grid)
+
+        assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
+
+    def test_matches_bspline_with_singleton_spatial_dim(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """A singleton spatial dim (a single 2D slice stored as (1, y, x)) must not
+        produce NaN spacing anywhere in the field round trip.
+
+        Regression test: `coords[dim].diff(dim)` is empty for a length-1 axis, so
+        `.mean()` silently returns NaN. Field construction/consumption must fall back
+        to the `voxdim` coordinate attribute instead (via the `fusi` accessor), as
+        `resample_volume`'s own grid handling already does.
+        """
+        fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
+            "z", "y", "x"
+        )
+        fixed.coords["z"].attrs["voxdim"] = 0.5
+
+        rng = np.random.default_rng(3)
+        shift = rng.integers(3, 6, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
+        _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
+
+        grid = dict(
+            shape=[fixed.sizes[d] for d in fixed.dims],
+            spacing=[fixed.fusi.spacing[d] for d in fixed.dims],
+            origin=[fixed.fusi.origin[d] for d in fixed.dims],
+            dims=list(fixed.dims),
+        )
+        field = bspline_to_displacement_field(bspline_tx, **grid)
+        assert not np.isnan(field.values).any()
+
+        result_bspline = resample_volume(moving, bspline_tx, **grid)
+        result_field = resample_volume(moving, field, **grid)
+        assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
+
+        inverse_field = invert_displacement_field(field)
+        assert not np.isnan(inverse_field.values).any()
+
+    def test_invert_displacement_field_with_singleton_spatial_dim_is_nonzero(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """Inverting a field with a singleton spatial axis must not silently no-op.
+
+        Regression test: `InvertDisplacementFieldImageFilter` requires an N-D image
+        with N-component vectors and silently returns an all-zero field when any
+        spatial axis has size 1 -- it has no local neighborhood to compute a
+        fixed-point update from along that axis. `invert_displacement_field` must
+        squeeze the degenerate axis out before inverting and reinsert it afterward,
+        rather than passing the degenerate field straight to the filter.
+        """
+        fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
+            "z", "y", "x"
+        )
+        fixed.coords["z"].attrs["voxdim"] = 0.5
+
+        rng = np.random.default_rng(4)
+        shift = rng.integers(3, 6, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
+        _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
+
+        grid = dict(
+            shape=[fixed.sizes[d] for d in fixed.dims],
+            spacing=[fixed.fusi.spacing[d] for d in fixed.dims],
+            origin=[fixed.fusi.origin[d] for d in fixed.dims],
+            dims=list(fixed.dims),
+        )
+        field = bspline_to_displacement_field(bspline_tx, **grid)
+        inverse_field = invert_displacement_field(field)
+
+        # The degenerate z axis has no spatial variation to invert against, so its
+        # displacement component is exactly zero -- but y/x must be genuinely
+        # inverted, not silently zeroed out along with it.
+        assert_allclose(inverse_field.values[0], 0.0)
+        assert np.abs(inverse_field.values[1:]).max() > 0.1
 
 
 class TestResampleLike:
