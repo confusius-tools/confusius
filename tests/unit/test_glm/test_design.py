@@ -52,10 +52,7 @@ def _inverse_gamma_hrf_reference(
     positive = time_stamps > 0
     t = time_stamps[positive]
     hrf[positive] = (
-        beta**alpha
-        / spspecial.gamma(alpha)
-        * t ** (-(alpha + 1.0))
-        * np.exp(-beta / t)
+        beta**alpha / spspecial.gamma(alpha) * t ** (-(alpha + 1.0)) * np.exp(-beta / t)
     )
     hrf /= hrf.sum()
     return hrf
@@ -87,6 +84,7 @@ def _gamma_hrf_reference(
     )
     hrf /= hrf.sum()
     return hrf
+
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -359,9 +357,7 @@ class TestDesignMatrix:
         assert poly_cols == ["poly_1", "poly_2"]
         assert_allclose(design["constant"].to_numpy(), np.ones(len(frame_times)))
 
-    def test_design_matrix_cosine_drift_orthogonal(
-        self, frame_times, basic_events
-    ):
+    def test_design_matrix_cosine_drift_orthogonal(self, frame_times, basic_events):
         """Cosine drift regressors emitted by the design matrix are orthogonal,
         which is the property that makes them safe to use as a high-pass basis."""
         design = make_first_level_design_matrix(
@@ -379,7 +375,7 @@ class TestDesignMatrix:
         assert np.all(np.abs(off_diagonal) < 1e-10)
 
     def test_design_matrix_default_trial_type(self, frame_times):
-        """Events without `trial_type` default to a 'dummy' label and warn."""
+        """Events without `trial_type` default to a 'event' label and warn."""
         events = pd.DataFrame(
             {
                 "onset": [0.0, 10.0],
@@ -392,11 +388,9 @@ class TestDesignMatrix:
                 frame_times, events, drift_model=None
             )
 
-        assert "dummy" in design.columns
+        assert "event" in design.columns
 
-    def test_design_matrix_callable_hrf_matches_named(
-        self, frame_times, basic_events
-    ):
+    def test_design_matrix_callable_hrf_matches_named(self, frame_times, basic_events):
         """A callable HRF produces the same regressors as the equivalent
         named-string HRF — confirming the callable plumbing is wired up."""
         design = make_first_level_design_matrix(
@@ -490,15 +484,11 @@ class TestDesignMatrixInputValidation:
 
     @pytest.fixture
     def stim_event(self):
-        return pd.DataFrame(
-            {"trial_type": ["stim"], "onset": [1.0], "duration": [1.0]}
-        )
+        return pd.DataFrame({"trial_type": ["stim"], "onset": [1.0], "duration": [1.0]})
 
     def test_invalid_hrf_model_raises(self, frame_times, stim_event):
         with pytest.raises(ValueError, match="Unknown hrf_model"):
-            make_first_level_design_matrix(
-                frame_times, stim_event, hrf_model="invalid"
-            )
+            make_first_level_design_matrix(frame_times, stim_event, hrf_model="invalid")
 
     def test_invalid_drift_order_raises(self, frame_times, stim_event):
         with pytest.raises(ValueError, match="drift_order must be >= 0"):
@@ -612,9 +602,7 @@ class TestDesignMatrixInputValidation:
 
     def test_confounds_bad_ndim_raises(self, frame_times):
         with pytest.raises(ValueError, match="1D or 2D"):
-            make_first_level_design_matrix(
-                frame_times, confounds=np.zeros((2, 3, 4))
-            )
+            make_first_level_design_matrix(frame_times, confounds=np.zeros((2, 3, 4)))
 
     def test_confounds_length_mismatch_raises(self, frame_times):
         with pytest.raises(ValueError, match="Incorrect specification of confounds"):
