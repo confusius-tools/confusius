@@ -387,30 +387,9 @@ def _qt_sleep(ms: int) -> None:
 
 
 def _open_accordion(widget, idx: int) -> None:
-    """Show accordion panel *idx* and hide the others — no animation.
-
-    Directly sets panel visibility rather than going through the animated click
-    handler. Animations depend on the widget being already laid out (so that
-    `p.height()` is non-zero), which is not guaranteed in the headless
-    screenshot setup.
-    """
-    btns_and_icons = widget._accordion_btns
-    container = btns_and_icons[0][0].parent()
-    layout = container.layout()
-
-    for i, (btn, _) in enumerate(btns_and_icons):
-        active = i == idx
-        btn.blockSignals(True)
-        btn.setChecked(active)
-        btn.blockSignals(False)
-        # The container layout interleaves buttons and panels: btn0, panel0,
-        # btn1, panel1, … so panel i is at layout index 2*i + 1.
-        item = layout.itemAt(2 * i + 1)
-        if item and item.widget():
-            panel = item.widget()
-            panel.setMaximumHeight(16777215)
-            panel.setVisible(active)
-
+    """Show section panel *idx* via the icon rail (instant, no animation)."""
+    label = widget._accordion_btns[idx][0].text()
+    widget._set_active_section(label)
     get_qapp().processEvents()
 
 
@@ -465,9 +444,7 @@ try:
     # Open Signals panel (index 2).
     _open_accordion(widget2, 2)
 
-    # Retrieve the Signals panel from the accordion container layout.
-    _container2 = widget2._accordion_btns[0][0].parent()
-    ts_panel = _container2.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel = widget2._accordion_panels["Signals"]
 
     # Open the bottom dock with the signals plotter.
     plotter = ts_panel._ensure_plotter()
@@ -514,10 +491,7 @@ try:
     # Open QC panel (index 3).
     _open_accordion(widget3, 3)
 
-    # Retrieve the QCPanel widget from the accordion container layout.
-    # Layout interleaves buttons and panels: btn0, panel0, btn1, panel1, …
-    _container3 = widget3._accordion_btns[0][0].parent()
-    qc_panel = _container3.layout().itemAt(2 * 3 + 1).widget()
+    qc_panel = widget3._accordion_panels["Quality Control"]
 
     # Select the layer in the QC panel.
     idx = qc_panel._layer_combo.findText(layer_name)
@@ -569,8 +543,7 @@ try:
 
     # Open Signals panel (index 2).
     _open_accordion(widget4, 2)
-    _container4 = widget4._accordion_btns[0][0].parent()
-    ts_panel4 = _container4.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel4 = widget4._accordion_panels["Signals"]
 
     layer4 = viewer4.layers[0]
     shape4 = layer4.data.shape[1:]  # (z, y, x)
@@ -635,8 +608,7 @@ try:
 
     # Open Signals panel (index 2).
     _open_accordion(widget5, 2)
-    _container5 = widget5._accordion_btns[0][0].parent()
-    ts_panel5 = _container5.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel5 = widget5._accordion_panels["Signals"]
 
     layer5 = viewer5.layers[0]
     shape5 = layer5.data.shape[1:]  # (z, y, x)

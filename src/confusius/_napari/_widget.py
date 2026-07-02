@@ -6,12 +6,19 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from qtpy.QtCore import QByteArray, QRectF, QSize, Qt, QTimer
+from qtpy.QtCore import (
+    QByteArray,
+    QEasingCurve,
+    QRectF,
+    QSize,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
 from qtpy.QtGui import QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import (
     QApplication,
-    QComboBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -27,10 +34,18 @@ from confusius._napari._time_overlay import _TimeOverlay
 
 if TYPE_CHECKING:
     import napari
+    from qtpy.QtCore import QEvent
+    from qtpy.QtGui import QEnterEvent, QResizeEvent
 
     from confusius._napari._tour import GuidedTour
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
+
+_RAIL_COLLAPSED_WIDTH = 40
+"""Width of the icon rail at rest, showing icons only."""
+
+_RAIL_EXPANDED_WIDTH = 180
+"""Width of the icon rail while hovered, showing icons and section names."""
 
 
 def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
@@ -99,30 +114,38 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
 }}
 #confusius_version  {{ color: {version_fg};  font-size: 10px; background: transparent; }}
 
-/* ---- Section selector ---- */
-QComboBox#section_selector {{
-    background: {tab_selected_bg};
-    color: {accent};
+/* ---- Section rail ---- */
+#icon_rail {{
+    background: {tab_bg};
+    border-left: 1px solid {input_border};
+    border-bottom: 1px solid {input_border};
+    border-bottom-left-radius: 6px;
+}}
+/* The rail buttons use a RightToLeft layout direction so their icon sits on
+   the right edge; under RTL, `text-align: left` resolves to visual right. */
+#icon_rail QPushButton {{
+    background: transparent;
+    color: {tab_fg};
     border: none;
-    border-left: 3px solid {accent};
     border-radius: 0;
-    padding: 8px 12px 8px 9px;
+    padding: 10px 10px;
     font-weight: bold;
     font-size: 12px;
+    text-align: left;
 }}
-QComboBox#section_selector:hover {{
+#icon_rail QPushButton:hover {{
     background: {tab_hover_bg};
 }}
-QComboBox#section_selector::drop-down {{
-    border: none;
-    width: 24px;
+#icon_rail QPushButton:checked {{
+    background: {tab_selected_bg};
+    color: {accent};
+    border-right: 3px solid {accent};
 }}
-QComboBox#section_selector QAbstractItemView {{
-    background: {tab_bg};
-    color: {tab_fg};
-    border: 1px solid {input_border};
-    selection-background-color: {tab_selected_bg};
-    selection-color: {accent};
+/* At rest the collapsed rail would show a sliver of clipped label text next
+   to the icon; keep the text (the tour matches buttons by text) but paint it
+   transparent until the rail starts expanding. */
+#icon_rail QPushButton[labels_hidden="true"] {{
+    color: transparent;
 }}
 
 /* ---- Placeholder labels ---- */
@@ -223,6 +246,95 @@ QPushButton#tour_btn:hover {{
     color: {accent_fg};
 }}
 """
+
+
+class _SectionRail(QWidget):
+    """Right-edge icon rail that expands over the panel content on hover.
+
+    The rail is not part of its parent's layout: it floats above the section
+    stack, anchored to the parent's right edge, and animates its width between
+    the collapsed (icons only) and expanded (icons + names) states.
+
+    Parameters
+    ----------
+    parent : QWidget
+        Container hosting the section stack; the rail overlays its right edge.
+    """
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setObjectName("icon_rail")
+        # Plain QWidget ignores stylesheet background unless this is set.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._current_width = _RAIL_COLLAPSED_WIDTH
+        self._labels_hidden = False
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(150)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.valueChanged.connect(self._on_anim_value)
+
+    def reposition(self) -> None:
+        """Anchor the rail to the parent's top-right corner at its current width.
+
+        The rail hugs its content vertically: it is only as tall as its
+        buttons, not the full parent height.
+        """
+        parent = self.parentWidget()
+        if parent is None:
+            return
+        height = min(self.sizeHint().height(), parent.height())
+        self.setGeometry(
+            parent.width() - self._current_width,
+            0,
+            self._current_width,
+            height,
+        )
+        self.raise_()
+
+    def _on_anim_value(self, value: object) -> None:
+        self._current_width = int(value)  # ty: ignore[invalid-argument-type]
+        self.update_label_visibility()
+        self.reposition()
+
+    def update_label_visibility(self) -> None:
+        """Hide button labels (via the QSS `labels_hidden` property) at rest."""
+        hidden = self._current_width <= _RAIL_COLLAPSED_WIDTH
+        if hidden == self._labels_hidden:
+            return
+        self._labels_hidden = hidden
+        for btn in self.findChildren(QPushButton):
+            btn.setProperty("labels_hidden", hidden)
+            style = btn.style()
+            if style is not None:
+                style.unpolish(btn)
+                style.polish(btn)
+
+    def _animate_to(self, target: int) -> None:
+        self._anim.stop()
+        self._anim.setStartValue(self._current_width)
+        self._anim.setEndValue(target)
+        self._anim.start()
+
+    def enterEvent(self, event: QEnterEvent | None) -> None:  # noqa: N802
+        super().enterEvent(event)
+        self._animate_to(_RAIL_EXPANDED_WIDTH)
+
+    def leaveEvent(self, event: QEvent | None) -> None:  # ty: ignore[invalid-method-override]  # noqa: N802
+        super().leaveEvent(event)
+        self._animate_to(_RAIL_COLLAPSED_WIDTH)
+
+
+class _SectionContainer(QWidget):
+    """Hosts the section stack and keeps the overlay rail glued to its edge."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rail: _SectionRail | None = None
+
+    def resizeEvent(self, event: QResizeEvent | None) -> None:  # ty: ignore[invalid-method-override]  # noqa: N802
+        super().resizeEvent(event)
+        if self.rail is not None:
+            self.rail.reposition()
 
 
 class ConfUSIusWidget(QWidget):
@@ -476,45 +588,37 @@ class ConfUSIusWidget(QWidget):
         return label
 
     def _refresh_section_icons(self) -> None:
-        """Retint the section selector icons for the active napari theme."""
-        selector = getattr(self, "_section_selector", None)
-        entries = getattr(self, "_section_entries", [])
-        if not isinstance(selector, QComboBox):
-            return
+        """Retint the section rail icons for the active napari theme."""
         accent = "#e94b5f" if self._is_dark() else "#d93a54"
-        for i, (_title, icon_name) in enumerate(entries):
-            selector.setItemIcon(i, make_lucide_icon(icon_name, accent))
+        for btn, icon_name in getattr(self, "_accordion_btns", []):
+            btn.setIcon(make_lucide_icon(icon_name, accent))
 
     def _set_active_section(self, label: str) -> None:
         """Show the requested top-level section."""
-        labels = [title for title, _icon_name in getattr(self, "_section_entries", [])]
-        try:
-            index = labels.index(label)
-        except ValueError:
-            return
-
-        selector = getattr(self, "_section_selector", None)
+        panel = getattr(self, "_accordion_panels", {}).get(label)
         stack = getattr(self, "_section_stack", None)
-        if not isinstance(selector, QComboBox) or not isinstance(stack, QStackedWidget):
+        if panel is None or not isinstance(stack, QStackedWidget):
             return
-
-        if selector.currentIndex() != index:
-            selector.blockSignals(True)
-            selector.setCurrentIndex(index)
-            selector.blockSignals(False)
-        stack.setCurrentIndex(index)
+        stack.setCurrentWidget(panel)
+        for btn, _icon_name in getattr(self, "_accordion_btns", []):
+            if btn.text() == label:
+                # autoExclusive unchecks the other rail buttons.
+                btn.setChecked(True)
 
     def _make_accordion(self) -> QWidget:
-        """Build a top dropdown plus one visible section panel."""
+        """Build the section stack plus a hover-expanding icon rail."""
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._signals._panel import SignalPanel
         from confusius._napari._video._video_panel import VideoPanel
 
-        container = QWidget()
+        container = _SectionContainer()
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Reserve the collapsed rail width so panel content is never hidden
+        # beneath the rail at rest; the expanded rail intentionally overlays
+        # content instead of reflowing it.
+        layout.setContentsMargins(0, 0, _RAIL_COLLAPSED_WIDTH, 0)
         layout.setSpacing(0)
 
         # Combined loading + saving panel.
@@ -542,15 +646,6 @@ class ConfUSIusWidget(QWidget):
             QCPanel(self.viewer),
         ]
 
-        selector = QComboBox()
-        selector.setObjectName("section_selector")
-        selector.setIconSize(QSize(16, 16))
-        selector.setMinimumHeight(36)
-        selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        for title, _icon_name in tab_entries:
-            selector.addItem(title)
-        layout.addWidget(selector)
-
         stack = QStackedWidget()
         stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         for panel in panels:
@@ -560,14 +655,37 @@ class ConfUSIusWidget(QWidget):
             stack.addWidget(panel)
         layout.addWidget(stack, stretch=1)
 
+        rail = _SectionRail(container)
+        rail_layout = QVBoxLayout(rail)
+        rail_layout.setContentsMargins(0, 6, 0, 6)
+        rail_layout.setSpacing(2)
+        btns: list[tuple[QPushButton, str]] = []
+        for title, icon_name in tab_entries:
+            btn = QPushButton(title)
+            btn.setCheckable(True)
+            btn.setAutoExclusive(True)
+            # RightToLeft pins the icon to the right edge with the label to its
+            # left, so icons stay put while the rail expands leftwards.
+            btn.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+            btn.setIconSize(QSize(18, 18))
+            btn.setMinimumHeight(40)
+            btn.setToolTip(title)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(
+                lambda _checked=False, t=title: self._set_active_section(t)
+            )
+            rail_layout.addWidget(btn)
+            btns.append((btn, icon_name))
+        # The rail starts collapsed, so hide the labels right away.
+        rail.update_label_visibility()
+        container.rail = rail
+
         self._section_entries = tab_entries
-        self._section_selector = selector
         self._section_stack = stack
-        self._accordion_btns = []
+        self._accordion_btns = btns
         self._accordion_panels = dict(zip([e[0] for e in tab_entries], panels))
         self._accordion_anims = {}
 
-        selector.currentTextChanged.connect(self._set_active_section)
         self._refresh_section_icons()
         self._set_active_section(tab_entries[0][0])
 
