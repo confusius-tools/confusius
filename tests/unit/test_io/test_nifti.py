@@ -1095,6 +1095,8 @@ class TestSaveNifti:
         loaded = nib.load(output_path)
         # NIfTI shape: (x, y, z, time=1, component=3)
         assert loaded.shape == (6, 5, 4, 1, 3)
+        # The synthetic time slot does not encode a real TR.
+        assert loaded.header.get_zooms()[3] == pytest.approx(0.0)
         # The component coord starts at 0 with regular spacing 1.0, so the
         # sidecar only needs the name (the coord is recoverable from pixdim).
         assert loaded.header.get_zooms()[4] == pytest.approx(1.0)
