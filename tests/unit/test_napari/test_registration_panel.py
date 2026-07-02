@@ -221,6 +221,19 @@ class TestOperationMode:
         registration_panel._advanced_toggle.click()
         assert not registration_panel._advanced_content.isHidden()
 
+    def test_opening_advanced_group_does_not_widen_panel_minimum(
+        self, registration_panel
+    ):
+        # Regression test for the issue #183 overflow pattern: advanced rows
+        # must wrap on narrow docks instead of raising the panel's minimum
+        # width, which forced horizontal overflow in the sidebar scroll area.
+        registration_panel.show()
+        QApplication.processEvents()
+        closed_min_width = registration_panel.minimumSizeHint().width()
+        registration_panel._advanced_toggle.setChecked(True)
+        QApplication.processEvents()
+        assert registration_panel.minimumSizeHint().width() <= closed_min_width
+
     def test_scientific_notation_spinboxes_parse_values(self, registration_panel):
         registration_panel._learning_rate_auto_check.setChecked(False)
         registration_panel._learning_rate_edit.lineEdit().setText("1e-5")
@@ -392,7 +405,9 @@ class TestRunRegistration:
                 "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
             },
         )
-        layer = viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        layer = viewer.add_image(
+            moving.values, name="moving", metadata={"xarray": moving}
+        )
         layer.scale = (1.0, 0.3, 0.2, 0.1)
         layer.translate = (0.0, 1.0, 2.0, 3.0)
 
@@ -1283,7 +1298,8 @@ class TestFinishedCallbacks:
             "resample_interpolation": "linear",
         }
 
-        on_registration_finished(registration_panel, 
+        on_registration_finished(
+            registration_panel,
             payload,
             (registered, transform, diagnostics),
         )
@@ -1328,7 +1344,8 @@ class TestFinishedCallbacks:
             "resample_interpolation": "linear",
         }
 
-        on_registration_finished(registration_panel, 
+        on_registration_finished(
+            registration_panel,
             payload,
             (registered, transform, diagnostics),
         )
@@ -1423,7 +1440,8 @@ class TestFinishedCallbacks:
             "use_multi_resolution": False,
             "resample_interpolation": "linear",
         }
-        on_registration_finished(registration_panel, 
+        on_registration_finished(
+            registration_panel,
             payload,
             (registered, transform, diagnostics),
         )
@@ -1557,7 +1575,9 @@ class TestFinishedCallbacks:
         assert moving.colormap.name != "cyan"
         assert moving.blending != "additive"
 
-    def test_create_volume_progress_plotter_creates_metric_plotter_dock(self, viewer, registration_panel):
+    def test_create_volume_progress_plotter_creates_metric_plotter_dock(
+        self, viewer, registration_panel
+    ):
         """`create_volume_progress_plotter` lazily creates and docks the metric plotter."""
         moving_data = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
@@ -1717,11 +1737,13 @@ class TestFinishedCallbacks:
         transform = np.eye(3)
         diagnostics = _FakeDiagnostics()
 
-        on_registration_finished(registration_panel, 
+        on_registration_finished(
+            registration_panel,
             payload,
             (fixed.copy(), transform, diagnostics),
         )
-        on_registration_finished(registration_panel, 
+        on_registration_finished(
+            registration_panel,
             payload,
             (fixed.copy(), transform, diagnostics),
         )

@@ -40,6 +40,14 @@ from confusius._napari._registration._panel_parameters import (
     get_registration_parameters,
     set_registration_parameters,
 )
+from confusius._napari._registration._panel_progress import (
+    create_volume_progress_plotter,
+    setup_volumewise_progress,
+)
+from confusius._napari._registration._panel_results import (
+    on_volume_registration_finished,
+    on_volumewise_registration_finished,
+)
 from confusius._napari._registration._panel_selection import (
     current_metric,
     current_resample_interpolation,
@@ -54,15 +62,6 @@ from confusius._napari._registration._panel_selection import (
     update_reference_time_bounds,
     validate_registration_selection,
 )
-from confusius._napari._registration._panel_progress import (
-    create_volume_progress_plotter,
-    setup_volumewise_progress,
-)
-from confusius._napari._registration._panel_results import (
-    on_volume_registration_finished,
-    on_volumewise_registration_finished,
-)
-from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius._napari._registration._panel_transforms import (
     apply_selected_transform,
     get_available_transform_payloads,
@@ -72,7 +71,6 @@ from confusius._napari._registration._panel_transforms import (
     refresh_transform_controls,
     save_selected_transform,
 )
-from confusius._napari._registration._transform_payloads import TransformPayload
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
     _apply_registration_scale,
@@ -81,10 +79,12 @@ from confusius._napari._registration._panel_utils import (
     _parse_comma_separated_ints,
     _prepare_between_scan_data,
 )
+from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius._napari._registration._progress import (
     NapariProgressBridge,
     NapariRegistrationProgressReporterBridge,
 )
+from confusius._napari._registration._transform_payloads import TransformPayload
 from confusius.registration import register_volume, register_volumewise
 
 if TYPE_CHECKING:
@@ -312,13 +312,28 @@ class RegistrationPanel(QWidget):
         return label
 
     def _left_aligned_widget(self, widget: QWidget) -> QWidget:
-        """Wrap a compact widget so it stays left-aligned inside a form row."""
+        """Wrap a compact widget so it stays left-aligned inside a form row.
+
+        The trailing spacer has stretch 0, so an Expanding widget with a
+        maximum width still grows up to its cap before the spacer absorbs the
+        remainder; fixed-size widgets stay at their size hint.
+
+        Parameters
+        ----------
+        widget : QWidget
+            Widget to wrap.
+
+        Returns
+        -------
+        QWidget
+            Container holding `widget` left-aligned.
+        """
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(widget)
-        layout.addStretch(1)
+        layout.addWidget(widget, stretch=1)
+        layout.addStretch()
         return container
 
     def _make_advanced_row(
@@ -348,13 +363,19 @@ class RegistrationPanel(QWidget):
             Container widget added to `layout`.
         """
         container = QWidget()
-        row_layout = QHBoxLayout(container)
+        # A one-row QFormLayout (not QHBoxLayout) so the label can wrap above
+        # the field on narrow docks: an HBox row's minimum width is label +
+        # field, which forced horizontal overflow when the advanced section
+        # opened (see issue #183 for the same overflow in the signals panel).
+        row_layout = QFormLayout(container)
         row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(8)
+        row_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        row_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
         lbl = self._make_form_label(label, tooltip=tooltip)
         lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        row_layout.addWidget(lbl)
-        row_layout.addWidget(widget, stretch=1)
+        row_layout.addRow(lbl, widget)
         layout.addRow(container)
         return container
 
@@ -428,7 +449,6 @@ class RegistrationPanel(QWidget):
 
         self._moving_label = QLabel("Moving layer")
         self._moving_combo = QComboBox()
-        self._moving_combo.setMinimumContentsLength(18)
         self._moving_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -442,7 +462,6 @@ class RegistrationPanel(QWidget):
         operation_layout.addRow(self._moving_label, self._moving_combo)
 
         self._moving_mask_combo = QComboBox()
-        self._moving_mask_combo.setMinimumContentsLength(18)
         self._moving_mask_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -476,7 +495,6 @@ class RegistrationPanel(QWidget):
 
         self._fixed_label = QLabel("Fixed layer")
         self._fixed_combo = QComboBox()
-        self._fixed_combo.setMinimumContentsLength(18)
         self._fixed_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -489,7 +507,6 @@ class RegistrationPanel(QWidget):
         operation_layout.addRow(self._fixed_label, self._fixed_combo)
 
         self._fixed_mask_combo = QComboBox()
-        self._fixed_mask_combo.setMinimumContentsLength(18)
         self._fixed_mask_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -531,6 +548,12 @@ class RegistrationPanel(QWidget):
         operation_layout.addRow(self._reference_time_label, self._reference_time_spin)
 
         self._n_jobs_spin = QSpinBox()
+        # Expanding: QFormLayout's ExpandingFieldsGrow only grows fields whose
+        # policy is Expanding/MinimumExpanding, and spinboxes are not by
+        # default — they would otherwise stay at hint width in advanced rows.
+        self._n_jobs_spin.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._n_jobs_spin.setRange(-128, 128)
         self._n_jobs_spin.setMaximumWidth(56)
         self._n_jobs_spin.setSpecialValueText("auto")
@@ -642,7 +665,6 @@ class RegistrationPanel(QWidget):
         )
 
         self._initialization_combo = QComboBox()
-        self._initialization_combo.setMinimumContentsLength(18)
         self._initialization_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -668,7 +690,6 @@ class RegistrationPanel(QWidget):
         self._learning_rate_edit.setToolTip(
             "Optimizer step size. Accepts decimal (0.1) or scientific notation (1e-5)."
         )
-        self._learning_rate_edit.setMaximumWidth(96)
         self._learning_rate_edit.setEnabled(False)
         self._learning_rate_auto_check.toggled.connect(
             lambda checked: self._learning_rate_edit.setEnabled(not checked)
@@ -698,7 +719,7 @@ class RegistrationPanel(QWidget):
 
         self._advanced_group = QWidget()
         advanced_group_layout = QVBoxLayout(self._advanced_group)
-        advanced_group_layout.setContentsMargins(6, 6, 6, 6)
+        advanced_group_layout.setContentsMargins(0, 6, 0, 6)
         advanced_group_layout.setSpacing(6)
 
         advanced_header = QWidget()
@@ -720,6 +741,11 @@ class RegistrationPanel(QWidget):
 
         self._advanced_content = QWidget()
         advanced_layout = QFormLayout(self._advanced_content)
+        # Left indent + top gap set the advanced rows apart from the main
+        # parameters. Keep the right margin at 0: side margins add 1:1 to the
+        # panel's minimum width, and the left indent is only "free" because
+        # the group layout below carries no right margin either.
+        advanced_layout.setContentsMargins(9, 6, 0, 0)
         advanced_layout.setSpacing(6)
         advanced_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         advanced_layout.setFieldGrowthPolicy(
@@ -727,6 +753,9 @@ class RegistrationPanel(QWidget):
         )
 
         self._histogram_bins_spin = QSpinBox()
+        self._histogram_bins_spin.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._histogram_bins_spin.setRange(8, 512)
         self._histogram_bins_spin.setToolTip(
             "Number of histogram bins for Mattes mutual information metric."
@@ -739,16 +768,16 @@ class RegistrationPanel(QWidget):
         )
 
         self._convergence_min_edit = ScientificDoubleSpinBox()
+        self._convergence_min_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self._convergence_min_edit.setRange(1e-10, 1.0)
         self._convergence_min_edit.setSingleStep(1e-6)
-        self._convergence_min_edit.setSizePolicy(
-            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed
-        )
-        self._convergence_min_edit.setMinimumWidth(260)
+        # Cap the width instead of setting a hard minimum: a minimum this wide
+        # would raise the whole panel's minimum width when the advanced
+        # section opens (issue #183 pattern). Expanding + max lets the field
+        # fill up to 260px when space allows and shrink on narrow docks.
         self._convergence_min_edit.setMaximumWidth(260)
-        convergence_min_line_edit = self._convergence_min_edit.lineEdit()
-        if convergence_min_line_edit is not None:
-            convergence_min_line_edit.setMinimumWidth(220)
         self._convergence_min_edit.setToolTip(
             "Convergence threshold. Accepts decimal (0.000001) or scientific notation (1e-6)."
         )
@@ -760,8 +789,10 @@ class RegistrationPanel(QWidget):
         )
 
         self._convergence_window_spin = QSpinBox()
-        self._convergence_window_spin.setRange(1, 1000)
-        self._convergence_window_spin.setMaximumWidth(40)
+        self._convergence_window_spin.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        self._convergence_window_spin.setRange(1, 100)
         self._convergence_window_spin.setToolTip(
             "Number of recent metric values for convergence estimation."
         )
@@ -773,9 +804,6 @@ class RegistrationPanel(QWidget):
         )
 
         self._multi_resolution_check = QCheckBox("Enabled")
-        self._multi_resolution_check.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
-        )
         self._multi_resolution_check.setToolTip(
             "Run registration from coarse to fine resolution levels."
         )
@@ -809,7 +837,7 @@ class RegistrationPanel(QWidget):
         )
 
         self._interpolation_combo = QComboBox()
-        self._interpolation_combo.setMinimumContentsLength(14)
+        self._interpolation_combo.setMinimumContentsLength(8)
         self._interpolation_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -832,6 +860,9 @@ class RegistrationPanel(QWidget):
             "Automatically use the minimum intensity of the fixed image as fill value."
         )
         self._fill_value_spin = QDoubleSpinBox()
+        # Ignored horizontal policy: the spinbox's minimum size hint spans its
+        # widest possible text ("-1000000.000"), which would force the whole
+        # panel wider than the dock on narrow layouts.
         self._fill_value_spin.setSizePolicy(
             QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
         )
@@ -848,6 +879,7 @@ class RegistrationPanel(QWidget):
             self._update_multi_resolution_enabled
         )
         fill_value_row = QHBoxLayout()
+        fill_value_row.setContentsMargins(0, 0, 0, 0)
         fill_value_row.addWidget(self._fill_value_auto_check)
         fill_value_row.addWidget(self._fill_value_spin, stretch=1)
         fill_value_container = QWidget()
@@ -860,9 +892,6 @@ class RegistrationPanel(QWidget):
         )
 
         self._keep_diagnostics_check = QCheckBox("Keep full traces")
-        self._keep_diagnostics_check.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
-        )
         self._keep_diagnostics_check.setToolTip(
             "Whether to keep the full per-frame optimizer traces for within-scan registration."
         )
