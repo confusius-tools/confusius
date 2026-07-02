@@ -67,7 +67,7 @@ Current development version for the next ConfUSIus release.
 - The `confusius` CLI now accepts multiple fUSI data files in a single
   invocation (e.g. `confusius fixed.nii moving.nii`). Each file is added as its
   own image layer, named after the file's basename
-  ([#205](https://github.com/confusius-tools/confusius/pull/206)).
+  ([#206](https://github.com/confusius-tools/confusius/pull/206)).
 - `data.fusi.affine.apply` now accepts affines with rotation and shear. The
   axis-aligned part updates the 1D `z`/`y`/`x` coordinates and the method returns
   the residual orientation as a 4x4 affine (the identity for diagonal affines)
