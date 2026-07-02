@@ -123,7 +123,7 @@ cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 #     until you get a stable, well-converged result.
 
 # %%
-registered, transform, diagnostics = register_volume(
+registered, rigid_transform, diagnostics = register_volume(
     moving=moving,
     fixed=fixed,
     transform_type="rigid",
@@ -136,7 +136,7 @@ registered, transform, diagnostics = register_volume(
 print(f"Iterations: {diagnostics.n_iterations}")
 print(f"Final metric: {diagnostics.final_metric_value:.4f}")
 print(f"Stop condition: {diagnostics.stop_condition}")
-transform
+rigid_transform
 
 # %% [markdown]
 # ## Check the alignment after registration
@@ -189,12 +189,13 @@ _ = ax.set_title(diagnostics.stop_condition)
 # `transform_type="bspline"` fits a local displacement field on top of an initial
 # transform, here the rigid transform found above.
 #
-# !!! warning "B-spline registration needs different arguments than rigid"
+# !!! warning "B-spline registration may need different parameters than rigid"
 #     The optimizer's step size operates in a different space for a B-spline
 #     transform (per-control-point displacements) than for rigid (rotation and
-#     translation), so the `learning_rate=30` tuned for the rigid step above is not
-#     appropriate here. We fall back to `learning_rate="auto"` and only set
-#     `mesh_size`, which controls the density of the B-spline control-point grid.
+#     translation). Here, `learning_rate=30` tuned for the rigid step is still
+#     appropriate, but you may have to adjust it for other datasets. We also set a
+#     non-default mesh size of `(6, 6, 6)` to allow less local deformations that the
+#     default `(10, 10, 10)` mesh would allow.
 
 # %%
 registered_bspline, bspline_transform, diagnostics_bspline = register_volume(
@@ -204,7 +205,7 @@ registered_bspline, bspline_transform, diagnostics_bspline = register_volume(
     mesh_size=(6, 6, 6),
     learning_rate=30,
     number_of_iterations=500,
-    initialization=transform,
+    initialization=rigid_transform,
     resample=True,
     show_progress=True,
 )
@@ -250,8 +251,9 @@ _ = ax.set_title(diagnostics_bspline.stop_condition)
 
 # %% [markdown]
 # Unlike the rigid transform, `bspline_transform` is a control-point `xarray.DataArray`
-# rather than a homogeneous matrix—it has no closed-form inverse. To apply it (or its
-# inverse) as a warp on other data, sample it into a dense displacement field with
+# rather than a homogeneous matrix—it has no closed-form inverse. To apply its
+# approximate inverse as a warp on other data, sample it into a dense displacement field
+# with
 # [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
-# and, if needed, invert that field with
+# and invert that field with
 # [`invert_displacement_field`][confusius.registration.invert_displacement_field].
