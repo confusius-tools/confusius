@@ -196,11 +196,10 @@ fraction of this (see the examples below).
     | `acqs`      | `acq-`              | `["ref04", "ref11"]`             |
     | `datatypes` | datatype directory  | `"fusi"`, `["fusi", "angio"]`    |
 
-    The Landemard dataset has no session layer: every recording sits directly
-    under `sub-*/fusi/` or `sub-*/angio/`. Files that lack an `acq-` entity
-    (e.g. `sub-ALD001_scans.tsv`,
-    `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always included regardless
-    of the `acqs` filter.
+    The Landemard dataset has no session layer: every recording sits directly under
+    `sub-*/fusi/` or `sub-*/angio/`. Files that lack an `acq-` entity (e.g.
+    `sub-ALD001_scans.tsv`, `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always
+    included regardless of the `acqs` filter.
 
     The `datasets` filter accepts:
 

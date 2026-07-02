@@ -43,34 +43,31 @@ def _filter_files(
 ) -> dict[str, OsfFileInfo]:
     """Filter the index to files matching the requested datasets and subjects.
 
-    Top-level BIDS metadata files (dataset_description.json, participants.*,
-    etc.) and subject-level files (e.g. `sub-ALD001_scans.tsv`) are always
-    included. Unlike `fetch_cybis_pereira_2026`, the Landemard dataset has no
-    session layer: every recording sits directly under `sub-*/fusi/` or
-    `sub-*/angio/`.
+    Top-level BIDS metadata files (dataset_description.json, participants.*, etc.) and
+    subject-level files (e.g. `sub-ALD001_scans.tsv`) are always included. Unlike
+    `fetch_cybis_pereira_2026`, the Landemard dataset has no session layer: every
+    recording sits directly under `sub-*/fusi/` or `sub-*/angio/`.
 
     Parameters
     ----------
     index : dict[str, OsfFileInfo]
         Full dataset index as returned by `get_index`.
     datasets : list[str] or None
-        Datasets to include. Use `"rawdata"` for the raw fUSI/angio data and
-        derivative names for processed outputs: `"atlas-mapping"`,
-        `"processed-data"`. If `None`, all datasets are included.
+        Datasets to include. Use `"rawdata"` for the raw fUSI/angio data and derivative
+        names for processed outputs: `"atlas-mapping"`, `"processed-data"`. If `None`,
+        all datasets are included.
     subjects : list[str] or None
-        Subject IDs to include (without "sub-" prefix), e.g. `["ALD001"]`.
-        If `None`, all subjects are included.
+        Subject IDs to include (without "sub-" prefix), e.g. `["ALD001"]`. If `None`,
+        all subjects are included.
     acqs : list[str] or None
-        Acquisition labels to include (without "acq-" prefix), e.g.
-        `["ref04", "ref11"]`. If `None`, all acquisitions are included.
-        Files with no `acq-` entity are passed through. The `run-` entity
-        is not exposed as a filter.
-    datatypes : list[str] or None
-        BIDS datatype directories to include, e.g. `["fusi"]` or
-        `["fusi", "angio"]`. Valid values are `"fusi"` and `"angio"`.
-        If `None`, all datatypes are included. Files that do not sit
-        under a datatype directory (e.g. subject-level `scans.tsv`)
+        Acquisition labels to include (without "acq-" prefix), e.g. `["ref04",
+        "ref11"]`. If `None`, all acquisitions are included. Files with no `acq-` entity
         are passed through.
+    datatypes : list[str] or None
+        BIDS datatype directories to include, e.g. `["fusi"]` or `["fusi", "angio"]`.
+        Valid values are `"fusi"` and `"angio"`. If `None`, all datatypes are included.
+        Files that do not sit under a datatype directory (e.g. subject-level
+        `scans.tsv`) are passed through.
 
     Returns
     -------

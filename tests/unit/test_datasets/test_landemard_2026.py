@@ -42,6 +42,11 @@ _FAKE_INDEX = {
         "osf_path": "/file008",
         "size": 200,
     },
+    # Fusi file with no `acq-` entity (mirrors the cybis fetcher's fixture).
+    "sub-ALD001/fusi/sub-ALD001_task-awake_pwd.nii.gz": {
+        "osf_path": "/file008b",
+        "size": 1000,
+    },
     "sub-ALD001/sub-ALD001_scans.tsv": {"osf_path": "/file009", "size": 50},
     # Second subject with one acquisition.
     "sub-ALD002/fusi/sub-ALD002_task-awake_acq-ref04_pwd.nii.gz": {
@@ -199,6 +204,17 @@ def test_fetch_dataset_filter_processed_data(tmp_path, mock_get_index, mock_retr
     assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
 
 
+def test_fetch_dataset_filter_combined(tmp_path, mock_get_index, mock_retrieve):
+    """Combining `rawdata` (default-mapped) and a hyphen-mapped derivative."""
+    fetch_landemard_2026(data_dir=tmp_path, datasets=["rawdata", "atlas-mapping"])
+
+    downloaded = _downloaded_paths(mock_retrieve)
+    assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
+    assert "Atlas_alignment_ALD001.npz" in downloaded
+    # Non-listed derivative still excluded.
+    assert "Compact_data_regions_ALD001.npz" not in downloaded
+
+
 def test_fetch_subject_filter(tmp_path, mock_get_index, mock_retrieve):
     fetch_landemard_2026(data_dir=tmp_path, subjects=["ALD001"])
 
@@ -228,6 +244,7 @@ def test_fetch_acq_filter(tmp_path, mock_get_index, mock_retrieve):
     # Files with no acq entity pass through.
     assert "sub-ALD001_scans.tsv" in downloaded
     assert "sub-ALD001_pwd.nii.gz" in downloaded
+    assert "sub-ALD001_task-awake_pwd.nii.gz" in downloaded
     assert "Atlas_alignment_ALD001.npz" in downloaded
 
 
