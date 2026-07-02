@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
@@ -11,18 +12,58 @@ if TYPE_CHECKING:
     import napari.layers
 
 
+def _add_help_option(parser: argparse.ArgumentParser) -> None:
+    """Add a harmonized `-h`/`--help` option to a parser.
+
+    Registered explicitly (with `add_help=False` on the parser) so its help
+    string follows the same capitalized, full-stop style as the other
+    arguments, instead of argparse's lowercase default.
+
+    Parameters
+    ----------
+    parser : argparse.ArgumentParser
+        The parser to add the option to. It must be created with
+        `add_help=False`.
+    """
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="help",
+        default=argparse.SUPPRESS,
+        help="Show this help message and exit.",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
-    """Build the `confusius` command-line argument parser.
+    """Build the default (Napari plugin) `confusius` argument parser.
+
+    A bare `confusius PATH...` invocation launches the napari plugin, so the launcher is
+    the nameless default rather than a subcommand. Alternative namespaces (i.e.
+    [`build_datasets_parser`][confusius._cli.build_datasets_parser]) are dispatched by
+    [`main`][confusius._cli.main] and advertised under the `namespaces` help section.
 
     Returns
     -------
     argparse.ArgumentParser
-        The parser configured with the CLI's positional path argument and
+        The parser configured with the launcher's positional path argument and
         `--lazy` / `--video` options.
     """
     parser = argparse.ArgumentParser(
         prog="confusius",
-        description="Launch the ConfUSIus napari plugin.",
+        description=(
+            "Launch the ConfUSIus napari plugin. Alternative subcommands are "
+            "listed under `namespaces` below."
+        ),
+        epilog="Run `confusius <namespace> --help` for the namespace's own options.",
+        add_help=False,
+    )
+    _add_help_option(parser)
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"ConfUSIus {metadata.version('confusius')}",
+        help="Show the version number and exit.",
     )
     parser.add_argument(
         "path",
@@ -51,7 +92,61 @@ def build_parser() -> argparse.ArgumentParser:
             "with the first fUSI data file. Requires at least one data file."
         ),
     )
+    # The `datasets` namespace is dispatched in `main`, not by this parser, so
+    # it cannot be a real subparser without clashing with the greedy `path`
+    # positional. Advertise it with a display-only pseudo-action (as argparse
+    # does internally for subcommand choices) so it is colored and aligned like
+    # a native entry while staying invisible to parsing.
+    namespaces = parser.add_argument_group("namespaces")
+    namespaces._group_actions.append(
+        argparse.Action(
+            option_strings=[],
+            dest=argparse.SUPPRESS,
+            nargs=0,
+            metavar="datasets",
+            help="Work with datasets, e.g. `confusius datasets --list`.",
+        )
+    )
     return parser
+
+
+def build_datasets_parser() -> argparse.ArgumentParser:
+    """Build the parser for the `confusius datasets` namespace.
+
+    Returns
+    -------
+    argparse.ArgumentParser
+        The parser configured with the `datasets` namespace options.
+    """
+    parser = argparse.ArgumentParser(
+        prog="confusius datasets",
+        description="Interact with ConfUSIus fetchable datasets.",
+        add_help=False,
+    )
+    _add_help_option(parser)
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List available datasets, their sizes, and whether each is cached.",
+    )
+    return parser
+
+
+def run_datasets(args: argparse.Namespace) -> None:
+    """Handle a parsed `confusius datasets` invocation.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        Parsed arguments, as produced by
+        [`build_datasets_parser`][confusius._cli.build_datasets_parser].
+    """
+    if args.list:
+        from confusius.datasets import list_datasets
+
+        list_datasets()
+    else:
+        build_datasets_parser().print_help()
 
 
 def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari.Viewer:
@@ -96,8 +191,19 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
 
 
 def main() -> None:
-    """Parse CLI arguments, run the plugin, and start the napari event loop."""
-    args = build_parser().parse_args()
+    """Parse CLI arguments, dispatch the namespace, and run the requested action.
+
+    A bare `confusius PATH...` invocation launches the napari plugin, while
+    `confusius datasets ...` routes to the `datasets` namespace.
+    """
+    import sys
+
+    argv = sys.argv[1:]
+    if argv and argv[0] == "datasets":
+        run_datasets(build_datasets_parser().parse_args(argv[1:]))
+        return
+
+    args = build_parser().parse_args(argv)
     run(args)
     import napari
 
