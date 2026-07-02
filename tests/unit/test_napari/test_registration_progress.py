@@ -111,7 +111,12 @@ class TestNapariRegistrationProgressPlotter:
         with qtbot.waitSignal(bridge.metric_updated, timeout=2000):
             reporter.update()
 
-        assert metric_spy.payloads == [pytest.approx(expected_metric)]
+        assert len(metric_spy.payloads) == 1
+        emitted_metric = metric_spy.payloads[0]
+        if np.isnan(expected_metric):
+            assert np.isnan(emitted_metric)
+        else:
+            assert emitted_metric == pytest.approx(expected_metric)
 
     def test_update_skips_metric_when_plot_metric_false(
         self, qtbot, fixed_img_2d, moving_img_2d
