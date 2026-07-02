@@ -4,31 +4,36 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from napari.layers.utils.layer_utils import calc_data_range
 from napari.qt.threading import thread_worker
 from napari.utils.notifications import show_error, show_info
 from qtpy.QtWidgets import QFileDialog
 
 from confusius._dims import SPATIAL_DIMS
 from confusius._napari._registration._panel_utils import (
+    _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
     _prepare_between_scan_data,
 )
 from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius._napari._registration._transform_payloads import (
     AffineTransformPayload,
+    OutputGridPayload,
     TransformPayload,
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
+    get_input_grid_from_payload,
     get_output_grid_from_payload,
     load_transform_payload,
     make_output_grid_payload,
     save_transform_payload,
 )
+from confusius.plotting.napari import plot_napari
 from confusius.registration import resample_volume
 
 if TYPE_CHECKING:
@@ -157,6 +162,7 @@ def _make_manual_transform_payload(layer: "Layer") -> AffineTransformPayload:
         "transform_model": "affine",
         "metric": "manual",
         "output_grid": make_output_grid_payload(spatial_data),
+        "input_grid": make_output_grid_payload(spatial_data),
         "diagnostics": {
             "metric": "manual",
             "final_metric_value": 0.0,
@@ -687,6 +693,44 @@ def load_transform(panel: "RegistrationPanel") -> None:
     show_info(f"Loaded transform: {panel._loaded_transform_payload['name']}")
 
 
+def _get_inverse_output_grid(
+    panel: "RegistrationPanel", payload: TransformPayload
+) -> OutputGridPayload:
+    """Return the output grid to use when applying a transform inverse.
+
+    Parameters
+    ----------
+    panel : RegistrationPanel
+        Registration panel that owns the transform selection.
+    payload : TransformPayload
+        Selected transform payload.
+
+    Returns
+    -------
+    OutputGridPayload
+        Grid of the original moving/source layer.
+
+    Raises
+    ------
+    ValueError
+        If the payload predates `input_grid` and the source layer is not available to
+        re-derive it.
+    """
+    input_grid = get_input_grid_from_payload(payload)
+    if input_grid is not None:
+        return input_grid
+
+    source_layer = panel._get_layer_by_name(payload["source_layer_name"])
+    if source_layer is None:
+        raise ValueError(
+            "Transform payload does not contain an input grid. Reload the original "
+            "source layer or re-save the transform from a newer registration result."
+        )
+
+    source = _prepare_between_scan_data(_get_source_dataarray(source_layer))
+    return make_output_grid_payload(source)
+
+
 def apply_selected_transform(panel: "RegistrationPanel") -> None:
     """Start a background resampling worker for the selected transform and target layer.
 
@@ -729,6 +773,64 @@ def apply_selected_transform(panel: "RegistrationPanel") -> None:
         "moving_layer_name": moving_layer.name,
         "target_layer_name": payload["target_layer_name"],
         "transform_source": payload["name"],
+        "direction": "forward",
+    }
+    panel._worker = worker
+    panel._begin_work()
+
+    worker.returned.connect(
+        lambda result: on_apply_transform_finished(panel, apply_payload, result)
+    )
+    worker.errored.connect(lambda exc: on_registration_failed(panel, exc))
+    worker.finished.connect(panel._end_work)
+    worker.start()
+
+
+def apply_selected_inverse_transform(panel: "RegistrationPanel") -> None:
+    """Start a background resampling worker for the inverse of the selected transform.
+
+    Parameters
+    ----------
+    panel : RegistrationPanel
+        Registration panel whose selected transform and target layer should be used.
+    """
+    payload = get_selected_transform_payload(panel)
+    if payload is None:
+        panel._set_error("Select a transform to apply.")
+        return
+
+    moving_layer = panel._selected_layer(panel._transform_target_combo)
+    if moving_layer is None:
+        panel._set_error("Select an input layer to transform.")
+        return
+
+    try:
+        moving = _get_source_dataarray(moving_layer)
+        if payload["kind"] == "affine":
+            transform = np.linalg.inv(get_affine_transform_from_payload(payload))
+        else:
+            raise ValueError(
+                "Inverse apply for B-spline transforms is not available yet."
+            )
+        output_grid = _get_inverse_output_grid(panel, payload)
+    except Exception as exc:  # noqa: BLE001
+        panel._set_error(str(exc))
+        return
+
+    worker = thread_worker(resample_volume)(
+        moving,
+        transform,
+        shape=output_grid["shape"],
+        spacing=output_grid["spacing"],
+        origin=output_grid["origin"],
+        dims=output_grid["dims"],
+        interpolation=panel._current_resample_interpolation(),
+    )
+    apply_payload: ApplyTransformPayload = {
+        "moving_layer_name": moving_layer.name,
+        "target_layer_name": payload["source_layer_name"],
+        "transform_source": payload["name"],
+        "direction": "inverse",
     }
     panel._worker = worker
     panel._begin_work()
@@ -758,15 +860,35 @@ def on_apply_transform_finished(
     """
     registered = result.copy(deep=False)
     registered.attrs = registered.attrs.copy()
-    registered.attrs["registration_operation"] = "apply_transform"
+    registered.attrs["registration_operation"] = (
+        "apply_inverse_transform"
+        if payload["direction"] == "inverse"
+        else "apply_transform"
+    )
 
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"
     )
-    layer = cast("Any", panel.viewer.add_image(registered.values, name=name))
+    source_layer = panel._get_layer_by_name(payload["moving_layer_name"])
+    display_kwargs = (
+        _get_image_display_kwargs_from_layer(source_layer)
+        if source_layer is not None
+        else {}
+    )
+    contrast_limits = tuple(calc_data_range(registered.data))
+    _, layer = plot_napari(
+        registered,
+        viewer=panel.viewer,
+        name=name,
+        show_colorbar=False,
+        contrast_limits=contrast_limits,
+        **display_kwargs,
+    )
     layer.metadata["xarray"] = registered
     layer.metadata["transform_source"] = payload["transform_source"]
-    layer.metadata["registration_operation"] = "apply_transform"
+    layer.metadata["registration_operation"] = registered.attrs[
+        "registration_operation"
+    ]
     layer.metadata["registration_parameters"] = payload.copy()
     panel.viewer.layers.selection.active = layer
     panel._status.hide()

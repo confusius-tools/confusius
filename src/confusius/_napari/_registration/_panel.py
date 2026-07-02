@@ -63,6 +63,7 @@ from confusius._napari._registration._panel_selection import (
     validate_registration_selection,
 )
 from confusius._napari._registration._panel_transforms import (
+    apply_selected_inverse_transform,
     apply_selected_transform,
     get_available_transform_payloads,
     get_selected_center_initialization,
@@ -206,6 +207,7 @@ class ApplyTransformPayload(TypedDict):
     moving_layer_name: str
     target_layer_name: str
     transform_source: str
+    direction: Literal["forward", "inverse"]
 
 
 def _get_optimizer_weight_labels(
@@ -287,6 +289,9 @@ class RegistrationPanel(QWidget):
         self._save_transform_callback = lambda: save_selected_transform(self)
         self._load_transform_callback = lambda: load_transform(self)
         self._apply_transform_callback = lambda: apply_selected_transform(self)
+        self._apply_inverse_transform_callback = lambda: (
+            apply_selected_inverse_transform(self)
+        )
         self._setup_ui()
         self.viewer.layers.events.inserted.connect(self._refresh_layers)
         self.viewer.layers.events.removed.connect(self._refresh_layers)
@@ -1001,7 +1006,7 @@ class RegistrationPanel(QWidget):
 
         transforms_group = QGroupBox("Transforms")
         transforms_group.setToolTip(
-            "Save, load, and reapply affine transforms from registration results or manual napari layer transforms."
+            "Save, load, and reapply transforms from registration results or manual napari layer transforms."
         )
         transforms_layout = QFormLayout(transforms_group)
         transforms_layout.setSpacing(6)
@@ -1038,11 +1043,16 @@ class RegistrationPanel(QWidget):
         self._save_transform_btn.clicked.connect(self._save_transform_callback)
         self._load_transform_btn = QPushButton("Load")
         self._load_transform_btn.clicked.connect(self._load_transform_callback)
-        self._apply_transform_btn = QPushButton("Apply")
+        self._apply_transform_btn = QPushButton("Forward")
         self._apply_transform_btn.clicked.connect(self._apply_transform_callback)
+        self._apply_inverse_transform_btn = QPushButton("Inverse")
+        self._apply_inverse_transform_btn.clicked.connect(
+            self._apply_inverse_transform_callback
+        )
         transform_buttons.addWidget(self._save_transform_btn)
         transform_buttons.addWidget(self._load_transform_btn)
         transform_buttons.addWidget(self._apply_transform_btn)
+        transform_buttons.addWidget(self._apply_inverse_transform_btn)
         transforms_layout.addRow(transform_buttons)
 
         self._transforms_panel = transforms_group

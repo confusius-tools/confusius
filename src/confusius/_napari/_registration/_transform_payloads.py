@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex, TypedDict, cast
+from typing import (
+    TYPE_CHECKING,
+    Literal,
+    NotRequired,
+    SupportsFloat,
+    SupportsIndex,
+    TypedDict,
+    cast,
+)
 
 import numpy as np
 import numpy.typing as npt
@@ -59,6 +67,7 @@ class AffineTransformPayload(TypedDict):
     transform_model: str
     metric: str
     output_grid: OutputGridPayload
+    input_grid: NotRequired[OutputGridPayload]
     diagnostics: TransformDiagnosticsPayload
 
 
@@ -74,6 +83,7 @@ class BSplineTransformPayload(TypedDict):
     transform_model: str
     metric: str
     output_grid: OutputGridPayload
+    input_grid: NotRequired[OutputGridPayload]
     diagnostics: TransformDiagnosticsPayload
 
 
@@ -137,6 +147,7 @@ def make_affine_transform_payload(
     affine: npt.NDArray[np.floating],
     *,
     reference: "xr.DataArray",
+    source: "xr.DataArray | None" = None,
     source_layer_name: str,
     target_layer_name: str,
     operation: str,
@@ -153,6 +164,9 @@ def make_affine_transform_payload(
         Affine transform in homogeneous coordinates.
     reference : xarray.DataArray
         Fixed/reference DataArray defining the output resampling grid.
+    source : xarray.DataArray, optional
+        Original moving/source DataArray defining the inverse-apply resampling grid. If
+        not provided, `input_grid` is omitted from the payload.
     source_layer_name : str
         Name of the moving/source layer used when estimating the transform.
     target_layer_name : str
@@ -177,7 +191,7 @@ def make_affine_transform_payload(
     payload_name = (
         name or f"{source_layer_name} → {target_layer_name} ({transform_model})"
     )
-    return {
+    payload: AffineTransformPayload = {
         "kind": "affine",
         "name": payload_name,
         "affine": affine.tolist(),
@@ -189,6 +203,9 @@ def make_affine_transform_payload(
         "output_grid": make_output_grid_payload(reference),
         "diagnostics": _make_diagnostics_payload(diagnostics),
     }
+    if source is not None:
+        payload["input_grid"] = make_output_grid_payload(source)
+    return payload
 
 
 def _serialize_bspline_dataarray(transform: "xr.DataArray") -> BSplineDataArrayPayload:
@@ -249,6 +266,7 @@ def make_bspline_transform_payload(
     transform: "xr.DataArray",
     *,
     reference: "xr.DataArray",
+    source: "xr.DataArray | None" = None,
     source_layer_name: str,
     target_layer_name: str,
     operation: str,
@@ -265,6 +283,9 @@ def make_bspline_transform_payload(
         B-spline control-point grid.
     reference : xarray.DataArray
         Fixed/reference DataArray defining the output resampling grid.
+    source : xarray.DataArray, optional
+        Original moving/source DataArray defining the inverse-apply resampling grid. If
+        not provided, `input_grid` is omitted from the payload.
     source_layer_name : str
         Name of the moving/source layer used when estimating the transform.
     target_layer_name : str
@@ -288,7 +309,7 @@ def make_bspline_transform_payload(
     payload_name = (
         name or f"{source_layer_name} → {target_layer_name} ({transform_model})"
     )
-    return {
+    payload: BSplineTransformPayload = {
         "kind": "bspline",
         "name": payload_name,
         "bspline": _serialize_bspline_dataarray(transform),
@@ -300,6 +321,9 @@ def make_bspline_transform_payload(
         "output_grid": make_output_grid_payload(reference),
         "diagnostics": _make_diagnostics_payload(diagnostics),
     }
+    if source is not None:
+        payload["input_grid"] = make_output_grid_payload(source)
+    return payload
 
 
 def get_affine_transform_from_payload(
@@ -351,22 +375,12 @@ def get_bspline_transform_from_payload(payload: "Mapping[str, object]") -> xr.Da
     return _deserialize_bspline_dataarray(cast("BSplineDataArrayPayload", bspline))
 
 
-def get_output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridPayload:
-    """Return the output grid stored in a transform payload.
-
-    Parameters
-    ----------
-    payload : mapping
-        Transform payload loaded from metadata or disk.
-
-    Returns
-    -------
-    OutputGridPayload
-        Output-grid description stored in the payload.
-    """
-    grid = payload.get("output_grid")
+def _coerce_grid_payload(
+    grid: object, *, field_name: str, missing_message: str
+) -> OutputGridPayload:
+    """Return a validated grid payload from a raw mapping field."""
     if not isinstance(grid, dict):
-        raise ValueError("Transform payload does not contain an output grid.")
+        raise ValueError(missing_message)
 
     grid_dict = cast("dict[str, object]", grid)
     dims = grid_dict.get("dims")
@@ -375,7 +389,7 @@ def get_output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridP
     origin = grid_dict.get("origin")
     units = grid_dict.get("units")
     if not all(isinstance(v, list) for v in (dims, shape, spacing, origin, units)):
-        raise ValueError("Transform payload output grid is malformed.")
+        raise ValueError(f"Transform payload {field_name} is malformed.")
 
     dims_list = cast("list[object]", dims)
     shape_list = cast("list[SupportsIndex]", shape)
@@ -390,6 +404,51 @@ def get_output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridP
         "origin": [float(v) for v in origin_list],
         "units": [None if v is None else str(v) for v in units_list],
     }
+
+
+def get_output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridPayload:
+    """Return the output grid stored in a transform payload.
+
+    Parameters
+    ----------
+    payload : mapping
+        Transform payload loaded from metadata or disk.
+
+    Returns
+    -------
+    OutputGridPayload
+        Output-grid description stored in the payload.
+    """
+    return _coerce_grid_payload(
+        payload.get("output_grid"),
+        field_name="output grid",
+        missing_message="Transform payload does not contain an output grid.",
+    )
+
+
+def get_input_grid_from_payload(
+    payload: "Mapping[str, object]",
+) -> OutputGridPayload | None:
+    """Return the input grid stored in a transform payload, if present.
+
+    Parameters
+    ----------
+    payload : mapping
+        Transform payload loaded from metadata or disk.
+
+    Returns
+    -------
+    OutputGridPayload or None
+        Input-grid description stored in the payload, or `None` when the payload does
+        not carry one.
+    """
+    if "input_grid" not in payload:
+        return None
+    return _coerce_grid_payload(
+        payload.get("input_grid"),
+        field_name="input grid",
+        missing_message="Transform payload does not contain an input grid.",
+    )
 
 
 def _save_bspline_transform_payload(
@@ -466,6 +525,9 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
             "TransformDiagnosticsPayload", payload_metadata["diagnostics"]
         ),
     }
+    input_grid = get_input_grid_from_payload(payload_metadata)
+    if input_grid is not None:
+        payload["input_grid"] = input_grid
     return payload
 
 

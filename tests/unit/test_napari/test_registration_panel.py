@@ -18,12 +18,14 @@ from confusius._napari._registration._panel_progress import (
 )
 from confusius._napari._registration._panel_results import on_registration_finished
 from confusius._napari._registration._panel_transforms import (
+    apply_selected_inverse_transform,
     apply_selected_transform,
     refresh_transform_controls,
 )
 from confusius._napari._registration._transform_payloads import (
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
+    get_input_grid_from_payload,
     get_output_grid_from_payload,
     load_transform_payload,
     make_affine_transform_payload,
@@ -986,6 +988,7 @@ class TestTransforms:
         payload = make_affine_transform_payload(
             np.eye(3),
             reference=reference,
+            source=reference,
             source_layer_name="moving",
             target_layer_name="fixed",
             operation="register_volume",
@@ -1001,6 +1004,7 @@ class TestTransforms:
         assert loaded["source_layer_name"] == "moving"
         assert loaded["name"] == "moving → fixed (rigid)"
         assert get_output_grid_from_payload(loaded)["shape"] == [4, 6]
+        assert get_input_grid_from_payload(loaded)["shape"] == [4, 6]
         np.testing.assert_array_equal(
             get_affine_transform_from_payload(loaded), np.eye(3)
         )
@@ -1018,6 +1022,7 @@ class TestTransforms:
         payload = make_bspline_transform_payload(
             transform,
             reference=reference,
+            source=reference,
             source_layer_name="moving",
             target_layer_name="fixed",
             operation="register_volume",
@@ -1033,6 +1038,7 @@ class TestTransforms:
         assert loaded["name"] == "moving → fixed (bspline)"
         assert loaded["kind"] == "bspline"
         assert get_output_grid_from_payload(loaded)["shape"] == [3, 4]
+        assert get_input_grid_from_payload(loaded)["shape"] == [3, 4]
         xr.testing.assert_identical(
             get_bspline_transform_from_payload(loaded),
             transform.astype(float),
@@ -1154,6 +1160,95 @@ class TestTransforms:
             args[1],
             _make_bspline_transform().astype(float),
         )
+        assert registration_panel._worker is not None
+
+    def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        source = xr.DataArray(
+            np.arange(12, dtype=np.float32).reshape(3, 4),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+            },
+        )
+        target = xr.DataArray(
+            np.arange(30, dtype=np.float32).reshape(5, 6),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(5) * 0.3, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.15, dims=["x"]),
+            },
+        )
+        affine = np.array(
+            [[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [0.0, 0.0, 1.0]],
+            dtype=float,
+        )
+        payload = make_affine_transform_payload(
+            affine,
+            reference=target,
+            source=source,
+            source_layer_name="source",
+            target_layer_name="target",
+            operation="register_volume",
+            transform_model="affine",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+        viewer.add_image(source.values, name="source", metadata={"xarray": source})
+        viewer.add_image(target.values, name="target", metadata={"xarray": target})
+        viewer.add_image(
+            target.values,
+            name="Registered",
+            metadata={"xarray": target, "confusius_transform": payload},
+        )
+        refresh_transform_controls(registration_panel)
+        registration_panel._transform_source_combo.setCurrentText(
+            "source → target (affine)"
+        )
+        registration_panel._transform_target_combo.setCurrentText("target")
+
+        captured: dict[str, object] = {}
+
+        class _FakeSignal:
+            def connect(self, _slot):
+                return None
+
+        class _FakeWorker:
+            def __init__(self) -> None:
+                self.returned = _FakeSignal()
+                self.errored = _FakeSignal()
+                self.finished = _FakeSignal()
+
+            def start(self) -> None:
+                return None
+
+        def _fake_thread_worker(func):
+            def _runner(*args, **kwargs):
+                captured["func"] = func
+                captured["args"] = args
+                captured["kwargs"] = kwargs
+                return _FakeWorker()
+
+            return _runner
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel_transforms.thread_worker",
+            _fake_thread_worker,
+        )
+
+        apply_selected_inverse_transform(registration_panel)
+
+        func = cast("Any", captured["func"])
+        args = cast("tuple[Any, ...]", captured["args"])
+        kwargs = cast("dict[str, Any]", captured["kwargs"])
+        assert func.__name__ == "resample_volume"
+        np.testing.assert_allclose(args[1], np.linalg.inv(affine))
+        assert kwargs["shape"] == [3, 4]
+        assert kwargs["spacing"] == [0.2, 0.1]
+        assert kwargs["origin"] == [0.0, 0.0]
+        assert kwargs["dims"] == ["y", "x"]
         assert registration_panel._worker is not None
 
 

@@ -18,6 +18,8 @@ from confusius._napari._registration._transform_payloads import (
 from confusius._napari._registration._panel_utils import (
     _gamma_needs_reset,
     _get_image_display_kwargs_from_layer,
+    _get_source_dataarray,
+    _prepare_between_scan_data,
 )
 from confusius.plotting.napari import plot_napari
 
@@ -241,10 +243,17 @@ def on_volume_registration_finished(
     transform_name = panel._make_unique_transform_name(
         f"{payload['moving_layer_name']} → {payload['fixed_layer_name']} ({payload['transform']})"
     )
+    source_layer = panel._get_layer_by_name(payload["moving_layer_name"])
+    source_data = (
+        _prepare_between_scan_data(_get_source_dataarray(source_layer))
+        if source_layer is not None
+        else None
+    )
     if isinstance(transform, np.ndarray):
         metadata["confusius_transform"] = make_affine_transform_payload(
             np.asarray(transform, dtype=float),
             reference=registered,
+            source=source_data,
             source_layer_name=payload["moving_layer_name"],
             target_layer_name=payload["fixed_layer_name"],
             operation=payload["operation"],
@@ -257,6 +266,7 @@ def on_volume_registration_finished(
         metadata["confusius_transform"] = make_bspline_transform_payload(
             transform,
             reference=registered,
+            source=source_data,
             source_layer_name=payload["moving_layer_name"],
             target_layer_name=payload["fixed_layer_name"],
             operation=payload["operation"],
