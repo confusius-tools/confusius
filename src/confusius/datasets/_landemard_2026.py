@@ -148,7 +148,7 @@ def fetch_landemard_2026(
     """Fetch the Landemard 2026 fUSI-BIDS dataset.
 
     Downloads functional ultrasound imaging recordings from awake,
-    head-fixed, freely-running mice, distributed in fUSI-BIDS format
+    head-fixed, freely-running mice, re-exported to fUSI-BIDS format
     from Landemard et al. (2026).
 
     Files are downloaded on first call and cached locally. Subsequent calls
@@ -205,8 +205,8 @@ def fetch_landemard_2026(
     References
     ----------
     [^1]:
-        Landemard, A. et al. (2026). Functional ultrasound imaging in
-        head-fixed, freely-running mice. *Nature*.
+        Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026).
+        Brainwide blood volume reflects opposing neural populations. *Nature*.
         [https://doi.org/10.1038/s41586-026-10350-9](https://doi.org/10.1038/s41586-026-10350-9)
 
     [^2]:

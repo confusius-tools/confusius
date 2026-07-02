@@ -182,7 +182,8 @@ fraction of this (see the examples below).
 
     Functional ultrasound imaging recordings from awake, head-fixed,
     freely-running mice, from Landemard et al. (2026)[^landemard2026],
-    hosted on [OSF (dkseb)](https://osf.io/dkseb/overview).
+    re-exported to fUSI-BIDS format and hosted on
+    [OSF (dkseb)](https://osf.io/dkseb/overview).
     Total size: **~42 GB**.
 
     Use [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] to
@@ -314,8 +315,8 @@ parameters and return types.
     <https://doi.org/10.1016/j.celrep.2025.116791>
 
 [^landemard2026]:
-    Landemard, A. et al. (2026). Functional ultrasound imaging in head-fixed,
-    freely-running mice. *Nature*.
+    Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide
+    blood volume reflects opposing neural populations. *Nature*.
     <https://doi.org/10.1038/s41586-026-10350-9>
 
 [^huang2025]:
