@@ -32,6 +32,17 @@ class TestEventStore:
         store.add_event(1.0, 0.0, "stim")
         assert store.events_dataframe()["duration"].tolist() == [0.0]
 
+    def test_events_kept_sorted_by_onset(self, store, tmp_path):
+        """Adding events out of order keeps the table sorted by onset."""
+        store.add_event(4.0, 1.0, "late")
+        store.add_event(1.0, 1.0, "early")
+        assert list(store.events_dataframe()["trial_type"]) == ["early", "late"]
+        # Loaded events are merged into onset order too.
+        path = tmp_path / "events.tsv"
+        path.write_text("onset\tduration\ttrial_type\n2.5\t1.0\tmid\n")
+        store.load_file(path)
+        assert list(store.events_dataframe()["trial_type"]) == ["early", "mid", "late"]
+
     def test_color_is_stable_per_trial_type(self, store):
         """The same trial type always maps to the same color; distinct types differ."""
         first = store.color_for("stim")

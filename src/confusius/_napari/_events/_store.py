@@ -108,7 +108,7 @@ class EventStore(QObject):
         -------
         pandas.DataFrame
             The stored events with columns `onset`, `duration`, `trial_type`, then
-            any extra columns. The row order matches insertion order. Suitable to
+            any extra columns. The rows are sorted by onset. Suitable to
             pass directly as the `events` argument of
             [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix].
         """
@@ -124,7 +124,7 @@ class EventStore(QObject):
         Returns
         -------
         zip
-            Lazy iterator of `(onset, duration, trial_type)` tuples in insertion
+            Lazy iterator of `(onset, duration, trial_type)` tuples in onset
             order.
         """
         return zip(
@@ -339,7 +339,7 @@ class EventStore(QObject):
         write_events(path, self._events)
 
     def _concat(self, rows: pd.DataFrame) -> pd.DataFrame:
-        """Append rows to the events table, aligning columns.
+        """Append rows to the events table, keeping it sorted by onset.
 
         Parameters
         ----------
@@ -349,15 +349,18 @@ class EventStore(QObject):
         Returns
         -------
         pandas.DataFrame
-            The combined table with a fresh range index. Concatenation aligns on
+            The combined table sorted by onset (stable, so equal onsets keep
+            insertion order) with a fresh range index. Concatenation aligns on
             column name, so extra columns present on either side are filled with
             NaN where absent.
         """
         # Avoid pandas' deprecated all-NA/empty concatenation path by short-
         # circuiting when the store is still empty.
         if self._events.empty:
-            return rows.reset_index(drop=True)
-        return pd.concat([self._events, rows], ignore_index=True)
+            combined = rows
+        else:
+            combined = pd.concat([self._events, rows], ignore_index=True)
+        return combined.sort_values(ONSET_COLUMN, kind="stable", ignore_index=True)
 
 
 def _empty_events() -> pd.DataFrame:

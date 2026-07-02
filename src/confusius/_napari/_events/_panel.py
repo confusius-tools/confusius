@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from napari.utils.key_bindings import coerce_keybinding
 from napari.utils.notifications import show_error, show_info
+from qtpy.QtCore import Qt
 from qtpy.QtGui import QColor
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -343,10 +344,15 @@ class EventPanel(QWidget):
             self._table.insertRow(row)
             name_item = QTableWidgetItem(trial_type)
             name_item.setForeground(QColor(self._store.color_for(trial_type)))
-            self._table.setItem(row, 0, name_item)
-            self._table.setItem(row, 1, QTableWidgetItem(f"{onset:.2f} {units}"))
-            self._table.setItem(row, 2, QTableWidgetItem(f"{end:.2f} {units}"))
-            self._table.setItem(row, 3, QTableWidgetItem(f"{duration:.2f} {units}"))
+            items = (
+                name_item,
+                QTableWidgetItem(f"{onset:.2f} {units}"),
+                QTableWidgetItem(f"{end:.2f} {units}"),
+                QTableWidgetItem(f"{duration:.2f} {units}"),
+            )
+            for column, item in enumerate(items):
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self._table.setItem(row, column, item)
 
     def _on_remove_selected(self) -> None:
         selection_model = self._table.selectionModel()
