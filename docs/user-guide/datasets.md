@@ -191,7 +191,7 @@ fraction of this (see the examples below).
 
     | Filter      | BIDS entity / scope | Example                          |
     |-------------|---------------------|----------------------------------|
-    | `datasets`  | dataset name        | `"atlas-mapping"`, `["rawdata", "processed-data"]` |
+    | `datasets`  | dataset name        | `"atlas_mapping"`, `["rawdata", "processed_data"]` |
     | `subjects`  | `sub-`              | `["ALD001", "ALD019"]`           |
     | `acqs`      | `acq-`              | `["ref04", "ref11"]`             |
     | `datatypes` | datatype directory  | `"fusi"`, `["fusi", "angio"]`    |
@@ -206,14 +206,14 @@ fraction of this (see the examples below).
     | Name              | Contents                                                              |
     |-------------------|-----------------------------------------------------------------------|
     | `rawdata`         | Raw fUSI and angiography acquisitions per subject                     |
-    | `atlas-mapping`   | Per-subject Allen atlas alignment and region/session matches          |
-    | `processed-data`  | Dataset-level compact representations, PSTHs, and ephys→fUSI filters  |
+    | `atlas_mapping`   | Per-subject Allen atlas alignment and region/session matches          |
+    | `processed_data`  | Dataset-level compact representations, PSTHs, and ephys→fUSI filters  |
 
     ```python
     from confusius.datasets import fetch_landemard_2026
 
-    # All subjects, atlas-mapping derivative only.
-    bids_root = fetch_landemard_2026(datasets="atlas-mapping")
+    # All subjects, atlas_mapping derivative only.
+    bids_root = fetch_landemard_2026(datasets="atlas_mapping")
 
     # Or raw fUSI data for a single subject, with a single acquisition.
     bids_root = fetch_landemard_2026(

@@ -9,11 +9,7 @@ import pytest
 import requests
 
 from confusius.datasets import fetch_landemard_2026
-from confusius.datasets._landemard_2026 import (
-    _BIDS_ROOT,
-    _MISSING_INDEX_HINT,
-    _OSF_PROJECT_ID,
-)
+from confusius.datasets._landemard_2026 import _BIDS_ROOT, _OSF_PROJECT_ID
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
 
 # Minimal fake index representing the different file categories in the dataset.
@@ -58,7 +54,7 @@ _FAKE_INDEX = {
         "size": 50,
     },
     "sub-ALD002/sub-ALD002_scans.tsv": {"osf_path": "/file012", "size": 50},
-    # Derivatives — atlas-mapping has per-subject files, processed-data is
+    # Derivatives — atlas_mapping has per-subject files, processed_data is
     # dataset-level with subject IDs embedded in the filename.
     "derivatives/atlas_mapping/dataset_description.json": {
         "osf_path": "/file013",
@@ -181,7 +177,7 @@ def test_fetch_dataset_filter_rawdata_only(tmp_path, mock_get_index, mock_retrie
 
 
 def test_fetch_dataset_filter_atlas_mapping(tmp_path, mock_get_index, mock_retrieve):
-    fetch_landemard_2026(data_dir=tmp_path, datasets=["atlas-mapping"])
+    fetch_landemard_2026(data_dir=tmp_path, datasets=["atlas_mapping"])
 
     downloaded = _downloaded_paths(mock_retrieve)
     # Matching derivative included.
@@ -195,7 +191,7 @@ def test_fetch_dataset_filter_atlas_mapping(tmp_path, mock_get_index, mock_retri
 
 
 def test_fetch_dataset_filter_processed_data(tmp_path, mock_get_index, mock_retrieve):
-    fetch_landemard_2026(data_dir=tmp_path, datasets=["processed-data"])
+    fetch_landemard_2026(data_dir=tmp_path, datasets=["processed_data"])
 
     downloaded = _downloaded_paths(mock_retrieve)
     assert "Compact_data_regions_ALD001.npz" in downloaded
@@ -205,8 +201,8 @@ def test_fetch_dataset_filter_processed_data(tmp_path, mock_get_index, mock_retr
 
 
 def test_fetch_dataset_filter_combined(tmp_path, mock_get_index, mock_retrieve):
-    """Combining `rawdata` (default-mapped) and a hyphen-mapped derivative."""
-    fetch_landemard_2026(data_dir=tmp_path, datasets=["rawdata", "atlas-mapping"])
+    """`datasets` may combine rawdata and a derivative name in a single call."""
+    fetch_landemard_2026(data_dir=tmp_path, datasets=["rawdata", "atlas_mapping"])
 
     downloaded = _downloaded_paths(mock_retrieve)
     assert "sub-ALD001_task-awake_acq-ref04_pwd.nii.gz" in downloaded
@@ -225,7 +221,7 @@ def test_fetch_subject_filter(tmp_path, mock_get_index, mock_retrieve):
     # Non-matching subject excluded.
     assert "sub-ALD002_task-awake_acq-ref04_pwd.nii.gz" not in downloaded
     assert "Atlas_alignment_ALD002.npz" not in downloaded
-    # Dataset-level processed-data files pass through (no sub-* directory).
+    # Dataset-level processed_data files pass through (no sub-* directory).
     assert "Compact_data_regions_ALD001.npz" in downloaded
     assert "Compact_data_regions_ALD002.npz" in downloaded
     # Top-level metadata always included.
@@ -427,5 +423,4 @@ def test_fetch_refresh_passes_flag_to_get_index(
         _OSF_PROJECT_ID,
         _BIDS_ROOT,
         refresh=True,
-        missing_index_hint=_MISSING_INDEX_HINT,
     )

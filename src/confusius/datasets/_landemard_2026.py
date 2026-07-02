@@ -13,25 +13,13 @@ _OSF_PROJECT_ID = "dkseb"
 _BIDS_ROOT = "landemard-2026-bids"
 _TOTAL_SIZE_BYTES = 42_036_009_786
 
-_MISSING_INDEX_HINT = (
-    "Run 'landemard-upload --index-only' from the landemard-2026-bids "
-    "repository to generate it."
-)
 
-
-_VALID_DATASETS = frozenset({"rawdata", "atlas-mapping", "processed-data"})
+_VALID_DATASETS = frozenset({"rawdata", "atlas_mapping", "processed_data"})
 """Valid values for the `datasets` parameter of `fetch_landemard_2026`."""
 
 
 _VALID_DATATYPES = frozenset({"fusi", "angio"})
 """Valid values for the `datatypes` parameter of `fetch_landemard_2026`."""
-
-
-_DATASET_DIRS = {
-    "atlas-mapping": "atlas_mapping",
-    "processed-data": "processed_data",
-}
-"""Map public dataset names (hyphen-separated) to their on-disk directory names."""
 
 
 def _filter_files(
@@ -53,9 +41,9 @@ def _filter_files(
     index : dict[str, OsfFileInfo]
         Full dataset index as returned by `get_index`.
     datasets : list[str] or None
-        Datasets to include. Use `"rawdata"` for the raw fUSI/angio data and derivative
-        names for processed outputs: `"atlas-mapping"`, `"processed-data"`. If `None`,
-        all datasets are included.
+        Datasets to include. Use `"rawdata"` for the raw fUSI/angio data and
+        derivative names for processed outputs: `"atlas_mapping"`,
+        `"processed_data"`. If `None`, all datasets are included.
     subjects : list[str] or None
         Subject IDs to include (without "sub-" prefix), e.g. `["ALD001"]`. If `None`,
         all subjects are included.
@@ -84,10 +72,8 @@ def _filter_files(
             # Filter by derivative name.
             if len(parts) >= 2:
                 deriv_name = parts[1]
-                if datasets is not None:
-                    accepted_dirs = {_DATASET_DIRS.get(name, name) for name in datasets}
-                    if deriv_name not in accepted_dirs:
-                        continue
+                if datasets is not None and deriv_name not in datasets:
+                    continue
 
             # Subject filter within derivatives.
             derivative_sub = next((p for p in parts if p.startswith("sub-")), None)
@@ -117,7 +103,7 @@ def _filter_files(
             filtered[path] = file_info
             continue
 
-        # Datatype filter — only applies when sitting under a known datatype.
+        # Datatype filter (only applies when sitting under a known datatype).
         if datatypes is not None and parts[1] in _VALID_DATATYPES:
             if parts[1] not in datatypes:
                 continue
@@ -143,48 +129,41 @@ def fetch_landemard_2026(
 ) -> Path:
     """Fetch the Landemard 2026 fUSI-BIDS dataset.
 
-    Downloads functional ultrasound imaging recordings from awake,
-    head-fixed, freely-running mice, re-exported to fUSI-BIDS format
-    from Landemard et al. (2026).
+    Downloads functional ultrasound imaging recordings from awake, head-fixed,
+    freely-running mice, re-exported to fUSI-BIDS format from Landemard et al. (2026).
 
-    Files are downloaded on first call and cached locally. Subsequent calls
-    with the same `data_dir` return immediately for already-cached files.
+    Files are downloaded on first call and cached locally. Subsequent calls with the
+    same `data_dir` return immediately for already-cached files.
 
     Parameters
     ----------
     data_dir : str or pathlib.Path, optional
-        Directory in which to cache the dataset. Defaults to the platform
-        cache directory (e.g. `~/.cache/confusius` on Linux,
-        `~/Library/Caches/confusius` on macOS,
-        `%LOCALAPPDATA%\\confusius\\Cache` on Windows),
-        overridable via the `CONFUSIUS_DATA` environment variable.
+        Directory in which to cache the dataset. Defaults to the platform cache
+        directory (e.g. `~/.cache/confusius` on Linux, `~/Library/Caches/confusius` on
+        macOS, `%LOCALAPPDATA%\\confusius\\Cache` on Windows), overridable via the
+        `CONFUSIUS_DATA` environment variable.
     datasets : str or list[str], optional
-        Datasets to download. Use `"rawdata"` for the raw fUSI/angio data
-        and derivative names for processed outputs: `"atlas-mapping"`,
-        `"processed-data"`. Accepts a single string or a list. If not
-        provided, all datasets are downloaded.
+        Datasets to download. Use `"rawdata"` for the raw fUSI/angio data and derivative
+        names for processed outputs: `"atlas_mapping"`, `"processed_data"`. Accepts a
+        single string or a list. If not provided, all datasets are downloaded.
     subjects : str or list[str], optional
-        Subject IDs to download (without "sub-" prefix), e.g. `"ALD001"`
-        or `["ALD001", "ALD019"]`. If not provided, all subjects are
-        downloaded.
+        Subject IDs to download (without "sub-" prefix), e.g. `"ALD001"` or `["ALD001",
+        "ALD019"]`. If not provided, all subjects are downloaded.
     acqs : str or list[str], optional
-        Acquisition labels to download (without "acq-" prefix), e.g.
-        `"ref04"` or `["ref04", "ref11"]`. If not provided, all
-        acquisitions are downloaded. Files with no `acq-` entity
-        (e.g. `sub-ALD001_scans.tsv`,
-        `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always included.
-        The `run-` entity is not exposed as a filter.
+        Acquisition labels to download (without "acq-" prefix), e.g. `"ref04"` or
+        `["ref04", "ref11"]`. If not provided, all acquisitions are downloaded. Files
+        with no `acq-` entity (e.g. `sub-ALD001_scans.tsv`,
+        `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always included. The `run-` entity
+        is not exposed as a filter.
     datatypes : str or list[str], optional
-        BIDS datatype directories to download, e.g. `"fusi"`, `"angio"`,
-        `["fusi", "angio"]`. Valid values are `"fusi"` and `"angio"`.
-        If not provided, all datatypes are downloaded. Files that do
-        not sit under a datatype directory (e.g. subject-level
-        `scans.tsv`) are always included.
+        BIDS datatype directories to download, e.g. `"fusi"`, `"angio"`, `["fusi",
+        "angio"]`. Valid values are `"fusi"` and `"angio"`. If not provided, all
+        datatypes are downloaded. Files that do not sit under a datatype directory (e.g.
+        subject-level `scans.tsv`) are always included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and download any files
-        that are missing locally. If `False` and all requested files are
-        already cached, the function returns immediately without any network
-        access.
+        Whether to re-fetch the dataset index from OSF and download any files that are
+        missing locally. If `False` and all requested files are already cached, the
+        function returns immediately without any network access.
 
     Returns
     -------
@@ -194,8 +173,8 @@ def fetch_landemard_2026(
     Raises
     ------
     ValueError
-        If an unknown dataset name is passed in `datasets`, or an
-        unknown datatype is passed in `datatypes`.
+        If an unknown dataset name is passed in `datasets`, or an unknown datatype is
+        passed in `datatypes`.
 
     References
     ----------
@@ -248,7 +227,6 @@ def fetch_landemard_2026(
             _OSF_PROJECT_ID,
             _BIDS_ROOT,
             refresh=refresh,
-            missing_index_hint=_MISSING_INDEX_HINT,
         ),
     )
     files = _filter_files(index, datasets, subjects, acqs, datatypes)

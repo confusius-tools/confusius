@@ -13,11 +13,6 @@ _OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
 
-_MISSING_INDEX_HINT = (
-    "Run 'nunez-upload --index-only' from the nunez-elizalde-2022-bids "
-    "repository to generate it."
-)
-
 
 def _filter_files(
     index: dict[str, OsfFileInfo],
@@ -205,7 +200,6 @@ def fetch_nunez_elizalde_2022(
             _OSF_PROJECT_ID,
             _BIDS_ROOT,
             refresh=refresh,
-            missing_index_hint=_MISSING_INDEX_HINT,
         ),
     )
     files = _filter_files(index, subjects, sessions, tasks, acqs)
