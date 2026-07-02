@@ -824,7 +824,7 @@ def _build_extra_dim_coords(
         if step != 0.0:
             coord_values = step * np.arange(size, dtype=np.float64)
         else:
-            coord_values = np.zeros(size, dtype=np.float64)
+            coord_values = np.arange(size, dtype=np.float64)
         coords[dim_name] = xr.DataArray(
             coord_values,
             dims=[dim_name],
@@ -1409,7 +1409,8 @@ def _coord_starts_at_zero_with_regular_spacing(
     if len(coord_values) < 2:
         return True
     step, _ = get_representative_step(coord_values)
-    assert step is not None
+    if step is None or np.isclose(step, 0.0):
+        return False
     expected = step * np.arange(len(coord_values))
     return bool(np.allclose(coord_values, expected, rtol=1e-5, atol=0.0))
 

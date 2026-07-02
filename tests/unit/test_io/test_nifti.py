@@ -215,10 +215,10 @@ class TestLoadNifti:
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
 
-    def test_load_5d_nifti_dim4_name_with_zero_pixdim_uses_constant_zero_coord(
+    def test_load_5d_nifti_dim4_name_with_zero_pixdim_uses_unit_spacing(
         self, tmp_path: Path
     ) -> None:
-        """When `pixdim[N]` is 0, the fallback extra coord is constant zero."""
+        """When `pixdim[N]` is 0 and no sidecar coords exist, the fallback uses `arange`."""
         data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
         img = nib.Nifti1Image(data, np.eye(4))
         # Set pixdim[4] (5th NIfTI axis) to 0.
@@ -235,7 +235,7 @@ class TestLoadNifti:
 
         assert da.dims == ("component", "z", "y", "x")
         np.testing.assert_array_equal(
-            da.coords["component"].values, np.array([0.0, 0.0, 0.0])
+            da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
 
     def test_load_5d_nifti_dim4_name_with_negative_pixdim_preserves_sign(
@@ -1158,8 +1158,8 @@ class TestSaveNifti:
         assert sidecar["ConfUSIusDim4Name"] == "channel"
         assert sidecar["ConfUSIusDim4Coordinates"] == [3.5, 7.0]
 
-    def test_save_constant_extra_coord_uses_zero_pixdim(self, tmp_path) -> None:
-        """A constant extra-dim coord is recoverable from `pixdim=0`."""
+    def test_save_constant_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
+        """A constant extra-dim coord has a zero step, so the sidecar stores the values."""
         data = np.zeros((3, 4, 6, 8), dtype=np.float32)
         da = xr.DataArray(
             data,
@@ -1182,7 +1182,7 @@ class TestSaveNifti:
         with open(sidecar_path) as f:
             sidecar = json.load(f)
         assert sidecar["ConfUSIusDim4Name"] == "component"
-        assert "ConfUSIusDim4Coordinates" not in sidecar
+        assert sidecar["ConfUSIusDim4Coordinates"] == [0.0, 0.0, 0.0]
 
         roundtripped = load_nifti(output_path)
         np.testing.assert_array_equal(
