@@ -11,7 +11,6 @@ import requests
 from confusius.datasets import fetch_nunez_elizalde_2022, get_datasets_dir
 from confusius.datasets._nunez_elizalde_2022 import (
     _BIDS_ROOT,
-    _MISSING_INDEX_HINT,
     _OSF_PROJECT_ID,
 )
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
@@ -380,5 +379,4 @@ def test_fetch_refresh_passes_flag_to_get_index(
         _OSF_PROJECT_ID,
         _BIDS_ROOT,
         refresh=True,
-        missing_index_hint=_MISSING_INDEX_HINT,
     )

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -74,9 +73,7 @@ def _make_osf_responses(
 def test_get_index_downloads_and_caches(tmp_path):
     """When no cache exists, the index is fetched from OSF and written to disk."""
     responses = _make_osf_responses(_FAKE_INDEX)
-    with patch(
-        "confusius.datasets._osf.requests.get", side_effect=responses
-    ):
+    with patch("confusius.datasets._osf.requests.get", side_effect=responses):
         result = get_index(tmp_path, _FAKE_PROJECT, _FAKE_BIDS_ROOT)
 
     assert result == _FAKE_INDEX
@@ -101,9 +98,7 @@ def test_get_index_refreshes_when_requested(tmp_path):
     (tmp_path / _INDEX_FILENAME).write_text(json.dumps({"stale": "data"}))
 
     responses = _make_osf_responses(_FAKE_INDEX)
-    with patch(
-        "confusius.datasets._osf.requests.get", side_effect=responses
-    ):
+    with patch("confusius.datasets._osf.requests.get", side_effect=responses):
         result = get_index(tmp_path, _FAKE_PROJECT, _FAKE_BIDS_ROOT, refresh=True)
 
     assert result == _FAKE_INDEX
@@ -129,7 +124,9 @@ def test_resolve_index_url_raises_if_bids_folder_not_on_osf():
 
 def test_resolve_index_url_raises_if_index_file_not_on_osf():
     """RuntimeError propagates when dataset_index.json is absent from OSF."""
-    folder_href = f"https://api.osf.io/v2/nodes/{_FAKE_PROJECT}/files/osfstorage/folder/"
+    folder_href = (
+        f"https://api.osf.io/v2/nodes/{_FAKE_PROJECT}/files/osfstorage/folder/"
+    )
 
     root_resp = MagicMock()
     root_resp.raise_for_status.return_value = None
@@ -154,36 +151,3 @@ def test_resolve_index_url_raises_if_index_file_not_on_osf():
     ):
         with pytest.raises(RuntimeError, match=_INDEX_FILENAME):
             resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
-
-
-def test_resolve_index_url_appends_missing_index_hint():
-    """The optional hint is appended verbatim to the error message."""
-    folder_href = f"https://api.osf.io/v2/nodes/{_FAKE_PROJECT}/files/osfstorage/folder/"
-
-    root_resp = MagicMock()
-    root_resp.raise_for_status.return_value = None
-    root_resp.json.return_value = {
-        "data": [
-            {
-                "attributes": {"name": _FAKE_BIDS_ROOT},
-                "relationships": {
-                    "files": {"links": {"related": {"href": folder_href}}}
-                },
-            }
-        ]
-    }
-
-    folder_resp = MagicMock()
-    folder_resp.raise_for_status.return_value = None
-    folder_resp.json.return_value = {"data": []}
-
-    hint = "Run 'some-tool --index-only' to regenerate it."
-
-    with patch(
-        "confusius.datasets._osf.requests.get",
-        side_effect=[root_resp, folder_resp],
-    ):
-        with pytest.raises(RuntimeError, match=re.escape(hint)):
-            resolve_index_url(
-                _FAKE_PROJECT, _FAKE_BIDS_ROOT, missing_index_hint=hint
-            )

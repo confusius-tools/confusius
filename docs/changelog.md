@@ -28,7 +28,7 @@ Current development version for the next ConfUSIus release.
   xarray-aware `fit`/`transform`/`inverse_transform` interface as
   [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
   Both `mode='temporal'` and `mode='spatial'` are supported
-  ([#117](https://github.com/confusius-tools/confusius/issues/117)).
+  ([#211](https://github.com/confusius-tools/confusius/pull/211)).
 - Added [`adjust_pvalues`][confusius.stats.adjust_pvalues] for generic
   multiple-comparison correction of p-value maps, and
   [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] to
@@ -37,6 +37,10 @@ Current development version for the next ConfUSIus release.
   false-discovery-rate (Benjamini-Hochberg, Benjamini-Yekutieli) corrections, plus an
   optional cluster-extent threshold
   ([#204](https://github.com/confusius-tools/confusius/pull/204)).
+- Added [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] for
+  downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
+  `datasets`, `subjects`, `acqs`, and `datatypes` filters
+  ([#228](https://github.com/confusius-tools/confusius/pull/230)).
 
 ### :bug: Fixes
 
@@ -63,7 +67,7 @@ Current development version for the next ConfUSIus release.
 - The `confusius` CLI now accepts multiple fUSI data files in a single
   invocation (e.g. `confusius fixed.nii moving.nii`). Each file is added as its
   own image layer, named after the file's basename
-  ([#205](https://github.com/confusius-tools/confusius/issues/205)).
+  ([#206](https://github.com/confusius-tools/confusius/pull/206)).
 - `data.fusi.affine.apply` now accepts affines with rotation and shear. The
   axis-aligned part updates the 1D `z`/`y`/`x` coordinates and the method returns
   the residual orientation as a 4x4 affine (the identity for diagonal affines)
