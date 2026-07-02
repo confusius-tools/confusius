@@ -27,6 +27,7 @@ from confusius._napari._registration._panel_utils import (
     _get_source_dataarray,
     _prepare_between_scan_data,
 )
+from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius.registration import resample_volume
 from confusius.registration.bspline import validate_bspline_dataarray
 
@@ -1252,10 +1253,11 @@ def apply_selected_transform(panel: "RegistrationPanel") -> None:
     }
     panel._worker = worker
     panel._begin_work()
+
     worker.returned.connect(
         lambda result: on_apply_transform_finished(panel, apply_payload, result)
     )
-    worker.errored.connect(panel._on_registration_failed)
+    worker.errored.connect(lambda exc: on_registration_failed(panel, exc))
     worker.finished.connect(panel._end_work)
     worker.start()
 

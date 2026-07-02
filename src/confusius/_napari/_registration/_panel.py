@@ -6,10 +6,7 @@ from threading import Event
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
 import numpy as np
-import xarray as xr
-from napari.layers.utils.layer_utils import calc_data_range
 from napari.qt.threading import thread_worker
-from napari.utils.notifications import show_error, show_info
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QApplication,
@@ -45,9 +42,12 @@ from confusius._napari._registration._panel_parameters import (
 from confusius._napari._registration._panel_progress import (
     create_volume_progress_plotter,
     setup_volumewise_progress,
-    teardown_volume_progress,
-    teardown_volumewise_progress,
 )
+from confusius._napari._registration._panel_results import (
+    on_volume_registration_finished,
+    on_volumewise_registration_finished,
+)
+from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius._napari._registration._panel_transforms import (
     TransformPayload,
     apply_selected_transform,
@@ -55,8 +55,6 @@ from confusius._napari._registration._panel_transforms import (
     get_selected_center_initialization,
     get_selected_initial_transform,
     load_transform,
-    make_affine_transform_payload,
-    make_bspline_transform_payload,
     refresh_transform_controls,
     save_selected_transform,
     validate_initial_transform_selection,
@@ -64,8 +62,6 @@ from confusius._napari._registration._panel_transforms import (
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
     _apply_registration_scale,
-    _gamma_needs_reset,
-    _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
     _is_registration_source_layer,
     _parse_comma_separated_ints,
@@ -75,15 +71,12 @@ from confusius._napari._registration._progress import (
     NapariProgressBridge,
     NapariRegistrationProgressReporterBridge,
 )
-from confusius.plotting.napari import plot_napari
 from confusius.registration import register_volume, register_volumewise
 
 if TYPE_CHECKING:
     import napari
     import numpy.typing as npt
     from napari.layers import Image, Layer
-
-    from confusius.registration import RegistrationDiagnostics
 
 
 ScaleMode = Literal["off", "dB", "sqrt"]
@@ -1605,8 +1598,8 @@ class RegistrationPanel(QWidget):
             self._worker = worker
             self._begin_work()
             worker.returned.connect(
-                lambda result: self._on_volume_registration_finished(
-                    volume_payload, result
+                lambda result: on_volume_registration_finished(
+                    self, volume_payload, result
                 )
             )
         else:
@@ -1687,252 +1680,10 @@ class RegistrationPanel(QWidget):
             self._worker = worker
             self._begin_work()
             worker.returned.connect(
-                lambda result: self._on_volumewise_registration_finished(
-                    volumewise_payload, result
+                lambda result: on_volumewise_registration_finished(
+                    self, volumewise_payload, result
                 )
             )
-        worker.errored.connect(self._on_registration_failed)
+        worker.errored.connect(lambda exc: on_registration_failed(self, exc))
         worker.finished.connect(self._end_work)
         worker.start()
-
-    def _coerce_volume_registration_payload(
-        self, payload: dict[str, Any] | VolumeRegistrationRunPayload
-    ) -> VolumeRegistrationRunPayload:
-        """Return a typed between-scan registration payload."""
-        if payload.get("operation") != "register_volume":
-            raise ValueError("Expected a register_volume payload.")
-        return cast("VolumeRegistrationRunPayload", payload)
-
-    def _coerce_volumewise_registration_payload(
-        self, payload: dict[str, Any] | VolumewiseRegistrationRunPayload
-    ) -> VolumewiseRegistrationRunPayload:
-        """Return a typed within-scan registration payload."""
-        if payload.get("operation") != "register_volumewise":
-            raise ValueError("Expected a register_volumewise payload.")
-        return cast("VolumewiseRegistrationRunPayload", payload)
-
-    def _finalize_registration_layer(
-        self,
-        *,
-        payload: VolumeRegistrationRunPayload | VolumewiseRegistrationRunPayload,
-        registered: xr.DataArray,
-        layer_name: str,
-        metadata: dict[str, Any],
-        registration_status: Literal["completed", "aborted"],
-    ) -> None:
-        """Attach registration metadata and add or update the result layer."""
-        metadata["registration_operation"] = payload["operation"]
-        metadata["registration_parameters"] = payload.copy()
-
-        source_layer = self._get_layer_by_name(payload["moving_layer_name"])
-        display_kwargs = (
-            _get_image_display_kwargs_from_layer(source_layer)
-            if source_layer is not None
-            else {}
-        )
-        if _gamma_needs_reset(payload.get("scale", "off")):
-            display_kwargs["gamma"] = 1.0
-        if payload["operation"] == "register_volume":
-            display_kwargs["colormap"] = "cyan"
-            display_kwargs["blending"] = "additive"
-        contrast_limits = tuple(calc_data_range(registered.data))
-
-        if (
-            payload["operation"] == "register_volume"
-            and self._progress_layer is not None
-        ):
-            layer = self._progress_layer
-            self._set_image_layer_data(layer, np.asarray(registered.data))
-            if hasattr(layer, "contrast_limits"):
-                layer.contrast_limits = contrast_limits
-            self._progress_bridge = None
-            self._progress_layer = None
-        elif (
-            payload["operation"] == "register_volumewise"
-            and self._volumewise_progress_layer is not None
-        ):
-            layer = self._volumewise_progress_layer
-            self._set_image_layer_data(layer, np.asarray(registered.data))
-            if hasattr(layer, "contrast_limits"):
-                layer.contrast_limits = contrast_limits
-            teardown_volumewise_progress(self, remove_layer=False)
-        else:
-            _, layer = plot_napari(
-                registered,
-                viewer=self.viewer,
-                name=layer_name,
-                show_colorbar=False,
-                contrast_limits=contrast_limits,
-                **display_kwargs,
-            )
-        layer.metadata.update(metadata)
-        layer.metadata["xarray"] = registered
-        self.viewer.layers.selection.active = layer
-        refresh_transform_controls(self)
-
-        if payload["operation"] == "register_volumewise":
-            self._progress.setValue(self._progress.maximum())
-
-        if registration_status == "aborted":
-            layer.name = f"{layer.name} (aborted)"
-            self._set_error("Registration aborted; added partial result.")
-            show_info(f"Registration aborted; added partial layer: {layer.name}")
-        else:
-            show_info(f"Added registered layer: {layer.name}")
-
-    def _on_registration_finished(
-        self,
-        payload: dict[str, Any],
-        result: object,
-    ) -> None:
-        """Dispatch a finished registration callback to the typed handler.
-
-        Parameters
-        ----------
-        payload : dict[str, Any]
-            Untyped compatibility payload captured when the worker started.
-        result : object
-            Worker result to forward to the operation-specific handler.
-
-        Raises
-        ------
-        ValueError
-            If `payload["operation"]` is not recognized.
-        """
-        if payload.get("operation") == "register_volume":
-            self._on_volume_registration_finished(
-                self._coerce_volume_registration_payload(payload),
-                cast(
-                    "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]",
-                    result,
-                ),
-            )
-            return
-        if payload.get("operation") == "register_volumewise":
-            self._on_volumewise_registration_finished(
-                self._coerce_volumewise_registration_payload(payload),
-                cast("xr.DataArray", result),
-            )
-            return
-        raise ValueError(
-            f"Unknown registration operation: {payload.get('operation')!r}."
-        )
-
-    def _on_volume_registration_finished(
-        self,
-        payload: VolumeRegistrationRunPayload,
-        result: tuple[
-            xr.DataArray,
-            npt.NDArray[np.floating] | xr.DataArray,
-            RegistrationDiagnostics,
-        ],
-    ) -> None:
-        """Add a between-scan registration result back to the viewer.
-
-        Parameters
-        ----------
-        payload : VolumeRegistrationRunPayload
-            Typed UI snapshot captured before the worker started.
-        result : tuple
-            Registered volume, estimated transform, and diagnostics.
-        """
-        registered, transform, diagnostics = result
-        registered = registered.copy(deep=False)
-        registered.attrs = registered.attrs.copy()
-        registered.attrs["registration_transform"] = transform
-        registered.attrs["registration_diagnostics"] = diagnostics
-        registered.attrs["registration_operation"] = payload["operation"]
-        registered.attrs["registration_status"] = diagnostics.status
-        metadata: dict[str, Any] = {
-            "registration_transform": transform,
-            "registration_diagnostics": diagnostics,
-            "registration_status": diagnostics.status,
-        }
-        transform_name = self._make_unique_transform_name(
-            f"{payload['moving_layer_name']} → {payload['fixed_layer_name']} ({payload['transform']})"
-        )
-        if isinstance(transform, np.ndarray):
-            metadata["confusius_transform"] = make_affine_transform_payload(
-                np.asarray(transform, dtype=float),
-                reference=registered,
-                source_layer_name=payload["moving_layer_name"],
-                target_layer_name=payload["fixed_layer_name"],
-                operation=payload["operation"],
-                transform_model=payload["transform"],
-                metric=payload["metric"],
-                diagnostics=diagnostics,
-                name=transform_name,
-            )
-        else:
-            metadata["confusius_transform"] = make_bspline_transform_payload(
-                transform,
-                reference=registered,
-                source_layer_name=payload["moving_layer_name"],
-                target_layer_name=payload["fixed_layer_name"],
-                operation=payload["operation"],
-                transform_model=payload["transform"],
-                metric=payload["metric"],
-                diagnostics=diagnostics,
-                name=transform_name,
-            )
-        self._finalize_registration_layer(
-            payload=payload,
-            registered=registered,
-            layer_name=self._volume_result_layer_name(
-                payload["moving_layer_name"],
-                payload["fixed_layer_name"],
-                transform_model=payload["transform"],
-            ),
-            metadata=metadata,
-            registration_status=diagnostics.status,
-        )
-
-    def _on_volumewise_registration_finished(
-        self,
-        payload: VolumewiseRegistrationRunPayload,
-        result: xr.DataArray,
-    ) -> None:
-        """Add a within-scan registration result back to the viewer.
-
-        Parameters
-        ----------
-        payload : VolumewiseRegistrationRunPayload
-            Typed UI snapshot captured before the worker started.
-        result : xarray.DataArray
-            Motion-corrected time series returned by the worker.
-        """
-        registered = result.copy(deep=False)
-        registered.attrs = registered.attrs.copy()
-        registered.attrs["registration_operation"] = payload["operation"]
-        motion_params = registered.attrs.get("motion_params")
-        registration_status = "completed"
-        if motion_params is not None:
-            try:
-                statuses = motion_params["status"]
-            except Exception:  # noqa: BLE001
-                statuses = None
-            if statuses is not None and bool((statuses == "aborted").any()):
-                registration_status = "aborted"
-        self._finalize_registration_layer(
-            payload=payload,
-            registered=registered,
-            layer_name=self._volumewise_result_layer_name(payload["moving_layer_name"]),
-            metadata={
-                "motion_params": motion_params,
-                "reference_time": payload["reference_time"],
-            },
-            registration_status=registration_status,
-        )
-
-    def _on_registration_failed(self, exc: BaseException) -> None:
-        """Handle a failed worker execution.
-
-        Parameters
-        ----------
-        exc : BaseException
-            Exception raised by the worker.
-        """
-        teardown_volume_progress(self)
-        teardown_volumewise_progress(self, remove_layer=True)
-        self._set_error(str(exc))
-        show_error(str(exc))

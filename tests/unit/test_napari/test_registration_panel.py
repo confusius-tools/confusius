@@ -16,6 +16,7 @@ from confusius._napari._registration._panel_progress import (
     teardown_volume_progress,
     update_progress_layer,
 )
+from confusius._napari._registration._panel_results import on_registration_finished
 from confusius._napari._registration._panel_transforms import (
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
@@ -1054,7 +1055,7 @@ class TestFinishedCallbacks:
             "resample_interpolation": "linear",
         }
 
-        registration_panel._on_registration_finished(
+        on_registration_finished(registration_panel, 
             payload,
             (registered, transform, diagnostics),
         )
@@ -1099,7 +1100,7 @@ class TestFinishedCallbacks:
             "resample_interpolation": "linear",
         }
 
-        registration_panel._on_registration_finished(
+        on_registration_finished(registration_panel, 
             payload,
             (registered, transform, diagnostics),
         )
@@ -1194,7 +1195,7 @@ class TestFinishedCallbacks:
             "use_multi_resolution": False,
             "resample_interpolation": "linear",
         }
-        registration_panel._on_registration_finished(
+        on_registration_finished(registration_panel, 
             payload,
             (registered, transform, diagnostics),
         )
@@ -1405,7 +1406,7 @@ class TestFinishedCallbacks:
             "reference_time": 1,
         }
 
-        registration_panel._on_registration_finished(payload, registered)
+        on_registration_finished(registration_panel, payload, registered)
 
         layer = viewer.layers["Motion corrected"]
         assert layer.metadata["reference_time"] == 1
@@ -1457,7 +1458,7 @@ class TestFinishedCallbacks:
             "reference_time": 1,
         }
 
-        registration_panel._on_registration_finished(payload, registered)
+        on_registration_finished(registration_panel, payload, registered)
 
         assert {"Moving", "Motion corrected"}.issubset(
             {layer.name for layer in viewer.layers}
@@ -1488,11 +1489,11 @@ class TestFinishedCallbacks:
         transform = np.eye(3)
         diagnostics = _FakeDiagnostics()
 
-        registration_panel._on_registration_finished(
+        on_registration_finished(registration_panel, 
             payload,
             (fixed.copy(), transform, diagnostics),
         )
-        registration_panel._on_registration_finished(
+        on_registration_finished(registration_panel, 
             payload,
             (fixed.copy(), transform, diagnostics),
         )
