@@ -85,6 +85,18 @@ class TestRegisterVolumeValidation:
         )
         assert result.shape == moving.shape
 
+    def test_mismatched_spatial_units_raise(self, sample_2d_dataarray_spatial):
+        """moving and fixed must agree on spatial coordinate units when declared."""
+        moving = sample_2d_dataarray_spatial.copy()
+        fixed = sample_2d_dataarray_spatial.copy()
+        moving.coords["y"].attrs["units"] = "mm"
+        moving.coords["x"].attrs["units"] = "mm"
+        fixed.coords["y"].attrs["units"] = "um"
+        fixed.coords["x"].attrs["units"] = "um"
+
+        with pytest.raises(ValueError, match="units"):
+            register_volume(moving, fixed, transform_type="translation")
+
 
 class TestRegisterVolumeOutput:
     """Output properties for register_volume."""
@@ -897,6 +909,41 @@ class TestResampleLike:
         """reference with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="time"):
             resample_like(sample_2d_dataarray_spatial, sample_2d_dataarray, np.eye(3))
+
+    def test_mismatched_units_between_moving_and_reference_raise(
+        self, sample_2d_dataarray_spatial
+    ):
+        """moving and reference must agree on spatial coordinate units when declared."""
+        moving = sample_2d_dataarray_spatial.copy()
+        reference = sample_2d_dataarray_spatial.copy()
+        moving.coords["y"].attrs["units"] = "mm"
+        moving.coords["x"].attrs["units"] = "mm"
+        reference.coords["y"].attrs["units"] = "um"
+        reference.coords["x"].attrs["units"] = "um"
+
+        with pytest.raises(ValueError, match="units"):
+            resample_like(moving, reference, np.eye(3))
+
+    def test_mismatched_units_between_transform_and_reference_raise(
+        self, sample_2d_dataarray_spatial
+    ):
+        """DataArray transforms must agree with the reference units when declared."""
+        reference = sample_2d_dataarray_spatial.copy()
+        reference.coords["y"].attrs["units"] = "mm"
+        reference.coords["x"].attrs["units"] = "mm"
+        transform = xr.DataArray(
+            np.zeros((2, 2, 2), dtype=np.float64),
+            dims=["component", "y", "x"],
+            coords={
+                "component": np.arange(2),
+                "y": xr.Variable("y", [0.0, 1.0], attrs={"units": "um"}),
+                "x": xr.Variable("x", [0.0, 1.0], attrs={"units": "um"}),
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        with pytest.raises(ValueError, match="units"):
+            resample_like(reference, reference, transform)
 
     def test_wrong_ndim_reference_raises(self):
         """1D reference raises ValueError."""

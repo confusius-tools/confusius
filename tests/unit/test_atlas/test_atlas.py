@@ -4,10 +4,15 @@ Reference implementations are used for get_masks and get_mesh to avoid
 testing against the implementation itself.
 """
 
+import sys
+import types
+
 import numpy as np
 import pandas as pd
 import pytest
+import xarray as xr
 
+import confusius.atlas.atlas as atlas_module
 from confusius.atlas import Atlas
 
 
@@ -32,6 +37,19 @@ class TestAtlasConstruction:
         for dim in ["z", "y", "x"]:
             coord = atlas.annotation.coords[dim]
             np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
+
+    def test_invalid_mesh_vertex_transform_shape_raises(
+        self, atlas: Atlas, mock_structures
+    ) -> None:
+        with pytest.raises(ValueError, match=r"shape \(4, 4\)"):
+            Atlas(atlas._dataset, mock_structures, np.eye(3), 0.1)
+
+    def test_invalid_mesh_vertex_transform_type_raises(
+        self, atlas: Atlas, mock_structures
+    ) -> None:
+        invalid = xr.DataArray(np.zeros((2, 2)), attrs={"type": "wrong"})
+        with pytest.raises(ValueError, match="bspline_transform"):
+            Atlas(atlas._dataset, mock_structures, invalid, 0.1)
 
     def test_from_brainglobe_accepts_instance(self, mock_structures) -> None:
         """from_brainglobe should accept any BrainGlobeAtlas-compatible object."""
@@ -61,6 +79,35 @@ class TestAtlasConstruction:
         np.testing.assert_allclose(
             result.annotation.coords["z"].values[1], expected_step
         )
+
+    def test_from_brainglobe_accepts_string(self, mock_structures, monkeypatch) -> None:
+        shape = (4, 6, 8)
+        resolution_um = [25, 25, 25]
+
+        class _MockBgAtlas:
+            def __init__(self, name: str, **kwargs) -> None:
+                assert name == "test_atlas"
+                assert kwargs == {"check_latest": False}
+                self.reference = np.ones(shape, dtype=np.uint16)
+                self.annotation = np.zeros(shape, dtype=np.int32)
+                self.hemispheres = np.zeros(shape, dtype=np.int8)
+                self.structures = mock_structures
+                self.metadata = {
+                    "name": "test_atlas",
+                    "species": "Mus musculus",
+                    "orientation": "asr",
+                    "shape": list(shape),
+                    "resolution": resolution_um,
+                }
+
+        monkeypatch.setitem(
+            sys.modules,
+            "brainglobe_atlasapi",
+            types.SimpleNamespace(BrainGlobeAtlas=_MockBgAtlas),
+        )
+
+        result = Atlas.from_brainglobe("test_atlas", check_latest=False)
+        assert isinstance(result, Atlas)
 
 
 class TestAtlasProperties:
@@ -318,9 +365,400 @@ class TestGetMesh:
         with pytest.raises(KeyError):
             atlas.get_mesh(9999)
 
+    def test_nonlinear_mesh_transform_outside_domain_raises(
+        self, atlas: Atlas, mock_structures
+    ) -> None:
+        transform = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 0.01],
+                "y": [0.0, 0.01],
+                "x": [0.0, 0.01],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        nonlinear_atlas = Atlas(atlas._dataset, mock_structures, transform, 0.1)
+        with pytest.raises(ValueError, match="outside the deformation-field domain"):
+            nonlinear_atlas.get_mesh(997)
+
+    def test_bspline_transform_with_initialization_uses_inverse_seed(
+        self, atlas: Atlas, mock_structures, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        field = xr.DataArray(
+            np.zeros((3, 4, 6, 8), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": atlas.reference.coords["z"],
+                "y": atlas.reference.coords["y"],
+                "x": atlas.reference.coords["x"],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        monkeypatch.setattr(
+            atlas_module, "bspline_to_displacement_field", lambda *args, **kwargs: field
+        )
+
+        bspline = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 0.1],
+                "y": [0.0, 0.1],
+                "x": [0.0, 0.1],
+            },
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(3).tolist(),
+                "affines": {"bspline_initialization": np.eye(4).tolist()},
+            },
+        )
+        nonlinear_atlas = Atlas(atlas._dataset, mock_structures, bspline, 0.1)
+        monkeypatch.setattr(
+            atlas_module,
+            "_interpolate_displacement_field",
+            lambda field, points: np.zeros_like(points),
+        )
+        vertices, _ = nonlinear_atlas.get_mesh(997)
+        expected, _ = atlas.get_mesh(997)
+        np.testing.assert_allclose(vertices, expected)
+
+    def test_displacement_inversion_can_return_last_iterate(
+        self, atlas: Atlas, mock_structures, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        transform = xr.DataArray(
+            np.zeros((3, 4, 6, 8), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": atlas.reference.coords["z"],
+                "y": atlas.reference.coords["y"],
+                "x": atlas.reference.coords["x"],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        nonlinear_atlas = Atlas(atlas._dataset, mock_structures, transform, 0.1)
+
+        state = {"flip": False}
+
+        def _oscillate(field, points):
+            state["flip"] = not state["flip"]
+            sign = 1.0 if state["flip"] else -1.0
+            return np.full_like(points, sign * 0.01)
+
+        monkeypatch.setattr(atlas_module, "_interpolate_displacement_field", _oscillate)
+        vertices, _ = nonlinear_atlas.get_mesh(997)
+        assert vertices.shape == (6, 3)
+
+
+class TestResampleLike:
+    """Tests for Atlas.resample_like."""
+
+    def test_accepts_displacement_field_and_warps_mesh(self, atlas: Atlas) -> None:
+        reference = xr.DataArray(
+            np.zeros((4, 3, 4), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.Variable("z", [0.0, 0.05, 0.1, 0.15], attrs={"voxdim": 0.05}),
+                "y": xr.Variable("y", [0.0, 0.05, 0.1], attrs={"voxdim": 0.05}),
+                "x": xr.Variable("x", [0.0, 0.05, 0.1, 0.15], attrs={"voxdim": 0.05}),
+            },
+        )
+        dims = list(reference.dims)
+        coords = {dim: reference.coords[dim] for dim in dims}
+
+        field = xr.DataArray(
+            np.zeros((3, *reference.shape), dtype=np.float64),
+            dims=["component", *dims],
+            coords={"component": np.arange(3), **coords},
+            attrs={"type": "displacement_field_transform"},
+        )
+        field.loc[dict(component=2)] = -0.01
+
+        resampled = atlas.resample_like(reference, field)
+        vertices_mm, _ = resampled.get_mesh(997)
+
+        expected = np.array(
+            [
+                [0.01, 0.0, 0.05],
+                [0.11, 0.0, 0.05],
+                [0.01, 0.1, 0.05],
+                [0.01, 0.0, 0.15],
+                [0.11, 0.0, 0.15],
+                [0.01, 0.1, 0.15],
+            ]
+        )
+        np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
+
+    def test_bspline_transform_uses_same_mesh_warp_path(
+        self, atlas: Atlas, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        reference = xr.DataArray(
+            np.zeros((4, 3, 4), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.Variable("z", [0.0, 0.05, 0.1, 0.15], attrs={"voxdim": 0.05}),
+                "y": xr.Variable("y", [0.0, 0.05, 0.1], attrs={"voxdim": 0.05}),
+                "x": xr.Variable("x", [0.0, 0.05, 0.1, 0.15], attrs={"voxdim": 0.05}),
+            },
+        )
+        dims = list(reference.dims)
+        coords = {dim: reference.coords[dim] for dim in dims}
+        field = xr.DataArray(
+            np.zeros((3, *reference.shape), dtype=np.float64),
+            dims=["component", *dims],
+            coords={"component": np.arange(3), **coords},
+            attrs={"type": "displacement_field_transform"},
+        )
+        field.loc[dict(component=2)] = -0.01
+
+        def _fake_bspline_to_displacement_field(transform, **kwargs):
+            return field
+
+        monkeypatch.setattr(
+            "confusius.atlas.atlas.bspline_to_displacement_field",
+            _fake_bspline_to_displacement_field,
+        )
+        monkeypatch.setattr(
+            "confusius.atlas.atlas.resample_like_da",
+            lambda moving, reference, transform, **kwargs: moving.copy(deep=True),
+        )
+
+        fake_bspline = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 0.1],
+                "y": [0.0, 0.1],
+                "x": [0.0, 0.1],
+            },
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(3).tolist(),
+            },
+        )
+
+        resampled = atlas.resample_like(reference, fake_bspline)
+        vertices_mm, _ = resampled.get_mesh(997)
+
+        expected = np.array(
+            [
+                [0.01, 0.0, 0.05],
+                [0.11, 0.0, 0.05],
+                [0.01, 0.1, 0.05],
+                [0.01, 0.0, 0.15],
+                [0.11, 0.0, 0.15],
+                [0.01, 0.1, 0.15],
+            ]
+        )
+        np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
+
+    def test_compose_mesh_vertex_transforms_affine_affine(self) -> None:
+        old = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.02],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        new = np.array(
+            [
+                [1.0, 0.0, 0.0, -0.01],
+                [0.0, 1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        reference = xr.DataArray(
+            np.zeros((2, 2, 2)),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0, 1.0], "y": [0.0, 1.0], "x": [0.0, 1.0]},
+        )
+        result = atlas_module._compose_mesh_vertex_transforms(
+            old, new, reference, reference
+        )
+        np.testing.assert_allclose(result, old @ new)
+
+    def test_transform_points_affine(self) -> None:
+        reference = xr.DataArray(
+            np.zeros((2, 2, 2)),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0, 1.0], "y": [0.0, 1.0], "x": [0.0, 1.0]},
+        )
+        transform = np.array(
+            [
+                [1.0, 0.0, 0.0, 0.01],
+                [0.0, 1.0, 0.0, 0.02],
+                [0.0, 0.0, 1.0, 0.03],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        points = np.array([[0.0, 0.0, 0.0]])
+        result = atlas_module._transform_points(transform, points, reference)
+        np.testing.assert_allclose(result, [[0.01, 0.02, 0.03]])
+
+    def test_transform_points_bspline_samples_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        reference = xr.DataArray(
+            np.zeros((2, 2, 2)),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0, 1.0], "y": [0.0, 1.0], "x": [0.0, 1.0]},
+        )
+        field = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 1.0],
+                "y": [0.0, 1.0],
+                "x": [0.0, 1.0],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        field.loc[dict(component=2)] = 0.01
+        monkeypatch.setattr(
+            atlas_module, "bspline_to_displacement_field", lambda *args, **kwargs: field
+        )
+        bspline = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 1.0],
+                "y": [0.0, 1.0],
+                "x": [0.0, 1.0],
+            },
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(3).tolist(),
+            },
+        )
+        points = np.array([[0.0, 0.0, 0.0]])
+        result = atlas_module._transform_points(bspline, points, reference)
+        np.testing.assert_allclose(result, [[0.01, 0.0, 0.0]])
+
+    def test_compose_mesh_vertex_transforms_general_case(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        reference = xr.DataArray(
+            np.zeros((2, 2, 2)),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0, 1.0], "y": [0.0, 1.0], "x": [0.0, 1.0]},
+        )
+        old_transform = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 1.0],
+                "y": [0.0, 1.0],
+                "x": [0.0, 1.0],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        new_transform = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 1.0],
+                "y": [0.0, 1.0],
+                "x": [0.0, 1.0],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        def _fake_transform_points(transform, points, reference):
+            if transform is new_transform:
+                return points + np.array([0.01, 0.0, 0.0])
+            return points + np.array([0.01, 0.02, 0.0])
+
+        monkeypatch.setattr(atlas_module, "_transform_points", _fake_transform_points)
+        result = atlas_module._compose_mesh_vertex_transforms(
+            old_transform, new_transform, reference, reference
+        )
+        assert result.attrs["type"] == "displacement_field_transform"
+        np.testing.assert_allclose(result.sel(component=0), 0.02)
+        np.testing.assert_allclose(result.sel(component=1), 0.02)
+        np.testing.assert_allclose(result.sel(component=2), 0.0)
+
+    def test_resample_like_keeps_existing_nonlinear_transform_on_identity_affine(
+        self, atlas: Atlas, mock_structures, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        transform = xr.DataArray(
+            np.zeros((3, 4, 6, 8), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": atlas.reference.coords["z"],
+                "y": atlas.reference.coords["y"],
+                "x": atlas.reference.coords["x"],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        nonlinear_atlas = Atlas(atlas._dataset, mock_structures, transform, 0.1)
+        monkeypatch.setattr(
+            atlas_module,
+            "resample_like_da",
+            lambda moving, reference, transform, **kwargs: moving.copy(deep=True),
+        )
+        monkeypatch.setattr(
+            atlas_module,
+            "_interpolate_displacement_field",
+            lambda field, points: np.zeros_like(points),
+        )
+        result = nonlinear_atlas.resample_like(atlas.reference, np.eye(4))
+        vertices, _ = result.get_mesh(997)
+        expected, _ = nonlinear_atlas.get_mesh(997)
+        np.testing.assert_allclose(vertices, expected)
+
+    def test_resample_matches_resample_like(self, atlas: Atlas) -> None:
+        reference = xr.DataArray(
+            np.zeros((4, 3, 4), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.Variable("z", [0.0, 0.05, 0.1, 0.15], attrs={"voxdim": 0.05}),
+                "y": xr.Variable("y", [0.0, 0.05, 0.1], attrs={"voxdim": 0.05}),
+                "x": xr.Variable("x", [0.0, 0.05, 0.1, 0.15], attrs={"voxdim": 0.05}),
+            },
+        )
+
+        by_like = atlas.resample_like(reference, np.eye(4))
+        by_grid = atlas.resample(
+            np.eye(4),
+            shape=reference.shape,
+            spacing=[0.05, 0.05, 0.05],
+            origin=[0.0, 0.0, 0.0],
+            dims=reference.dims,
+        )
+
+        np.testing.assert_allclose(by_grid.reference.values, by_like.reference.values)
+        np.testing.assert_array_equal(
+            by_grid.annotation.values, by_like.annotation.values
+        )
+        np.testing.assert_array_equal(
+            by_grid.hemispheres.values, by_like.hemispheres.values
+        )
+
 
 class TestAncestors:
     """Tests for Atlas.ancestors, compared against direct treelib traversal."""
+
+    def test_show_tree_prints(
+        self, atlas: Atlas, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        atlas.show_tree()
+        captured = capsys.readouterr()
+        assert "root" in captured.out
 
     def test_root_has_no_ancestors(self, atlas: Atlas) -> None:
         assert atlas.ancestors(997) == []

@@ -16,7 +16,10 @@ from confusius.registration.bspline import (
     _dataarray_to_sitk_bspline,
     _dataarray_to_sitk_displacement_field,
 )
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import (
+    validate_fusi_dataarray,
+    validate_matching_spatial_units,
+)
 
 
 def resample_volume(
@@ -57,6 +60,7 @@ def resample_volume(
           [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
           or
           [`invert_displacement_field`][confusius.registration.invert_displacement_field].
+
     shape : sequence of int
         Number of voxels along each output axis, in DataArray dimension order.
     spacing : sequence of float
@@ -201,15 +205,22 @@ def resample_like(
         If a time dimension is present, the same transform is applied to all time points.
     reference : xarray.DataArray
         DataArray defining the output grid. Must be 2D or 3D spatial (no time dimension).
+        When spatial coordinate `units` metadata is present on both `moving` and
+        `reference`, they must match.
     transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
-        [`register_volume`][confusius.registration.register_volume].  Maps points from
+        [`register_volume`][confusius.registration.register_volume]. Maps points from
         the reference physical space to moving physical space (pull/inverse convention).
 
-        - **Affine** (`numpy.ndarray`): homogeneous matrix.
+        - **Affine** (`numpy.ndarray`): homogeneous matrix whose translation entries
+          are expressed in the same physical units as `moving` and `reference`.
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
-        - **Displacement field** (`xarray.DataArray`): dense field with
-          `attrs["type"] == "displacement_field_transform"`.
+        - **Displacement field** (`xarray.DataArray`): dense field with `attrs["type"]
+          == "displacement_field_transform"`.
+
+        When `transform` is a DataArray and spatial coordinate `units` metadata is
+        present on both it and `reference`, those units must also match.
+
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
     default_value : float, optional
@@ -253,6 +264,11 @@ def resample_like(
         allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
+    validate_matching_spatial_units((("moving", moving), ("reference", reference)))
+    if isinstance(transform, xr.DataArray):
+        validate_matching_spatial_units(
+            (("transform", transform), ("reference", reference))
+        )
 
     shape = list(reference.sizes[str(d)] for d in reference.dims)
     spacing = [s if s is not None else 1.0 for s in reference.fusi.spacing.values()]

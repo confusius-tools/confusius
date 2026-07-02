@@ -18,6 +18,7 @@ from confusius.registration.affines import (
     sitk_linear_transform_to_affine,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
+from confusius.validation import validate_matching_spatial_units
 
 if TYPE_CHECKING:
     pass
@@ -109,6 +110,8 @@ def _validate_register_volume_inputs(
         allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
+    validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))
+
     # --- NaN checks ---
     if np.any(np.isnan(moving.values)):
         raise ValueError(
@@ -346,8 +349,9 @@ def register_volume(
     moving : xarray.DataArray
         Volume to register to `fixed`. Must be 2D or 3D.
     fixed : xarray.DataArray
-        Reference volume. Must be 2D or 3D. Need not have the same shape as
-        `moving`.
+        Reference volume. Must be 2D or 3D. Need not have the same shape as `moving`.
+        When spatial coordinate `units` metadata is present on both `moving` and
+        `fixed`, it must match.
     fixed_mask : xarray.DataArray, optional
         Mask for the fixed image. Must have boolean dtype and match the shape
         and coordinates of `fixed`. When provided, only voxels where the mask

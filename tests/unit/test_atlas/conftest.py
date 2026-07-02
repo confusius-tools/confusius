@@ -157,8 +157,8 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
         attrs={"name": "mock_atlas", "species": "Mus musculus", "orientation": "asr"},
     )
 
-    mesh_to_physical = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-    # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm.
-    rl_midline_um = shape[2] / 2 * 25.0
+    mesh_vertex_transform = np.eye(4)
+    # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm = 0.1 mm.
+    rl_midline = shape[2] / 2 * 25.0 * 1e-3
 
-    return Atlas(dataset, mock_structures, mesh_to_physical, rl_midline_um)
+    return Atlas(dataset, mock_structures, mesh_vertex_transform, rl_midline)
