@@ -231,8 +231,8 @@ def test_fetch_acq_filter(tmp_path, mock_get_index, mock_retrieve):
     assert "Atlas_alignment_ALD001.npz" in downloaded
 
 
-def test_fetch_acq_filter_compound_prefix(tmp_path, mock_get_index, mock_retrieve):
-    """Passing `ref11` selects both `ref11_run-1` and any sibling compound labels."""
+def test_fetch_acq_filter_includes_sidecars(tmp_path, mock_get_index, mock_retrieve):
+    """`acqs` keeps all sidecar files (e.g. physio) for the matching acquisition."""
     fetch_landemard_2026(data_dir=tmp_path, acqs=["ref11"])
 
     downloaded = _downloaded_paths(mock_retrieve)

@@ -63,9 +63,8 @@ def _filter_files(
     acqs : list[str] or None
         Acquisition labels to include (without "acq-" prefix), e.g.
         `["ref04", "ref11"]`. If `None`, all acquisitions are included.
-        Files with no `acq-` entity are passed through. The Landemard
-        dataset uses compound labels such as `ref11_run-1`; passing the
-        prefix `ref11` selects both `ref11_run-1` and `ref11_run-2`.
+        Files with no `acq-` entity are passed through. The `run-` entity
+        is not exposed as a filter.
     datatypes : list[str] or None
         BIDS datatype directories to include, e.g. `["fusi"]` or
         `["fusi", "angio"]`. Valid values are `"fusi"` and `"angio"`.
@@ -173,12 +172,11 @@ def fetch_landemard_2026(
         downloaded.
     acqs : str or list[str], optional
         Acquisition labels to download (without "acq-" prefix), e.g.
-        `"ref04"` or `["ref04", "ref11"]`. The Landemard dataset uses
-        compound labels such as `ref11_run-1`; passing the prefix
-        `ref11` selects both `ref11_run-1` and `ref11_run-2`. If not
-        provided, all acquisitions are downloaded. Files with no
-        `acq-` entity (e.g. `sub-ALD001_scans.tsv`,
+        `"ref04"` or `["ref04", "ref11"]`. If not provided, all
+        acquisitions are downloaded. Files with no `acq-` entity
+        (e.g. `sub-ALD001_scans.tsv`,
         `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always included.
+        The `run-` entity is not exposed as a filter.
     datatypes : str or list[str], optional
         BIDS datatype directories to download, e.g. `"fusi"`, `"angio"`,
         `["fusi", "angio"]`. Valid values are `"fusi"` and `"angio"`.

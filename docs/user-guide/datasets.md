@@ -197,10 +197,8 @@ fraction of this (see the examples below).
     | `datatypes` | datatype directory  | `"fusi"`, `["fusi", "angio"]`    |
 
     The Landemard dataset has no session layer: every recording sits directly
-    under `sub-*/fusi/` or `sub-*/angio/`. Compound acquisition labels such as
-    `ref11_run-1` are matched by their prefix — passing `acqs=["ref11"]`
-    selects both `ref11_run-1` and `ref11_run-2`. Files that lack an
-    `acq-` entity (e.g. `sub-ALD001_scans.tsv`,
+    under `sub-*/fusi/` or `sub-*/angio/`. Files that lack an `acq-` entity
+    (e.g. `sub-ALD001_scans.tsv`,
     `sub-ALD001/angio/sub-ALD001_pwd.nii.gz`) are always included regardless
     of the `acqs` filter.
 
