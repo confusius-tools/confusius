@@ -10,10 +10,10 @@ from napari.layers.utils.layer_utils import calc_data_range
 from napari.utils.notifications import show_info
 
 from confusius._napari._registration._panel_progress import teardown_volumewise_progress
-from confusius._napari._registration._panel_transforms import (
+from confusius._napari._registration._panel_transforms import refresh_transform_controls
+from confusius._napari._registration._transform_payloads import (
     make_affine_transform_payload,
     make_bspline_transform_payload,
-    refresh_transform_controls,
 )
 from confusius._napari._registration._panel_utils import (
     _gamma_needs_reset,

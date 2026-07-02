@@ -49,7 +49,6 @@ from confusius._napari._registration._panel_results import (
 )
 from confusius._napari._registration._panel_worker_state import on_registration_failed
 from confusius._napari._registration._panel_transforms import (
-    TransformPayload,
     apply_selected_transform,
     get_available_transform_payloads,
     get_selected_center_initialization,
@@ -59,6 +58,7 @@ from confusius._napari._registration._panel_transforms import (
     save_selected_transform,
     validate_initial_transform_selection,
 )
+from confusius._napari._registration._transform_payloads import TransformPayload
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
     _apply_registration_scale,

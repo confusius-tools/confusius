@@ -18,15 +18,17 @@ from confusius._napari._registration._panel_progress import (
 )
 from confusius._napari._registration._panel_results import on_registration_finished
 from confusius._napari._registration._panel_transforms import (
+    apply_selected_transform,
+    refresh_transform_controls,
+)
+from confusius._napari._registration._transform_payloads import (
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
     get_output_grid_from_payload,
     load_transform_payload,
     make_affine_transform_payload,
     make_bspline_transform_payload,
-    refresh_transform_controls,
     save_transform_payload,
-    apply_selected_transform,
 )
 from confusius.registration import RegistrationDiagnostics, resample_like
 
