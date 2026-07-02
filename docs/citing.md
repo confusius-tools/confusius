@@ -181,7 +181,10 @@ Or in BibTeX format:
 ```bibtex
 @article{cybispereiraVascularCodeSpeed2026,
   title = {A Vascular Code for Speed in the Spatial Navigation System},
-  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and {Meur-Diebolt}, Samuel Le and {Ialy-Radio}, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and Osmanski, Bruno F{\'e}lix and Cocco, Simona and Monasson, Remi and Pezet, Sophie and Tanter, Micka{\"e}l},
+  author = {Cybis Pereira, Felipe and Castedo, Sebastian H. and {Meur-Diebolt}, Samuel Le and
+            {Ialy-Radio}, Nathalie and Bhattacharya, Soumee and Ferrier, Jeremy and
+            Osmanski, Bruno F{\'e}lix and Cocco, Simona and Monasson, Remi and
+            Pezet, Sophie and Tanter, Micka{\"e}l},
   year = 2026,
   month = jan,
   journal = {Cell Reports},
@@ -192,11 +195,41 @@ Or in BibTeX format:
   doi = {10.1016/j.celrep.2025.116791},
   urldate = {2025-12-30},
   langid = {english},
-  keywords = {animal speed,cerebral blood volume,continuous attractor network,CP: neuroscience,freely moving,functional ultrasound imaging,hippocampus,locomotion,path integration,spatial navigation},
+  keywords = {animal speed,cerebral blood volume,continuous attractor network,
+              CP: neuroscience,freely moving,functional ultrasound imaging,
+              hippocampus,locomotion,path integration,spatial navigation},
 }
 ```
 
 License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
+
+### Landemard et al. (2026)
+
+The [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
+function provides an fUSI-BIDS re-export of this dataset. If you use it,
+please cite:
+
+> Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide
+> blood volume reflects opposing neural populations. *Nature*.
+> https://doi.org/10.1038/s41586-026-10350-9
+
+Or in BibTeX format:
+
+```bibtex
+@article{landemard_brainwide_2026,
+  title = {Brainwide blood volume reflects opposing neural populations},
+  author = {Landemard, Agn{\`e}s and Krumin, Michael and Harris, Kenneth D. and
+            Carandini, Matteo},
+  year = {2026},
+  month = apr,
+  journal = {Nature},
+  publisher = {Springer Science and Business Media {LLC}},
+  doi = {10.1038/s41586-026-10350-9},
+  url = {https://doi.org/10.1038/s41586-026-10350-9}
+}
+```
+
+License: **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)**.
 
 ## Templates
 
