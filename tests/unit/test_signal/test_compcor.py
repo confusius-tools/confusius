@@ -295,6 +295,53 @@ def test_compute_compcor_scaling_invariance(sample_timeseries):
         assert corr > 0.99
 
 
+def test_compute_compcor_ignores_zero_variance_voxels(sample_timeseries):
+    """Constant voxels are dropped before CompCor SVD."""
+    signals = sample_timeseries(n_time=100, n_voxels=10)
+    signals.values[:, :3] = 5.0
+
+    all_voxels_mask = _create_mask_like(
+        signals.isel(time=0), np.ones(signals.sizes["space"], dtype=bool)
+    )
+    varying_voxels = signals.isel(space=slice(3, None))
+    varying_mask = _create_mask_like(
+        varying_voxels.isel(time=0), np.ones(varying_voxels.sizes["space"], dtype=bool)
+    )
+
+    result = compute_compcor_confounds(
+        signals,
+        noise_mask=all_voxels_mask,
+        n_components=3,
+        detrend=False,
+    )
+    expected = compute_compcor_confounds(
+        varying_voxels,
+        noise_mask=varying_mask,
+        n_components=3,
+        detrend=False,
+    )
+
+    assert_allclose(np.abs(result.values), np.abs(expected.values))
+
+
+def test_compute_compcor_all_zero_variance_selected_voxels_error(sample_timeseries):
+    """CompCor fails when every selected voxel is constant."""
+    signals = sample_timeseries(n_time=100, n_voxels=10)
+    signals.values[:, :4] = 2.0
+
+    mask_values = np.zeros(signals.sizes["space"], dtype=bool)
+    mask_values[:4] = True
+    noise_mask = _create_mask_like(signals.isel(time=0), mask_values)
+
+    with pytest.raises(ValueError, match="All voxels have variance below tolerance"):
+        compute_compcor_confounds(
+            signals,
+            noise_mask=noise_mask,
+            n_components=2,
+            detrend=False,
+        )
+
+
 def test_compute_compcor_tcompcor_selects_high_variance(sample_timeseries, rng):
     """Test that tCompCor selects high-variance voxels."""
     n_time = 100
