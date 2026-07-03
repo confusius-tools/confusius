@@ -285,6 +285,37 @@ def test_clean_ensure_finite_matches_manual_interpolation(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
+def test_clean_boundary_fill_uses_nearest_kept_sample(sample_timeseries):
+    """Test censored boundary samples are filled from the nearest kept sample."""
+    signals = sample_timeseries(n_time=100, n_voxels=3, sampling_rate=100.0)
+    mask_values = np.ones(signals.sizes["time"], dtype=bool)
+    mask_values[[0, 1, -2, -1]] = False  # Censor two samples at each boundary.
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+
+    # Independent reference: interpolate, then clamp the out-of-range censored edges
+    # to the nearest kept sample by explicit indexing (not ffill/bfill).
+    interpolated = interpolate_samples(signals, sample_mask, method="linear")
+    filled = interpolated.copy()
+    first_kept, last_kept = 2, signals.sizes["time"] - 3
+    filled.values[:first_kept] = signals.values[first_kept]
+    filled.values[last_kept + 1 :] = signals.values[last_kept]
+    expected = censor_samples(filter_butterworth(filled, high_cutoff=5.0), sample_mask)
+
+    result = clean(signals, high_cutoff=5.0, sample_mask=sample_mask)
+
+    assert np.all(np.isfinite(result.values))
+    assert_allclose(result.values, expected.values)
+
+    # A wrong-but-finite fill (zeros) must NOT match, proving the value matters.
+    zero_filled = interpolated.fillna(0.0)
+    wrong = censor_samples(
+        filter_butterworth(zero_filled, high_cutoff=5.0), sample_mask
+    )
+    assert not np.allclose(result.values, wrong.values)
+
+
 def test_clean_ensure_finite_raises_for_all_non_finite_series():
     """Test ensure_finite=True fails when a whole series has no finite samples."""
     signals = xr.DataArray(
