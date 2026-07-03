@@ -10,6 +10,7 @@ from confusius.signal import (
     clean,
     filter_butterworth,
     interpolate_samples,
+    standardize,
 )
 
 
@@ -130,6 +131,33 @@ def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
     )
 
     assert_allclose(result.values, expected.values)
+
+
+def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
+    """Test filter_butterworth_kwargs must be a dict."""
+    with pytest.raises(TypeError, match="filter_butterworth_kwargs must be a dict"):
+        clean(sample_timeseries(), filter_butterworth_kwargs=1)  # type: ignore[arg-type]
+
+
+def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
+    """Test cutoffs must be passed directly to clean."""
+    with pytest.raises(ValueError, match="Pass low_pass/high_pass directly to clean"):
+        clean(sample_timeseries(), filter_butterworth_kwargs={"high_cutoff": 1.0})
+
+
+def test_clean_rejects_non_dict_interpolate_kwargs(sample_timeseries):
+    """Test interpolate_kwargs must be a dict."""
+    with pytest.raises(TypeError, match="interpolate_kwargs must be a dict"):
+        clean(sample_timeseries(), interpolate_kwargs=1)  # type: ignore[arg-type]
+
+
+def test_clean_rejects_method_inside_interpolate_kwargs(sample_timeseries):
+    """Test interpolate method must be passed directly to clean."""
+    with pytest.raises(
+        ValueError,
+        match="Pass interpolate_method directly to clean, not in interpolate_kwargs",
+    ):
+        clean(sample_timeseries(), interpolate_kwargs={"method": "nearest"})
 
 
 def test_clean_filter_with_boundary_censoring_and_confounds_stays_finite(
@@ -276,3 +304,18 @@ def test_clean_ensure_finite_raises_for_all_non_finite_series():
         match="signals contains a series with no finite values along time",
     ):
         clean(signals, ensure_finite=True)
+
+
+def test_clean_psc_restores_original_mean_after_highpass(sample_timeseries):
+    """Test PSC uses the original mean after mean-removing filtering."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0) + 100.0
+
+    filtered = filter_butterworth(signals, low_cutoff=1.0)
+    expected = standardize(filtered + signals.mean(dim="time"), method="psc")
+    result = clean(
+        signals,
+        low_cutoff=1.0,
+        standardize_method="psc",
+    )
+
+    assert_allclose(result.values, expected.values)
