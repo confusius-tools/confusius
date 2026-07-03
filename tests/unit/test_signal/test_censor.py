@@ -124,12 +124,74 @@ def test_interpolate_all_kept_warning(sample_timeseries):
     assert_allclose(result.values, signals.values, rtol=1e-14)
 
 
+def test_interpolate_missing_time_dimension(sample_timeseries):
+    """Test error when signals have no time dimension."""
+    signals = sample_timeseries(n_time=100).rename({"time": "samples"})
+    sample_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["time"])
+
+    with pytest.raises(ValueError, match="must have a 'time' dimension"):
+        interpolate_samples(signals, sample_mask)
+
+
 def test_interpolate_missing_time_coords(sample_timeseries):
     """Test error when signals have no time coordinates."""
     signals = sample_timeseries(n_time=100).drop_vars("time")
     sample_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["time"])
 
     with pytest.raises(ValueError, match="must have 'time' coordinates"):
+        interpolate_samples(signals, sample_mask)
+
+
+def test_interpolate_rejects_non_dataarray_mask(sample_timeseries):
+    """Test sample_mask must be an xarray.DataArray."""
+    signals = sample_timeseries(n_time=100)
+
+    with pytest.raises(TypeError, match="sample_mask must be an xarray.DataArray"):
+        interpolate_samples(signals, np.ones(100, dtype=bool))  # type: ignore[arg-type]
+
+
+def test_interpolate_rejects_mask_without_time_dimension(sample_timeseries):
+    """Test sample_mask must have a time dimension."""
+    signals = sample_timeseries(n_time=100)
+    sample_mask = xr.DataArray(np.ones(100, dtype=bool), dims=["sample"])
+
+    with pytest.raises(ValueError, match="sample_mask must have a 'time' dimension"):
+        interpolate_samples(signals, sample_mask)
+
+
+def test_interpolate_rejects_non_boolean_mask(sample_timeseries):
+    """Test sample_mask must be boolean."""
+    signals = sample_timeseries(n_time=100)
+    sample_mask = xr.DataArray(
+        np.ones(100, dtype=int), dims=["time"], coords={"time": signals.coords["time"]}
+    )
+
+    with pytest.raises(ValueError, match="sample_mask must be boolean DataArray"):
+        interpolate_samples(signals, sample_mask)
+
+
+def test_interpolate_rejects_non_1d_mask(sample_timeseries):
+    """Test sample_mask must be 1D."""
+    signals = sample_timeseries(n_time=100)
+    sample_mask = xr.DataArray(
+        np.ones((100, 1), dtype=bool),
+        dims=["time", "extra"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    with pytest.raises(ValueError, match="Boolean sample_mask must be 1D"):
+        interpolate_samples(signals, sample_mask)
+
+
+def test_interpolate_rejects_mask_with_wrong_length(sample_timeseries):
+    """Test sample_mask length must match the time dimension."""
+    signals = sample_timeseries(n_time=100)
+    sample_mask = xr.DataArray(
+        np.ones(99, dtype=bool),
+        dims=["time"],
+    )
+
+    with pytest.raises(ValueError, match=r"sample_mask length \(99\) must match"):
         interpolate_samples(signals, sample_mask)
 
 

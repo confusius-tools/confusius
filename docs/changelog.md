@@ -57,6 +57,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
+  and `confounds` by interpolating along time, fills censored boundary samples from
+  the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
+  pre-scrubbing interpolation ([#239](https://github.com/confusius-tools/confusius/pull/239)).
 - Image plotting functions now leave `alpha` unset by default (`None`), so a
   colormap's built-in alpha channel is respected
   ([#225](https://github.com/confusius-tools/confusius/pull/225)).
