@@ -194,6 +194,31 @@ def test_clean_filter_with_boundary_censoring_and_confounds_stays_finite(
     assert np.all(np.isfinite(result.values))
 
 
+def test_clean_leaves_interior_non_finite_uncorrected_when_ensure_finite_false(
+    sample_timeseries,
+):
+    """Test an interior non-finite kept sample is not silently repaired."""
+    signals = sample_timeseries(n_time=100, n_voxels=1, sampling_rate=100.0)
+    signals.values[50, 0] = np.nan  # Interior value at a kept (non-censored) index.
+
+    mask_values = np.ones(signals.sizes["time"], dtype=bool)
+    mask_values[[0, -1]] = False  # Boundary censoring triggers the pre-scrub path.
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        high_cutoff=5.0,
+        sample_mask=sample_mask,
+        ensure_finite=False,
+    )
+
+    assert not np.any(np.isfinite(result.values))
+
+
 def test_clean_interpolate_kwargs_match_manual_pipeline(sample_timeseries):
     """Test interpolate_kwargs are forwarded to pre-scrubbing interpolation."""
     signals = sample_timeseries(n_time=100, sampling_rate=100.0)
