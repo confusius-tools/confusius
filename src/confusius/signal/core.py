@@ -19,7 +19,7 @@ def _interpolate_non_finite(data: xr.DataArray, *, name: str) -> xr.DataArray:
 
     Parameters
     ----------
-    data : xarray.DataArray
+    data : (time, ...) xarray.DataArray
         Data to sanitize.
     name : str
         Name used in error messages.
@@ -56,7 +56,7 @@ def _fill_interpolated_boundary_non_finite(
 
     Parameters
     ----------
-    signals : xarray.DataArray
+    signals : (time, ...) xarray.DataArray
         Interpolated signals.
     sample_mask : xarray.DataArray
         Boolean sample mask already validated by `interpolate_samples`.
