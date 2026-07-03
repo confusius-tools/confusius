@@ -1,10 +1,16 @@
 """Tests for the signal.clean pipeline."""
 
 import numpy as np
+import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius.signal import clean, filter_butterworth
+from confusius.signal import (
+    censor_samples,
+    clean,
+    filter_butterworth,
+    interpolate_samples,
+)
 
 
 def test_clean_no_processing_returns_original(sample_timeseries):
@@ -124,3 +130,149 @@ def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
     )
 
     assert_allclose(result.values, expected.values)
+
+
+def test_clean_filter_with_boundary_censoring_and_confounds_stays_finite(
+    sample_timeseries,
+):
+    """Test boundary-censored samples do not poison filtered outputs."""
+    signals = sample_timeseries(n_time=100, n_voxels=3, sampling_rate=100.0)
+    confounds = xr.DataArray(
+        np.column_stack(
+            [
+                np.sin(2 * np.pi * signals.coords["time"].values),
+                np.cos(2 * np.pi * signals.coords["time"].values),
+            ]
+        ),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": [0, 1]},
+    )
+    mask_values = np.ones(signals.sizes["time"], dtype=bool)
+    mask_values[[0, -1]] = False
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        high_cutoff=5.0,
+        confounds=confounds,
+        sample_mask=sample_mask,
+    )
+
+    assert result.sizes["time"] == np.sum(mask_values)
+    assert np.all(np.isfinite(result.values))
+
+
+def test_clean_interpolate_kwargs_match_manual_pipeline(sample_timeseries):
+    """Test interpolate_kwargs are forwarded to pre-scrubbing interpolation."""
+    signals = sample_timeseries(n_time=100, sampling_rate=100.0)
+    mask_values = np.ones(signals.sizes["time"], dtype=bool)
+    mask_values[[0, -1]] = False
+    sample_mask = xr.DataArray(
+        mask_values, dims=["time"], coords={"time": signals.coords["time"]}
+    )
+
+    interpolated = interpolate_samples(
+        signals,
+        sample_mask,
+        fill_value="extrapolate",
+    )
+    expected = censor_samples(
+        filter_butterworth(interpolated, high_cutoff=5.0), sample_mask
+    )
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        high_cutoff=5.0,
+        sample_mask=sample_mask,
+        interpolate_kwargs={"fill_value": "extrapolate"},
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_noop_preserves_non_finite_when_ensure_finite_false(sample_timeseries):
+    """Test ensure_finite=False leaves non-finite values unchanged."""
+    signals = sample_timeseries()
+    signals.values[0, 0] = np.nan
+    signals.values[1, 1] = np.inf
+
+    result = clean(signals, ensure_finite=False)
+
+    assert np.isnan(result.values[0, 0])
+    assert np.isinf(result.values[1, 1])
+
+
+def test_clean_ensure_finite_matches_manual_interpolation(sample_timeseries):
+    """Test ensure_finite=True matches manual time interpolation."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=100.0)
+    confounds = xr.DataArray(
+        np.column_stack(
+            [
+                np.sin(2 * np.pi * signals.coords["time"].values),
+                np.cos(2 * np.pi * signals.coords["time"].values),
+            ]
+        ),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": [0, 1]},
+    )
+    signals_with_non_finite = signals.copy()
+    signals_with_non_finite.values[0, 0] = np.nan
+    signals_with_non_finite.values[1, 1] = np.inf
+    signals_with_non_finite.values[-1, 2] = np.nan
+    confounds_with_non_finite = confounds.copy()
+    confounds_with_non_finite.values[0, 0] = np.nan
+    confounds_with_non_finite.values[-1, 1] = np.inf
+
+    expected_signals = signals_with_non_finite.where(
+        np.isfinite(signals_with_non_finite)
+    )
+    expected_signals = expected_signals.interpolate_na(dim="time", method="linear")
+    expected_signals = expected_signals.ffill("time").bfill("time")
+    expected_confounds = confounds_with_non_finite.where(
+        np.isfinite(confounds_with_non_finite)
+    )
+    expected_confounds = expected_confounds.interpolate_na(dim="time", method="linear")
+    expected_confounds = expected_confounds.ffill("time").bfill("time")
+    expected = clean(
+        expected_signals,
+        detrend_order=1,
+        standardize_method=None,
+        high_cutoff=5.0,
+        confounds=expected_confounds,
+    )
+    result = clean(
+        signals_with_non_finite,
+        detrend_order=1,
+        standardize_method=None,
+        high_cutoff=5.0,
+        confounds=confounds_with_non_finite,
+        ensure_finite=True,
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_ensure_finite_raises_for_all_non_finite_series():
+    """Test ensure_finite=True fails when a whole series has no finite samples."""
+    signals = xr.DataArray(
+        np.array(
+            [
+                [np.nan, 0.0],
+                [np.nan, 1.0],
+                [np.nan, 2.0],
+            ]
+        ),
+        dims=["time", "space"],
+        coords={"time": [0.0, 1.0, 2.0]},
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="signals contains a series with no finite values along time",
+    ):
+        clean(signals, ensure_finite=True)
