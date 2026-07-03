@@ -1,5 +1,6 @@
 """Tests for CompCor functions."""
 
+import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
@@ -245,6 +246,27 @@ def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
 
     with pytest.raises(ValueError, match="does not match"):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
+
+
+def test_compute_compcor_mask_size_mismatch_after_flatten(sample_3dt_volume):
+    """Test error when a subset-dimension mask flattens to the wrong size."""
+    noise_mask = xr.DataArray(
+        np.ones(
+            (sample_3dt_volume.sizes["z"], sample_3dt_volume.sizes["y"]), dtype=bool
+        ),
+        dims=["z", "y"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Noise mask size"):
+        compute_compcor_confounds(
+            sample_3dt_volume,
+            noise_mask=noise_mask,
+            n_components=3,
+        )
 
 
 def test_compute_compcor_empty_mask(sample_timeseries):
@@ -508,6 +530,26 @@ def test_compute_compcor_time_chunked():
 
     with pytest.raises(ValueError, match="chunked along the 'time' dimension"):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
+
+
+def test_compute_compcor_dask_path(sample_timeseries):
+    """Test CompCor uses the Dask SVD path when data are Dask-backed."""
+    signals = sample_timeseries(n_time=100, n_voxels=50).chunk(
+        {"time": -1, "space": 10}
+    )
+    noise_mask = _create_mask_like(signals.isel(time=0), np.ones(50, dtype=bool))
+
+    components = compute_compcor_confounds(
+        signals, noise_mask=noise_mask, n_components=5, detrend=False
+    )
+
+    assert isinstance(components.data, da.Array)
+    assert components.shape == (100, 5)
+    assert_allclose(
+        components.compute().values.T @ components.compute().values,
+        np.eye(5),
+        atol=1e-10,
+    )
 
 
 def test_compute_compcor_explained_variance_ratio():
