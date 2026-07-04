@@ -232,14 +232,25 @@ def _draw_group_bar(
                 mpatches.Rectangle((start - 0.5, 0), stop - start, 1, color=color)
             )
 
-    # Only fix the limit along the axis *not* shared with the main matrix axes
-    # (sharex/sharey ties the other one to the main plot's row/column indices).
+    # Only fix the limit/ticks along the axis *not* shared with the main matrix axes.
+    # sharex/sharey ties the other axis's locator to the main plot's row/column
+    # indices, so clearing it with set_xticks([])/set_yticks([]) would wipe out the
+    # main plot's own tick labels too; hide it with tick_params instead.
     if orientation == "vertical":
         ax.set_xlim(0, 1)
+        ax.set_xticks([])
+        ax.tick_params(axis="y", which="both", left=False, labelleft=False)
     else:
         ax.set_ylim(0, 1)
-    ax.set_xticks([])
-    ax.set_yticks([])
+        ax.set_yticks([])
+        ax.tick_params(
+            axis="x",
+            which="both",
+            bottom=False,
+            labelbottom=False,
+            top=False,
+            labeltop=False,
+        )
     for spine in ax.spines.values():
         spine.set_visible(False)
 
@@ -445,7 +456,7 @@ def plot_matrix(
         if missing:
             raise ValueError(f"group_colors is missing colors for group(s): {missing}.")
 
-        row_ax = divider.append_axes("left", size="4%", pad=0.05, sharey=ax)
+        row_ax = divider.append_axes("left", size="4%", pad=0.7, sharey=ax)
         _draw_group_bar(
             row_ax,
             "vertical",

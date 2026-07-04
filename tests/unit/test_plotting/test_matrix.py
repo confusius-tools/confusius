@@ -114,6 +114,20 @@ class TestPlotMatrixBehaviour:
         fig, ax = plot_matrix(_correlation_matrix(6), show_colorbar=False)
         assert len(fig.axes) == 1
 
+    def test_labels_survive_alongside_groups(self, matplotlib_pyplot):
+        """Row/column labels stay visible when groups are also passed.
+
+        Regression test: the group-strip axes share their perpendicular axis
+        (sharex/sharey) with the main axes so that they line up with its rows and
+        columns; clearing that shared axis's ticks previously wiped out the main
+        axes' own tick labels too (see _draw_group_bar).
+        """
+        labels = ["a", "b", "c", "d", "e", "f"]
+        groups = ["cortex"] * 3 + ["thalamus"] * 3
+        _, ax = plot_matrix(_correlation_matrix(6), labels=labels, groups=groups)
+        assert [t.get_text() for t in ax.get_xticklabels()] == labels
+        assert [t.get_text() for t in ax.get_yticklabels()] == labels
+
     def test_show_group_labels_false_omits_annotations(self, matplotlib_pyplot):
         """show_group_labels=False draws the color strips without text annotations."""
         groups = ["cortex"] * 3 + ["thalamus"] * 3
