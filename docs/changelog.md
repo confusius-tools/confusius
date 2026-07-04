@@ -24,6 +24,12 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`plot_matrix`][confusius.plotting.plot_matrix] for plotting 2D matrices
+  (e.g. connectivity or correlation matrices), with optional lower/diagonal triangle
+  masking, grid lines, and a `groups` parameter that annotates contiguous label runs
+  with colored rectangle strips — useful for marking anatomical groupings (e.g.
+  cortex, thalamus) when there are too many individual labels to read
+  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
 - **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
   Events shade the signal plot; active event names appear in the time overlay; load
   from / save to a BIDS `.tsv`
