@@ -364,7 +364,7 @@ class FUSIPlotAccessor:
         norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
-        alpha: "float | npt.NDArray[np.floating] | None" = None,
+        alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         show_titles: bool = True,
@@ -424,10 +424,12 @@ class FUSIPlotAccessor:
             Upper bound of the colormap. Defaults to the 98th percentile. Ignored
             when `norm` is provided explicitly (that is, not just inherited from data
             attributes).
-        alpha : float or numpy.ndarray, optional
-            Opacity of the image, either a single value or a per-voxel array matching
-            the shape of the displayed slices. If not provided, the colormap's own
-            alpha channel is respected.
+        alpha : float, numpy.ndarray, or xarray.DataArray, optional
+            Opacity of the image: a single value, a 2D array matching the shape of
+            each displayed slice (applied identically to every slice), or a 3D
+            `xarray.DataArray` sharing this DataArray's dims, shape, and coordinates
+            (for independent per-slice, per-voxel opacity). If not provided, the
+            colormap's own alpha channel is respected.
         show_colorbar : bool, default: True
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
@@ -801,7 +803,7 @@ class FUSIPlotAccessor:
         bg_kwargs: "dict[str, Any] | None" = None,
         cmap: "str | Colormap | None" = "RdBu_r",
         vmax: float | None = None,
-        alpha: "float | npt.NDArray[np.floating]" = 1.0,
+        alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
         show_colorbar: bool = True,
@@ -860,11 +862,14 @@ class FUSIPlotAccessor:
             `[-vmax, vmax]`. If not provided, defaults to the 98th percentile of the
             absolute value of this DataArray, computed over the full array rather
             than just the displayed slices.
-        alpha : float or numpy.ndarray, default: 1.0
-            Opacity of this DataArray's overlay, either a single value or a
-            per-voxel array matching the shape of the displayed slices (e.g. to fade
+        alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
+            Opacity of this DataArray's overlay: a single value, a 2D array matching
+            the shape of each displayed slice (applied identically to every slice),
+            or a 3D `xarray.DataArray` sharing this DataArray's dims, shape, and
+            coordinates (for independent per-slice, per-voxel opacity, e.g. to fade
             out low-magnitude voxels instead of masking them out with `threshold`).
-            At the default `1.0`, this DataArray is fully opaque wherever it is not
+            Note that this DataArray is validated against self, not `bg_volume`. At
+            the default `1.0`, this DataArray is fully opaque wherever it is not
             masked by `threshold`. Lower it to blend with `bg_volume` (or, when
             `bg_volume` is not provided, with the axes background).
         threshold : float, optional

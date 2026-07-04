@@ -746,7 +746,7 @@ class VolumePlotter:
         vmax: float | None = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
-        alpha: "float | npt.NDArray[np.floating] | None" = None,
+        alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         roi_labels: dict[int, str] | None = None,
@@ -792,10 +792,12 @@ class VolumePlotter:
             Threshold value for masking.
         threshold_mode : {"lower", "upper"}, default: "lower"
             Whether to mask values below or above threshold.
-        alpha : float or numpy.ndarray, optional
-            Opacity of the image, either a single value or a per-voxel array matching
-            the shape of the displayed slices. If not provided, the colormap's own
-            alpha channel is respected.
+        alpha : float, numpy.ndarray, or xarray.DataArray, optional
+            Opacity of the image: a single value, a 2D array matching the shape of
+            each displayed slice (applied identically to every slice), or a 3D
+            `xarray.DataArray` sharing `data`'s dims, shape, and coordinates (for
+            independent per-slice, per-voxel opacity — e.g. fading out low-confidence
+            voxels). If not provided, the colormap's own alpha channel is respected.
         show_colorbar : bool, default: True
             Whether to add a colorbar.
         cbar_label : str, optional
@@ -836,6 +838,9 @@ class VolumePlotter:
         ------
         ValueError
             If no matching coordinates are found or axis count doesn't match.
+        ValueError
+            If `alpha` is an `xarray.DataArray` and its dims, shape, or coordinates do
+            not match `data`.
         """
         import matplotlib.pyplot as plt
 
@@ -857,6 +862,26 @@ class VolumePlotter:
             data, self.slice_mode, slice_coords
         )
         n_slices = len(unthresholded_slices)
+
+        alpha_slices: list[np.ndarray] | None = None
+        if isinstance(alpha, xr.DataArray):
+            if set(alpha.dims) != set(data.dims):
+                raise ValueError(
+                    f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
+                    f"`data` dims {sorted(str(d) for d in data.dims)}."
+                )
+            for dim in data.dims:
+                if alpha.sizes[dim] != data.sizes[dim]:
+                    raise ValueError(
+                        f"`alpha` size along '{dim}' ({alpha.sizes[dim]}) does not "
+                        f"match `data` size ({data.sizes[dim]})."
+                    )
+            validate_matching_coordinates(
+                data, alpha, left_name="data", right_name="alpha"
+            )
+            alpha_da_slices, _ = _extract_slices(alpha, self.slice_mode, slice_coords)
+            alpha_slices = [s.values for s in alpha_da_slices]
+            alpha = None
 
         norm = _resolve_norm(
             slices=unthresholded_slices,
@@ -906,13 +931,14 @@ class VolumePlotter:
                 slice_da, dim_row, dim_col
             )
 
+            panel_alpha = alpha_slices[slice_idx] if alpha_slices is not None else alpha
             plotted_quadmesh = ax.pcolormesh(
                 x_edges,
                 y_edges,
                 np.ma.masked_invalid(arr),
                 cmap=cmap,
                 norm=norm,
-                alpha=alpha,
+                alpha=panel_alpha,
             )
             self._attach_or_update_hover_manager(resolved_roi_labels)
             self._hover_manager.register_data_to_axis(
@@ -1774,7 +1800,7 @@ def plot_volume(
     vmax: float | None = None,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
-    alpha: "float | npt.NDArray[np.floating] | None" = None,
+    alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
     roi_labels: dict[int, str] | None = None,
@@ -1834,10 +1860,12 @@ def plot_volume(
         - `"lower"`: set pixels where `|data| < threshold` to NaN.
         - `"upper"`: set pixels where `|data| > threshold` to NaN.
 
-    alpha : float or numpy.ndarray, optional
-        Opacity of the image, either a single value or a per-voxel array matching the
-        shape of the displayed slices. If not provided, the colormap's own alpha
-        channel is respected.
+    alpha : float, numpy.ndarray, or xarray.DataArray, optional
+        Opacity of the image: a single value, a 2D array matching the shape of each
+        displayed slice (applied identically to every slice), or a 3D
+        `xarray.DataArray` sharing `data`'s dims, shape, and coordinates (for
+        independent per-slice, per-voxel opacity). If not provided, the colormap's
+        own alpha channel is respected.
     show_colorbar : bool, default: True
         Whether to add a shared colorbar to the figure.
     cbar_label : str, optional
@@ -2180,7 +2208,7 @@ def plot_stat_map(
     bg_kwargs: "dict[str, Any] | None" = None,
     cmap: "str | Colormap | None" = "RdBu_r",
     vmax: float | None = None,
-    alpha: "float | npt.NDArray[np.floating]" = 1.0,
+    alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
     show_colorbar: bool = True,
@@ -2241,13 +2269,16 @@ def plot_stat_map(
         Symmetric colormap bound for `stat_map`: the colormap spans `[-vmax, vmax]`.
         If not provided, defaults to the 98th percentile of `|stat_map|`, computed
         over the full array rather than just the displayed slices.
-    alpha : float or numpy.ndarray, default: 1.0
-        Opacity of the `stat_map` overlay, either a single value or a per-voxel array
-        matching the shape of the displayed slices (e.g. to fade out low-magnitude
-        voxels instead of masking them out with `threshold`). At the default `1.0`,
-        `stat_map` is fully opaque wherever it is not masked by `threshold`. Lower it
-        to blend `stat_map` with `bg_volume` (or, when `bg_volume` is not provided,
-        with the axes background).
+    alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
+        Opacity of the `stat_map` overlay: a single value, a 2D array matching the
+        shape of each displayed slice (applied identically to every slice), or a 3D
+        `xarray.DataArray` sharing `stat_map`'s dims, shape, and coordinates (for
+        independent per-slice, per-voxel opacity, e.g. to fade out low-magnitude
+        voxels instead of masking them out with `threshold`). Note that this
+        DataArray is validated against `stat_map`, not `bg_volume`. At the default
+        `1.0`, `stat_map` is fully opaque wherever it is not masked by `threshold`.
+        Lower it to blend `stat_map` with `bg_volume` (or, when `bg_volume` is not
+        provided, with the axes background).
     threshold : float, optional
         Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
         direction. If not provided, no thresholding is applied.

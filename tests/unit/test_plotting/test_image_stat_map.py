@@ -86,10 +86,10 @@ class TestPlotStatMapVisualRegression:
         tolerance=0,
         savefig_kwargs={"facecolor": "auto"},
     )
-    def test_plot_stat_map_no_background(self, matplotlib_pyplot):
-        """Baseline test for plotting the statistical map on its own."""
-        _, stat_map = _create_deterministic_bg_and_stat_map()
-        plotter = plot_stat_map(stat_map, slice_mode="z")
+    def test_plot_stat_map_alpha_blend(self, matplotlib_pyplot):
+        """Baseline test for blending the overlay with the background via alpha."""
+        bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
+        plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z", alpha=0.5)
         return plotter.figure
 
 
@@ -182,6 +182,21 @@ class TestPlotStatMap:
         assert background.cmap.name.startswith("hot")
         assert background.norm.vmin == 0.0
         assert background.norm.vmax == 1.0
+
+    def test_dataarray_alpha_validated_against_stat_map_not_bg_volume(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """alpha (a DataArray) only needs to match stat_map; bg_volume may differ."""
+        stat_map = _signed_stat_map(sample_3d_volume)
+        alpha = xr.ones_like(stat_map) * 0.5
+        # bg_volume deliberately has a coarser, non-matching x grid.
+        bg_volume = sample_3d_volume.isel(x=slice(0, 4))
+
+        plotter = plot_stat_map(
+            stat_map, bg_volume=bg_volume, slice_mode="z", alpha=alpha
+        )
+        overlay = plotter.axes.ravel()[0].collections[-1]
+        assert overlay.get_alpha() == pytest.approx(0.5)
 
     def test_without_background_plots_stat_map_alone(
         self, sample_3d_volume, matplotlib_pyplot

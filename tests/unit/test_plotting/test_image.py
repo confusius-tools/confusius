@@ -5,6 +5,7 @@ See conftest.py for the matplotlib_pyplot fixture setup.
 """
 
 import numpy as np
+import numpy.testing as npt
 import pytest
 import xarray as xr
 
@@ -471,6 +472,42 @@ class TestVolumePlotterAddVolume:
             plotter.add_volume(
                 sample_3d_volume.sel(z=z_vals[[0, 1, 3]], method="nearest"),
                 cmap="viridis",
+            )
+
+    def test_dataarray_alpha_applies_independently_per_slice(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """A DataArray alpha gives each z-slice its own opacity, unlike a bare array."""
+        alpha = xr.zeros_like(sample_3d_volume)
+        alpha[0] = 0.25
+        alpha[1] = 0.75
+
+        plotter = VolumePlotter(slice_mode="z").add_volume(
+            sample_3d_volume, match_coordinates=False, alpha=alpha
+        )
+
+        axes_flat = plotter.axes.ravel()
+        npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
+        npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
+
+    def test_dataarray_alpha_dim_mismatch_raises(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        alpha = sample_3d_volume.isel(x=0).drop_vars("x")
+        with pytest.raises(ValueError, match="dims"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
+    def test_dataarray_alpha_coordinate_mismatch_raises(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        alpha = sample_3d_volume.assign_coords(
+            x=sample_3d_volume.coords["x"].values + 1.0
+        )
+        with pytest.raises(ValueError, match="does not match"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
             )
 
 
