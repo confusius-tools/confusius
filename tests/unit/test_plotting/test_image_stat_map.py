@@ -10,13 +10,24 @@ from confusius.plotting import VolumePlotter, plot_stat_map
 def _signed_stat_map(template: xr.DataArray) -> xr.DataArray:
     """Return a stat map on `template`'s grid with known signed values.
 
-    Values range linearly from -10 to 10, with the 98th percentile of `|values|`
-    equal to 9.8. This lets tests assert the exact resolved `vmax`.
+    Values range linearly from -10 to 10 (exact endpoints), so the default `vmin`/
+    `vmax` (the data's actual min/max) are deterministic.
     """
     values = np.linspace(-10.0, 10.0, template.size).reshape(template.shape)
     return xr.DataArray(
         values,
         name="t_stat",
+        dims=template.dims,
+        coords={d: template.coords[d] for d in template.dims if d in template.coords},
+    )
+
+
+def _nonneg_stat_map(template: xr.DataArray) -> xr.DataArray:
+    """Return a stat map on `template`'s grid with non-negative values (e.g. R²)."""
+    values = np.linspace(0.0, 10.0, template.size).reshape(template.shape)
+    return xr.DataArray(
+        values,
+        name="r2",
         dims=template.dims,
         coords={d: template.coords[d] for d in template.dims if d in template.coords},
     )
@@ -59,7 +70,7 @@ class TestPlotStatMapVisualRegression:
         savefig_kwargs={"facecolor": "auto"},
     )
     def test_plot_stat_map_default(self, matplotlib_pyplot):
-        """Baseline test for default plot_stat_map appearance (gray bg + RdBu_r overlay)."""
+        """Baseline test for default plot_stat_map appearance (gray bg + coolwarm overlay)."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
         plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z")
         return plotter.figure
@@ -89,7 +100,9 @@ class TestPlotStatMapVisualRegression:
     def test_plot_stat_map_alpha_blend(self, matplotlib_pyplot):
         """Baseline test for blending the overlay with the background via alpha."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
-        plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z", alpha=0.5)
+        plotter = plot_stat_map(
+            stat_map, bg_volume=bg_volume, slice_mode="z", alpha=0.5
+        )
         return plotter.figure
 
     @pytest.mark.mpl_image_compare(
@@ -98,15 +111,9 @@ class TestPlotStatMapVisualRegression:
         savefig_kwargs={"facecolor": "auto"},
     )
     def test_plot_stat_map_non_diverging(self, matplotlib_pyplot):
-        """Baseline test for a non-diverging statistic (sequential cmap, symmetric=False)."""
+        """Baseline test for a non-diverging statistic (auto-detected: sequential + viridis)."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
-        plotter = plot_stat_map(
-            np.abs(stat_map),
-            bg_volume=bg_volume,
-            slice_mode="z",
-            cmap="viridis",
-            symmetric=False,
-        )
+        plotter = plot_stat_map(np.abs(stat_map), bg_volume=bg_volume, slice_mode="z")
         return plotter.figure
 
 
@@ -147,53 +154,93 @@ class TestPlotStatMap:
         overlay = plotter.axes.ravel()[0].collections[-1]
         assert overlay.get_alpha() == 0.5
 
-    def test_overlay_uses_rdbu_r_by_default(self, sample_3d_volume, matplotlib_pyplot):
+    def test_overlay_uses_coolwarm_by_default_for_signed_data(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         overlay = plotter.axes.ravel()[0].collections[-1]
-        assert overlay.cmap.name.startswith("RdBu_r")
+        assert overlay.cmap.name.startswith("coolwarm")
 
-    def test_default_vmax_is_symmetric_98th_percentile(
+    def test_default_bounds_are_symmetric_min_max_for_signed_data(
         self, sample_3d_volume, matplotlib_pyplot
     ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         norm = plotter.axes.ravel()[0].collections[-1].norm
-        expected_vmax = float(np.percentile(np.abs(stat_map.values), 98))
-        assert norm.vmax == expected_vmax
-        assert norm.vmin == -expected_vmax
+        assert norm.vmax == 10.0
+        assert norm.vmin == -10.0
 
-    def test_explicit_vmax_overrides_default(self, sample_3d_volume, matplotlib_pyplot):
+    def test_explicit_vmin_and_vmax_cap_the_symmetric_range(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmax=5.0
+            stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmin=-5.0, vmax=5.0
         )
         norm = plotter.axes.ravel()[0].collections[-1].norm
         assert norm.vmax == 5.0
         assert norm.vmin == -5.0
 
-    def test_symmetric_false_uses_zero_as_vmin(self, sample_3d_volume, matplotlib_pyplot):
-        stat_map = _signed_stat_map(sample_3d_volume)
+    def test_vmax_alone_does_not_cap_the_range_when_data_min_is_larger(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """vmin defaults to the data's actual min when not given, so a lone vmax
+        smaller than |data min| does not shrink the symmetric range."""
+        stat_map = _signed_stat_map(sample_3d_volume)  # min=-10, max=10
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_3d_volume, slice_mode="z", symmetric=False
+            stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmax=5.0
         )
         norm = plotter.axes.ravel()[0].collections[-1].norm
-        expected_vmax = float(np.percentile(np.abs(stat_map.values), 98))
-        assert norm.vmax == expected_vmax
-        assert norm.vmin == 0.0
+        assert norm.vmax == 10.0
+        assert norm.vmin == -10.0
 
-    def test_symmetric_false_with_explicit_vmax(self, sample_3d_volume, matplotlib_pyplot):
+    def test_auto_range_uses_sequential_range_and_viridis_for_nonneg_data(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        stat_map = _nonneg_stat_map(sample_3d_volume)  # min=0, max=10
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        overlay = plotter.axes.ravel()[0].collections[-1]
+        assert overlay.cmap.name.startswith("viridis")
+        assert overlay.norm.vmin == 0.0
+        assert overlay.norm.vmax == 10.0
+
+    def test_auto_range_uses_sequential_range_and_viridis_r_for_nonpos_data(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        stat_map = -_nonneg_stat_map(sample_3d_volume)  # min=-10, max=0
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        overlay = plotter.axes.ravel()[0].collections[-1]
+        assert overlay.cmap.name.startswith("viridis_r")
+        assert overlay.norm.vmin == -10.0
+        assert overlay.norm.vmax == 0.0
+
+    def test_auto_range_false_disables_zero_anchoring(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(
             stat_map,
             bg_volume=sample_3d_volume,
             slice_mode="z",
-            symmetric=False,
+            vmin=-2.0,
             vmax=5.0,
+            auto_range=False,
         )
-        norm = plotter.axes.ravel()[0].collections[-1].norm
-        assert norm.vmax == 5.0
-        assert norm.vmin == 0.0
+        overlay = plotter.axes.ravel()[0].collections[-1]
+        assert overlay.cmap.name.startswith("coolwarm")
+        assert overlay.norm.vmin == -2.0
+        assert overlay.norm.vmax == 5.0
+
+    def test_explicit_cmap_is_used_as_is_regardless_of_sign(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        stat_map = _nonneg_stat_map(sample_3d_volume)
+        plotter = plot_stat_map(
+            stat_map, bg_volume=sample_3d_volume, slice_mode="z", cmap="hot"
+        )
+        overlay = plotter.axes.ravel()[0].collections[-1]
+        assert overlay.cmap.name.startswith("hot")
 
     def test_threshold_masks_overlay(self, sample_3d_volume, matplotlib_pyplot):
         stat_map = _signed_stat_map(sample_3d_volume)
@@ -247,9 +294,8 @@ class TestPlotStatMap:
         assert len(rendered) == stat_map.sizes["z"]
         assert all(len(ax.collections) == 1 for ax in rendered)
         norm = rendered[0].collections[0].norm
-        expected_vmax = float(np.percentile(np.abs(stat_map.values), 98))
-        assert norm.vmax == expected_vmax
-        assert norm.vmin == -expected_vmax
+        assert norm.vmax == 10.0
+        assert norm.vmin == -10.0
 
 
 class TestStatMapAccessor:

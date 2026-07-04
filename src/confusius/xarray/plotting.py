@@ -801,9 +801,10 @@ class FUSIPlotAccessor:
         slice_coords: list[float] | None = None,
         slice_mode: str = "z",
         bg_kwargs: "dict[str, Any] | None" = None,
-        cmap: "str | Colormap | None" = "RdBu_r",
+        cmap: "str | Colormap | None" = None,
+        vmin: float | None = None,
         vmax: float | None = None,
-        symmetric: bool = True,
+        auto_range: bool = True,
         alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
@@ -856,22 +857,40 @@ class FUSIPlotAccessor:
             `slice_mode`, `show_titles`, `fontsize`, etc.) are controlled by this
             method's own parameters instead, so that both layers share consistent
             styling.
-        cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
-            Colormap for this DataArray.
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap for this DataArray. If not provided, the default depends on
+            `auto_range` and the sign of this DataArray (see below); an explicit
+            `cmap` is always used as-is regardless of `auto_range`.
+        vmin : float, optional
+            Lower bound of the colormap. If not provided, defaults to the minimum
+            value of this DataArray, computed over the full array rather than just
+            the displayed slices. Ignored when `auto_range` resolves to a range
+            anchored at zero (see below).
         vmax : float, optional
-            Colormap bound for this DataArray: the colormap spans `[-vmax, vmax]`
-            when `symmetric=True` (default), or `[0, vmax]` when `symmetric=False`.
-            If not provided, defaults to the 98th percentile of the absolute value of
-            this DataArray, computed over the full array rather than just the
-            displayed slices.
-        symmetric : bool, default: True
-            Whether the colormap range is centered on zero (`[-vmax, vmax]`). This is
-            the right choice for diverging statistics where the sign is meaningful
-            (e.g. t-statistics, correlation coefficients, PCA/ICA component maps)
-            together with a diverging `cmap` such as the default `"RdBu_r"`. Set to
-            `False` for non-diverging statistics where only magnitude matters (e.g.
-            R², F-statistics, p-values); the range becomes `[0, vmax]` and `cmap`
-            should be set to a sequential colormap (e.g. `"viridis"`) instead.
+            Upper bound of the colormap. If not provided, defaults to the maximum
+            value of this DataArray, computed over the full array rather than just
+            the displayed slices. Ignored when `auto_range=True` and this DataArray
+            has only non-positive values.
+        auto_range : bool, default: True
+            Whether to pick the colormap range and default colormap automatically
+            based on the sign of this DataArray:
+
+            - Both positive and negative values: diverging, symmetric `[-m, m]`
+              range where `m = max(|vmin|, |vmax|)` (using the resolved bounds
+              above), with `cmap` defaulting to `"coolwarm"` — the right choice
+              for diverging statistics where the sign is meaningful (e.g.
+              t-statistics, correlation coefficients, PCA/ICA component maps).
+            - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+              defaulting to `"viridis"` — the right choice for non-diverging
+              statistics where only magnitude matters (e.g. R², F-statistics).
+            - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+              defaulting to `"viridis_r"` (reversed, so that values near zero map
+              to the same end of the colormap in both the non-negative and
+              non-positive cases).
+
+            Set to `False` to use the resolved `vmin`/`vmax` directly with no
+            zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
+            sign).
         alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
             Opacity of this DataArray's overlay: a single value, a 2D array matching
             the shape of each displayed slice (applied identically to every slice),
@@ -951,11 +970,10 @@ class FUSIPlotAccessor:
         >>> # Blend the overlay with the background instead of fully covering it.
         >>> plotter = t_map.fusi.plot.stat_map(bg_volume=anatomical, alpha=0.6)
 
-        >>> # Non-diverging statistic (e.g. R²): sequential colormap from 0 to vmax.
+        >>> # Non-diverging statistic (e.g. R²): sequential range and colormap
+        >>> # picked automatically since r2_map has only non-negative values.
         >>> r2_map = xr.open_zarr("output.zarr")["r2"]
-        >>> plotter = r2_map.fusi.plot.stat_map(
-        ...     anatomical, cmap="viridis", symmetric=False
-        ... )
+        >>> plotter = r2_map.fusi.plot.stat_map(anatomical)
         """
         return plot_stat_map(
             self._obj,
@@ -964,8 +982,9 @@ class FUSIPlotAccessor:
             slice_mode=slice_mode,
             bg_kwargs=bg_kwargs,
             cmap=cmap,
+            vmin=vmin,
             vmax=vmax,
-            symmetric=symmetric,
+            auto_range=auto_range,
             alpha=alpha,
             threshold=threshold,
             threshold_mode=threshold_mode,

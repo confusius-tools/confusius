@@ -55,10 +55,13 @@ Current development version for the next ConfUSIus release.
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
 - Added [`plot_stat_map`][confusius.plotting.plot_stat_map] (and the matching
-  `data.fusi.plot.stat_map` accessor) for overlaying statistical maps fully opaque on a
-  background anatomical volume, with a symmetric colormap range picked automatically
-  from the 98th percentile of `|stat_map|`
-  ([#241](https://github.com/confusius-tools/confusius/pull/241)).
+  `data.fusi.plot.stat_map` accessor) for plotting statistical maps, optionally
+  overlaid fully opaque on a background anatomical volume. `vmin`/`vmax` default to
+  the data's actual min/max, and `auto_range=True` (default) picks both the
+  colormap range and colormap from the data's sign: diverging symmetric
+  `[-m, m]` with `"coolwarm"` when both signed, sequential `[0, vmax]` with
+  `"viridis"` when non-negative, or `[vmin, 0]` with `"viridis_r"` when
+  non-positive ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 
 ### :bug: Fixes
 

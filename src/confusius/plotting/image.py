@@ -184,19 +184,80 @@ def _resolve_norm(
     return resolved_norm
 
 
-def _resolve_symmetric_vmax(data: xr.DataArray, vmax: float | None) -> float:
-    """Resolve a magnitude-based colormap bound for a statistical map.
+_STAT_MAP_DIVERGING_CMAP = "coolwarm"
+"""Default colormap for diverging statistical maps (see `plot_stat_map`)."""
 
-    Falls back to the 98th percentile of `|data|` when `vmax` is not provided. Used
-    both for a symmetric `[-vmax, vmax]` range and, when `symmetric=False`, a `[0,
-    vmax]` range.
+_STAT_MAP_SEQUENTIAL_CMAP = "viridis"
+"""Default colormap for non-negative statistical maps (see `plot_stat_map`)."""
+
+_STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE = "viridis_r"
+"""Default colormap for non-positive statistical maps (see `plot_stat_map`).
+
+Reversed relative to `_STAT_MAP_SEQUENTIAL_CMAP` so that, in both the
+non-negative and non-positive cases, values near zero map to the same end of
+the colormap (dark purple) and the most extreme magnitude maps to the other
+end (yellow).
+"""
+
+
+def _resolve_stat_map_style(
+    data: xr.DataArray,
+    vmin: float | None,
+    vmax: float | None,
+    cmap: "str | Colormap | None",
+    auto_range: bool,
+) -> tuple[float, float, "str | Colormap"]:
+    """Resolve `(vmin, vmax, cmap)` for a statistical map.
+
+    `vmin`/`vmax` fall back to the actual min/max of `data` when not provided.
+
+    When `auto_range` is `True` (default), the sign of `data` determines the
+    layout:
+
+    - Both positive and negative values: diverging, symmetric `[-m, m]` range
+      where `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with
+      `cmap` defaulting to `_STAT_MAP_DIVERGING_CMAP`.
+    - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+      defaulting to `_STAT_MAP_SEQUENTIAL_CMAP`.
+    - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+      defaulting to `_STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE`.
+
+    When `auto_range` is `False`, the resolved `vmin`/`vmax` are used directly with
+    no zero-anchoring, and `cmap` defaults to `_STAT_MAP_DIVERGING_CMAP` regardless
+    of `data`'s sign. In both cases, an explicitly provided `cmap` is always used
+    as-is.
     """
-    if vmax is not None:
-        return vmax
-
     values = data.values.ravel().astype(float)
     values = values[np.isfinite(values)]
-    return float(np.percentile(np.abs(values), 98)) if len(values) > 0 else 1.0
+    data_min = float(values.min()) if len(values) > 0 else 0.0
+    data_max = float(values.max()) if len(values) > 0 else 1.0
+
+    resolved_vmin = vmin if vmin is not None else data_min
+    resolved_vmax = vmax if vmax is not None else data_max
+
+    if not auto_range:
+        return (
+            resolved_vmin,
+            resolved_vmax,
+            cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP,
+        )
+
+    if data_min < 0 < data_max:
+        abs_max = max(abs(resolved_vmin), abs(resolved_vmax))
+        return -abs_max, abs_max, cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP
+
+    if data_max > 0:
+        return (
+            0.0,
+            resolved_vmax,
+            cmap if cmap is not None else _STAT_MAP_SEQUENTIAL_CMAP,
+        )
+
+    return (
+        resolved_vmin,
+        0.0,
+        cmap if cmap is not None else _STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE,
+    )
 
 
 def _threshold_slices(
@@ -2208,9 +2269,10 @@ def plot_stat_map(
     slice_coords: list[float] | None = None,
     slice_mode: str = "z",
     bg_kwargs: "dict[str, Any] | None" = None,
-    cmap: "str | Colormap | None" = "RdBu_r",
+    cmap: "str | Colormap | None" = None,
+    vmin: float | None = None,
     vmax: float | None = None,
-    symmetric: bool = True,
+    auto_range: bool = True,
     alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
@@ -2235,8 +2297,10 @@ def plot_stat_map(
 
     Performs the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] to
     show a background anatomical volume +
-    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] with a
-    symmetric colormap to overlay a statistical map.
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] to overlay
+    a statistical map, with the colormap and range picked automatically based on
+    whether the statistic is diverging (has both positive and negative values) or
+    one-signed.
 
     Parameters
     ----------
@@ -2266,21 +2330,39 @@ def plot_stat_map(
         `slice_mode`, `show_titles`, `fontsize`, etc.) are controlled by this
         function's own parameters instead, so that both layers share consistent
         styling.
-    cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
-        Colormap for `stat_map`.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap for `stat_map`. If not provided, the default depends on
+        `auto_range` and the sign of `stat_map` (see below); an explicit `cmap` is
+        always used as-is regardless of `auto_range`.
+    vmin : float, optional
+        Lower bound of the colormap. If not provided, defaults to the minimum value
+        of `stat_map`, computed over the full array rather than just the displayed
+        slices. Ignored when `auto_range` resolves to a range anchored at zero (see
+        below).
     vmax : float, optional
-        Colormap bound for `stat_map`: the colormap spans `[-vmax, vmax]` when
-        `symmetric=True` (default), or `[0, vmax]` when `symmetric=False`. If not
-        provided, defaults to the 98th percentile of `|stat_map|`, computed over the
-        full array rather than just the displayed slices.
-    symmetric : bool, default: True
-        Whether the colormap range is centered on zero (`[-vmax, vmax]`). This is the
-        right choice for diverging statistics where the sign is meaningful (e.g.
-        t-statistics, correlation coefficients, PCA/ICA component maps) together with
-        a diverging `cmap` such as the default `"RdBu_r"`. Set to `False` for
-        non-diverging statistics where only magnitude matters (e.g. R², F-statistics,
-        p-values); the range becomes `[0, vmax]` and `cmap` should be set to a
-        sequential colormap (e.g. `"viridis"`) instead.
+        Upper bound of the colormap. If not provided, defaults to the maximum value
+        of `stat_map`, computed over the full array rather than just the displayed
+        slices. Ignored when `auto_range=True` and `stat_map` has only non-positive
+        values.
+    auto_range : bool, default: True
+        Whether to pick the colormap range and default colormap automatically based
+        on the sign of `stat_map`:
+
+        - Both positive and negative values: diverging, symmetric `[-m, m]` range
+          where `m = max(|vmin|, |vmax|)` (using the resolved bounds above),
+          with `cmap` defaulting to `"coolwarm"` — the right choice for diverging
+          statistics where the sign is meaningful (e.g. t-statistics, correlation
+          coefficients, PCA/ICA component maps).
+        - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+          defaulting to `"viridis"` — the right choice for non-diverging
+          statistics where only magnitude matters (e.g. R², F-statistics).
+        - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+          defaulting to `"viridis_r"` (reversed, so that values near zero map to
+          the same end of the colormap in both the non-negative and
+          non-positive cases).
+
+        Set to `False` to use the resolved `vmin`/`vmax` directly with no
+        zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
     alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
         Opacity of the `stat_map` overlay: a single value, a 2D array matching the
         shape of each displayed slice (applied identically to every slice), or a 3D
@@ -2358,10 +2440,10 @@ def plot_stat_map(
     Notes
     -----
     When `bg_volume` is provided, this is equivalent to calling
-    `plot_volume(bg_volume, ...)` followed by
-    `plotter.add_volume(stat_map, alpha=alpha, vmin=-vmax, vmax=vmax, ...)` (or
-    `vmin=0` instead of `vmin=-vmax` when `symmetric=False`). Use those functions
-    directly for finer control.
+    `plot_volume(bg_volume, ...)` followed by `plotter.add_volume(stat_map,
+    alpha=alpha, cmap=resolved_cmap, vmin=resolved_vmin, vmax=resolved_vmax, ...)`.
+    Use those functions directly for finer control, e.g. a custom, non-zero-anchored
+    asymmetric range.
 
     Examples
     --------
@@ -2383,11 +2465,10 @@ def plot_stat_map(
     >>> # Blend the overlay with the background instead of fully covering it.
     >>> plotter = plot_stat_map(t_map, bg_volume=anatomical, alpha=0.6)
 
-    >>> # Non-diverging statistic (e.g. R²): sequential colormap from 0 to vmax.
+    >>> # Non-diverging statistic (e.g. R²): sequential range and colormap picked
+    >>> # automatically since r2_map has only non-negative values.
     >>> r2_map = xr.open_zarr("output.zarr")["r2"]
-    >>> plotter = plot_stat_map(
-    ...     r2_map, bg_volume=anatomical, cmap="viridis", symmetric=False
-    ... )
+    >>> plotter = plot_stat_map(r2_map, bg_volume=anatomical)
 
     >>> # No background: plot the statistical map on its own.
     >>> plotter = plot_stat_map(t_map, slice_mode="z")
@@ -2425,14 +2506,15 @@ def plot_stat_map(
             xincrease=xincrease,
         )
 
-    resolved_vmax = _resolve_symmetric_vmax(stat_map, vmax)
-    resolved_vmin = -resolved_vmax if symmetric else 0.0
+    resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(
+        stat_map, vmin, vmax, cmap, auto_range
+    )
 
     return plotter.add_volume(
         stat_map,
         slice_coords=slice_coords,
         match_coordinates=bg_volume is not None,
-        cmap=cmap,
+        cmap=resolved_cmap,
         vmin=resolved_vmin,
         vmax=resolved_vmax,
         threshold=threshold,

@@ -369,7 +369,7 @@ plotter = stat_map.fusi.plot.volume(
     slice_mode="z",
     threshold=3.0,
     threshold_mode="lower",
-    cmap="RdBu_r",
+    cmap="coolwarm",
     vmin=-6,
     vmax=6,
 )
@@ -397,8 +397,8 @@ Pass any keyword argument accepted by
 [`plot_volume`][confusius.plotting.plot_volume] +
 [`add_volume`][confusius.plotting.VolumePlotter.add_volume] pattern used above for
 statistical overlays: a background anatomical volume, an overlay that is fully opaque
-by default, and a symmetric colormap range so that zero maps to the middle of a
-diverging colormap (`"RdBu_r"` by default):
+by default, and a colormap + range picked automatically from the sign of the
+statistical map:
 
 ```python
 plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
@@ -407,10 +407,20 @@ plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
 `bg_volume` is optional — call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
 statistical map on its own. With the default `alpha=1.0`, `t_map` fully covers `pwd`
 wherever it has a value; `pwd` only shows through where `t_map` is masked out by
-`threshold`. If `vmax` is not provided, it defaults to the 98th percentile of `|t_map|`,
-and the colormap spans `[-vmax, vmax]`. Pass `vmax` explicitly for a fixed range across
-figures, `alpha` to blend the overlay with the background instead of fully covering it,
-and `bg_kwargs` to customize the background layer's own colormap/range:
+`threshold`. `vmin`/`vmax` default to the actual min/max of `t_map`, and
+`auto_range=True` (default) picks the colormap layout from `t_map`'s sign:
+
+- Both positive and negative values: diverging, symmetric `[-m, m]` range
+  (`m = max(|vmin|, |vmax|)`), `cmap` defaulting to `"coolwarm"`.
+- Only non-negative values (e.g. R², F-statistics): sequential `[0, vmax]` range,
+  `cmap` defaulting to `"viridis"`.
+- Only non-positive values: sequential `[vmin, 0]` range, `cmap` defaulting to
+  `"viridis_r"` (so values near zero map to the same end of the colormap in both
+  the non-negative and non-positive cases).
+
+Pass `vmax` explicitly for a fixed range across figures, `alpha` to blend the overlay
+with the background instead of fully covering it, and `bg_kwargs` to customize the
+background layer's own colormap/range:
 
 ```python
 plotter = t_map.fusi.plot.stat_map(
@@ -424,8 +434,17 @@ plotter = t_map.fusi.plot.stat_map(
 )
 ```
 
-For finer control (e.g. an asymmetric range), call `plot_volume` and `add_volume`
-directly instead, as shown in the [Thresholding](#thresholding) section above.
+A non-diverging statistic (e.g. R²) needs no extra arguments — the sequential range
+and colormap are picked up automatically since the data has only non-negative values:
+
+```python
+plotter = r2_map.fusi.plot.stat_map(pwd)
+```
+
+Pass an explicit `cmap` to override the automatic choice, or `auto_range=False` to use
+`vmin`/`vmax` directly with no zero-anchoring. For finer control (e.g. a custom,
+non-zero-anchored asymmetric range), call `plot_volume` and `add_volume` directly
+instead, as shown in the [Thresholding](#thresholding) section above.
 
 ## Overlaying Contours
 
