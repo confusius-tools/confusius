@@ -78,6 +78,9 @@ nav = [
             { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
             { "NMF on a single fUSI recording" = "examples/_built/decomposition/nmf_single_recording.md" },
         ]},
+        { "Connectivity" = [
+            { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },
