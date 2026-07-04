@@ -7,6 +7,7 @@ __all__ = [
     "plot_composite",
     "plot_contours",
     "plot_napari",
+    "plot_stat_map",
     "plot_volume",
     "VolumePlotter",
 ]
@@ -16,6 +17,7 @@ from confusius.plotting.image import (
     plot_carpet,
     plot_composite,
     plot_contours,
+    plot_stat_map,
     plot_volume,
 )
 from confusius.plotting.napari import (

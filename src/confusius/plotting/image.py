@@ -184,6 +184,19 @@ def _resolve_norm(
     return resolved_norm
 
 
+def _resolve_symmetric_vmax(data: xr.DataArray, vmax: float | None) -> float:
+    """Resolve a symmetric colormap bound for a statistical map.
+
+    Falls back to the 98th percentile of `|data|` when `vmax` is not provided.
+    """
+    if vmax is not None:
+        return vmax
+
+    values = data.values.ravel().astype(float)
+    values = values[np.isfinite(values)]
+    return float(np.percentile(np.abs(values), 98)) if len(values) > 0 else 1.0
+
+
 def _threshold_slices(
     slices: list[xr.DataArray],
     threshold: float | None,
@@ -2143,6 +2156,223 @@ def plot_composite(
         slice_coords=slice_coords,
         match_coordinates=False,
         alpha=alpha,
+        show_titles=show_titles,
+        show_axis_labels=show_axis_labels,
+        show_axis_ticks=show_axis_ticks,
+        show_axes=show_axes,
+        fontsize=fontsize,
+        nrows=nrows,
+        ncols=ncols,
+        dpi=dpi,
+    )
+
+
+def plot_stat_map(
+    stat_map: xr.DataArray,
+    bg_volume: xr.DataArray | None = None,
+    *,
+    slice_coords: list[float] | None = None,
+    slice_mode: str = "z",
+    bg_kwargs: "dict[str, Any] | None" = None,
+    cmap: "str | Colormap | None" = "RdBu_r",
+    vmax: float | None = None,
+    threshold: float | None = None,
+    threshold_mode: Literal["lower", "upper"] = "lower",
+    show_colorbar: bool = True,
+    cbar_label: str | None = None,
+    show_titles: bool = True,
+    show_axis_labels: bool = True,
+    show_axis_ticks: bool = True,
+    show_axes: bool = True,
+    fontsize: float | None = None,
+    yincrease: bool = False,
+    xincrease: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
+    figure: "Figure | None" = None,
+    axes: "npt.NDArray[Any] | Axes | None" = None,
+    nrows: int | None = None,
+    ncols: int | None = None,
+    dpi: int | None = None,
+) -> VolumePlotter:
+    """Plot a statistical map fully opaque, optionally over a background volume.
+
+    Encodes the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] +
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] used for
+    statistical overlays: a background anatomical volume, a fully opaque overlay, and a
+    symmetric colormap range so that zero maps to the middle of `cmap`.
+
+    Parameters
+    ----------
+    stat_map : xarray.DataArray
+        Statistical map to plot. 3D volume data. Unitary dimensions (except
+        `slice_mode`) are squeezed before processing.
+    bg_volume : xarray.DataArray, optional
+        Background anatomical volume, plotted underneath `stat_map` and fully
+        replaced by it wherever both are drawn. Must share `slice_mode` and, after
+        squeezing, the same display dimensions as `stat_map`. If not provided,
+        `stat_map` is plotted on its own.
+    slice_coords : list[float], optional
+        Coordinate values along `slice_mode` at which to extract slices. Slices are
+        selected by nearest-neighbour lookup. If not provided, all coordinate values
+        from `bg_volume` (or `stat_map` when `bg_volume` is not provided) along
+        `slice_mode` are used.
+    slice_mode : str, default: "z"
+        Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`). After
+        slicing, each panel must be 2D.
+    bg_kwargs : dict, optional
+        Additional keyword arguments forwarded to
+        [`plot_volume`][confusius.plotting.plot_volume] for the background layer
+        (e.g. `cmap`, `vmin`, `vmax`, `norm`, `alpha`, `roi_labels`). Ignored when
+        `bg_volume` is not provided. Layout and text styling (`slice_coords`,
+        `slice_mode`, `show_titles`, `fontsize`, etc.) are controlled by this
+        function's own parameters instead, so that both layers share consistent
+        styling.
+    cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
+        Colormap for `stat_map`.
+    vmax : float, optional
+        Symmetric colormap bound for `stat_map`: the colormap spans `[-vmax, vmax]`.
+        If not provided, defaults to the 98th percentile of `|stat_map|`, computed
+        over the full array rather than just the displayed slices.
+    threshold : float, optional
+        Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
+        direction. If not provided, no thresholding is applied.
+    threshold_mode : {"lower", "upper"}, default: "lower"
+        Controls how `threshold` is applied:
+
+        - `"lower"`: set pixels where `|stat_map| < threshold` to NaN.
+        - `"upper"`: set pixels where `|stat_map| > threshold` to NaN.
+
+    show_colorbar : bool, default: True
+        Whether to add a shared colorbar for `stat_map` to the figure.
+    cbar_label : str, optional
+        Label for the colorbar.
+    show_titles : bool, default: True
+        Whether to display subplot titles showing the slice coordinate.
+    show_axis_labels : bool, default: True
+        Whether to display axis labels (with units when available).
+    show_axis_ticks : bool, default: True
+        Whether to display axis tick labels.
+    show_axes : bool, default: True
+        Whether to show all axis decorations (spines, ticks, labels). When `False`,
+        overrides `show_axis_labels` and `show_axis_ticks`.
+    fontsize : float, optional
+        Base font size for all text elements. Subplot titles use `fontsize` directly;
+        axis labels and the colorbar label use `0.9 * fontsize`; tick labels use `0.85 *
+        fontsize`. If not provided, uses the active Matplotlib defaults.
+    yincrease : bool, default: False
+        Whether the y-axis increases upward (`True`) or downward (`False`).
+    xincrease : bool, default: True
+        Whether the x-axis increases to the right (`True`) or left (`False`).
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
+    figure : matplotlib.figure.Figure, optional
+        Existing figure to draw into. If not provided, a new figure is created.
+    axes : numpy.ndarray or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them. Must
+        contain exactly as many elements as there are slices. A single `Axes` is
+        wrapped automatically and limits the plot to one slice. If not provided, new
+        axes are created inside `figure`.
+    nrows : int, optional
+        Number of rows in the subplot grid. If not provided, computed automatically.
+    ncols : int, optional
+        Number of columns in the subplot grid. If not provided, computed automatically.
+    dpi : int, optional
+        Figure resolution in dots per inch. Ignored when `figure` is provided.
+
+    Returns
+    -------
+    VolumePlotter
+        Object managing the figure, axes, and coordinate mapping for overlays.
+
+    Raises
+    ------
+    ValueError
+        If `slice_mode` is not a dimension of `stat_map` or `bg_volume`.
+    ValueError
+        If `stat_map` or `bg_volume` is not 3D after squeezing unitary dimensions.
+
+    Notes
+    -----
+    When `bg_volume` is provided, this is equivalent to calling
+    `plot_volume(bg_volume, ...)` followed by
+    `plotter.add_volume(stat_map, alpha=1.0, vmin=-vmax, vmax=vmax, ...)`. Use those
+    functions directly for finer control, e.g. a different opacity for the overlay or
+    an asymmetric colormap range.
+
+    Examples
+    --------
+    >>> import xarray as xr
+    >>> from confusius.plotting import plot_stat_map
+    >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
+    >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
+    >>> plotter = plot_stat_map(t_map, anatomical, slice_mode="z")
+
+    >>> # Suppress subthreshold voxels and cap the colormap range explicitly.
+    >>> plotter = plot_stat_map(
+    ...     t_map,
+    ...     anatomical,
+    ...     threshold=3.0,
+    ...     vmax=6.0,
+    ...     cbar_label="t-statistic",
+    ... )
+
+    >>> # No background: plot the statistical map on its own.
+    >>> plotter = plot_stat_map(t_map, slice_mode="z")
+    """
+    if bg_volume is not None:
+        plotter = plot_volume(
+            bg_volume,
+            slice_coords=slice_coords,
+            slice_mode=slice_mode,
+            show_colorbar=False,
+            show_titles=show_titles,
+            show_axis_labels=show_axis_labels,
+            show_axis_ticks=show_axis_ticks,
+            show_axes=show_axes,
+            fontsize=fontsize,
+            yincrease=yincrease,
+            xincrease=xincrease,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            figure=figure,
+            axes=axes,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+            **(bg_kwargs or {}),
+        )
+    else:
+        plotter = VolumePlotter(
+            slice_mode=slice_mode,
+            figure=figure,
+            axes=axes,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            yincrease=yincrease,
+            xincrease=xincrease,
+        )
+
+    resolved_vmax = _resolve_symmetric_vmax(stat_map, vmax)
+
+    return plotter.add_volume(
+        stat_map,
+        slice_coords=slice_coords,
+        match_coordinates=bg_volume is not None,
+        cmap=cmap,
+        vmin=-resolved_vmax,
+        vmax=resolved_vmax,
+        threshold=threshold,
+        threshold_mode=threshold_mode,
+        alpha=1.0,
+        show_colorbar=show_colorbar,
+        cbar_label=cbar_label,
         show_titles=show_titles,
         show_axis_labels=show_axis_labels,
         show_axis_ticks=show_axis_ticks,

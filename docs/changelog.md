@@ -54,6 +54,11 @@ Current development version for the next ConfUSIus release.
   downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
+- Added [`plot_stat_map`][confusius.plotting.plot_stat_map] (and the matching
+  `data.fusi.plot.stat_map` accessor) for overlaying statistical maps fully opaque on a
+  background anatomical volume, with a symmetric colormap range picked automatically
+  from the 98th percentile of `|stat_map|`
+  ([#241](https://github.com/confusius-tools/confusius/pull/241)).
 
 ### :bug: Fixes
 

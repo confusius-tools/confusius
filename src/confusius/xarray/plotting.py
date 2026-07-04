@@ -12,6 +12,7 @@ from confusius.plotting import (
     plot_composite,
     plot_contours,
     plot_napari,
+    plot_stat_map,
     plot_volume,
 )
 
@@ -773,6 +774,163 @@ class FUSIPlotAccessor:
             slice_coords=slice_coords,
             slice_mode=slice_mode,
             alpha=alpha,
+            show_titles=show_titles,
+            show_axis_labels=show_axis_labels,
+            show_axis_ticks=show_axis_ticks,
+            show_axes=show_axes,
+            fontsize=fontsize,
+            yincrease=yincrease,
+            xincrease=xincrease,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            figure=figure,
+            axes=axes,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
+
+    def stat_map(
+        self,
+        bg_volume: xr.DataArray | None = None,
+        slice_coords: list[float] | None = None,
+        slice_mode: str = "z",
+        bg_kwargs: "dict[str, Any] | None" = None,
+        cmap: "str | Colormap | None" = "RdBu_r",
+        vmax: float | None = None,
+        threshold: float | None = None,
+        threshold_mode: Literal["lower", "upper"] = "lower",
+        show_colorbar: bool = True,
+        cbar_label: str | None = None,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = True,
+        fontsize: float | None = None,
+        yincrease: bool = False,
+        xincrease: bool = True,
+        bg_color: str = "black",
+        fg_color: str | None = None,
+        figure: "Figure | None" = None,
+        axes: "npt.NDArray[Any] | None" = None,
+        nrows: int | None = None,
+        ncols: int | None = None,
+        dpi: int | None = None,
+    ) -> "VolumePlotter":
+        """Plot this statistical map fully opaque, optionally over `bg_volume`.
+
+        Self is the statistical map. See
+        [`confusius.plotting.plot_stat_map`][confusius.plotting.plot_stat_map] for full
+        details.
+
+        Parameters
+        ----------
+        bg_volume : xarray.DataArray, optional
+            Background anatomical volume, plotted underneath this DataArray and
+            fully replaced by it wherever both are drawn. Must share `slice_mode`
+            and, after squeezing, the same display dimensions as this DataArray. If
+            not provided, this DataArray is plotted on its own.
+        slice_coords : list[float], optional
+            Coordinate values along `slice_mode` at which to extract slices. Slices
+            are selected by nearest-neighbour lookup. If not provided, all coordinate
+            values from `bg_volume` (or this DataArray when `bg_volume` is not
+            provided) along `slice_mode` are used.
+        slice_mode : str, default: "z"
+            Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`).
+            After slicing, each panel must be 2D.
+        bg_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`plot_volume`][confusius.plotting.plot_volume] for the background layer
+            (e.g. `cmap`, `vmin`, `vmax`, `norm`, `alpha`, `roi_labels`). Ignored when
+            `bg_volume` is not provided. Layout and text styling (`slice_coords`,
+            `slice_mode`, `show_titles`, `fontsize`, etc.) are controlled by this
+            method's own parameters instead, so that both layers share consistent
+            styling.
+        cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
+            Colormap for this DataArray.
+        vmax : float, optional
+            Symmetric colormap bound for this DataArray: the colormap spans
+            `[-vmax, vmax]`. If not provided, defaults to the 98th percentile of the
+            absolute value of this DataArray, computed over the full array rather
+            than just the displayed slices.
+        threshold : float, optional
+            Threshold applied to the absolute value of this DataArray. See
+            `threshold_mode` for the masking direction. If not provided, no
+            thresholding is applied.
+        threshold_mode : {"lower", "upper"}, default: "lower"
+            Controls how `threshold` is applied:
+
+            - `"lower"`: set pixels below `threshold` (in absolute value) to NaN.
+            - `"upper"`: set pixels above `threshold` (in absolute value) to NaN.
+
+        show_colorbar : bool, default: True
+            Whether to add a shared colorbar to the figure.
+        cbar_label : str, optional
+            Label for the colorbar.
+        show_titles : bool, default: True
+            Whether to display subplot titles showing the slice coordinate.
+        show_axis_labels : bool, default: True
+            Whether to display axis labels (with units when available).
+        show_axis_ticks : bool, default: True
+            Whether to display axis tick labels.
+        show_axes : bool, default: True
+            Whether to show all axis decorations (spines, ticks, labels). When
+            `False`, overrides `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels and the colorbar label use `0.9 * fontsize`; tick
+            labels use `0.85 * fontsize`. If not provided, uses the active Matplotlib
+            defaults.
+        yincrease : bool, default: False
+            Whether the y-axis increases upward (`True`) or downward (`False`).
+        xincrease : bool, default: True
+            Whether the x-axis increases to the right (`True`) or left (`False`).
+        bg_color : str, default: "black"
+            Background color for the figure and axes. Any matplotlib-compatible color
+            string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+        fg_color : str, optional
+            Color for text, labels, ticks, and spines. If not provided, derived
+            automatically from `bg_color` using the WCAG relative luminance formula
+            (white on dark backgrounds, black on light ones).
+        figure : matplotlib.figure.Figure, optional
+            Existing figure to draw into. If not provided, a new figure is created.
+        axes : numpy.ndarray, optional
+            Existing 2D array of `matplotlib.axes.Axes` to draw into. If not
+            provided, new axes are created inside `figure`.
+        nrows : int, optional
+            Number of rows in the subplot grid. If not provided, computed
+            automatically.
+        ncols : int, optional
+            Number of columns in the subplot grid. If not provided, computed
+            automatically.
+        dpi : int, optional
+            Figure resolution in dots per inch. Ignored when `figure` is provided.
+
+        Returns
+        -------
+        VolumePlotter
+            Object managing the figure, axes, and coordinate mapping for overlays.
+
+        Examples
+        --------
+        >>> import xarray as xr
+        >>> import confusius  # Register accessor.
+        >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
+        >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
+        >>> plotter = t_map.fusi.plot.stat_map(anatomical, slice_mode="z")
+        """
+        return plot_stat_map(
+            self._obj,
+            bg_volume,
+            slice_coords=slice_coords,
+            slice_mode=slice_mode,
+            bg_kwargs=bg_kwargs,
+            cmap=cmap,
+            vmax=vmax,
+            threshold=threshold,
+            threshold_mode=threshold_mode,
+            show_colorbar=show_colorbar,
+            cbar_label=cbar_label,
             show_titles=show_titles,
             show_axis_labels=show_axis_labels,
             show_axis_ticks=show_axis_ticks,
