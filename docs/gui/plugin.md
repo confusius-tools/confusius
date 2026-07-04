@@ -194,7 +194,8 @@ signals (from the current source mode) and imported signals:
 
 ## Events Panel
 
-The Events Panel annotates *periods of time*—not individual frames—following the [BIDS
+The Events Panel allows annotating *periods of time*—not individual frames—following the
+[BIDS
 events](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/events.html)
 convention (`onset`, `duration`, and an optional `trial_type`). Annotated events shade
 the [signal plot](#signals-panel) and are named in the time overlay while they are
