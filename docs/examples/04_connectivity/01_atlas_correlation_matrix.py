@@ -106,9 +106,9 @@ cf.plotting.plot_composite(
 )
 
 # %% [markdown]
-# A rigid transform is appropriate here: the recording and the template share the same
-# anatomy, so only a small residual translation/rotation should remain after
-# initialization.
+# We use an affine transform: on top of the rotation and translation a rigid
+# transform would allow, it also captures small scale and shear differences between
+# the recording and the template.
 
 # %%
 registered, affine, diagnostics = cf.registration.register_volume(
@@ -130,15 +130,17 @@ print(f"Stop condition: {diagnostics.stop_condition}")
 affine
 
 # %% [markdown]
-# The initialization was already close, so the refinement is small—compare the
-# overlay before and after registration.
+# The initialization was already close, so the refinement is small. Comparing the
+# overlay before and after registration, alignment is slightly better after the
+# affine refinement, most noticeably around the anterior choroidal arteries in the
+# bottom part of the field of view.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 fig.patch.set_facecolor(bg_color)
 for ax, moving_view, title in [
-    (axes[0], initialized, "Before"),
-    (axes[1], registered, "After"),
+    (axes[0], initialized, "Manual initialization"),
+    (axes[1], registered, "Affine registration refinement"),
 ]:
     cf.plotting.plot_composite(
         fixed,
