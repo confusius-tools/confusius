@@ -107,44 +107,57 @@ def _sanitize_labels(
 
 
 def _mask_triangle(
-    matrix: npt.NDArray[Any], tri: Literal["full", "lower", "diag"]
+    matrix: npt.NDArray[Any],
+    tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
 ) -> np.ma.MaskedArray:
-    """Mask the upper triangle of `matrix` according to `tri`.
+    """Mask part of `matrix` according to `tri`.
 
     Parameters
     ----------
     matrix : numpy.ndarray
         Square matrix to mask.
-    tri : {"full", "lower", "diag"}
-        Which part of the matrix to keep visible: `"lower"` excludes the diagonal,
-        `"diag"` includes it, `"full"` keeps everything.
+    tri : {"full", "lower", "diag_lower", "diag_upper", "upper"}
+        Which part of the matrix to keep visible: `"lower"` and `"upper"` exclude the
+        diagonal, `"diag_lower"` and `"diag_upper"` include it (on the lower and upper
+        side respectively), `"full"` keeps everything.
 
     Returns
     -------
     numpy.ma.MaskedArray
         `matrix` with the masked entries hidden from display.
     """
+    size = matrix.shape[0]
     if tri == "full":
-        return np.ma.masked_array(matrix, mask=np.zeros_like(matrix, dtype=bool))
-    k = -1 if tri == "lower" else 0
-    mask = ~np.tri(matrix.shape[0], k=k, dtype=bool)
+        mask = np.zeros((size, size), dtype=bool)
+    elif tri == "lower":
+        mask = ~np.tri(size, k=-1, dtype=bool)
+    elif tri == "diag_lower":
+        mask = ~np.tri(size, k=0, dtype=bool)
+    elif tri == "diag_upper":
+        mask = np.tri(size, k=-1, dtype=bool)
+    else:  # "upper"
+        mask = np.tri(size, k=0, dtype=bool)
     return np.ma.masked_array(matrix, mask=mask)
 
 
 def _draw_grid(
-    ax: "Axes", tri: Literal["full", "lower", "diag"], size: int, color: str
+    ax: "Axes",
+    tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
+    size: int,
+    color: str,
 ) -> None:
     """Draw grid lines separating matrix cells.
 
     Adapted from Nilearn's `_configure_grid` helper (see module docstring for
     attribution); the small offsets correct the same off-by-one line/cell alignment
-    issue.
+    issue. The `"upper"`/`"diag_upper"` branches mirror `"lower"`/`"diag_lower"` across
+    the diagonal.
 
     Parameters
     ----------
     ax : matplotlib.axes.Axes
         Axes containing the matrix image.
-    tri : {"full", "lower", "diag"}
+    tri : {"full", "lower", "diag_lower", "diag_upper", "upper"}
         Matrix triangle being displayed; determines which grid lines are drawn.
     size : int
         Number of rows (== number of columns) in the matrix.
@@ -158,11 +171,21 @@ def _draw_grid(
                 [offset + 0.5, offset + 0.5], [size - 0.5, offset + 0.5], color=color
             )
             ax.plot([offset + 0.5, -0.5], [offset + 0.5, offset + 0.5], color=color)
-        elif tri == "diag":
+        elif tri == "diag_lower":
             ax.plot(
                 [offset + 0.5, offset + 0.5], [size - 0.5, offset - 0.5], color=color
             )
             ax.plot([offset + 0.5, -0.5], [offset - 0.5, offset - 0.5], color=color)
+        elif tri == "diag_upper":
+            ax.plot(
+                [size - 0.5, offset - 0.5], [offset + 0.5, offset + 0.5], color=color
+            )
+            ax.plot([offset - 0.5, offset - 0.5], [offset + 0.5, -0.5], color=color)
+        elif tri == "upper":
+            ax.plot([offset + 0.5, offset + 0.5], [offset + 0.5, -0.5], color=color)
+            ax.plot(
+                [size - 0.5, offset + 0.5], [offset + 0.5, offset + 0.5], color=color
+            )
         else:
             ax.plot([offset + 0.5, offset + 0.5], [size - 0.5, -0.5], color=color)
             ax.plot([size - 0.5, -0.5], [offset + 0.5, offset + 0.5], color=color)
@@ -313,7 +336,7 @@ def plot_matrix(
     groups: "Sequence[Any] | None" = None,
     group_colors: "Mapping[Any, str] | None" = None,
     show_group_labels: bool = True,
-    tri: Literal["full", "lower", "diag"] = "full",
+    tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"] = "full",
     grid: "str | Literal[False]" = False,
     cmap: "str | Colormap" = "RdBu_r",
     vmin: float | None = None,
@@ -349,12 +372,22 @@ def plot_matrix(
         automatically from a qualitative colormap.
     show_group_labels : bool, default: True
         Whether to annotate each group's colored rectangle with its value.
-    tri : {"full", "lower", "diag"}, default: "full"
+    tri : {"full", "lower", "diag_lower", "diag_upper", "upper"}, default: "full"
         Which part of the matrix to display:
 
         - `"lower"`: only the part strictly below the diagonal.
-        - `"diag"`: the part below the diagonal, including it.
+        - `"diag_lower"`: the part below the diagonal, including it.
+        - `"diag_upper"`: the part above the diagonal, including it.
+        - `"upper"`: only the part strictly above the diagonal.
         - `"full"`: the entire matrix.
+
+        `"lower"`/`"diag_lower"` and `"upper"`/`"diag_upper"` are useful for
+        overlaying two matrices on the same axes (e.g. an estimate on one side and
+        its significance mask on the other): call `plot_matrix` twice, passing the
+        first call's `ax` to the second along with `show_colorbar=False`. Pass the
+        same `labels` to both calls: since the second call reuses `ax` directly
+        (rather than a new axes sharing it), it otherwise clears the labels the
+        first call set.
 
     grid : str or False, default: False
         Color of grid lines separating cells. `False` disables the grid.
@@ -410,6 +443,14 @@ def plot_matrix(
     >>> # Annotate groups of regions with colored rectangles.
     >>> groups = ["cortex"] * 4 + ["thalamus"] * 3 + ["hippocampus"] * 3
     >>> fig, ax = plot_matrix(corr, groups=groups)
+
+    >>> # Overlay two matrices, e.g. an estimate and its significance mask.
+    >>> pvalues = rng.uniform(size=(10, 10))
+    >>> labels = [f"region_{i}" for i in range(10)]
+    >>> fig, ax = plot_matrix(corr, labels=labels, tri="diag_lower")
+    >>> fig, ax = plot_matrix(
+    ...     pvalues, labels=labels, tri="upper", ax=ax, show_colorbar=False
+    ... )
     """
     import matplotlib.pyplot as plt
     from mpl_toolkits.axes_grid1 import make_axes_locatable

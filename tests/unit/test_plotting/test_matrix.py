@@ -174,11 +174,30 @@ class TestPlotMatrixBehaviour:
         cbar_axes = [axis for axis in fig.axes if axis is not ax]
         assert cbar_axes[0].yaxis.label.get_text() == "correlation"
 
-    @pytest.mark.parametrize("tri", ["full", "lower", "diag"])
+    @pytest.mark.parametrize(
+        "tri", ["full", "lower", "diag_lower", "diag_upper", "upper"]
+    )
     def test_grid_draws_lines_for_every_tri_mode(self, matplotlib_pyplot, tri):
         """grid draws separator lines regardless of the triangle mode."""
         _, ax = plot_matrix(_correlation_matrix(4), tri=tri, grid="gray")
         assert len(ax.lines) > 0
+
+    @pytest.mark.parametrize(
+        ("tri", "masked_upper"),
+        [("lower", True), ("diag_lower", True), ("diag_upper", False), ("upper", False)],
+    )
+    def test_tri_masks_expected_side(self, matplotlib_pyplot, tri, masked_upper):
+        """lower/diag_lower mask the strict upper triangle and vice versa."""
+        _, ax = plot_matrix(_correlation_matrix(4), tri=tri)
+        image_mask = ax.images[0].get_array().mask
+        assert bool(image_mask[0, 1]) == masked_upper
+        assert bool(image_mask[1, 0]) == (not masked_upper)
+
+    @pytest.mark.parametrize("tri", ["lower", "upper"])
+    def test_tri_strict_excludes_diagonal(self, matplotlib_pyplot, tri):
+        """lower/upper mask the diagonal; diag_lower/diag_upper keep it."""
+        _, ax = plot_matrix(_correlation_matrix(4), tri=tri)
+        assert bool(ax.images[0].get_array().mask[0, 0])
 
 
 class TestPlotMatrixVisualRegression:
@@ -223,6 +242,31 @@ class TestPlotMatrixVisualRegression:
             _correlation_matrix(6),
             labels=[f"r{i}" for i in range(6)],
             groups=groups,
-            tri="diag",
+            tri="diag_lower",
+        )
+        return fig
+
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_matrix_lower_upper_overlay(self, matplotlib_pyplot):
+        """Baseline test for overlaying two matrices via tri='diag_lower'/'upper'."""
+        labels = [f"r{i}" for i in range(6)]
+        rng = np.random.default_rng(1)
+        pvalues = rng.uniform(size=(6, 6))
+        fig, ax = plot_matrix(
+            _correlation_matrix(6), labels=labels, tri="diag_lower", cbar_label="corr"
+        )
+        plot_matrix(
+            pvalues,
+            labels=labels,
+            tri="upper",
+            ax=ax,
+            cmap="viridis",
+            vmin=0,
+            vmax=1,
+            show_colorbar=False,
         )
         return fig
