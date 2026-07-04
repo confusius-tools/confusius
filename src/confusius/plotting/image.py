@@ -15,6 +15,9 @@ from confusius.plotting._hover import (
     _normalize_roi_labels,
 )
 from confusius.plotting._utils import (
+    _auto_fg_color,
+    _get_distinct_colors,
+    _resolve_font_sizes,
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
 )
@@ -33,50 +36,6 @@ _BASE_SIZE = 4.0
 Actual figure size is computed as `(subplot_size * ncols + 1 inch for colorbar,
 subplot_size * nrows)` and then constrained to a maximum size.
 """
-
-
-def _relative_luminance(color: str) -> float:
-    """Compute WCAG 2.1 relative luminance for any matplotlib color string.
-
-    Parameters
-    ----------
-    color : str
-        Any matplotlib-compatible color string (e.g. `"black"`, `"#1a1a2e"`).
-
-    Returns
-    -------
-    float
-        Relative luminance in [0, 1], where 0 is darkest and 1 is lightest.
-
-    Notes
-    -----
-    Implements the WCAG 2.1 relative luminance definition:
-    https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
-    """
-    import matplotlib.colors as mcolors
-
-    def _linearize(c: float) -> float:
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-    r, g, b = mcolors.to_rgb(color)
-    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
-
-
-def _auto_fg_color(bg_color: str) -> str:
-    """Return white or black for maximum WCAG contrast against `bg_color`.
-
-    Parameters
-    ----------
-    bg_color : str
-        Any matplotlib-compatible background color string.
-
-    Returns
-    -------
-    str
-        `"white"` when the background is dark (relative luminance < 0.179),
-        `"black"` otherwise.
-    """
-    return "white" if _relative_luminance(bg_color) < 0.179 else "black"
 
 
 def _compute_grid_dims(
@@ -285,38 +244,6 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
         if units:
             label = f"{dim} ({units})"
     return label
-
-
-def _resolve_font_sizes(
-    fontsize: float | None,
-) -> tuple[float | None, float | None, float | None]:
-    """Resolve title, label, and tick font sizes from a base size.
-
-    Parameters
-    ----------
-    fontsize : float, optional
-        Base font size for plot text elements.
-
-    Returns
-    -------
-    title_fontsize : float, optional
-        Font size for subplot titles.
-    label_fontsize : float, optional
-        Font size for axis and colorbar labels.
-    tick_fontsize : float, optional
-        Font size for tick labels.
-    """
-    if fontsize is None:
-        return None, None, None
-    return fontsize, fontsize * 0.9, fontsize * 0.85
-
-
-def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
-    """Generate `n_colors` visually distinct colors."""
-    import matplotlib
-
-    cmap = matplotlib.colormaps["tab10" if n_colors <= 10 else "tab20"]
-    return [tuple(cmap(i % cmap.N)[:3]) for i in range(n_colors)]
 
 
 def _extract_slices(
