@@ -61,7 +61,7 @@ class TestPlotStatMapVisualRegression:
     def test_plot_stat_map_default(self, matplotlib_pyplot):
         """Baseline test for default plot_stat_map appearance (gray bg + RdBu_r overlay)."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
-        plotter = plot_stat_map(stat_map, bg_volume, slice_mode="z")
+        plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z")
         return plotter.figure
 
     @pytest.mark.mpl_image_compare(
@@ -73,7 +73,11 @@ class TestPlotStatMapVisualRegression:
         """Baseline test for thresholding subthreshold voxels transparent."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
         plotter = plot_stat_map(
-            stat_map, bg_volume, slice_mode="z", threshold=5.0, threshold_mode="lower"
+            stat_map,
+            bg_volume=bg_volume,
+            slice_mode="z",
+            threshold=5.0,
+            threshold_mode="lower",
         )
         return plotter.figure
 
@@ -94,7 +98,7 @@ class TestPlotStatMap:
         self, sample_3d_volume, matplotlib_pyplot
     ):
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, sample_3d_volume, slice_mode="z")
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["z"]
@@ -103,20 +107,32 @@ class TestPlotStatMap:
 
     def test_forwards_slice_mode(self, sample_3d_volume, matplotlib_pyplot):
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, sample_3d_volume, slice_mode="y")
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="y")
         assert plotter.slice_mode == "y"
         rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["y"]
 
-    def test_overlay_is_fully_opaque_by_default(self, sample_3d_volume, matplotlib_pyplot):
+    def test_overlay_is_fully_opaque_by_default(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, sample_3d_volume, slice_mode="z")
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         overlay = plotter.axes.ravel()[0].collections[-1]
         assert overlay.get_alpha() == 1.0
 
+    def test_explicit_alpha_blends_overlay_with_background(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        stat_map = _signed_stat_map(sample_3d_volume)
+        plotter = plot_stat_map(
+            stat_map, bg_volume=sample_3d_volume, slice_mode="z", alpha=0.5
+        )
+        overlay = plotter.axes.ravel()[0].collections[-1]
+        assert overlay.get_alpha() == 0.5
+
     def test_overlay_uses_rdbu_r_by_default(self, sample_3d_volume, matplotlib_pyplot):
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, sample_3d_volume, slice_mode="z")
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         overlay = plotter.axes.ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("RdBu_r")
 
@@ -124,7 +140,7 @@ class TestPlotStatMap:
         self, sample_3d_volume, matplotlib_pyplot
     ):
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, sample_3d_volume, slice_mode="z")
+        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         norm = plotter.axes.ravel()[0].collections[-1].norm
         expected_vmax = float(np.percentile(np.abs(stat_map.values), 98))
         assert norm.vmax == expected_vmax
@@ -132,7 +148,9 @@ class TestPlotStatMap:
 
     def test_explicit_vmax_overrides_default(self, sample_3d_volume, matplotlib_pyplot):
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, sample_3d_volume, slice_mode="z", vmax=5.0)
+        plotter = plot_stat_map(
+            stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmax=5.0
+        )
         norm = plotter.axes.ravel()[0].collections[-1].norm
         assert norm.vmax == 5.0
         assert norm.vmin == -5.0
@@ -141,7 +159,7 @@ class TestPlotStatMap:
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(
             stat_map,
-            sample_3d_volume,
+            bg_volume=sample_3d_volume,
             slice_mode="z",
             threshold=9.0,
             threshold_mode="lower",
@@ -156,7 +174,7 @@ class TestPlotStatMap:
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(
             stat_map,
-            sample_3d_volume,
+            bg_volume=sample_3d_volume,
             slice_mode="z",
             bg_kwargs={"cmap": "hot", "vmin": 0.0, "vmax": 1.0},
         )
@@ -182,11 +200,15 @@ class TestPlotStatMap:
 class TestStatMapAccessor:
     """Tests for the `data.fusi.plot.stat_map()` accessor wrapper."""
 
-    def test_accessor_forwards_to_plot_stat_map(self, sample_3d_volume, matplotlib_pyplot):
+    def test_accessor_forwards_to_plot_stat_map(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
         import confusius  # noqa: F401 - register accessor.
 
         stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = stat_map.fusi.plot.stat_map(sample_3d_volume, slice_mode="z")
+        plotter = stat_map.fusi.plot.stat_map(
+            bg_volume=sample_3d_volume, slice_mode="z"
+        )
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["z"]

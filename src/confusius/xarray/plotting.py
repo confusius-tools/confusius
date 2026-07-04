@@ -17,6 +17,7 @@ from confusius.plotting import (
 )
 
 if TYPE_CHECKING:
+    import numpy as np
     import numpy.typing as npt
     from matplotlib.axes import Axes
     from matplotlib.colors import Colormap, Normalize
@@ -363,7 +364,7 @@ class FUSIPlotAccessor:
         norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
-        alpha: float | None = None,
+        alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         show_titles: bool = True,
@@ -423,9 +424,10 @@ class FUSIPlotAccessor:
             Upper bound of the colormap. Defaults to the 98th percentile. Ignored
             when `norm` is provided explicitly (that is, not just inherited from data
             attributes).
-        alpha : float, optional
-            Opacity of the image. If not provided, the colormap's own alpha
-            channel is respected.
+        alpha : float or numpy.ndarray, optional
+            Opacity of the image, either a single value or a per-voxel array matching
+            the shape of the displayed slices. If not provided, the colormap's own
+            alpha channel is respected.
         show_colorbar : bool, default: True
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
@@ -636,7 +638,7 @@ class FUSIPlotAccessor:
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: list[float] | None = None,
         slice_mode: str = "z",
-        alpha: float | None = None,
+        alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -699,9 +701,10 @@ class FUSIPlotAccessor:
         slice_mode : str, default: "z"
             Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
             slicing, each panel must be 2D.
-        alpha : float, optional
-            Opacity of the composite image. If not provided, the image is fully
-            opaque.
+        alpha : float or numpy.ndarray, optional
+            Opacity of the composite image, either a single value or a per-voxel
+            array matching the shape of the displayed slices. If not provided, the
+            image is fully opaque.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -798,6 +801,7 @@ class FUSIPlotAccessor:
         bg_kwargs: "dict[str, Any] | None" = None,
         cmap: "str | Colormap | None" = "RdBu_r",
         vmax: float | None = None,
+        alpha: "float | npt.NDArray[np.floating]" = 1.0,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
         show_colorbar: bool = True,
@@ -817,7 +821,7 @@ class FUSIPlotAccessor:
         ncols: int | None = None,
         dpi: int | None = None,
     ) -> "VolumePlotter":
-        """Plot this statistical map fully opaque, optionally over `bg_volume`.
+        """Plot this statistical map, optionally over `bg_volume`.
 
         Self is the statistical map. See
         [`confusius.plotting.plot_stat_map`][confusius.plotting.plot_stat_map] for full
@@ -826,10 +830,13 @@ class FUSIPlotAccessor:
         Parameters
         ----------
         bg_volume : xarray.DataArray, optional
-            Background anatomical volume, plotted underneath this DataArray and
-            fully replaced by it wherever both are drawn. Must share `slice_mode`
-            and, after squeezing, the same display dimensions as this DataArray. If
-            not provided, this DataArray is plotted on its own.
+            Background anatomical volume, plotted underneath this DataArray. With
+            the default `alpha=1.0`, this DataArray fully covers `bg_volume`
+            wherever it has a value; `bg_volume` only shows through where this
+            DataArray is masked out by `threshold`. Lower `alpha` to blend the two
+            layers instead. Must share `slice_mode` and, after squeezing, the same
+            display dimensions as this DataArray. If not provided, this DataArray is
+            plotted on its own.
         slice_coords : list[float], optional
             Coordinate values along `slice_mode` at which to extract slices. Slices
             are selected by nearest-neighbour lookup. If not provided, all coordinate
@@ -853,6 +860,13 @@ class FUSIPlotAccessor:
             `[-vmax, vmax]`. If not provided, defaults to the 98th percentile of the
             absolute value of this DataArray, computed over the full array rather
             than just the displayed slices.
+        alpha : float or numpy.ndarray, default: 1.0
+            Opacity of this DataArray's overlay, either a single value or a
+            per-voxel array matching the shape of the displayed slices (e.g. to fade
+            out low-magnitude voxels instead of masking them out with `threshold`).
+            At the default `1.0`, this DataArray is fully opaque wherever it is not
+            masked by `threshold`. Lower it to blend with `bg_volume` (or, when
+            `bg_volume` is not provided, with the axes background).
         threshold : float, optional
             Threshold applied to the absolute value of this DataArray. See
             `threshold_mode` for the masking direction. If not provided, no
@@ -917,16 +931,20 @@ class FUSIPlotAccessor:
         >>> import confusius  # Register accessor.
         >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
         >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
-        >>> plotter = t_map.fusi.plot.stat_map(anatomical, slice_mode="z")
+        >>> plotter = t_map.fusi.plot.stat_map(bg_volume=anatomical, slice_mode="z")
+
+        >>> # Blend the overlay with the background instead of fully covering it.
+        >>> plotter = t_map.fusi.plot.stat_map(bg_volume=anatomical, alpha=0.6)
         """
         return plot_stat_map(
             self._obj,
-            bg_volume,
+            bg_volume=bg_volume,
             slice_coords=slice_coords,
             slice_mode=slice_mode,
             bg_kwargs=bg_kwargs,
             cmap=cmap,
             vmax=vmax,
+            alpha=alpha,
             threshold=threshold,
             threshold_mode=threshold_mode,
             show_colorbar=show_colorbar,

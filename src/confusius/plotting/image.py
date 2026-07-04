@@ -746,7 +746,7 @@ class VolumePlotter:
         vmax: float | None = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
-        alpha: float | None = None,
+        alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         roi_labels: dict[int, str] | None = None,
@@ -792,9 +792,10 @@ class VolumePlotter:
             Threshold value for masking.
         threshold_mode : {"lower", "upper"}, default: "lower"
             Whether to mask values below or above threshold.
-        alpha : float, optional
-            Opacity of the image. If not provided, the colormap's own alpha
-            channel is respected.
+        alpha : float or numpy.ndarray, optional
+            Opacity of the image, either a single value or a per-voxel array matching
+            the shape of the displayed slices. If not provided, the colormap's own
+            alpha channel is respected.
         show_colorbar : bool, default: True
             Whether to add a colorbar.
         cbar_label : str, optional
@@ -983,7 +984,7 @@ class VolumePlotter:
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
         slice_coords: Sequence[float] | None = None,
         match_coordinates: bool = False,
-        alpha: float | None = None,
+        alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -1051,9 +1052,10 @@ class VolumePlotter:
             If True, match slice coordinates to the stored coordinate mapping of an
             existing figure (for use as an overlay). If False, plot sequentially on
             a fresh grid of axes — the natural mode for a standalone composite plot.
-        alpha : float, optional
-            Opacity of the composite image. If not provided, the image is fully
-            opaque.
+        alpha : float or numpy.ndarray, optional
+            Opacity of the composite image, either a single value or a per-voxel
+            array matching the shape of the displayed slices. If not provided, the
+            image is fully opaque.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -1772,7 +1774,7 @@ def plot_volume(
     vmax: float | None = None,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
-    alpha: float | None = None,
+    alpha: "float | npt.NDArray[np.floating] | None" = None,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
     roi_labels: dict[int, str] | None = None,
@@ -1832,9 +1834,10 @@ def plot_volume(
         - `"lower"`: set pixels where `|data| < threshold` to NaN.
         - `"upper"`: set pixels where `|data| > threshold` to NaN.
 
-    alpha : float, optional
-        Opacity of the image. If not provided, the colormap's own alpha channel
-        is respected.
+    alpha : float or numpy.ndarray, optional
+        Opacity of the image, either a single value or a per-voxel array matching the
+        shape of the displayed slices. If not provided, the colormap's own alpha
+        channel is respected.
     show_colorbar : bool, default: True
         Whether to add a shared colorbar to the figure.
     cbar_label : str, optional
@@ -1986,7 +1989,7 @@ def plot_composite(
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
     slice_coords: Sequence[float] | None = None,
     slice_mode: str = "z",
-    alpha: float | None = None,
+    alpha: "float | npt.NDArray[np.floating] | None" = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
     show_axis_ticks: bool = True,
@@ -2054,9 +2057,10 @@ def plot_composite(
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
         panel must be 2D.
-    alpha : float, optional
-        Opacity of the composite image. If not provided, the image is fully
-        opaque.
+    alpha : float or numpy.ndarray, optional
+        Opacity of the composite image, either a single value or a per-voxel array
+        matching the shape of the displayed slices. If not provided, the image is
+        fully opaque.
     show_titles : bool, default: True
         Whether to display subplot titles showing the slice coordinate.
     show_axis_labels : bool, default: True
@@ -2169,13 +2173,14 @@ def plot_composite(
 
 def plot_stat_map(
     stat_map: xr.DataArray,
-    bg_volume: xr.DataArray | None = None,
     *,
+    bg_volume: xr.DataArray | None = None,
     slice_coords: list[float] | None = None,
     slice_mode: str = "z",
     bg_kwargs: "dict[str, Any] | None" = None,
     cmap: "str | Colormap | None" = "RdBu_r",
     vmax: float | None = None,
+    alpha: "float | npt.NDArray[np.floating]" = 1.0,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
     show_colorbar: bool = True,
@@ -2195,12 +2200,12 @@ def plot_stat_map(
     ncols: int | None = None,
     dpi: int | None = None,
 ) -> VolumePlotter:
-    """Plot a statistical map fully opaque, optionally over a background volume.
+    """Plot a statistical map, optionally over a background volume.
 
-    Encodes the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] +
-    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] used for
-    statistical overlays: a background anatomical volume, a fully opaque overlay, and a
-    symmetric colormap range so that zero maps to the middle of `cmap`.
+    Performs the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] to
+    show a background anatomical volume +
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] with a
+    symmetric colormap to overlay a statistical map.
 
     Parameters
     ----------
@@ -2208,9 +2213,11 @@ def plot_stat_map(
         Statistical map to plot. 3D volume data. Unitary dimensions (except
         `slice_mode`) are squeezed before processing.
     bg_volume : xarray.DataArray, optional
-        Background anatomical volume, plotted underneath `stat_map` and fully
-        replaced by it wherever both are drawn. Must share `slice_mode` and, after
-        squeezing, the same display dimensions as `stat_map`. If not provided,
+        Background anatomical volume, plotted underneath `stat_map`. With the default
+        `alpha=1.0`, `stat_map` fully covers `bg_volume` wherever it has a value;
+        `bg_volume` only shows through where `stat_map` is masked out by `threshold`.
+        Lower `alpha` to blend the two layers instead. Must share `slice_mode` and,
+        after squeezing, the same display dimensions as `stat_map`. If not provided,
         `stat_map` is plotted on its own.
     slice_coords : list[float], optional
         Coordinate values along `slice_mode` at which to extract slices. Slices are
@@ -2234,6 +2241,13 @@ def plot_stat_map(
         Symmetric colormap bound for `stat_map`: the colormap spans `[-vmax, vmax]`.
         If not provided, defaults to the 98th percentile of `|stat_map|`, computed
         over the full array rather than just the displayed slices.
+    alpha : float or numpy.ndarray, default: 1.0
+        Opacity of the `stat_map` overlay, either a single value or a per-voxel array
+        matching the shape of the displayed slices (e.g. to fade out low-magnitude
+        voxels instead of masking them out with `threshold`). At the default `1.0`,
+        `stat_map` is fully opaque wherever it is not masked by `threshold`. Lower it
+        to blend `stat_map` with `bg_volume` (or, when `bg_volume` is not provided,
+        with the axes background).
     threshold : float, optional
         Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
         direction. If not provided, no thresholding is applied.
@@ -2302,9 +2316,8 @@ def plot_stat_map(
     -----
     When `bg_volume` is provided, this is equivalent to calling
     `plot_volume(bg_volume, ...)` followed by
-    `plotter.add_volume(stat_map, alpha=1.0, vmin=-vmax, vmax=vmax, ...)`. Use those
-    functions directly for finer control, e.g. a different opacity for the overlay or
-    an asymmetric colormap range.
+    `plotter.add_volume(stat_map, alpha=alpha, vmin=-vmax, vmax=vmax, ...)`. Use those
+    functions directly for finer control, e.g. an asymmetric colormap range.
 
     Examples
     --------
@@ -2312,16 +2325,19 @@ def plot_stat_map(
     >>> from confusius.plotting import plot_stat_map
     >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
     >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
-    >>> plotter = plot_stat_map(t_map, anatomical, slice_mode="z")
+    >>> plotter = plot_stat_map(t_map, bg_volume=anatomical, slice_mode="z")
 
     >>> # Suppress subthreshold voxels and cap the colormap range explicitly.
     >>> plotter = plot_stat_map(
     ...     t_map,
-    ...     anatomical,
+    ...     bg_volume=anatomical,
     ...     threshold=3.0,
     ...     vmax=6.0,
     ...     cbar_label="t-statistic",
     ... )
+
+    >>> # Blend the overlay with the background instead of fully covering it.
+    >>> plotter = plot_stat_map(t_map, bg_volume=anatomical, alpha=0.6)
 
     >>> # No background: plot the statistical map on its own.
     >>> plotter = plot_stat_map(t_map, slice_mode="z")
@@ -2370,7 +2386,7 @@ def plot_stat_map(
         vmax=resolved_vmax,
         threshold=threshold,
         threshold_mode=threshold_mode,
-        alpha=1.0,
+        alpha=alpha,
         show_colorbar=show_colorbar,
         cbar_label=cbar_label,
         show_titles=show_titles,

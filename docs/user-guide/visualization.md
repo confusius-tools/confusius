@@ -396,19 +396,21 @@ Pass any keyword argument accepted by
 `data.fusi.plot.stat_map` accessor) wraps the
 [`plot_volume`][confusius.plotting.plot_volume] +
 [`add_volume`][confusius.plotting.VolumePlotter.add_volume] pattern used above for
-statistical overlays: a background anatomical volume, a fully opaque overlay, and a
-symmetric colormap range so that zero maps to the middle of a diverging colormap
-(`"RdBu_r"` by default):
+statistical overlays: a background anatomical volume, an overlay that is fully opaque
+by default, and a symmetric colormap range so that zero maps to the middle of a
+diverging colormap (`"RdBu_r"` by default):
 
 ```python
 plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
 ```
 
 `bg_volume` is optional — call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
-statistical map on its own. If `vmax` is not provided, it defaults to the 98th
-percentile of `|t_map|`, and the colormap spans `[-vmax, vmax]`. Pass `vmax` explicitly
-for a fixed range across figures, and `bg_kwargs` to customize the background layer's
-own colormap/range:
+statistical map on its own. With the default `alpha=1.0`, `t_map` fully covers `pwd`
+wherever it has a value; `pwd` only shows through where `t_map` is masked out by
+`threshold`. If `vmax` is not provided, it defaults to the 98th percentile of `|t_map|`,
+and the colormap spans `[-vmax, vmax]`. Pass `vmax` explicitly for a fixed range across
+figures, `alpha` to blend the overlay with the background instead of fully covering it,
+and `bg_kwargs` to customize the background layer's own colormap/range:
 
 ```python
 plotter = t_map.fusi.plot.stat_map(
@@ -416,14 +418,14 @@ plotter = t_map.fusi.plot.stat_map(
     slice_mode="z",
     threshold=3.0,
     vmax=6.0,
+    alpha=0.6,
     cbar_label="t-statistic",
     bg_kwargs={"cmap": "gray", "vmin": -20, "vmax": 0},
 )
 ```
 
-For finer control (e.g. a partially transparent overlay or an asymmetric range), call
-`plot_volume` and `add_volume` directly instead, as shown in the
-[Thresholding](#thresholding) section above.
+For finer control (e.g. an asymmetric range), call `plot_volume` and `add_volume`
+directly instead, as shown in the [Thresholding](#thresholding) section above.
 
 ## Overlaying Contours
 
