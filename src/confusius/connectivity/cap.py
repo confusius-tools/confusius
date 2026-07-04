@@ -495,6 +495,12 @@ class CAP(BaseEstimator):
         - `"euclidean"`: negative L2 distance to the assigned center (≤ 0, with 0
           meaning the volume lies exactly on the center).
 
+    References
+    ----------
+    [^1]:
+        Arthur, D. and Vassilvitskii, S. "k-means++: the advantages of careful
+        seeding." ACM-SIAM Symposium on Discrete Algorithms (SODA), 2007.
+
     Examples
     --------
     >>> import numpy as np
@@ -520,12 +526,6 @@ class CAP(BaseEstimator):
     ('time',)
     >>> caps.labels_[0].sizes["time"]
     200
-
-    References
-    ----------
-    [^1]:
-        Arthur, D. and Vassilvitskii, S. "k-means++: the advantages of careful
-        seeding." ACM-SIAM Symposium on Discrete Algorithms (SODA), 2007.
     """
 
     def __init__(
