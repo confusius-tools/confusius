@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import napari
 import numpy as np
@@ -38,6 +38,9 @@ from confusius._napari._theme import (
     style_plot_toolbar,
 )
 
+if TYPE_CHECKING:
+    from confusius._napari._events._store import EventStore
+
 _SOURCE_MODE = Literal["mouse", "points", "labels"]
 """Source modes for the plotter, determining where signals are extracted from."""
 
@@ -59,6 +62,9 @@ class SignalPlotter(QWidget):
         The active napari viewer instance.
     store : SignalStore | None, optional
         Shared store containing imported signals to overlay on the live plot.
+    event_store : EventStore | None, optional
+        Shared store of temporal events whose intervals are shaded as background
+        bands on the plot.
     """
 
     frame_clicked = Signal(float)
@@ -72,10 +78,13 @@ class SignalPlotter(QWidget):
         self,
         viewer: napari.Viewer,
         store: SignalStore | None = None,
+        event_store: EventStore | None = None,
     ) -> None:
         super().__init__()
         self._viewer = viewer
         self._signals_store = store
+        self._event_store = event_store
+        self._event_spans: list = []
         self._cursor_pos: np.ndarray | None = None
         self._current_layer = None
 
@@ -159,6 +168,8 @@ class SignalPlotter(QWidget):
                 self._show_instructions()
         else:
             self._show_instructions()
+        if self._event_store is not None:
+            self._event_store.changed.connect(self._on_events_changed)
         self._apply_theme()
 
     def sizeHint(self) -> QSize:
@@ -708,7 +719,65 @@ class SignalPlotter(QWidget):
             for spine in self._axes.spines.values():
                 spine.set_visible(False)
 
+        self._draw_event_spans()
         self._canvas.draw_idle()
+
+    # ------------------------------------------------------------------
+    # Event shading
+    # ------------------------------------------------------------------
+
+    def _on_events_changed(self) -> None:
+        """Reconcile event bands when the event store changes.
+
+        Always runs (not gated on whether a plot exists) so that disabling
+        shading reliably removes the bands. The blit background is invalidated
+        so the x-axis cursor does not restore a snapshot that still contains the
+        old bands.
+        """
+        self._bg = None
+        self._draw_event_spans()
+        self._canvas.draw_idle()
+
+    def _draw_event_spans(self) -> None:
+        """Shade the time intervals of stored events on the current axes.
+
+        Removes any previously drawn bands first, then draws one band per event
+        coloured by trial type. Bands are only drawn when shading is enabled, the
+        x-axis represents time, and the axes already contain plotted data lines.
+        """
+        for span in self._event_spans:
+            try:
+                span.remove()
+            except (ValueError, NotImplementedError):
+                # Already detached by a prior _axes.clear(); nothing to remove.
+                pass
+        self._event_spans = []
+
+        store = self._event_store
+        if store is None or not store.shade_signals:
+            return
+        # Events are expressed in seconds, so only shade when plotting against time.
+        if self._xaxis_dim is not None and self._xaxis_dim != TIME_DIM:
+            return
+        if not self._axes.get_lines():
+            return
+
+        for onset, duration, trial_type in store.iter_events():
+            color = store.color_for(trial_type)
+            if duration <= 0:
+                span = self._axes.axvline(
+                    onset, color=color, alpha=0.6, linewidth=1.0, zorder=0
+                )
+            else:
+                span = self._axes.axvspan(
+                    onset,
+                    onset + duration,
+                    color=color,
+                    alpha=0.15,
+                    linewidth=0,
+                    zorder=0,
+                )
+            self._event_spans.append(span)
 
     def _xaxis_dim_index(self, layer) -> int:
         """Return the data dimension index that corresponds to the x-axis.
@@ -727,28 +796,38 @@ class SignalPlotter(QWidget):
     def _get_xaxis_coords(self, layer) -> np.ndarray | None:
         """Return the x-axis coordinate array from the layer's xarray metadata.
 
+        The x-axis dimension is resolved via
+        [_xaxis_dim_index][confusius._napari._signals._plotter.SignalPlotter._xaxis_dim_index]
+        so the trace, label, and slider cursor all share the same dimension and
+        its world coordinates — including for data with no `time` dimension,
+        where the resolved dimension is the sliding (spatial) axis.
+
         Returns None when no xarray metadata is present or the DataArray has no
-        coordinate for the configured x-axis dimension.
+        coordinate for the resolved x-axis dimension.
         """
         da = layer.metadata.get("xarray")
         if da is None:
             return None
-        dim = self._xaxis_dim if self._xaxis_dim is not None else TIME_DIM
+        dim = list(da.dims)[self._xaxis_dim_index(layer)]
         if dim in da.coords:
             return np.asarray(da.coords[dim])
         return None
 
     def _get_xaxis_label(self, layer) -> str:
-        """Return the x-axis label for the selected axis.
+        """Return the x-axis label for the resolved x-axis dimension.
 
-        Reads `long_name` and `units` from the coordinate attributes
-        when available. Falls back to the dimension name with capitalized first letter.
+        The dimension is resolved via
+        [_xaxis_dim_index][confusius._napari._signals._plotter.SignalPlotter._xaxis_dim_index]
+        (matching [_get_xaxis_coords][confusius._napari._signals._plotter.SignalPlotter._get_xaxis_coords]).
+        Reads `long_name` and `units` from the coordinate attributes when
+        available. Falls back to the dimension name with a capitalized first
+        letter.
         """
         da = layer.metadata.get("xarray")
         if da is None:
             return "Index"
 
-        dim = self._xaxis_dim if self._xaxis_dim is not None else TIME_DIM
+        dim = list(da.dims)[self._xaxis_dim_index(layer)]
         if dim in da.coords:
             attrs = da.coords[dim].attrs
             name = attrs.get("long_name", dim.capitalize())
@@ -1347,6 +1426,9 @@ class SignalPlotter(QWidget):
 
         self._has_plot = True
         self._prev_ts_valid = True
+        # Event bands are not redrawn here: the fast path never clears the axes, so
+        # the bands drawn by the previous full render persist. They are refreshed only
+        # when the events themselves change, via _on_events_changed.
         self._canvas.draw_idle()
         return True
 
@@ -1387,9 +1469,17 @@ class SignalPlotter(QWidget):
         self._mouse_legend_signature = self._imported_signature(imported_signals)
         self._mouse_plot_dirty = True
         self._xaxis_coords = None
+        # Label from the active layer when one is present so the imported-only
+        # view stays consistent with the live plot; fall back to "Time" for
+        # standalone imported signals (typically a CSV time column).
+        xlabel = (
+            self._get_xaxis_label(self._current_layer)
+            if self._current_layer is not None
+            else "Time"
+        )
         self._style_valid_axes(
             colors,
-            "Time",
+            xlabel,
             "Z-score" if self._zscore else "Value",
             "Imported Signals",
             with_legend=len(imported_signals) > 1,
@@ -1398,6 +1488,7 @@ class SignalPlotter(QWidget):
         self._restore_view(saved_xlim, saved_ylim)
         self._has_plot = True
         self._prev_ts_valid = True
+        self._draw_event_spans()
         self._canvas.draw_idle()
         return True
 
@@ -1651,6 +1742,7 @@ class SignalPlotter(QWidget):
             with_legend=len(self._export_signals) > 1,
         )
         self._restore_view(saved_xlim, saved_ylim)
+        self._draw_event_spans()
         self._canvas.draw_idle()
 
     def _update_plot_from_points(self) -> None:
@@ -1944,6 +2036,11 @@ class SignalPlotter(QWidget):
                 pass
             try:
                 self._signals_store.changed.disconnect(self._sync_live_colors_to_layers)
+            except (RuntimeError, TypeError):
+                pass
+        if self._event_store is not None:
+            try:
+                self._event_store.changed.disconnect(self._on_events_changed)
             except (RuntimeError, TypeError):
                 pass
         self.set_points_layer(None)

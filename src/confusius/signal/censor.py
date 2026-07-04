@@ -174,9 +174,9 @@ def interpolate_samples(
 
     Control boundary behavior:
 
-    >>> # Default: extrapolate at boundaries.
+    >>> # Extrapolate at boundaries instead of leaving them as NaN.
     >>> interpolated = interpolate_samples(signals, sample_mask, fill_value="extrapolate")
-    >>> # Or fill with NaN outside kept range.
+    >>> # Or explicitly keep NaN outside the kept range.
     >>> interpolated_nan = interpolate_samples(signals, sample_mask, fill_value=np.nan)
     """
     if "time" not in signals.dims:

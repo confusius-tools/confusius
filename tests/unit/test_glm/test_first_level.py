@@ -9,6 +9,7 @@ from numpy.testing import assert_allclose
 from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
 from confusius.glm.first_level import _flatten_spatial
+from confusius.spatial import smooth_volume
 
 
 # -----------------------------------------------------------------------------
@@ -176,6 +177,23 @@ class TestFirstLevelModelFit:
         assert z_map.attrs["long_name"] == "zscore"
         assert z_map.attrs["cmap"] == "coolwarm"
 
+    def test_smoothing_fwhm_matches_presmoothed_input(self, fusi_data, events):
+        """smoothing_fwhm=f equals fitting on smooth_volume(data, f) and changes
+        the result relative to no smoothing."""
+        smoothed = FirstLevelModel(noise_model="ols", smoothing_fwhm=0.2)
+        smoothed.fit(fusi_data, events=events)
+        reference = FirstLevelModel(noise_model="ols")
+        reference.fit(smooth_volume(fusi_data, 0.2), events=events)
+        unsmoothed = FirstLevelModel(noise_model="ols")
+        unsmoothed.fit(fusi_data, events=events)
+
+        smoothed_map = smoothed.compute_contrast("A - B").values
+        assert_allclose(smoothed_map, reference.compute_contrast("A - B").values)
+        # Guard against a silent no-op: smoothing must change the contrast map.
+        assert not np.allclose(
+            smoothed_map, unsmoothed.compute_contrast("A - B").values
+        )
+
 
 # -----------------------------------------------------------------------------
 # FirstLevelModel: contrasts
@@ -264,9 +282,7 @@ class TestFirstLevelModelContrastMultiRun:
         # scale (mean of two unbiased estimates).
         assert np.median(np.abs(e_multi)) < 1.5 * np.median(np.abs(e_single))
 
-    def test_multi_run_per_run_confounds_pass_through(
-        self, rng, frame_times, events
-    ):
+    def test_multi_run_per_run_confounds_pass_through(self, rng, frame_times, events):
         """Per-run confounds passed as a list show up with their values in each
         run's design matrix."""
         data1 = xr.DataArray(

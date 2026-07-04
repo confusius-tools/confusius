@@ -29,6 +29,11 @@ class FUSIBIDSMetadata(BaseModel):
     This model represents the fUSI-BIDS sidecar metadata as defined in the fUSI-BIDS
     extension proposal (BEP) v0.0.12.
 
+    Notes
+    -----
+    At least one of `RepetitionTime` or `VolumeTiming` must be provided for valid
+    fUSI-BIDS timing information.
+
     Examples
     --------
     >>> metadata = FUSIBIDSMetadata(
@@ -36,11 +41,6 @@ class FUSIBIDSMetadata(BaseModel):
     ...     RepetitionTime=1.5,
     ...     Manufacturer="Verasonics",
     ... )
-
-    Notes
-    -----
-    At least one of `RepetitionTime` or `VolumeTiming` must be provided for valid
-    fUSI-BIDS timing information.
     """
 
     model_config = ConfigDict(
@@ -386,6 +386,11 @@ def validate_metadata(metadata: Mapping[str, Any]) -> "FUSIBIDSMetadata":
     FUSIBIDSMetadata
         Validated metadata model.
 
+    Raises
+    ------
+    ValidationError
+        If the metadata fails validation.
+
     Examples
     --------
     >>> metadata = validate_metadata({
@@ -394,11 +399,6 @@ def validate_metadata(metadata: Mapping[str, Any]) -> "FUSIBIDSMetadata":
     ... })
     >>> metadata.TaskName
     'rest'
-
-    Raises
-    ------
-    ValidationError
-        If the metadata fails validation.
     """
     return FUSIBIDSMetadata.model_validate(metadata)
 

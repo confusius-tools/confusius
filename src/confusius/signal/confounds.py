@@ -540,17 +540,27 @@ def compute_compcor_confounds(
     selected_voxels = np.ones(n_voxels, dtype=bool)
 
     if noise_mask is not None:
-        validate_mask(noise_mask, signals, "noise_mask")
-        # Stack the mask using the same spatial dimension order as the signals
-        # so positional indexing is consistent. Using .values.flatten() instead
-        # would silently select wrong voxels when the mask's dim order differs
-        # from spatial_dims.
-        noise_mask_aligned = (
-            noise_mask
-            if "space" in noise_mask.dims
-            else noise_mask.stack(space=spatial_dims)
-        )
-        selected_voxels = selected_voxels & noise_mask_aligned.values.astype(bool)
+        noise_mask = validate_mask(noise_mask, signals, "noise_mask")
+        # Stack the mask using the same spatial dimension order as the signals so
+        # positional indexing is consistent. Using .values.flatten() instead would
+        # silently select wrong voxels when the mask's dim order differs from
+        # spatial_dims. Fall back to a raw flatten when the mask doesn't carry all
+        # spatial_dims (e.g. a subset-dimension mask) so the size check below still
+        # reports a clear error instead of xarray's stack raising a KeyError.
+        if "space" in noise_mask.dims:
+            noise_mask_flat = noise_mask.values
+        elif set(spatial_dims).issubset(noise_mask.dims):
+            noise_mask_flat = noise_mask.stack(space=spatial_dims).values
+        else:
+            noise_mask_flat = noise_mask.values.flatten()
+
+        if noise_mask_flat.shape[0] != n_voxels:
+            raise ValueError(
+                f"Noise mask size ({noise_mask_flat.shape[0]}) does not match "
+                f"signals spatial size ({n_voxels})."
+            )
+
+        selected_voxels = np.logical_and(selected_voxels, noise_mask_flat)
 
     if variance_threshold is not None:
         if not (0 < variance_threshold < 1):

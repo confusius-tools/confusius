@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 import xarray as xr
-from numpy.testing import assert_allclose
+from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius.iq.process import (
     compute_axial_velocity_volume,
@@ -405,6 +405,121 @@ class TestProcessIqBlocks:
 
         assert result.shape == (4, 4, 6, 8)
 
+    def test_non_overlapping_windows_use_map_blocks(self, monkeypatch):
+        """Non-overlapping windows dispatch to `dask.array.map_blocks`."""
+        iq = da.from_array(np.arange(20 * 2 * 3).reshape(20, 2, 3), chunks=(5, 2, 3))
+        map_blocks_called = False
+        real_map_blocks = da.map_blocks
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        def wrapped_map_blocks(*args, **kwargs):
+            nonlocal map_blocks_called
+            map_blocks_called = True
+            return real_map_blocks(*args, **kwargs)
+
+        monkeypatch.setattr(da, "map_blocks", wrapped_map_blocks)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=5,
+        )
+
+        expected = np.stack(
+            [iq.compute()[i : i + 5].mean(axis=0) for i in range(0, 20, 5)], axis=0
+        )
+
+        assert map_blocks_called
+        assert_allclose(result.compute(), expected)
+
+    def test_non_overlapping_windows_with_drop_axis_use_map_blocks(self, monkeypatch):
+        """Non-overlapping windows preserve drop_axis behavior with `map_blocks`."""
+        iq = da.from_array(
+            np.arange(20 * 2 * 3 * 4).reshape(20, 2, 3, 4),
+            chunks=(5, 2, 3, 4),
+        )
+        map_blocks_called = False
+        real_map_blocks = da.map_blocks
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.sum(axis=(1, 2, 3))
+
+        def wrapped_map_blocks(*args, **kwargs):
+            nonlocal map_blocks_called
+            map_blocks_called = True
+            return real_map_blocks(*args, **kwargs)
+
+        monkeypatch.setattr(da, "map_blocks", wrapped_map_blocks)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=5,
+            drop_axis=(1, 2, 3),
+        )
+
+        expected = iq.compute().sum(axis=(1, 2, 3))
+
+        assert map_blocks_called
+        assert_array_equal(result.compute(), expected)
+
+    def test_overlapping_windows_match_reference_implementation(self):
+        """Overlapping windows match a naive sliding-window reference."""
+        iq = da.from_array(np.arange(21 * 2 * 3).reshape(21, 2, 3), chunks=(5, 2, 3))
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=2,
+        )
+
+        iq_values = iq.compute()
+        expected = np.stack(
+            [
+                iq_values[start : start + 5].mean(axis=0)
+                for start in range(0, 21 - 5 + 1, 2)
+            ],
+            axis=0,
+        )
+
+        assert_allclose(result.compute(), expected)
+
+    def test_overlapping_windows_match_reference_with_spatial_chunks(self):
+        """Overlapping windows remain correct for spatially chunked inputs."""
+        iq = da.from_array(
+            np.arange(21 * 4 * 6 * 8).reshape(21, 4, 6, 8),
+            chunks=(5, 2, 3, 4),
+        )
+
+        def process_func(block: np.ndarray, **kwargs) -> np.ndarray:
+            return block.mean(axis=0, keepdims=True)
+
+        result = process_iq_blocks(
+            iq,
+            process_func=process_func,
+            window_width=5,
+            window_stride=2,
+        )
+
+        iq_values = iq.compute()
+        expected = np.stack(
+            [
+                iq_values[start : start + 5].mean(axis=0)
+                for start in range(0, 21 - 5 + 1, 2)
+            ],
+            axis=0,
+        )
+
+        assert_allclose(result.compute(), expected)
+
     def test_stride_greater_than_width_raises(self, sample_iq_dataarray):
         """window_stride > window_width raises ValueError."""
         iq = sample_iq_dataarray
@@ -489,6 +604,45 @@ class TestProcessIqToPowerDoppler:
         ] == pytest.approx(0.2)
         assert result.attrs["power_doppler_integration_stride"] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
+
+    def test_chunked_overlapping_windows_match_reference_implementation(
+        self, sample_iq_dataarray
+    ) -> None:
+        """Chunked overlapping power Doppler windows match a naive reference."""
+        iq = sample_iq_dataarray.copy(
+            data=da.from_array(sample_iq_dataarray.values, chunks=(5, 4, 6, 8))
+        )
+
+        result = process_iq_to_power_doppler(
+            iq,
+            clutter_window_width=6,
+            clutter_window_stride=1,
+            doppler_window_width=2,
+            doppler_window_stride=2,
+        ).compute()
+
+        expected = np.concatenate(
+            [
+                compute_power_doppler_volume(
+                    sample_iq_dataarray.values[start : start + 6],
+                    doppler_window_width=2,
+                    doppler_window_stride=2,
+                )
+                for start in range(0, sample_iq_dataarray.sizes["time"] - 6 + 1)
+            ],
+            axis=0,
+        )
+        expected_times, _ = compute_processed_volume_timings(
+            sample_iq_dataarray,
+            clutter_window_width=6,
+            clutter_window_stride=1,
+            inner_window_width=2,
+            inner_window_stride=2,
+        )
+
+        assert result.sizes["time"] == expected.shape[0] == expected_times.shape[0]
+        assert_allclose(result.values, expected)
+        assert_allclose(result.coords["time"].values, expected_times)
 
     def test_butterworth_uses_time_coord_step_as_fs(self, sample_iq_dataarray):
         """Butterworth filter design uses the time coordinate step, not scanner provenance."""

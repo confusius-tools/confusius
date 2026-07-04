@@ -132,6 +132,29 @@ class TestPlotVolume:
         assert collection.norm.vmin == pytest.approx(-3.0)
         assert collection.norm.vmax == pytest.approx(3.0)
 
+    def test_default_alpha_preserves_cmap_alpha(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Default alpha (None) lets a colormap's own alpha channel through."""
+        from matplotlib.colors import ListedColormap
+
+        # Semi-transparent colormap; the old alpha=1.0 default would erase it.
+        cmap = ListedColormap([(1.0, 0.0, 0.0, 0.3), (0.0, 0.0, 1.0, 0.7)])
+        z_coord = sample_3d_volume.coords["z"].values[0]
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            cmap=cmap,
+            show_colorbar=False,
+        )
+
+        quadmesh = plotter.axes[0, 0].collections[0]
+        quadmesh.update_scalarmappable()
+        alphas = np.unique(quadmesh.get_facecolor()[:, 3])
+        assert alphas.size > 0
+        assert np.all(np.isclose(alphas[:, None], [0.3, 0.7]).any(axis=1))
+
     def test_colorbar_added_by_default(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume adds a colorbar when show_colorbar=True (default)."""
         z_coord = sample_3d_volume.coords["z"].values[0]

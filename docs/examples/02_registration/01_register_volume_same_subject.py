@@ -60,10 +60,11 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
 
 
 fixed = _load_angio_for_registration(sessions[0])
-moving = _load_angio_for_registration(sessions[1])
 
 fixed
 # %%
+moving = _load_angio_for_registration(sessions[1])
+
 moving
 
 # %% [markdown]
@@ -112,7 +113,7 @@ cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 # !!! warning "Registration is sensitive to its arguments"
 #     The result depends heavily on the choice of `transform_type`, `metric`,
 #     `learning_rate`, `number_of_iterations`, `convergence_window_size`,
-#     `centering_initialization`, and the multi-resolution settings
+#     `initialization`, and the multi-resolution settings
 #     (`use_multi_resolution`, `shrink_factors`, `smoothing_sigmas`). The values used in
 #     this example were empirically found to work well in this case, but you should
 #     definitely try different arguments (start with the default!) if the result is not

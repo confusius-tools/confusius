@@ -37,7 +37,9 @@ def test_scale_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     assert calls["power"] == (sample_3dt_volume, 2.0)
 
 
-def test_extract_wrappers_forward_calls(monkeypatch, sample_3dt_volume, sample_roi_labels):
+def test_extract_wrappers_forward_calls(
+    monkeypatch, sample_3dt_volume, sample_roi_labels
+):
     """Extract accessor methods forward arguments to extraction functions."""
     expected = xr.DataArray(np.array([1.0]), dims=["k"])
     mask = sample_roi_labels > 0
@@ -59,7 +61,10 @@ def test_extract_wrappers_forward_calls(monkeypatch, sample_3dt_volume, sample_r
     monkeypatch.setattr("confusius.extract.mask.extract_with_mask", _with_mask)
     monkeypatch.setattr("confusius.extract.reconstruction.unmask", _unmask)
 
-    assert sample_3dt_volume.fusi.extract.with_labels(sample_roi_labels, reduction="sum") is expected
+    assert (
+        sample_3dt_volume.fusi.extract.with_labels(sample_roi_labels, reduction="sum")
+        is expected
+    )
     assert calls["labels"] == (sample_3dt_volume, sample_roi_labels, "sum")
 
     assert sample_3dt_volume.fusi.extract.with_mask(mask) is expected
@@ -72,7 +77,7 @@ def test_extract_wrappers_forward_calls(monkeypatch, sample_3dt_volume, sample_r
 def test_affine_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     """Affine accessor methods forward arguments to helper functions."""
     expected_to = np.eye(4)
-    expected_apply = sample_3dt_volume
+    expected_apply = (sample_3dt_volume, np.eye(4))
     other = sample_3dt_volume.copy()
     affine = np.diag([1.0, 2.0, 3.0, 1.0])
     calls: dict[str, tuple] = {}
@@ -91,7 +96,7 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_3dt_volume):
     assert sample_3dt_volume.fusi.affine.to(other, via="physical_to_lab") is expected_to
     assert calls["to"] == (sample_3dt_volume, other, "physical_to_lab")
 
-    assert sample_3dt_volume.fusi.affine.apply(affine, inplace=True) is expected_apply
+    assert sample_3dt_volume.fusi.affine.apply(affine, inplace=True) == expected_apply
     assert calls["apply"] == (sample_3dt_volume, affine, True)
 
 
@@ -122,17 +127,20 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
         coords={k: sample_3dt_volume_complex.coords[k] for k in ("z", "y", "x")},
     )
 
-    assert sample_3dt_volume_complex.fusi.iq.process_to_power_doppler(
-        clutter_window_width=11,
-        clutter_window_stride=7,
-        filter_method="butterworth",
-        clutter_mask=mask,
-        low_cutoff=30.5,
-        high_cutoff=80.0,
-        butterworth_order=6,
-        doppler_window_width=9,
-        doppler_window_stride=3,
-    ) is expected
+    assert (
+        sample_3dt_volume_complex.fusi.iq.process_to_power_doppler(
+            clutter_window_width=11,
+            clutter_window_stride=7,
+            filter_method="butterworth",
+            clutter_mask=mask,
+            low_cutoff=30.5,
+            high_cutoff=80.0,
+            butterworth_order=6,
+            doppler_window_width=9,
+            doppler_window_stride=3,
+        )
+        is expected
+    )
     assert calls["pwd"] == (
         sample_3dt_volume_complex,
         {
@@ -148,21 +156,24 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
         },
     )
 
-    assert sample_3dt_volume_complex.fusi.iq.process_to_axial_velocity(
-        clutter_window_width=13,
-        clutter_window_stride=5,
-        filter_method="svd_energy",
-        clutter_mask=mask,
-        low_cutoff=2,
-        high_cutoff=12,
-        butterworth_order=2,
-        velocity_window_width=8,
-        velocity_window_stride=4,
-        lag=2,
-        absolute_velocity=True,
-        spatial_kernel=3,
-        estimation_method="angle_average",
-    ) is expected
+    assert (
+        sample_3dt_volume_complex.fusi.iq.process_to_axial_velocity(
+            clutter_window_width=13,
+            clutter_window_stride=5,
+            filter_method="svd_energy",
+            clutter_mask=mask,
+            low_cutoff=2,
+            high_cutoff=12,
+            butterworth_order=2,
+            velocity_window_width=8,
+            velocity_window_stride=4,
+            lag=2,
+            absolute_velocity=True,
+            spatial_kernel=3,
+            estimation_method="angle_average",
+        )
+        is expected
+    )
     assert calls["vel"] == (
         sample_3dt_volume_complex,
         {
@@ -210,31 +221,36 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
         return volumewise_result
 
     monkeypatch.setattr("confusius.xarray.registration.register_volume", _to_volume)
-    monkeypatch.setattr("confusius.xarray.registration.register_volumewise", _volumewise)
+    monkeypatch.setattr(
+        "confusius.xarray.registration.register_volumewise", _volumewise
+    )
 
     fixed = sample_3d_volume.copy()
-    assert sample_3d_volume.fusi.register.to_volume(
-        fixed,
-        transform="affine",
-        metric="mattes_mi",
-        number_of_histogram_bins=40,
-        learning_rate=0.2,
-        number_of_iterations=25,
-        convergence_minimum_value=1e-4,
-        convergence_window_size=4,
-        initialization="moments",
-        optimizer_weights=[0, 0, 1, 1, 1, 1],
-        mesh_size=(3, 4, 5),
-        use_multi_resolution=True,
-        shrink_factors=(4, 2, 1),
-        smoothing_sigmas=(3, 1, 0),
-        resample=True,
-        resample_interpolation="bspline",
-        show_progress=True,
-        plot_metric=False,
-        plot_composite=False,
-        fill_value=-1.0,
-    ) is reg_result
+    assert (
+        sample_3d_volume.fusi.register.to_volume(
+            fixed,
+            transform="affine",
+            metric="mattes_mi",
+            number_of_histogram_bins=40,
+            learning_rate=0.2,
+            number_of_iterations=25,
+            convergence_minimum_value=1e-4,
+            convergence_window_size=4,
+            initialization="center_moments",
+            optimizer_weights=[0, 0, 1, 1, 1, 1],
+            mesh_size=(3, 4, 5),
+            use_multi_resolution=True,
+            shrink_factors=(4, 2, 1),
+            smoothing_sigmas=(3, 1, 0),
+            resample=True,
+            resample_interpolation="bspline",
+            show_progress=True,
+            plot_metric=False,
+            plot_composite=False,
+            fill_value=-1.0,
+        )
+        is reg_result
+    )
     assert calls["to_volume"] == (
         sample_3d_volume,
         fixed,
@@ -246,7 +262,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
             "number_of_iterations": 25,
             "convergence_minimum_value": 1e-4,
             "convergence_window_size": 4,
-            "centering_initialization": "moments",
+            "initialization": "center_moments",
             "optimizer_weights": [0, 0, 1, 1, 1, 1],
             "mesh_size": (3, 4, 5),
             "use_multi_resolution": True,
@@ -261,25 +277,28 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
         },
     )
 
-    assert sample_3d_volume.fusi.register.volumewise(
-        reference_time=2,
-        n_jobs=1,
-        transform="translation",
-        metric="mattes_mi",
-        number_of_histogram_bins=20,
-        learning_rate=0.15,
-        number_of_iterations=30,
-        convergence_minimum_value=1e-5,
-        convergence_window_size=5,
-        initialization="none",
-        optimizer_weights=[1, 1, 1, 0, 0, 1],
-        use_multi_resolution=True,
-        shrink_factors=(3, 1),
-        smoothing_sigmas=(2, 0),
-        resample_interpolation="bspline",
-        show_progress=False,
-        keep_diagnostics=True,
-    ) is volumewise_result
+    assert (
+        sample_3d_volume.fusi.register.volumewise(
+            reference_time=2,
+            n_jobs=1,
+            transform="translation",
+            metric="mattes_mi",
+            number_of_histogram_bins=20,
+            learning_rate=0.15,
+            number_of_iterations=30,
+            convergence_minimum_value=1e-5,
+            convergence_window_size=5,
+            initialization=None,
+            optimizer_weights=[1, 1, 1, 0, 0, 1],
+            use_multi_resolution=True,
+            shrink_factors=(3, 1),
+            smoothing_sigmas=(2, 0),
+            resample_interpolation="bspline",
+            show_progress=False,
+            keep_diagnostics=True,
+        )
+        is volumewise_result
+    )
     assert calls["volumewise"] == (
         sample_3d_volume,
         {
@@ -292,7 +311,7 @@ def test_registration_wrappers_forward_calls(monkeypatch, sample_3d_volume):
             "number_of_iterations": 30,
             "convergence_minimum_value": 1e-5,
             "convergence_window_size": 5,
-            "initialization": "none",
+            "initialization": None,
             "optimizer_weights": [1, 1, 1, 0, 0, 1],
             "use_multi_resolution": True,
             "shrink_factors": (3, 1),
@@ -455,24 +474,21 @@ def test_plot_wrappers_forward_calls(monkeypatch, sample_3d_volume, sample_roi_l
     assert sample_3d_volume.fusi.plot.labels_from_layer("layer") is sample_roi_labels
     assert calls["labels"] == ("layer", sample_3d_volume)
 
-    assert (
-        sample_3d_volume.fusi.plot.carpet(
-            mask=sample_roi_labels > 0,
-            detrend_order=1,
-            standardize=False,
-            cmap="viridis",
-            vmin=-1.0,
-            vmax=2.0,
-            decimation_threshold=None,
-            figsize=(6, 4),
-            title="carpet",
-            fontsize=12,
-            bg_color="black",
-            fg_color="white",
-            ax="existing_ax",
-        )
-        == ("fig", "ax")
-    )
+    assert sample_3d_volume.fusi.plot.carpet(
+        mask=sample_roi_labels > 0,
+        detrend_order=1,
+        standardize=False,
+        cmap="viridis",
+        vmin=-1.0,
+        vmax=2.0,
+        decimation_threshold=None,
+        figsize=(6, 4),
+        title="carpet",
+        fontsize=12,
+        bg_color="black",
+        fg_color="white",
+        ax="existing_ax",
+    ) == ("fig", "ax")
     assert calls["carpet"][0] is sample_3d_volume
     assert calls["carpet"][1]["detrend_order"] == 1
 
