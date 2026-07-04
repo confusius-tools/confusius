@@ -79,6 +79,16 @@ class TestPlotMatrixBehaviour:
         _, ax = plot_matrix(_correlation_matrix(3), labels=[])
         assert ax.get_xticks().size == 0
 
+    def test_blank_labels_with_groups_do_not_crash(self, matplotlib_pyplot):
+        """groups + all-blank labels: the y tick labels have no rendered extent.
+
+        Regression case for _y_tick_label_width_inches, which must fall back to a
+        default pad when get_tightbbox returns None (blank labels have no bbox).
+        """
+        groups = ["cortex"] * 2 + ["thalamus"] * 2
+        fig, ax = plot_matrix(_correlation_matrix(4), labels=["", "", "", ""], groups=groups)
+        assert len(fig.axes) > 1
+
     def test_symmetric_default_vmax(self, matplotlib_pyplot):
         """With no explicit vmin/vmax, the colormap is centered on zero."""
         matrix = np.array([[0.0, -0.8], [-0.8, 0.0]])
