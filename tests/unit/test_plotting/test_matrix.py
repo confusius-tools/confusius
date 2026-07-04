@@ -66,6 +66,19 @@ class TestPlotMatrixBehaviour:
         _, ax = plot_matrix(matrix)
         assert [t.get_text() for t in ax.get_xticklabels()] == ["a", "b", "c"]
 
+    def test_dataarray_without_coordinate_has_no_default_labels(
+        self, matplotlib_pyplot
+    ):
+        """A DataArray with no coordinate on its first dim falls back to no labels."""
+        matrix = xr.DataArray(_correlation_matrix(3), dims=["region", "region2"])
+        _, ax = plot_matrix(matrix)
+        assert ax.get_xticks().size == 0
+
+    def test_empty_labels_list_is_treated_as_no_labels(self, matplotlib_pyplot):
+        """An empty labels list disables ticks, same as labels=False."""
+        _, ax = plot_matrix(_correlation_matrix(3), labels=[])
+        assert ax.get_xticks().size == 0
+
     def test_symmetric_default_vmax(self, matplotlib_pyplot):
         """With no explicit vmin/vmax, the colormap is centered on zero."""
         matrix = np.array([[0.0, -0.8], [-0.8, 0.0]])
@@ -100,6 +113,37 @@ class TestPlotMatrixBehaviour:
         """Without groups, no extra axes are added beyond the colorbar."""
         fig, ax = plot_matrix(_correlation_matrix(6), show_colorbar=False)
         assert len(fig.axes) == 1
+
+    def test_show_group_labels_false_omits_annotations(self, matplotlib_pyplot):
+        """show_group_labels=False draws the color strips without text annotations."""
+        groups = ["cortex"] * 3 + ["thalamus"] * 3
+        fig, ax = plot_matrix(
+            _correlation_matrix(6),
+            groups=groups,
+            show_group_labels=False,
+            show_colorbar=False,
+        )
+        group_axes = [axis for axis in fig.axes if axis is not ax]
+        assert all(len(axis.texts) == 0 for axis in group_axes)
+
+    def test_reuses_provided_axes(self, matplotlib_pyplot):
+        """plot_matrix draws on a caller-provided Axes instead of creating a figure."""
+        fig, ax = matplotlib_pyplot.subplots()
+        returned_figure, returned_ax = plot_matrix(_correlation_matrix(4), ax=ax)
+        assert returned_ax is ax
+        assert returned_figure is fig
+
+    def test_cbar_label_is_set(self, matplotlib_pyplot):
+        """cbar_label sets the colorbar's axis label."""
+        fig, ax = plot_matrix(_correlation_matrix(4), cbar_label="correlation")
+        cbar_axes = [axis for axis in fig.axes if axis is not ax]
+        assert cbar_axes[0].yaxis.label.get_text() == "correlation"
+
+    @pytest.mark.parametrize("tri", ["full", "lower", "diag"])
+    def test_grid_draws_lines_for_every_tri_mode(self, matplotlib_pyplot, tri):
+        """grid draws separator lines regardless of the triangle mode."""
+        _, ax = plot_matrix(_correlation_matrix(4), tri=tri, grid="gray")
+        assert len(ax.lines) > 0
 
 
 class TestPlotMatrixVisualRegression:
