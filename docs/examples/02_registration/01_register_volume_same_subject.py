@@ -28,8 +28,6 @@ import matplotlib.pyplot as plt
 import xarray as xr
 
 import confusius as cf
-from confusius.datasets import fetch_cybis_pereira_2026
-from confusius.registration import register_volume
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -38,7 +36,7 @@ xr.set_options(display_expand_data=False)
 
 sessions = ["20220523", "20220524"]
 acq = "slice32"
-bids_root = fetch_cybis_pereira_2026(
+bids_root = cf.datasets.fetch_cybis_pereira_2026(
     datasets="rawdata",
     subjects="rat75",
     sessions=sessions,
@@ -123,7 +121,7 @@ cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 #     until you get a stable, well-converged result.
 
 # %%
-registered, transform, diagnostics = register_volume(
+registered, transform, diagnostics = cf.registration.register_volume(
     moving=moving,
     fixed=fixed,
     transform_type="rigid",

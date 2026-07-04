@@ -30,22 +30,13 @@ import numpy as np
 import xarray as xr
 
 import confusius as cf
-from confusius.atlas import Atlas
-from confusius.connectivity import ConnectivityMatrix
-from confusius.datasets import (
-    fetch_nunez_elizalde_2022,
-    fetch_template_pepe_mariani_2026,
-)
-from confusius.extract import extract_with_labels
-from confusius.plotting import plot_matrix
-from confusius.registration import register_volume, resample_like
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 xr.set_options(display_expand_data=False)
 
-bids_root = fetch_nunez_elizalde_2022(
+bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022",
     sessions="20201007",
     tasks="spontaneous",
@@ -59,10 +50,13 @@ data_path = (
     / "fusi"
     / "sub-CR022_ses-20201007_task-spontaneous_acq-slice02_pwd.nii.gz"
 )
-data = cf.load(data_path)
+# The recording's timepoints are not perfectly uniformly spaced (a common trait of raw
+# scanner timestamps), so we resample to a uniform grid before any time-domain
+# processing (filtering below requires it).
+data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
-template = fetch_template_pepe_mariani_2026().compute()
+template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
 
 data
 # %%
@@ -100,7 +94,9 @@ initialization = np.linalg.inv(napari_affine)
 target_z = napari_affine[0, 3] + float(moving.z.values[0])
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0))
 
-initialized = resample_like(moving, fixed, initialization, default_value=float(moving.min()))
+initialized = cf.registration.resample_like(
+    moving, fixed, initialization, default_value=float(moving.min())
+)
 cf.plotting.plot_composite(
     fixed,
     initialized,
@@ -115,12 +111,16 @@ cf.plotting.plot_composite(
 # initialization.
 
 # %%
-registered, affine, diagnostics = register_volume(
+registered, affine, diagnostics = cf.registration.register_volume(
     moving=moving,
     fixed=fixed,
-    transform_type="rigid",
+    transform_type="affine",
     metric="correlation",
+    convergence_window_size=100,
+    number_of_iterations=500,
+    learning_rate=1,
     initialization=initialization,
+    show_progress=True,
 )
 
 print(f"Initial metric: {diagnostics.metric_values[0]:.4f}")
@@ -164,7 +164,7 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = Atlas.from_brainglobe("allen_mouse_100um")
+atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um")
 atlas_native = atlas.resample_like(moving, subject_to_atlas)
 
 plotter = cf.plotting.plot_volume(
@@ -179,34 +179,72 @@ plotter.add_contours(atlas_native.annotation)
 # Allen ontology (e.g. `"SSp-bfd"`) and automatically aggregates every descendant
 # region, so we can request a handful of coarse regions per area of interest instead of
 # individual cortical layers or thalamic nuclei. We pick three regions each from
-# cortex, hippocampus, thalamus, and hypothalamus, keeping the list ordered by area so
-# that `groups` below can annotate contiguous blocks.
+# cortex, hippocampus, thalamus, and hypothalamus.
+#
+# We extract left and right hemispheres separately via `get_masks`'s `sides` argument:
+# combining both sides into one mask would average left/right signals together and
+# hide interhemispheric differences. Each region's `rid` is otherwise identical across
+# hemispheres, so the two `extract_with_labels` calls must run separately (one per
+# side)—a single stacked mask with both sides would have duplicate region ids across
+# layers. Within each area, acronyms are listed medial-to-lateral; the left hemisphere
+# is ordered lateral-to-medial and the right medial-to-lateral, so each area block
+# reads as one continuous sweep across the slice, meeting at the midline in the middle.
 
 # %%
 groups = {
-    "cortex": ["MOp", "SSp-bfd", "RSPv"],
-    "hippocampus": ["CA2", "CA3", "DG"],
-    "thalamus": ["VPM", "PO", "RT"],
-    "hypothalamus": ["ZI", "LHA", "PH"],
+    "cortex": ["RSPv", "MOp", "SSp-bfd"],
+    "hippocampus": ["DG", "CA3", "CA2"],
+    "thalamus": ["PO", "VPM", "RT"],
+    "hypothalamus": ["PH", "LHA", "ZI"],
 }
-region_order = [acronym for acronyms in groups.values() for acronym in acronyms]
-group_labels = [area for area, acronyms in groups.items() for _ in acronyms]
+region_acronyms = [acronym for acronyms in groups.values() for acronym in acronyms]
 
-masks = atlas_native.get_masks(region_order)
-signals = extract_with_labels(data, masks, reduction="mean")
+region_order = []
+group_labels = []
+for area, acronyms in groups.items():
+    region_order += [f"{acronym}_L" for acronym in reversed(acronyms)]
+    region_order += [f"{acronym}_R" for acronym in acronyms]
+    group_labels += [area] * (2 * len(acronyms))
+
+signals_by_side = []
+for side, suffix in [("left", "L"), ("right", "R")]:
+    side_masks = atlas_native.get_masks(region_acronyms, sides=side)
+    side_signals = cf.extract.extract_with_labels(data, side_masks, reduction="mean")
+    side_signals = side_signals.assign_coords(
+        region=[f"{r}_{suffix}" for r in side_signals.coords["region"].values]
+    )
+    signals_by_side.append(side_signals)
 # extract_with_labels does not guarantee any particular region order, so reindex
-# explicitly to keep regions from the same area contiguous for the `groups` plot below.
-signals = signals.sel(region=region_order)
+# explicitly into the left-right sweep computed above.
+signals = xr.concat(signals_by_side, dim="region").sel(region=region_order)
 
 signals
+
+# %% [markdown]
+# ## Clean the region signals
+#
+# Before correlating regions we remove nuisance variance that would otherwise inflate
+# their apparent connectivity: a `low_cutoff` high-pass filter for slow drift, and
+# [aCompCor][confusius.signal.compute_compcor_confounds] components regressed out.
+# aCompCor components are extracted from white matter voxels—the Allen ontology's
+# `"fiber tracts"` division, which aggregates every white-matter tract—so they must be
+# computed from the voxelwise recording rather than the already-averaged regions.
+
+# %%
+white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
+acompcor = cf.signal.compute_compcor_confounds(
+    data, noise_mask=white_matter, n_components=1
+)
+signals = cf.signal.clean(signals, low_cutoff=0.01, confounds=acompcor)
 
 # %% [markdown]
 # [`ConnectivityMatrix`][confusius.connectivity.ConnectivityMatrix] computes the Pearson
 # correlation matrix between all region pairs from the `(time, region)` signals.
 
 # %%
-connectivity = ConnectivityMatrix(kind="correlation").fit_transform([signals])[0]
-connectivity.shape
+connectivity = cf.connectivity.ConnectivityMatrix(kind="correlation").fit_transform(
+    [signals]
+)[0]
 
 # %% [markdown]
 # ## Plot the correlation matrix
@@ -216,12 +254,11 @@ connectivity.shape
 # brain area each region belongs to without cluttering the plot with per-region colors.
 
 # %% tags=["thumbnail"]
-fig, ax = plot_matrix(
+fig, ax = cf.plotting.plot_matrix(
     connectivity,
     labels=region_order,
     groups=group_labels,
-    tri="diag",
-    grid="gray",
+    vmax=0.8,
     cbar_label="correlation",
     title="Region correlation matrix",
     bg_color=bg_color,
