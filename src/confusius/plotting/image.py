@@ -185,9 +185,11 @@ def _resolve_norm(
 
 
 def _resolve_symmetric_vmax(data: xr.DataArray, vmax: float | None) -> float:
-    """Resolve a symmetric colormap bound for a statistical map.
+    """Resolve a magnitude-based colormap bound for a statistical map.
 
-    Falls back to the 98th percentile of `|data|` when `vmax` is not provided.
+    Falls back to the 98th percentile of `|data|` when `vmax` is not provided. Used
+    both for a symmetric `[-vmax, vmax]` range and, when `symmetric=False`, a `[0,
+    vmax]` range.
     """
     if vmax is not None:
         return vmax
@@ -2208,6 +2210,7 @@ def plot_stat_map(
     bg_kwargs: "dict[str, Any] | None" = None,
     cmap: "str | Colormap | None" = "RdBu_r",
     vmax: float | None = None,
+    symmetric: bool = True,
     alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
@@ -2266,9 +2269,18 @@ def plot_stat_map(
     cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
         Colormap for `stat_map`.
     vmax : float, optional
-        Symmetric colormap bound for `stat_map`: the colormap spans `[-vmax, vmax]`.
-        If not provided, defaults to the 98th percentile of `|stat_map|`, computed
-        over the full array rather than just the displayed slices.
+        Colormap bound for `stat_map`: the colormap spans `[-vmax, vmax]` when
+        `symmetric=True` (default), or `[0, vmax]` when `symmetric=False`. If not
+        provided, defaults to the 98th percentile of `|stat_map|`, computed over the
+        full array rather than just the displayed slices.
+    symmetric : bool, default: True
+        Whether the colormap range is centered on zero (`[-vmax, vmax]`). This is the
+        right choice for diverging statistics where the sign is meaningful (e.g.
+        t-statistics, correlation coefficients, PCA/ICA component maps) together with
+        a diverging `cmap` such as the default `"RdBu_r"`. Set to `False` for
+        non-diverging statistics where only magnitude matters (e.g. R², F-statistics,
+        p-values); the range becomes `[0, vmax]` and `cmap` should be set to a
+        sequential colormap (e.g. `"viridis"`) instead.
     alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
         Opacity of the `stat_map` overlay: a single value, a 2D array matching the
         shape of each displayed slice (applied identically to every slice), or a 3D
@@ -2347,8 +2359,9 @@ def plot_stat_map(
     -----
     When `bg_volume` is provided, this is equivalent to calling
     `plot_volume(bg_volume, ...)` followed by
-    `plotter.add_volume(stat_map, alpha=alpha, vmin=-vmax, vmax=vmax, ...)`. Use those
-    functions directly for finer control, e.g. an asymmetric colormap range.
+    `plotter.add_volume(stat_map, alpha=alpha, vmin=-vmax, vmax=vmax, ...)` (or
+    `vmin=0` instead of `vmin=-vmax` when `symmetric=False`). Use those functions
+    directly for finer control.
 
     Examples
     --------
@@ -2369,6 +2382,12 @@ def plot_stat_map(
 
     >>> # Blend the overlay with the background instead of fully covering it.
     >>> plotter = plot_stat_map(t_map, bg_volume=anatomical, alpha=0.6)
+
+    >>> # Non-diverging statistic (e.g. R²): sequential colormap from 0 to vmax.
+    >>> r2_map = xr.open_zarr("output.zarr")["r2"]
+    >>> plotter = plot_stat_map(
+    ...     r2_map, bg_volume=anatomical, cmap="viridis", symmetric=False
+    ... )
 
     >>> # No background: plot the statistical map on its own.
     >>> plotter = plot_stat_map(t_map, slice_mode="z")
@@ -2407,13 +2426,14 @@ def plot_stat_map(
         )
 
     resolved_vmax = _resolve_symmetric_vmax(stat_map, vmax)
+    resolved_vmin = -resolved_vmax if symmetric else 0.0
 
     return plotter.add_volume(
         stat_map,
         slice_coords=slice_coords,
         match_coordinates=bg_volume is not None,
         cmap=cmap,
-        vmin=-resolved_vmax,
+        vmin=resolved_vmin,
         vmax=resolved_vmax,
         threshold=threshold,
         threshold_mode=threshold_mode,

@@ -171,12 +171,11 @@ for i, comp in enumerate(range(n_show)):
 
     component_map = pca_t.maps_.isel(component=[comp])
     vmax = float(np.abs(component_map).max())
-    cf.plotting.plot_volume(
+    cf.plotting.plot_stat_map(
         component_map,
         axes=fig.add_subplot(gs[i, 0]),
         slice_mode="component",
         cmap="coolwarm",
-        vmin=-vmax,
         vmax=vmax,
         show_axes=False,
         show_colorbar=False,
@@ -224,12 +223,11 @@ for i, comp in enumerate(range(n_show)):
 
     component_map = pca_s.maps_.isel(component=[comp])
     vmax = float(np.abs(component_map).max())
-    cf.plotting.plot_volume(
+    cf.plotting.plot_stat_map(
         component_map,
         axes=fig.add_subplot(gs[i, 0]),
         slice_mode="component",
         cmap="coolwarm",
-        vmin=-vmax,
         vmax=vmax,
         show_axes=False,
         show_colorbar=False,

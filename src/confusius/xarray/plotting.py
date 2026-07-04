@@ -803,6 +803,7 @@ class FUSIPlotAccessor:
         bg_kwargs: "dict[str, Any] | None" = None,
         cmap: "str | Colormap | None" = "RdBu_r",
         vmax: float | None = None,
+        symmetric: bool = True,
         alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
@@ -858,10 +859,19 @@ class FUSIPlotAccessor:
         cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
             Colormap for this DataArray.
         vmax : float, optional
-            Symmetric colormap bound for this DataArray: the colormap spans
-            `[-vmax, vmax]`. If not provided, defaults to the 98th percentile of the
-            absolute value of this DataArray, computed over the full array rather
-            than just the displayed slices.
+            Colormap bound for this DataArray: the colormap spans `[-vmax, vmax]`
+            when `symmetric=True` (default), or `[0, vmax]` when `symmetric=False`.
+            If not provided, defaults to the 98th percentile of the absolute value of
+            this DataArray, computed over the full array rather than just the
+            displayed slices.
+        symmetric : bool, default: True
+            Whether the colormap range is centered on zero (`[-vmax, vmax]`). This is
+            the right choice for diverging statistics where the sign is meaningful
+            (e.g. t-statistics, correlation coefficients, PCA/ICA component maps)
+            together with a diverging `cmap` such as the default `"RdBu_r"`. Set to
+            `False` for non-diverging statistics where only magnitude matters (e.g.
+            R², F-statistics, p-values); the range becomes `[0, vmax]` and `cmap`
+            should be set to a sequential colormap (e.g. `"viridis"`) instead.
         alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
             Opacity of this DataArray's overlay: a single value, a 2D array matching
             the shape of each displayed slice (applied identically to every slice),
@@ -940,6 +950,12 @@ class FUSIPlotAccessor:
 
         >>> # Blend the overlay with the background instead of fully covering it.
         >>> plotter = t_map.fusi.plot.stat_map(bg_volume=anatomical, alpha=0.6)
+
+        >>> # Non-diverging statistic (e.g. R²): sequential colormap from 0 to vmax.
+        >>> r2_map = xr.open_zarr("output.zarr")["r2"]
+        >>> plotter = r2_map.fusi.plot.stat_map(
+        ...     anatomical, cmap="viridis", symmetric=False
+        ... )
         """
         return plot_stat_map(
             self._obj,
@@ -949,6 +965,7 @@ class FUSIPlotAccessor:
             bg_kwargs=bg_kwargs,
             cmap=cmap,
             vmax=vmax,
+            symmetric=symmetric,
             alpha=alpha,
             threshold=threshold,
             threshold_mode=threshold_mode,

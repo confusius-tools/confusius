@@ -490,6 +490,16 @@ class TestVolumePlotterAddVolume:
         npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
         npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
 
+    def test_dataarray_alpha_size_mismatch_raises(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Same dims as data, but a differently-sized one, is rejected explicitly."""
+        alpha = sample_3d_volume.isel(x=slice(0, 4))
+        with pytest.raises(ValueError, match="size along 'x'"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
     def test_dataarray_alpha_dim_mismatch_raises(
         self, sample_3d_volume, matplotlib_pyplot
     ):

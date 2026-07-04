@@ -92,6 +92,23 @@ class TestPlotStatMapVisualRegression:
         plotter = plot_stat_map(stat_map, bg_volume=bg_volume, slice_mode="z", alpha=0.5)
         return plotter.figure
 
+    @pytest.mark.mpl_image_compare(
+        baseline_dir="baseline",
+        tolerance=0,
+        savefig_kwargs={"facecolor": "auto"},
+    )
+    def test_plot_stat_map_non_diverging(self, matplotlib_pyplot):
+        """Baseline test for a non-diverging statistic (sequential cmap, symmetric=False)."""
+        bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
+        plotter = plot_stat_map(
+            np.abs(stat_map),
+            bg_volume=bg_volume,
+            slice_mode="z",
+            cmap="viridis",
+            symmetric=False,
+        )
+        return plotter.figure
+
 
 class TestPlotStatMap:
     def test_returns_volume_plotter_with_one_panel_per_slice(
@@ -154,6 +171,29 @@ class TestPlotStatMap:
         norm = plotter.axes.ravel()[0].collections[-1].norm
         assert norm.vmax == 5.0
         assert norm.vmin == -5.0
+
+    def test_symmetric_false_uses_zero_as_vmin(self, sample_3d_volume, matplotlib_pyplot):
+        stat_map = _signed_stat_map(sample_3d_volume)
+        plotter = plot_stat_map(
+            stat_map, bg_volume=sample_3d_volume, slice_mode="z", symmetric=False
+        )
+        norm = plotter.axes.ravel()[0].collections[-1].norm
+        expected_vmax = float(np.percentile(np.abs(stat_map.values), 98))
+        assert norm.vmax == expected_vmax
+        assert norm.vmin == 0.0
+
+    def test_symmetric_false_with_explicit_vmax(self, sample_3d_volume, matplotlib_pyplot):
+        stat_map = _signed_stat_map(sample_3d_volume)
+        plotter = plot_stat_map(
+            stat_map,
+            bg_volume=sample_3d_volume,
+            slice_mode="z",
+            symmetric=False,
+            vmax=5.0,
+        )
+        norm = plotter.axes.ravel()[0].collections[-1].norm
+        assert norm.vmax == 5.0
+        assert norm.vmin == 0.0
 
     def test_threshold_masks_overlay(self, sample_3d_volume, matplotlib_pyplot):
         stat_map = _signed_stat_map(sample_3d_volume)
