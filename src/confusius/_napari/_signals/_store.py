@@ -11,18 +11,10 @@ import numpy.typing as npt
 import pandas as pd
 from qtpy.QtCore import QObject, Signal
 
-_IMPORTED_SIGNAL_COLORS = [
-    "#4e79a7",
-    "#f28e2b",
-    "#e15759",
-    "#76b7b2",
-    "#59a14f",
-    "#edc948",
-    "#b07aa1",
-    "#ff9da7",
-    "#9c755f",
-    "#bab0ab",
-]
+from confusius._napari._utils import CATEGORICAL_COLORS
+
+_IMPORTED_SIGNAL_COLORS = CATEGORICAL_COLORS
+"""Palette cycled across imported signal columns."""
 
 
 @dataclass(frozen=True, slots=True)

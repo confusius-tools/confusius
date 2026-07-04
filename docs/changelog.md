@@ -10,6 +10,7 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+
 ### :boom: Breaking changes
 
 - Registration now takes a single `initialization` parameter in place of
@@ -23,15 +24,24 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
+  Events shade the signal plot; active event names appear in the time overlay; load
+  from / save to a BIDS `.tsv`
+  ([#176](https://github.com/confusius-tools/confusius/pull/176)).
+- [`confusius.bids`][confusius.bids] module is now public with new
+  [`read_events`][confusius.bids.read_events] and
+  [`write_events`][confusius.bids.write_events]
+  ([#176](https://github.com/confusius-tools/confusius/pull/176)).
+- Added a `datasets` CLI namespace, listed in `confusius --help`:
+  `confusius datasets --list` prints the table of available datasets, their sizes,
+  and whether each is cached on disk. A bare `confusius PATH...` still launches the
+  viewer ([#234](https://github.com/confusius-tools/confusius/pull/234)).
 - Added [`NMF`][confusius.decomposition.NMF] for non-negative matrix factorization
   of fUSI time series, wrapping `sklearn.decomposition.NMF` with the same
   xarray-aware `fit`/`transform`/`inverse_transform` interface as
   [`PCA`][confusius.decomposition.PCA] and [`FastICA`][confusius.decomposition.FastICA].
   Both `mode='temporal'` and `mode='spatial'` are supported
-  ([#117](https://github.com/confusius-tools/confusius/issues/117)).
-
-### :sparkles: Enhancements
-
+  ([#211](https://github.com/confusius-tools/confusius/pull/211)).
 - Added [`adjust_pvalues`][confusius.stats.adjust_pvalues] for generic
   multiple-comparison correction of p-value maps, and
   [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] to
@@ -40,9 +50,17 @@ Current development version for the next ConfUSIus release.
   false-discovery-rate (Benjamini-Hochberg, Benjamini-Yekutieli) corrections, plus an
   optional cluster-extent threshold
   ([#204](https://github.com/confusius-tools/confusius/pull/204)).
+- Added [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] for
+  downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
+  `datasets`, `subjects`, `acqs`, and `datatypes` filters
+  ([#228](https://github.com/confusius-tools/confusius/pull/230)).
 
 ### :bug: Fixes
 
+- `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
+  and `confounds` by interpolating along time, fills censored boundary samples from
+  the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
+  pre-scrubbing interpolation ([#239](https://github.com/confusius-tools/confusius/pull/239)).
 - Image plotting functions now leave `alpha` unset by default (`None`), so a
   colormap's built-in alpha channel is respected
   ([#225](https://github.com/confusius-tools/confusius/pull/225)).
@@ -50,6 +68,17 @@ Current development version for the next ConfUSIus release.
   `bspline_initialization` written by the registration pipeline) when merging in the
   NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
+- `save_nifti` no longer maps non-time additional axes to the NIfTI 4th slot. When
+  additional axes are present in the DataArray, a degenerate length-1 `time` axis is
+  inserted at NIfTI axis 4 (NIfTI's conventional time slot) so non-time additional axes
+  always land at NIfTI axes 5, 6, 7. The original dim name for each additional axis is
+  always written to the sidecar as `ConfUSIusDim{N}Name` (with `N` in 4, 5, 6, matching
+  the 0-based NIfTI axis of the extra dim). The matching `ConfUSIusDim{N}Coordinates`
+  entry is only written when the coord cannot be reconstructed from `pixdim` (i.e. when
+  the coord does not start at 0 with regular spacing); otherwise the spacing is stored
+  in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
+  preserved in `ConfUSIusDim{N}Attributes` entries.
+  ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
@@ -66,7 +95,7 @@ Current development version for the next ConfUSIus release.
 - The `confusius` CLI now accepts multiple fUSI data files in a single
   invocation (e.g. `confusius fixed.nii moving.nii`). Each file is added as its
   own image layer, named after the file's basename
-  ([#205](https://github.com/confusius-tools/confusius/issues/205)).
+  ([#206](https://github.com/confusius-tools/confusius/pull/206)).
 - `data.fusi.affine.apply` now accepts affines with rotation and shear. The
   axis-aligned part updates the 1D `z`/`y`/`x` coordinates and the method returns
   the residual orientation as a 4x4 affine (the identity for diagonal affines)

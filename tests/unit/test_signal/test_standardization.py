@@ -9,20 +9,6 @@ from numpy.testing import assert_allclose
 from confusius.signal import standardize
 
 
-@pytest.fixture
-def random_signals_dask(rng):
-    """Random 2D signals (time, voxels) with Dask backend."""
-    data = rng.normal(loc=10, scale=2, size=(100, 50))
-    return xr.DataArray(
-        da.from_array(data, chunks=(50, 25)),
-        dims=["time", "space"],
-        coords={
-            "time": np.arange(100) * 0.002,
-            "space": np.arange(50),
-        },
-    )
-
-
 def test_standardize_zscore(sample_timeseries):
     """Test z-score standardization produces mean=0, std=1."""
     random_signals = sample_timeseries(n_time=100, n_voxels=50)
@@ -116,10 +102,14 @@ def test_standardize_psc_near_zero_mean():
     assert np.all(np.isnan(result.values[:, 0]))
 
 
-def test_standardize_dask_compatibility(random_signals_dask):
+def test_standardize_dask_compatibility(sample_timeseries):
     """Test standardization works with Dask-backed arrays."""
+    signals = sample_timeseries(n_time=100, n_voxels=50).chunk(
+        {"time": 50, "space": 25}
+    )
+
     # Should work without computing.
-    result = standardize(random_signals_dask, method="zscore")
+    result = standardize(signals, method="zscore")
 
     # Result should still be Dask-backed.
     assert isinstance(result.data, da.Array)

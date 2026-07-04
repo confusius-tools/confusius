@@ -11,6 +11,8 @@ introduction, click **Take a Tour** in the sidebar header.
 - [**Data I/O**](#data-io-panel) — load and save fUSI files (NIfTI, Zarr, SCAN).
 - [**Video**](#video-panel) — load videos side-by-side, temporally synced with the fUSI acquisition.
 - [**Signals**](#signals-panel) — plot voxel, point, or label-region signals in a bottom dock.
+- [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
+  the signal plot.
 - [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
 - [**Registration**](#registration-panel) — run between-scan or within-scan registration, inspect progress, and save/apply transforms.
 
@@ -189,6 +191,55 @@ signals (from the current source mode) and imported signals:
 **Export**
 : Click the **Export** button in the plot toolbar to export all currently plotted
   signals—both live and imported—to a CSV or TSV file.
+
+## Events Panel
+
+The Events Panel annotates *periods of time*—not individual frames—following the [BIDS
+events](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/events.html)
+convention (`onset`, `duration`, and an optional `trial_type`). Annotated events shade
+the [signal plot](#signals-panel) and are named in the time overlay while they are
+active.
+
+![Creating events with the Start/End workflow](../images/gui/plugin-events-create.gif)
+
+### Annotating events
+
+1. Type a name for the event in the **Event** field (defaults to `event`).
+2. Press **Start (S)** to mark the onset at the current time step, scrub the time
+   slider forward, then press **End (E)** to mark the offset. **Cancel (Esc)** discards
+   an in-progress annotation. The shortcuts are active whenever the panel is open.
+3. The event appears in the table with its trial type, onset, end, and duration.
+
+The End time must not be before the Start time. Ending at the Start time creates an
+instantaneous (zero-duration) event, as allowed by BIDS; it is drawn as a vertical line
+instead of a shaded band.
+
+### Loading and saving
+
+Use **Load** to import a BIDS events `.tsv` file (`onset` and `duration` are required; a
+missing `trial_type` defaults to `event`) and **Save** to write the current events back
+out as a BIDS events `.tsv`.
+
+!!! tip "Straight into analysis"
+    An events `.tsv` saved here is a standard BIDS events table, so it can be read back
+    with [read_events][confusius.bids.read_events] and fed directly to either
+    [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix] or
+    the `fit` method of a [FirstLevelModel][confusius.glm.first_level.FirstLevelModel]:
+
+    ```python
+    from confusius.bids import read_events
+    from confusius.glm import FirstLevelModel
+
+    events = read_events("sub-01_task-rest_events.tsv")
+    model = FirstLevelModel(hrf_model="glover").fit(fusi_scan, events=events)
+    ```
+
+### Display options
+
+| Option | Description |
+|--------|-------------|
+| **Shade events on signal plot** | Draw each event as a colored band spanning its interval on the bottom-dock signal plot, colored by trial type. |
+| **Show active events in time overlay** | Append each active event to the time overlay as `name [onset, end)`. An event is active while the current frame's acquisition window overlaps it. The window comes from the layer's `volume_acquisition_reference`/`volume_acquisition_duration` metadata, using the frame spacing as the duration when only the reference is present, and the frame's timestamp alone when neither is; an event too short to be sampled by any frame is shown on the next frame instead. |
 
 ## QC Panel
 

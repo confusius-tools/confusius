@@ -23,6 +23,7 @@ Outputs (all saved to docs/images/gui/):
 - `plugin-signals.png` — Signals panel in hover mode.
 - `plugin-signals-points.png` — Signals panel in points mode.
 - `plugin-signals-labels.png` — Signals panel in labels mode.
+- `plugin-events-create.gif` — GIF of creating events with the Start/End workflow.
 - `plugin-qc.png` — QC panel with DVARS, carpet, and CV computed.
 - `plugin-video.gif` — Video panel with video synced to the fUSI acquisition.
 - `plugin-registration.gif` — Registration panel during a rigid between-session angiography run.
@@ -1133,6 +1134,220 @@ try:
     _ok("Saved plugin-registration-volumewise.gif")
 except Exception as exc:
     _warn(f"plugin-registration-volumewise.gif failed: {exc}")
+# ---------------------------------------------------------------------------
+# 9. Events panel — GIF of creating events with the Start/End workflow
+# ---------------------------------------------------------------------------
+
+try:
+    from matplotlib import font_manager
+    from PIL import Image as _PILImage
+    from PIL import ImageDraw, ImageFont
+    from qtpy.QtCore import QPoint
+    from qtpy.QtWidgets import QScrollArea
+
+    from confusius._napari._video._video_panel import VideoPanel
+
+    da_gif = cf.load(_VIDEO_FUSI_PATH)
+
+    viewer9 = napari.Viewer(show=False)
+    _viewer9, fusi9 = plot_napari(
+        da_gif,
+        viewer=viewer9,
+        gamma=DISPLAY_GAMMA,
+        contrast_limits=VIDEO_DISPLAY_CONTRAST,
+    )
+    widget9 = ConfUSIusWidget(viewer9)
+    viewer9.window.add_dock_widget(widget9, name="ConfUSIus", area="right")
+    _qt_sleep(200)
+
+    # Two behavioural events to annotate, with absolute world-time onsets and
+    # durations (seconds): a "rearing" event, then a "grooming" event.
+    gif_time = np.asarray(da_gif.coords["time"].values, dtype=float)
+    gif_t0 = float(gif_time[0])
+    rearing_onset, rearing_duration = gif_t0 + 300.0, 20.0
+    grooming_onset, grooming_duration = gif_t0 + 355.0, 40.0
+    settle_t = grooming_onset + grooming_duration
+
+    # --- Labels layer aligned to the fUSI spatial axes, two painted regions. ---
+    da_meta9 = fusi9.metadata["xarray"]
+    spatial9 = [i for i, d in enumerate(da_meta9.dims) if d in ("pose", "z", "y", "x")]
+    spatial_shape9 = tuple(da_meta9.shape[i] for i in spatial9)
+    spatial_scale9 = tuple(float(fusi9.scale[i]) for i in spatial9)
+    spatial_translate9 = tuple(float(fusi9.translate[i]) for i in spatial9)
+    _ny9, _nx9 = spatial_shape9[-2], spatial_shape9[-1]
+    _yy9, _xx9 = np.ogrid[:_ny9, :_nx9]
+    _r9 = 0.05 * min(_ny9, _nx9)
+    _blob1 = ((_yy9 - 0.10 * _ny9) ** 2 + (_xx9 - 0.63 * _nx9) ** 2) < _r9**2
+    _blob2 = ((_yy9 - 0.35 * _ny9) ** 2 + (_xx9 - 0.73 * _nx9) ** 2) < _r9**2
+    _label_data9 = np.zeros(spatial_shape9, dtype=np.int32)
+    _label_data9[0][_blob1] = 1
+    _label_data9[0][_blob2] = 2
+    labels9 = viewer9.add_labels(
+        _label_data9,
+        name="Labels (3D)",
+        scale=spatial_scale9,
+        translate=spatial_translate9,
+        opacity=0.7,
+    )
+
+    # --- Behavioural video via the Video panel; group fUSI + labels in one cell. ---
+    video_panel9 = widget9.findChild(VideoPanel)
+    _ref_idx9 = video_panel9._ref_combo.findText(fusi9.name)
+    if _ref_idx9 >= 0:
+        video_panel9._ref_combo.setCurrentIndex(_ref_idx9)
+    video_panel9._path_edit.setText(str(_VIDEO_MP4_PATH))
+    video_panel9._load_from_path()
+    _qt_sleep(300)
+    # stride=2 keeps [fUSI, Labels] overlaid in one grid cell; the video gets its own.
+    viewer9.grid.stride = 2
+    get_qapp().processEvents()
+
+    events_panel9 = widget9._accordion_panels["Events"]
+
+    # --- Signals plotter in Labels mode (mean signal per region) with the cursor. ---
+    signals_panel9 = widget9._accordion_panels["Signals"]
+    plotter9 = signals_panel9._ensure_plotter()
+    _qt_sleep(350)
+    plotter9.set_source_mode("labels")
+    plotter9.set_labels_layer(labels9)
+    plotter9.set_ref_layers([fusi9])
+    plotter9._cursor_world = rearing_onset
+    plotter9.set_show_cursor(True)
+    plotter9._update_plot_from_labels()
+
+    # Select the fUSI so events and the overlay read its true time coordinate, then
+    # put the slider at the first onset and activate the overlay.
+    viewer9.layers.selection = {fusi9}
+    viewer9.dims.set_point(VIDEO_TIME_AXIS, rearing_onset)
+    widget9._time_overlay.check()
+
+    # Open the Events accordion and show the window so the geometry is final.
+    _open_accordion_panel(widget9, "Events")
+    win9 = viewer9.window._qt_window
+    win9.setAttribute(Qt.WA_DontShowOnScreen)
+    win9.show()
+    win9.resize(1400, 1050)
+    get_qapp().processEvents()
+    viewer9.reset_view()
+    get_qapp().processEvents()
+
+    # Scroll the sidebar down so the Events panel is fully visible.
+    scroll9 = widget9.findChild(QScrollArea)
+    if scroll9 is not None and scroll9.widget() is not None:
+        first_btn9 = widget9._accordion_btns[0][0]
+        scroll9.verticalScrollBar().setValue(
+            first_btn9.mapTo(scroll9.widget(), QPoint(0, 0)).y()
+        )
+    get_qapp().processEvents()
+
+    # --- GIF frame capture --------------------------------------------------
+    GIF_WIDTH9 = 1100
+    GIF_FPS9 = 12
+    frames9: list = []
+
+    try:
+        badge_font = ImageFont.truetype(font_manager.findfont("DejaVu Sans:bold"), 30)
+    except (OSError, ValueError):
+        badge_font = ImageFont.load_default()
+
+    def _grab9(badge_text: str | None = None, repeat: int = 1) -> None:
+        raw = viewer9.screenshot(canvas_only=False)[..., :3]
+        h, w = raw.shape[:2]
+        scale = GIF_WIDTH9 / w
+        frame = _PILImage.fromarray(raw).resize(
+            (GIF_WIDTH9, int(h * scale)), _PILImage.Resampling.LANCZOS
+        )
+        if badge_text is not None:
+            draw = ImageDraw.Draw(frame, "RGBA")
+            text_w = draw.textlength(badge_text, font=badge_font)
+            pad = 16
+            box_w, box_h = text_w + 2 * pad, 52
+            box_x = (frame.width - box_w) / 2
+            box_y = frame.height - box_h - 28
+            draw.rounded_rectangle(
+                (box_x, box_y, box_x + box_w, box_y + box_h),
+                radius=12,
+                fill=(20, 20, 28, 225),
+            )
+            draw.text(
+                (box_x + pad, box_y + 10),
+                badge_text,
+                font=badge_font,
+                fill=(233, 75, 95, 255),
+            )
+        for _ in range(repeat):
+            frames9.append(frame)
+
+    def _set_cursor9(t: float) -> None:
+        viewer9.dims.set_point(VIDEO_TIME_AXIS, t)
+        plotter9._cursor_world = t
+        # Re-render the labels-mode plot so the cursor line moves to the new time
+        # (the video frame in the grid also updates to this time step).
+        plotter9.set_show_cursor(True)
+        plotter9._update_plot_from_labels()
+        widget9._time_overlay.update()
+        get_qapp().processEvents()
+        get_qapp().processEvents()
+
+    def _type_name9(name: str) -> None:
+        """Type *name* into the event-name field one character at a time."""
+        events_panel9._name_edit.setText("")
+        get_qapp().processEvents()
+        _grab9(repeat=2)
+        for i in range(1, len(name) + 1):
+            events_panel9._name_edit.setText(name[:i])
+            get_qapp().processEvents()
+            _grab9()
+        _grab9(repeat=2)
+
+    def _annotate9(name: str, onset: float, duration: float) -> None:
+        """Drive the full type → Start → scrub → End workflow for one event."""
+        _set_cursor9(onset)
+        _type_name9(name)
+        # Start (S) marks the onset at the current time.
+        events_panel9._on_start()
+        get_qapp().processEvents()
+        _grab9(badge_text="S  ·  Start", repeat=7)
+        # Scrub the time slider forward to the offset.
+        for t in np.linspace(onset, onset + duration, 12):
+            _set_cursor9(float(t))
+            _grab9()
+        # End (E) creates the event, shading the plot and filling the table.
+        events_panel9._on_end()
+        get_qapp().processEvents()
+        get_qapp().processEvents()
+        _grab9(badge_text="E  ·  End", repeat=7)
+
+    # 1. Annotate the "rearing" event.
+    _annotate9("rearing", rearing_onset, rearing_duration)
+
+    # 2. Travel forward (no recording) to the "grooming" onset.
+    for t in np.linspace(rearing_onset + rearing_duration, grooming_onset, 14):
+        _set_cursor9(float(t))
+        _grab9()
+
+    # 3. Annotate the "grooming" event.
+    _annotate9("grooming", grooming_onset, grooming_duration)
+
+    # 4. Settle inside the rearing event so the overlay names the active event.
+    _set_cursor9(settle_t)
+    _grab9(repeat=12)
+
+    # --- Assemble the GIF (shared-palette quantize, like the video GIF). ---
+    palette_src9 = frames9[0].quantize(colors=256, dither=0)
+    quantized9 = [frame.quantize(palette=palette_src9, dither=0) for frame in frames9]
+    gif_path9 = str(HERE / "plugin-events-create.gif")
+    quantized9[0].save(
+        gif_path9,
+        save_all=True,
+        append_images=quantized9[1:],
+        duration=1000 // GIF_FPS9,
+        loop=0,
+    )
+    viewer9.close()
+    _ok("Saved plugin-events-create.gif")
+except Exception as exc:
+    _warn(f"plugin-events-create.gif failed: {exc}")
 
 # ---------------------------------------------------------------------------
 

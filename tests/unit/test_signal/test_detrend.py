@@ -314,6 +314,22 @@ def test_detrend_polynomial_3dt(sample_3dt_volume):
     assert_allclose(result.values, naive_result, rtol=1e-8)
 
 
+def test_detrend_polynomial_with_nonleading_time_axis(sample_timeseries):
+    """Test polynomial detrending when time is not the first axis."""
+    signals = sample_timeseries(n_time=100, n_voxels=20).transpose("space", "time")
+    time = np.arange(signals.sizes["time"])
+    trended = signals + (time**2) * 0.05
+
+    result = detrend(trended, order=2)
+
+    assert result.dims == trended.dims
+    assert result.shape == trended.shape
+
+    naive_result = _naive_polynomial_detrend(trended.values, order=2, axis=1)
+    assert_allclose(result.values, naive_result, rtol=1e-7)
+
+
+
 def test_detrend_dask_compatibility(rng):
     """Test linear detrending works with Dask-backed arrays."""
     n_time = 100

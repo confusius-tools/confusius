@@ -105,13 +105,9 @@ def _butterworth_filter_wrapper(
     elif low_cutoff is not None:
         btype = "highpass"
         critical_freqs = low_cutoff
-    elif high_cutoff is not None:
+    else:
         btype = "lowpass"
         critical_freqs = high_cutoff
-    else:
-        if axis != 0:
-            data = np.moveaxis(data, 0, axis)
-        return data
 
     # Use second-order sections (SOS) for numerical stability.
     sos = scipy.signal.butter(

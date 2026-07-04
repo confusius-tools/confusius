@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import cast
 
 from ._osf import OsfFileInfo, download_missing_osf_files, get_index
 from ._utils import get_datasets_dir
@@ -12,11 +11,6 @@ from ._utils import get_datasets_dir
 _OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
-
-_MISSING_INDEX_HINT = (
-    "Run 'nunez-upload --index-only' from the nunez-elizalde-2022-bids "
-    "repository to generate it."
-)
 
 
 def _filter_files(
@@ -198,16 +192,7 @@ def fetch_nunez_elizalde_2022(
     if isinstance(acqs, str):
         acqs = [acqs]
 
-    index = cast(
-        "dict[str, OsfFileInfo]",
-        get_index(
-            bids_dir,
-            _OSF_PROJECT_ID,
-            _BIDS_ROOT,
-            refresh=refresh,
-            missing_index_hint=_MISSING_INDEX_HINT,
-        ),
-    )
+    index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
     files = _filter_files(index, subjects, sessions, tasks, acqs)
 
     download_missing_osf_files(bids_dir, files)

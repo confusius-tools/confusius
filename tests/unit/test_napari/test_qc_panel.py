@@ -41,7 +41,9 @@ class TestTimeDimIndex:
         viewer.add_image(np.zeros((4, 6, 8)), metadata={"xarray": None})
         assert qc_panel._time_dim_index() == 0
 
-    def test_finds_time_dim_from_xarray_layer(self, viewer, qc_panel, sample_3dt_volume):
+    def test_finds_time_dim_from_xarray_layer(
+        self, viewer, qc_panel, sample_3dt_volume
+    ):
         plot_napari(
             sample_3dt_volume,
             viewer=viewer,
