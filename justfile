@@ -56,13 +56,23 @@ test-verbose:
 [unix]
 generate-baselines:
     rm -f tests/unit/test_plotting/baseline/*.png
-    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression
+    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline \
+        tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression \
+        tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression \
+        tests/unit/test_plotting/test_image.py::TestPlotCarpetVisualRegression \
+        tests/unit/test_plotting/test_image_composite.py::TestAddCompositeVisualRegression \
+        tests/unit/test_plotting/test_matrix.py::TestPlotMatrixVisualRegression
 
 # Generate baseline images for visual regression tests.
 [windows]
 generate-baselines:
     if (Test-Path tests/unit/test_plotting/baseline/*.png) { Remove-Item -Force tests/unit/test_plotting/baseline/*.png }
-    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression
+    uv run pytest --mpl-generate-path=tests/unit/test_plotting/baseline `
+        tests/unit/test_plotting/test_image.py::TestPlotVolumeVisualRegression `
+        tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression `
+        tests/unit/test_plotting/test_image.py::TestPlotCarpetVisualRegression `
+        tests/unit/test_plotting/test_image_composite.py::TestAddCompositeVisualRegression `
+        tests/unit/test_plotting/test_matrix.py::TestPlotMatrixVisualRegression
 
 # Run all pre-commit hooks.
 pre-commit:
