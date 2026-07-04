@@ -128,6 +128,27 @@ class TestPlotMatrixBehaviour:
         assert [t.get_text() for t in ax.get_xticklabels()] == labels
         assert [t.get_text() for t in ax.get_yticklabels()] == labels
 
+    def test_long_labels_do_not_overlap_group_strip(self, matplotlib_pyplot):
+        """The row group-strip pad scales with label length (regression).
+
+        A fixed pad only fits labels up to some length: past that, the row strip's
+        opaque rectangles visually cover the y tick labels even though the label text
+        objects themselves are set correctly (see _y_tick_label_width_inches).
+        """
+        labels = [f"very_long_region_name_{i}" for i in range(6)]
+        groups = ["cortex"] * 3 + ["thalamus"] * 3
+        fig, ax = plot_matrix(_correlation_matrix(6), labels=labels, groups=groups)
+
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        label_bbox = ax.yaxis.get_tightbbox(renderer)
+        row_ax = min(
+            (axis for axis in fig.axes if axis is not ax),
+            key=lambda axis: axis.get_position().x0,
+        )
+        row_bbox = row_ax.get_window_extent(renderer)
+        assert row_bbox.x1 <= label_bbox.x0
+
     def test_show_group_labels_false_omits_annotations(self, matplotlib_pyplot):
         """show_group_labels=False draws the color strips without text annotations."""
         groups = ["cortex"] * 3 + ["thalamus"] * 3

@@ -190,6 +190,32 @@ def _group_spans(groups: Sequence[Any]) -> list[tuple[Any, int, int]]:
     return spans
 
 
+def _y_tick_label_width_inches(ax: "Axes") -> float:
+    """Return the rendered width of `ax`'s y tick labels, in inches.
+
+    Forces a draw so the tick labels' text metrics are up to date, matching Nilearn's
+    `_fit_axes` helper (see module docstring for attribution).
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes whose y tick labels to measure.
+
+    Returns
+    -------
+    float
+        Rendered width of the y tick labels in inches, or `0.0` if the labels have no
+        extent (e.g. no labels are set).
+    """
+    figure = ax.figure
+    figure.canvas.draw()
+    renderer = figure.canvas.get_renderer()  # type: ignore
+    bbox = ax.yaxis.get_tightbbox(renderer)
+    if bbox is None:
+        return 0.0
+    return bbox.width / figure.dpi
+
+
 def _draw_group_bar(
     ax: "Axes",
     orientation: Literal["vertical", "horizontal"],
@@ -456,7 +482,11 @@ def plot_matrix(
         if missing:
             raise ValueError(f"group_colors is missing colors for group(s): {missing}.")
 
-        row_ax = divider.append_axes("left", size="4%", pad=0.7, sharey=ax)
+        # Reserve enough room for the y tick labels so the opaque row strip does not
+        # cover them: a fixed pad only fits labels up to some length (see _y_tick_
+        # label_width_inches docstring for the underlying Nilearn-inspired technique).
+        row_pad = _y_tick_label_width_inches(ax) + 0.1 if labels else 0.1
+        row_ax = divider.append_axes("left", size="4%", pad=row_pad, sharey=ax)
         _draw_group_bar(
             row_ax,
             "vertical",
