@@ -62,13 +62,12 @@ Current development version for the next ConfUSIus release.
 ### :bug: Fixes
 
 - [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
-  coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same
-  region on both hemispheres no longer produces duplicate `mask` values.
+  coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
+  on both hemispheres no longer produces duplicate `mask` values.
   [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires
-  unique region ids across stacked mask layers — a layer is already identified by its
-  position along `mask` — so `get_masks` output can be passed straight through
-  without manual relabeling
-  ([#249](https://github.com/confusius-tools/confusius/pull/249)).
+  unique region ids across stacked mask layers—a layer is already identified by its
+  position along `mask`—so `get_masks` output can be passed straight through without
+  manual relabeling ([#249](https://github.com/confusius-tools/confusius/pull/249)).
 - [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
   of the spatial coordinates along with the coordinate values
   ([#245](https://github.com/confusius-tools/confusius/pull/245)).

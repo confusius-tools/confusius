@@ -17,7 +17,7 @@ def _validate_stacked_mask_layers(labels: xr.DataArray) -> None:
 
     The layer's own non-zero value is never used to key the reduction (a fresh,
     per-layer id is assigned instead, see `extract_with_labels`), so layers may
-    reuse the same id across the `mask` dimension — a stacked mask layer is already
+    reuse the same id across the `mask` dimension—a stacked mask layer is already
     uniquely identified by its position along `mask`.
 
     Parameters
