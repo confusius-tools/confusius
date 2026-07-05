@@ -82,7 +82,6 @@ registered, affine, diagnostics = cf.registration.register_volume(
     number_of_iterations=500,
     learning_rate=1,
     initialization=initialization,
-    show_progress=True,
 )
 
 print(f"Initial metric: {diagnostics.metric_values[0]:.4f}")
@@ -155,6 +154,7 @@ acompcor = cf.signal.compute_compcor_confounds(
 # map per seed, stacked along a `region` dimension.
 
 # %%
+confounds = data.mean(("z", "y", "x"))
 mapper = cf.connectivity.SeedBasedMaps(
     seed_masks=seed_masks,
     clean_kwargs={"low_cutoff": 0.01, "confounds": acompcor},
@@ -170,8 +170,10 @@ mapper.maps_
 # suppress correlation noise, and `vmax=1.0` fixes the colormap to the full range of a
 # Pearson correlation so the four seeds are directly comparable. We outline each seed's
 # own ROI with
-# [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] so it is
-# clear which voxels drove each map.
+# [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours],
+# leaving `colors` unset so each region is drawn in its canonical Allen color (read
+# from the atlas mask's `attrs["cmap"]`/`attrs["norm"]`, the same convention used by
+# [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] elsewhere).
 
 # %% tags=["thumbnail"]
 fig, axes = plt.subplots(2, 2, figsize=(9, 8), constrained_layout=True)
@@ -196,7 +198,7 @@ for i, (ax, region) in enumerate(zip(flat_axes, seed_regions)):
         show_colorbar=(i == len(flat_axes) - 1),
         bg_color=bg_color,
     )
-    plotter.add_contours(seed_masks.sel(mask=region), colors="yellow", linewidths=1.5)
+    plotter.add_contours(seed_masks.sel(mask=region), linewidths=1.5)
     ax.set_title(f"Seed: {region}")
 
 _ = fig.suptitle("Seed-based connectivity maps", fontsize=16)
