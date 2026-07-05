@@ -129,15 +129,23 @@ def _clean_stream_text(text: str) -> str:
 
 
 def _is_blank_widget_output(output: dict[str, object]) -> bool:
-    """Return whether `output` is an empty ipywidgets-style placeholder.
+    """Return whether `output` is a content-free rich/Jupyter display artifact.
 
-    `rich.progress.Progress`/`Live` (used by some dependencies for one-off progress
-    display) create an `ipywidgets.Output` placeholder via `IPython.display.display`
-    the first time they detect a Jupyter kernel. Because it carries no real content
-    (no `image/*` payload) and Python only shows the accompanying "install
-    ipywidgets" warning once per process, it non-deterministically appears in only
-    one of the light/dark passes. Safe to drop: real cell output (a matplotlib
-    figure, a DataArray repr, printed text) never matches this empty shape.
+    Some dependency (e.g. `rich.progress.Progress`/`Live`, used for one-off
+    download or registration progress display) prints via `rich`'s Jupyter
+    console protocol, which renders a `display_data` output carrying both
+    `text/html` and `text/plain` regardless of whether there's anything
+    meaningful to show (e.g. a spinner frame with no text). Because *when*
+    this fires isn't tied to a specific cell in a deterministic way, it can
+    show up in only one of the light/dark passes.
+
+    `text/plain` is the one part of Jupyter's mimetype-bundle convention every
+    real result populates (it's the accessibility/fallback representation, and
+    matplotlib figures instead carry `image/png`), so a blank one reliably
+    means "nothing a reader would want to see" regardless of what the
+    accompanying `text/html` contains. Safe to drop: real cell output (a
+    matplotlib figure, a DataArray repr, printed text) never has a blank
+    `text/plain`.
     """
     if output.get("output_type") != "display_data":
         return False
@@ -149,11 +157,9 @@ def _is_blank_widget_output(output: dict[str, object]) -> bool:
     if not set(data).issubset({"text/html", "text/plain"}):
         return False
 
-    def _is_blank(value: object) -> bool:
-        text = "".join(value) if isinstance(value, list) else str(value)
-        return not text.strip()
-
-    return all(_is_blank(value) for value in data.values())
+    plain = data.get("text/plain", "")
+    text = "".join(plain) if isinstance(plain, list) else str(plain)
+    return not text.strip()
 
 
 def _summarize_output(output: dict[str, object]) -> str:
