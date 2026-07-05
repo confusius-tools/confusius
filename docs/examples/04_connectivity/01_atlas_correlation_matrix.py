@@ -69,7 +69,7 @@ template
 # slice), so it carries no information about where that slice actually sits along the
 # template's anteroposterior axis. We use an affine measured once in Napari's
 # registration widget as the initialization: it places the slice at its approximate
-# location and already yields a good overlay, so registration only needs a small rigid
+# location and already yields a good overlay, so registration only needs a small affine
 # refinement.
 #
 # `register_volume` expects a transform mapping `fixed` (template) physical coordinates
@@ -185,12 +185,14 @@ plotter.add_contours(atlas_native.annotation)
 #
 # We extract left and right hemispheres separately via `get_masks`'s `sides` argument:
 # combining both sides into one mask would average left/right signals together and
-# hide interhemispheric differences. Each region's `rid` is otherwise identical across
-# hemispheres, so the two `extract_with_labels` calls must run separately (one per
-# side)—a single stacked mask with both sides would have duplicate region ids across
-# layers. Within each area, acronyms are listed medial-to-lateral; the left hemisphere
-# is ordered lateral-to-medial and the right medial-to-lateral, so each area block
-# reads as one continuous sweep across the slice, meeting at the midline in the middle.
+# hide interhemispheric differences. `get_masks` reuses the same region id for both
+# hemispheres of a region, so we stack the two sides' masks into a single `(mask, z,
+# y, x)` array and give every layer a fresh, unique id before passing it to
+# [`extract_with_labels`][confusius.extract.extract_with_labels] in one call—it names
+# each output region from the mask coordinate we set, not from these ids. Within each
+# area, acronyms are listed medial-to-lateral; the left hemisphere is ordered
+# lateral-to-medial and the right medial-to-lateral, so each area block reads as one
+# continuous sweep across the slice, meeting at the midline in the middle.
 
 # %%
 groups = {
@@ -208,17 +210,24 @@ for area, acronyms in groups.items():
     region_order += [f"{acronym}_R" for acronym in acronyms]
     group_labels += [area] * (2 * len(acronyms))
 
-signals_by_side = []
-for side, suffix in [("left", "L"), ("right", "R")]:
-    side_masks = atlas_native.get_masks(region_acronyms, sides=side)
-    side_signals = cf.extract.extract_with_labels(data, side_masks, reduction="mean")
-    side_signals = side_signals.assign_coords(
-        region=[f"{r}_{suffix}" for r in side_signals.coords["region"].values]
-    )
-    signals_by_side.append(side_signals)
+sides = ["left"] * len(region_acronyms) + ["right"] * len(region_acronyms)
+mask_names = [f"{acronym}_L" for acronym in region_acronyms] + [
+    f"{acronym}_R" for acronym in region_acronyms
+]
+masks = atlas_native.get_masks(region_acronyms * 2, sides=sides).assign_coords(
+    mask=mask_names
+)
+# get_masks reuses the same region id for both hemispheres of a region, which
+# extract_with_labels would reject as a duplicate id across stacked-mask layers. Give
+# every layer a unique nonzero id instead; extract_with_labels names each output
+# region from the mask coordinate above, not from these ids.
+layer_ids = xr.DataArray(np.arange(1, masks.sizes["mask"] + 1), dims="mask")
+masks = xr.where(masks != 0, layer_ids, 0)
+
+signals = cf.extract.extract_with_labels(data, masks, reduction="mean")
 # extract_with_labels does not guarantee any particular region order, so reindex
 # explicitly into the left-right sweep computed above.
-signals = xr.concat(signals_by_side, dim="region").sel(region=region_order)
+signals = signals.sel(region=region_order)
 
 signals
 
