@@ -66,7 +66,7 @@ def affine_to(
 
 def apply_affine(
     da: xr.DataArray,
-    affine: "npt.NDArray[np.float64]",
+    affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
     """Apply an affine to a DataArray's spatial coordinates.
@@ -94,8 +94,9 @@ def apply_affine(
     da : xarray.DataArray
         Input scan. Must have at least one of `"z"`, `"y"`, `"x"` as dimensions
         with associated 1D coordinates.
-    affine : numpy.ndarray, shape (4, 4)
-        Homogeneous affine matrix to apply.
+    affine : numpy.ndarray, shape (4, 4), or str
+        Homogeneous affine matrix to apply. If a string, it is looked up as a
+        key in `da.attrs["affines"]`.
     inplace : bool, default: False
         Whether to modify the DataArray in-place.
 
@@ -111,7 +112,10 @@ def apply_affine(
     Raises
     ------
     ValueError
-        If `affine` is not shape `(4, 4)`.
+        If `affine` is not shape `(4, 4)`, or if `affine` is a string and `da`
+        has no `"affines"` entry in `attrs`.
+    KeyError
+        If `affine` is a string not present in `da.attrs["affines"]`.
 
     Examples
     --------
@@ -129,6 +133,12 @@ def apply_affine(
     >>> float(result.coords["z"].values[0])
     10.0
     """
+    if isinstance(affine, str):
+        if "affines" not in da.attrs:
+            raise ValueError("da does not have an 'affines' entry in attrs.")
+        if affine not in da.attrs["affines"]:
+            raise KeyError(f"'{affine}' not found in da.attrs['affines'].")
+        affine = da.attrs["affines"][affine]
     affine = np.asarray(affine, dtype=np.float64)
     if affine.shape != (4, 4):
         raise ValueError(f"affine must have shape (4, 4), got {affine.shape}.")
@@ -267,7 +277,7 @@ class FUSIAffineAccessor:
 
     def apply(
         self,
-        affine: "npt.NDArray[np.float64]",
+        affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
     ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
         """Apply an affine to the scan's spatial coordinates.
@@ -291,8 +301,9 @@ class FUSIAffineAccessor:
 
         Parameters
         ----------
-        affine : numpy.ndarray, shape (4, 4)
-            Homogeneous affine matrix to apply.
+        affine : numpy.ndarray, shape (4, 4), or str
+            Homogeneous affine matrix to apply. If a string, it is looked up
+            as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
             Whether to modify the DataArray in-place.
 
@@ -308,7 +319,10 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `affine` shape is not `(4, 4)`.
+            If `affine` shape is not `(4, 4)`, or if `affine` is a string and
+            `self` has no `"affines"` entry in `attrs`.
+        KeyError
+            If `affine` is a string not present in `self.attrs["affines"]`.
 
         Examples
         --------
