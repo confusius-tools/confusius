@@ -19,7 +19,12 @@ files.
 
 from __future__ import annotations
 
-from confusius.datasets import fetch_cybis_pereira_2026, fetch_nunez_elizalde_2022
+from confusius.atlas import Atlas
+from confusius.datasets import (
+    fetch_cybis_pereira_2026,
+    fetch_nunez_elizalde_2022,
+    fetch_template_pepe_mariani_2026,
+)
 
 
 def _prefetch_nunez_elizalde() -> None:
@@ -62,6 +67,24 @@ def _prefetch_nunez_elizalde() -> None:
         tasks="spontaneous",
         acqs="slice03",
     )
+
+    # docs/examples/connectivity/02_atlas_seed_map.py
+    fetch_nunez_elizalde_2022(
+        subjects="CR022",
+        sessions="20201007",
+        tasks="spontaneous",
+        acqs="slice02",
+    )
+
+
+def _prefetch_pepe_mariani_template() -> None:
+    # docs/examples/connectivity/02_atlas_seed_map.py
+    fetch_template_pepe_mariani_2026()
+
+
+def _prefetch_allen_atlas() -> None:
+    # docs/examples/connectivity/02_atlas_seed_map.py
+    Atlas.from_brainglobe("allen_mouse_100um")
 
 
 def _prefetch_cybis_pereira() -> None:
