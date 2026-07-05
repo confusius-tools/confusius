@@ -532,8 +532,8 @@ def plot_matrix(
           the same end of the colormap in both the non-negative and non-positive
           cases).
 
-        Set to `False` to use the resolved `vmin`/`vmax` directly with no
-        zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
+        Set to `False` to use the resolved `vmin`/`vmax` directly with no zero-anchoring
+        (`cmap` then defaults to `"coolwarm"` regardless of sign).
     show_colorbar : bool, default: True
         Whether to add a colorbar for `matrix` to the figure.
     cbar_label : str, optional
@@ -563,11 +563,6 @@ def plot_matrix(
     axes : matplotlib.axes.Axes
         Axes object with the matrix plot.
 
-    Notes
-    -----
-    This function was inspired by Nilearn's `nilearn.plotting.plot_matrix`. Unlike
-    Nilearn, it does not support reordering by hierarchical clustering.
-
     Examples
     --------
     >>> import numpy as np
@@ -583,9 +578,9 @@ def plot_matrix(
     >>> # Overlay two matrices, e.g. an estimate and its significance mask.
     >>> pvalues = rng.uniform(size=(10, 10))
     >>> labels = [f"region_{i}" for i in range(10)]
-    >>> fig, ax = plot_matrix(corr, labels=labels, tri="diag_lower")
+    >>> fig, ax = plot_matrix(corr, labels=labels, triangle="diag_lower")
     >>> fig, ax = plot_matrix(
-    ...     pvalues, labels=labels, tri="upper", ax=ax, show_colorbar=False
+    ...     pvalues, labels=labels, triangle="upper", ax=ax, show_colorbar=False
     ... )
     """
     import matplotlib.pyplot as plt

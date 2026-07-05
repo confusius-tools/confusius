@@ -301,7 +301,7 @@ class TestPlotMatrixVisualRegression:
         savefig_kwargs={"facecolor": "auto"},
     )
     def test_plot_matrix_lower_upper_overlay(self, matplotlib_pyplot):
-        """Baseline test for overlaying two matrices via tri='diag_lower'/'upper'."""
+        """Baseline test for overlaying two matrices via triangle='diag_lower'/'upper'."""
         labels = [f"r{i}" for i in range(6)]
         rng = np.random.default_rng(1)
         pvalues = rng.uniform(size=(6, 6))

@@ -191,6 +191,13 @@ groups = {
     "thalamus": ["PO", "VPM", "RT"],
     "hypothalamus": ["PH", "LHA", "ZI"],
 }
+# Allen CCF ids for each area's parent division, used below to color the group strips
+# with the atlas's own official colors instead of arbitrary ones.
+division_ids = {"cortex": 315, "hippocampus": 1089, "thalamus": 549, "hypothalamus": 1097}
+group_colors = {
+    area: "#{:02x}{:02x}{:02x}".format(*atlas.lookup.loc[division_id, "rgb_triplet"])
+    for area, division_id in division_ids.items()
+}
 region_acronyms = [acronym for acronyms in groups.values() for acronym in acronyms]
 
 region_order = []
@@ -252,12 +259,15 @@ connectivity = cf.connectivity.ConnectivityMatrix(kind="correlation").fit_transf
 # [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` parameter annotates
 # contiguous blocks of regions with colored strips—handy here to keep track of which
 # brain area each region belongs to without cluttering the plot with per-region colors.
+# `group_colors` lets us reuse the atlas's own official colors for each area, computed
+# above from `atlas.lookup`, instead of arbitrary ones.
 
 # %% tags=["thumbnail"]
 fig, ax = cf.plotting.plot_matrix(
     connectivity,
     labels=region_order,
     groups=group_labels,
+    group_colors=group_colors,
     vmax=0.8,
     cbar_label="correlation",
     title="Region correlation matrix",
