@@ -11,8 +11,8 @@
 # reference volume as background.
 #
 # We reuse the same recording, template, and registration workflow as the
-# [Atlas-based region correlation matrix](atlas_correlation_matrix.md) example — see it
-# for a detailed walkthrough of the registration steps condensed here.
+# atlas-based region correlation matrix example (see its own page for a detailed
+# walkthrough of the registration steps condensed here).
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
@@ -103,7 +103,7 @@ print(f"Final metric: {diagnostics.final_metric_value:.4f}")
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um")
+atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
 atlas_native = atlas.resample_like(moving, subject_to_atlas)
 
 # %% [markdown]
@@ -177,7 +177,7 @@ mapper.maps_
 # %% tags=["thumbnail"]
 brain_mask = atlas_native.get_masks("root").isel(mask=0)
 
-fig, axes = plt.subplots(2, 2, figsize=(9, 8), constrained_layout=True)
+fig, axes = plt.subplots(2, 2, figsize=(10, 8), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 
 flat_axes = axes.ravel()

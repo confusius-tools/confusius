@@ -84,7 +84,7 @@ def _prefetch_pepe_mariani_template() -> None:
 
 def _prefetch_allen_atlas() -> None:
     # docs/examples/connectivity/02_atlas_seed_map.py
-    Atlas.from_brainglobe("allen_mouse_100um")
+    Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
 
 
 def _prefetch_cybis_pereira() -> None:
