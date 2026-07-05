@@ -54,6 +54,10 @@ Current development version for the next ConfUSIus release.
   downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
+- [`apply_affine`][confusius.xarray.affine.apply_affine] and the
+  `data.fusi.affine.apply` accessor now accept a string naming a key in
+  `attrs["affines"]`, instead of requiring the affine matrix itself
+  ([#247](https://github.com/confusius-tools/confusius/pull/247)).
 
 ### :bug: Fixes
 
