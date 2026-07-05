@@ -11,6 +11,7 @@ import pytest
 import xarray as xr
 
 from confusius.io.nifti import load_nifti, save_nifti
+from confusius.xarray.affine import apply_affine
 
 
 @pytest.fixture
@@ -1211,9 +1212,7 @@ class TestSaveNifti:
         roundtripped = load_nifti(output_path)
         assert roundtripped.dims == ("component", "z", "y", "x")
         assert roundtripped.sizes["component"] == 1
-        np.testing.assert_array_equal(
-            roundtripped.coords["component"].values, [0.0]
-        )
+        np.testing.assert_array_equal(roundtripped.coords["component"].values, [0.0])
 
     def test_save_empty_extra_coord_roundtrips(self, tmp_path) -> None:
         """An empty extra-dim coord is vacuously regular; the save writes an empty-axis NIfTI.
@@ -2454,6 +2453,39 @@ class TestRoundtrip:
         )
         np.testing.assert_allclose(
             reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
+        )
+
+    def test_roundtrip_qform_after_apply_affine_with_singleton_dim(self, tmp_path):
+        """Applying `physical_to_qform` before saving still round-trips the qform.
+
+        Regression (#244): the scan has a singleton spatial axis, whose saved
+        spacing cannot come from coordinate steps and falls back to the
+        `voxdim` coordinate attribute. `apply_affine` must rescale `voxdim`
+        along with the coordinates, otherwise the saved qform carries the
+        stale voxel size on that axis.
+        """
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        sform[:3, 3] = [10.0, -5.0, 2.0]
+        qform = np.diag([0.5, 1.5, 2.5, 1.0])
+        qform[:3, 3] = [5.0, 6.0, 7.0]
+        # NIfTI shape (x, y, z): z is the singleton axis.
+        img = nib.Nifti1Image(np.zeros((4, 3, 1), dtype=np.float32), sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(qform, code=1)
+        in_path = tmp_path / "in.nii.gz"
+        img.to_filename(in_path)
+
+        da = load_nifti(in_path)
+        da, _ = apply_affine(da, da.attrs["affines"]["physical_to_qform"])
+        out_path = tmp_path / "out.nii.gz"
+        save_nifti(da, out_path)
+        reloaded = nib.load(out_path)
+
+        np.testing.assert_allclose(
+            reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
+        )
+        np.testing.assert_allclose(
+            reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
         )
 
     def test_roundtrip_3d(self, tmp_path, sample_3d_volume):
