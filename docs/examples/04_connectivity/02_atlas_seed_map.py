@@ -82,6 +82,7 @@ registered, affine, diagnostics = cf.registration.register_volume(
     number_of_iterations=500,
     learning_rate=1,
     initialization=initialization,
+    show_progress=True,
 )
 
 print(f"Initial metric: {diagnostics.metric_values[0]:.4f}")
