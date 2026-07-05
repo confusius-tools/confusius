@@ -5,6 +5,7 @@
 equivalent.
 """
 
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
 import numpy as np
@@ -22,8 +23,74 @@ if TYPE_CHECKING:
     from matplotlib.colors import Colormap
     from matplotlib.figure import Figure, SubFigure
 
+_MATRIX_DIVERGING_CMAP = "coolwarm"
+"""Default colormap for diverging matrices (see `plot_matrix`'s `auto_range`)."""
 
-def _sanitize_matrix(matrix: "npt.NDArray[Any] | xr.DataArray") -> npt.NDArray[Any]:
+_MATRIX_SEQUENTIAL_CMAP = "viridis"
+"""Default colormap for non-negative matrices (see `plot_matrix`'s `auto_range`)."""
+
+_MATRIX_SEQUENTIAL_CMAP_NEGATIVE = "viridis_r"
+"""Default colormap for non-positive matrices (see `plot_matrix`'s `auto_range`).
+
+Reversed relative to `_MATRIX_SEQUENTIAL_CMAP` so that, in both the non-negative and
+non-positive cases, values near zero map to the same end of the colormap.
+"""
+
+
+def _resolve_matrix_style(
+    values: npt.NDArray[Any],
+    vmin: float | None,
+    vmax: float | None,
+    cmap: "str | Colormap | None",
+    auto_range: bool,
+) -> tuple[float, float, "str | Colormap"]:
+    """Resolve `(vmin, vmax, cmap)` for a matrix, mirroring `plot_stat_map`'s auto_range.
+
+    `vmin`/`vmax` fall back to the actual min/max of `values` when not provided.
+
+    When `auto_range` is `True` (default), the sign of `values` determines the layout:
+
+    - Both positive and negative values: diverging, symmetric `[-m, m]` range where
+      `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with `cmap`
+      defaulting to `_MATRIX_DIVERGING_CMAP`.
+    - Only non-negative values: sequential `[0, vmax]` range, with `cmap` defaulting
+      to `_MATRIX_SEQUENTIAL_CMAP`.
+    - Only non-positive values: sequential `[vmin, 0]` range, with `cmap` defaulting
+      to `_MATRIX_SEQUENTIAL_CMAP_NEGATIVE`.
+
+    When `auto_range` is `False`, the resolved `vmin`/`vmax` are used directly with no
+    zero-anchoring, and `cmap` defaults to `_MATRIX_DIVERGING_CMAP` regardless of
+    `values`'s sign. In both cases, an explicitly provided `cmap` is always used as-is.
+    """
+    finite = values[np.isfinite(values)]
+    data_min = float(finite.min()) if finite.size > 0 else 0.0
+    data_max = float(finite.max()) if finite.size > 0 else 1.0
+
+    resolved_vmin = vmin if vmin is not None else data_min
+    resolved_vmax = vmax if vmax is not None else data_max
+
+    if not auto_range:
+        return (
+            resolved_vmin,
+            resolved_vmax,
+            cmap if cmap is not None else _MATRIX_DIVERGING_CMAP,
+        )
+
+    if data_min < 0 < data_max:
+        abs_max = max(abs(resolved_vmin), abs(resolved_vmax))
+        return -abs_max, abs_max, cmap if cmap is not None else _MATRIX_DIVERGING_CMAP
+
+    if data_max > 0:
+        return 0.0, resolved_vmax, cmap if cmap is not None else _MATRIX_SEQUENTIAL_CMAP
+
+    return (
+        resolved_vmin,
+        0.0,
+        cmap if cmap is not None else _MATRIX_SEQUENTIAL_CMAP_NEGATIVE,
+    )
+
+
+def _validate_matrix(matrix: "npt.NDArray[Any] | xr.DataArray") -> npt.NDArray[Any]:
     """Validate `matrix` is 2D and square, returning its plain `numpy.ndarray` values.
 
     Parameters
@@ -60,8 +127,8 @@ def _default_labels(matrix: "npt.NDArray[Any] | xr.DataArray") -> list[str] | No
     Returns
     -------
     list[str] or None
-        Stringified coordinate values for `matrix.dims[0]`, or `None` when `matrix`
-        is not a `xarray.DataArray` or carries no such coordinate.
+        Stringified coordinate values for `matrix.dims[0]`, or `None` when `matrix` is
+        not a `xarray.DataArray` or carries no such coordinate.
     """
     if not isinstance(matrix, xr.DataArray):
         return None
@@ -145,6 +212,7 @@ def _draw_grid(
     tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
     size: int,
     color: str,
+    linewidth: float | None,
 ) -> None:
     """Draw grid lines separating matrix cells.
 
@@ -163,45 +231,89 @@ def _draw_grid(
         Number of rows (== number of columns) in the matrix.
     color : str
         Line color.
+    linewidth : float, optional
+        Line width. If not provided, uses the active Matplotlib default.
     """
     for i in range(size):
         offset = 1.001 * i
         if tri == "lower":
             ax.plot(
-                [offset + 0.5, offset + 0.5], [size - 0.5, offset + 0.5], color=color
+                [offset + 0.5, offset + 0.5],
+                [size - 0.5, offset + 0.5],
+                color=color,
+                linewidth=linewidth,
             )
-            ax.plot([offset + 0.5, -0.5], [offset + 0.5, offset + 0.5], color=color)
+            ax.plot(
+                [offset + 0.5, -0.5],
+                [offset + 0.5, offset + 0.5],
+                color=color,
+                linewidth=linewidth,
+            )
         elif tri == "diag_lower":
             ax.plot(
-                [offset + 0.5, offset + 0.5], [size - 0.5, offset - 0.5], color=color
+                [offset + 0.5, offset + 0.5],
+                [size - 0.5, offset - 0.5],
+                color=color,
+                linewidth=linewidth,
             )
-            ax.plot([offset + 0.5, -0.5], [offset - 0.5, offset - 0.5], color=color)
+            ax.plot(
+                [offset + 0.5, -0.5],
+                [offset - 0.5, offset - 0.5],
+                color=color,
+                linewidth=linewidth,
+            )
         elif tri == "diag_upper":
             ax.plot(
-                [size - 0.5, offset - 0.5], [offset + 0.5, offset + 0.5], color=color
+                [size - 0.5, offset - 0.5],
+                [offset + 0.5, offset + 0.5],
+                color=color,
+                linewidth=linewidth,
             )
-            ax.plot([offset - 0.5, offset - 0.5], [offset + 0.5, -0.5], color=color)
-        elif tri == "upper":
-            ax.plot([offset + 0.5, offset + 0.5], [offset + 0.5, -0.5], color=color)
             ax.plot(
-                [size - 0.5, offset + 0.5], [offset + 0.5, offset + 0.5], color=color
+                [offset - 0.5, offset - 0.5],
+                [offset + 0.5, -0.5],
+                color=color,
+                linewidth=linewidth,
+            )
+        elif tri == "upper":
+            ax.plot(
+                [offset + 0.5, offset + 0.5],
+                [offset + 0.5, -0.5],
+                color=color,
+                linewidth=linewidth,
+            )
+            ax.plot(
+                [size - 0.5, offset + 0.5],
+                [offset + 0.5, offset + 0.5],
+                color=color,
+                linewidth=linewidth,
             )
         else:
-            ax.plot([offset + 0.5, offset + 0.5], [size - 0.5, -0.5], color=color)
-            ax.plot([size - 0.5, -0.5], [offset + 0.5, offset + 0.5], color=color)
+            ax.plot(
+                [offset + 0.5, offset + 0.5],
+                [size - 0.5, -0.5],
+                color=color,
+                linewidth=linewidth,
+            )
+            ax.plot(
+                [size - 0.5, -0.5],
+                [offset + 0.5, offset + 0.5],
+                color=color,
+                linewidth=linewidth,
+            )
 
 
-def _group_spans(groups: Sequence[Any]) -> list[tuple[Any, int, int]]:
+def _group_spans(groups: Sequence[Hashable]) -> list[tuple[Hashable, int, int]]:
     """Split `groups` into contiguous runs of identical values.
 
     Parameters
     ----------
-    groups : sequence
+    groups : sequence of hashable
         Group value for each row/column, e.g. `["cortex", "cortex", "thalamus"]`.
 
     Returns
     -------
-    list[tuple[Any, int, int]]
+    list[tuple[Hashable, int, int]]
         `(value, start, stop)` for each contiguous run, `stop` exclusive.
     """
     spans = []
@@ -242,8 +354,8 @@ def _y_tick_label_width_inches(ax: "Axes") -> float:
 def _draw_group_bar(
     ax: "Axes",
     orientation: Literal["vertical", "horizontal"],
-    spans: list[tuple[Any, int, int]],
-    colors: Mapping[Any, str],
+    spans: list[tuple[Hashable, int, int]],
+    colors: Mapping[Hashable, str],
     show_labels: bool,
     fontsize: float | None,
     text_color: str,
@@ -257,7 +369,7 @@ def _draw_group_bar(
     orientation : {"vertical", "horizontal"}
         `"vertical"` draws a column of rectangles (for row groups), `"horizontal"`
         draws a row of rectangles (for column groups).
-    spans : list[tuple[Any, int, int]]
+    spans : list[tuple[Hashable, int, int]]
         Contiguous group runs from `_group_spans`.
     colors : Mapping
         Color for each group value.
@@ -333,14 +445,16 @@ def _draw_group_bar(
 def plot_matrix(
     matrix: "npt.NDArray[Any] | xr.DataArray",
     labels: "Sequence[str] | Literal[False] | None" = None,
-    groups: "Sequence[Any] | None" = None,
-    group_colors: "Mapping[Any, str] | None" = None,
+    groups: "Sequence[Hashable] | None" = None,
+    group_colors: "Mapping[Hashable, str] | None" = None,
     show_group_labels: bool = True,
     tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"] = "full",
     grid: "str | Literal[False]" = False,
-    cmap: "str | Colormap" = "RdBu_r",
+    grid_linewidth: float | None = None,
+    cmap: "str | Colormap | None" = None,
     vmin: float | None = None,
     vmax: float | None = None,
+    auto_range: bool = True,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
     title: str | None = None,
@@ -356,18 +470,17 @@ def plot_matrix(
     ----------
     matrix : (n, n) numpy.ndarray or xarray.DataArray
         Square matrix to plot.
-    labels : list[str], False, or None, default: None
+    labels : sequence[str] or False or None, default: None
         Label for each row/column, in matrix order. If not provided and `matrix` is a
         `xarray.DataArray` with a coordinate on its first dimension, that coordinate's
         values are used. Pass `False` to force no labels even when such a coordinate
         exists.
-    groups : sequence, optional
-        Group value for each row/column, in matrix order, e.g.
-        `["cortex"] * 5 + ["thalamus"] * 3`. Rows/columns are assumed to already be
-        sorted by group: contiguous runs of equal values are drawn as colored
-        rectangles alongside the matrix. If not provided, no group annotation is
-        drawn.
-    group_colors : Mapping, optional
+    groups : sequence of hashable, optional
+        Group value for each row/column, in matrix order, e.g. `["cortex"] * 5 +
+        ["thalamus"] * 3`. Rows/columns are assumed to already be sorted by group:
+        contiguous runs of equal values are drawn as colored rectangles alongside the
+        matrix. If not provided, no group annotation is drawn.
+    group_colors : Mapping[Hashable, str], optional
         Color for each unique value in `groups`. If not provided, colors are assigned
         automatically from a qualitative colormap.
     show_group_labels : bool, default: True
@@ -381,23 +494,46 @@ def plot_matrix(
         - `"upper"`: only the part strictly above the diagonal.
         - `"full"`: the entire matrix.
 
-        `"lower"`/`"diag_lower"` and `"upper"`/`"diag_upper"` are useful for
-        overlaying two matrices on the same axes (e.g. an estimate on one side and
-        its significance mask on the other): call `plot_matrix` twice, passing the
-        first call's `ax` to the second along with `show_colorbar=False`. Pass the
-        same `labels` to both calls: since the second call reuses `ax` directly
-        (rather than a new axes sharing it), it otherwise clears the labels the
-        first call set.
+        `"lower"`/`"diag_lower"` and `"upper"`/`"diag_upper"` are useful for overlaying
+        two matrices on the same axes (e.g. an estimate on one side and its significance
+        mask on the other): call `plot_matrix` twice, passing the first call's `ax` to
+        the second along with `show_colorbar=False`. Pass the same `labels` to both
+        calls: since the second call reuses `ax` directly (rather than a new axes
+        sharing it), it otherwise clears the labels the first call set.
 
     grid : str or False, default: False
         Color of grid lines separating cells. `False` disables the grid.
-    cmap : str or matplotlib.colors.Colormap, default: "RdBu_r"
-        Colormap for `matrix`.
+    grid_linewidth : float, optional
+        Width of the grid lines. If not provided, uses the active Matplotlib default.
+        Ignored when `grid` is `False`.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap for `matrix`. If not provided, the default depends on `auto_range`
+        and the sign of `matrix` (see below); an explicitly provided `cmap` is
+        always used as-is regardless of `auto_range`.
     vmin : float, optional
-        Minimum value for the colormap. If not provided, defaults to `-vmax`.
+        Lower bound of the colormap. If not provided, defaults to the minimum value
+        in `matrix`. Ignored when `auto_range` resolves to a range anchored at zero
+        (see below).
     vmax : float, optional
-        Maximum value for the colormap. If not provided, defaults to the maximum
-        absolute value in `matrix`, so that a diverging `cmap` centers on zero.
+        Upper bound of the colormap. If not provided, defaults to the maximum value
+        in `matrix`. Ignored when `auto_range=True` and `matrix` has only
+        non-positive values.
+    auto_range : bool, default: True
+        Whether to pick the colormap range and default colormap automatically based
+        on the sign of `matrix`:
+
+        - Both positive and negative values: diverging, symmetric `[-m, m]` range
+          where `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with
+          `cmap` defaulting to `"coolwarm"`.
+        - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+          defaulting to `"viridis"`.
+        - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+          defaulting to `"viridis_r"` (reversed, so that values near zero map to
+          the same end of the colormap in both the non-negative and non-positive
+          cases).
+
+        Set to `False` to use the resolved `vmin`/`vmax` directly with no
+        zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
     show_colorbar : bool, default: True
         Whether to add a colorbar for `matrix` to the figure.
     cbar_label : str, optional
@@ -405,9 +541,9 @@ def plot_matrix(
     title : str, optional
         Plot title.
     fontsize : float, optional
-        Base font size for text elements. Title uses `fontsize` directly; the
-        colorbar label and group labels use `0.9 * fontsize`; tick labels use
-        `0.85 * fontsize`. If not provided, uses the active Matplotlib defaults.
+        Base font size for text elements. Title uses `fontsize` directly; the colorbar
+        label and group labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`.
+        If not provided, uses the active Matplotlib defaults.
     bg_color : str, default: "white"
         Background color for the figure and axes. Any matplotlib-compatible color
         string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
@@ -455,7 +591,7 @@ def plot_matrix(
     import matplotlib.pyplot as plt
     from mpl_toolkits.axes_grid1 import make_axes_locatable
 
-    values = _sanitize_matrix(matrix)
+    values = _validate_matrix(matrix)
     size = values.shape[0]
     labels = _sanitize_labels(
         labels if labels is not None else _default_labels(matrix), size
@@ -466,10 +602,7 @@ def plot_matrix(
         )
 
     masked = _mask_triangle(values, tri)
-    if vmax is None:
-        vmax = float(np.nanmax(np.abs(values)))
-    if vmin is None:
-        vmin = -vmax
+    vmin, vmax, cmap = _resolve_matrix_style(values, vmin, vmax, cmap, auto_range)
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
     title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
@@ -511,7 +644,7 @@ def plot_matrix(
         spine.set_color(text_color)
 
     if grid is not False:
-        _draw_grid(ax, tri, size, grid)
+        _draw_grid(ax, tri, size, grid, grid_linewidth)
 
     if groups is not None:
         spans = _group_spans(list(groups))

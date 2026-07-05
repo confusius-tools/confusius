@@ -369,7 +369,7 @@ plotter = stat_map.fusi.plot.volume(
     slice_mode="z",
     threshold=3.0,
     threshold_mode="lower",
-    cmap="RdBu_r",
+    cmap="coolwarm",
     vmin=-6,
     vmax=6,
 )

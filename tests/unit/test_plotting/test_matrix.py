@@ -89,13 +89,47 @@ class TestPlotMatrixBehaviour:
         fig, ax = plot_matrix(_correlation_matrix(4), labels=["", "", "", ""], groups=groups)
         assert len(fig.axes) > 1
 
-    def test_symmetric_default_vmax(self, matplotlib_pyplot):
-        """With no explicit vmin/vmax, the colormap is centered on zero."""
-        matrix = np.array([[0.0, -0.8], [-0.8, 0.0]])
+    def test_diverging_matrix_gets_symmetric_range(self, matplotlib_pyplot):
+        """A matrix with both signs gets a symmetric [-m, m] range and coolwarm."""
+        matrix = np.array([[1.0, -0.8], [-0.8, 1.0]])
+        _, ax = plot_matrix(matrix)
+        image = ax.images[0]
+        assert image.norm.vmin == pytest.approx(-1.0)
+        assert image.norm.vmax == pytest.approx(1.0)
+        assert image.cmap.name == "coolwarm"
+
+    def test_non_negative_matrix_gets_sequential_range(self, matplotlib_pyplot):
+        """A non-negative matrix gets a [0, vmax] range and a sequential cmap."""
+        matrix = np.array([[0.2, 0.8], [0.8, 0.2]])
+        _, ax = plot_matrix(matrix)
+        image = ax.images[0]
+        assert image.norm.vmin == pytest.approx(0.0)
+        assert image.norm.vmax == pytest.approx(0.8)
+        assert image.cmap.name == "viridis"
+
+    def test_non_positive_matrix_gets_sequential_range(self, matplotlib_pyplot):
+        """A non-positive matrix gets a [vmin, 0] range and a reversed sequential cmap."""
+        matrix = np.array([[-0.2, -0.8], [-0.8, -0.2]])
         _, ax = plot_matrix(matrix)
         image = ax.images[0]
         assert image.norm.vmin == pytest.approx(-0.8)
+        assert image.norm.vmax == pytest.approx(0.0)
+        assert image.cmap.name == "viridis_r"
+
+    def test_auto_range_false_uses_raw_bounds(self, matplotlib_pyplot):
+        """auto_range=False uses the raw min/max with no zero-anchoring."""
+        matrix = np.array([[0.2, 0.8], [0.8, 0.2]])
+        _, ax = plot_matrix(matrix, auto_range=False)
+        image = ax.images[0]
+        assert image.norm.vmin == pytest.approx(0.2)
         assert image.norm.vmax == pytest.approx(0.8)
+        assert image.cmap.name == "coolwarm"
+
+    def test_explicit_cmap_overrides_auto_range(self, matplotlib_pyplot):
+        """An explicit cmap is used as-is regardless of auto_range."""
+        matrix = np.array([[0.2, 0.8], [0.8, 0.2]])
+        _, ax = plot_matrix(matrix, cmap="magma")
+        assert ax.images[0].cmap.name == "magma"
 
     def test_fontsize_scales_text_elements(self, matplotlib_pyplot):
         """plot_matrix scales title, tick, and colorbar text from fontsize."""
