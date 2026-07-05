@@ -128,6 +128,34 @@ def _clean_stream_text(text: str) -> str:
     return "\n".join(cleaned_lines).strip("\n")
 
 
+def _is_blank_widget_output(output: dict[str, object]) -> bool:
+    """Return whether `output` is an empty ipywidgets-style placeholder.
+
+    `rich.progress.Progress`/`Live` (used by some dependencies for one-off progress
+    display) create an `ipywidgets.Output` placeholder via `IPython.display.display`
+    the first time they detect a Jupyter kernel. Because it carries no real content
+    (no `image/*` payload) and Python only shows the accompanying "install
+    ipywidgets" warning once per process, it non-deterministically appears in only
+    one of the light/dark passes. Safe to drop: real cell output (a matplotlib
+    figure, a DataArray repr, printed text) never matches this empty shape.
+    """
+    if output.get("output_type") != "display_data":
+        return False
+    data = output.get("data")
+    if not isinstance(data, dict) or not data:
+        return False
+    if any(key.startswith("image/") for key in data):
+        return False
+    if not set(data).issubset({"text/html", "text/plain"}):
+        return False
+
+    def _is_blank(value: object) -> bool:
+        text = "".join(value) if isinstance(value, list) else str(value)
+        return not text.strip()
+
+    return all(_is_blank(value) for value in data.values())
+
+
 def _summarize_output(output: dict[str, object]) -> str:
     """Return a one-line human-readable summary of one notebook output.
 
@@ -231,9 +259,16 @@ def render_notebook(
         # (typically a one-shot download or a warning that fired only once),
         # and silently dropping the extras would hide a real difference
         # between the two rendered notebooks. Pre-warm caches outside the
-        # gallery so both runs start from the same state.
-        light_outputs = light_cell.get("outputs", [])
-        dark_outputs = dark_cell.get("outputs", [])
+        # gallery so both runs start from the same state. Blank ipywidgets
+        # placeholders are the one known exception: they carry no content, so
+        # dropping them can't hide a real difference (see
+        # `_is_blank_widget_output`).
+        light_outputs = [
+            o for o in light_cell.get("outputs", []) if not _is_blank_widget_output(o)
+        ]
+        dark_outputs = [
+            o for o in dark_cell.get("outputs", []) if not _is_blank_widget_output(o)
+        ]
         if len(light_outputs) != len(dark_outputs):
             raise ValueError(
                 f"{base_name}: cell {cell_index} produced "
