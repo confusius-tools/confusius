@@ -1,15 +1,15 @@
 # %% [markdown]
-# # Atlas-based region correlation matrix
+# Atlas-based region correlation matrix
 #
-# This example shows an end-to-end regional connectivity analysis: register a
-# single-slice fUSI recording to an Allen-space template, bring an
-# [Allen Mouse Brain Atlas][confusius.atlas.Atlas] into the recording's native space,
-# extract region-averaged signals, and visualise their pairwise correlation with
+# This example shows an end-to-end regional functional connectivity (FC) analysis:
+# register a single-slice fUSI recording to an Allen-space template, bring the [Allen
+# Mouse Brain Atlas][confusius.atlas.Atlas] into the recording's native space, extract
+# region-averaged signals, and visualise their pairwise correlation with
 # [`plot_matrix`][confusius.plotting.plot_matrix].
 #
-# We use the `fusi` acquisition from subject `CR022`, session `20201007`, in the
-# [Nunez-Elizalde 2022 dataset](https://doi.org/10.1016/j.neuron.2022.02.012), and the
-# [`Pepe, Mariani 2026`
+# We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# and the [Pepe, Mariani 2026 fUSI
 # template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
 # affine transform required to bring it into Allen Common Coordinate Framework (CCF)
 # space.
@@ -17,9 +17,9 @@
 # %% [markdown]
 # ## Fetch the recording and the template
 #
-# The recording is a single coronal slice with 755 timepoints. Registration works on a
-# static anatomical image, so we use the temporal mean, converted to decibels for a more
-# stable dynamic range.
+# The recording is a single coronal slice imaged for approximately 4 minutes at 3.33 Hz.
+# Registration works on a static anatomical image, so we use the temporal mean,
+# converted to decibels for a more stable dynamic range.
 
 # %%
 from pathlib import Path
@@ -36,11 +36,10 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 xr.set_options(display_expand_data=False)
 
+template = cf.datasets.fetch_template_pepe_mariani_2026()
+
 bids_root = cf.datasets.fetch_nunez_elizalde_2022(
-    subjects="CR022",
-    sessions="20201007",
-    tasks="spontaneous",
-    acqs="slice02",
+    subjects="CR022", sessions="20201007", tasks="spontaneous", acqs="slice02"
 )
 
 data_path = (
@@ -50,32 +49,30 @@ data_path = (
     / "fusi"
     / "sub-CR022_ses-20201007_task-spontaneous_acq-slice02_pwd.nii.gz"
 )
-# The recording's timepoints are not perfectly uniformly spaced (a common trait of raw
-# scanner timestamps), so we resample to a uniform grid before any time-domain
-# processing (filtering below requires it).
+# The recording's timepoints are not perfectly uniformly spaced so we resample to a
+# uniform grid before any time-domain processing (filtering below requires it).
 data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
-template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
-
 data
-# %%
-template
 
 # %% [markdown]
 # ## Register the recording to the template
 #
-# The recording's `z` coordinate is arbitrary (it just indexes the single acquired
-# slice), so it carries no information about where that slice actually sits along the
-# template's anteroposterior axis. We use an affine measured once in Napari's
-# registration widget as the initialization: it places the slice at its approximate
-# location and already yields a good overlay, so registration only needs a small affine
-# refinement.
-#
-# `register_volume` expects a transform mapping `fixed` (template) physical coordinates
-# to `moving` (recording) physical coordinates, so we invert the Napari affine—which
-# instead describes how to place the recording *into* the template's coordinate
-# system—before using it as `initialization`.
+# The template is a 3D volume but the recording is a single slice. We can still register
+# the recording to the template, but we need to initialize the registration with a rough
+# guess of where the recording sits in the template, otherwise the registration
+# algorithm may not converge to the right slice. To initialize the registration, we use
+# an affine transform obtained using [napari's manual transform
+# tool](https://napari.org/stable/howtos/layers/image.html#buttons) by placing the
+# recording at an approximate location on the template. The transform is not perfect,
+# but it is close enough to allow the registration algorithm to converge to a good
+# solution.
+
+# [`register_volume`][confusius.registration.register_volume] expects a transform
+# mapping `fixed` (template) physical coordinates to `moving` (recording) physical
+# coordinates, so we invert the Napari affine—which instead describes how to place the
+# recording *into* the template's coordinate system—before using it as `initialization`.
 
 # %%
 napari_affine = np.array(
@@ -88,16 +85,15 @@ napari_affine = np.array(
 )
 initialization = np.linalg.inv(napari_affine)
 
-# Crop the template to a thin band around the recording's expected location: it
-# stabilizes registration and keeps the resampled output close to the recording's
-# thickness.
+# Crop the template to a thin band around the recording's expected location to improve
+# registration speed and visualization.
 target_z = napari_affine[0, 3] + float(moving.z.values[0])
-fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0))
+fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0)).fusi.scale.db()
 
 initialized = cf.registration.resample_like(
     moving, fixed, initialization, default_value=float(moving.min())
 )
-cf.plotting.plot_composite(
+_ = cf.plotting.plot_composite(
     fixed,
     initialized,
     slice_coords=[target_z],
@@ -106,34 +102,28 @@ cf.plotting.plot_composite(
 )
 
 # %% [markdown]
-# We use an affine transform: on top of the rotation and translation a rigid
-# transform would allow, it also captures small scale and shear differences between
-# the recording and the template.
+# We use an affine transform: on top of the rotation and translation a rigid transform
+# would allow, it also captures small scale and shear differences between the recording
+# and the template.
 
 # %%
-registered, affine, diagnostics = cf.registration.register_volume(
+registered, affine, _ = cf.registration.register_volume(
     moving=moving,
     fixed=fixed,
     transform_type="affine",
     metric="correlation",
-    convergence_window_size=100,
+    convergence_window_size=50,
     number_of_iterations=500,
     learning_rate=1,
     initialization=initialization,
     show_progress=True,
 )
 
-print(f"Initial metric: {diagnostics.metric_values[0]:.4f}")
-print(f"Final metric: {diagnostics.final_metric_value:.4f}")
-print(f"Iterations: {diagnostics.n_iterations}")
-print(f"Stop condition: {diagnostics.stop_condition}")
-affine
-
 # %% [markdown]
 # The initialization was already close, so the refinement is small. Comparing the
-# overlay before and after registration, alignment is slightly better after the
-# affine refinement, most noticeably around the anterior choroidal arteries in the
-# bottom part of the field of view.
+# overlay before and after registration, alignment is slightly better after the affine
+# refinement, most noticeably around the anterior choroidal arteries in the bottom part
+# of the field of view.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -159,8 +149,8 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 #
 # The template is not itself expressed in Allen space, but it carries the affine
 # transform to get there in `template.attrs["affines"]["physical_to_sform"]`. Composing
-# it with the inverse of the estimated registration affine gives a single transform
-# from the recording's native coordinates directly to Allen atlas coordinates.
+# it with the inverse of the estimated registration affine gives a single transform from
+# the recording's native coordinates directly to Allen atlas coordinates.
 
 # %%
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
@@ -172,7 +162,7 @@ atlas_native = atlas.resample_like(moving, subject_to_atlas)
 plotter = cf.plotting.plot_volume(
     moving, slice_mode="z", cmap="gray", show_colorbar=False, bg_color=bg_color
 )
-plotter.add_contours(atlas_native.annotation)
+_ = plotter.add_contours(atlas_native.annotation)
 
 # %% [markdown]
 # ## Extract region signals and compute their correlation matrix
@@ -180,19 +170,19 @@ plotter.add_contours(atlas_native.annotation)
 # [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] accepts parent acronyms from the
 # Allen ontology (e.g. `"SSp-bfd"`) and automatically aggregates every descendant
 # region, so we can request a handful of coarse regions per area of interest instead of
-# individual cortical layers or thalamic nuclei. We pick three regions each from
-# cortex, hippocampus, thalamus, and hypothalamus.
+# individual cortical layers or thalamic nuclei. We pick three regions each from cortex,
+# hippocampus, thalamus, and hypothalamus.
 #
-# We extract left and right hemispheres separately via `get_masks`'s `sides` argument:
-# combining both sides into one mask would average left/right signals together and
-# hide interhemispheric differences. `get_masks` reuses the same region id for both
-# hemispheres of a region, so we stack the two sides' masks into a single `(mask, z,
-# y, x)` array and give every layer a fresh, unique id before passing it to
-# [`extract_with_labels`][confusius.extract.extract_with_labels] in one call—it names
-# each output region from the mask coordinate we set, not from these ids. Within each
-# area, acronyms are listed medial-to-lateral; the left hemisphere is ordered
-# lateral-to-medial and the right medial-to-lateral, so each area block reads as one
-# continuous sweep across the slice, meeting at the midline in the middle.
+# We extract left and right hemispheres separately via
+# [`get_masks`][confusius.atlas.Atlas.get_masks]'s `sides` argument: combining both
+# sides into one mask would average left/right signals together and hide
+# bilateral FC and interhemispheric differences.
+# [`get_masks`][confusius.atlas.Atlas.get_masks] reuses the same region id for both
+# hemispheres of a region, so we stack the two sides' masks into a single `(mask, z, y,
+# x)` array and give every layer a unique id before passing it to
+# [`extract_with_labels`][confusius.extract.extract_with_labels] in one call. Within
+# each area the left hemisphere is ordered lateral-to-medial and the right
+# medial-to-lateral, so each area block reads as one continuous sweep across the slice.
 
 # %%
 groups = {
@@ -235,11 +225,11 @@ signals
 # ## Clean the region signals
 #
 # Before correlating regions we remove nuisance variance that would otherwise inflate
-# their apparent connectivity: a `low_cutoff` high-pass filter for slow drift, and
-# [aCompCor][confusius.signal.compute_compcor_confounds] components regressed out.
+# their apparent FC: a 0.01 Hz high-pass filter for slow drift, and one
+# [aCompCor][confusius.signal.compute_compcor_confounds] component regressed out.
 # aCompCor components are extracted from white matter voxels—the Allen ontology's
-# `"fiber tracts"` division, which aggregates every white-matter tract—so they must be
-# computed from the voxelwise recording rather than the already-averaged regions.
+# `"fiber tracts"` division—so they must be computed from the voxelwise recording rather
+# than the already-averaged regions.
 
 # %%
 white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
@@ -249,6 +239,7 @@ acompcor = cf.signal.compute_compcor_confounds(
 signals = cf.signal.clean(signals, low_cutoff=0.01, confounds=acompcor)
 
 # %% [markdown]
+# ## Compute and plot the correlation matrix
 # [`ConnectivityMatrix`][confusius.connectivity.ConnectivityMatrix] computes the Pearson
 # correlation matrix between all region pairs from the `(time, region)` signals.
 
@@ -258,8 +249,6 @@ connectivity = cf.connectivity.ConnectivityMatrix(kind="correlation").fit_transf
 )[0]
 
 # %% [markdown]
-# ## Plot the correlation matrix
-#
 # [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` parameter annotates
 # contiguous blocks of regions with colored strips—handy here to keep track of which
 # brain area each region belongs to without cluttering the plot with per-region colors.

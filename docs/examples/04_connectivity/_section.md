@@ -1,4 +1,5 @@
-# Connectivity
+# Functional Connectivity
 
-Extracting brain-region signals with a registered atlas and analyzing functional
-connectivity between regions.
+Computing functional connectivity (FC) measures from fUSI data using brain region
+parcellations or data-driven approaches.
+
