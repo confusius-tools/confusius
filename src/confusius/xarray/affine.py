@@ -178,6 +178,10 @@ def apply_affine(
             dims=[dim],
             attrs=da.coords[dim].attrs,
         )
+        if "voxdim" in new_coords[dim].attrs:
+            # `voxdim` records the physical voxel size along this axis, so it must scale
+            # together with the coordinates it describes.
+            new_coords[dim].attrs["voxdim"] *= np.abs(zoom[axis])
 
     # Re-express every stored affine against the new axis-aligned physical frame
     # so it stays valid: M_new = M_old @ inv(axis_aligned(translation, zoom)).

@@ -57,6 +57,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
+  of the spatial coordinates along with the coordinate values
+  ([#245](https://github.com/confusius-tools/confusius/pull/245)).
 - `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
   and `confounds` by interpolating along time, fills censored boundary samples from
   the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
