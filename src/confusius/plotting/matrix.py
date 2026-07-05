@@ -175,15 +175,15 @@ def _sanitize_labels(
 
 def _mask_triangle(
     matrix: npt.NDArray[Any],
-    tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
+    triangle: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
 ) -> np.ma.MaskedArray:
-    """Mask part of `matrix` according to `tri`.
+    """Mask part of `matrix` according to `triangle`.
 
     Parameters
     ----------
     matrix : numpy.ndarray
         Square matrix to mask.
-    tri : {"full", "lower", "diag_lower", "diag_upper", "upper"}
+    triangle : {"full", "lower", "diag_lower", "diag_upper", "upper"}
         Which part of the matrix to keep visible: `"lower"` and `"upper"` exclude the
         diagonal, `"diag_lower"` and `"diag_upper"` include it (on the lower and upper
         side respectively), `"full"` keeps everything.
@@ -194,13 +194,13 @@ def _mask_triangle(
         `matrix` with the masked entries hidden from display.
     """
     size = matrix.shape[0]
-    if tri == "full":
+    if triangle == "full":
         mask = np.zeros((size, size), dtype=bool)
-    elif tri == "lower":
+    elif triangle == "lower":
         mask = ~np.tri(size, k=-1, dtype=bool)
-    elif tri == "diag_lower":
+    elif triangle == "diag_lower":
         mask = ~np.tri(size, k=0, dtype=bool)
-    elif tri == "diag_upper":
+    elif triangle == "diag_upper":
         mask = np.tri(size, k=-1, dtype=bool)
     else:  # "upper"
         mask = np.tri(size, k=0, dtype=bool)
@@ -209,7 +209,7 @@ def _mask_triangle(
 
 def _draw_grid(
     ax: "Axes",
-    tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
+    triangle: Literal["full", "lower", "diag_lower", "diag_upper", "upper"],
     size: int,
     color: str,
     linewidth: float | None,
@@ -225,7 +225,7 @@ def _draw_grid(
     ----------
     ax : matplotlib.axes.Axes
         Axes containing the matrix image.
-    tri : {"full", "lower", "diag_lower", "diag_upper", "upper"}
+    triangle : {"full", "lower", "diag_lower", "diag_upper", "upper"}
         Matrix triangle being displayed; determines which grid lines are drawn.
     size : int
         Number of rows (== number of columns) in the matrix.
@@ -236,7 +236,7 @@ def _draw_grid(
     """
     for i in range(size):
         offset = 1.001 * i
-        if tri == "lower":
+        if triangle == "lower":
             ax.plot(
                 [offset + 0.5, offset + 0.5],
                 [size - 0.5, offset + 0.5],
@@ -249,7 +249,7 @@ def _draw_grid(
                 color=color,
                 linewidth=linewidth,
             )
-        elif tri == "diag_lower":
+        elif triangle == "diag_lower":
             ax.plot(
                 [offset + 0.5, offset + 0.5],
                 [size - 0.5, offset - 0.5],
@@ -262,7 +262,7 @@ def _draw_grid(
                 color=color,
                 linewidth=linewidth,
             )
-        elif tri == "diag_upper":
+        elif triangle == "diag_upper":
             ax.plot(
                 [size - 0.5, offset - 0.5],
                 [offset + 0.5, offset + 0.5],
@@ -275,7 +275,7 @@ def _draw_grid(
                 color=color,
                 linewidth=linewidth,
             )
-        elif tri == "upper":
+        elif triangle == "upper":
             ax.plot(
                 [offset + 0.5, offset + 0.5],
                 [offset + 0.5, -0.5],
@@ -448,7 +448,7 @@ def plot_matrix(
     groups: "Sequence[Hashable] | None" = None,
     group_colors: "Mapping[Hashable, str] | None" = None,
     show_group_labels: bool = True,
-    tri: Literal["full", "lower", "diag_lower", "diag_upper", "upper"] = "full",
+    triangle: Literal["full", "lower", "diag_lower", "diag_upper", "upper"] = "full",
     grid: "str | Literal[False]" = False,
     grid_linewidth: float | None = None,
     cmap: "str | Colormap | None" = None,
@@ -485,7 +485,7 @@ def plot_matrix(
         automatically from a qualitative colormap.
     show_group_labels : bool, default: True
         Whether to annotate each group's colored rectangle with its value.
-    tri : {"full", "lower", "diag_lower", "diag_upper", "upper"}, default: "full"
+    triangle : {"full", "lower", "diag_lower", "diag_upper", "upper"}, default: "full"
         Which part of the matrix to display:
 
         - `"lower"`: only the part strictly below the diagonal.
@@ -601,7 +601,7 @@ def plot_matrix(
             f"Length of groups ({len(groups)}) does not match matrix size ({size})."
         )
 
-    masked = _mask_triangle(values, tri)
+    masked = _mask_triangle(values, triangle)
     vmin, vmax, cmap = _resolve_matrix_style(values, vmin, vmax, cmap, auto_range)
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
@@ -644,7 +644,7 @@ def plot_matrix(
         spine.set_color(text_color)
 
     if grid is not False:
-        _draw_grid(ax, tri, size, grid, grid_linewidth)
+        _draw_grid(ax, triangle, size, grid, grid_linewidth)
 
     if groups is not None:
         spans = _group_spans(list(groups))

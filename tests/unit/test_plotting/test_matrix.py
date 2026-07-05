@@ -86,7 +86,9 @@ class TestPlotMatrixBehaviour:
         default pad when get_tightbbox returns None (blank labels have no bbox).
         """
         groups = ["cortex"] * 2 + ["thalamus"] * 2
-        fig, ax = plot_matrix(_correlation_matrix(4), labels=["", "", "", ""], groups=groups)
+        fig, ax = plot_matrix(
+            _correlation_matrix(4), labels=["", "", "", ""], groups=groups
+        )
         assert len(fig.axes) > 1
 
     def test_diverging_matrix_gets_symmetric_range(self, matplotlib_pyplot):
@@ -223,16 +225,21 @@ class TestPlotMatrixBehaviour:
     )
     def test_grid_draws_lines_for_every_tri_mode(self, matplotlib_pyplot, tri):
         """grid draws separator lines regardless of the triangle mode."""
-        _, ax = plot_matrix(_correlation_matrix(4), tri=tri, grid="gray")
+        _, ax = plot_matrix(_correlation_matrix(4), triangle=tri, grid="gray")
         assert len(ax.lines) > 0
 
     @pytest.mark.parametrize(
         ("tri", "masked_upper"),
-        [("lower", True), ("diag_lower", True), ("diag_upper", False), ("upper", False)],
+        [
+            ("lower", True),
+            ("diag_lower", True),
+            ("diag_upper", False),
+            ("upper", False),
+        ],
     )
     def test_tri_masks_expected_side(self, matplotlib_pyplot, tri, masked_upper):
         """lower/diag_lower mask the strict upper triangle and vice versa."""
-        _, ax = plot_matrix(_correlation_matrix(4), tri=tri)
+        _, ax = plot_matrix(_correlation_matrix(4), triangle=tri)
         image_mask = ax.images[0].get_array().mask
         assert bool(image_mask[0, 1]) == masked_upper
         assert bool(image_mask[1, 0]) == (not masked_upper)
@@ -240,7 +247,7 @@ class TestPlotMatrixBehaviour:
     @pytest.mark.parametrize("tri", ["lower", "upper"])
     def test_tri_strict_excludes_diagonal(self, matplotlib_pyplot, tri):
         """lower/upper mask the diagonal; diag_lower/diag_upper keep it."""
-        _, ax = plot_matrix(_correlation_matrix(4), tri=tri)
+        _, ax = plot_matrix(_correlation_matrix(4), triangle=tri)
         assert bool(ax.images[0].get_array().mask[0, 0])
 
 
@@ -254,9 +261,7 @@ class TestPlotMatrixVisualRegression:
     )
     def test_plot_matrix_default(self, matplotlib_pyplot):
         """Baseline test for default plot_matrix appearance."""
-        fig, _ = plot_matrix(
-            _correlation_matrix(6), labels=[f"r{i}" for i in range(6)]
-        )
+        fig, _ = plot_matrix(_correlation_matrix(6), labels=[f"r{i}" for i in range(6)])
         return fig
 
     @pytest.mark.mpl_image_compare(
@@ -269,7 +274,7 @@ class TestPlotMatrixVisualRegression:
         fig, _ = plot_matrix(
             _correlation_matrix(6),
             labels=[f"r{i}" for i in range(6)],
-            tri="lower",
+            triangle="lower",
             grid="gray",
         )
         return fig
@@ -286,7 +291,7 @@ class TestPlotMatrixVisualRegression:
             _correlation_matrix(6),
             labels=[f"r{i}" for i in range(6)],
             groups=groups,
-            tri="diag_lower",
+            triangle="diag_lower",
         )
         return fig
 
@@ -301,12 +306,15 @@ class TestPlotMatrixVisualRegression:
         rng = np.random.default_rng(1)
         pvalues = rng.uniform(size=(6, 6))
         fig, ax = plot_matrix(
-            _correlation_matrix(6), labels=labels, tri="diag_lower", cbar_label="corr"
+            _correlation_matrix(6),
+            labels=labels,
+            triangle="diag_lower",
+            cbar_label="corr",
         )
         plot_matrix(
             pvalues,
             labels=labels,
-            tri="upper",
+            triangle="upper",
             ax=ax,
             cmap="viridis",
             vmin=0,
