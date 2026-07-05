@@ -62,9 +62,16 @@ Current development version for the next ConfUSIus release.
   `[-m, m]` with `"coolwarm"` when both signed, sequential `[0, vmax]` with
   `"viridis"` when non-negative, or `[vmin, 0]` with `"viridis_r"` when
   non-positive ([#242](https://github.com/confusius-tools/confusius/pull/242)).
+- [`apply_affine`][confusius.xarray.affine.apply_affine] and the
+  `data.fusi.affine.apply` accessor now accept a string naming a key in
+  `attrs["affines"]`, instead of requiring the affine matrix itself
+  ([#247](https://github.com/confusius-tools/confusius/pull/247)).
 
 ### :bug: Fixes
 
+- [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
+  of the spatial coordinates along with the coordinate values
+  ([#245](https://github.com/confusius-tools/confusius/pull/245)).
 - `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
   and `confounds` by interpolating along time, fills censored boundary samples from
   the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
