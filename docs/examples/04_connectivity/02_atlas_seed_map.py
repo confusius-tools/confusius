@@ -143,7 +143,7 @@ seed_masks = atlas_native.get_masks(seed_regions, sides="left")
 # %%
 white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
 acompcor = cf.signal.compute_compcor_confounds(
-    data, noise_mask=white_matter, n_components=1
+    data, noise_mask=white_matter, n_components=1, variance_threshold=0.95
 )
 
 # %% [markdown]
@@ -154,10 +154,8 @@ acompcor = cf.signal.compute_compcor_confounds(
 # map per seed, stacked along a `region` dimension.
 
 # %%
-confounds = data.mean(("z", "y", "x"))
 mapper = cf.connectivity.SeedBasedMaps(
-    seed_masks=seed_masks,
-    clean_kwargs={"low_cutoff": 0.01, "confounds": acompcor},
+    seed_masks=seed_masks, clean_kwargs={"low_cutoff": 0.01, "confounds": acompcor}
 )
 mapper.fit(data)
 mapper.maps_
@@ -176,6 +174,8 @@ mapper.maps_
 # [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] elsewhere).
 
 # %% tags=["thumbnail"]
+brain_mask = atlas_native.get_masks("root").isel(mask=0)
+
 fig, axes = plt.subplots(2, 2, figsize=(9, 8), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 
@@ -184,9 +184,7 @@ for i, (ax, region) in enumerate(zip(flat_axes, seed_regions)):
     seed_map = mapper.maps_.sel(region=region)
     plotter = cf.plotting.plot_stat_map(
         seed_map,
-        bg_volume=atlas_native.reference,
         slice_mode="z",
-        threshold=0.2,
         vmax=1.0,
         cbar_label="Pearson r",
         axes=ax,
@@ -199,6 +197,7 @@ for i, (ax, region) in enumerate(zip(flat_axes, seed_regions)):
         bg_color=bg_color,
     )
     plotter.add_contours(seed_masks.sel(mask=region), linewidths=1.5)
-    ax.set_title(f"Seed: {region}")
+    plotter.add_contours(brain_mask, colors="k", linewidths=1.0)
+    ax.set_title(f"{region}")
 
 _ = fig.suptitle("Seed-based connectivity maps", fontsize=16)
