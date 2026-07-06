@@ -12,26 +12,24 @@ _VALID_REDUCTIONS = frozenset({"mean", "sum", "median", "min", "max", "var", "st
 """Valid reduction names accepted by `extract_with_labels`."""
 
 
-def _get_stacked_mask_ids(labels: xr.DataArray) -> list[int]:
-    """Validate and return the unique non-zero ID from each stacked mask layer.
+def _validate_stacked_mask_layers(labels: xr.DataArray) -> None:
+    """Validate that each stacked mask layer has exactly one non-zero value.
+
+    The layer's own non-zero value is never used to key the reduction (a fresh,
+    per-layer id is assigned instead, see `extract_with_labels`), so layers may
+    reuse the same id across the `mask` dimension—a stacked mask layer is already
+    uniquely identified by its position along `mask`.
 
     Parameters
     ----------
     labels : xarray.DataArray
         Stacked mask array with a leading `mask` dimension.
 
-    Returns
-    -------
-    list[int]
-        Non-zero region ID for each mask layer, in mask-dimension order.
-
     Raises
     ------
     ValueError
-        If any layer has more or fewer than one non-zero value, or if IDs
-        are duplicated across layers.
+        If any layer has more or fewer than one unique non-zero value.
     """
-    per_mask_id: list[int] = []
     for i in range(labels.sizes["mask"]):
         layer_vals = np.unique(labels.isel(mask=i).values)
         layer_vals = layer_vals[layer_vals != 0]
@@ -40,16 +38,6 @@ def _get_stacked_mask_ids(labels: xr.DataArray) -> list[int]:
                 f"Stacked mask layer {i} must have exactly one unique non-zero "
                 f"value, got {len(layer_vals)}: {layer_vals.tolist()}."
             )
-        per_mask_id.append(int(layer_vals[0]))
-
-    duplicates = {v for v in per_mask_id if per_mask_id.count(v) > 1}
-    if duplicates:
-        raise ValueError(
-            f"Stacked mask layers have duplicate non-zero IDs: {duplicates}. "
-            "Each layer must carry a unique region ID."
-        )
-
-    return per_mask_id
 
 
 def _flox_reduce(
@@ -125,9 +113,12 @@ def extract_with_labels(
           non-overlapping region. The `region` coordinate of the output holds the
           integer label values.
         - **Stacked mask format**: Has a leading `mask` dimension followed by spatial
-          dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0, region_id}`
-          and regions may overlap. The `region` coordinate of the output holds the
-          `mask` coordinate values (e.g., region label).
+          dims, e.g. `(mask, z, y, x)`. Each layer has exactly one non-zero value
+          identifying its own voxels, and regions may overlap; the non-zero value
+          itself is not used to identify the layer, so it may repeat across layers
+          (e.g. the same region id for left/right hemisphere layers). The `region`
+          coordinate of the output holds the `mask` coordinate values (e.g., region
+          label).
 
     reduction : {"mean", "sum", "median", "min", "max", "var", "std"}, default: "mean"
         Aggregation function applied across voxels in each region.
@@ -182,11 +173,12 @@ def extract_with_labels(
     >>> signals.coords["region"].values
     array([1, 2])
     >>>
-    >>> # Stacked mask format from Atlas.get_masks.
-    >>> mask = atlas_fusi.get_masks(["VISp", "AUDp"])
+    >>> # Stacked mask format from Atlas.get_masks. Left/right hemisphere layers
+    >>> # share the same region id, but each is disambiguated by its `mask` coord.
+    >>> mask = atlas_fusi.get_masks(["VISp", "VISp"], sides=["left", "right"])
     >>> signals = extract_with_labels(data, mask)
     >>> signals.coords["region"].values
-    array(['VISp', 'AUDp'], dtype=object)
+    array(['VISp_L', 'VISp_R'], dtype=object)
     """
     validate_labels(labels, data, "labels")
 
@@ -197,21 +189,29 @@ def extract_with_labels(
 
     if "mask" in labels.dims:
         spatial_dims = [d for d in labels.dims if d != "mask"]
-        per_mask_id = _get_stacked_mask_ids(labels)
-        id_to_name = dict(zip(per_mask_id, labels.coords["mask"].values))
+        _validate_stacked_mask_layers(labels)
+
+        # A stacked mask layer is already uniquely identified by its position along
+        # `mask`, so group by a fresh per-layer id instead of the layer's own
+        # (possibly repeated) non-zero value.
+        mask_names = labels.coords["mask"].values
+        layer_ids = xr.DataArray(np.arange(1, labels.sizes["mask"] + 1), dims="mask")
+        synthetic_labels = xr.where(labels != 0, layer_ids, 0)
 
         has_overlap = bool(((labels > 0).sum(dim="mask") > 1).any().values)
 
         if not has_overlap:
-            # Sum across mask dim: no-overlap guarantees each voxel keeps its original
-            # ID.
-            result = _flox_reduce(data, labels.sum(dim="mask"), spatial_dims, reduction)
+            # Sum across mask dim: no-overlap guarantees each voxel keeps its
+            # synthetic id.
+            result = _flox_reduce(
+                data, synthetic_labels.sum(dim="mask"), spatial_dims, reduction
+            )
         else:
             # Use flox's overlapping groups support.
             # See: https://flox.readthedocs.io/en/latest/user-stories/overlaps.html
-            result = _flox_reduce(data, labels, spatial_dims, reduction)
+            result = _flox_reduce(data, synthetic_labels, spatial_dims, reduction)
 
-        region_names = [id_to_name[int(r)] for r in result.coords["region"].values]
+        region_names = [mask_names[int(r) - 1] for r in result.coords["region"].values]
         return result.assign_coords(region=region_names)
     else:
         return _flox_reduce(data, labels, list(labels.dims), reduction)
