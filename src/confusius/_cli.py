@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 from importlib import metadata
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import napari
@@ -164,9 +164,10 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
     -------
     napari.Viewer
         The viewer with the ConfUSIus widget docked and the requested data
-        files added as image layers (one layer per file, in the same order as
-        `args.path`). The first loaded layer is paired with `args.video`
-        if it is also set.
+        files added as layers (one layer per file, in the same order as
+        `args.path`; see [`_open_paths`][confusius._cli._open_paths] for how
+        the layer type is chosen). The first loaded layer is paired with
+        `args.video` if it is also set.
     """
     import napari
 
@@ -215,35 +216,38 @@ def _open_paths(
     paths: list[Path],
     *,
     lazy: bool,
-) -> list[napari.layers.Image]:
-    """Load each path and add it to the viewer as a ConfUSIus image layer.
+) -> list[napari.layers.Image | napari.layers.Labels]:
+    """Load each path and add it to the viewer as an image or labels layer.
 
     Parameters
     ----------
     viewer : napari.Viewer
         Active napari viewer to add the loaded layers to.
     paths : list of pathlib.Path
-        One path per fUSI data file. Each becomes its own image layer named
-        after the file's basename.
+        One path per fUSI data file. Each becomes its own layer named after
+        the file's basename.
     lazy : bool
         Whether to keep the data Dask-backed (`True`) or materialise it into
         memory before plotting (`False`).
 
     Returns
     -------
-    list of napari.layers.Image
-        The layers added to the viewer, in the same order as `paths`.
+    list of napari.layers.Image or napari.layers.Labels
+        The layers added to the viewer, in the same order as `paths`. Files
+        with an integer dtype (e.g. atlas annotations, ROI masks) are added
+        as `Labels` layers; all others are added as `Image` layers.
     """
+    import numpy as np
+
     from confusius.io import load
     from confusius.plotting.napari import plot_napari
 
-    layers: list[napari.layers.Image] = []
+    layers: list[napari.layers.Image | napari.layers.Labels] = []
     for path in paths:
         da = load(path)
         if not lazy:
             da = da.compute()
-        _, layer = plot_napari(da, viewer=viewer, name=path.name)
-        # `plot_napari` returns Image | Labels; the CLI only loads image
-        # data files, so the resulting layer is always an Image.
-        layers.append(cast("napari.layers.Image", layer))
+        layer_type = "labels" if np.issubdtype(da.dtype, np.integer) else "image"
+        _, layer = plot_napari(da, viewer=viewer, name=path.name, layer_type=layer_type)
+        layers.append(layer)
     return layers

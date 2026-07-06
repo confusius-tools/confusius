@@ -24,6 +24,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- **[Napari plugin]** `confusius PATH...` now opens integer-dtype files (e.g. atlas
+  annotations, ROI masks) as a `Labels` layer with per-label colors, instead of an
+  `Image` layer with the wrong colormap
+  ([#257](https://github.com/confusius-tools/confusius/pull/257)).
 - **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
   Events shade the signal plot; active event names appear in the time overlay; load
   from / save to a BIDS `.tsv`

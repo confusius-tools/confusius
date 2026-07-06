@@ -4,6 +4,31 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import nibabel as nib
+import numpy as np
+import pytest
+
+
+@pytest.fixture
+def integer_nifti_path(tmp_path: Path) -> Path:
+    """3D NIfTI file with an integer dtype, as produced by atlas annotations."""
+    data = np.zeros((4, 6, 8), dtype=np.int16)
+    data[1:3, 2:4, 3:5] = 7
+    img = nib.Nifti1Image(data, np.eye(4))
+    path = tmp_path / "labels.nii.gz"
+    img.to_filename(path)
+    return path
+
+
+@pytest.fixture
+def float_nifti_path(tmp_path: Path) -> Path:
+    """3D NIfTI file with a float dtype, as produced by fUSI power Doppler data."""
+    data = np.random.default_rng(0).random((4, 6, 8)).astype(np.float32)
+    img = nib.Nifti1Image(data, np.eye(4))
+    path = tmp_path / "power_doppler.nii.gz"
+    img.to_filename(path)
+    return path
+
 
 class TestBuildParser:
     """The default parser accepts zero, one, or many positional paths."""
@@ -149,3 +174,31 @@ class TestRun:
         viewer = make_napari_viewer()
         with pytest.raises(SystemExit):
             run(args, viewer=viewer)
+
+    def test_integer_nifti_opens_as_labels_layer(
+        self, make_napari_viewer, integer_nifti_path: Path
+    ) -> None:
+        from napari.layers import Labels
+
+        from confusius._cli import build_parser, run
+
+        args = build_parser().parse_args([str(integer_nifti_path)])
+        viewer = make_napari_viewer()
+        run(args, viewer=viewer)
+
+        layer = viewer.layers[integer_nifti_path.name]
+        assert isinstance(layer, Labels)
+
+    def test_float_nifti_opens_as_image_layer(
+        self, make_napari_viewer, float_nifti_path: Path
+    ) -> None:
+        from napari.layers import Image
+
+        from confusius._cli import build_parser, run
+
+        args = build_parser().parse_args([str(float_nifti_path)])
+        viewer = make_napari_viewer()
+        run(args, viewer=viewer)
+
+        layer = viewer.layers[float_nifti_path.name]
+        assert isinstance(layer, Image)
