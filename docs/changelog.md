@@ -72,6 +72,14 @@ Current development version for the next ConfUSIus release.
   `data.fusi.affine.apply` accessor now accept a string naming a key in
   `attrs["affines"]`, instead of requiring the affine matrix itself
   ([#247](https://github.com/confusius-tools/confusius/pull/247)).
+- Plotting functions that slice along `slice_mode` (
+  [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_contours`][confusius.plotting.plot_contours],
+  [`plot_composite`][confusius.plotting.plot_composite], and the
+  [`VolumePlotter`][confusius.plotting.VolumePlotter] methods) now support non-numeric
+  coordinates (e.g. region/mask labels), so a single call can slice a stacked
+  connectivity or ROI map by label instead of looping over `.sel()` per panel
+  ([#250](https://github.com/confusius-tools/confusius/pull/250)).
 
 ### :bug: Fixes
 

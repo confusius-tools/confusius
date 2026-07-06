@@ -1,5 +1,6 @@
 """Xarray accessor for plotting."""
 
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
 import xarray as xr
@@ -354,7 +355,7 @@ class FUSIPlotAccessor:
 
     def volume(
         self,
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         nrows: int | None = None,
         ncols: int | None = None,
@@ -388,7 +389,7 @@ class FUSIPlotAccessor:
 
         Parameters
         ----------
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values along `slice_mode` are used.
@@ -544,7 +545,7 @@ class FUSIPlotAccessor:
         linewidths: float = 1.5,
         linestyles: str = "solid",
         slice_mode: str = "z",
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
@@ -575,7 +576,7 @@ class FUSIPlotAccessor:
         slice_mode : str, default: "z"
             Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`).
             After slicing, each panel must be 2D.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided, all
             coordinate values along `slice_mode` are used.
@@ -646,7 +647,7 @@ class FUSIPlotAccessor:
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_titles: bool = True,
@@ -704,7 +705,7 @@ class FUSIPlotAccessor:
             - `"shared"`: rescale both volumes together using a shared
               `[min, max]` range, preserving the absolute-intensity
               relationship between the two inputs.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values from this DataArray are used.
