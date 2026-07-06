@@ -516,6 +516,14 @@ class TestNonNumericSliceMode:
         with pytest.warns(UserWarning, match="region=c"):
             plotter.add_volume(other, show_colorbar=False)
 
+    def test_non_numeric_slice_coords_without_coordinate_array_raises(
+        self, matplotlib_pyplot
+    ):
+        """A non-numeric slice_coords entry is rejected when slice_mode is coordless."""
+        data = xr.DataArray(np.zeros((2, 3, 3)), name="r", dims=["region", "y", "x"])
+        with pytest.raises(ValueError, match="must be numeric positional indices"):
+            plot_volume(data, slice_mode="region", slice_coords=["b"])
+
 
 class TestVolumePlotterUtilities:
     """Tests for VolumePlotter utility methods."""
