@@ -358,7 +358,6 @@ def _draw_group_bar(
     colors: Mapping[Hashable, str],
     show_labels: bool,
     fontsize: float | None,
-    text_color: str,
 ) -> None:
     """Draw a strip of colored rectangles marking contiguous label groups.
 
@@ -377,8 +376,6 @@ def _draw_group_bar(
         Whether to annotate each rectangle with its group value.
     fontsize : float, optional
         Font size for group labels.
-    text_color : str
-        Color for group labels.
     """
     import matplotlib.patches as mpatches
 
@@ -419,6 +416,9 @@ def _draw_group_bar(
         return
     for value, start, stop in spans:
         midpoint = (start + stop - 1) / 2
+        # Each strip's own color can be much lighter or darker than the figure
+        # background, so contrast the label against that color rather than fg_color.
+        label_color = _auto_fg_color(colors[value])
         if orientation == "vertical":
             ax.annotate(
                 str(value),
@@ -428,7 +428,7 @@ def _draw_group_bar(
                 va="center",
                 rotation=90,
                 fontsize=fontsize,
-                color=text_color,
+                color=label_color,
             )
         else:
             ax.annotate(
@@ -438,7 +438,7 @@ def _draw_group_bar(
                 ha="center",
                 va="center",
                 fontsize=fontsize,
-                color=text_color,
+                color=label_color,
             )
 
 
@@ -663,7 +663,6 @@ def plot_matrix(
             colors,
             show_group_labels,
             label_fontsize,
-            text_color,
         )
         col_ax = divider.append_axes("top", size="4%", pad=0.05, sharex=ax)
         _draw_group_bar(
@@ -673,7 +672,6 @@ def plot_matrix(
             colors,
             show_group_labels,
             label_fontsize,
-            text_color,
         )
 
     if show_colorbar:
