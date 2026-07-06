@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from napari.layers.utils.layer_utils import calc_data_range
+from napari.utils.colormaps import ensure_colormap
 from napari.utils.notifications import show_warning
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
@@ -35,7 +36,9 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
       coordinates fall back to the median diff and a napari warning is shown.
     * Includes [`origin`][confusius.xarray.FUSIAccessor.origin] as `translate`
       so the layer is positioned correctly in physical space.
-    * Reads `"cmap"` from `da.attrs` for the colormap when present.
+    * Reads `"cmap"` from `da.attrs` for the colormap when present, falling back to
+      `"gray"` (with a napari warning) when the stored value is not a valid napari
+      colormap.
     * Passes `axis_labels` and `units` from the DataArray dimensions and coordinate
       attributes. These are stored on the layer but napari does not yet propagate them
       to `viewer.dims.axis_labels` when loading via a reader plugin.
@@ -63,12 +66,21 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
     # so it is fast even for large arrays.
     contrast_limits = calc_data_range(da.data)
 
+    colormap = da.attrs.get("cmap", "gray")
+    try:
+        ensure_colormap(colormap)
+    except (KeyError, TypeError):
+        show_warning(
+            f"{colormap!r} is not a valid napari colormap; falling back to 'gray'."
+        )
+        colormap = "gray"
+
     kwargs: dict[str, Any] = {
         "name": name,
         "scale": scale,
         "translate": translate,
         "axis_labels": all_dims,
-        "colormap": da.attrs.get("cmap", "gray"),
+        "colormap": colormap,
         "blending": "additive",
         "metadata": {"xarray": da},
         "contrast_limits": contrast_limits,
