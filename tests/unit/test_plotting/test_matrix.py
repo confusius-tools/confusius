@@ -95,7 +95,7 @@ class TestPlotMatrixBehaviour:
         """A matrix with both signs gets a symmetric [-m, m] range and coolwarm."""
         matrix = np.array([[1.0, -0.8], [-0.8, 1.0]])
         _, ax = plot_matrix(matrix)
-        image = ax.images[0]
+        image = ax.collections[0]
         assert image.norm.vmin == pytest.approx(-1.0)
         assert image.norm.vmax == pytest.approx(1.0)
         assert image.cmap.name == "coolwarm"
@@ -104,7 +104,7 @@ class TestPlotMatrixBehaviour:
         """A non-negative matrix gets a [0, vmax] range and a sequential cmap."""
         matrix = np.array([[0.2, 0.8], [0.8, 0.2]])
         _, ax = plot_matrix(matrix)
-        image = ax.images[0]
+        image = ax.collections[0]
         assert image.norm.vmin == pytest.approx(0.0)
         assert image.norm.vmax == pytest.approx(0.8)
         assert image.cmap.name == "viridis"
@@ -113,7 +113,7 @@ class TestPlotMatrixBehaviour:
         """A non-positive matrix gets a [vmin, 0] range and a reversed sequential cmap."""
         matrix = np.array([[-0.2, -0.8], [-0.8, -0.2]])
         _, ax = plot_matrix(matrix)
-        image = ax.images[0]
+        image = ax.collections[0]
         assert image.norm.vmin == pytest.approx(-0.8)
         assert image.norm.vmax == pytest.approx(0.0)
         assert image.cmap.name == "viridis_r"
@@ -122,7 +122,7 @@ class TestPlotMatrixBehaviour:
         """auto_range=False uses the raw min/max with no zero-anchoring."""
         matrix = np.array([[0.2, 0.8], [0.8, 0.2]])
         _, ax = plot_matrix(matrix, auto_range=False)
-        image = ax.images[0]
+        image = ax.collections[0]
         assert image.norm.vmin == pytest.approx(0.2)
         assert image.norm.vmax == pytest.approx(0.8)
         assert image.cmap.name == "coolwarm"
@@ -131,7 +131,7 @@ class TestPlotMatrixBehaviour:
         """An explicit cmap is used as-is regardless of auto_range."""
         matrix = np.array([[0.2, 0.8], [0.8, 0.2]])
         _, ax = plot_matrix(matrix, cmap="magma")
-        assert ax.images[0].cmap.name == "magma"
+        assert ax.collections[0].cmap.name == "magma"
 
     def test_fontsize_scales_text_elements(self, matplotlib_pyplot):
         """plot_matrix scales title, tick, and colorbar text from fontsize."""
@@ -267,7 +267,7 @@ class TestPlotMatrixBehaviour:
     def test_tri_masks_expected_side(self, matplotlib_pyplot, tri, masked_upper):
         """lower/diag_lower mask the strict upper triangle and vice versa."""
         _, ax = plot_matrix(_correlation_matrix(4), triangle=tri)
-        image_mask = ax.images[0].get_array().mask
+        image_mask = ax.collections[0].get_array().mask
         assert bool(image_mask[0, 1]) == masked_upper
         assert bool(image_mask[1, 0]) == (not masked_upper)
 
@@ -275,7 +275,7 @@ class TestPlotMatrixBehaviour:
     def test_tri_strict_excludes_diagonal(self, matplotlib_pyplot, tri):
         """lower/upper mask the diagonal; diag_lower/diag_upper keep it."""
         _, ax = plot_matrix(_correlation_matrix(4), triangle=tri)
-        assert bool(ax.images[0].get_array().mask[0, 0])
+        assert bool(ax.collections[0].get_array().mask[0, 0])
 
 
 class TestPlotMatrixVisualRegression:

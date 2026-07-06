@@ -573,9 +573,12 @@ def plot_matrix(
 
     divider = make_axes_locatable(ax)
 
-    image = ax.imshow(
-        masked, cmap=cmap, vmin=vmin, vmax=vmax, aspect="equal", interpolation="nearest"
-    )
+    # Draw the cells as vector quads (pcolormesh) rather than a raster (imshow): imshow
+    # snaps cell edges to screen pixels, so at interactive zoom they drift from the
+    # grid lines (which are vector). pcolormesh keeps cells and grid aligned at any zoom.
+    edges = np.arange(size + 1) - 0.5
+    image = ax.pcolormesh(edges, edges, masked, cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.set_aspect("equal")
     ax.set_xlim(-0.5, size - 0.5)
     ax.set_ylim(size - 0.5, -0.5)
 
