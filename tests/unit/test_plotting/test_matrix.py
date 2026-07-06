@@ -228,6 +228,14 @@ class TestPlotMatrixBehaviour:
         _, ax = plot_matrix(_correlation_matrix(4), triangle=tri, grid="gray")
         assert len(ax.lines) > 0
 
+    def test_grid_true_uses_foreground_color(self, matplotlib_pyplot):
+        """grid=True draws the grid in the resolved foreground color."""
+        _, ax_light = plot_matrix(_correlation_matrix(4), grid=True)
+        assert ax_light.lines
+        assert all(line.get_color() == "black" for line in ax_light.lines)
+        _, ax_dark = plot_matrix(_correlation_matrix(4), grid=True, bg_color="black")
+        assert all(line.get_color() == "white" for line in ax_dark.lines)
+
     def test_group_pad_works_on_non_agg_backend(self, matplotlib_pyplot):
         """Reserving room for the group strip must not depend on Agg-only APIs.
 

@@ -409,7 +409,7 @@ def plot_matrix(
     group_colors: "Mapping[Hashable, str] | None" = None,
     show_group_labels: bool = True,
     triangle: Literal["full", "lower", "diag_lower", "diag_upper", "upper"] = "full",
-    grid: "str | Literal[False]" = False,
+    grid: "str | bool" = False,
     grid_linewidth: float | None = None,
     cmap: "str | Colormap | None" = None,
     vmin: float | None = None,
@@ -461,8 +461,10 @@ def plot_matrix(
         calls: since the second call reuses `ax` directly (rather than a new axes
         sharing it), it otherwise clears the labels the first call set.
 
-    grid : str or False, default: False
-        Color of grid lines separating cells. `False` disables the grid.
+    grid : str or bool, default: False
+        Grid lines separating cells. Pass a color string to draw them in that color,
+        `True` to use the resolved foreground color (see `fg_color`), or `False` to
+        disable the grid.
     grid_linewidth : float, optional
         Width of the grid lines. If not provided, uses the active Matplotlib default.
         Ignored when `grid` is `False`.
@@ -599,7 +601,8 @@ def plot_matrix(
         spine.set_color(text_color)
 
     if grid is not False:
-        _draw_grid(ax, triangle, size, grid, grid_linewidth)
+        grid_color = text_color if grid is True else grid
+        _draw_grid(ax, triangle, size, grid_color, grid_linewidth)
 
     if groups is not None:
         spans = _group_spans(list(groups))
