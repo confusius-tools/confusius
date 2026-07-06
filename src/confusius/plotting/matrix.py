@@ -217,9 +217,10 @@ def _draw_grid(
     """Draw grid lines separating matrix cells.
 
     Adapted from Nilearn's `_configure_grid` helper (see module docstring for
-    attribution); the small offsets correct the same off-by-one line/cell alignment
-    issue. The `"upper"`/`"diag_upper"` branches mirror `"lower"`/`"diag_lower"` across
-    the diagonal.
+    attribution). For each row/column `i`, one line runs along the cell's far edge and
+    another along its near edge, each clipped to the visible triangle; the
+    `"upper"`/`"diag_upper"` segments mirror `"lower"`/`"diag_lower"` across the
+    diagonal.
 
     Parameters
     ----------
@@ -233,74 +234,29 @@ def _draw_grid(
         Line color.
     linewidth : float, optional
         Line width. If not provided, uses the active Matplotlib default.
+
+    Raises
+    ------
+    ValueError
+        If `triangle` is not one of the supported modes.
     """
+    lo, hi = -0.5, size - 0.5
     for i in range(size):
-        offset = 1.001 * i
-        if triangle == "lower":
-            ax.plot(
-                [offset + 0.5, offset + 0.5],
-                [size - 0.5, offset + 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
-            ax.plot(
-                [offset + 0.5, -0.5],
-                [offset + 0.5, offset + 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
+        near, far = i - 0.5, i + 0.5  # cell edges on either side of index i
+        if triangle == "full":
+            segments = [([far, far], [hi, lo]), ([hi, lo], [far, far])]
+        elif triangle == "lower":
+            segments = [([far, far], [hi, far]), ([far, lo], [far, far])]
         elif triangle == "diag_lower":
-            ax.plot(
-                [offset + 0.5, offset + 0.5],
-                [size - 0.5, offset - 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
-            ax.plot(
-                [offset + 0.5, -0.5],
-                [offset - 0.5, offset - 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
+            segments = [([far, far], [hi, near]), ([far, lo], [near, near])]
         elif triangle == "diag_upper":
-            ax.plot(
-                [size - 0.5, offset - 0.5],
-                [offset + 0.5, offset + 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
-            ax.plot(
-                [offset - 0.5, offset - 0.5],
-                [offset + 0.5, -0.5],
-                color=color,
-                linewidth=linewidth,
-            )
+            segments = [([hi, near], [far, far]), ([near, near], [far, lo])]
         elif triangle == "upper":
-            ax.plot(
-                [offset + 0.5, offset + 0.5],
-                [offset + 0.5, -0.5],
-                color=color,
-                linewidth=linewidth,
-            )
-            ax.plot(
-                [size - 0.5, offset + 0.5],
-                [offset + 0.5, offset + 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
+            segments = [([far, far], [far, lo]), ([hi, far], [far, far])]
         else:
-            ax.plot(
-                [offset + 0.5, offset + 0.5],
-                [size - 0.5, -0.5],
-                color=color,
-                linewidth=linewidth,
-            )
-            ax.plot(
-                [size - 0.5, -0.5],
-                [offset + 0.5, offset + 0.5],
-                color=color,
-                linewidth=linewidth,
-            )
+            raise ValueError(f"Unknown triangle mode: {triangle!r}.")
+        for xs, ys in segments:
+            ax.plot(xs, ys, color=color, linewidth=linewidth)
 
 
 def _group_spans(groups: Sequence[Hashable]) -> list[tuple[Hashable, int, int]]:
