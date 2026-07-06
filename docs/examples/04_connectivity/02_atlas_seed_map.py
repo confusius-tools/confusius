@@ -177,7 +177,13 @@ mapper.maps_
 # %% tags=["thumbnail"]
 brain_mask = atlas_native.get_masks("root").isel(mask=0)
 
-fig, axes = plt.subplots(2, 2, figsize=(10, 8), constrained_layout=True)
+# coolwarm's white midpoint reads as a washed-out hole on a dark background, so switch
+# to berlin (Crameri's perceptually uniform diverging colormap, black midpoint) when
+# the current Matplotlib style is dark.
+is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
+cmap = "berlin" if is_dark_theme else None
+
+fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 
 flat_axes = axes.ravel()
@@ -185,9 +191,9 @@ for i, (ax, region) in enumerate(zip(flat_axes, seed_regions)):
     seed_map = mapper.maps_.sel(region=region)
     plotter = cf.plotting.plot_stat_map(
         seed_map,
-        slice_mode="z",
-        vmax=1.0,
-        cbar_label="Pearson r",
+        cmap=cmap,
+        vmax=0.8,
+        cbar_label="Pearson correlation",
         axes=ax,
         show_titles=False,
         show_axes=False,

@@ -14,6 +14,7 @@ generation**:
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
+| [`plot_stat_map`][confusius.plotting.plot_stat_map] / [`.fusi.plot.stat_map()`][confusius.xarray.FUSIPlotAccessor.stat_map] | Matplotlib | Statistical overlays on an anatomical background |
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
 
 All functions accept DataArrays and use physical coordinates for axis scaling
@@ -404,7 +405,7 @@ statistical map:
 plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
 ```
 
-`bg_volume` is optional — call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
+`bg_volume` is optional—call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
 statistical map on its own. With the default `alpha=1.0`, `t_map` fully covers `pwd`
 wherever it has a value; `pwd` only shows through where `t_map` is masked out by
 `threshold`. `vmin`/`vmax` default to the actual min/max of `t_map`, and
@@ -434,17 +435,31 @@ plotter = t_map.fusi.plot.stat_map(
 )
 ```
 
-A non-diverging statistic (e.g. R²) needs no extra arguments — the sequential range
-and colormap are picked up automatically since the data has only non-negative values:
+A non-diverging statistic (e.g. R²) needs no extra arguments — the sequential range and
+colormap are picked up automatically since the data has only non-negative values:
 
 ```python
 plotter = r2_map.fusi.plot.stat_map(pwd)
 ```
 
-Pass an explicit `cmap` to override the automatic choice, or `auto_range=False` to use
-`vmin`/`vmax` directly with no zero-anchoring. For finer control (e.g. a custom,
-non-zero-anchored asymmetric range), call `plot_volume` and `add_volume` directly
-instead, as shown in the [Thresholding](#thresholding) section above.
+Pass an explicit `cmap` to override the automatic choice, `auto_range=False` to use
+`vmin`/`vmax` directly with no zero-anchoring (e.g. a custom, asymmetric range), or a
+[`matplotlib.colors.Normalize`][matplotlib.colors.Normalize] instance as `norm` (e.g.
+`TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`) for ranges the other three can't express —
+`norm`, when provided, overrides `vmin`, `vmax`, and `auto_range` entirely. For
+anything `plot_stat_map` still doesn't expose (e.g. `roi_labels` hover names), call
+`plot_volume` and `add_volume` directly instead, as shown in the
+[Thresholding](#thresholding) section above.
+
+![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_light.png#only-light)
+![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_dark.png#only-dark)
+
+This figure is generated in the [atlas-based seed connectivity maps
+example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
+registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
+Atlas][confusius.atlas.Atlas] onto the recording's native grid, and computing
+voxel-wise seed-based correlation maps with
+[`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
 
 ## Overlaying Contours
 

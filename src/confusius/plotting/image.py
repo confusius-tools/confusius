@@ -812,6 +812,7 @@ class VolumePlotter:
         alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
         roi_labels: dict[int, str] | None = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
@@ -865,6 +866,12 @@ class VolumePlotter:
             Whether to add a colorbar.
         cbar_label : str, optional
             Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
         roi_labels : dict[int, str], optional
             Mapping from integer label to display name. When provided (or when
             `data.attrs["roi_labels"]` is populated), hovering the cursor over a
@@ -1040,7 +1047,9 @@ class VolumePlotter:
             non_cbar_axes = [
                 ax for ax in self.figure.axes if not hasattr(ax, "_colorbar")
             ]
-            cbar = self.figure.colorbar(plotted_quadmesh, ax=non_cbar_axes)
+            cbar = self.figure.colorbar(
+                plotted_quadmesh, ax=non_cbar_axes, **(cbar_kwargs or {})
+            )
             if cbar_label is None:
                 long_name = data.attrs.get("long_name")
                 units = data.attrs.get("units")
@@ -1866,6 +1875,7 @@ def plot_volume(
     alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
+    cbar_kwargs: "dict[str, Any] | None" = None,
     roi_labels: dict[int, str] | None = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
@@ -1933,6 +1943,12 @@ def plot_volume(
         Whether to add a shared colorbar to the figure.
     cbar_label : str, optional
         Label for the colorbar.
+    cbar_kwargs : dict, optional
+        Additional keyword arguments forwarded to
+        [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+        (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the colorbar
+        when it spans a multi-panel grid, since the defaults are sized for a single
+        axes.
     roi_labels : dict[int, str], optional
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
@@ -2057,6 +2073,7 @@ def plot_volume(
         alpha=alpha,
         show_colorbar=show_colorbar,
         cbar_label=cbar_label,
+        cbar_kwargs=cbar_kwargs,
         show_titles=show_titles,
         show_axis_labels=show_axis_labels,
         show_axis_ticks=show_axis_ticks,
@@ -2270,6 +2287,7 @@ def plot_stat_map(
     slice_mode: str = "z",
     bg_kwargs: "dict[str, Any] | None" = None,
     cmap: "str | Colormap | None" = None,
+    norm: "Normalize | None" = None,
     vmin: float | None = None,
     vmax: float | None = None,
     auto_range: bool = True,
@@ -2278,6 +2296,7 @@ def plot_stat_map(
     threshold_mode: Literal["lower", "upper"] = "lower",
     show_colorbar: bool = True,
     cbar_label: str | None = None,
+    cbar_kwargs: "dict[str, Any] | None" = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
     show_axis_ticks: bool = True,
@@ -2334,16 +2353,21 @@ def plot_stat_map(
         Colormap for `stat_map`. If not provided, the default depends on
         `auto_range` and the sign of `stat_map` (see below); an explicit `cmap` is
         always used as-is regardless of `auto_range`.
+    norm : matplotlib.colors.Normalize, optional
+        Normalization instance (e.g. `TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`) for
+        cases `vmin`/`vmax`/`auto_range` can't express. When provided, `vmin`,
+        `vmax`, and `auto_range`'s range computation are bypassed entirely; `cmap`
+        still follows the usual rules above.
     vmin : float, optional
         Lower bound of the colormap. If not provided, defaults to the minimum value
         of `stat_map`, computed over the full array rather than just the displayed
-        slices. Ignored when `auto_range` resolves to a range anchored at zero (see
-        below).
+        slices. Ignored when `norm` is provided, or when `auto_range` resolves to a
+        range anchored at zero (see below).
     vmax : float, optional
         Upper bound of the colormap. If not provided, defaults to the maximum value
         of `stat_map`, computed over the full array rather than just the displayed
-        slices. Ignored when `auto_range=True` and `stat_map` has only non-positive
-        values.
+        slices. Ignored when `norm` is provided, or when `auto_range=True` and
+        `stat_map` has only non-positive values.
     auto_range : bool, default: True
         Whether to pick the colormap range and default colormap automatically based
         on the sign of `stat_map`:
@@ -2386,6 +2410,12 @@ def plot_stat_map(
         Whether to add a shared colorbar for `stat_map` to the figure.
     cbar_label : str, optional
         Label for the colorbar.
+    cbar_kwargs : dict, optional
+        Additional keyword arguments forwarded to
+        [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+        (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the colorbar
+        when it spans a multi-panel grid, since the defaults are sized for a single
+        axes.
     show_titles : bool, default: True
         Whether to display subplot titles showing the slice coordinate.
     show_axis_labels : bool, default: True
@@ -2515,6 +2545,7 @@ def plot_stat_map(
         slice_coords=slice_coords,
         match_coordinates=bg_volume is not None,
         cmap=resolved_cmap,
+        norm=norm,
         vmin=resolved_vmin,
         vmax=resolved_vmax,
         threshold=threshold,
@@ -2522,6 +2553,7 @@ def plot_stat_map(
         alpha=alpha,
         show_colorbar=show_colorbar,
         cbar_label=cbar_label,
+        cbar_kwargs=cbar_kwargs,
         show_titles=show_titles,
         show_axis_labels=show_axis_labels,
         show_axis_ticks=show_axis_ticks,

@@ -367,6 +367,7 @@ class FUSIPlotAccessor:
         alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -434,6 +435,12 @@ class FUSIPlotAccessor:
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
             Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -516,6 +523,7 @@ class FUSIPlotAccessor:
             alpha=alpha,
             show_colorbar=show_colorbar,
             cbar_label=cbar_label,
+            cbar_kwargs=cbar_kwargs,
             show_titles=show_titles,
             show_axis_labels=show_axis_labels,
             show_axis_ticks=show_axis_ticks,
@@ -802,6 +810,7 @@ class FUSIPlotAccessor:
         slice_mode: str = "z",
         bg_kwargs: "dict[str, Any] | None" = None,
         cmap: "str | Colormap | None" = None,
+        norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
         auto_range: bool = True,
@@ -810,6 +819,7 @@ class FUSIPlotAccessor:
         threshold_mode: Literal["lower", "upper"] = "lower",
         show_colorbar: bool = True,
         cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -861,16 +871,21 @@ class FUSIPlotAccessor:
             Colormap for this DataArray. If not provided, the default depends on
             `auto_range` and the sign of this DataArray (see below); an explicit
             `cmap` is always used as-is regardless of `auto_range`.
+        norm : matplotlib.colors.Normalize, optional
+            Normalization instance (e.g. `TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`)
+            for cases `vmin`/`vmax`/`auto_range` can't express. When provided,
+            `vmin`, `vmax`, and `auto_range`'s range computation are bypassed
+            entirely; `cmap` still follows the usual rules above.
         vmin : float, optional
             Lower bound of the colormap. If not provided, defaults to the minimum
             value of this DataArray, computed over the full array rather than just
-            the displayed slices. Ignored when `auto_range` resolves to a range
-            anchored at zero (see below).
+            the displayed slices. Ignored when `norm` is provided, or when
+            `auto_range` resolves to a range anchored at zero (see below).
         vmax : float, optional
             Upper bound of the colormap. If not provided, defaults to the maximum
             value of this DataArray, computed over the full array rather than just
-            the displayed slices. Ignored when `auto_range=True` and this DataArray
-            has only non-positive values.
+            the displayed slices. Ignored when `norm` is provided, or when
+            `auto_range=True` and this DataArray has only non-positive values.
         auto_range : bool, default: True
             Whether to pick the colormap range and default colormap automatically
             based on the sign of this DataArray:
@@ -915,6 +930,12 @@ class FUSIPlotAccessor:
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
             Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -982,6 +1003,7 @@ class FUSIPlotAccessor:
             slice_mode=slice_mode,
             bg_kwargs=bg_kwargs,
             cmap=cmap,
+            norm=norm,
             vmin=vmin,
             vmax=vmax,
             auto_range=auto_range,
@@ -990,6 +1012,7 @@ class FUSIPlotAccessor:
             threshold_mode=threshold_mode,
             show_colorbar=show_colorbar,
             cbar_label=cbar_label,
+            cbar_kwargs=cbar_kwargs,
             show_titles=show_titles,
             show_axis_labels=show_axis_labels,
             show_axis_ticks=show_axis_ticks,

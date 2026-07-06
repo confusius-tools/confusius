@@ -62,6 +62,12 @@ Current development version for the next ConfUSIus release.
   `[-m, m]` with `"coolwarm"` when both signed, sequential `[0, vmax]` with
   `"viridis"` when non-negative, or `[vmin, 0]` with `"viridis_r"` when
   non-positive ([#242](https://github.com/confusius-tools/confusius/pull/242)).
+- [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
+  accessors) now accept `cbar_kwargs`, forwarded to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  shrink a shared colorbar down to size on a multi-panel grid
+  ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 - [`apply_affine`][confusius.xarray.affine.apply_affine] and the
   `data.fusi.affine.apply` accessor now accept a string naming a key in
   `attrs["affines"]`, instead of requiring the affine matrix itself
