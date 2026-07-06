@@ -300,9 +300,12 @@ def _y_tick_label_width_inches(ax: "Axes") -> float:
         extent (e.g. no labels are set).
     """
     figure = ax.figure
+    # Draw so text metrics are current, then measure via get_tightbbox() with no
+    # explicit renderer: it falls back to the figure's layout renderer, which every
+    # backend provides. Passing canvas.get_renderer() instead would crash on non-Agg
+    # backends (e.g. pdf/svg), which do not define that method.
     figure.canvas.draw()
-    renderer = figure.canvas.get_renderer()  # type: ignore
-    bbox = ax.yaxis.get_tightbbox(renderer)
+    bbox = ax.yaxis.get_tightbbox()
     if bbox is None:
         return 0.0
     return bbox.width / figure.dpi

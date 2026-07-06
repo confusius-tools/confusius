@@ -228,6 +228,25 @@ class TestPlotMatrixBehaviour:
         _, ax = plot_matrix(_correlation_matrix(4), triangle=tri, grid="gray")
         assert len(ax.lines) > 0
 
+    def test_group_pad_works_on_non_agg_backend(self, matplotlib_pyplot):
+        """Reserving room for the group strip must not depend on Agg-only APIs.
+
+        Measuring the y tick label width via `canvas.get_renderer()` crashes on
+        non-Agg backends (e.g. pdf/svg), which do not define that method; the group
+        strip pad path must survive there.
+        """
+        original_backend = matplotlib_pyplot.get_backend()
+        matplotlib_pyplot.switch_backend("pdf")
+        try:
+            fig, _ = plot_matrix(
+                _correlation_matrix(4),
+                labels=["a", "b", "c", "d"],
+                groups=["x", "x", "y", "y"],
+            )
+            assert len(fig.axes) > 1
+        finally:
+            matplotlib_pyplot.switch_backend(original_backend)
+
     @pytest.mark.parametrize(
         ("tri", "masked_upper"),
         [
