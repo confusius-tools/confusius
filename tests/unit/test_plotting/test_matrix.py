@@ -42,6 +42,11 @@ class TestPlotMatrixValidation:
                 group_colors={"a": "red"},
             )
 
+    def test_unknown_triangle_with_grid_raises(self, matplotlib_pyplot):
+        """An unsupported triangle mode raises ValueError once grid lines are drawn."""
+        with pytest.raises(ValueError, match="Unknown triangle mode"):
+            plot_matrix(_correlation_matrix(4), triangle="bogus", grid="black")
+
 
 class TestPlotMatrixBehaviour:
     """Non-visual behaviour of plot_matrix."""
