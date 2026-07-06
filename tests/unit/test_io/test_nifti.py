@@ -1452,6 +1452,29 @@ class TestSaveNifti:
         assert sidecar["custom"] == "value"
         assert "RepetitionTime" not in sidecar
 
+    def test_save_drops_non_json_serializable_attrs(
+        self, tmp_path, sample_3d_volume
+    ) -> None:
+        """Non-JSON-serializable attrs (e.g. matplotlib colormaps) are dropped, not
+        stringified, and do not prevent the sidecar from being written."""
+        from matplotlib.colors import ListedColormap
+
+        da = sample_3d_volume.drop_vars("time").copy()
+        da.attrs["cmap"] = ListedColormap(["red", "blue"])
+        da.attrs["task_name"] = "test"
+
+        output_path = tmp_path / "non_serializable.nii.gz"
+        with pytest.warns(UserWarning, match="non-JSON-serializable"):
+            save_nifti(da, output_path)
+
+        sidecar_path = tmp_path / "non_serializable.json"
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+
+        assert "ConfUSIusCmap" not in sidecar
+        assert "cmap" not in sidecar
+        assert sidecar["TaskName"] == "test"
+
     def test_save_maps_processing_metadata_to_sidecar_fields(
         self, tmp_path, sample_3dt_volume
     ) -> None:

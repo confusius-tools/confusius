@@ -7,6 +7,7 @@ import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
+from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius.io.utils import check_path
 
 
@@ -20,6 +21,12 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     - **Zarr** (`.zarr`): opened via [`xarray.open_zarr`][xarray.open_zarr] and a single
       variable is extracted. For loading the full dataset, use
       [`xarray.open_zarr`][xarray.open_zarr] directly.
+
+    If `attrs["rgb_lookup"]` is present but `attrs["cmap"]`/`attrs["norm"]` are missing
+    (as happens after a save/load round-trip, since matplotlib colormap/norm objects are
+    not JSON-serializable and are dropped on save), `cmap`/`norm` are rebuilt via
+    [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm] so
+    atlas-derived masks and annotations keep their canonical colors after reload.
 
     Parameters
     ----------
@@ -45,20 +52,44 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     name = path.name
 
     if name.endswith(".nii") or name.endswith(".nii.gz"):
-        return _nifti.load_nifti(path, **kwargs)
-    if name.endswith(".scan"):
-        return _scan.load_scan(path, **kwargs)
-    if name.endswith(".zarr"):
+        data_array = _nifti.load_nifti(path, **kwargs)
+    elif name.endswith(".scan"):
+        data_array = _scan.load_scan(path, **kwargs)
+    elif name.endswith(".zarr"):
         ds = xr.open_zarr(path, **kwargs)
-        if variable is not None:
-            return ds[variable]
-        first_var = next(iter(ds.data_vars))
-        return ds[first_var]
+        data_array = (
+            ds[variable] if variable is not None else ds[next(iter(ds.data_vars))]
+        )
+    else:
+        raise ValueError(
+            f"Unsupported file extension in {name!r}. Supported"
+            " extensions are: .nii, .nii.gz, .scan, .zarr."
+        )
 
-    raise ValueError(
-        f"Unsupported file extension in {name!r}. Supported"
-        " extensions are: .nii, .nii.gz, .scan, .zarr."
-    )
+    _restore_atlas_cmap_and_norm(data_array)
+    return data_array
+
+
+def _restore_atlas_cmap_and_norm(data_array: xr.DataArray) -> None:
+    """Rebuild `cmap`/`norm` attrs from `rgb_lookup` in place, when missing.
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        DataArray to update in place.
+
+    Returns
+    -------
+    None
+        This function mutates `data_array.attrs` and returns nothing.
+    """
+    if "rgb_lookup" not in data_array.attrs:
+        return
+    if "cmap" in data_array.attrs and "norm" in data_array.attrs:
+        return
+    cmap, norm = build_atlas_cmap_and_norm(data_array.attrs["rgb_lookup"])
+    data_array.attrs["cmap"] = cmap
+    data_array.attrs["norm"] = norm
 
 
 def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:

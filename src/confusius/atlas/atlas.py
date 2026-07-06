@@ -70,7 +70,7 @@ def _build_dataset(bg_atlas: "BrainGlobeAtlas") -> xr.Dataset:
         dims=["z", "y", "x"],
         coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
         # cmap and norm are non-serializable but are skipped automatically when saving
-        # to zarr; rgb_lookup is the serializable source of truth.
+        # to Zarr/NIfTI; rgb_lookup is the serializable source of truth.
         attrs={
             "rgb_lookup": rgb_lookup,
             "roi_labels": roi_labels,
