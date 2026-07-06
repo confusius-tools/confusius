@@ -831,7 +831,7 @@ class FUSIPlotAccessor:
         bg_color: str = "black",
         fg_color: str | None = None,
         figure: "Figure | None" = None,
-        axes: "npt.NDArray[Any] | None" = None,
+        axes: "npt.NDArray[Any] | Axes | None" = None,
         nrows: int | None = None,
         ncols: int | None = None,
         dpi: int | None = None,
@@ -964,8 +964,11 @@ class FUSIPlotAccessor:
             (white on dark backgrounds, black on light ones).
         figure : matplotlib.figure.Figure, optional
             Existing figure to draw into. If not provided, a new figure is created.
-        axes : numpy.ndarray, optional
-            Existing 2D array of `matplotlib.axes.Axes` to draw into. If not
+        axes : numpy.ndarray or matplotlib.axes.Axes, optional
+            Existing axes to draw into: either a single
+            [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them.
+            Must contain exactly as many elements as there are slices. A single
+            `Axes` is wrapped automatically and limits the plot to one slice. If not
             provided, new axes are created inside `figure`.
         nrows : int, optional
             Number of rows in the subplot grid. If not provided, computed
