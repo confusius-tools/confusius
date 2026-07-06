@@ -193,6 +193,16 @@ def _mask_triangle(
     -------
     numpy.ma.MaskedArray
         `matrix` with the masked entries hidden from display.
+
+    Raises
+    ------
+    ValueError
+        If `triangle` is not one of the supported modes.
+
+    Notes
+    -----
+    This is `plot_matrix`'s first consumer of `triangle`, so it validates the value
+    once here; downstream helpers (e.g. `_draw_grid`) trust it thereafter.
     """
     size = matrix.shape[0]
     if triangle == "full":
@@ -203,8 +213,10 @@ def _mask_triangle(
         mask = ~np.tri(size, k=0, dtype=bool)
     elif triangle == "diag_upper":
         mask = np.tri(size, k=-1, dtype=bool)
-    else:  # "upper"
+    elif triangle == "upper":
         mask = np.tri(size, k=0, dtype=bool)
+    else:
+        raise ValueError(f"Unknown triangle mode: {triangle!r}.")
     return np.ma.masked_array(matrix, mask=mask)
 
 
@@ -236,10 +248,11 @@ def _draw_grid(
     linewidth : float, optional
         Line width. If not provided, uses the active Matplotlib default.
 
-    Raises
-    ------
-    ValueError
-        If `triangle` is not one of the supported modes.
+    Notes
+    -----
+    `triangle` is validated once by `_mask_triangle`, which `plot_matrix` always calls
+    before reaching here, so any other value falls back to `"upper"` rather than
+    re-validating.
     """
     lo, hi = -0.5, size - 0.5
     for i in range(size):
@@ -252,10 +265,8 @@ def _draw_grid(
             segments = [([far, far], [hi, near]), ([far, lo], [near, near])]
         elif triangle == "diag_upper":
             segments = [([hi, near], [far, far]), ([near, near], [far, lo])]
-        elif triangle == "upper":
+        else:  # "upper"
             segments = [([far, far], [far, lo]), ([hi, far], [far, far])]
-        else:
-            raise ValueError(f"Unknown triangle mode: {triangle!r}.")
         for xs, ys in segments:
             ax.plot(xs, ys, color=color, linewidth=linewidth)
 
