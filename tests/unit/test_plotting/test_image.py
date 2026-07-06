@@ -474,6 +474,49 @@ class TestVolumePlotterAddVolume:
             )
 
 
+class TestNonNumericSliceMode:
+    """Tests for slicing along a non-numeric coordinate (e.g. region labels)."""
+
+    def test_string_coord_slice_mode_selects_exact_match(self, matplotlib_pyplot):
+        """plot_volume selects the slice matching a string coordinate exactly.
+
+        Regression test for a `TypeError` previously raised by the nearest-neighbour
+        lookup (`.sel(..., method="nearest")`) on non-numeric coordinates, and a
+        `ValueError` previously raised by the `.3g`-formatted slice title.
+        """
+        data = xr.DataArray(
+            np.arange(2 * 3 * 3, dtype=float).reshape(2, 3, 3),
+            name="r",
+            dims=["region", "y", "x"],
+            coords={"region": ["a", "b"], "y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        plotter = plot_volume(
+            data, slice_mode="region", slice_coords=["b"], show_colorbar=False
+        )
+
+        ax = plotter.axes[0, 0]
+        np.testing.assert_array_equal(
+            ax.collections[0].get_array().data, data.sel(region="b").values
+        )
+        assert ax.get_title() == "region = b"
+
+    def test_string_coord_mismatch_warns_with_label(self, matplotlib_pyplot):
+        """add_volume reports unmatched non-numeric coordinates by their label."""
+        data = xr.DataArray(
+            np.zeros((2, 3, 3)),
+            name="r",
+            dims=["region", "y", "x"],
+            coords={"region": ["a", "b"], "y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        plotter = plot_volume(
+            data, slice_mode="region", slice_coords=["a"], show_colorbar=False
+        )
+        other = data.assign_coords(region=["a", "c"]).sel(region=["c"])
+
+        with pytest.warns(UserWarning, match="region=c"):
+            plotter.add_volume(other, show_colorbar=False)
+
+
 class TestVolumePlotterUtilities:
     """Tests for VolumePlotter utility methods."""
 
