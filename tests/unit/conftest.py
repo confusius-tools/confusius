@@ -780,6 +780,37 @@ def sample_roi_labels():
 
 
 @pytest.fixture
+def integer_nifti_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
+    """`sample_roi_labels` written to a NIfTI file.
+
+    Shared by tests covering integer-dtype file loading (CLI, native readers, GUI
+    panels) so they all exercise the exact same on-disk data.
+    """
+    from confusius.io import save_nifti
+
+    path = tmp_path / "roi_labels.nii.gz"
+    save_nifti(sample_roi_labels, path)
+    return path
+
+
+@pytest.fixture
+def float_nifti_path(tmp_path: Path, sample_3d_volume: xr.DataArray) -> Path:
+    """`sample_3d_volume` written to a NIfTI file.
+
+    Shared by tests covering float-dtype file loading (CLI, native readers, GUI
+    panels) so they all exercise the exact same on-disk data.
+    """
+    from confusius.io import save_nifti
+
+    path = tmp_path / "power_doppler.nii.gz"
+    # sample_3d_volume's scalar `time` coord has no FrameAcquisitionDuration, which
+    # save_nifti's BIDS sidecar validation requires once VolumeTiming is written;
+    # this fixture only needs a plain spatial volume, so drop it before saving.
+    save_nifti(sample_3d_volume.drop_vars("time"), path)
+    return path
+
+
+@pytest.fixture
 def matplotlib_pyplot():
     """Set up and teardown fixture for matplotlib.
 

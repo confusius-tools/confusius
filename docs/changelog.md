@@ -30,6 +30,11 @@ Current development version for the next ConfUSIus release.
   with colored rectangle strips—useful for marking anatomical groupings (e.g. cortex,
   thalamus) when there are too many individual labels to read
   ([#243](https://github.com/confusius-tools/confusius/pull/243)).
+- **[Napari plugin]** Integer-dtype files (e.g. atlas annotations, ROI masks) opened via
+  the `confusius` CLI, the Data Panel, or the native napari file readers (drag-and-drop /
+  **File > Open**) are now added as a `Labels` layer with per-label colors, instead of an
+  `Image` layer with the wrong colormap
+  ([#257](https://github.com/confusius-tools/confusius/pull/257)).
 - **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
   Events shade the signal plot; active event names appear in the time overlay; load
   from / save to a BIDS `.tsv`
@@ -94,28 +99,29 @@ Current development version for the next ConfUSIus release.
 - [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
   of the spatial coordinates along with the coordinate values
   ([#245](https://github.com/confusius-tools/confusius/pull/245)).
-- `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
-  and `confounds` by interpolating along time, fills censored boundary samples from
-  the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
-  pre-scrubbing interpolation ([#239](https://github.com/confusius-tools/confusius/pull/239)).
+- [`clean`][confusius.signal.clean] now supports `ensure_finite=True` to repair
+  non-finite `signals` and `confounds` by interpolating along time, fills censored
+  boundary samples from the nearest kept sample before filtering, and accepts
+  `interpolate_kwargs` for pre-scrubbing interpolation
+  ([#239](https://github.com/confusius-tools/confusius/pull/239)).
 - Image plotting functions now leave `alpha` unset by default (`None`), so a
   colormap's built-in alpha channel is respected
   ([#225](https://github.com/confusius-tools/confusius/pull/225)).
-- `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
-  `bspline_initialization` written by the registration pipeline) when merging in the
-  NIfTI qform/sform affines
+- [`load_nifti`][confusius.io.load_nifti] no longer drops affines loaded from the JSON
+  sidecar (e.g. `bspline_initialization` written by the registration pipeline) when
+  merging in the NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
-- `save_nifti` no longer maps non-time additional axes to the NIfTI 4th slot. When
-  additional axes are present in the DataArray, a degenerate length-1 `time` axis is
-  inserted at NIfTI axis 4 (NIfTI's conventional time slot) so non-time additional axes
-  always land at NIfTI axes 5, 6, 7. The original dim name for each additional axis is
-  always written to the sidecar as `ConfUSIusDim{N}Name` (with `N` in 4, 5, 6, matching
-  the 0-based NIfTI axis of the extra dim). The matching `ConfUSIusDim{N}Coordinates`
-  entry is only written when the coord cannot be reconstructed from `pixdim` (i.e. when
-  the coord does not start at 0 with regular spacing); otherwise the spacing is stored
-  in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
-  preserved in `ConfUSIusDim{N}Attributes` entries.
-  ([#223](https://github.com/confusius-tools/confusius/pull/223)).
+- [`save_nifti`][confusius.io.save_nifti] no longer maps non-time additional axes to the
+  NIfTI 4th slot. When additional axes are present in the DataArray, a degenerate
+  length-1 `time` axis is inserted at NIfTI axis 4 (NIfTI's conventional time slot) so
+  non-time additional axes always land at NIfTI axes 5, 6, 7. The original dim name for
+  each additional axis is always written to the sidecar as `ConfUSIusDim{N}Name` (with
+  `N` in 4, 5, 6, matching the 0-based NIfTI axis of the extra dim). The matching
+  `ConfUSIusDim{N}Coordinates` entry is only written when the coord cannot be
+  reconstructed from `pixdim` (i.e. when the coord does not start at 0 with regular
+  spacing); otherwise the spacing is stored in `pixdim` and the coord is rebuilt as
+  `step * arange(size)` on load. Attributes are preserved in `ConfUSIusDim{N}Attributes`
+  entries. ([#223](https://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
