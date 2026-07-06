@@ -24,6 +24,12 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`plot_matrix`][confusius.plotting.plot_matrix] for plotting 2D matrices
+  (e.g. connectivity or correlation matrices), with optional lower/diagonal triangle
+  masking, grid lines, and a `groups` parameter that annotates contiguous label runs
+  with colored rectangle strips—useful for marking anatomical groupings (e.g. cortex,
+  thalamus) when there are too many individual labels to read
+  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
 - **[Napari plugin]** Integer-dtype files (e.g. atlas annotations, ROI masks) opened via
   the `confusius` CLI, the Data Panel, or the native napari file readers (drag-and-drop /
   **File > Open**) are now added as a `Labels` layer with per-label colors, instead of an
@@ -122,6 +128,12 @@ Current development version for the next ConfUSIus release.
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
+- Add an [atlas-based region correlation matrix
+  example](examples/_built/connectivity/atlas_correlation_matrix.md) to the gallery,
+  demonstrating registration to the Pepe-Mariani 2026 template, resampling the Allen
+  Mouse Brain Atlas onto a recording's native grid, and plotting a region correlation
+  matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` annotation
+  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
 
 ### :wrench: Maintenance
 

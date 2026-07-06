@@ -19,7 +19,12 @@ files.
 
 from __future__ import annotations
 
-from confusius.datasets import fetch_cybis_pereira_2026, fetch_nunez_elizalde_2022
+from confusius.atlas import Atlas
+from confusius.datasets import (
+    fetch_cybis_pereira_2026,
+    fetch_nunez_elizalde_2022,
+    fetch_template_pepe_mariani_2026,
+)
 
 
 def _prefetch_nunez_elizalde() -> None:
@@ -63,6 +68,24 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice03",
     )
 
+    # docs/examples/connectivity/01_atlas_correlation_matrix.py
+    fetch_nunez_elizalde_2022(
+        subjects="CR022",
+        sessions="20201007",
+        tasks="spontaneous",
+        acqs="slice02",
+    )
+
+
+def _prefetch_pepe_mariani_template() -> None:
+    # docs/examples/connectivity/01_atlas_correlation_matrix.py
+    fetch_template_pepe_mariani_2026()
+
+
+def _prefetch_allen_atlas() -> None:
+    # docs/examples/connectivity/01_atlas_correlation_matrix.py
+    Atlas.from_brainglobe("allen_mouse_100um")
+
 
 def _prefetch_cybis_pereira() -> None:
     # docs/images/gui/generate.py (openfield video panel)
@@ -86,6 +109,8 @@ def _prefetch_cybis_pereira() -> None:
 def main() -> None:
     _prefetch_nunez_elizalde()
     _prefetch_cybis_pereira()
+    _prefetch_pepe_mariani_template()
+    _prefetch_allen_atlas()
 
 
 if __name__ == "__main__":
