@@ -490,6 +490,27 @@ class TestVolumePlotterAddVolume:
         npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
         npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
 
+    def test_dataarray_alpha_accepts_descending_coordinate_volume(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """A DataArray alpha sharing data's own grid must be accepted even when a
+        display coordinate is monotonic-decreasing.
+
+        `add_volume` sorts `data` ascending internally (via `sort_coords_for_plot`);
+        `alpha` must be sorted the same way rather than rejected for carrying data's
+        genuine (descending) coordinates.
+        """
+        descending = sample_3d_volume.isel(y=slice(None, None, -1))
+        alpha = xr.zeros_like(descending)
+        alpha[0] = 0.25
+        alpha[1] = 0.75
+
+        plotter = plot_volume(descending, alpha=alpha)
+
+        axes_flat = plotter.axes.ravel()
+        npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
+        npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
+
     def test_dataarray_alpha_size_mismatch_raises(
         self, sample_3d_volume, matplotlib_pyplot
     ):

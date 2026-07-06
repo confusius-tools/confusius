@@ -970,6 +970,12 @@ class VolumePlotter:
 
         alpha_slices: list[np.ndarray] | None = None
         if isinstance(alpha, xr.DataArray):
+            # Preprocess alpha exactly like data (squeeze unitary dims, sort coords
+            # ascending). Otherwise, an alpha array created from the data could end up
+            # with a shape or coordinate mismatch after slicing.
+            alpha = self._prepare_slice_inputs(
+                alpha, caller="VolumePlotter.add_volume (alpha)"
+            )
             if set(alpha.dims) != set(data.dims):
                 raise ValueError(
                     f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
