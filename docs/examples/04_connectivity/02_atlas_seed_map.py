@@ -165,13 +165,14 @@ mapper.maps_
 # ## Plot the seed maps
 #
 # Each seed's map is plotted with [`plot_stat_map`][confusius.plotting.plot_stat_map]
-# over the resampled Allen reference volume. Voxels with `|r| < 0.2` are masked out to
-# suppress correlation noise, and `vmax=1.0` fixes the colormap to the full range of a
-# Pearson correlation so the four seeds are directly comparable. We outline each seed's
-# own ROI with
-# [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours],
-# leaving `colors` unset so each region is drawn in its canonical Allen color (read
-# from the atlas mask's `attrs["cmap"]`/`attrs["norm"]`, the same convention used by
+# over the resampled Allen reference volume, with `vmax=0.8` fixing the colormap to a
+# shared range so the four seeds are directly comparable. `mapper.maps_` stacks all
+# four seed maps along a `region` dimension, so a single `plot_stat_map` call with
+# `slice_mode="region"` plots one panel per seed as long as the background is broadcast
+# to the same `region` dimension first. We outline each seed's own ROI with
+# [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours], leaving
+# `colors` unset so each region is drawn in its canonical Allen color (read from the
+# atlas mask's `attrs["cmap"]`/`attrs["norm"]`, the same convention used by
 # [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] elsewhere).
 
 # %% tags=["thumbnail"]
@@ -183,28 +184,31 @@ brain_mask = atlas_native.get_masks("root").isel(mask=0)
 is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
 cmap = "berlin" if is_dark_theme else None
 
+# Broadcast the shared background and brain outline across a "region" dimension
+# matching mapper.maps_, so plot_stat_map can slice both by region in one call.
+bg_by_region = atlas_native.reference.expand_dims(region=seed_regions)
+brain_mask_by_region = brain_mask.expand_dims(region=seed_regions)
+
 fig, axes = plt.subplots(2, 2, figsize=(8, 6), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 
-flat_axes = axes.ravel()
-for i, (ax, region) in enumerate(zip(flat_axes, seed_regions)):
-    seed_map = mapper.maps_.sel(region=region)
-    plotter = cf.plotting.plot_stat_map(
-        seed_map,
-        cmap=cmap,
-        vmax=0.8,
-        cbar_label="Pearson correlation",
-        axes=ax,
-        show_titles=False,
-        show_axes=False,
-        # A single shared colorbar for all four (identically-scaled) panels: adding
-        # one per panel would stack up duplicates, since each call would otherwise
-        # attach its own colorbar spanning every content axis in the figure.
-        show_colorbar=(i == len(flat_axes) - 1),
-        bg_color=bg_color,
-    )
-    plotter.add_contours(seed_masks.sel(mask=region), linewidths=1.5)
-    plotter.add_contours(brain_mask, colors="k", linewidths=1.0)
-    ax.set_title(f"{region}")
+plotter = cf.plotting.plot_stat_map(
+    mapper.maps_,
+    bg_volume=bg_by_region,
+    slice_mode="region",
+    slice_coords=seed_regions,
+    cmap=cmap,
+    vmax=0.8,
+    cbar_label="Pearson correlation",
+    show_titles=False,
+    show_axes=False,
+    figure=fig,
+    axes=axes,
+    bg_color=bg_color,
+)
+plotter.add_contours(seed_masks.rename(mask="region"), linewidths=1.5)
+plotter.add_contours(brain_mask_by_region, colors="k", linewidths=1.0)
+for ax, region in zip(axes.ravel(), seed_regions):
+    ax.set_title(region)
 
 _ = fig.suptitle("Seed-based connectivity maps", fontsize=16)

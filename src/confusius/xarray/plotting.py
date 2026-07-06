@@ -807,7 +807,7 @@ class FUSIPlotAccessor:
     def stat_map(
         self,
         bg_volume: xr.DataArray | None = None,
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         bg_kwargs: "dict[str, Any] | None" = None,
         cmap: "str | Colormap | None" = None,
@@ -852,7 +852,7 @@ class FUSIPlotAccessor:
             layers instead. Must share `slice_mode` and, after squeezing, the same
             display dimensions as this DataArray. If not provided, this DataArray is
             plotted on its own.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices. Slices
             are selected by nearest-neighbour lookup. If not provided, all coordinate
             values from `bg_volume` (or this DataArray when `bg_volume` is not

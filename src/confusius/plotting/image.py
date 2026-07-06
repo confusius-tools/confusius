@@ -2324,7 +2324,7 @@ def plot_stat_map(
     stat_map: xr.DataArray,
     *,
     bg_volume: xr.DataArray | None = None,
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     slice_mode: str = "z",
     bg_kwargs: "dict[str, Any] | None" = None,
     cmap: "str | Colormap | None" = None,
@@ -2374,11 +2374,12 @@ def plot_stat_map(
         Lower `alpha` to blend the two layers instead. Must share `slice_mode` and,
         after squeezing, the same display dimensions as `stat_map`. If not provided,
         `stat_map` is plotted on its own.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        from `bg_volume` (or `stat_map` when `bg_volume` is not provided) along
-        `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values from `bg_volume` (or `stat_map` when `bg_volume` is not
+        provided) along `slice_mode` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`). After
         slicing, each panel must be 2D.
