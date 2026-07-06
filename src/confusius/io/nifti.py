@@ -2002,9 +2002,8 @@ def _create_nifti_image(
     nifti_version : {1, 2}
         NIfTI image version to instantiate.
     spacings : list[float]
-        Full NIfTI spacing vector, including temporal and extra-dimension entries when
-        present. Signed values are preserved in `pixdim` after calling nibabel's
-        `set_zooms` with their absolute values.
+        Full NIfTI signed spacing vector, including temporal and extra-dimension entries when
+        present.
     qform_affine : (4, 4) numpy.ndarray
         Resolved qform affine in NIfTI axis order.
     sform_affine : (4, 4) numpy.ndarray or None
@@ -2025,12 +2024,15 @@ def _create_nifti_image(
     constructor_affine = sform_affine if sform_affine is not None else qform_affine
     nifti_img = img_class(data, constructor_affine)
 
-    header_zooms = [abs(spacing) for spacing in spacings]
-    nifti_img.header.set_zooms(header_zooms)
-    for axis_index, spacing in enumerate(spacings, start=1):
-        if not np.isclose(spacing, header_zooms[axis_index - 1]):
-            nifti_img.header.structarr["pixdim"][axis_index] = np.float32(spacing)
+    # pixdim[4:] for temporal and extra dimensions are set independently of the qform.
+    for axis_index, spacing in enumerate(spacings[3:], start=4):
+        nifti_img.header.structarr["pixdim"][axis_index] = np.float32(spacing)
 
+    # Setting the qform also sets several parameters in the NIfTI header:
+    # the pixdim[1:4] (from zooms), qoffset_xyz (from translation), qfac (from
+    # determinant of the rotation block) and quatern_bcd (from the quaternion
+    # representation).
+    # obs.: qform is always valid at this point.
     nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
 
     if sform_affine is not None:
