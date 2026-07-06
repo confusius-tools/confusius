@@ -71,11 +71,11 @@ moving
 
 # [`register_volume`][confusius.registration.register_volume] expects a transform
 # mapping `fixed` (template) physical coordinates to `moving` (recording) physical
-# coordinates, so we invert the Napari affine—which instead describes how to place the
+# coordinates, so we invert the napari affine—which instead describes how to place the
 # recording *into* the template's coordinate system—before using it as `initialization`.
 
 # %%
-# Copied and pasted transform after manual transformation in Napari
+# Copied and pasted transform after manual transformation in napari.
 napari_affine = np.array(
     [
         [1.0, 0.0, 0.0, 5.594638656430411],
