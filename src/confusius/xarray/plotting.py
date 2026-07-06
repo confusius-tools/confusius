@@ -365,7 +365,7 @@ class FUSIPlotAccessor:
         norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
-        alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
+        alpha: "float | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         cbar_kwargs: "dict[str, Any] | None" = None,
@@ -426,12 +426,13 @@ class FUSIPlotAccessor:
             Upper bound of the colormap. Defaults to the 98th percentile. Ignored
             when `norm` is provided explicitly (that is, not just inherited from data
             attributes).
-        alpha : float, numpy.ndarray, or xarray.DataArray, optional
-            Opacity of the image: a single value, a 2D array matching the shape of
-            each displayed slice (applied identically to every slice), or a 3D
-            `xarray.DataArray` sharing this DataArray's dims, shape, and coordinates
-            (for independent per-slice, per-voxel opacity). If not provided, the
-            colormap's own alpha channel is respected.
+        alpha : float or xarray.DataArray, optional
+            Opacity of the image: a single scalar value, or a 3D `xarray.DataArray`
+            sharing this DataArray's dims, shape, and coordinates (for independent
+            per-slice, per-voxel opacity). A per-voxel opacity must be a
+            `xarray.DataArray`, not a bare array, so it can be validated and aligned
+            against this DataArray. If not provided, the colormap's own alpha channel
+            is respected.
         show_colorbar : bool, default: True
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
@@ -815,7 +816,7 @@ class FUSIPlotAccessor:
         vmin: float | None = None,
         vmax: float | None = None,
         auto_range: bool = True,
-        alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
+        alpha: "float | xr.DataArray" = 1.0,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
         show_colorbar: bool = True,
@@ -907,16 +908,17 @@ class FUSIPlotAccessor:
             Set to `False` to use the resolved `vmin`/`vmax` directly with no
             zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
             sign).
-        alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
-            Opacity of this DataArray's overlay: a single value, a 2D array matching
-            the shape of each displayed slice (applied identically to every slice),
-            or a 3D `xarray.DataArray` sharing this DataArray's dims, shape, and
-            coordinates (for independent per-slice, per-voxel opacity, e.g. to fade
-            out low-magnitude voxels instead of masking them out with `threshold`).
-            Note that this DataArray is validated against self, not `bg_volume`. At
-            the default `1.0`, this DataArray is fully opaque wherever it is not
-            masked by `threshold`. Lower it to blend with `bg_volume` (or, when
-            `bg_volume` is not provided, with the axes background).
+        alpha : float or xarray.DataArray, default: 1.0
+            Opacity of this DataArray's overlay: a single scalar value, or a 3D
+            `xarray.DataArray` sharing this DataArray's dims, shape, and coordinates
+            (for independent per-slice, per-voxel opacity, e.g. to fade out
+            low-magnitude voxels instead of masking them out with `threshold`). A
+            per-voxel opacity must be a `xarray.DataArray`, not a bare array, so it
+            can be validated and aligned against this DataArray; note it is validated
+            against self, not `bg_volume`. At the default `1.0`, this DataArray is
+            fully opaque wherever it is not masked by `threshold`. Lower it to blend
+            with `bg_volume` (or, when `bg_volume` is not provided, with the axes
+            background).
         threshold : float, optional
             Threshold applied to the absolute value of this DataArray. See
             `threshold_mode` for the masking direction. If not provided, no

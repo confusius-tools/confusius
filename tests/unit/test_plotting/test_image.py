@@ -511,6 +511,18 @@ class TestVolumePlotterAddVolume:
         npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
         npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
 
+    def test_numpy_array_alpha_rejected(self, sample_3d_volume, matplotlib_pyplot):
+        """A bare per-voxel array is rejected; opacity arrays must be DataArrays.
+
+        A numpy array carries no coordinates, so it cannot be validated or aligned
+        against `data`; only a scalar or a `xarray.DataArray` is accepted.
+        """
+        alpha = np.full(sample_3d_volume.shape, 0.5)
+        with pytest.raises(TypeError, match="DataArray"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
     def test_dataarray_alpha_size_mismatch_raises(
         self, sample_3d_volume, matplotlib_pyplot
     ):
