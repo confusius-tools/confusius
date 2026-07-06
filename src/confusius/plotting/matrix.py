@@ -426,7 +426,7 @@ def plot_matrix(
     ----------
     matrix : (n, n) numpy.ndarray or xarray.DataArray
         Square matrix to plot.
-    labels : sequence[str] or False or None, default: None
+    labels : sequence[str] or False, optional
         Label for each row/column, in matrix order. If not provided and `matrix` is a
         `xarray.DataArray` with a coordinate on its first dimension, that coordinate's
         values are used. Pass `False` to force no labels even when such a coordinate
