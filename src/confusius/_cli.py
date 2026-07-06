@@ -237,8 +237,7 @@ def _open_paths(
         with an integer dtype (e.g. atlas annotations, ROI masks) are added
         as `Labels` layers; all others are added as `Image` layers.
     """
-    import numpy as np
-
+    from confusius._utils.napari import infer_layer_type
     from confusius.io import load
     from confusius.plotting.napari import plot_napari
 
@@ -247,7 +246,7 @@ def _open_paths(
         da = load(path)
         if not lazy:
             da = da.compute()
-        layer_type = "labels" if np.issubdtype(da.dtype, np.integer) else "image"
+        layer_type = infer_layer_type(da.dtype)
         _, layer = plot_napari(da, viewer=viewer, name=path.name, layer_type=layer_type)
         layers.append(layer)
     return layers

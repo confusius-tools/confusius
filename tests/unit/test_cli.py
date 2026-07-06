@@ -4,31 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import nibabel as nib
-import numpy as np
-import pytest
-
-
-@pytest.fixture
-def integer_nifti_path(tmp_path: Path) -> Path:
-    """3D NIfTI file with an integer dtype, as produced by atlas annotations."""
-    data = np.zeros((4, 6, 8), dtype=np.int16)
-    data[1:3, 2:4, 3:5] = 7
-    img = nib.Nifti1Image(data, np.eye(4))
-    path = tmp_path / "labels.nii.gz"
-    img.to_filename(path)
-    return path
-
-
-@pytest.fixture
-def float_nifti_path(tmp_path: Path) -> Path:
-    """3D NIfTI file with a float dtype, as produced by fUSI power Doppler data."""
-    data = np.random.default_rng(0).random((4, 6, 8)).astype(np.float32)
-    img = nib.Nifti1Image(data, np.eye(4))
-    path = tmp_path / "power_doppler.nii.gz"
-    img.to_filename(path)
-    return path
-
 
 class TestBuildParser:
     """The default parser accepts zero, one, or many positional paths."""
