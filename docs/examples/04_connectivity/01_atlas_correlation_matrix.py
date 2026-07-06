@@ -1,5 +1,5 @@
 # %% [markdown]
-# Atlas-based region correlation matrix
+# # Atlas-based region correlation matrix
 #
 # This example shows an end-to-end regional functional connectivity (FC) analysis:
 # register a single-slice fUSI recording to an Allen-space template, bring the [Allen
@@ -9,8 +9,8 @@
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
 # in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
-# and the [Pepe, Mariani 2026 fUSI
-# template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
+# and the [Pepe, Mariani 2026 fUSI template][confusius.datasets.fetch_template_pepe_mariani_2026],
+# which carries the
 # affine transform required to bring it into Allen Common Coordinate Framework (CCF)
 # space.
 
@@ -54,7 +54,7 @@ data_path = (
 data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
-data
+moving
 
 # %% [markdown]
 # ## Register the recording to the template
@@ -75,6 +75,7 @@ data
 # recording *into* the template's coordinate system—before using it as `initialization`.
 
 # %%
+# Copied and pasted transform after manual transformation in Napari
 napari_affine = np.array(
     [
         [1.0, 0.0, 0.0, 5.594638656430411],
