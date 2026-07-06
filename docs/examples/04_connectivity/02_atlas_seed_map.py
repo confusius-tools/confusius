@@ -11,8 +11,8 @@
 # reference volume as background.
 #
 # We reuse the same recording, template, and registration workflow as the
-# atlas-based region correlation matrix example (see its own page for a detailed
-# walkthrough of the registration steps condensed here).
+# [Atlas-based region correlation matrix](atlas_correlation_matrix.md) example—see it
+# for a detailed walkthrough of the registration steps condensed here.
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
