@@ -215,6 +215,38 @@ class TestReaderLayerData:
 
         assert kwargs["colormap"] == "viridis"
 
+    def test_invalid_colormap_falls_back_to_gray(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unrecognized `cmap` attr (e.g. a stringified colormap object from a
+        pre-fix sidecar) falls back to 'gray' with a warning instead of crashing."""
+        import confusius._napari._io._readers as readers_module
+
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            readers_module, "show_warning", warnings_seen.append
+        )
+
+        da = xr.DataArray(
+            np.zeros((4, 6), dtype=np.float32),
+            dims=["z", "x"],
+            coords={
+                "z": np.arange(4) * 0.1,
+                "x": np.arange(6) * 0.05,
+            },
+            attrs={"cmap": "<matplotlib.colors.ListedColormap object at 0x0>"},
+        )
+        path = tmp_path / "invalid_cmap.zarr"
+        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, _ = reader(str(path))[0]
+
+        assert kwargs["colormap"] == "gray"
+        assert len(warnings_seen) == 1
+        assert "not a valid napari colormap" in warnings_seen[0]
+
     def test_xarray_stored_in_metadata(self, zarr_3d_path: Path) -> None:
         """The original DataArray is stored in metadata for downstream access."""
         reader = read_zarr(str(zarr_3d_path))
