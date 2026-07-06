@@ -16,6 +16,7 @@ from confusius.plotting._utils import (
     _auto_fg_color,
     _get_distinct_colors,
     _resolve_font_sizes,
+    _style_colorbar,
 )
 
 if TYPE_CHECKING:
@@ -633,14 +634,14 @@ def plot_matrix(
     if show_colorbar:
         cax = divider.append_axes("right", size="5%", pad=0.05)
         cbar = figure.colorbar(image, cax=cax)
-        cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-        plt.setp(
-            cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+        _style_colorbar(
+            cbar,
+            text_color,
+            tick_fontsize,
+            bg_color=bg_color,
+            label=cbar_label,
+            label_fontsize=label_fontsize,
         )
-        cbar.outline.set_edgecolor(text_color)  # type: ignore
-        cbar.ax.set_facecolor(bg_color)
-        if cbar_label:
-            cbar.set_label(cbar_label, color=text_color, fontsize=label_fontsize)
 
     if title:
         ax.set_title(title, color=text_color, fontsize=title_fontsize)

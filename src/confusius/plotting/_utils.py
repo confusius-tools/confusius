@@ -2,11 +2,15 @@
 
 import warnings
 from collections.abc import Hashable, Sequence
+from typing import TYPE_CHECKING
 
 import numpy as np
 import xarray as xr
 
 from confusius._utils.stack import find_stack_level
+
+if TYPE_CHECKING:
+    from matplotlib.colorbar import Colorbar
 
 
 def _relative_luminance(color: str) -> float:
@@ -78,11 +82,68 @@ def _resolve_font_sizes(
 
 
 def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
-    """Generate `n_colors` visually distinct colors."""
+    """Generate `n_colors` visually distinct colors.
+
+    Parameters
+    ----------
+    n_colors : int
+        Number of colors to generate.
+
+    Returns
+    -------
+    list[tuple[float, float, float]]
+        RGB triplets drawn from a qualitative colormap (`tab10` for up to 10
+        colors, `tab20` beyond that). Colors repeat cyclically once `n_colors`
+        exceeds the colormap size.
+    """
     import matplotlib
 
     cmap = matplotlib.colormaps["tab10" if n_colors <= 10 else "tab20"]
     return [tuple(cmap(i % cmap.N)[:3]) for i in range(n_colors)]
+
+
+def _style_colorbar(
+    cbar: "Colorbar",
+    text_color: str,
+    tick_fontsize: float | None,
+    *,
+    bg_color: str | None = None,
+    label: str | None = None,
+    label_fontsize: float | None = None,
+) -> None:
+    """Apply foreground and background colors to a colorbar's ticks, outline, and label.
+
+    Parameters
+    ----------
+    cbar : matplotlib.colorbar.Colorbar
+        Colorbar to style.
+    text_color : str
+        Color for the tick marks, tick labels, outline edge, and label.
+    tick_fontsize : float, optional
+        Font size for the tick labels. If not provided, the active Matplotlib
+        default is kept.
+    bg_color : str, optional
+        Background color for the colorbar axes. If not provided, the axes
+        background is left unchanged.
+    label : str, optional
+        Text for the colorbar label. If not provided, any label already set on the
+        colorbar (e.g. by an xarray plot call) is kept and only recolored/resized.
+    label_fontsize : float, optional
+        Font size for the label. If not provided, the active Matplotlib default is
+        kept.
+    """
+    import matplotlib.pyplot as plt
+
+    cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
+    plt.setp(cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize)
+    cbar.outline.set_edgecolor(text_color)  # type: ignore
+    if bg_color is not None:
+        cbar.ax.set_facecolor(bg_color)
+    if label is not None:
+        cbar.set_label(label)
+    cbar.ax.yaxis.label.set_color(text_color)
+    if label_fontsize is not None:
+        cbar.ax.yaxis.label.set_fontsize(label_fontsize)
 
 
 def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray:

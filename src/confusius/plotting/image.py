@@ -20,6 +20,7 @@ from confusius.plotting._utils import (
     _auto_fg_color,
     _get_distinct_colors,
     _resolve_font_sizes,
+    _style_colorbar,
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
 )
@@ -785,8 +786,6 @@ class VolumePlotter:
         ValueError
             If no matching coordinates are found or axis count doesn't match.
         """
-        import matplotlib.pyplot as plt
-
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
@@ -909,14 +908,13 @@ class VolumePlotter:
                     cbar_label = long_name
                 elif units:
                     cbar_label = f"({units})"
-            if cbar_label is not None:
-                cbar.set_label(cbar_label, color=text_color, fontsize=label_fontsize)
-
-            cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-            plt.setp(
-                cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+            _style_colorbar(
+                cbar,
+                text_color,
+                tick_fontsize,
+                label=cbar_label,
+                label_fontsize=label_fontsize,
             )
-            cbar.outline.set_edgecolor(text_color)  # type: ignore
 
         return self
 
@@ -2279,15 +2277,13 @@ def _draw_carpet(
 
     if plotted_quadmesh.colorbar is not None:
         cbar = plotted_quadmesh.colorbar
-        cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-        plt.setp(
-            cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+        _style_colorbar(
+            cbar,
+            text_color,
+            tick_fontsize,
+            bg_color=bg_color,
+            label_fontsize=label_fontsize,
         )
-        cbar.ax.yaxis.label.set_color(text_color)
-        if label_fontsize is not None:
-            cbar.ax.yaxis.label.set_fontsize(label_fontsize)
-        cbar.outline.set_edgecolor(text_color)
-        cbar.ax.set_facecolor(bg_color)
 
     ax.grid(False)
     ax.set_yticks([])
