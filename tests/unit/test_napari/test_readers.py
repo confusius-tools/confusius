@@ -54,6 +54,17 @@ def zarr_4d_path(tmp_path: Path, sample_3dt_volume: xr.DataArray) -> Path:
     return path
 
 
+@pytest.fixture
+def integer_zarr_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_roi_labels fixture.
+
+    Carries `roi_labels` and `rgb_lookup` attrs, like a real atlas mask.
+    """
+    path = tmp_path / "labels.zarr"
+    xr.Dataset({"data": sample_roi_labels}).to_zarr(path, zarr_format=2)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # Gate logic: None vs callable
 # ---------------------------------------------------------------------------
@@ -223,9 +234,7 @@ class TestReaderLayerData:
         import confusius._napari._io._readers as readers_module
 
         warnings_seen: list[str] = []
-        monkeypatch.setattr(
-            readers_module, "show_warning", warnings_seen.append
-        )
+        monkeypatch.setattr(readers_module, "show_warning", warnings_seen.append)
 
         da = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
@@ -254,3 +263,27 @@ class TestReaderLayerData:
         _, kwargs, _ = reader(str(zarr_3d_path))[0]
 
         assert isinstance(kwargs["metadata"]["xarray"], xr.DataArray)
+
+    def test_integer_dtype_is_labels_layer(self, integer_zarr_path: Path) -> None:
+        """Integer-dtype arrays are returned as a 'labels' layer, not 'image'."""
+        from napari.utils.colormaps import DirectLabelColormap
+
+        reader = read_zarr(str(integer_zarr_path))
+        assert reader is not None
+        data, kwargs, layer_type = reader(str(integer_zarr_path))[0]
+
+        assert layer_type == "labels"
+        assert np.issubdtype(data.dtype, np.integer)
+        # Image-only kwargs must not leak into the labels layer construction.
+        assert "blending" not in kwargs
+        assert "contrast_limits" not in kwargs
+
+        # sample_roi_labels' rgb_lookup: 3 -> blue, 7 -> red, 42 -> green.
+        colormap = kwargs["colormap"]
+        assert isinstance(colormap, DirectLabelColormap)
+        npt.assert_allclose(colormap.map(np.array([7])), [[1.0, 0.0, 0.0, 1.0]])
+        npt.assert_allclose(colormap.map(np.array([0])), [[0.0, 0.0, 0.0, 0.0]])
+
+        # sample_roi_labels' roi_labels attr should populate hover-status features.
+        features = kwargs["features"]
+        assert dict(zip(features["index"], features["name"]))[7] == "somatosensory"

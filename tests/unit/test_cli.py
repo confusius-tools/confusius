@@ -149,3 +149,31 @@ class TestRun:
         viewer = make_napari_viewer()
         with pytest.raises(SystemExit):
             run(args, viewer=viewer)
+
+    def test_integer_nifti_opens_as_labels_layer(
+        self, make_napari_viewer, integer_nifti_path: Path
+    ) -> None:
+        from napari.layers import Labels
+
+        from confusius._cli import build_parser, run
+
+        args = build_parser().parse_args([str(integer_nifti_path)])
+        viewer = make_napari_viewer()
+        run(args, viewer=viewer)
+
+        layer = viewer.layers[integer_nifti_path.name]
+        assert isinstance(layer, Labels)
+
+    def test_float_nifti_opens_as_image_layer(
+        self, make_napari_viewer, float_nifti_path: Path
+    ) -> None:
+        from napari.layers import Image
+
+        from confusius._cli import build_parser, run
+
+        args = build_parser().parse_args([str(float_nifti_path)])
+        viewer = make_napari_viewer()
+        run(args, viewer=viewer)
+
+        layer = viewer.layers[float_nifti_path.name]
+        assert isinstance(layer, Image)
