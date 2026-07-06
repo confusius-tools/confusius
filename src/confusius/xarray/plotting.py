@@ -427,12 +427,12 @@ class FUSIPlotAccessor:
             when `norm` is provided explicitly (that is, not just inherited from data
             attributes).
         alpha : float or xarray.DataArray, optional
-            Opacity of the image: a single scalar value, or a 3D `xarray.DataArray`
-            sharing this DataArray's dims, shape, and coordinates (for independent
-            per-slice, per-voxel opacity). A per-voxel opacity must be a
-            `xarray.DataArray`, not a bare array, so it can be validated and aligned
-            against this DataArray. If not provided, the colormap's own alpha channel
-            is respected.
+            Opacity of the image: a single scalar value, or a 3D DataArray sharing
+            this DataArray's dims, shape, and coordinates (for independent
+            per-slice, per-voxel opacity). A per-voxel opacity must be a DataArray,
+            not a bare array, so it can be validated and aligned against this
+            DataArray. If not provided, the colormap's own alpha channel is
+            respected.
         show_colorbar : bool, default: True
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
@@ -910,11 +910,11 @@ class FUSIPlotAccessor:
             sign).
         alpha : float or xarray.DataArray, default: 1.0
             Opacity of this DataArray's overlay: a single scalar value, or a 3D
-            `xarray.DataArray` sharing this DataArray's dims, shape, and coordinates
-            (for independent per-slice, per-voxel opacity, e.g. to fade out
+            DataArray sharing this DataArray's dims, shape, and coordinates (for
+            independent per-slice, per-voxel opacity, e.g. to fade out
             low-magnitude voxels instead of masking them out with `threshold`). A
-            per-voxel opacity must be a `xarray.DataArray`, not a bare array, so it
-            can be validated and aligned against this DataArray; note it is validated
+            per-voxel opacity must be a DataArray, not a bare array, so it can be
+            validated and aligned against this DataArray; note it is validated
             against self, not `bg_volume`. At the default `1.0`, this DataArray is
             fully opaque wherever it is not masked by `threshold`. Lower it to blend
             with `bg_volume` (or, when `bg_volume` is not provided, with the axes

@@ -770,7 +770,7 @@ class VolumePlotter:
         vmax: float | None = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
-        alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
+        alpha: "float | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
         cbar_kwargs: "dict[str, Any] | None" = None,
@@ -819,12 +819,12 @@ class VolumePlotter:
             Threshold value for masking.
         threshold_mode : {"lower", "upper"}, default: "lower"
             Whether to mask values below or above threshold.
-        alpha : float, numpy.ndarray, or xarray.DataArray, optional
-            Opacity of the image: a single value, a 2D array matching the shape of
-            each displayed slice (applied identically to every slice), or a 3D
-            `xarray.DataArray` sharing `data`'s dims, shape, and coordinates (for
-            independent per-slice, per-voxel opacity — e.g. fading out low-confidence
-            voxels). If not provided, the colormap's own alpha channel is respected.
+        alpha : float or xarray.DataArray, optional
+            Opacity of the image: a single scalar value, or a DataArray sharing `data`'s
+            dims, shape, and coordinates (for independent per-slice, per-voxel opacity —
+            e.g. fading out low-confidence voxels). A per-voxel opacity must be a
+            DataArray, not a bare array, so it can be validated and aligned against
+            `data`. If not provided, the colormap's own alpha channel is respected.
         show_colorbar : bool, default: True
             Whether to add a colorbar.
         cbar_label : str, optional
@@ -872,8 +872,10 @@ class VolumePlotter:
         ValueError
             If no matching coordinates are found or axis count doesn't match.
         ValueError
-            If `alpha` is an `xarray.DataArray` and its dims, shape, or coordinates do
-            not match `data`.
+            If `alpha` is a DataArray and its dims, shape, or coordinates do not
+            match `data`.
+        TypeError
+            If `alpha` is neither a scalar nor a DataArray.
         """
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
@@ -893,6 +895,13 @@ class VolumePlotter:
             data, self.slice_mode, slice_coords
         )
         n_slices = len(unthresholded_slices)
+
+        if alpha is not None and not isinstance(alpha, (int, float, xr.DataArray)):
+            raise TypeError(
+                "`alpha` must be a scalar or a DataArray, not "
+                f"{type(alpha).__name__}; a bare array carries no coordinates, so "
+                "it cannot be validated or aligned against `data`."
+            )
 
         alpha_slices: list[np.ndarray] | None = None
         if isinstance(alpha, xr.DataArray):
@@ -1842,7 +1851,7 @@ def plot_volume(
     vmax: float | None = None,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
-    alpha: "float | npt.NDArray[np.floating] | xr.DataArray | None" = None,
+    alpha: "float | xr.DataArray | None" = None,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
     cbar_kwargs: "dict[str, Any] | None" = None,
@@ -1904,12 +1913,12 @@ def plot_volume(
         - `"lower"`: set pixels where `|data| < threshold` to NaN.
         - `"upper"`: set pixels where `|data| > threshold` to NaN.
 
-    alpha : float, numpy.ndarray, or xarray.DataArray, optional
-        Opacity of the image: a single value, a 2D array matching the shape of each
-        displayed slice (applied identically to every slice), or a 3D
-        `xarray.DataArray` sharing `data`'s dims, shape, and coordinates (for
-        independent per-slice, per-voxel opacity). If not provided, the colormap's
-        own alpha channel is respected.
+    alpha : float or xarray.DataArray, optional
+        Opacity of the image: a single scalar value, or a 3D DataArray sharing
+        `data`'s dims, shape, and coordinates (for independent per-slice,
+        per-voxel opacity). A per-voxel opacity must be a DataArray, not a bare
+        array, so it can be validated and aligned against `data`. If not provided,
+        the colormap's own alpha channel is respected.
     show_colorbar : bool, default: True
         Whether to add a shared colorbar to the figure.
     cbar_label : str, optional
@@ -2263,7 +2272,7 @@ def plot_stat_map(
     vmin: float | None = None,
     vmax: float | None = None,
     auto_range: bool = True,
-    alpha: "float | npt.NDArray[np.floating] | xr.DataArray" = 1.0,
+    alpha: "float | xr.DataArray" = 1.0,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
     show_colorbar: bool = True,
@@ -2360,16 +2369,16 @@ def plot_stat_map(
 
         Set to `False` to use the resolved `vmin`/`vmax` directly with no
         zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
-    alpha : float, numpy.ndarray, or xarray.DataArray, default: 1.0
-        Opacity of the `stat_map` overlay: a single value, a 2D array matching the
-        shape of each displayed slice (applied identically to every slice), or a 3D
-        `xarray.DataArray` sharing `stat_map`'s dims, shape, and coordinates (for
-        independent per-slice, per-voxel opacity, e.g. to fade out low-magnitude
-        voxels instead of masking them out with `threshold`). Note that this
-        DataArray is validated against `stat_map`, not `bg_volume`. At the default
-        `1.0`, `stat_map` is fully opaque wherever it is not masked by `threshold`.
-        Lower it to blend `stat_map` with `bg_volume` (or, when `bg_volume` is not
-        provided, with the axes background).
+    alpha : float or xarray.DataArray, default: 1.0
+        Opacity of the `stat_map` overlay: a single scalar value, or a 3D DataArray
+        sharing `stat_map`'s dims, shape, and coordinates (for independent per-slice,
+        per-voxel opacity, e.g. to fade out low-magnitude voxels instead of masking them
+        out with `threshold`). A per-voxel opacity must be a DataArray, not a bare
+        array, so it can be validated and aligned against `stat_map`; note it is
+        validated against `stat_map`, not `bg_volume`. At the default `1.0`, `stat_map`
+        is fully opaque wherever it is not masked by `threshold`. Lower it to blend
+        `stat_map` with `bg_volume` (or, when `bg_volume` is not provided, with the axes
+        background).
     threshold : float, optional
         Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
         direction. If not provided, no thresholding is applied.
