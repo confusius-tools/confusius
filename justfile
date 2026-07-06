@@ -61,7 +61,8 @@ generate-baselines:
         tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression \
         tests/unit/test_plotting/test_image.py::TestPlotCarpetVisualRegression \
         tests/unit/test_plotting/test_image_composite.py::TestAddCompositeVisualRegression \
-        tests/unit/test_plotting/test_image_stat_map.py::TestPlotStatMapVisualRegression
+        tests/unit/test_plotting/test_image_stat_map.py::TestPlotStatMapVisualRegression \
+        tests/unit/test_plotting/test_matrix.py::TestPlotMatrixVisualRegression
 
 # Generate baseline images for visual regression tests.
 [windows]
@@ -72,7 +73,8 @@ generate-baselines:
         tests/unit/test_plotting/test_image.py::TestPlotContoursVisualRegression `
         tests/unit/test_plotting/test_image.py::TestPlotCarpetVisualRegression `
         tests/unit/test_plotting/test_image_composite.py::TestAddCompositeVisualRegression `
-        tests/unit/test_plotting/test_image_stat_map.py::TestPlotStatMapVisualRegression
+        tests/unit/test_plotting/test_image_stat_map.py::TestPlotStatMapVisualRegression `
+        tests/unit/test_plotting/test_matrix.py::TestPlotMatrixVisualRegression
 
 # Run all pre-commit hooks.
 pre-commit:

@@ -56,6 +56,7 @@ non-trivial
 numpydoc
 numpydocs
 optogenetics
+parcellations
 preclinical
 pulsatility
 scikit

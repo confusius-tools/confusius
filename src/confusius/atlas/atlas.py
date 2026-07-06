@@ -70,7 +70,7 @@ def _build_dataset(bg_atlas: "BrainGlobeAtlas") -> xr.Dataset:
         dims=["z", "y", "x"],
         coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
         # cmap and norm are non-serializable but are skipped automatically when saving
-        # to zarr; rgb_lookup is the serializable source of truth.
+        # to Zarr/NIfTI; rgb_lookup is the serializable source of truth.
         attrs={
             "rgb_lookup": rgb_lookup,
             "roi_labels": roi_labels,
@@ -352,7 +352,9 @@ class Atlas:
         -------
         xarray.DataArray
             Integer DataArray with dims `["mask", "z", "y", "x"]`. The
-            `mask` coordinate holds the region acronym for each layer.
+            `mask` coordinate holds the region acronym for each layer, suffixed with
+            `_L`/`_R` when the corresponding `side` is `"left"`/`"right"` (left/right
+            requests for the same region would otherwise share an acronym).
 
         Raises
         ------
@@ -368,6 +370,8 @@ class Atlas:
         >>> atlas.get_masks("VISp", sides="left")
         >>> atlas.get_masks(["VISp", "AUDp", "MOp"])
         >>> atlas.get_masks(["VISp", "AUDp"], sides=["left", "both"])
+        >>> atlas.get_masks(["VISp", "VISp"], sides=["left", "right"]).coords["mask"].values
+        array(['VISp_L', 'VISp_R'], dtype=object)
         """
         region_list: list[int | str] = (
             [regions] if isinstance(regions, (int, str)) else list(regions)
@@ -405,13 +409,16 @@ class Atlas:
             # faster at the cost of higher memory usage.
             layer[np.isin(annotation_np, descendant_ids, kind="table")] = rid
 
+            acronym = self._structures[rid]["acronym"]
             if s == "left":
                 layer[hemispheres_np != 1] = 0
+                acronym = f"{acronym}_L"
             elif s == "right":
                 layer[hemispheres_np != 2] = 0
+                acronym = f"{acronym}_R"
 
             layers.append(layer)
-            acronyms.append(self._structures[rid]["acronym"])
+            acronyms.append(acronym)
 
         stacked = np.stack(layers, axis=0)
 

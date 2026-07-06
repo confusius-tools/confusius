@@ -1977,7 +1977,40 @@ def _build_nifti_sidecar_metadata(
 
     sidecar_attrs.update(_build_extra_dim_sidecar_metadata(data_array))
     sidecar_attrs.update(timing_metadata)
-    return sidecar_attrs
+    return _drop_non_json_serializable_attrs(sidecar_attrs)
+
+
+def _drop_non_json_serializable_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Drop attrs whose values cannot be serialized to JSON as-is.
+
+    Parameters
+    ----------
+    attrs : dict[str, Any]
+        Attributes to filter.
+
+    Returns
+    -------
+    dict[str, Any]
+        Copy of `attrs` containing only entries whose value round-trips through
+        `json.dumps` without coercion.
+    """
+    serializable_attrs = {}
+    dropped_keys = []
+    for key, value in attrs.items():
+        try:
+            json.dumps(value)
+        except TypeError:
+            dropped_keys.append(key)
+        else:
+            serializable_attrs[key] = value
+
+    if dropped_keys:
+        warnings.warn(
+            f"Dropping non-JSON-serializable attrs from NIfTI sidecar: {dropped_keys}.",
+            stacklevel=find_stack_level(),
+        )
+
+    return serializable_attrs
 
 
 def _create_nifti_image(
@@ -2205,4 +2238,4 @@ def save_nifti(
             )
 
     with open(sidecar_path, "w") as f:
-        json.dump(bids_attrs, f, indent=2, default=str)
+        json.dump(bids_attrs, f, indent=2)

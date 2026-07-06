@@ -79,6 +79,7 @@ nav = [
             { "NMF on a single fUSI recording" = "examples/_built/decomposition/nmf_single_recording.md" },
         ]},
         { "Connectivity" = [
+            { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
             { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
     ]},

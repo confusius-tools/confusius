@@ -1,16 +1,17 @@
 """Napari-based visualization utilities for fUSI data."""
 
 import warnings
-from collections import defaultdict
 from typing import TYPE_CHECKING, Literal, cast
 
 import napari
 import numpy as np
 import xarray as xr
-from napari.utils.colormaps import DirectLabelColormap
 
-from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.napari import (
+    build_direct_label_colormap,
+    build_roi_labels_features,
+)
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
@@ -222,31 +223,12 @@ def plot_napari(
             values = values.astype(np.int32)
 
         # Build a DirectLabelColormap from attrs when the caller has not already
-        # supplied one.  This lets atlas annotations and masks carry their colormap
-        # automatically into the viewer.  cmap/norm are not serializable, so they
-        # may be absent after a Zarr round-trip; fall back to reconstructing them
-        # from rgb_lookup when that is present.
-        cmap_attr = data.attrs.get("cmap")
-        norm_attr = data.attrs.get("norm")
-        if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in data.attrs:
-            cmap_attr, norm_attr = build_atlas_cmap_and_norm(data.attrs["rgb_lookup"])
-        if (
-            cmap_attr is not None
-            and norm_attr is not None
-            and "colormap" not in layer_kwargs
-        ):
-            color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
-                lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
-            )
-            for label in np.unique(values):
-                if label == 0:
-                    continue  # background_value=0 is always transparent.
-                color_dict[int(label)] = np.array(
-                    cmap_attr(norm_attr(int(label))), dtype=np.float32
-                )
-            layer_kwargs["colormap"] = DirectLabelColormap(
-                color_dict=color_dict, background_value=0
-            )
+        # supplied one. This lets atlas annotations and masks carry their colormap
+        # automatically into the viewer.
+        if "colormap" not in layer_kwargs:
+            colormap = build_direct_label_colormap(data)
+            if colormap is not None:
+                layer_kwargs["colormap"] = colormap
 
         layer = viewer.add_labels(
             values,
@@ -255,7 +237,7 @@ def plot_napari(
         )
 
         if (roi_labels := data.attrs.get("roi_labels")) is not None:
-            _attach_roi_labels_to_napari(layer, roi_labels)
+            layer.features = build_roi_labels_features(roi_labels)
 
     else:
         raise ValueError(
@@ -271,36 +253,6 @@ def plot_napari(
         viewer.scale_bar.unit = scale_bar_unit
 
     return viewer, layer
-
-
-def _attach_roi_labels_to_napari(layer: "Labels", roi_labels: dict[int, str]) -> None:
-    """Make a napari Labels layer report the ROI name in the status bar.
-
-    Sets `layer.features` so that napari's built-in
-    `napari.layers.Labels.get_status` appends `name: <roi name>` to the status
-    bar (and the cursor tooltip when `viewer.tooltip.visible` is `True`)
-    whenever the cursor is over a labelled voxel.
-
-    A row for label `0` is included with a NaN name so background hovers do not
-    show napari's default `[No Properties]` placeholder.
-
-    Parameters
-    ----------
-    layer : napari.layers.Labels
-        Layer whose `features` table will be replaced.
-    roi_labels : dict[int, str]
-        Mapping from integer ROI id to display name.
-    """
-    import pandas as pd
-
-    ids: list[int] = [0]
-    names: list[float | str] = [float("nan")]
-    for sid, name in roi_labels.items():
-        sid_int = int(sid)
-        if sid_int != 0:
-            ids.append(sid_int)
-            names.append(str(name))
-    layer.features = pd.DataFrame({"index": ids, "name": names})
 
 
 def draw_napari_labels(
