@@ -176,13 +176,13 @@ _ = plotter.add_contours(atlas_native.annotation)
 # We extract left and right hemispheres separately via
 # [`get_masks`][confusius.atlas.Atlas.get_masks]'s `sides` argument: combining both
 # sides into one mask would average left/right signals together and hide
-# bilateral FC and interhemispheric differences.
-# [`get_masks`][confusius.atlas.Atlas.get_masks] reuses the same region id for both
-# hemispheres of a region, so we stack the two sides' masks into a single `(mask, z, y,
-# x)` array and give every layer a unique id before passing it to
-# [`extract_with_labels`][confusius.extract.extract_with_labels] in one call. Within
-# each area the left hemisphere is ordered lateral-to-medial and the right
-# medial-to-lateral, so each area block reads as one continuous sweep across the slice.
+# bilateral FC and interhemispheric differences. `get_masks` names each layer's `mask`
+# coordinate with the acronym suffixed by `_L`/`_R`, and
+# [`extract_with_labels`][confusius.extract.extract_with_labels] carries that name
+# through to the output `region` coordinate, so the two hemispheres' masks can be
+# stacked and extracted in a single call. Within each area the left hemisphere is
+# ordered lateral-to-medial and the right medial-to-lateral, so each area block reads
+# as one continuous sweep across the slice.
 
 # %%
 groups = {
@@ -213,18 +213,7 @@ for area, acronyms in groups.items():
     group_labels += [area] * (2 * len(acronyms))
 
 sides = ["left"] * len(region_acronyms) + ["right"] * len(region_acronyms)
-mask_names = [f"{acronym}_L" for acronym in region_acronyms] + [
-    f"{acronym}_R" for acronym in region_acronyms
-]
-masks = atlas_native.get_masks(region_acronyms * 2, sides=sides).assign_coords(
-    mask=mask_names
-)
-# get_masks reuses the same region id for both hemispheres of a region, which
-# extract_with_labels would reject as a duplicate id across stacked-mask layers. Give
-# every layer a unique nonzero id instead; extract_with_labels names each output
-# region from the mask coordinate above, not from these ids.
-layer_ids = xr.DataArray(np.arange(1, masks.sizes["mask"] + 1), dims="mask")
-masks = xr.where(masks != 0, layer_ids, 0)
+masks = atlas_native.get_masks(region_acronyms * 2, sides=sides)
 
 signals = cf.extract.extract_with_labels(data, masks, reduction="mean")
 # extract_with_labels does not guarantee any particular region order, so reindex
