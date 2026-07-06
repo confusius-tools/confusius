@@ -93,13 +93,21 @@ Current development version for the next ConfUSIus release.
   the coord does not start at 0 with regular spacing); otherwise the spacing is stored
   in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
   preserved in `ConfUSIusDim{N}Attributes` entries.
-  ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
+  ([#223](https://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
+
+### :wrench: Maintenance
+
+- Simplified the NIfTI save path: time and extra-dimension voxel spacings are now
+  written directly to the header `pixdim` instead of through nibabel's `set_zooms` (that
+  was overwritten anyways), dropping a redundant spatial write that the qform
+  immediately overwrote. Behavior is unchanged.
+  ([#253](https://github.com/confusius-tools/confusius/pull/253)).
 
 ## 0.4.0
 
