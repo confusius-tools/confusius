@@ -58,6 +58,14 @@ Current development version for the next ConfUSIus release.
   `data.fusi.affine.apply` accessor now accept a string naming a key in
   `attrs["affines"]`, instead of requiring the affine matrix itself
   ([#247](https://github.com/confusius-tools/confusius/pull/247)).
+- Plotting functions that slice along `slice_mode` (
+  [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_contours`][confusius.plotting.plot_contours],
+  [`plot_composite`][confusius.plotting.plot_composite], and the
+  [`VolumePlotter`][confusius.plotting.VolumePlotter] methods) now support non-numeric
+  coordinates (e.g. region/mask labels), so a single call can slice a stacked
+  connectivity or ROI map by label instead of looping over `.sel()` per panel
+  ([#250](https://github.com/confusius-tools/confusius/pull/250)).
 
 ### :bug: Fixes
 
@@ -92,13 +100,21 @@ Current development version for the next ConfUSIus release.
   the coord does not start at 0 with regular spacing); otherwise the spacing is stored
   in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
   preserved in `ConfUSIusDim{N}Attributes` entries.
-  ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
+  ([#223](https://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
+
+### :wrench: Maintenance
+
+- Simplified the NIfTI save path: time and extra-dimension voxel spacings are now
+  written directly to the header `pixdim` instead of through nibabel's `set_zooms` (that
+  was overwritten anyways), dropping a redundant spatial write that the qform
+  immediately overwrote. Behavior is unchanged.
+  ([#253](https://github.com/confusius-tools/confusius/pull/253)).
 
 ## 0.4.0
 
