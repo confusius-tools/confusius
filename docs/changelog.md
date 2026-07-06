@@ -60,9 +60,31 @@ Current development version for the next ConfUSIus release.
   downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
+- [`apply_affine`][confusius.xarray.affine.apply_affine] and the
+  `data.fusi.affine.apply` accessor now accept a string naming a key in
+  `attrs["affines"]`, instead of requiring the affine matrix itself
+  ([#247](https://github.com/confusius-tools/confusius/pull/247)).
+- Plotting functions that slice along `slice_mode` (
+  [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_contours`][confusius.plotting.plot_contours],
+  [`plot_composite`][confusius.plotting.plot_composite], and the
+  [`VolumePlotter`][confusius.plotting.VolumePlotter] methods) now support non-numeric
+  coordinates (e.g. region/mask labels), so a single call can slice a stacked
+  connectivity or ROI map by label instead of looping over `.sel()` per panel
+  ([#250](https://github.com/confusius-tools/confusius/pull/250)).
 
 ### :bug: Fixes
 
+- [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
+  coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
+  on both hemispheres no longer produces duplicate `mask` values.
+  [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires
+  unique region ids across stacked mask layers—a layer is already identified by its
+  position along `mask`—so `get_masks` output can be passed straight through without
+  manual relabeling ([#249](https://github.com/confusius-tools/confusius/pull/249)).
+- [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
+  of the spatial coordinates along with the coordinate values
+  ([#245](https://github.com/confusius-tools/confusius/pull/245)).
 - `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
   and `confounds` by interpolating along time, fills censored boundary samples from
   the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
@@ -84,7 +106,7 @@ Current development version for the next ConfUSIus release.
   the coord does not start at 0 with regular spacing); otherwise the spacing is stored
   in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
   preserved in `ConfUSIusDim{N}Attributes` entries.
-  ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
+  ([#223](https://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
@@ -97,6 +119,14 @@ Current development version for the next ConfUSIus release.
   Mouse Brain Atlas onto a recording's native grid, and plotting a region correlation
   matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` annotation
   ([#243](https://github.com/confusius-tools/confusius/pull/243)).
+
+### :wrench: Maintenance
+
+- Simplified the NIfTI save path: time and extra-dimension voxel spacings are now
+  written directly to the header `pixdim` instead of through nibabel's `set_zooms` (that
+  was overwritten anyways), dropping a redundant spatial write that the qform
+  immediately overwrote. Behavior is unchanged.
+  ([#253](https://github.com/confusius-tools/confusius/pull/253)).
 
 ## 0.4.0
 

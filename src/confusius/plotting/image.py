@@ -1,6 +1,8 @@
 """Image visualization utilities for fUSI data."""
 
+import numbers
 import warnings
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 import numpy as np
@@ -246,20 +248,49 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     return label
 
 
+def _format_coord(coord: Hashable) -> str:
+    """Format a slice coordinate for display: `.3g` for numeric, `str` otherwise."""
+    if isinstance(coord, numbers.Real):
+        return f"{coord:.3g}"
+    return str(coord)
+
+
+def _coords_match(
+    stored_coord: Hashable, target_coord: Hashable, tolerance: float
+) -> bool:
+    """Compare two slice coordinates, using a tolerance for numeric values."""
+    if isinstance(stored_coord, numbers.Real) and isinstance(
+        target_coord, numbers.Real
+    ):
+        return abs(float(stored_coord) - float(target_coord)) < tolerance
+    return stored_coord == target_coord
+
+
 def _extract_slices(
-    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[float]
-) -> tuple[list[xr.DataArray], list[float]]:
+    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[Hashable]
+) -> tuple[list[xr.DataArray], list[Hashable]]:
     """Extract 2D slices from `data` along `slice_mode`.
+
+    Numeric coordinates are matched by nearest-neighbour lookup; non-numeric
+    coordinates (e.g. region labels) require an exact match.
 
     Returns the slices and their actual snapped coordinate values.
     """
     slices: list[xr.DataArray] = []
-    actual_coords: list[float] = []
+    actual_coords: list[Hashable] = []
     for coord in slice_coords:
         if slice_mode in data.coords:
-            slice_da = data.sel({slice_mode: coord}, method="nearest")
-            actual_coord = float(slice_da.coords[slice_mode].values)
+            is_numeric = np.issubdtype(data.coords[slice_mode].dtype, np.number)
+            slice_da = data.sel(
+                {slice_mode: coord}, method="nearest" if is_numeric else None
+            )
+            actual_coord = slice_da.coords[slice_mode].values.item()
         else:
+            if not isinstance(coord, numbers.Real):
+                raise ValueError(
+                    f"slice_mode '{slice_mode}' has no coordinates, so slice_coords "
+                    f"must be numeric positional indices, got {coord!r}."
+                )
             idx = int(round(coord))
             slice_da = data.isel({slice_mode: idx})
             actual_coord = float(coord)
@@ -341,7 +372,7 @@ class VolumePlotter:
         self._fg_color = fg_color
         self._yincrease = yincrease
         self._xincrease = xincrease
-        self._coord_to_axis: dict[float, int] = {}
+        self._coord_to_axis: dict[Hashable, int] = {}
         # Explicitly tracked axis data limits to avoid matplotlib's auto-margin.
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
@@ -406,7 +437,7 @@ class VolumePlotter:
             self._hover_manager.roi_labels.update(roi_labels)
 
     def _find_matching_axes(
-        self, actual_coords: list[float], tolerance: float = 1e-6
+        self, actual_coords: list[Hashable], tolerance: float = 1e-6
     ) -> list[tuple[int, int]]:
         """Find axis indices matching the target coordinates.
 
@@ -415,10 +446,12 @@ class VolumePlotter:
 
         Parameters
         ----------
-        actual_coords : list[float]
+        actual_coords : list[collections.abc.Hashable]
             The actual coordinate values of the slices being plotted.
         tolerance : float, default: 1e-6
-            Tolerance for matching coordinates, accounting for floating-point precision.
+            Tolerance for matching numeric coordinates, accounting for floating-point
+            precision. Non-numeric coordinates (e.g. region labels) are matched by
+            equality.
 
         Returns
         -------
@@ -428,7 +461,7 @@ class VolumePlotter:
         matched = []
         for slice_idx, target_coord in enumerate(actual_coords):
             for stored_coord, axis_idx in self._coord_to_axis.items():
-                if abs(stored_coord - target_coord) < tolerance:
+                if _coords_match(stored_coord, target_coord, tolerance):
                     matched.append((axis_idx, slice_idx))
                     break
         return matched
@@ -471,12 +504,12 @@ class VolumePlotter:
         store[axis_idx] = new_lim
         return new_lim
 
-    def _warn_unmatched(self, unmatched_slices: list[tuple[int, float]]) -> None:
+    def _warn_unmatched(self, unmatched_slices: list[tuple[int, Hashable]]) -> None:
         """Warn about slice coordinates that could not be matched to axes."""
         unmatched_str = ", ".join(
-            f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
+            f"{self.slice_mode}={_format_coord(coord)}" for _, coord in unmatched_slices
         )
-        available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
+        available_coords = [_format_coord(c) for c in self._coord_to_axis]
         warnings.warn(
             f"Could not find matching axes for slices: {unmatched_str}. "
             f"These slices will not be plotted. "
@@ -484,20 +517,20 @@ class VolumePlotter:
             stacklevel=find_stack_level(),
         )
 
-    def _build_slice_title(self, data: xr.DataArray, coord: float) -> str:
-        """Build a slice title such as `z = 0.001 mm`."""
+    def _build_slice_title(self, data: xr.DataArray, coord: Hashable) -> str:
+        """Build a slice title such as `z = 0.001 mm` or `region = LGN`."""
         units = (
             data.coords[self.slice_mode].attrs.get("units")
             if self.slice_mode in data.coords
             else None
         )
-        title = f"{self.slice_mode} = {coord:.3g}"
+        title = f"{self.slice_mode} = {_format_coord(coord)}"
         if units:
             title += f" {units}"
         return title
 
     def _init_sequential_layout(
-        self, actual_coords: list[float]
+        self, actual_coords: list[Hashable]
     ) -> list[tuple[int, int]]:
         """Initialise the coordinate-to-axis map and return sequential plot indices."""
         if not self._coord_to_axis:
@@ -530,7 +563,7 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         n_slices: int,
-        actual_coords: list[float],
+        actual_coords: list[Hashable],
         dim_row: str,
         dim_col: str,
         *,
@@ -590,7 +623,7 @@ class VolumePlotter:
         ax: "Axes",
         axis_idx: int,
         data: xr.DataArray,
-        coord: float,
+        coord: Hashable,
         dim_row: str,
         dim_col: str,
         x_edges: np.ndarray,
@@ -652,7 +685,7 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         *,
-        slice_coords: Sequence[float] | None = None,
+        slice_coords: Sequence[Hashable] | None = None,
         match_coordinates: bool = True,
         cmap: "str | Colormap | None" = None,
         norm: "Normalize | None" = None,
@@ -681,8 +714,10 @@ class VolumePlotter:
             3D volume data. Unitary dimensions (except `slice_mode`) are squeezed
             before processing. Complex-valued inputs are converted to magnitude
             (`abs(data)`) with a warning.
-        slice_coords : list[float], optional
-            Specific coordinates to plot. If None, uses all coordinates from data.
+        slice_coords : list[collections.abc.Hashable], optional
+            Specific coordinates to plot. Numeric coordinates are matched by
+            nearest-neighbour lookup; non-numeric coordinates (e.g. region labels)
+            require an exact match. If not provided, uses all coordinates from data.
         match_coordinates : bool, default: True
             If True, match slice coordinates to the stored coordinate mapping (for
             overlays). If False, plot sequentially on all axes (requires exact axis
@@ -895,7 +930,7 @@ class VolumePlotter:
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-        slice_coords: Sequence[float] | None = None,
+        slice_coords: Sequence[Hashable] | None = None,
         match_coordinates: bool = False,
         alpha: float | None = None,
         show_titles: bool = True,
@@ -958,9 +993,11 @@ class VolumePlotter:
               range. Preserves the absolute-intensity relationship between the
               two inputs, useful when comparing data acquired at the same
               dynamic range.
-        slice_coords : sequence of float, optional
-            Coordinate values along `slice_mode` at which to extract slices. If not
-            provided, all coordinate values from `data1` are used.
+        slice_coords : Sequence[collections.abc.Hashable], optional
+            Coordinate values along `slice_mode` at which to extract slices. Numeric
+            coordinates are matched by nearest-neighbour lookup; non-numeric
+            coordinates (e.g. region labels) require an exact match. If not provided,
+            all coordinate values from `data1` are used.
         match_coordinates : bool, default: False
             If True, match slice coordinates to the stored coordinate mapping of an
             existing figure (for use as an overlay). If False, plot sequentially on
@@ -1173,7 +1210,7 @@ class VolumePlotter:
         linewidths: float = 1.5,
         linestyles: str = "solid",
         match_coordinates: bool = True,
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         roi_labels: dict[int, str] | None = None,
         **kwargs,
@@ -1210,10 +1247,11 @@ class VolumePlotter:
         match_coordinates : bool, default: True
             If `True`, overlay contours on axes whose slice coordinate matches the
             mask. If `False`, plot sequentially on all axes.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along the plotter's `slice_mode` at which to draw
-            contours. Slices are selected by nearest-neighbour lookup. If not
-            provided, all coordinate values along `slice_mode` are used.
+            contours. Numeric coordinates are matched by nearest-neighbour lookup;
+            non-numeric coordinates (e.g. region labels) require an exact match. If
+            not provided, all coordinate values along `slice_mode` are used.
         fontsize : float, optional
             Base font size for text elements when a standalone contour figure is created
             (`match_coordinates=False`). Subplot titles use `fontsize` directly;
@@ -1536,7 +1574,7 @@ def plot_contours(
     linewidths: float = 1.5,
     linestyles: str = "solid",
     slice_mode: str = "z",
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     fontsize: float | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
@@ -1579,10 +1617,11 @@ def plot_contours(
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
         slicing, each panel must be 2D.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values along `slice_mode` are used.
     fontsize : float, optional
         Base font size for text elements. Subplot titles use `fontsize` directly; axis
         labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not provided,
@@ -1678,7 +1717,7 @@ def plot_contours(
 def plot_volume(
     data: xr.DataArray,
     *,
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     slice_mode: str = "z",
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
@@ -1716,10 +1755,11 @@ def plot_volume(
         Input data array. Unitary dimensions are squeezed before processing. After
         squeezing, data must be 3D. Complex-valued data is converted to magnitude
         before display.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values along `slice_mode` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
         `"time"`). After slicing, each panel must be 2D.
@@ -1898,7 +1938,7 @@ def plot_composite(
     rtol: float = 1e-5,
     atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-    slice_coords: Sequence[float] | None = None,
+    slice_coords: Sequence[Hashable] | None = None,
     slice_mode: str = "z",
     alpha: float | None = None,
     show_titles: bool = True,
@@ -1961,9 +2001,10 @@ def plot_composite(
         - `"shared"`: rescale both volumes together using a single shared
           `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]` range.
           Preserves the absolute-intensity relationship between the two inputs.
-    slice_coords : sequence of float, optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
+    slice_coords : Sequence[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
         from `data1` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each

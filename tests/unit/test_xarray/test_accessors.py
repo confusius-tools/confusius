@@ -507,11 +507,59 @@ class TestAffineApplyMethod:
         np.testing.assert_allclose(result.coords["x"].values, da.coords["x"].values)
         np.testing.assert_allclose(orientation, np.eye(4))
 
+    def test_scaling_updates_voxdim_attrs(self):
+        """A scaling affine rescales each coord's `voxdim` by the absolute zoom.
+
+        Regression: `voxdim` used to be copied verbatim, leaving a stale voxel
+        size after any zooming affine (and hence a wrong pixdim/qform when the
+        scan is saved to NIfTI).
+        """
+        da = self._make_scan()
+        voxdims = {"z": 0.1, "y": 0.2, "x": 0.3}
+        for dim, voxdim in voxdims.items():
+            da.coords[dim].attrs["voxdim"] = voxdim
+        scale = np.diag([2.0, 3.0, -0.5, 1.0])
+        result, _ = da.fusi.affine.apply(scale)
+        for dim, zoom in zip(("z", "y", "x"), (2.0, 3.0, 0.5)):
+            assert result.coords[dim].attrs["voxdim"] == pytest.approx(
+                voxdims[dim] * zoom
+            )
+            # The input scan's voxdim must not be mutated.
+            assert da.coords[dim].attrs["voxdim"] == voxdims[dim]
+
     def test_wrong_shape_raises_value_error(self):
         """Affines with shape other than (4, 4) raise ValueError."""
         da = self._make_scan()
         with pytest.raises(ValueError, match="shape"):
             da.fusi.affine.apply(np.eye(3))
+
+    def test_string_key_looks_up_stored_affine(self):
+        """A string `affine` is resolved from `attrs["affines"]` before applying."""
+        shift = np.eye(4)
+        shift[:3, 3] = [10.0, 5.0, -3.0]
+        da = self._make_scan(affines={"physical_to_lab": shift})
+        result, _ = da.fusi.affine.apply("physical_to_lab")
+        np.testing.assert_allclose(
+            result.coords["z"].values, da.coords["z"].values + 10.0
+        )
+        np.testing.assert_allclose(
+            result.coords["y"].values, da.coords["y"].values + 5.0
+        )
+        np.testing.assert_allclose(
+            result.coords["x"].values, da.coords["x"].values - 3.0
+        )
+
+    def test_string_key_missing_affines_attr_raises_value_error(self):
+        """A string `affine` raises ValueError when `da` has no `affines` attr."""
+        da = self._make_scan()
+        with pytest.raises(ValueError, match="does not have an 'affines' entry"):
+            da.fusi.affine.apply("physical_to_lab")
+
+    def test_string_key_not_found_raises_key_error(self):
+        """A string `affine` absent from `attrs["affines"]` raises KeyError."""
+        da = self._make_scan(affines={"physical_to_lab": np.eye(4)})
+        with pytest.raises(KeyError, match="physical_to_mri"):
+            da.fusi.affine.apply("physical_to_mri")
 
     def test_stored_affines_updated_single(self):
         """Stored (4, 4) affines are updated by M_new = M_old @ inv(affine)."""
