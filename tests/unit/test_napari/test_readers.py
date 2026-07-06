@@ -234,9 +234,7 @@ class TestReaderLayerData:
         import confusius._napari._io._readers as readers_module
 
         warnings_seen: list[str] = []
-        monkeypatch.setattr(
-            readers_module, "show_warning", warnings_seen.append
-        )
+        monkeypatch.setattr(readers_module, "show_warning", warnings_seen.append)
 
         da = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
