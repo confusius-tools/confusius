@@ -66,6 +66,7 @@ def retrieve_with_retries(
     logger: logging.Logger,
     progressbar: Any = False,
     on_retry: Callable[[], None] | None = None,
+    known_hash: str | None = None,
 ) -> None:
     """Download a file with `pooch`, retrying on transient network errors.
 
@@ -91,12 +92,17 @@ def retrieve_with_retries(
         Called with no arguments whenever a retry is about to occur.
         Useful for callers that need to rewind shared progress state
         that was advanced by the failed attempt.
+    known_hash : str, optional
+        Expected hash of the downloaded file in `pooch`'s
+        `"<algorithm>:<hexdigest>"` form (e.g. `"md5:abc123"`). Forwarded to
+        `pooch.retrieve`, which verifies the download and raises on mismatch.
+        If not provided, the download is not integrity-checked.
     """
     for attempt in range(1, _MAX_DOWNLOAD_RETRIES + 1):
         try:
             pooch.retrieve(
                 url=url,
-                known_hash=None,
+                known_hash=known_hash,
                 fname=dest.name,
                 path=dest.parent,
                 progressbar=progressbar,

@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ._osf import OsfFileInfo, download_missing_osf_files, get_index
+from ._osf import (
+    OsfFileInfo,
+    download_osf_files,
+    get_index,
+    read_cached_index,
+    update_cached_index,
+)
 from ._utils import get_datasets_dir
 
 _OSF_PROJECT_ID = "43skw"
@@ -156,9 +162,11 @@ def fetch_nunez_elizalde_2022(
         all acquisitions are downloaded. Only applies to `fusi/` files;
         angiography files are always included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and download any files that are
-        missing locally. If `False` and all requested files are already cached, the
-        function returns immediately without any network access.
+        Whether to re-fetch the dataset index from OSF and reconcile local files against
+        it: missing files are downloaded, and cached files whose MD5 changed upstream
+        (comparing the cached index against the refreshed one) are re-downloaded. If
+        `False` and all requested files are already cached, the function returns
+        immediately without any network access.
 
     Returns
     -------
@@ -192,9 +200,12 @@ def fetch_nunez_elizalde_2022(
     if isinstance(acqs, str):
         acqs = [acqs]
 
+    previous_index = read_cached_index(bids_dir) if refresh else None
     index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
     files = _filter_files(index, subjects, sessions, tasks, acqs)
 
-    download_missing_osf_files(bids_dir, files)
+    download_osf_files(bids_dir, files, previous_index, refresh=refresh)
+    if refresh:
+        update_cached_index(bids_dir, index, previous_index or {}, files)
 
     return bids_dir

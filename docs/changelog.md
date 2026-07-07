@@ -6,10 +6,26 @@ icon: lucide/history
 
 # Changelog
 
-## 0.5.0.dev0
+## 0.5.1.dev0
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
+  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
+  of only checking whether the file exists; downloads are additionally verified against
+  the index MD5. A locally cached dataset whose `dataset_index.json` predates this format
+  is detected on fetch and reported with a clear error naming the directory to delete and
+  re-fetch, rather than being silently mishandled. Affects
+  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
+  [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
+  [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
+  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+
+## 0.5.0
+
+Released 2026-07-07.
 
 ### :boom: Breaking changes
 
@@ -103,6 +119,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`plot_volume`][confusius.plotting.plot_volume] and other image plotting functions now
+  raise a clear `ValueError` when `vmin`/`vmax` (or a passed-in `norm`) resolve to a
+  non-finite value, instead of crashing deep inside
+  `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque `IndexError`
+  ([#259](https://github.com/confusius-tools/confusius/pull/259)).
 - `save_nifti` now drops attrs that cannot be serialized to JSON as-is (e.g. matplotlib
   `ListedColormap`/`BoundaryNorm` objects) instead of writing their `str()` repr into the
   sidecar, which could corrupt fields such as `cmap` on reload. A warning lists the
