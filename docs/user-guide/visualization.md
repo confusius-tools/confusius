@@ -14,6 +14,7 @@ generation**:
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
+| [`plot_stat_map`][confusius.plotting.plot_stat_map] / [`.fusi.plot.stat_map()`][confusius.xarray.FUSIPlotAccessor.stat_map] | Matplotlib | Statistical overlays on an anatomical background |
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
 | [`plot_matrix`][confusius.plotting.plot_matrix] | Matplotlib | Any square 2D matrix (e.g. correlation, connectivity, or statistical matrices) |
 
@@ -388,6 +389,76 @@ plotter.close()
 Pass any keyword argument accepted by
 [`matplotlib.figure.Figure.savefig`][matplotlib.figure.Figure.savefig] (e.g.,
 `bbox_inches="tight"`, `transparent=True`).
+
+## Statistical Maps
+
+[`plot_stat_map`][confusius.plotting.plot_stat_map] (also available as the
+`data.fusi.plot.stat_map` accessor) wraps the
+[`plot_volume`][confusius.plotting.plot_volume] +
+[`add_volume`][confusius.plotting.VolumePlotter.add_volume] pattern used above for
+statistical overlays: a background anatomical volume, an overlay that is fully opaque
+by default, and a colormap + range picked automatically from the sign of the
+statistical map:
+
+```python
+plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
+```
+
+`bg_volume` is optional—call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
+statistical map on its own. When `alpha` is not provided, `t_map` fully covers `pwd`
+wherever it has a value; `pwd` only shows through where `t_map` is masked out by
+`threshold`. `vmin`/`vmax` default to the actual min/max of `t_map`, and
+`auto_range=True` (default) picks the colormap layout from `t_map`'s sign:
+
+- Both positive and negative values: diverging, symmetric `[-m, m]` range
+  (`m = max(|vmin|, |vmax|)`), `cmap` defaulting to `"coolwarm"`.
+- Only non-negative values (e.g. R², F-statistics): sequential `[0, vmax]` range,
+  `cmap` defaulting to `"viridis"`.
+- Only non-positive values: sequential `[vmin, 0]` range, `cmap` defaulting to
+  `"viridis_r"` (so values near zero map to the same end of the colormap in both
+  the non-negative and non-positive cases).
+
+Pass `vmax` explicitly for a fixed range across figures, `alpha` to blend the overlay
+with the background instead of fully covering it, and `bg_kwargs` to customize the
+background layer's own colormap/range:
+
+```python
+plotter = t_map.fusi.plot.stat_map(
+    pwd,
+    slice_mode="z",
+    threshold=3.0,
+    vmax=6.0,
+    alpha=0.6,
+    cbar_label="t-statistic",
+    bg_kwargs={"cmap": "gray", "vmin": -20, "vmax": 0},
+)
+```
+
+A non-diverging statistic (e.g. R²) needs no extra arguments — the sequential range and
+colormap are picked up automatically since the data has only non-negative values:
+
+```python
+plotter = r2_map.fusi.plot.stat_map(pwd)
+```
+
+Pass an explicit `cmap` to override the automatic choice, `auto_range=False` to use
+`vmin`/`vmax` directly with no zero-anchoring (e.g. a custom, asymmetric range), or a
+[`matplotlib.colors.Normalize`][matplotlib.colors.Normalize] instance as `norm` (e.g.
+`TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`) for ranges the other three can't express —
+`norm`, when provided, overrides `vmin`, `vmax`, and `auto_range` entirely. For
+anything `plot_stat_map` still doesn't expose (e.g. `roi_labels` hover names), call
+`plot_volume` and `add_volume` directly instead, as shown in the
+[Thresholding](#thresholding) section above.
+
+![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_light.png#only-light)
+![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_dark.png#only-dark)
+
+This figure is generated in the [atlas-based seed connectivity maps
+example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
+registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
+Atlas][confusius.atlas.Atlas] onto the recording's native grid, and computing
+voxel-wise seed-based correlation maps with
+[`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
 
 ## Overlaying Contours
 

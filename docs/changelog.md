@@ -74,6 +74,20 @@ Current development version for the next ConfUSIus release.
   fields directly, so a saved B-spline transform's inverse can be applied without a
   closed-form inverse
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+- Added [`plot_stat_map`][confusius.plotting.plot_stat_map] (and the matching
+  `data.fusi.plot.stat_map` accessor) for plotting statistical maps, optionally
+  overlaid fully opaque on a background anatomical volume. `vmin`/`vmax` default to
+  the data's actual min/max, and `auto_range=True` (default) picks both the
+  colormap range and colormap from the data's sign: diverging symmetric
+  `[-m, m]` with `"coolwarm"` when both signed, sequential `[0, vmax]` with
+  `"viridis"` when non-negative, or `[vmin, 0]` with `"viridis_r"` when
+  non-positive ([#242](https://github.com/confusius-tools/confusius/pull/242)).
+- [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
+  accessors) now accept `cbar_kwargs`, forwarded to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  shrink a shared colorbar down to size on a multi-panel grid
+  ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 - [`apply_affine`][confusius.xarray.affine.apply_affine] and the
   `data.fusi.affine.apply` accessor now accept a string naming a key in
   `attrs["affines"]`, instead of requiring the affine matrix itself

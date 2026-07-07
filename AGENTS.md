@@ -172,6 +172,9 @@ Coverage reports are generated automatically (terminal, HTML in `htmlcov/`, and 
   `True`/`False`, ..."
 - Use single backticks for inline code (Zensical/MarkDocs style, not Sphinx rst)
 - Use full package names in docstrings (e.g., `xarray.DataArray` not `xr.DataArray`)
+- In a parameter's `type` field (the `name : type` line), write `xarray.DataArray` in
+  full. In the prose description below it, say `DataArray` (no `xarray.` prefix, no
+  backticks) — e.g. "a 3D DataArray sharing `data`'s dims, shape, and coordinates"
 - Use `list[...]`, `tuple[...]` syntax instead of "list of..." descriptions
 - Document array shapes as `(X, Y, Z) numpy.ndarray` or `(X, Y, Z) xarray.DataArray`
 

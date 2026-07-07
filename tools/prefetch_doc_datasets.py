@@ -68,7 +68,8 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice03",
     )
 
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py
+    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/connectivity/02_atlas_seed_map.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
         sessions="20201007",
@@ -78,13 +79,15 @@ def _prefetch_nunez_elizalde() -> None:
 
 
 def _prefetch_pepe_mariani_template() -> None:
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py
+    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/connectivity/02_atlas_seed_map.py
     fetch_template_pepe_mariani_2026()
 
 
 def _prefetch_allen_atlas() -> None:
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py
-    Atlas.from_brainglobe("allen_mouse_100um")
+    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/connectivity/02_atlas_seed_map.py
+    Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
 
 
 def _prefetch_cybis_pereira() -> None:
