@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 import xarray as xr
 
 import confusius as cf
+from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -243,10 +244,51 @@ ax.set_ylabel(f"Similarity metric ({diagnostics_bspline.metric})")
 _ = ax.set_title(diagnostics_bspline.stop_condition)
 
 # %% [markdown]
-# Unlike the rigid transform, `bspline_transform` is a control-point `xarray.DataArray`
-# rather than a homogeneous matrix—it has no closed-form inverse. To apply its
-# approximate inverse as a warp on other data, sample it into a dense displacement field
-# with
+# ## Visualise the displacement field
+#
+# The B-spline transform is a sparse lattice of control points; sample it into a dense
+# displacement field with
 # [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
-# and invert that field with
+# to see the deformation directly, as one displacement vector per voxel of a reference
+# grid (here `fixed`). The field is a DataArray with a leading `component` axis over the
+# spatial dims `(z, y, x)`, so **component `i` holds the displacement, in millimetres,
+# along axis `i`** (panel 0 = `z`, panel 1 = `y`, panel 2 = `x`). Because each recording
+# is a single slice, `z` is degenerate and component 0 stays flat at roughly zero.
+#
+# Sampling `bspline_transform` includes the rigid pre-affine it was
+# initialised with, so this first field is the *combined* rigid + B-spline warp.
+
+# %%
+composite_field = cf.registration.bspline_to_displacement_field(
+    bspline_transform, **get_grid_kwargs_from_dataarray(fixed)
+)
+plotter = composite_field.fusi.plot.volume(slice_mode="component", bg_color=bg_color)
+
+# %% [markdown]
+# The composite field is dominated by the rigid alignment: a smooth, roughly linear
+# gradient across the field. A constant offset would be pure translation, so the gradient
+# tells us the two sessions also differ by a small rotation.
+#
+# Dropping the stored rigid pre-affine isolates the *local* elastic correction the
+# B-spline adds on top of rigid. Note the colour scale below: it is an order of magnitude
+# smaller than the composite above.
+
+# %%
+# Copy the transform and drop the rigid pre-affine so the sampled field holds only the
+# local B-spline deformation.
+local_bspline = bspline_transform.copy()
+local_bspline.attrs = {**local_bspline.attrs, "affines": {}}
+
+local_field = cf.registration.bspline_to_displacement_field(
+    local_bspline, **get_grid_kwargs_from_dataarray(fixed)
+)
+plotter = local_field.fusi.plot.volume(slice_mode="component", bg_color=bg_color)
+
+# %% [markdown]
+# The local field is much smaller (here, well under a millimetre) and is no longer a
+# global ramp: its wavy, multi-lobed structure follows the `(6, 6, 6)` control-point mesh
+# and is spatially concentrated where the tissue deformed slightly between the sessions.
+#
+# Unlike the rigid matrix, `bspline_transform` has no closed-form inverse. To apply its
+# approximate inverse as a warp on other data, invert the sampled field with
 # [`invert_displacement_field`][confusius.registration.invert_displacement_field].
