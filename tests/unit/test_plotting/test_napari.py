@@ -371,6 +371,16 @@ class TestPlotSurface:
         npt.assert_array_equal(layer.vertex_values, values)
         viewer.close()
 
+    def test_switches_viewer_to_3d(self, make_napari_viewer):
+        """A 3D mesh switches the viewer to 3D so the surface is actually visible."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        assert viewer.dims.ndisplay == 2
+        plot_surface((vertices, faces), viewer=viewer, show_scale_bar=False)
+
+        assert viewer.dims.ndisplay == 3
+        viewer.close()
+
     def test_flat_surface_when_no_values(self, make_napari_viewer):
         """Without values the surface is flat (all vertex values equal)."""
         vertices, faces, _ = self._tetra()

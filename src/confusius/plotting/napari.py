@@ -303,6 +303,13 @@ def plot_surface(
     layer : napari.layers.Surface
         The surface layer added to the viewer.
 
+    Notes
+    -----
+    For a 3D mesh, the viewer is switched to 3D rendering (`ndisplay = 3`) and the
+    view is reset to frame the mesh. napari opens in 2D by default, where a surface
+    layer is drawn only as its cross-section with the current slice plane, leaving
+    the mesh all but invisible.
+
     Examples
     --------
     >>> import confusius as cf
@@ -321,6 +328,13 @@ def plot_surface(
         viewer = napari.Viewer()
 
     layer = viewer.add_surface(surface_data, **layer_kwargs)
+
+    # napari opens in 2D, where a Surface layer is drawn only as its cross-section
+    # with the current slice plane — a 3D mesh is then all but invisible. Switch to
+    # 3D rendering so the full mesh shows.
+    if vertices.shape[1] >= 3:
+        viewer.dims.ndisplay = 3
+        viewer.reset_view()
 
     if show_scale_bar:
         viewer.scale_bar.visible = True
