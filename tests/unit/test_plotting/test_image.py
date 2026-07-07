@@ -25,6 +25,27 @@ class TestPlotVolume:
         with pytest.raises(ValueError, match="slice_mode"):
             plot_volume(sample_3d_volume, slice_mode="t", slice_coords=[0.0])
 
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
+    @pytest.mark.parametrize("bad_arg", ["vmin", "vmax"])
+    def test_nonfinite_vmin_vmax_raises(
+        self, sample_3d_volume, matplotlib_pyplot, bad_arg, bad_value
+    ):
+        """plot_volume raises a clear ValueError for non-finite vmin/vmax.
+
+        Regression test for #258: non-finite bounds used to produce an empty
+        colormap color list and crash deep inside
+        `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque
+        `IndexError`.
+        """
+        z_coord = sample_3d_volume.coords["z"].values[0]
+        with pytest.raises(ValueError, match="finite"):
+            plot_volume(
+                sample_3d_volume,
+                slice_mode="z",
+                slice_coords=[z_coord],
+                **{bad_arg: bad_value},
+            )
+
     def test_non_3d_data_raises(self):
         """plot_volume raises ValueError for 4D data with no unitary dimensions."""
         data = xr.DataArray(
