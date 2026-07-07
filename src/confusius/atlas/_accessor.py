@@ -1,6 +1,7 @@
-"""Atlas class for brain atlas integration via BrainGlobe."""
+"""The `.atlas` xarray Dataset accessor: data-aware brain-atlas operations."""
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -11,196 +12,42 @@ import xarray as xr
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius.atlas._structures import (
     _build_lookup_df,
-    _build_rgb_lookup,
     _get_descendant_ids,
     _load_obj,
     _resolve_region_id,
+    structures_from_json,
 )
 from confusius.registration.resampling import resample_like as resample_like_da
 
 if TYPE_CHECKING:
     import treelib
-    from brainglobe_atlasapi import BrainGlobeAtlas
     from brainglobe_atlasapi.structure_class import StructuresDict
     from matplotlib.colors import BoundaryNorm, ListedColormap
 
 
-def _build_dataset(bg_atlas: "BrainGlobeAtlas") -> xr.Dataset:
-    """Build an Xarray Dataset from a BrainGlobe atlas.
+@xr.register_dataset_accessor("atlas")
+class AtlasAccessor:
+    """Brain-atlas operations on an atlas `xarray.Dataset`.
+
+    Registered as the `.atlas` namespace on any Dataset produced by
+    [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] or
+    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]. The structure hierarchy is
+    lazily rebuilt from `Dataset.attrs["structures"]`, so structural queries keep working
+    for as long as that attribute rides along (xarray drops `attrs` on many ops by
+    default; use `xarray.set_options(keep_attrs=True)` in pipelines).
 
     Parameters
     ----------
-    bg_atlas : brainglobe_atlasapi.BrainGlobeAtlas
-        Loaded BrainGlobe atlas.
-
-    Returns
-    -------
-    xarray.Dataset
-        Dataset with variables `reference`, `annotation`, and
-        `hemispheres`, each with physical coordinates in millimetres.
-    """
-    meta = bg_atlas.metadata
-    resolution_mm = [r * 1e-3 for r in meta["resolution"]]
-    shape = meta["shape"]
-
-    coords = {
-        dim: (
-            np.arange(shape[i]) * resolution_mm[i],
-            {"voxdim": resolution_mm[i], "units": "mm"},
-        )
-        for i, dim in enumerate(["z", "y", "x"])
-    }
-
-    rgb_lookup = _build_rgb_lookup(bg_atlas.structures)
-    cmap, norm = build_atlas_cmap_and_norm(rgb_lookup)
-    roi_labels = {
-        int(sid): str(info["name"] + f" ({info['acronym']})")
-        for sid, info in bg_atlas.structures.items()
-    }
-
-    reference = xr.DataArray(
-        bg_atlas.reference.astype(np.float32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={"cmap": "gray"},
-    )
-
-    annotation = xr.DataArray(
-        bg_atlas.annotation.astype(np.int32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        # cmap and norm are non-serializable but are skipped automatically when saving
-        # to Zarr/NIfTI; rgb_lookup is the serializable source of truth.
-        attrs={
-            "rgb_lookup": rgb_lookup,
-            "roi_labels": roi_labels,
-            "cmap": cmap,
-            "norm": norm,
-        },
-    )
-
-    hemispheres = xr.DataArray(
-        bg_atlas.hemispheres.astype(np.int8),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-    )
-
-    return xr.Dataset(
-        {
-            "reference": reference,
-            "annotation": annotation,
-            "hemispheres": hemispheres,
-        },
-        attrs={
-            "name": meta["name"],
-            "species": meta["species"],
-            "orientation": meta["orientation"],
-        },
-    )
-
-
-class Atlas:
-    """Brain atlas wrapper backed by BrainGlobe, exposing DataArrays.
-
-    Use [`from_brainglobe`][confusius.atlas.Atlas.from_brainglobe] to construct an
-    instance.
-
-    Parameters
-    ----------
-    dataset : xarray.Dataset
-        Dataset with variables `reference`, `annotation`, and
-        `hemispheres` on a common `(z, y, x)` grid with physical coordinates
-        in millimetres.
-    structures : brainglobe_atlasapi.structure_class.StructuresDict
-        BrainGlobe structure dictionary (carries the `treelib` hierarchy tree).
-    mesh_to_physical : (4, 4) numpy.ndarray
-        Homogeneous affine that maps mesh vertex coordinates (microns, atlas
-        voxel space) to the DataArrays' physical space (millimetres).
-    rl_midline_um : float, default: 0.0
-        Midpoint of the RL axis in microns (atlas voxel space). Used to clip
-        mesh vertices to a single hemisphere.
-
-    Attributes
-    ----------
-    reference : xarray.DataArray
-        Reference template DataArray.
-    annotation : xarray.DataArray
-        Region annotations DataArray with integer labels.
-    hemispheres : xarray.DataArray
-        Hemisphere map DataArray (1 = left, 2 = right).
-    lookup : pandas.DataFrame
-        DataFrame with columns `acronym`, `name`, `rgb_triplet` indexed by structure
-        index.
-    cmap : matplotlib.colors.ListedColormap
-        [`ListedColormap`][matplotlib.colors.ListedColormap] derived from
-        `annotation.attrs["rgb_lookup"]`.
-    norm : matplotlib.colors.BoundaryNorm
-        [`BoundaryNorm`][matplotlib.colors.BoundaryNorm] derived from
-        `annotation.attrs["rgb_lookup"]`.
+    ds : xarray.Dataset
+        Atlas Dataset with `reference`, `annotation`, and `hemispheres` data variables on
+        a common `(z, y, x)` grid, and the atlas metadata in `attrs`.
     """
 
-    def __init__(
-        self,
-        dataset: xr.Dataset,
-        structures: "StructuresDict",
-        mesh_to_physical: "npt.NDArray[np.float64]",
-        rl_midline_um: float = 0.0,
-    ) -> None:
-        self._dataset = dataset
-        self._structures = structures
-        self._mesh_to_physical = mesh_to_physical
-        # Midpoint of the RL axis in microns (atlas voxel space). Used to clip
-        # mesh vertices to a single hemisphere without requiring pyvista.
-        self._rl_midline_um = rl_midline_um
+    def __init__(self, ds: xr.Dataset) -> None:
+        self._ds = ds
+        self._structures: StructuresDict | None = None
         self._lookup: pd.DataFrame | None = None
-
-    @classmethod
-    def from_brainglobe(
-        cls, atlas: "str | BrainGlobeAtlas", **kwargs: object
-    ) -> "Atlas":
-        """Construct an Atlas from a BrainGlobe atlas name or instance.
-
-        Parameters
-        ----------
-        atlas : str or brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
-            Either a BrainGlobe atlas name string (e.g. `"allen_mouse_25um"`) or an
-            already-loaded
-            [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
-        **kwargs
-            Additional keyword arguments forwarded to
-            [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] when
-            `atlas` is a string. Common options include `brainglobe_dir` (override the
-            atlas cache directory) and `check_latest` (disable the latest-version
-            check). Ignored when `atlas` is already a
-            [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
-
-        Returns
-        -------
-        Atlas
-            Atlas with DataArrays in the atlas physical space (millimetres).
-
-        Examples
-        --------
-        >>> atlas = Atlas.from_brainglobe("allen_mouse_25um")
-        >>> atlas = Atlas.from_brainglobe("allen_mouse_25um", check_latest=False)
-        >>> atlas = Atlas.from_brainglobe(bg_atlas_instance)
-        """
-        from brainglobe_atlasapi import BrainGlobeAtlas
-
-        if isinstance(atlas, str):
-            atlas = BrainGlobeAtlas(atlas, **kwargs)
-
-        dataset = _build_dataset(atlas)
-        # OBJ mesh vertices are in microns; scale to millimetres.
-        mesh_to_physical = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-
-        meta = atlas.metadata
-        # For asr orientation: shape[2] is the RL axis length (voxels);
-        # resolution[2] is the voxel size in microns. The midline sits at the
-        # centre of the volume.
-        rl_midline_um = meta["shape"][2] / 2 * meta["resolution"][2]
-
-        return cls(dataset, atlas.structures, mesh_to_physical, rl_midline_um)
+        self._meshes_dir: Path | None = None
 
     # ── Data properties ───────────────────────────────────────────────────────────────
 
@@ -213,7 +60,7 @@ class Atlas:
         xarray.DataArray
             The reference template DataArray.
         """
-        return self._dataset["reference"]
+        return self._ds["reference"]
 
     @property
     def annotation(self) -> xr.DataArray:
@@ -227,7 +74,7 @@ class Atlas:
         xarray.DataArray
             The region annotation DataArray with integer labels.
         """
-        return self._dataset["annotation"]
+        return self._ds["annotation"]
 
     @property
     def hemispheres(self) -> xr.DataArray:
@@ -236,11 +83,37 @@ class Atlas:
         Returns
         -------
         xarray.DataArray
-            The hemisphere map DataArray.
+            The hemisphere map data variable.
         """
-        return self._dataset["hemispheres"]
+        return self._ds["hemispheres"]
 
     # ── Structure metadata ────────────────────────────────────────────────────
+
+    @property
+    def structures(self) -> "StructuresDict":
+        """Structure dictionary rebuilt from `Dataset.attrs["structures"]`.
+
+        Returns
+        -------
+        brainglobe_atlasapi.structure_class.StructuresDict
+            The structure dictionary with its hierarchy tree. Parsed once and cached.
+
+        Raises
+        ------
+        KeyError
+            If `Dataset.attrs` has no `structures` entry (e.g. after an xarray op that
+            dropped `attrs`; wrap the pipeline in `xarray.set_options(keep_attrs=True)`).
+        """
+        if self._structures is None:
+            if "structures" not in self._ds.attrs:
+                raise KeyError(
+                    "This Dataset has no 'structures' attribute, so its structure "
+                    "hierarchy cannot be rebuilt. xarray drops attrs on many operations "
+                    "by default; run atlas pipelines under "
+                    "xarray.set_options(keep_attrs=True)."
+                )
+            self._structures = structures_from_json(self._ds.attrs["structures"])
+        return self._structures
 
     @property
     def lookup(self) -> pd.DataFrame:
@@ -251,11 +124,10 @@ class Atlas:
         Returns
         -------
         pandas.DataFrame
-            The structure lookup DataFrame, built from the BrainGlobe atlas's
-            `StructuresDict`. Cached on first access.
+            The structure lookup DataFrame. Cached on first access.
         """
         if self._lookup is None:
-            self._lookup = _build_lookup_df(self._structures)
+            self._lookup = _build_lookup_df(self.structures)
         return self._lookup
 
     @property
@@ -305,13 +177,13 @@ class Atlas:
         Returns
         -------
         pandas.DataFrame
-            Filtered view of [`lookup`][confusius.atlas.Atlas.lookup] matching the
+            Filtered view of [`lookup`][confusius.atlas.AtlasAccessor.lookup] matching the
             search criteria.
 
         Examples
         --------
-        >>> atlas.search("visual cortex")
-        >>> atlas.search("VISp", field="acronym")
+        >>> ds.atlas.search("visual cortex")
+        >>> ds.atlas.search("VISp", field="acronym")
         """
         df = self.lookup
         if field == "acronym":
@@ -334,7 +206,7 @@ class Atlas:
             | Sequence[Literal["left", "right", "both"]]
         ) = "both",
     ) -> xr.DataArray:
-        """Return integer region masks stacked along a `masks` dimension.
+        """Return integer region masks stacked along a `mask` dimension.
 
         Each layer along `mask` has values in `{0, region_id}`; voxels
         belonging to the requested region (including all descendants in the
@@ -366,11 +238,11 @@ class Atlas:
 
         Examples
         --------
-        >>> atlas.get_masks("VISp")
-        >>> atlas.get_masks("VISp", sides="left")
-        >>> atlas.get_masks(["VISp", "AUDp", "MOp"])
-        >>> atlas.get_masks(["VISp", "AUDp"], sides=["left", "both"])
-        >>> atlas.get_masks(["VISp", "VISp"], sides=["left", "right"]).coords["mask"].values
+        >>> ds.atlas.get_masks("VISp")
+        >>> ds.atlas.get_masks("VISp", sides="left")
+        >>> ds.atlas.get_masks(["VISp", "AUDp", "MOp"])
+        >>> ds.atlas.get_masks(["VISp", "AUDp"], sides=["left", "both"])
+        >>> ds.atlas.get_masks(["VISp", "VISp"], sides=["left", "right"]).coords["mask"].values
         array(['VISp_L', 'VISp_R'], dtype=object)
         """
         region_list: list[int | str] = (
@@ -401,15 +273,15 @@ class Atlas:
         layers = []
         acronyms = []
         for reg, s in zip(region_list, side_list):
-            rid = _resolve_region_id(self._structures, reg)
-            descendant_ids = _get_descendant_ids(self._structures, rid)
+            rid = _resolve_region_id(self.structures, reg)
+            descendant_ids = _get_descendant_ids(self.structures, rid)
 
             layer = np.zeros_like(annotation_np, dtype=np.int32)
             # Using kind="table" here will use a lookup table approach that is much
             # faster at the cost of higher memory usage.
             layer[np.isin(annotation_np, descendant_ids, kind="table")] = rid
 
-            acronym = self._structures[rid]["acronym"]
+            acronym = self.structures[rid]["acronym"]
             if s == "left":
                 layer[hemispheres_np != 1] = 0
                 acronym = f"{acronym}_L"
@@ -432,6 +304,23 @@ class Atlas:
 
     # ── Meshes ────────────────────────────────────────────────────────────────────────
 
+    def _resolve_meshes_dir(self) -> Path:
+        """Return the atlas meshes directory, resolving it from the cache on first use.
+
+        Returns
+        -------
+        pathlib.Path
+            The `meshes` directory of the named BrainGlobe atlas
+            (`Dataset.attrs["atlas_name"]`). The atlas is fetched by name if it is not
+            already present in the local BrainGlobe cache. Cached on the accessor.
+        """
+        if self._meshes_dir is None:
+            from brainglobe_atlasapi import BrainGlobeAtlas
+
+            root = BrainGlobeAtlas(self._ds.attrs["atlas_name"]).root_dir
+            self._meshes_dir = Path(root) / "meshes"
+        return self._meshes_dir
+
     def get_mesh(
         self,
         region: int | str,
@@ -441,7 +330,10 @@ class Atlas:
 
         Reads the OBJ file bundled with the BrainGlobe atlas, optionally clips to one
         hemisphere, then transforms vertices from micron space to the DataArrays'
-        current physical space (millimetres).
+        current physical space (millimetres). The OBJ files are not stored in the
+        Dataset; the meshes directory is resolved on demand from
+        `Dataset.attrs["atlas_name"]` (the named atlas is re-fetched by name if it is not
+        already in the local BrainGlobe cache).
 
         Parameters
         ----------
@@ -469,12 +361,10 @@ class Atlas:
         KeyError
             If the requested region is not found in the atlas.
         ValueError
-            If the atlas does not have mesh files.
+            If the region has no mesh file, or the mesh file cannot be located.
         """
-        from pathlib import Path
-
-        rid = _resolve_region_id(self._structures, region)
-        info = self._structures[rid]
+        rid = _resolve_region_id(self.structures, region)
+        info = self.structures[rid]
 
         mesh_filename = info.get("mesh_filename")
         if mesh_filename is None:
@@ -483,7 +373,18 @@ class Atlas:
                 "Not all BrainGlobe atlases include mesh files."
             )
 
-        vertices_um, faces = _load_obj(Path(str(mesh_filename)))
+        # Serialized atlases store mesh_filename as a basename; re-point it into the
+        # atlas meshes directory when it does not resolve as-is.
+        mesh_path = Path(mesh_filename)
+        if not mesh_path.exists():
+            mesh_path = self._resolve_meshes_dir() / mesh_path.name
+            if not mesh_path.exists():
+                raise ValueError(
+                    f"Mesh file '{mesh_path.name}' for region '{region}' (id {rid}) "
+                    f"not found in {mesh_path.parent}."
+                )
+
+        vertices_um, faces = _load_obj(mesh_path)
 
         if side != "both":
             # Clip in micron space along the RL axis (column 2 for asr
@@ -492,10 +393,11 @@ class Atlas:
             #   right hemisphere → RL < midline
             #   left  hemisphere → RL >= midline
             # TODO: generalize axis detection for non-asr atlases.
+            rl_midline_um = self._ds.attrs["rl_midline_um"]
             if side == "right":
-                keep = vertices_um[:, 2] < self._rl_midline_um
+                keep = vertices_um[:, 2] < rl_midline_um
             else:  # "left"
-                keep = vertices_um[:, 2] >= self._rl_midline_um
+                keep = vertices_um[:, 2] >= rl_midline_um
 
             keep_idx = np.where(keep)[0]
             old_to_new = np.full(len(vertices_um), -1, dtype=np.int64)
@@ -508,10 +410,11 @@ class Atlas:
             faces = new_face_idx[valid].astype(np.int32)
 
         # Apply homogeneous transform: microns → physical millimetres.
-        # _mesh_to_physical maps [x_um, y_um, z_um, 1]^T → [x_mm, y_mm, z_mm, 1]^T.
+        # mesh_to_physical maps [x_um, y_um, z_um, 1]^T → [x_mm, y_mm, z_mm, 1]^T.
+        mesh_to_physical = np.asarray(self._ds.attrs["mesh_to_physical"])
         n = len(vertices_um)
         vertices_h = np.hstack([vertices_um, np.ones((n, 1), dtype=np.float64)])
-        vertices_m = (self._mesh_to_physical @ vertices_h.T).T[:, :3]
+        vertices_m = (mesh_to_physical @ vertices_h.T).T[:, :3]
 
         return vertices_m, faces
 
@@ -524,13 +427,12 @@ class Atlas:
         *,
         reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         sitk_threads: int = -1,
-    ) -> "Atlas":
+    ) -> xr.Dataset:
         """Resample the atlas onto the grid of `reference`.
 
         Mirrors
         [`confusius.registration.resample_like`][confusius.registration.resample_like].
-        Returns a new [`Atlas`][confusius.atlas.Atlas] whose DataArrays live on
-        `reference`'s grid.
+        Returns a new atlas Dataset whose variables live on `reference`'s grid.
 
         - `reference`: resampled with `reference_interpolation`.
         - `annotation` and `hemispheres`: resampled with nearest-neighbour
@@ -552,17 +454,16 @@ class Atlas:
 
         Returns
         -------
-        Atlas
-            New Atlas with DataArrays on `reference`'s grid.
+        xarray.Dataset
+            New atlas Dataset on `reference`'s grid.
 
         Examples
         --------
-        >>> _, affine = atlas.reference.fusi.register.to_volume(
+        >>> _, affine = atlas.atlas.reference.fusi.register.to_volume(
         ...     fusi_mean, metric="mattes_mi", transform="affine"
         ... )
-        >>> atlas_fusi = atlas.resample_like(fusi_mean, affine)
+        >>> atlas_fusi = atlas.atlas.resample_like(fusi_mean, affine)
         """
-
         resampled_ref = resample_like_da(
             self.reference,
             reference,
@@ -590,21 +491,20 @@ class Atlas:
             sitk_threads=sitk_threads,
         )
 
-        new_dataset = xr.Dataset(
+        new_attrs = dict(self._ds.attrs)
+        # The mesh→physical affine composes with the resampling pull transform;
+        # rl_midline_um is a property of the original atlas micron space and is unchanged.
+        new_attrs["mesh_to_physical"] = (
+            np.linalg.inv(transform) @ np.asarray(self._ds.attrs["mesh_to_physical"])
+        ).tolist()
+
+        return xr.Dataset(
             {
                 "reference": resampled_ref,
                 "annotation": resampled_ann,
                 "hemispheres": resampled_hemi,
             },
-            attrs=self._dataset.attrs.copy(),
-        )
-
-        new_mesh_to_physical = np.linalg.inv(transform) @ self._mesh_to_physical
-
-        # _rl_midline_um is a property of the original atlas space and does not change
-        # when the DataArrays are resampled to a new grid.
-        return Atlas(
-            new_dataset, self._structures, new_mesh_to_physical, self._rl_midline_um
+            attrs=new_attrs,
         )
 
     # ── Tree helpers  ─────────────────────────────────────────────────────────────────
@@ -623,12 +523,12 @@ class Atlas:
             Ancestor nodes ordered from root toward `region`, not including `region`
             itself.
         """
-        rid = _resolve_region_id(self._structures, region)
-        tree = self._structures.tree
+        rid = _resolve_region_id(self.structures, region)
+        tree = self.structures.tree
         level = tree.level(rid)
         return [tree.ancestor(rid, lvl) for lvl in range(level)]
 
-    def show_tree(self, **kwargs) -> None:
+    def show_tree(self, **kwargs: object) -> None:
         """Print the structure hierarchy tree.
 
         Parameters
@@ -636,20 +536,11 @@ class Atlas:
         **kwargs
             Additional keyword arguments forwarded to
             [`treelib.Tree.show`][treelib.Tree.show].
+
+        Returns
+        -------
+        None
+            The tree is printed to standard output.
         """
         kwargs.setdefault("stdout", False)
-        print(self._structures.tree.show(**kwargs))
-
-    # ── Dunder ────────────────────────────────────────────────────────────────────────
-
-    def __repr__(self) -> str:
-        meta = self._dataset.attrs
-        shape = self.annotation.shape
-        return (
-            f"Atlas("
-            f"name={meta.get('name', 'unknown')!r}, "
-            f"species={meta.get('species', 'unknown')!r}, "
-            f"orientation={meta.get('orientation', 'unknown')!r}, "
-            f"shape={shape}"
-            f")"
-        )
+        print(self.structures.tree.show(**kwargs))

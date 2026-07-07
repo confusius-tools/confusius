@@ -424,11 +424,11 @@ def labels_from_layer(
     for label in unique_labels:
         rgba = labels_layer.get_color(int(label))
         if rgba is not None:
-            # Store 0-255 RGB (drop alpha) to match the Atlas convention.
+            # Store 0-255 RGB (drop alpha) to match the atlas annotation convention.
             rgb_lookup[int(label)] = [int(round(c * 255)) for c in rgba[:3]]
 
     # Build one layer per label so the output matches the stacked mask format
-    # returned by Atlas.get_masks: dims=["mask", *spatial_dims] with the
+    # returned by the atlas accessor's get_masks: dims=["mask", *spatial_dims] with the
     # mask coordinate holding integer label IDs. This allows per-label slicing
     # (e.g. label_map.sel(mask=2)) and is directly accepted by
     # extract_with_labels, plot_contours, and add_contours.
