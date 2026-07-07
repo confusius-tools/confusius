@@ -3,7 +3,7 @@
 #
 # This example computes voxel-wise seed-based functional connectivity maps: register a
 # single-slice fUSI recording to an Allen-space template, bring an
-# [Allen Mouse Brain Atlas][confusius.atlas.Atlas] into the recording's native space,
+# [Allen Mouse Brain Atlas][confusius.atlas] into the recording's native space,
 # pick four atlas regions of interest as seeds, and correlate each seed's signal
 # against every voxel with [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each
 # resulting map is displayed with
@@ -94,7 +94,7 @@ print(f"Final metric: {diagnostics.final_metric_value:.4f}")
 # Composing the template's `physical_to_sform` affine with the inverse of the estimated
 # registration affine gives a single transform from the recording's native coordinates
 # directly to Allen atlas coordinates.
-# [`Atlas.resample_like`][confusius.atlas.Atlas.resample_like] resamples the atlas'
+# [`resample_like`][confusius.atlas.AtlasAccessor.resample_like] resamples the atlas'
 # reference volume, annotations, and hemisphere map onto that grid in one call, so
 # `atlas_native.reference` can be used directly as the anatomical background for our
 # stat maps below.
@@ -103,8 +103,8 @@ print(f"Final metric: {diagnostics.final_metric_value:.4f}")
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
-atlas_native = atlas.resample_like(moving, subject_to_atlas)
+atlas = cf.atlas.atlas_from_brainglobe("allen_mouse_100um", check_latest=False)
+atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 
 # %% [markdown]
 # ## Choose seed regions
@@ -122,14 +122,14 @@ atlas_native = atlas.resample_like(moving, subject_to_atlas)
 # reflects genuine interhemispheric connectivity rather than the seed leaking into its
 # own mask.
 #
-# [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] returns a stacked
+# [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] returns a stacked
 # `(mask, z, y, x)` integer DataArray — one layer per requested region — which
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] accepts directly as
 # `seed_masks`.
 
 # %%
 seed_regions = ["SSp-bfd", "RSP", "HIP", "VPM"]
-seed_masks = atlas_native.get_masks(seed_regions, sides="left")
+seed_masks = atlas_native.atlas.get_masks(seed_regions, sides="left")
 
 # %% [markdown]
 # ## Smooth and compute nuisance regressors
@@ -148,7 +148,7 @@ seed_masks = atlas_native.get_masks(seed_regions, sides="left")
 # %%
 data = cf.spatial.smooth_volume(data, fwhm=0.1)
 
-white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
+white_matter = atlas_native.atlas.get_masks("fiber tracts").isel(mask=0)
 acompcor = cf.signal.compute_compcor_confounds(
     data, noise_mask=white_matter, n_components=1, variance_threshold=0.95
 )
@@ -179,7 +179,7 @@ mapper.maps_
 # [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours], leaving
 # `colors` unset so each region is drawn in its canonical Allen color (read from the
 # atlas mask's `attrs["cmap"]`/`attrs["norm"]`, the same convention used by
-# [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] elsewhere).
+# [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] elsewhere).
 
 # %% tags=["thumbnail"]
 # coolwarm's white midpoint reads as a washed-out hole on a dark background, so switch

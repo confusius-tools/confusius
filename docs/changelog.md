@@ -10,8 +10,21 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
+  registered `.atlas` accessor. Build an atlas with
+  [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] and call operations
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+
 ### :sparkles: Enhancements
 
+- Atlases are now serializable: save and reload a complete atlas, including its structure
+  hierarchy, with [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr] /
+  [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
@@ -124,7 +137,7 @@ Released 2026-07-07.
   falls back to the `"gray"` colormap (with a napari warning) instead of crashing when a
   layer's `cmap` attr is not a valid napari colormap name
   ([#255](https://github.com/confusius-tools/confusius/pull/255)).
-- [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
+- `Atlas.get_masks` now suffixes the `mask`
   coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
   on both hemispheres no longer produces duplicate `mask` values.
   [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires

@@ -456,7 +456,7 @@ anything `plot_stat_map` still doesn't expose (e.g. `roi_labels` hover names), c
 This figure is generated in the [atlas-based seed connectivity maps
 example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
 registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
-Atlas][confusius.atlas.Atlas] onto the recording's native grid, and computing
+Atlas][confusius.atlas] onto the recording's native grid, and computing
 voxel-wise seed-based correlation maps with
 [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
 
@@ -475,21 +475,21 @@ The most common use case is to draw atlas outlines on top of a fUSI volume.
 coordinate-to-axis mapping; calling
 [`add_contours`][confusius.plotting.VolumePlotter.add_contours] on it draws outlines
 on the matching panels. Masks produced by
-[`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] carry Allen colors in their
+[`get_masks`][confusius.atlas.AtlasAccessor.get_masks] carry Allen colors in their
 `attrs["rgb_lookup"]`, so no explicit color argument is needed:
 
 !!! question "Registering your data to an atlas"
     This example assumes your fUSI data has already been registered to the Allen Mouse
     Brain atlas. See the [Atlases](atlas.md) guide for loading and working with brain
     atlases, and the [Registration](registration.md) guide for how to obtain the `transform`
-    used in `atlas.resample_like`.
+    used in `atlas.atlas.resample_like`.
 
 ```python
-from confusius.atlas import Atlas
+from confusius.atlas import atlas_from_brainglobe
 
-# Load Atlas and resample to fUSI space (see Registration guide).
-atlas = Atlas.from_brainglobe("allen_mouse_100um")
-atlas_fusi = atlas.resample_like(mean_vol, transform)
+# Load atlas and resample to fUSI space (see Registration guide).
+atlas = atlas_from_brainglobe("allen_mouse_100um")
+atlas_fusi = atlas.atlas.resample_like(mean_vol, transform)
 
 # Step 1: display an average power Doppler volume.
 plotter = cf.plotting.plot_volume(
@@ -682,7 +682,7 @@ fig, ax = cf.plotting.plot_matrix(
 This figure is generated in the [atlas-based region correlation matrix
 example](../examples/_built/connectivity/atlas_correlation_matrix.md), which walks
 through registering a recording to an Allen-space template, resampling the [Allen
-Mouse Brain Atlas][confusius.atlas.Atlas] onto the recording's native grid, and
+Mouse Brain Atlas][confusius.atlas] onto the recording's native grid, and
 extracting region signals—including `group_colors`, sourced directly from the atlas
 so each area is colored with its official Allen color.
 

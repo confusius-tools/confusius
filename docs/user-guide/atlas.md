@@ -7,35 +7,43 @@ icon: lucide/brain
 !!! info "Coming soon"
     This page is currently under construction. The `atlas` module provides tools for
     loading and working with standard brain atlases via the
-    [BrainGlobe Atlas API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html):
+    [BrainGlobe Atlas API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html).
 
-    **Loading:**
+    An atlas is an [`xarray.Dataset`][xarray.Dataset] with `reference`, `annotation`, and
+    per-voxel `hemispheres` data variables, and a registered `.atlas` accessor (see
+    [`AtlasAccessor`][confusius.atlas.AtlasAccessor]) for all operations.
 
-    - [`Atlas.from_brainglobe`][confusius.atlas.Atlas.from_brainglobe]: Load any BrainGlobe
-      atlas by name or from an existing instance. Exposes `reference`, `annotation`, and
-      `hemispheres` as Xarray DataArrays with physical coordinates in millimetres.
+    **Loading and saving:**
+
+    - [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe]: Load any BrainGlobe
+      atlas by name or from an existing instance, as a self-describing Dataset with
+      physical coordinates in millimetres.
+    - [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr] /
+      [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]: Save and reload the whole
+      atlas (including its structure hierarchy) to and from a Zarr store.
 
     **Structure lookup:**
 
-    - [`Atlas.lookup`][confusius.atlas.Atlas.lookup]: DataFrame of all structures with
-      acronym, name, and RGB colour.
-    - [`Atlas.search`][confusius.atlas.Atlas.search]: Search structures by substring or
-      regex across acronym and name fields.
-    - [`Atlas.ancestors`][confusius.atlas.Atlas.ancestors]: Return the ancestor nodes of a
-      region, ordered from root down.
+    - [`ds.atlas.lookup`][confusius.atlas.AtlasAccessor.lookup]: DataFrame of all
+      structures with acronym, name, and RGB colour.
+    - [`ds.atlas.search`][confusius.atlas.AtlasAccessor.search]: Search structures by
+      substring or regex across acronym and name fields.
+    - [`ds.atlas.ancestors`][confusius.atlas.AtlasAccessor.ancestors]: Return the ancestor
+      nodes of a region, ordered from root down.
 
     **Masks and meshes:**
 
-    - [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks]: Build integer region masks
-      stacked along a `masks` dimension, with optional per-region hemisphere filtering
+    - [`ds.atlas.get_masks`][confusius.atlas.AtlasAccessor.get_masks]: Build integer region
+      masks stacked along a `mask` dimension, with optional per-region hemisphere filtering
       (`"left"`, `"right"`, or `"both"`). Descendant regions are included automatically.
-    - [`Atlas.get_mesh`][confusius.atlas.Atlas.get_mesh]: Load the OBJ surface mesh for a
-      region, clipped to a hemisphere if requested, in the atlas physical space (mm).
+    - [`ds.atlas.get_mesh`][confusius.atlas.AtlasAccessor.get_mesh]: Load the OBJ surface
+      mesh for a region, clipped to a hemisphere if requested, in the atlas physical space
+      (mm).
 
     **Registration:**
 
-    - [`Atlas.resample_like`][confusius.atlas.Atlas.resample_like]: Resample the atlas onto
-      the grid of a fUSI volume using a pull affine returned by
+    - [`ds.atlas.resample_like`][confusius.atlas.AtlasAccessor.resample_like]: Resample the
+      atlas onto the grid of a fUSI volume using a pull affine returned by
       [`register_volume`][confusius.registration.register_volume].
 
     Please refer to the [API Reference](../api/atlas.md) for

@@ -9,7 +9,7 @@ available atlases, templates, and fUSI datasets distributed in
 [fUSI-BIDS](https://bids.neuroimaging.io/) format. Each fetcher downloads the dataset
 on first call, caches it locally for offline reuse, and returns either the path to the
 root directory, or a more specific object (e.g., a DataArray for templates or an
-[`Atlas`][confusius.atlas.Atlas] instance for atlases]).
+[atlas Dataset][confusius.atlas] for atlases]).
 
 !!! tip "Try before you buy"
     Fetchers generally accept filters (subjects, sessions, tasks, derivatives, etc.) so
@@ -270,12 +270,12 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     download and load the template directly:
 
     ```python
-    from confusius.atlas import Atlas
+    from confusius.atlas import atlas_from_brainglobe
     from confusius.datasets import fetch_template_huang_2025
 
     template = fetch_template_huang_2025()
-    atlas = Atlas.from_brainglobe("allen_mouse_50um")
-    resampled_atlas = atlas.resample_like(
+    atlas = atlas_from_brainglobe("allen_mouse_50um")
+    resampled_atlas = atlas.atlas.resample_like(
         template,
         template.attrs["affines"]["physical_to_sform"],
     )
@@ -291,12 +291,12 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     download and load the template directly:
 
     ```python
-    from confusius.atlas import Atlas
+    from confusius.atlas import atlas_from_brainglobe
     from confusius.datasets import fetch_template_pepe_mariani_2026
 
     template = fetch_template_pepe_mariani_2026()
-    atlas = Atlas.from_brainglobe("allen_mouse_100um")
-    resampled_atlas = atlas.resample_like(
+    atlas = atlas_from_brainglobe("allen_mouse_100um")
+    resampled_atlas = atlas.atlas.resample_like(
         template,
         template.attrs["affines"]["physical_to_sform"],
     )

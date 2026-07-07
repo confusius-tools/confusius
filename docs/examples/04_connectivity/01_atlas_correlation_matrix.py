@@ -3,7 +3,7 @@
 #
 # This example shows an end-to-end regional functional connectivity (FC) analysis:
 # register a single-slice fUSI recording to an Allen-space template, bring the [Allen
-# Mouse Brain Atlas][confusius.atlas.Atlas] into the recording's native space, extract
+# Mouse Brain Atlas][confusius.atlas] into the recording's native space, extract
 # region-averaged signals, and visualise their pairwise correlation with
 # [`plot_matrix`][confusius.plotting.plot_matrix].
 #
@@ -39,7 +39,11 @@ xr.set_options(display_expand_data=False)
 template = cf.datasets.fetch_template_pepe_mariani_2026()
 
 bids_root = cf.datasets.fetch_nunez_elizalde_2022(
-    subjects="CR022", sessions="20201007", tasks="spontaneous", acqs="slice02"
+    subjects="CR022",
+    sessions="20201007",
+    tasks="spontaneous",
+    acqs="slice02",
+    refresh=True,
 )
 
 data_path = (
@@ -157,25 +161,25 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um")
-atlas_native = atlas.resample_like(moving, subject_to_atlas)
+atlas = cf.atlas.atlas_from_brainglobe("allen_mouse_100um")
+atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 
 plotter = cf.plotting.plot_volume(
     moving, slice_mode="z", cmap="gray", show_colorbar=False, bg_color=bg_color
 )
-_ = plotter.add_contours(atlas_native.annotation)
+_ = plotter.add_contours(atlas_native.atlas.annotation)
 
 # %% [markdown]
 # ## Extract region signals and compute their correlation matrix
 #
-# [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] accepts parent acronyms from the
+# [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] accepts parent acronyms from the
 # Allen ontology (e.g. `"SSp-bfd"`) and automatically aggregates every descendant
 # region, so we can request a handful of coarse regions per area of interest instead of
 # individual cortical layers or thalamic nuclei. We pick three regions each from cortex,
 # hippocampus, thalamus, and hypothalamus.
 #
 # We extract left and right hemispheres separately via
-# [`get_masks`][confusius.atlas.Atlas.get_masks]'s `sides` argument: combining both
+# [`get_masks`][confusius.atlas.AtlasAccessor.get_masks]'s `sides` argument: combining both
 # sides into one mask would average left/right signals together and hide
 # bilateral FC and interhemispheric differences. `get_masks` names each layer's `mask`
 # coordinate with the acronym suffixed by `_L`/`_R`, and
@@ -201,7 +205,9 @@ division_ids = {
     "hypothalamus": 1097,
 }
 group_colors = {
-    area: "#{:02x}{:02x}{:02x}".format(*atlas.lookup.loc[division_id, "rgb_triplet"])
+    area: "#{:02x}{:02x}{:02x}".format(
+        *atlas.atlas.lookup.loc[division_id, "rgb_triplet"]
+    )
     for area, division_id in division_ids.items()
 }
 region_acronyms = [acronym for acronyms in groups.values() for acronym in acronyms]
@@ -214,7 +220,7 @@ for area, acronyms in groups.items():
     group_labels += [area] * (2 * len(acronyms))
 
 sides = ["left"] * len(region_acronyms) + ["right"] * len(region_acronyms)
-masks = atlas_native.get_masks(region_acronyms * 2, sides=sides)
+masks = atlas_native.atlas.get_masks(region_acronyms * 2, sides=sides)
 
 signals = cf.extract.extract_with_labels(data, masks, reduction="mean")
 # extract_with_labels does not guarantee any particular region order, so reindex
@@ -234,7 +240,7 @@ signals
 # than the already-averaged regions.
 
 # %%
-white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
+white_matter = atlas_native.atlas.get_masks("fiber tracts").isel(mask=0)
 acompcor = cf.signal.compute_compcor_confounds(
     data, noise_mask=white_matter, n_components=1
 )
