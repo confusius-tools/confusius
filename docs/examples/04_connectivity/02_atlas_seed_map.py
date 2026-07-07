@@ -103,7 +103,7 @@ print(f"Final metric: {diagnostics.final_metric_value:.4f}")
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = cf.atlas.atlas_from_brainglobe("allen_mouse_100um", check_latest=False)
+atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 
 # %% [markdown]

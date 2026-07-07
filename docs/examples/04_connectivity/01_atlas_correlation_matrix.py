@@ -161,13 +161,13 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = cf.atlas.atlas_from_brainglobe("allen_mouse_100um")
+atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
 atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 
 plotter = cf.plotting.plot_volume(
     moving, slice_mode="z", cmap="gray", show_colorbar=False, bg_color=bg_color
 )
-_ = plotter.add_contours(atlas_native.atlas.annotation)
+_ = plotter.add_contours(atlas_native.annotation)
 
 # %% [markdown]
 # ## Extract region signals and compute their correlation matrix

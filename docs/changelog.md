@@ -13,10 +13,13 @@ Current development version for the next ConfUSIus release.
 ### :boom: Breaking changes
 
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
-  registered `.atlas` accessor. Build an atlas with
-  [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] and call operations
+  registered `.atlas` accessor. Fetch an atlas by name with
+  [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
   through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
-  `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset
+  `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
+  Name-based loading moved to `confusius.datasets`;
+  [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] now builds only from an
+  already-loaded BrainGlobe atlas
   ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 
 ### :sparkles: Enhancements
@@ -24,6 +27,10 @@ Current development version for the next ConfUSIus release.
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy, with [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr] /
   [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+- [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
+  Dataset is a well-formed atlas, alongside `validate_fusi_dataarray` and
+  `validate_iq_dataarray`
   ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead

@@ -485,10 +485,10 @@ on the matching panels. Masks produced by
     used in `atlas.atlas.resample_like`.
 
 ```python
-from confusius.atlas import atlas_from_brainglobe
+from confusius.datasets import fetch_brainglobe_atlas
 
 # Load atlas and resample to fUSI space (see Registration guide).
-atlas = atlas_from_brainglobe("allen_mouse_100um")
+atlas = fetch_brainglobe_atlas("allen_mouse_100um")
 atlas_fusi = atlas.atlas.resample_like(mean_vol, transform)
 
 # Step 1: display an average power Doppler volume.

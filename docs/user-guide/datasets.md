@@ -101,6 +101,23 @@ The same table is available from the command line:
 confusius datasets --list
 ```
 
+## Brain Atlases
+
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] fetches any
+[BrainGlobe](https://brainglobe.info/) atlas by name and returns it as an atlas
+[`xarray.Dataset`][xarray.Dataset] with the `.atlas` accessor:
+
+```python
+from confusius.datasets import fetch_brainglobe_atlas
+
+atlas = fetch_brainglobe_atlas("allen_mouse_100um")
+masks = atlas.atlas.get_masks("VISp")
+```
+
+Unlike the fUSI-BIDS datasets above, BrainGlobe atlases are cached in BrainGlobe's own
+atlas directory (`~/.brainglobe`, shared with other BrainGlobe tools), so they do not
+appear in `list_datasets`. Pass `data_dir=` to override the cache location.
+
 ## Available fUSI-BIDS Datasets
 
 === "Nunez-Elizalde 2022"
@@ -270,11 +287,10 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     download and load the template directly:
 
     ```python
-    from confusius.atlas import atlas_from_brainglobe
-    from confusius.datasets import fetch_template_huang_2025
+    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_huang_2025
 
     template = fetch_template_huang_2025()
-    atlas = atlas_from_brainglobe("allen_mouse_50um")
+    atlas = fetch_brainglobe_atlas("allen_mouse_50um")
     resampled_atlas = atlas.atlas.resample_like(
         template,
         template.attrs["affines"]["physical_to_sform"],
@@ -291,11 +307,10 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     download and load the template directly:
 
     ```python
-    from confusius.atlas import atlas_from_brainglobe
-    from confusius.datasets import fetch_template_pepe_mariani_2026
+    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_pepe_mariani_2026
 
     template = fetch_template_pepe_mariani_2026()
-    atlas = atlas_from_brainglobe("allen_mouse_100um")
+    atlas = fetch_brainglobe_atlas("allen_mouse_100um")
     resampled_atlas = atlas.atlas.resample_like(
         template,
         template.attrs["affines"]["physical_to_sform"],
