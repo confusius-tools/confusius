@@ -264,7 +264,11 @@ def _compose_mesh_vertex_transforms(
     reference_points = np.stack(grid, axis=-1).reshape(-1, len(dims))[:, ::-1]
     current_points = _transform_points(new_transform, reference_points, new_reference)
     base_points = _transform_points(old_transform, current_points, old_reference)
-    displacement = (base_points - reference_points).T.reshape(
+    # The point columns are in mesh `(x, y, z)` order, but a displacement field stores
+    # its components in DataArray dim order `(z, y, x)` (component `i` displaces along
+    # `dims[i]`). Reverse the component axis before storing so the two agree; without it
+    # z and x are swapped.
+    displacement = (base_points - reference_points)[:, ::-1].T.reshape(
         len(dims), *new_reference.shape
     )
 

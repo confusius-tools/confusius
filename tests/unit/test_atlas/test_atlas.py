@@ -697,9 +697,66 @@ class TestResampleLike:
             old_transform, new_transform, reference, reference
         )
         assert result.attrs["type"] == "displacement_field_transform"
-        np.testing.assert_allclose(result.sel(component=0), 0.02)
+        # The composed displacement is (0.02, 0.02, 0.0) in mesh (x, y, z) order. A
+        # displacement field stores components in dim (z, y, x) order, so component 0
+        # is the z-displacement (0.0) and component 2 is the x-displacement (0.02).
+        np.testing.assert_allclose(result.sel(component=0), 0.0)
         np.testing.assert_allclose(result.sel(component=1), 0.02)
-        np.testing.assert_allclose(result.sel(component=2), 0.0)
+        np.testing.assert_allclose(result.sel(component=2), 0.02)
+
+    def test_compose_general_path_preserves_component_axis_order(
+        self, atlas: Atlas
+    ) -> None:
+        """Composing through the general path must not swap displacement components.
+
+        Regression test for a bug where `_compose_mesh_vertex_transforms` stored the
+        composed displacement in mesh `(x, y, z)` component order, while every field
+        consumer (`_interpolate_displacement_field`) expects DataArray dim `(z, y, x)`
+        order. With per-axis-different displacements this swapped the z and x
+        components, so composing two transforms and applying the result no longer
+        equalled applying the two transforms in sequence. Isotropic displacements
+        never exposed it because a symmetric field is invariant under the swap.
+        """
+        reference = xr.DataArray(
+            np.zeros((2, 2, 2)),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0, 1.0], "y": [0.0, 1.0], "x": [0.0, 1.0]},
+        )
+
+        # A constant displacement field translating +0.3 along z and +0.1 along x.
+        new_transform = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": np.arange(3),
+                "z": [0.0, 1.0],
+                "y": [0.0, 1.0],
+                "x": [0.0, 1.0],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        new_transform.loc[dict(component=0)] = 0.3  # Displacement along dim z.
+        new_transform.loc[dict(component=2)] = 0.1  # Displacement along dim x.
+
+        # An affine translating +0.2 along z and +0.05 along x (mesh (x, y, z) axes).
+        old_transform = np.eye(4)
+        old_transform[0, 3] = 0.05  # x.
+        old_transform[2, 3] = 0.2  # z.
+
+        composed = atlas_module._compose_mesh_vertex_transforms(
+            old_transform, new_transform, reference, reference
+        )
+
+        points = np.array([[0.5, 0.5, 0.5], [0.2, 0.8, 0.3]])  # (x, y, z).
+        result = atlas_module._transform_points(composed, points, reference)
+        # Composition semantics: applying the composed transform equals applying
+        # new then old in sequence.
+        expected = atlas_module._transform_points(
+            old_transform,
+            atlas_module._transform_points(new_transform, points, reference),
+            reference,
+        )
+        np.testing.assert_allclose(result, expected)
 
     def test_resample_like_keeps_existing_nonlinear_transform_on_identity_affine(
         self, atlas: Atlas, mock_structures, monkeypatch: pytest.MonkeyPatch
