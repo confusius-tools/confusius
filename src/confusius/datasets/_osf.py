@@ -233,7 +233,7 @@ def _select_downloads(
 
     A file is selected when it is absent from `bids_dir`. When `refresh` is
     `True`, a cached file is also selected when its md5 in `previous_index` (the
-    index it was last downloaded with) differs from — or is missing next to — its
+    index it was last downloaded with) differs from—or is missing next to—its
     md5 in `files` (the freshly fetched remote index). The cached index is trusted
     as the record of what is on disk, so files are never re-hashed; a cache entry
     that lacks an md5 (e.g. one predating md5 tracking) cannot be vouched for, so
