@@ -1,32 +1,18 @@
-"""Fixtures for Atlas unit tests."""
+"""Fixtures for atlas unit tests."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
-import treelib
 import xarray as xr
+from brainglobe_atlasapi.structure_class import StructuresDict
 
-from confusius.atlas import Atlas
-
-
-class _MockStructuresDict:
-    """Minimal duck-type of StructuresDict for testing without BrainGlobe data."""
-
-    def __init__(self, structure_list: list[dict], tree: treelib.Tree) -> None:
-        self._data = {s["id"]: s for s in structure_list}
-        self.tree = tree
-
-    def __getitem__(self, key: int) -> dict:  # type: ignore[override]
-        return self._data[key]
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._data
-
-    def items(self):  # type: ignore[override]
-        return self._data.items()
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 @pytest.fixture(scope="module")
@@ -53,29 +39,27 @@ def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def mock_structures(obj_path: Path) -> _MockStructuresDict:
-    """Three-node structure tree: root(997) → child(10) → grandchild(20).
+def structure_list(obj_path: Path) -> list[dict]:
+    """Flat BrainGlobe-style structures list: root(997) → child(10) → grandchild(20).
 
-    Only the root region (997) has a mesh file assigned.
+    Only the root region (997) has a mesh file (its absolute path, so `get_mesh` works
+    without a BrainGlobe cache lookup).
     """
-    tree = treelib.Tree()
-    tree.create_node("root", 997)
-    tree.create_node("child", 10, parent=997)
-    tree.create_node("grandchild", 20, parent=10)
-
-    structure_list = [
+    return [
         {
             "id": 997,
             "acronym": "root",
             "name": "whole brain",
             "rgb_triplet": [200, 200, 200],
-            "mesh_filename": obj_path,
+            "structure_id_path": [997],
+            "mesh_filename": str(obj_path),
         },
         {
             "id": 10,
             "acronym": "ch",
             "name": "child region",
             "rgb_triplet": [255, 0, 0],
+            "structure_id_path": [997, 10],
             "mesh_filename": None,
         },
         {
@@ -83,15 +67,21 @@ def mock_structures(obj_path: Path) -> _MockStructuresDict:
             "acronym": "gc",
             "name": "grandchild region",
             "rgb_triplet": [0, 255, 0],
+            "structure_id_path": [997, 10, 20],
             "mesh_filename": None,
         },
     ]
-    return _MockStructuresDict(structure_list, tree)
 
 
 @pytest.fixture(scope="module")
-def atlas(mock_structures: _MockStructuresDict) -> Atlas:
-    """Atlas built from fully controlled mock data.
+def mock_structures(structure_list: list[dict]) -> StructuresDict:
+    """Real BrainGlobe StructuresDict built from the mock structures list (no network)."""
+    return StructuresDict(structure_list)
+
+
+@pytest.fixture(scope="module")
+def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
+    """Atlas Dataset built from fully controlled mock data.
 
     Annotation (shape 4, 6, 8):
       - [:2, :, 2:6] = 10  (child)
@@ -148,17 +138,37 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
         coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
     )
 
-    dataset = xr.Dataset(
+    return xr.Dataset(
         {
             "reference": reference_da,
             "annotation": annotation_da,
             "hemispheres": hemispheres_da,
         },
-        attrs={"name": "mock_atlas", "species": "Mus musculus", "orientation": "asr"},
+        attrs={
+            "name": "mock_atlas",
+            "species": "Mus musculus",
+            "orientation": "asr",
+            "atlas_name": "mock_atlas",
+            "structures": json.dumps(structure_list),
+            "mesh_to_physical": np.diag([1e-3, 1e-3, 1e-3, 1.0]).tolist(),
+            # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm.
+            "rl_midline_um": shape[2] / 2 * 25.0,
+        },
     )
 
-    mesh_to_physical = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-    # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm.
-    rl_midline_um = shape[2] / 2 * 25.0
 
-    return Atlas(dataset, mock_structures, mesh_to_physical, rl_midline_um)
+class _MockBgAtlas:
+    """Minimal BrainGlobeAtlas duck-type for `atlas_from_brainglobe` tests."""
+
+    def __init__(self, structures: StructuresDict, shape: Sequence[int]) -> None:
+        self.reference = np.ones(shape, dtype=np.uint16)
+        self.annotation = np.zeros(shape, dtype=np.int32)
+        self.hemispheres = np.zeros(shape, dtype=np.int8)
+        self.structures = structures
+        self.metadata = {
+            "name": "test_atlas",
+            "species": "Mus musculus",
+            "orientation": "asr",
+            "shape": list(shape),
+            "resolution": [25, 25, 25],
+        }
