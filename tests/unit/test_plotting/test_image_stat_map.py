@@ -136,13 +136,15 @@ class TestPlotStatMap:
         rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["y"]
 
-    def test_overlay_is_fully_opaque_by_default(
+    def test_overlay_sets_no_explicit_alpha_by_default(
         self, sample_3d_volume, matplotlib_pyplot
     ):
+        """The default sets no explicit alpha, letting the colormap's own alpha
+        through (the default colormaps are opaque)."""
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         overlay = plotter.axes.ravel()[0].collections[-1]
-        assert overlay.get_alpha() == 1.0
+        assert overlay.get_alpha() is None
 
     def test_explicit_alpha_blends_overlay_with_background(
         self, sample_3d_volume, matplotlib_pyplot

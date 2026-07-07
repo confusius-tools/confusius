@@ -405,7 +405,7 @@ plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
 ```
 
 `bg_volume` is optional—call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
-statistical map on its own. With the default `alpha=1.0`, `t_map` fully covers `pwd`
+statistical map on its own. When `alpha` is not provided, `t_map` fully covers `pwd`
 wherever it has a value; `pwd` only shows through where `t_map` is masked out by
 `threshold`. `vmin`/`vmax` default to the actual min/max of `t_map`, and
 `auto_range=True` (default) picks the colormap layout from `t_map`'s sign:

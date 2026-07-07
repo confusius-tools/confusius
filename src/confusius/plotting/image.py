@@ -2272,7 +2272,7 @@ def plot_stat_map(
     vmin: float | None = None,
     vmax: float | None = None,
     auto_range: bool = True,
-    alpha: "float | xr.DataArray" = 1.0,
+    alpha: "float | xr.DataArray | None" = None,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
     show_colorbar: bool = True,
@@ -2308,8 +2308,8 @@ def plot_stat_map(
         Statistical map to plot. 3D volume data. Unitary dimensions (except
         `slice_mode`) are squeezed before processing.
     bg_volume : xarray.DataArray, optional
-        Background anatomical volume, plotted underneath `stat_map`. With the default
-        `alpha=1.0`, `stat_map` fully covers `bg_volume` wherever it has a value;
+        Background anatomical volume, plotted underneath `stat_map`. When `alpha` is
+        not provided, `stat_map` fully covers `bg_volume` wherever it has a value;
         `bg_volume` only shows through where `stat_map` is masked out by `threshold`.
         Lower `alpha` to blend the two layers instead. Must share `slice_mode` and,
         after squeezing, the same display dimensions as `stat_map`. If not provided,
@@ -2369,16 +2369,14 @@ def plot_stat_map(
 
         Set to `False` to use the resolved `vmin`/`vmax` directly with no
         zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
-    alpha : float or xarray.DataArray, default: 1.0
+    alpha : float or xarray.DataArray, optional
         Opacity of the `stat_map` overlay: a single scalar value, or a 3D DataArray
         sharing `stat_map`'s dims, shape, and coordinates (for independent per-slice,
         per-voxel opacity, e.g. to fade out low-magnitude voxels instead of masking them
         out with `threshold`). A per-voxel opacity must be a DataArray, not a bare
         array, so it can be validated and aligned against `stat_map`; note it is
-        validated against `stat_map`, not `bg_volume`. At the default `1.0`, `stat_map`
-        is fully opaque wherever it is not masked by `threshold`. Lower it to blend
-        `stat_map` with `bg_volume` (or, when `bg_volume` is not provided, with the axes
-        background).
+        validated against `stat_map`, not `bg_volume`. If not provided, the colormap's
+        own alpha channel is respected.
     threshold : float, optional
         Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
         direction. If not provided, no thresholding is applied.

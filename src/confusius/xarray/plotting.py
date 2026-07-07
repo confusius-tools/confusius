@@ -816,7 +816,7 @@ class FUSIPlotAccessor:
         vmin: float | None = None,
         vmax: float | None = None,
         auto_range: bool = True,
-        alpha: "float | xr.DataArray" = 1.0,
+        alpha: "float | xr.DataArray | None" = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
         show_colorbar: bool = True,
@@ -846,8 +846,8 @@ class FUSIPlotAccessor:
         Parameters
         ----------
         bg_volume : xarray.DataArray, optional
-            Background anatomical volume, plotted underneath this DataArray. With
-            the default `alpha=1.0`, this DataArray fully covers `bg_volume`
+            Background anatomical volume, plotted underneath this DataArray. When
+            `alpha` is not provided, this DataArray fully covers `bg_volume`
             wherever it has a value; `bg_volume` only shows through where this
             DataArray is masked out by `threshold`. Lower `alpha` to blend the two
             layers instead. Must share `slice_mode` and, after squeezing, the same
@@ -908,17 +908,15 @@ class FUSIPlotAccessor:
             Set to `False` to use the resolved `vmin`/`vmax` directly with no
             zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
             sign).
-        alpha : float or xarray.DataArray, default: 1.0
+        alpha : float or xarray.DataArray, optional
             Opacity of this DataArray's overlay: a single scalar value, or a 3D
             DataArray sharing this DataArray's dims, shape, and coordinates (for
             independent per-slice, per-voxel opacity, e.g. to fade out
             low-magnitude voxels instead of masking them out with `threshold`). A
             per-voxel opacity must be a DataArray, not a bare array, so it can be
             validated and aligned against this DataArray; note it is validated
-            against self, not `bg_volume`. At the default `1.0`, this DataArray is
-            fully opaque wherever it is not masked by `threshold`. Lower it to blend
-            with `bg_volume` (or, when `bg_volume` is not provided, with the axes
-            background).
+            against self, not `bg_volume`. If not provided, the colormap's own alpha
+            channel is respected.
         threshold : float, optional
             Threshold applied to the absolute value of this DataArray. See
             `threshold_mode` for the masking direction. If not provided, no
