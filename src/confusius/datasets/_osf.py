@@ -173,7 +173,7 @@ def update_cached_index(
     """Persist a refreshed index by merging, not replacing, the cached one.
 
     The cached `dataset_index.json` is the record of what is on disk, so it is
-    not overwritten wholesale with the remote index. Instead the merged index
+    not overwritten with the remote index. Instead the merged index
     is, per file:
 
     - the remote entry for every requested file (`files`), which has just been
