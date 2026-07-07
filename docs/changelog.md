@@ -25,9 +25,10 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
-  content changed, comparing each file's MD5 against the dataset index instead of only
-  checking whether the file exists; downloads are additionally verified against the index
-  MD5. Affects [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
+  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
+  of only checking whether the file exists; downloads are additionally verified against
+  the index MD5. Affects
+  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
   ([#261](https://github.com/confusius-tools/confusius/pull/261)).

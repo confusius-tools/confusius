@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
-import warnings
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
@@ -143,49 +141,58 @@ def get_index(
     return index
 
 
-def _file_md5(path: Path) -> str:
-    """Return the hex-encoded MD5 digest of a file.
+def read_cached_index(data_dir: Path) -> dict[str, OsfFileInfo]:
+    """Return the locally cached dataset index, or `{}` if none exists.
+
+    Unlike [`get_index`][confusius.datasets._osf.get_index] this never touches
+    the network: it only decodes the on-disk `dataset_index.json`. Callers read
+    it before a refresh to capture the md5s the cached files were downloaded
+    with, then compare those against the freshly fetched remote index to decide
+    which files changed upstream.
 
     Parameters
     ----------
-    path : pathlib.Path
-        File to hash.
+    data_dir : pathlib.Path
+        Directory holding the cached index.
 
     Returns
     -------
-    str
-        Lowercase hexadecimal MD5 digest, matching the `md5` values stored in
-        `dataset_index.json`.
+    dict[str, OsfFileInfo]
+        Cached index mapping, or an empty mapping when no cache exists.
     """
-    md5 = hashlib.md5()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            md5.update(chunk)
-    return md5.hexdigest()
+    index_path = data_dir / _INDEX_FILENAME
+    if not index_path.exists():
+        return {}
+    return json.loads(index_path.read_text(encoding="utf-8"))
 
 
 def _select_downloads(
     bids_dir: Path,
     files: dict[str, OsfFileInfo],
+    previous_index: dict[str, OsfFileInfo],
     refresh: bool,
 ) -> dict[str, OsfFileInfo]:
     """Return the subset of `files` that must be (re)downloaded.
 
-    A file is selected when it is absent locally. When `refresh` is `True`, a
-    file that is present but whose local MD5 differs from the index `md5` is
-    also selected. Entries without an `md5` (an index predating md5 tracking,
-    or a `null` hash) fall back to the "download only if missing" behaviour and
-    trigger a single warning, since their content cannot be checked.
+    A file is selected when it is absent from `bids_dir`. When `refresh` is
+    `True`, a cached file is also selected when its md5 in `previous_index` (the
+    index it was last downloaded with) differs from its md5 in `files` (the
+    freshly fetched remote index). The cached index is trusted as the record of
+    what is on disk, so files are never re-hashed; when either md5 is missing
+    (e.g. a cache predating md5 tracking) the file is left as is rather than
+    re-downloaded.
 
     Parameters
     ----------
     bids_dir : pathlib.Path
         Local BIDS root directory where files are cached.
     files : dict[str, OsfFileInfo]
-        Mapping from BIDS-relative paths to OSF download metadata.
+        Requested subset of the remote index.
+    previous_index : dict[str, OsfFileInfo]
+        Index cached before the refresh, used as the local md5 baseline.
     refresh : bool
-        Whether to re-download cached files whose local MD5 no longer matches
-        the index.
+        Whether to re-download cached files whose remote md5 differs from the
+        cached md5.
 
     Returns
     -------
@@ -193,7 +200,6 @@ def _select_downloads(
         Subset of `files` to download, preserving the input order.
     """
     selected: dict[str, OsfFileInfo] = {}
-    unhashable = False
 
     for rel_path, info in files.items():
         dest = bids_dir / rel_path
@@ -202,35 +208,29 @@ def _select_downloads(
             continue
         if not refresh:
             continue
-        md5 = info.get("md5")
-        if not md5:
-            unhashable = True
-            continue
-        if _file_md5(dest) != md5:
+        remote_md5 = info.get("md5")
+        local_md5 = previous_index.get(rel_path, {}).get("md5")
+        # ponytail: a filtered refresh (e.g. subjects=[...]) rewrites the whole
+        # cached index but only compares the filtered files, so an unfiltered
+        # file that changed upstream stays stale until refreshed in its own
+        # right. Merge the index on write if that ever matters.
+        if remote_md5 and local_md5 and remote_md5 != local_md5:
             selected[rel_path] = info
-
-    if refresh and unhashable:
-        warnings.warn(
-            "Some cached files could not be checked for upstream changes because "
-            "the dataset index has no md5 for them. Refresh only redownloaded "
-            "missing files for those entries. Re-run the dataset's upload script "
-            "to populate md5 hashes.",
-            stacklevel=2,
-        )
 
     return selected
 
 
-def download_missing_osf_files(
+def download_osf_files(
     bids_dir: Path,
     files: dict[str, OsfFileInfo],
+    previous_index: dict[str, OsfFileInfo] | None = None,
     refresh: bool = False,
 ) -> None:
-    """Download OSF files described by an index mapping.
+    """Download OSF files that are missing or whose upstream md5 changed.
 
     Files absent from `bids_dir` are always downloaded. When `refresh` is
-    `True`, cached files whose local MD5 differs from the index `md5` are
-    re-downloaded as well; see
+    `True`, cached files whose remote md5 differs from the md5 recorded in
+    `previous_index` are re-downloaded as well; see
     [`_select_downloads`][confusius.datasets._osf._select_downloads].
 
     Parameters
@@ -238,12 +238,17 @@ def download_missing_osf_files(
     bids_dir : pathlib.Path
         Local BIDS root directory where files are cached.
     files : dict[str, OsfFileInfo]
-        Mapping from BIDS-relative paths to OSF download metadata.
+        Requested subset of the remote index, mapping BIDS-relative paths to
+        OSF download metadata.
+    previous_index : dict[str, OsfFileInfo], optional
+        Index cached before the refresh, used as the local md5 baseline. Only
+        consulted when `refresh` is `True`; if not provided, an empty baseline
+        is used and refresh reduces to downloading missing files.
     refresh : bool, default: False
-        Whether to re-download cached files whose local MD5 no longer matches
-        the index.
+        Whether to re-download cached files whose remote md5 differs from the
+        cached md5.
     """
-    to_download = _select_downloads(bids_dir, files, refresh)
+    to_download = _select_downloads(bids_dir, files, previous_index or {}, refresh)
     if not to_download:
         return
 

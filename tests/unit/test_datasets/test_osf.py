@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -11,8 +10,9 @@ import pytest
 
 from confusius.datasets._osf import (
     _INDEX_FILENAME,
-    download_missing_osf_files,
+    download_osf_files,
     get_index,
+    read_cached_index,
     resolve_index_url,
 )
 
@@ -157,7 +157,23 @@ def test_resolve_index_url_raises_if_index_file_not_on_osf():
 
 
 # ---------------------------------------------------------------------------
-# download_missing_osf_files — md5-aware refresh
+# read_cached_index
+# ---------------------------------------------------------------------------
+
+
+def test_read_cached_index_returns_empty_when_absent(tmp_path):
+    """No cached index on disk yields an empty mapping, not an error."""
+    assert read_cached_index(tmp_path) == {}
+
+
+def test_read_cached_index_decodes_existing(tmp_path):
+    """An existing cached index is decoded from disk without network access."""
+    (tmp_path / _INDEX_FILENAME).write_text(json.dumps(_FAKE_INDEX))
+    assert read_cached_index(tmp_path) == _FAKE_INDEX
+
+
+# ---------------------------------------------------------------------------
+# download_osf_files — md5-aware, index-vs-index refresh
 # ---------------------------------------------------------------------------
 
 
@@ -179,64 +195,55 @@ def _recording_retrieve():
     return _retrieve, calls
 
 
-def _write(path: Path, content: bytes) -> str:
-    """Write `content` to `path` and return its MD5 hex digest."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-    return hashlib.md5(content).hexdigest()
-
-
 def test_download_skips_cached_file_without_refresh(tmp_path):
     """A cached file is not re-downloaded when refresh is False, even if stale."""
-    dest = tmp_path / "a.nii.gz"
-    _write(dest, b"local")
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "deadbeef"}}
+    (tmp_path / "a.nii.gz").touch()
+    files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}}
+    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "old"}}
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
-        download_missing_osf_files(tmp_path, files, refresh=False)
+        download_osf_files(tmp_path, files, previous, refresh=False)
 
     assert calls == []
 
 
-def test_refresh_redownloads_on_md5_mismatch(tmp_path):
-    """refresh re-downloads a cached file whose local MD5 differs from the index."""
-    dest = tmp_path / "a.nii.gz"
-    _write(dest, b"old-content")
-    remote_md5 = hashlib.md5(b"new-content").hexdigest()
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": remote_md5}}
+def test_refresh_redownloads_on_md5_change(tmp_path):
+    """refresh re-downloads a cached file whose remote md5 differs from the cache."""
+    (tmp_path / "a.nii.gz").touch()
+    files = {"a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": "new"}}
+    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": "old"}}
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
-        download_missing_osf_files(tmp_path, files, refresh=True)
+        download_osf_files(tmp_path, files, previous, refresh=True)
 
     assert [c["fname"] for c in calls] == ["a.nii.gz"]
-    assert calls[0]["known_hash"] == f"md5:{remote_md5}"
+    assert calls[0]["known_hash"] == "md5:new"
 
 
-def test_refresh_skips_when_md5_matches(tmp_path):
-    """refresh leaves a cached file untouched when its MD5 matches the index."""
-    dest = tmp_path / "a.nii.gz"
-    local_md5 = _write(dest, b"same-content")
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": local_md5}}
+def test_refresh_skips_when_md5_unchanged(tmp_path):
+    """refresh leaves a cached file untouched when the cached and remote md5 match."""
+    (tmp_path / "a.nii.gz").touch()
+    files = {"a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": "same"}}
+    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": "same"}}
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
-        download_missing_osf_files(tmp_path, files, refresh=True)
+        download_osf_files(tmp_path, files, previous, refresh=True)
 
     assert calls == []
 
 
-def test_refresh_without_md5_warns_and_keeps_cached(tmp_path):
-    """refresh cannot check an index entry lacking md5: keep the file and warn."""
-    dest = tmp_path / "a.nii.gz"
-    _write(dest, b"local")
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 5}}
+def test_refresh_skips_when_cached_md5_absent(tmp_path):
+    """A cached file whose old index lacked md5 is kept, not re-downloaded silently."""
+    (tmp_path / "a.nii.gz").touch()
+    files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}}
+    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5}}  # old-format entry
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
-        with pytest.warns(UserWarning, match="no md5"):
-            download_missing_osf_files(tmp_path, files, refresh=True)
+        download_osf_files(tmp_path, files, previous, refresh=True)
 
     assert calls == []
 
@@ -250,7 +257,7 @@ def test_missing_file_downloads_with_known_hash(tmp_path):
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
-        download_missing_osf_files(tmp_path, files, refresh=False)
+        download_osf_files(tmp_path, files, refresh=False)
 
     by_name = {c["fname"]: c["known_hash"] for c in calls}
     assert by_name == {"with_md5.nii.gz": "md5:abc123", "no_md5.nii.gz": None}
