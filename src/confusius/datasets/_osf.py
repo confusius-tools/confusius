@@ -108,7 +108,7 @@ def get_index(
     written back: the caller reconciles it against the cached index and persists
     the merged result via
     [`update_cached_index`][confusius.datasets._osf.update_cached_index], so that
-    files the caller did not reconsider keep their recorded md5.
+    files the caller did not update keep their recorded md5.
 
     Parameters
     ----------
