@@ -18,7 +18,9 @@
 #
 # Each recording is a single power Doppler image of one slice. We convert it to decibels
 # for both display and registration, which is usually more stable on the log-compressed
-# dynamic range.
+# dynamic range. We also set the coordinate system to the NIfTI `qform`'s space, because
+# the `sform` coordinate system is a weird non-metric space that is not consistent
+# across session.
 
 # %%
 from pathlib import Path
@@ -54,7 +56,8 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
         / "angio"
         / f"sub-rat75_ses-{session}_acq-{acq}_rec-minframe2d_pwd.nii.gz"
     )
-    return cf.load(path).fusi.scale.db().compute()
+    angio = cf.load(path).fusi.scale.db().compute()
+    return angio.fusi.affine.apply(angio.affines["physical_to_qform"])[0]
 
 
 fixed = _load_angio_for_registration(sessions[0])
@@ -68,21 +71,13 @@ moving
 # %% [markdown]
 # ## Inspect the misalignment before registration
 #
-# The two images share anatomy but live on slightly different grids because the probe
-# was re-positioned between sessions. We visualise the alignment with
+# We visualise the alignment with
 # [`plot_composite`][confusius.plotting.plot_composite], which resamples `moving` onto
 # `fixed`'s grid and draws the two as a red/cyan composite: matched anatomy appear in
 # white, while any residual red/cyan fringe reveals the displacement that
 # [`register_volume`][confusius.registration.register_volume] will correct.
-#
-# One subtlety: the two `angio` recordings sit at slightly different `z`
-# coordinates in physical space, so resampling `moving` onto `fixed`'s grid would
-# place every voxel outside the fixed slab and return an empty image. We force
-# `moving.z` to match `fixed.z` before plotting so the overlay actually has
-# something to show. The remaining in-plane misalignment is what we're after.
 
 # %%
-moving.coords["z"] = fixed.z
 cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 
 # %% [markdown]
@@ -111,24 +106,22 @@ cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 # !!! warning "Registration is sensitive to its arguments"
 #     The result depends heavily on the choice of `transform_type`, `metric`,
 #     `learning_rate`, `number_of_iterations`, `convergence_window_size`,
-#     `initialization`, and the multi-resolution settings
-#     (`use_multi_resolution`, `shrink_factors`, `smoothing_sigmas`). The values used in
-#     this example were empirically found to work well in this case, but you should
-#     definitely try different arguments (start with the default!) if the result is not
-#     satisfactory—inspect the
+#     `initialization`, and the multi-resolution settings (`use_multi_resolution`,
+#     `shrink_factors`, `smoothing_sigmas`). The default values are usually a good
+#     starting point and work well in many cases, but you should definitely try
+#     different arguments (start with the default!). If the result is not satisfactory,
+#     inspect the
 #     [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
 #     convergence curve and the post-registration overlay, and sweep these arguments
 #     until you get a stable, well-converged result.
 
 # %%
-registered, transform, diagnostics = cf.registration.register_volume(
+registered, rigid_transform, diagnostics = cf.registration.register_volume(
     moving=moving,
     fixed=fixed,
     transform_type="rigid",
+    learning_rate=1.0,
     show_progress=True,
-    number_of_iterations=500,
-    convergence_window_size=100,
-    learning_rate=30,
 )
 
 print(f"Iterations: {diagnostics.n_iterations}")
@@ -188,24 +181,25 @@ _ = ax.set_title(diagnostics.stop_condition)
 # transform, here the rigid transform found above.
 #
 # !!! warning "B-spline registration may need different parameters than rigid"
-#     The optimizer's step size operates in a different space for a B-spline
-#     transform (per-control-point displacements) than for rigid (rotation and
-#     translation). Here, `learning_rate=30` tuned for the rigid step is still
-#     appropriate, but you may have to adjust it for other datasets. We also set a
-#     non-default mesh size of `(6, 6, 6)` to allow less local deformations that the
-#     default `(10, 10, 10)` mesh would allow.
+#     Successful non-linear registration is often very dependent on the choice of
+#     parameters. If the B-spline fails to converge, or if defomations are unrealistic,
+#     try adjusting the `learning_rate`, `mesh_size`, and multi-resolution settings. The
+#     default values are usually a good starting point, but you may need to experiment
+#     to find the right combination for your data. Here, we use a non-default mesh size
+#     of `(6, 6, 6)` to allow less local deformations that the default `(10, 10, 10)`
+#     mesh would allow.
 
 # %%
-registered_bspline, bspline_transform, diagnostics_bspline = register_volume(
-    moving=moving,
-    fixed=fixed,
-    transform_type="bspline",
-    mesh_size=(6, 6, 6),
-    learning_rate=30,
-    number_of_iterations=500,
-    initialization=rigid_transform,
-    resample=True,
-    show_progress=True,
+registered_bspline, bspline_transform, diagnostics_bspline = (
+    cf.registration.register_volume(
+        moving=moving,
+        fixed=fixed,
+        transform_type="bspline",
+        mesh_size=(6, 6, 6),
+        learning_rate=1.0,
+        initialization=rigid_transform,
+        show_progress=True,
+    )
 )
 
 print(f"Iterations: {diagnostics_bspline.n_iterations}")
@@ -217,7 +211,8 @@ bspline_transform
 # ## Check the alignment after B-spline refinement
 #
 # Comparing the rigid-only result against the B-spline-refined result shows the extra
-# local correction the B-spline step adds on top of rigid.
+# local correction the B-spline step adds on top of rigid, especially in deeper vessels
+# where the brain might have contracted slightly between sessions.
 
 # %%
 print(f"Rigid final metric: {diagnostics.final_metric_value:.4f}")
