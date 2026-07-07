@@ -656,54 +656,6 @@ class TestResampleLike:
         result = atlas_module._transform_points(bspline, points, reference)
         np.testing.assert_allclose(result, [[0.01, 0.0, 0.0]])
 
-    def test_compose_mesh_vertex_transforms_general_case(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        reference = xr.DataArray(
-            np.zeros((2, 2, 2)),
-            dims=["z", "y", "x"],
-            coords={"z": [0.0, 1.0], "y": [0.0, 1.0], "x": [0.0, 1.0]},
-        )
-        old_transform = xr.DataArray(
-            np.zeros((3, 2, 2, 2), dtype=np.float64),
-            dims=["component", "z", "y", "x"],
-            coords={
-                "component": np.arange(3),
-                "z": [0.0, 1.0],
-                "y": [0.0, 1.0],
-                "x": [0.0, 1.0],
-            },
-            attrs={"type": "displacement_field_transform"},
-        )
-        new_transform = xr.DataArray(
-            np.zeros((3, 2, 2, 2), dtype=np.float64),
-            dims=["component", "z", "y", "x"],
-            coords={
-                "component": np.arange(3),
-                "z": [0.0, 1.0],
-                "y": [0.0, 1.0],
-                "x": [0.0, 1.0],
-            },
-            attrs={"type": "displacement_field_transform"},
-        )
-
-        def _fake_transform_points(transform, points, reference):
-            if transform is new_transform:
-                return points + np.array([0.01, 0.0, 0.0])
-            return points + np.array([0.01, 0.02, 0.0])
-
-        monkeypatch.setattr(atlas_module, "_transform_points", _fake_transform_points)
-        result = atlas_module._compose_mesh_vertex_transforms(
-            old_transform, new_transform, reference, reference
-        )
-        assert result.attrs["type"] == "displacement_field_transform"
-        # The composed displacement is (0.02, 0.02, 0.0) in mesh (x, y, z) order. A
-        # displacement field stores components in dim (z, y, x) order, so component 0
-        # is the z-displacement (0.0) and component 2 is the x-displacement (0.02).
-        np.testing.assert_allclose(result.sel(component=0), 0.0)
-        np.testing.assert_allclose(result.sel(component=1), 0.02)
-        np.testing.assert_allclose(result.sel(component=2), 0.02)
-
     def test_compose_general_path_preserves_component_axis_order(
         self, atlas: Atlas
     ) -> None:
