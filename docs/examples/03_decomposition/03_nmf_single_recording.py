@@ -1,4 +1,5 @@
-# %% [markdown] # NMF on a single fUSI recording
+# %% [markdown]
+# # NMF on a single fUSI recording
 #
 # This example shows how to use non-negative matrix factorization (NMF) to decompose a
 # fUSI recording into non-negative spatial maps and their associated non-negative time
@@ -104,8 +105,8 @@ data_nmf = xr.concat(
 #   courses of shape `(time, component)`.
 
 # %%
-nmf = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=500)
-signals = nmf.fit_transform(data_nmf)
+nmf_t = cf.decomposition.NMF(n_components=10, random_state=0, max_iter=500)
+signals = nmf_t.fit_transform(data_nmf)
 signals
 
 # %% [markdown]
@@ -118,8 +119,8 @@ signals
 # when sweeping `n_components` and looking for diminishing returns.
 
 # %%
-print(f"reconstruction_err_: {nmf.reconstruction_err_:.3f}")
-print(f"n_iter_: {nmf.n_iter_}")
+print(f"reconstruction_err_: {nmf_t.reconstruction_err_:.3f}")
+print(f"n_iter_: {nmf_t.n_iter_}")
 
 # %% [markdown]
 # ## Spatial maps and time courses
@@ -143,17 +144,15 @@ for ax in axes_tc[1:]:
     ax.sharex(axes_tc[0])
 
 for i, comp in enumerate(range(n_show)):
-    component_map = nmf.maps_.isel(component=comp, drop=True)
+    component_map = nmf_t.maps_.isel(component=comp)
     vmax = float(component_map.max())
     map_gs = gs[i, 0].subgridspec(1, 2, wspace=0.02)
 
     for j, sign in enumerate(["pos", "neg"]):
-        cf.plotting.plot_volume(
-            component_map.sel(sign=sign, drop=True),
+        cf.plotting.plot_stat_map(
+            component_map.sel(sign=sign),
             axes=fig.add_subplot(map_gs[0, j]),
             slice_mode="z",
-            cmap="viridis",
-            vmin=0,
             vmax=vmax,
             show_axes=False,
             show_colorbar=False,
@@ -187,10 +186,10 @@ _ = fig.suptitle(
 # [FastICA](fastica_single_recording.md).
 
 # %%
-nmf_spatial = cf.decomposition.NMF(
+nmf_s = cf.decomposition.NMF(
     n_components=10, mode="spatial", random_state=0, max_iter=500
 )
-signals_s = nmf_spatial.fit_transform(data_nmf)
+signals_s = nmf_s.fit_transform(data_nmf)
 signals_s
 
 # %% [markdown]
@@ -210,17 +209,15 @@ for ax in axes_tc[1:]:
     ax.sharex(axes_tc[0])
 
 for i, comp in enumerate(range(n_show)):
-    component_map = nmf_spatial.maps_.isel(component=comp, drop=True)
+    component_map = nmf_s.maps_.isel(component=comp)
     vmax = float(component_map.max())
     map_gs = gs[i, 0].subgridspec(1, 2, wspace=0.02)
 
     for j, sign in enumerate(["pos", "neg"]):
-        cf.plotting.plot_volume(
-            component_map.sel(sign=sign, drop=True),
+        cf.plotting.plot_stat_map(
+            component_map.sel(sign=sign),
             axes=fig.add_subplot(map_gs[0, j]),
             slice_mode="z",
-            cmap="viridis",
-            vmin=0,
             vmax=vmax,
             show_axes=False,
             show_colorbar=False,

@@ -72,7 +72,9 @@ confusius path/to/data.zarr path/to/other/data.zarr
 Both routes use [`confusius.load()`][confusius.load] under the hood, which produces a
 fully-labeled DataArray with named dimensions, physical coordinates, and all file
 metadata preserved. The DataArray is attached to the layer and used automatically by the
-Signals and QC panels. By default the full array is loaded into memory for
+Signals and QC panels. Integer-dtype files (e.g. atlas annotations, ROI masks) are added
+as a `Labels` layer with per-label colors instead of a continuous colormap; all other
+dtypes are added as an `Image` layer. By default the full array is loaded into memory for
 responsive time scrubbing. For files that don't fit in RAM, lazy loading keeps the array
 Dask-backed—the layer appears instantly and slices are read from disk on demand. Enable
 it via the **Load lazily** checkbox in the Data Panel, or with the `--lazy` flag on the
@@ -86,7 +88,8 @@ confusius --lazy path/to/data.zarr
 
 ConfUSIus also registers native napari file readers for NIfTI, Iconeus SCAN, and Zarr
 files. These let you open files by dragging them onto the canvas or using **File >
-Open** (++ctrl+o++) without switching to the Data Panel.
+Open** (++ctrl+o++) without switching to the Data Panel. Like the Data Panel and CLI,
+integer-dtype files are added as a `Labels` layer.
 
 !!! warning "Axis labels are not propagated to the viewer"
     Due to a current napari limitation, files opened through the native readers have

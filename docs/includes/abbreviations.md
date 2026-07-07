@@ -18,6 +18,7 @@
 *[ROIs]: Regions of Interest
 *[HRF]: Hemodynamic Response Function
 *[FIR]: Finite Impulse Response
+*[FC]: Functional Connectivity
 *[FDR]: False Discovery Rate
 *[FWER]: Family-Wise Error Rate
 *[SNR]: Signal-to-Noise Ratio

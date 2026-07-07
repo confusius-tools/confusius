@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._utils.napari import infer_layer_type
 from confusius.io import load
 from confusius.plotting.napari import plot_napari
 
@@ -199,7 +200,9 @@ class DataPanel(QWidget):
             # them as napari notifications so they appear in the UI.
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                _viewer, layer = plot_napari(da, viewer=self.viewer)
+                _viewer, layer = plot_napari(
+                    da, viewer=self.viewer, layer_type=infer_layer_type(da.dtype)
+                )
             for w in caught:
                 if issubclass(w.category, UserWarning):
                     show_warning(str(w.message))

@@ -3,6 +3,7 @@
 from unittest.mock import MagicMock, patch
 
 import numpy as np
+import numpy.testing as npt
 import pytest
 import xarray as xr
 
@@ -165,3 +166,55 @@ class TestLoadZarr:
         result = load(multi_var_zarr, variable="iq")
         assert isinstance(result, xr.DataArray)
         assert result.name == "iq"
+
+
+class TestLoadRestoresAtlasCmapAndNorm:
+    """cmap/norm are rebuilt from rgb_lookup when missing after a round-trip."""
+
+    RGB_LOOKUP = {1: [255, 0, 0], 2: [0, 255, 0]}
+
+    @pytest.fixture
+    def atlas_like_zarr(self, tmp_path):
+        """Zarr store mimicking an Atlas annotation: rgb_lookup present, no cmap/norm."""
+        da = xr.DataArray(
+            np.array([[0, 1], [2, 1]], dtype=np.int32),
+            attrs={"rgb_lookup": self.RGB_LOOKUP},
+        )
+        path = tmp_path / "annotation.zarr"
+        xr.Dataset({"annotation": da}).to_zarr(path, zarr_format=2)
+        return path
+
+    def test_rebuilds_cmap_and_norm_from_rgb_lookup(self, atlas_like_zarr):
+        """cmap/norm reproduce the exact rgb_lookup colors, not just the right types."""
+        result = load(atlas_like_zarr)
+
+        cmap = result.attrs["cmap"]
+        norm = result.attrs["norm"]
+        for label_id, expected_rgb in self.RGB_LOOKUP.items():
+            expected_rgba = tuple(c / 255 for c in expected_rgb) + (1.0,)
+            npt.assert_allclose(cmap(norm(label_id)), expected_rgba)
+
+    def test_does_not_override_existing_cmap_and_norm(self, tmp_path):
+        """Existing cmap/norm attrs are left untouched."""
+        mock_da = MagicMock(spec=xr.DataArray)
+        mock_da.attrs = {
+            "rgb_lookup": {1: [255, 0, 0]},
+            "cmap": "sentinel_cmap",
+            "norm": "sentinel_norm",
+        }
+        path = tmp_path / "data.nii.gz"
+        with patch("confusius.io.nifti.load_nifti", return_value=mock_da):
+            result = load(path)
+
+        assert result.attrs["cmap"] == "sentinel_cmap"
+        assert result.attrs["norm"] == "sentinel_norm"
+
+    def test_no_rgb_lookup_leaves_attrs_untouched(self, tmp_path):
+        """DataArrays without rgb_lookup are returned unmodified."""
+        mock_da = MagicMock(spec=xr.DataArray)
+        mock_da.attrs = {"task_name": "test"}
+        path = tmp_path / "data.nii.gz"
+        with patch("confusius.io.nifti.load_nifti", return_value=mock_da):
+            result = load(path)
+
+        assert result.attrs == {"task_name": "test"}

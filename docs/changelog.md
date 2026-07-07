@@ -6,10 +6,26 @@ icon: lucide/history
 
 # Changelog
 
-## 0.5.0.dev0
+## 0.5.1.dev0
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
+  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
+  of only checking whether the file exists; downloads are additionally verified against
+  the index MD5. A locally cached dataset whose `dataset_index.json` predates this format
+  is detected on fetch and reported with a clear error naming the directory to delete and
+  re-fetch, rather than being silently mishandled. Affects
+  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
+  [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
+  [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
+  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+
+## 0.5.0
+
+Released 2026-07-07.
 
 ### :boom: Breaking changes
 
@@ -24,6 +40,17 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`plot_matrix`][confusius.plotting.plot_matrix] for plotting 2D matrices
+  (e.g. connectivity or correlation matrices), with optional lower/diagonal triangle
+  masking, grid lines, and a `groups` parameter that annotates contiguous label runs
+  with colored rectangle strips—useful for marking anatomical groupings (e.g. cortex,
+  thalamus) when there are too many individual labels to read
+  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
+- **[Napari plugin]** Integer-dtype files (e.g. atlas annotations, ROI masks) opened via
+  the `confusius` CLI, the Data Panel, or the native napari file readers (drag-and-drop /
+  **File > Open**) are now added as a `Labels` layer with per-label colors, instead of an
+  `Image` layer with the wrong colormap
+  ([#257](https://github.com/confusius-tools/confusius/pull/257)).
 - **[Napari plugin]** Added **Events** panel to annotate temporal events within Napari.
   Events shade the signal plot; active event names appear in the time overlay; load
   from / save to a BIDS `.tsv`
@@ -54,37 +81,102 @@ Current development version for the next ConfUSIus release.
   downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
+- Added [`plot_stat_map`][confusius.plotting.plot_stat_map] (and the matching
+  `data.fusi.plot.stat_map` accessor) for plotting statistical maps, optionally
+  overlaid fully opaque on a background anatomical volume. `vmin`/`vmax` default to
+  the data's actual min/max, and `auto_range=True` (default) picks both the
+  colormap range and colormap from the data's sign: diverging symmetric
+  `[-m, m]` with `"coolwarm"` when both signed, sequential `[0, vmax]` with
+  `"viridis"` when non-negative, or `[vmin, 0]` with `"viridis_r"` when
+  non-positive ([#242](https://github.com/confusius-tools/confusius/pull/242)).
+- [`plot_volume`][confusius.plotting.plot_volume] and
+  [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
+  accessors) now accept `cbar_kwargs`, forwarded to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  shrink a shared colorbar down to size on a multi-panel grid
+  ([#242](https://github.com/confusius-tools/confusius/pull/242)).
+- [`apply_affine`][confusius.xarray.affine.apply_affine] and the
+  `data.fusi.affine.apply` accessor now accept a string naming a key in
+  `attrs["affines"]`, instead of requiring the affine matrix itself
+  ([#247](https://github.com/confusius-tools/confusius/pull/247)).
+- Plotting functions that slice along `slice_mode` (
+  [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_contours`][confusius.plotting.plot_contours],
+  [`plot_composite`][confusius.plotting.plot_composite], and the
+  [`VolumePlotter`][confusius.plotting.VolumePlotter] methods) now support non-numeric
+  coordinates (e.g. region/mask labels), so a single call can slice a stacked
+  connectivity or ROI map by label instead of looping over `.sel()` per panel
+  ([#250](https://github.com/confusius-tools/confusius/pull/250)).
 
 ### :bug: Fixes
 
-- `signal.clean` now supports `ensure_finite=True` to repair non-finite `signals`
-  and `confounds` by interpolating along time, fills censored boundary samples from
-  the nearest kept sample before filtering, and accepts `interpolate_kwargs` for
-  pre-scrubbing interpolation ([#239](https://github.com/confusius-tools/confusius/pull/239)).
+- [`plot_volume`][confusius.plotting.plot_volume] and other image plotting functions now
+  raise a clear `ValueError` when `vmin`/`vmax` (or a passed-in `norm`) resolve to a
+  non-finite value, instead of crashing deep inside
+  `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque `IndexError`
+  ([#259](https://github.com/confusius-tools/confusius/pull/259)).
+- `save_nifti` now drops attrs that cannot be serialized to JSON as-is (e.g. matplotlib
+  `ListedColormap`/`BoundaryNorm` objects) instead of writing their `str()` repr into the
+  sidecar, which could corrupt fields such as `cmap` on reload. A warning lists the
+  dropped keys. [`confusius.load`][confusius.io.load] now rebuilds `cmap`/`norm` from
+  `rgb_lookup` when they are missing, so atlas-derived masks and annotations keep their
+  canonical colors after a save/load round-trip. **[Napari plugin]** The reader now
+  falls back to the `"gray"` colormap (with a napari warning) instead of crashing when a
+  layer's `cmap` attr is not a valid napari colormap name
+  ([#255](https://github.com/confusius-tools/confusius/pull/255)).
+- [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
+  coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
+  on both hemispheres no longer produces duplicate `mask` values.
+  [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires
+  unique region ids across stacked mask layers—a layer is already identified by its
+  position along `mask`—so `get_masks` output can be passed straight through without
+  manual relabeling ([#249](https://github.com/confusius-tools/confusius/pull/249)).
+- [`apply_affine`][confusius.xarray.apply_affine] now rescales the `voxdim` attribute
+  of the spatial coordinates along with the coordinate values
+  ([#245](https://github.com/confusius-tools/confusius/pull/245)).
+- [`clean`][confusius.signal.clean] now supports `ensure_finite=True` to repair
+  non-finite `signals` and `confounds` by interpolating along time, fills censored
+  boundary samples from the nearest kept sample before filtering, and accepts
+  `interpolate_kwargs` for pre-scrubbing interpolation
+  ([#239](https://github.com/confusius-tools/confusius/pull/239)).
 - Image plotting functions now leave `alpha` unset by default (`None`), so a
   colormap's built-in alpha channel is respected
   ([#225](https://github.com/confusius-tools/confusius/pull/225)).
-- `load_nifti` no longer drops affines loaded from the JSON sidecar (e.g.
-  `bspline_initialization` written by the registration pipeline) when merging in the
-  NIfTI qform/sform affines
+- [`load_nifti`][confusius.io.load_nifti] no longer drops affines loaded from the JSON
+  sidecar (e.g. `bspline_initialization` written by the registration pipeline) when
+  merging in the NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
-- `save_nifti` no longer maps non-time additional axes to the NIfTI 4th slot. When
-  additional axes are present in the DataArray, a degenerate length-1 `time` axis is
-  inserted at NIfTI axis 4 (NIfTI's conventional time slot) so non-time additional axes
-  always land at NIfTI axes 5, 6, 7. The original dim name for each additional axis is
-  always written to the sidecar as `ConfUSIusDim{N}Name` (with `N` in 4, 5, 6, matching
-  the 0-based NIfTI axis of the extra dim). The matching `ConfUSIusDim{N}Coordinates`
-  entry is only written when the coord cannot be reconstructed from `pixdim` (i.e. when
-  the coord does not start at 0 with regular spacing); otherwise the spacing is stored
-  in `pixdim` and the coord is rebuilt as `step * arange(size)` on load. Attributes are
-  preserved in `ConfUSIusDim{N}Attributes` entries.
-  ([#223](htttps://github.com/confusius-tools/confusius/pull/223)).
+- [`save_nifti`][confusius.io.save_nifti] no longer maps non-time additional axes to the
+  NIfTI 4th slot. When additional axes are present in the DataArray, a degenerate
+  length-1 `time` axis is inserted at NIfTI axis 4 (NIfTI's conventional time slot) so
+  non-time additional axes always land at NIfTI axes 5, 6, 7. The original dim name for
+  each additional axis is always written to the sidecar as `ConfUSIusDim{N}Name` (with
+  `N` in 4, 5, 6, matching the 0-based NIfTI axis of the extra dim). The matching
+  `ConfUSIusDim{N}Coordinates` entry is only written when the coord cannot be
+  reconstructed from `pixdim` (i.e. when the coord does not start at 0 with regular
+  spacing); otherwise the spacing is stored in `pixdim` and the coord is rebuilt as
+  `step * arange(size)` on load. Attributes are preserved in `ConfUSIusDim{N}Attributes`
+  entries. ([#223](https://github.com/confusius-tools/confusius/pull/223)).
 
 ### :books: Documentation
 
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
+- Add an [atlas-based region correlation matrix
+  example](examples/_built/connectivity/atlas_correlation_matrix.md) to the gallery,
+  demonstrating registration to the Pepe-Mariani 2026 template, resampling the Allen
+  Mouse Brain Atlas onto a recording's native grid, and plotting a region correlation
+  matrix with [`plot_matrix`][confusius.plotting.plot_matrix]'s `groups` annotation
+  ([#243](https://github.com/confusius-tools/confusius/pull/243)).
+
+### :wrench: Maintenance
+
+- Simplified the NIfTI save path: time and extra-dimension voxel spacings are now
+  written directly to the header `pixdim` instead of through nibabel's `set_zooms` (that
+  was overwritten anyways), dropping a redundant spatial write that the qform
+  immediately overwrote. Behavior is unchanged.
+  ([#253](https://github.com/confusius-tools/confusius/pull/253)).
 
 ## 0.4.0
 

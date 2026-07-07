@@ -1,6 +1,9 @@
 """Image visualization utilities for fUSI data."""
 
+import math
+import numbers
 import warnings
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 import numpy as np
@@ -15,6 +18,10 @@ from confusius.plotting._hover import (
     _normalize_roi_labels,
 )
 from confusius.plotting._utils import (
+    _auto_fg_color,
+    _get_distinct_colors,
+    _resolve_font_sizes,
+    _style_colorbar,
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
 )
@@ -33,50 +40,6 @@ _BASE_SIZE = 4.0
 Actual figure size is computed as `(subplot_size * ncols + 1 inch for colorbar,
 subplot_size * nrows)` and then constrained to a maximum size.
 """
-
-
-def _relative_luminance(color: str) -> float:
-    """Compute WCAG 2.1 relative luminance for any matplotlib color string.
-
-    Parameters
-    ----------
-    color : str
-        Any matplotlib-compatible color string (e.g. `"black"`, `"#1a1a2e"`).
-
-    Returns
-    -------
-    float
-        Relative luminance in [0, 1], where 0 is darkest and 1 is lightest.
-
-    Notes
-    -----
-    Implements the WCAG 2.1 relative luminance definition:
-    https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
-    """
-    import matplotlib.colors as mcolors
-
-    def _linearize(c: float) -> float:
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-    r, g, b = mcolors.to_rgb(color)
-    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
-
-
-def _auto_fg_color(bg_color: str) -> str:
-    """Return white or black for maximum WCAG contrast against `bg_color`.
-
-    Parameters
-    ----------
-    bg_color : str
-        Any matplotlib-compatible background color string.
-
-    Returns
-    -------
-    str
-        `"white"` when the background is dark (relative luminance < 0.179),
-        `"black"` otherwise.
-    """
-    return "white" if _relative_luminance(bg_color) < 0.179 else "black"
 
 
 def _compute_grid_dims(
@@ -184,6 +147,82 @@ def _resolve_norm(
     return resolved_norm
 
 
+_STAT_MAP_DIVERGING_CMAP = "coolwarm"
+"""Default colormap for diverging statistical maps (see `plot_stat_map`)."""
+
+_STAT_MAP_SEQUENTIAL_CMAP = "viridis"
+"""Default colormap for non-negative statistical maps (see `plot_stat_map`)."""
+
+_STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE = "viridis_r"
+"""Default colormap for non-positive statistical maps (see `plot_stat_map`).
+
+Reversed relative to `_STAT_MAP_SEQUENTIAL_CMAP` so that, in both the
+non-negative and non-positive cases, values near zero map to the same end of
+the colormap (dark purple) and the most extreme magnitude maps to the other
+end (yellow).
+"""
+
+
+def _resolve_stat_map_style(
+    data: xr.DataArray,
+    vmin: float | None,
+    vmax: float | None,
+    cmap: "str | Colormap | None",
+    auto_range: bool,
+) -> tuple[float, float, "str | Colormap"]:
+    """Resolve `(vmin, vmax, cmap)` for a statistical map.
+
+    `vmin`/`vmax` fall back to the actual min/max of `data` when not provided.
+
+    When `auto_range` is `True` (default), the sign of `data` determines the
+    layout:
+
+    - Both positive and negative values: diverging, symmetric `[-m, m]` range
+      where `m = max(|vmin|, |vmax|)` (using the resolved bounds above), with
+      `cmap` defaulting to `_STAT_MAP_DIVERGING_CMAP`.
+    - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+      defaulting to `_STAT_MAP_SEQUENTIAL_CMAP`.
+    - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+      defaulting to `_STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE`.
+
+    When `auto_range` is `False`, the resolved `vmin`/`vmax` are used directly with
+    no zero-anchoring, and `cmap` defaults to `_STAT_MAP_DIVERGING_CMAP` regardless
+    of `data`'s sign. In both cases, an explicitly provided `cmap` is always used
+    as-is.
+    """
+    values = data.values.ravel().astype(float)
+    values = values[np.isfinite(values)]
+    data_min = float(values.min()) if len(values) > 0 else 0.0
+    data_max = float(values.max()) if len(values) > 0 else 1.0
+
+    resolved_vmin = vmin if vmin is not None else data_min
+    resolved_vmax = vmax if vmax is not None else data_max
+
+    if not auto_range:
+        return (
+            resolved_vmin,
+            resolved_vmax,
+            cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP,
+        )
+
+    if data_min < 0 < data_max:
+        abs_max = max(abs(resolved_vmin), abs(resolved_vmax))
+        return -abs_max, abs_max, cmap if cmap is not None else _STAT_MAP_DIVERGING_CMAP
+
+    if data_max > 0:
+        return (
+            0.0,
+            resolved_vmax,
+            cmap if cmap is not None else _STAT_MAP_SEQUENTIAL_CMAP,
+        )
+
+    return (
+        resolved_vmin,
+        0.0,
+        cmap if cmap is not None else _STAT_MAP_SEQUENTIAL_CMAP_NEGATIVE,
+    )
+
+
 def _threshold_slices(
     slices: list[xr.DataArray],
     threshold: float | None,
@@ -214,9 +253,25 @@ def _resolve_cmap(
 
     For `threshold_mode='lower'`: gray between `[-threshold, threshold]`.
     For `threshold_mode='upper'`: gray outside `[-threshold, threshold]`.
+
+    Raises
+    ------
+    ValueError
+        If `norm.vmin` or `norm.vmax` is not finite.
     """
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
+
+    if (
+        norm.vmin is None
+        or norm.vmax is None
+        or not math.isfinite(norm.vmin)
+        or not math.isfinite(norm.vmax)
+    ):
+        raise ValueError(
+            "norm.vmin and norm.vmax must be finite, got "
+            f"vmin={norm.vmin!r}, vmax={norm.vmax!r}."
+        )
 
     cmap = (
         cmap
@@ -287,52 +342,49 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     return label
 
 
-def _resolve_font_sizes(
-    fontsize: float | None,
-) -> tuple[float | None, float | None, float | None]:
-    """Resolve title, label, and tick font sizes from a base size.
-
-    Parameters
-    ----------
-    fontsize : float, optional
-        Base font size for plot text elements.
-
-    Returns
-    -------
-    title_fontsize : float, optional
-        Font size for subplot titles.
-    label_fontsize : float, optional
-        Font size for axis and colorbar labels.
-    tick_fontsize : float, optional
-        Font size for tick labels.
-    """
-    if fontsize is None:
-        return None, None, None
-    return fontsize, fontsize * 0.9, fontsize * 0.85
+def _format_coord(coord: Hashable) -> str:
+    """Format a slice coordinate for display: `.3g` for numeric, `str` otherwise."""
+    if isinstance(coord, numbers.Real):
+        return f"{coord:.3g}"
+    return str(coord)
 
 
-def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
-    """Generate `n_colors` visually distinct colors."""
-    import matplotlib
-
-    cmap = matplotlib.colormaps["tab10" if n_colors <= 10 else "tab20"]
-    return [tuple(cmap(i % cmap.N)[:3]) for i in range(n_colors)]
+def _coords_match(
+    stored_coord: Hashable, target_coord: Hashable, tolerance: float
+) -> bool:
+    """Compare two slice coordinates, using a tolerance for numeric values."""
+    if isinstance(stored_coord, numbers.Real) and isinstance(
+        target_coord, numbers.Real
+    ):
+        return abs(float(stored_coord) - float(target_coord)) < tolerance
+    return stored_coord == target_coord
 
 
 def _extract_slices(
-    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[float]
-) -> tuple[list[xr.DataArray], list[float]]:
+    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[Hashable]
+) -> tuple[list[xr.DataArray], list[Hashable]]:
     """Extract 2D slices from `data` along `slice_mode`.
+
+    Numeric coordinates are matched by nearest-neighbour lookup; non-numeric
+    coordinates (e.g. region labels) require an exact match.
 
     Returns the slices and their actual snapped coordinate values.
     """
     slices: list[xr.DataArray] = []
-    actual_coords: list[float] = []
+    actual_coords: list[Hashable] = []
     for coord in slice_coords:
         if slice_mode in data.coords:
-            slice_da = data.sel({slice_mode: coord}, method="nearest")
-            actual_coord = float(slice_da.coords[slice_mode].values)
+            is_numeric = np.issubdtype(data.coords[slice_mode].dtype, np.number)
+            slice_da = data.sel(
+                {slice_mode: coord}, method="nearest" if is_numeric else None
+            )
+            actual_coord = slice_da.coords[slice_mode].values.item()
         else:
+            if not isinstance(coord, numbers.Real):
+                raise ValueError(
+                    f"slice_mode '{slice_mode}' has no coordinates, so slice_coords "
+                    f"must be numeric positional indices, got {coord!r}."
+                )
             idx = int(round(coord))
             slice_da = data.isel({slice_mode: idx})
             actual_coord = float(coord)
@@ -414,7 +466,7 @@ class VolumePlotter:
         self._fg_color = fg_color
         self._yincrease = yincrease
         self._xincrease = xincrease
-        self._coord_to_axis: dict[float, int] = {}
+        self._coord_to_axis: dict[Hashable, int] = {}
         # Explicitly tracked axis data limits to avoid matplotlib's auto-margin.
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
@@ -479,7 +531,7 @@ class VolumePlotter:
             self._hover_manager.roi_labels.update(roi_labels)
 
     def _find_matching_axes(
-        self, actual_coords: list[float], tolerance: float = 1e-6
+        self, actual_coords: list[Hashable], tolerance: float = 1e-6
     ) -> list[tuple[int, int]]:
         """Find axis indices matching the target coordinates.
 
@@ -488,10 +540,12 @@ class VolumePlotter:
 
         Parameters
         ----------
-        actual_coords : list[float]
+        actual_coords : list[collections.abc.Hashable]
             The actual coordinate values of the slices being plotted.
         tolerance : float, default: 1e-6
-            Tolerance for matching coordinates, accounting for floating-point precision.
+            Tolerance for matching numeric coordinates, accounting for floating-point
+            precision. Non-numeric coordinates (e.g. region labels) are matched by
+            equality.
 
         Returns
         -------
@@ -501,7 +555,7 @@ class VolumePlotter:
         matched = []
         for slice_idx, target_coord in enumerate(actual_coords):
             for stored_coord, axis_idx in self._coord_to_axis.items():
-                if abs(stored_coord - target_coord) < tolerance:
+                if _coords_match(stored_coord, target_coord, tolerance):
                     matched.append((axis_idx, slice_idx))
                     break
         return matched
@@ -544,12 +598,12 @@ class VolumePlotter:
         store[axis_idx] = new_lim
         return new_lim
 
-    def _warn_unmatched(self, unmatched_slices: list[tuple[int, float]]) -> None:
+    def _warn_unmatched(self, unmatched_slices: list[tuple[int, Hashable]]) -> None:
         """Warn about slice coordinates that could not be matched to axes."""
         unmatched_str = ", ".join(
-            f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
+            f"{self.slice_mode}={_format_coord(coord)}" for _, coord in unmatched_slices
         )
-        available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
+        available_coords = [_format_coord(c) for c in self._coord_to_axis]
         warnings.warn(
             f"Could not find matching axes for slices: {unmatched_str}. "
             f"These slices will not be plotted. "
@@ -557,20 +611,20 @@ class VolumePlotter:
             stacklevel=find_stack_level(),
         )
 
-    def _build_slice_title(self, data: xr.DataArray, coord: float) -> str:
-        """Build a slice title such as `z = 0.001 mm`."""
+    def _build_slice_title(self, data: xr.DataArray, coord: Hashable) -> str:
+        """Build a slice title such as `z = 0.001 mm` or `region = LGN`."""
         units = (
             data.coords[self.slice_mode].attrs.get("units")
             if self.slice_mode in data.coords
             else None
         )
-        title = f"{self.slice_mode} = {coord:.3g}"
+        title = f"{self.slice_mode} = {_format_coord(coord)}"
         if units:
             title += f" {units}"
         return title
 
     def _init_sequential_layout(
-        self, actual_coords: list[float]
+        self, actual_coords: list[Hashable]
     ) -> list[tuple[int, int]]:
         """Initialise the coordinate-to-axis map and return sequential plot indices."""
         if not self._coord_to_axis:
@@ -603,7 +657,7 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         n_slices: int,
-        actual_coords: list[float],
+        actual_coords: list[Hashable],
         dim_row: str,
         dim_col: str,
         *,
@@ -663,7 +717,7 @@ class VolumePlotter:
         ax: "Axes",
         axis_idx: int,
         data: xr.DataArray,
-        coord: float,
+        coord: Hashable,
         dim_row: str,
         dim_col: str,
         x_edges: np.ndarray,
@@ -725,7 +779,7 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         *,
-        slice_coords: Sequence[float] | None = None,
+        slice_coords: Sequence[Hashable] | None = None,
         match_coordinates: bool = True,
         cmap: "str | Colormap | None" = None,
         norm: "Normalize | None" = None,
@@ -733,9 +787,10 @@ class VolumePlotter:
         vmax: float | None = None,
         threshold: float | None = None,
         threshold_mode: Literal["lower", "upper"] = "lower",
-        alpha: float | None = None,
+        alpha: "float | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
         roi_labels: dict[int, str] | None = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
@@ -754,8 +809,10 @@ class VolumePlotter:
             3D volume data. Unitary dimensions (except `slice_mode`) are squeezed
             before processing. Complex-valued inputs are converted to magnitude
             (`abs(data)`) with a warning.
-        slice_coords : list[float], optional
-            Specific coordinates to plot. If None, uses all coordinates from data.
+        slice_coords : list[collections.abc.Hashable], optional
+            Specific coordinates to plot. Numeric coordinates are matched by
+            nearest-neighbour lookup; non-numeric coordinates (e.g. region labels)
+            require an exact match. If not provided, uses all coordinates from data.
         match_coordinates : bool, default: True
             If True, match slice coordinates to the stored coordinate mapping (for
             overlays). If False, plot sequentially on all axes (requires exact axis
@@ -779,13 +836,22 @@ class VolumePlotter:
             Threshold value for masking.
         threshold_mode : {"lower", "upper"}, default: "lower"
             Whether to mask values below or above threshold.
-        alpha : float, optional
-            Opacity of the image. If not provided, the colormap's own alpha
-            channel is respected.
+        alpha : float or xarray.DataArray, optional
+            Opacity of the image: a single scalar value, or a DataArray sharing `data`'s
+            dims, shape, and coordinates (for independent per-slice, per-voxel opacity —
+            e.g. fading out low-confidence voxels). A per-voxel opacity must be a
+            DataArray, not a bare array, so it can be validated and aligned against
+            `data`. If not provided, the colormap's own alpha channel is respected.
         show_colorbar : bool, default: True
             Whether to add a colorbar.
         cbar_label : str, optional
             Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
         roi_labels : dict[int, str], optional
             Mapping from integer label to display name. When provided (or when
             `data.attrs["roi_labels"]` is populated), hovering the cursor over a
@@ -822,9 +888,12 @@ class VolumePlotter:
         ------
         ValueError
             If no matching coordinates are found or axis count doesn't match.
+        ValueError
+            If `alpha` is a DataArray and its dims, shape, or coordinates do not
+            match `data`.
+        TypeError
+            If `alpha` is neither a scalar nor a DataArray.
         """
-        import matplotlib.pyplot as plt
-
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
@@ -843,6 +912,39 @@ class VolumePlotter:
             data, self.slice_mode, slice_coords
         )
         n_slices = len(unthresholded_slices)
+
+        if alpha is not None and not isinstance(alpha, (int, float, xr.DataArray)):
+            raise TypeError(
+                "`alpha` must be a scalar or a DataArray, not "
+                f"{type(alpha).__name__}; a bare array carries no coordinates, so "
+                "it cannot be validated or aligned against `data`."
+            )
+
+        alpha_slices: list[np.ndarray] | None = None
+        if isinstance(alpha, xr.DataArray):
+            # Preprocess alpha exactly like data (squeeze unitary dims, sort coords
+            # ascending). Otherwise, an alpha array created from the data could end up
+            # with a shape or coordinate mismatch after slicing.
+            alpha = self._prepare_slice_inputs(
+                alpha, caller="VolumePlotter.add_volume (alpha)"
+            )
+            if set(alpha.dims) != set(data.dims):
+                raise ValueError(
+                    f"`alpha` dims {sorted(str(d) for d in alpha.dims)} do not match "
+                    f"`data` dims {sorted(str(d) for d in data.dims)}."
+                )
+            for dim in data.dims:
+                if alpha.sizes[dim] != data.sizes[dim]:
+                    raise ValueError(
+                        f"`alpha` size along '{dim}' ({alpha.sizes[dim]}) does not "
+                        f"match `data` size ({data.sizes[dim]})."
+                    )
+            validate_matching_coordinates(
+                data, alpha, left_name="data", right_name="alpha"
+            )
+            alpha_da_slices, _ = _extract_slices(alpha, self.slice_mode, slice_coords)
+            alpha_slices = [s.values for s in alpha_da_slices]
+            alpha = None
 
         norm = _resolve_norm(
             slices=unthresholded_slices,
@@ -892,13 +994,14 @@ class VolumePlotter:
                 slice_da, dim_row, dim_col
             )
 
+            panel_alpha = alpha_slices[slice_idx] if alpha_slices is not None else alpha
             plotted_quadmesh = ax.pcolormesh(
                 x_edges,
                 y_edges,
                 np.ma.masked_invalid(arr),
                 cmap=cmap,
                 norm=norm,
-                alpha=alpha,
+                alpha=panel_alpha,
             )
             self._attach_or_update_hover_manager(resolved_roi_labels)
             self._hover_manager.register_data_to_axis(
@@ -937,7 +1040,9 @@ class VolumePlotter:
             non_cbar_axes = [
                 ax for ax in self.figure.axes if not hasattr(ax, "_colorbar")
             ]
-            cbar = self.figure.colorbar(plotted_quadmesh, ax=non_cbar_axes)
+            cbar = self.figure.colorbar(
+                plotted_quadmesh, ax=non_cbar_axes, **(cbar_kwargs or {})
+            )
             if cbar_label is None:
                 long_name = data.attrs.get("long_name")
                 units = data.attrs.get("units")
@@ -947,14 +1052,13 @@ class VolumePlotter:
                     cbar_label = long_name
                 elif units:
                     cbar_label = f"({units})"
-            if cbar_label is not None:
-                cbar.set_label(cbar_label, color=text_color, fontsize=label_fontsize)
-
-            cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-            plt.setp(
-                cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+            _style_colorbar(
+                cbar,
+                text_color,
+                tick_fontsize,
+                label=cbar_label,
+                label_fontsize=label_fontsize,
             )
-            cbar.outline.set_edgecolor(text_color)  # type: ignore
 
         return self
 
@@ -968,9 +1072,9 @@ class VolumePlotter:
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-        slice_coords: Sequence[float] | None = None,
+        slice_coords: Sequence[Hashable] | None = None,
         match_coordinates: bool = False,
-        alpha: float | None = None,
+        alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -1031,16 +1135,19 @@ class VolumePlotter:
               range. Preserves the absolute-intensity relationship between the
               two inputs, useful when comparing data acquired at the same
               dynamic range.
-        slice_coords : sequence of float, optional
-            Coordinate values along `slice_mode` at which to extract slices. If not
-            provided, all coordinate values from `data1` are used.
+        slice_coords : Sequence[collections.abc.Hashable], optional
+            Coordinate values along `slice_mode` at which to extract slices. Numeric
+            coordinates are matched by nearest-neighbour lookup; non-numeric
+            coordinates (e.g. region labels) require an exact match. If not provided,
+            all coordinate values from `data1` are used.
         match_coordinates : bool, default: False
             If True, match slice coordinates to the stored coordinate mapping of an
             existing figure (for use as an overlay). If False, plot sequentially on
             a fresh grid of axes — the natural mode for a standalone composite plot.
-        alpha : float, optional
-            Opacity of the composite image. If not provided, the image is fully
-            opaque.
+        alpha : float or numpy.ndarray, optional
+            Opacity of the composite image, either a single value or a per-voxel
+            array matching the shape of the displayed slices. If not provided, the
+            image is fully opaque.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -1246,7 +1353,7 @@ class VolumePlotter:
         linewidths: float = 1.5,
         linestyles: str = "solid",
         match_coordinates: bool = True,
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         roi_labels: dict[int, str] | None = None,
         **kwargs,
@@ -1283,10 +1390,11 @@ class VolumePlotter:
         match_coordinates : bool, default: True
             If `True`, overlay contours on axes whose slice coordinate matches the
             mask. If `False`, plot sequentially on all axes.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along the plotter's `slice_mode` at which to draw
-            contours. Slices are selected by nearest-neighbour lookup. If not
-            provided, all coordinate values along `slice_mode` are used.
+            contours. Numeric coordinates are matched by nearest-neighbour lookup;
+            non-numeric coordinates (e.g. region labels) require an exact match. If
+            not provided, all coordinate values along `slice_mode` are used.
         fontsize : float, optional
             Base font size for text elements when a standalone contour figure is created
             (`match_coordinates=False`). Subplot titles use `fontsize` directly;
@@ -1609,7 +1717,7 @@ def plot_contours(
     linewidths: float = 1.5,
     linestyles: str = "solid",
     slice_mode: str = "z",
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     fontsize: float | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
@@ -1652,10 +1760,11 @@ def plot_contours(
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
         slicing, each panel must be 2D.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values along `slice_mode` are used.
     fontsize : float, optional
         Base font size for text elements. Subplot titles use `fontsize` directly; axis
         labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not provided,
@@ -1751,7 +1860,7 @@ def plot_contours(
 def plot_volume(
     data: xr.DataArray,
     *,
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     slice_mode: str = "z",
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
@@ -1759,9 +1868,10 @@ def plot_volume(
     vmax: float | None = None,
     threshold: float | None = None,
     threshold_mode: Literal["lower", "upper"] = "lower",
-    alpha: float | None = None,
+    alpha: "float | xr.DataArray | None" = None,
     show_colorbar: bool = True,
     cbar_label: str | None = None,
+    cbar_kwargs: "dict[str, Any] | None" = None,
     roi_labels: dict[int, str] | None = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
@@ -1789,10 +1899,11 @@ def plot_volume(
         Input data array. Unitary dimensions are squeezed before processing. After
         squeezing, data must be 3D. Complex-valued data is converted to magnitude
         before display.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values along `slice_mode` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
         `"time"`). After slicing, each panel must be 2D.
@@ -1819,13 +1930,22 @@ def plot_volume(
         - `"lower"`: set pixels where `|data| < threshold` to NaN.
         - `"upper"`: set pixels where `|data| > threshold` to NaN.
 
-    alpha : float, optional
-        Opacity of the image. If not provided, the colormap's own alpha channel
-        is respected.
+    alpha : float or xarray.DataArray, optional
+        Opacity of the image: a single scalar value, or a 3D DataArray sharing
+        `data`'s dims, shape, and coordinates (for independent per-slice,
+        per-voxel opacity). A per-voxel opacity must be a DataArray, not a bare
+        array, so it can be validated and aligned against `data`. If not provided,
+        the colormap's own alpha channel is respected.
     show_colorbar : bool, default: True
         Whether to add a shared colorbar to the figure.
     cbar_label : str, optional
         Label for the colorbar.
+    cbar_kwargs : dict, optional
+        Additional keyword arguments forwarded to
+        [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+        (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the colorbar
+        when it spans a multi-panel grid, since the defaults are sized for a single
+        axes.
     roi_labels : dict[int, str], optional
         Mapping from integer label to display name. When provided (or when
         `data.attrs["roi_labels"]` is populated), hovering the cursor over a
@@ -1950,6 +2070,7 @@ def plot_volume(
         alpha=alpha,
         show_colorbar=show_colorbar,
         cbar_label=cbar_label,
+        cbar_kwargs=cbar_kwargs,
         show_titles=show_titles,
         show_axis_labels=show_axis_labels,
         show_axis_ticks=show_axis_ticks,
@@ -1971,9 +2092,9 @@ def plot_composite(
     rtol: float = 1e-5,
     atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-    slice_coords: Sequence[float] | None = None,
+    slice_coords: Sequence[Hashable] | None = None,
     slice_mode: str = "z",
-    alpha: float | None = None,
+    alpha: "float | npt.NDArray[np.floating] | None" = None,
     show_titles: bool = True,
     show_axis_labels: bool = True,
     show_axis_ticks: bool = True,
@@ -2034,16 +2155,18 @@ def plot_composite(
         - `"shared"`: rescale both volumes together using a single shared
           `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]` range.
           Preserves the absolute-intensity relationship between the two inputs.
-    slice_coords : sequence of float, optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
+    slice_coords : Sequence[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
         from `data1` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
         panel must be 2D.
-    alpha : float, optional
-        Opacity of the composite image. If not provided, the image is fully
-        opaque.
+    alpha : float or numpy.ndarray, optional
+        Opacity of the composite image, either a single value or a per-voxel array
+        matching the shape of the displayed slices. If not provided, the image is
+        fully opaque.
     show_titles : bool, default: True
         Whether to display subplot titles showing the slice coordinate.
     show_axis_labels : bool, default: True
@@ -2143,6 +2266,291 @@ def plot_composite(
         slice_coords=slice_coords,
         match_coordinates=False,
         alpha=alpha,
+        show_titles=show_titles,
+        show_axis_labels=show_axis_labels,
+        show_axis_ticks=show_axis_ticks,
+        show_axes=show_axes,
+        fontsize=fontsize,
+        nrows=nrows,
+        ncols=ncols,
+        dpi=dpi,
+    )
+
+
+def plot_stat_map(
+    stat_map: xr.DataArray,
+    *,
+    bg_volume: xr.DataArray | None = None,
+    slice_coords: list[Hashable] | None = None,
+    slice_mode: str = "z",
+    bg_kwargs: "dict[str, Any] | None" = None,
+    cmap: "str | Colormap | None" = None,
+    norm: "Normalize | None" = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+    auto_range: bool = True,
+    alpha: "float | xr.DataArray | None" = None,
+    threshold: float | None = None,
+    threshold_mode: Literal["lower", "upper"] = "lower",
+    show_colorbar: bool = True,
+    cbar_label: str | None = None,
+    cbar_kwargs: "dict[str, Any] | None" = None,
+    show_titles: bool = True,
+    show_axis_labels: bool = True,
+    show_axis_ticks: bool = True,
+    show_axes: bool = True,
+    fontsize: float | None = None,
+    yincrease: bool = False,
+    xincrease: bool = True,
+    bg_color: str = "black",
+    fg_color: str | None = None,
+    figure: "Figure | None" = None,
+    axes: "npt.NDArray[Any] | Axes | None" = None,
+    nrows: int | None = None,
+    ncols: int | None = None,
+    dpi: int | None = None,
+) -> VolumePlotter:
+    """Plot a statistical map, optionally over a background volume.
+
+    Performs the recurring pattern of [`plot_volume`][confusius.plotting.plot_volume] to
+    show a background anatomical volume +
+    [`VolumePlotter.add_volume`][confusius.plotting.VolumePlotter.add_volume] to overlay
+    a statistical map, with the colormap and range picked automatically based on
+    whether the statistic is diverging (has both positive and negative values) or
+    one-signed.
+
+    Parameters
+    ----------
+    stat_map : xarray.DataArray
+        Statistical map to plot. 3D volume data. Unitary dimensions (except
+        `slice_mode`) are squeezed before processing.
+    bg_volume : xarray.DataArray, optional
+        Background anatomical volume, plotted underneath `stat_map`. When `alpha` is
+        not provided, `stat_map` fully covers `bg_volume` wherever it has a value;
+        `bg_volume` only shows through where `stat_map` is masked out by `threshold`.
+        Lower `alpha` to blend the two layers instead. Must share `slice_mode` and,
+        after squeezing, the same display dimensions as `stat_map`. If not provided,
+        `stat_map` is plotted on its own.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values from `bg_volume` (or `stat_map` when `bg_volume` is not
+        provided) along `slice_mode` are used.
+    slice_mode : str, default: "z"
+        Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`). After
+        slicing, each panel must be 2D.
+    bg_kwargs : dict, optional
+        Additional keyword arguments forwarded to
+        [`plot_volume`][confusius.plotting.plot_volume] for the background layer
+        (e.g. `cmap`, `vmin`, `vmax`, `norm`, `alpha`, `roi_labels`). Ignored when
+        `bg_volume` is not provided. Layout and text styling (`slice_coords`,
+        `slice_mode`, `show_titles`, `fontsize`, etc.) are controlled by this
+        function's own parameters instead, so that both layers share consistent
+        styling.
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap for `stat_map`. If not provided, the default depends on
+        `auto_range` and the sign of `stat_map` (see below); an explicit `cmap` is
+        always used as-is regardless of `auto_range`.
+    norm : matplotlib.colors.Normalize, optional
+        Normalization instance (e.g. `TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`) for
+        cases `vmin`/`vmax`/`auto_range` can't express. When provided, `vmin`,
+        `vmax`, and `auto_range`'s range computation are bypassed entirely; `cmap`
+        still follows the usual rules above.
+    vmin : float, optional
+        Lower bound of the colormap. If not provided, defaults to the minimum value
+        of `stat_map`, computed over the full array rather than just the displayed
+        slices. Ignored when `norm` is provided, or when `auto_range` resolves to a
+        range anchored at zero (see below).
+    vmax : float, optional
+        Upper bound of the colormap. If not provided, defaults to the maximum value
+        of `stat_map`, computed over the full array rather than just the displayed
+        slices. Ignored when `norm` is provided, or when `auto_range=True` and
+        `stat_map` has only non-positive values.
+    auto_range : bool, default: True
+        Whether to pick the colormap range and default colormap automatically based
+        on the sign of `stat_map`:
+
+        - Both positive and negative values: diverging, symmetric `[-m, m]` range
+          where `m = max(|vmin|, |vmax|)` (using the resolved bounds above),
+          with `cmap` defaulting to `"coolwarm"` — the right choice for diverging
+          statistics where the sign is meaningful (e.g. t-statistics, correlation
+          coefficients, PCA/ICA component maps).
+        - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+          defaulting to `"viridis"` — the right choice for non-diverging
+          statistics where only magnitude matters (e.g. R², F-statistics).
+        - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+          defaulting to `"viridis_r"` (reversed, so that values near zero map to
+          the same end of the colormap in both the non-negative and
+          non-positive cases).
+
+        Set to `False` to use the resolved `vmin`/`vmax` directly with no
+        zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of sign).
+    alpha : float or xarray.DataArray, optional
+        Opacity of the `stat_map` overlay: a single scalar value, or a 3D DataArray
+        sharing `stat_map`'s dims, shape, and coordinates (for independent per-slice,
+        per-voxel opacity, e.g. to fade out low-magnitude voxels instead of masking them
+        out with `threshold`). A per-voxel opacity must be a DataArray, not a bare
+        array, so it can be validated and aligned against `stat_map`; note it is
+        validated against `stat_map`, not `bg_volume`. If not provided, the colormap's
+        own alpha channel is respected.
+    threshold : float, optional
+        Threshold applied to `|stat_map|`. See `threshold_mode` for the masking
+        direction. If not provided, no thresholding is applied.
+    threshold_mode : {"lower", "upper"}, default: "lower"
+        Controls how `threshold` is applied:
+
+        - `"lower"`: set pixels where `|stat_map| < threshold` to NaN.
+        - `"upper"`: set pixels where `|stat_map| > threshold` to NaN.
+
+    show_colorbar : bool, default: True
+        Whether to add a shared colorbar for `stat_map` to the figure.
+    cbar_label : str, optional
+        Label for the colorbar.
+    cbar_kwargs : dict, optional
+        Additional keyword arguments forwarded to
+        [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+        (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the colorbar
+        when it spans a multi-panel grid, since the defaults are sized for a single
+        axes.
+    show_titles : bool, default: True
+        Whether to display subplot titles showing the slice coordinate.
+    show_axis_labels : bool, default: True
+        Whether to display axis labels (with units when available).
+    show_axis_ticks : bool, default: True
+        Whether to display axis tick labels.
+    show_axes : bool, default: True
+        Whether to show all axis decorations (spines, ticks, labels). When `False`,
+        overrides `show_axis_labels` and `show_axis_ticks`.
+    fontsize : float, optional
+        Base font size for all text elements. Subplot titles use `fontsize` directly;
+        axis labels and the colorbar label use `0.9 * fontsize`; tick labels use `0.85 *
+        fontsize`. If not provided, uses the active Matplotlib defaults.
+    yincrease : bool, default: False
+        Whether the y-axis increases upward (`True`) or downward (`False`).
+    xincrease : bool, default: True
+        Whether the x-axis increases to the right (`True`) or left (`False`).
+    bg_color : str, default: "black"
+        Background color for the figure and axes. Any matplotlib-compatible color
+        string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived
+        automatically from `bg_color` using the WCAG relative luminance formula
+        (white on dark backgrounds, black on light ones).
+    figure : matplotlib.figure.Figure, optional
+        Existing figure to draw into. If not provided, a new figure is created.
+    axes : numpy.ndarray or matplotlib.axes.Axes, optional
+        Existing axes to draw into: either a single
+        [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them. Must
+        contain exactly as many elements as there are slices. A single `Axes` is
+        wrapped automatically and limits the plot to one slice. If not provided, new
+        axes are created inside `figure`.
+    nrows : int, optional
+        Number of rows in the subplot grid. If not provided, computed automatically.
+    ncols : int, optional
+        Number of columns in the subplot grid. If not provided, computed automatically.
+    dpi : int, optional
+        Figure resolution in dots per inch. Ignored when `figure` is provided.
+
+    Returns
+    -------
+    VolumePlotter
+        Object managing the figure, axes, and coordinate mapping for overlays.
+
+    Raises
+    ------
+    ValueError
+        If `slice_mode` is not a dimension of `stat_map` or `bg_volume`.
+    ValueError
+        If `stat_map` or `bg_volume` is not 3D after squeezing unitary dimensions.
+
+    Notes
+    -----
+    When `bg_volume` is provided, this is equivalent to calling
+    `plot_volume(bg_volume, ...)` followed by `plotter.add_volume(stat_map,
+    alpha=alpha, cmap=resolved_cmap, vmin=resolved_vmin, vmax=resolved_vmax, ...)`.
+    Use those functions directly for finer control, e.g. a custom, non-zero-anchored
+    asymmetric range.
+
+    Examples
+    --------
+    >>> import xarray as xr
+    >>> from confusius.plotting import plot_stat_map
+    >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
+    >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
+    >>> plotter = plot_stat_map(t_map, bg_volume=anatomical, slice_mode="z")
+
+    >>> # Suppress subthreshold voxels and cap the colormap range explicitly.
+    >>> plotter = plot_stat_map(
+    ...     t_map,
+    ...     bg_volume=anatomical,
+    ...     threshold=3.0,
+    ...     vmax=6.0,
+    ...     cbar_label="t-statistic",
+    ... )
+
+    >>> # Blend the overlay with the background instead of fully covering it.
+    >>> plotter = plot_stat_map(t_map, bg_volume=anatomical, alpha=0.6)
+
+    >>> # Non-diverging statistic (e.g. R²): sequential range and colormap picked
+    >>> # automatically since r2_map has only non-negative values.
+    >>> r2_map = xr.open_zarr("output.zarr")["r2"]
+    >>> plotter = plot_stat_map(r2_map, bg_volume=anatomical)
+
+    >>> # No background: plot the statistical map on its own.
+    >>> plotter = plot_stat_map(t_map, slice_mode="z")
+    """
+    if bg_volume is not None:
+        plotter = plot_volume(
+            bg_volume,
+            slice_coords=slice_coords,
+            slice_mode=slice_mode,
+            show_colorbar=False,
+            show_titles=show_titles,
+            show_axis_labels=show_axis_labels,
+            show_axis_ticks=show_axis_ticks,
+            show_axes=show_axes,
+            fontsize=fontsize,
+            yincrease=yincrease,
+            xincrease=xincrease,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            figure=figure,
+            axes=axes,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+            **(bg_kwargs or {}),
+        )
+    else:
+        plotter = VolumePlotter(
+            slice_mode=slice_mode,
+            figure=figure,
+            axes=axes,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            yincrease=yincrease,
+            xincrease=xincrease,
+        )
+
+    resolved_vmin, resolved_vmax, resolved_cmap = _resolve_stat_map_style(
+        stat_map, vmin, vmax, cmap, auto_range
+    )
+
+    return plotter.add_volume(
+        stat_map,
+        slice_coords=slice_coords,
+        match_coordinates=bg_volume is not None,
+        cmap=resolved_cmap,
+        norm=norm,
+        vmin=resolved_vmin,
+        vmax=resolved_vmax,
+        threshold=threshold,
+        threshold_mode=threshold_mode,
+        alpha=alpha,
+        show_colorbar=show_colorbar,
+        cbar_label=cbar_label,
+        cbar_kwargs=cbar_kwargs,
         show_titles=show_titles,
         show_axis_labels=show_axis_labels,
         show_axis_ticks=show_axis_ticks,
@@ -2311,15 +2719,13 @@ def _draw_carpet(
 
     if plotted_quadmesh.colorbar is not None:
         cbar = plotted_quadmesh.colorbar
-        cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-        plt.setp(
-            cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+        _style_colorbar(
+            cbar,
+            text_color,
+            tick_fontsize,
+            bg_color=bg_color,
+            label_fontsize=label_fontsize,
         )
-        cbar.ax.yaxis.label.set_color(text_color)
-        if label_fontsize is not None:
-            cbar.ax.yaxis.label.set_fontsize(label_fontsize)
-        cbar.outline.set_edgecolor(text_color)
-        cbar.ax.set_facecolor(bg_color)
 
     ax.grid(False)
     ax.set_yticks([])

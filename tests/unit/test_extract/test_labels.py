@@ -217,6 +217,95 @@ class TestWithLabels:
             sample_3dt_volume.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
         )
 
+    def test_stacked_masks_duplicate_ids_non_overlapping(self, sample_3dt_volume):
+        """Non-overlapping layers sharing the same raw id must stay distinct regions.
+
+        Regression test: layer position along `mask`, not the layer's own non-zero
+        value, is what identifies a region — mirrors Atlas.get_masks reusing a
+        region's id across its left/right hemisphere layers.
+        """
+        _, nz, ny, nx = sample_3dt_volume.shape
+
+        mask_data = np.zeros((2, nz, ny, nx), dtype=int)
+        mask_data[0, 0, :, :] = 7  # Region "VISp_L": first z-slice, id 7.
+        mask_data[1, 1, :, :] = 7  # Region "VISp_R": second z-slice, same id 7.
+        labels = xr.DataArray(
+            mask_data,
+            dims=["mask", "z", "y", "x"],
+            coords={
+                "mask": ["VISp_L", "VISp_R"],
+                "z": sample_3dt_volume.coords["z"],
+                "y": sample_3dt_volume.coords["y"],
+                "x": sample_3dt_volume.coords["x"],
+            },
+        )
+
+        result = extract.extract_with_labels(sample_3dt_volume, labels)
+
+        np.testing.assert_array_equal(
+            result.coords["region"].values, ["VISp_L", "VISp_R"]
+        )
+        np.testing.assert_allclose(
+            result.sel(region="VISp_L").values,
+            sample_3dt_volume.values[:, 0, :, :].mean(axis=(-2, -1)),
+        )
+        np.testing.assert_allclose(
+            result.sel(region="VISp_R").values,
+            sample_3dt_volume.values[:, 1, :, :].mean(axis=(-2, -1)),
+        )
+
+    def test_stacked_masks_duplicate_ids_overlapping(self, sample_3dt_volume):
+        """Overlapping layers sharing the same raw id must stay distinct regions."""
+        _, nz, ny, nx = sample_3dt_volume.shape
+
+        mask_data = np.zeros((2, nz, ny, nx), dtype=int)
+        mask_data[0, 0:2, :, :] = 3  # Region "A": slices 0-1, id 3.
+        mask_data[1, 1:3, :, :] = 3  # Region "B": slices 1-2, same id 3.
+        labels = xr.DataArray(
+            mask_data,
+            dims=["mask", "z", "y", "x"],
+            coords={
+                "mask": ["A", "B"],
+                "z": sample_3dt_volume.coords["z"],
+                "y": sample_3dt_volume.coords["y"],
+                "x": sample_3dt_volume.coords["x"],
+            },
+        )
+
+        result = extract.extract_with_labels(sample_3dt_volume, labels)
+
+        np.testing.assert_array_equal(result.coords["region"].values, ["A", "B"])
+        np.testing.assert_allclose(
+            result.sel(region="A").values,
+            sample_3dt_volume.values[:, 0:2, :, :].mean(axis=(-3, -2, -1)),
+        )
+        np.testing.assert_allclose(
+            result.sel(region="B").values,
+            sample_3dt_volume.values[:, 1:3, :, :].mean(axis=(-3, -2, -1)),
+        )
+
+    def test_stacked_mask_layer_wrong_nonzero_count_raises(self, sample_3dt_volume):
+        """A layer with zero or multiple distinct non-zero values must raise."""
+        _, nz, ny, nx = sample_3dt_volume.shape
+
+        mask_data = np.zeros((2, nz, ny, nx), dtype=int)
+        mask_data[0, 0, :, :] = 1
+        mask_data[1, 1, : ny // 2, :] = 2  # Layer 1 has two distinct values below.
+        mask_data[1, 1, ny // 2 :, :] = 3
+        labels = xr.DataArray(
+            mask_data,
+            dims=["mask", "z", "y", "x"],
+            coords={
+                "mask": ["A", "B"],
+                "z": sample_3dt_volume.coords["z"],
+                "y": sample_3dt_volume.coords["y"],
+                "x": sample_3dt_volume.coords["x"],
+            },
+        )
+
+        with pytest.raises(ValueError, match="exactly one unique non-zero"):
+            extract.extract_with_labels(sample_3dt_volume, labels)
+
     def test_dask_spatial_chunks(self):
         """Test correctness when spatial dims are chunked in the Dask array."""
         rng = np.random.default_rng(42)

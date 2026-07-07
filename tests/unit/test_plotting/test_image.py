@@ -5,6 +5,7 @@ See conftest.py for the matplotlib_pyplot fixture setup.
 """
 
 import numpy as np
+import numpy.testing as npt
 import pytest
 import xarray as xr
 
@@ -23,6 +24,27 @@ class TestPlotVolume:
         """plot_volume raises ValueError for a slice_mode not in data.dims."""
         with pytest.raises(ValueError, match="slice_mode"):
             plot_volume(sample_3d_volume, slice_mode="t", slice_coords=[0.0])
+
+    @pytest.mark.parametrize("bad_value", [np.nan, np.inf, -np.inf])
+    @pytest.mark.parametrize("bad_arg", ["vmin", "vmax"])
+    def test_nonfinite_vmin_vmax_raises(
+        self, sample_3d_volume, matplotlib_pyplot, bad_arg, bad_value
+    ):
+        """plot_volume raises a clear ValueError for non-finite vmin/vmax.
+
+        Regression test for #258: non-finite bounds used to produce an empty
+        colormap color list and crash deep inside
+        `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque
+        `IndexError`.
+        """
+        z_coord = sample_3d_volume.coords["z"].values[0]
+        with pytest.raises(ValueError, match="finite"):
+            plot_volume(
+                sample_3d_volume,
+                slice_mode="z",
+                slice_coords=[z_coord],
+                **{bad_arg: bad_value},
+            )
 
     def test_non_3d_data_raises(self):
         """plot_volume raises ValueError for 4D data with no unitary dimensions."""
@@ -472,6 +494,143 @@ class TestVolumePlotterAddVolume:
                 sample_3d_volume.sel(z=z_vals[[0, 1, 3]], method="nearest"),
                 cmap="viridis",
             )
+
+    def test_dataarray_alpha_applies_independently_per_slice(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """A DataArray alpha gives each z-slice its own opacity, unlike a bare array."""
+        alpha = xr.zeros_like(sample_3d_volume)
+        alpha[0] = 0.25
+        alpha[1] = 0.75
+
+        plotter = VolumePlotter(slice_mode="z").add_volume(
+            sample_3d_volume, match_coordinates=False, alpha=alpha
+        )
+
+        axes_flat = plotter.axes.ravel()
+        npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
+        npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
+
+    def test_dataarray_alpha_accepts_descending_coordinate_volume(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """A DataArray alpha sharing data's own grid must be accepted even when a
+        display coordinate is monotonic-decreasing.
+
+        `add_volume` sorts `data` ascending internally (via `sort_coords_for_plot`);
+        `alpha` must be sorted the same way rather than rejected for carrying data's
+        genuine (descending) coordinates.
+        """
+        descending = sample_3d_volume.isel(y=slice(None, None, -1))
+        alpha = xr.zeros_like(descending)
+        alpha[0] = 0.25
+        alpha[1] = 0.75
+
+        plotter = plot_volume(descending, alpha=alpha)
+
+        axes_flat = plotter.axes.ravel()
+        npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
+        npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
+
+    def test_numpy_array_alpha_rejected(self, sample_3d_volume, matplotlib_pyplot):
+        """A bare per-voxel array is rejected; opacity arrays must be DataArrays.
+
+        A numpy array carries no coordinates, so it cannot be validated or aligned
+        against `data`; only a scalar or a `xarray.DataArray` is accepted.
+        """
+        alpha = np.full(sample_3d_volume.shape, 0.5)
+        with pytest.raises(TypeError, match="DataArray"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
+    def test_dataarray_alpha_size_mismatch_raises(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Same dims as data, but a differently-sized one, is rejected explicitly."""
+        alpha = sample_3d_volume.isel(x=slice(0, 4))
+        with pytest.raises(ValueError, match="size along 'x'"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
+    def test_dataarray_alpha_dim_mismatch_raises(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Still-3D alpha with a differently-named dimension is rejected explicitly.
+
+        Dropping a dimension entirely (e.g. via `.isel(x=0)`) would instead trip the
+        earlier "must be 3D" check in `_prepare_slice_inputs`, not the dims-equality
+        check this test targets, so the mismatch is introduced via `rename` to keep
+        `alpha` 3D.
+        """
+        alpha = sample_3d_volume.rename(x="w")
+        with pytest.raises(ValueError, match="dims"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
+    def test_dataarray_alpha_coordinate_mismatch_raises(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        alpha = sample_3d_volume.assign_coords(
+            x=sample_3d_volume.coords["x"].values + 1.0
+        )
+        with pytest.raises(ValueError, match="does not match"):
+            VolumePlotter(slice_mode="z").add_volume(
+                sample_3d_volume, match_coordinates=False, alpha=alpha
+            )
+
+
+class TestNonNumericSliceMode:
+    """Tests for slicing along a non-numeric coordinate (e.g. region labels)."""
+
+    def test_string_coord_slice_mode_selects_exact_match(self, matplotlib_pyplot):
+        """plot_volume selects the slice matching a string coordinate exactly.
+
+        Regression test for a `TypeError` previously raised by the nearest-neighbour
+        lookup (`.sel(..., method="nearest")`) on non-numeric coordinates, and a
+        `ValueError` previously raised by the `.3g`-formatted slice title.
+        """
+        data = xr.DataArray(
+            np.arange(2 * 3 * 3, dtype=float).reshape(2, 3, 3),
+            name="r",
+            dims=["region", "y", "x"],
+            coords={"region": ["a", "b"], "y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        plotter = plot_volume(
+            data, slice_mode="region", slice_coords=["b"], show_colorbar=False
+        )
+
+        ax = plotter.axes[0, 0]
+        np.testing.assert_array_equal(
+            ax.collections[0].get_array().data, data.sel(region="b").values
+        )
+        assert ax.get_title() == "region = b"
+
+    def test_string_coord_mismatch_warns_with_label(self, matplotlib_pyplot):
+        """add_volume reports unmatched non-numeric coordinates by their label."""
+        data = xr.DataArray(
+            np.zeros((2, 3, 3)),
+            name="r",
+            dims=["region", "y", "x"],
+            coords={"region": ["a", "b"], "y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        plotter = plot_volume(
+            data, slice_mode="region", slice_coords=["a"], show_colorbar=False
+        )
+        other = data.assign_coords(region=["a", "c"]).sel(region=["c"])
+
+        with pytest.warns(UserWarning, match="region=c"):
+            plotter.add_volume(other, show_colorbar=False)
+
+    def test_non_numeric_slice_coords_without_coordinate_array_raises(
+        self, matplotlib_pyplot
+    ):
+        """A non-numeric slice_coords entry is rejected when slice_mode is coordless."""
+        data = xr.DataArray(np.zeros((2, 3, 3)), name="r", dims=["region", "y", "x"])
+        with pytest.raises(ValueError, match="must be numeric positional indices"):
+            plot_volume(data, slice_mode="region", slice_coords=["b"])
 
 
 class TestVolumePlotterUtilities:

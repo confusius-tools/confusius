@@ -1,5 +1,6 @@
 """Xarray accessor for plotting."""
 
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal
 
 import xarray as xr
@@ -12,10 +13,12 @@ from confusius.plotting import (
     plot_composite,
     plot_contours,
     plot_napari,
+    plot_stat_map,
     plot_volume,
 )
 
 if TYPE_CHECKING:
+    import numpy as np
     import numpy.typing as npt
     from matplotlib.axes import Axes
     from matplotlib.colors import Colormap, Normalize
@@ -352,7 +355,7 @@ class FUSIPlotAccessor:
 
     def volume(
         self,
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
         nrows: int | None = None,
         ncols: int | None = None,
@@ -362,9 +365,10 @@ class FUSIPlotAccessor:
         norm: "Normalize | None" = None,
         vmin: float | None = None,
         vmax: float | None = None,
-        alpha: float | None = None,
+        alpha: "float | xr.DataArray | None" = None,
         show_colorbar: bool = True,
         cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -385,7 +389,7 @@ class FUSIPlotAccessor:
 
         Parameters
         ----------
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values along `slice_mode` are used.
@@ -422,13 +426,23 @@ class FUSIPlotAccessor:
             Upper bound of the colormap. Defaults to the 98th percentile. Ignored
             when `norm` is provided explicitly (that is, not just inherited from data
             attributes).
-        alpha : float, optional
-            Opacity of the image. If not provided, the colormap's own alpha
-            channel is respected.
+        alpha : float or xarray.DataArray, optional
+            Opacity of the image: a single scalar value, or a 3D DataArray sharing
+            this DataArray's dims, shape, and coordinates (for independent
+            per-slice, per-voxel opacity). A per-voxel opacity must be a DataArray,
+            not a bare array, so it can be validated and aligned against this
+            DataArray. If not provided, the colormap's own alpha channel is
+            respected.
         show_colorbar : bool, default: True
             Whether to add a shared colorbar to the figure.
         cbar_label : str, optional
             Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -511,6 +525,7 @@ class FUSIPlotAccessor:
             alpha=alpha,
             show_colorbar=show_colorbar,
             cbar_label=cbar_label,
+            cbar_kwargs=cbar_kwargs,
             show_titles=show_titles,
             show_axis_labels=show_axis_labels,
             show_axis_ticks=show_axis_ticks,
@@ -531,7 +546,7 @@ class FUSIPlotAccessor:
         linewidths: float = 1.5,
         linestyles: str = "solid",
         slice_mode: str = "z",
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         yincrease: bool = False,
         xincrease: bool = True,
@@ -562,7 +577,7 @@ class FUSIPlotAccessor:
         slice_mode : str, default: "z"
             Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`).
             After slicing, each panel must be 2D.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided, all
             coordinate values along `slice_mode` are used.
@@ -633,9 +648,9 @@ class FUSIPlotAccessor:
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         slice_mode: str = "z",
-        alpha: float | None = None,
+        alpha: "float | npt.NDArray[np.floating] | None" = None,
         show_titles: bool = True,
         show_axis_labels: bool = True,
         show_axis_ticks: bool = True,
@@ -691,16 +706,17 @@ class FUSIPlotAccessor:
             - `"shared"`: rescale both volumes together using a shared
               `[min, max]` range, preserving the absolute-intensity
               relationship between the two inputs.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along `slice_mode` at which to extract slices.
             Slices are selected by nearest-neighbour lookup. If not provided,
             all coordinate values from this DataArray are used.
         slice_mode : str, default: "z"
             Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
             slicing, each panel must be 2D.
-        alpha : float, optional
-            Opacity of the composite image. If not provided, the image is fully
-            opaque.
+        alpha : float or numpy.ndarray, optional
+            Opacity of the composite image, either a single value or a per-voxel
+            array matching the shape of the displayed slices. If not provided, the
+            image is fully opaque.
         show_titles : bool, default: True
             Whether to display subplot titles showing the slice coordinate.
         show_axis_labels : bool, default: True
@@ -773,6 +789,234 @@ class FUSIPlotAccessor:
             slice_coords=slice_coords,
             slice_mode=slice_mode,
             alpha=alpha,
+            show_titles=show_titles,
+            show_axis_labels=show_axis_labels,
+            show_axis_ticks=show_axis_ticks,
+            show_axes=show_axes,
+            fontsize=fontsize,
+            yincrease=yincrease,
+            xincrease=xincrease,
+            bg_color=bg_color,
+            fg_color=fg_color,
+            figure=figure,
+            axes=axes,
+            nrows=nrows,
+            ncols=ncols,
+            dpi=dpi,
+        )
+
+    def stat_map(
+        self,
+        bg_volume: xr.DataArray | None = None,
+        slice_coords: list[Hashable] | None = None,
+        slice_mode: str = "z",
+        bg_kwargs: "dict[str, Any] | None" = None,
+        cmap: "str | Colormap | None" = None,
+        norm: "Normalize | None" = None,
+        vmin: float | None = None,
+        vmax: float | None = None,
+        auto_range: bool = True,
+        alpha: "float | xr.DataArray | None" = None,
+        threshold: float | None = None,
+        threshold_mode: Literal["lower", "upper"] = "lower",
+        show_colorbar: bool = True,
+        cbar_label: str | None = None,
+        cbar_kwargs: "dict[str, Any] | None" = None,
+        show_titles: bool = True,
+        show_axis_labels: bool = True,
+        show_axis_ticks: bool = True,
+        show_axes: bool = True,
+        fontsize: float | None = None,
+        yincrease: bool = False,
+        xincrease: bool = True,
+        bg_color: str = "black",
+        fg_color: str | None = None,
+        figure: "Figure | None" = None,
+        axes: "npt.NDArray[Any] | Axes | None" = None,
+        nrows: int | None = None,
+        ncols: int | None = None,
+        dpi: int | None = None,
+    ) -> "VolumePlotter":
+        """Plot this statistical map, optionally over `bg_volume`.
+
+        Self is the statistical map. See
+        [`confusius.plotting.plot_stat_map`][confusius.plotting.plot_stat_map] for full
+        details.
+
+        Parameters
+        ----------
+        bg_volume : xarray.DataArray, optional
+            Background anatomical volume, plotted underneath this DataArray. When
+            `alpha` is not provided, this DataArray fully covers `bg_volume`
+            wherever it has a value; `bg_volume` only shows through where this
+            DataArray is masked out by `threshold`. Lower `alpha` to blend the two
+            layers instead. Must share `slice_mode` and, after squeezing, the same
+            display dimensions as this DataArray. If not provided, this DataArray is
+            plotted on its own.
+        slice_coords : list[collections.abc.Hashable], optional
+            Coordinate values along `slice_mode` at which to extract slices. Slices
+            are selected by nearest-neighbour lookup. If not provided, all coordinate
+            values from `bg_volume` (or this DataArray when `bg_volume` is not
+            provided) along `slice_mode` are used.
+        slice_mode : str, default: "z"
+            Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`, `"time"`).
+            After slicing, each panel must be 2D.
+        bg_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`plot_volume`][confusius.plotting.plot_volume] for the background layer
+            (e.g. `cmap`, `vmin`, `vmax`, `norm`, `alpha`, `roi_labels`). Ignored when
+            `bg_volume` is not provided. Layout and text styling (`slice_coords`,
+            `slice_mode`, `show_titles`, `fontsize`, etc.) are controlled by this
+            method's own parameters instead, so that both layers share consistent
+            styling.
+        cmap : str or matplotlib.colors.Colormap, optional
+            Colormap for this DataArray. If not provided, the default depends on
+            `auto_range` and the sign of this DataArray (see below); an explicit
+            `cmap` is always used as-is regardless of `auto_range`.
+        norm : matplotlib.colors.Normalize, optional
+            Normalization instance (e.g. `TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`)
+            for cases `vmin`/`vmax`/`auto_range` can't express. When provided,
+            `vmin`, `vmax`, and `auto_range`'s range computation are bypassed
+            entirely; `cmap` still follows the usual rules above.
+        vmin : float, optional
+            Lower bound of the colormap. If not provided, defaults to the minimum
+            value of this DataArray, computed over the full array rather than just
+            the displayed slices. Ignored when `norm` is provided, or when
+            `auto_range` resolves to a range anchored at zero (see below).
+        vmax : float, optional
+            Upper bound of the colormap. If not provided, defaults to the maximum
+            value of this DataArray, computed over the full array rather than just
+            the displayed slices. Ignored when `norm` is provided, or when
+            `auto_range=True` and this DataArray has only non-positive values.
+        auto_range : bool, default: True
+            Whether to pick the colormap range and default colormap automatically
+            based on the sign of this DataArray:
+
+            - Both positive and negative values: diverging, symmetric `[-m, m]`
+              range where `m = max(|vmin|, |vmax|)` (using the resolved bounds
+              above), with `cmap` defaulting to `"coolwarm"` — the right choice
+              for diverging statistics where the sign is meaningful (e.g.
+              t-statistics, correlation coefficients, PCA/ICA component maps).
+            - Only non-negative values: sequential `[0, vmax]` range, with `cmap`
+              defaulting to `"viridis"` — the right choice for non-diverging
+              statistics where only magnitude matters (e.g. R², F-statistics).
+            - Only non-positive values: sequential `[vmin, 0]` range, with `cmap`
+              defaulting to `"viridis_r"` (reversed, so that values near zero map
+              to the same end of the colormap in both the non-negative and
+              non-positive cases).
+
+            Set to `False` to use the resolved `vmin`/`vmax` directly with no
+            zero-anchoring (`cmap` then defaults to `"coolwarm"` regardless of
+            sign).
+        alpha : float or xarray.DataArray, optional
+            Opacity of this DataArray's overlay: a single scalar value, or a 3D
+            DataArray sharing this DataArray's dims, shape, and coordinates (for
+            independent per-slice, per-voxel opacity, e.g. to fade out
+            low-magnitude voxels instead of masking them out with `threshold`). A
+            per-voxel opacity must be a DataArray, not a bare array, so it can be
+            validated and aligned against this DataArray; note it is validated
+            against self, not `bg_volume`. If not provided, the colormap's own alpha
+            channel is respected.
+        threshold : float, optional
+            Threshold applied to the absolute value of this DataArray. See
+            `threshold_mode` for the masking direction. If not provided, no
+            thresholding is applied.
+        threshold_mode : {"lower", "upper"}, default: "lower"
+            Controls how `threshold` is applied:
+
+            - `"lower"`: set pixels below `threshold` (in absolute value) to NaN.
+            - `"upper"`: set pixels above `threshold` (in absolute value) to NaN.
+
+        show_colorbar : bool, default: True
+            Whether to add a shared colorbar to the figure.
+        cbar_label : str, optional
+            Label for the colorbar.
+        cbar_kwargs : dict, optional
+            Additional keyword arguments forwarded to
+            [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]
+            (e.g. `shrink`, `fraction`, `pad`, `aspect`). Useful to shrink the
+            colorbar when it spans a multi-panel grid, since the defaults are sized
+            for a single axes.
+        show_titles : bool, default: True
+            Whether to display subplot titles showing the slice coordinate.
+        show_axis_labels : bool, default: True
+            Whether to display axis labels (with units when available).
+        show_axis_ticks : bool, default: True
+            Whether to display axis tick labels.
+        show_axes : bool, default: True
+            Whether to show all axis decorations (spines, ticks, labels). When
+            `False`, overrides `show_axis_labels` and `show_axis_ticks`.
+        fontsize : float, optional
+            Base font size for all text elements. Subplot titles use `fontsize`
+            directly; axis labels and the colorbar label use `0.9 * fontsize`; tick
+            labels use `0.85 * fontsize`. If not provided, uses the active Matplotlib
+            defaults.
+        yincrease : bool, default: False
+            Whether the y-axis increases upward (`True`) or downward (`False`).
+        xincrease : bool, default: True
+            Whether the x-axis increases to the right (`True`) or left (`False`).
+        bg_color : str, default: "black"
+            Background color for the figure and axes. Any matplotlib-compatible color
+            string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+        fg_color : str, optional
+            Color for text, labels, ticks, and spines. If not provided, derived
+            automatically from `bg_color` using the WCAG relative luminance formula
+            (white on dark backgrounds, black on light ones).
+        figure : matplotlib.figure.Figure, optional
+            Existing figure to draw into. If not provided, a new figure is created.
+        axes : numpy.ndarray or matplotlib.axes.Axes, optional
+            Existing axes to draw into: either a single
+            [`matplotlib.axes.Axes`][matplotlib.axes.Axes] or a 2D array of them.
+            Must contain exactly as many elements as there are slices. A single
+            `Axes` is wrapped automatically and limits the plot to one slice. If not
+            provided, new axes are created inside `figure`.
+        nrows : int, optional
+            Number of rows in the subplot grid. If not provided, computed
+            automatically.
+        ncols : int, optional
+            Number of columns in the subplot grid. If not provided, computed
+            automatically.
+        dpi : int, optional
+            Figure resolution in dots per inch. Ignored when `figure` is provided.
+
+        Returns
+        -------
+        VolumePlotter
+            Object managing the figure, axes, and coordinate mapping for overlays.
+
+        Examples
+        --------
+        >>> import xarray as xr
+        >>> import confusius  # Register accessor.
+        >>> anatomical = xr.open_zarr("output.zarr")["power_doppler"]
+        >>> t_map = xr.open_zarr("output.zarr")["t_stat"]
+        >>> plotter = t_map.fusi.plot.stat_map(bg_volume=anatomical, slice_mode="z")
+
+        >>> # Blend the overlay with the background instead of fully covering it.
+        >>> plotter = t_map.fusi.plot.stat_map(bg_volume=anatomical, alpha=0.6)
+
+        >>> # Non-diverging statistic (e.g. R²): sequential range and colormap
+        >>> # picked automatically since r2_map has only non-negative values.
+        >>> r2_map = xr.open_zarr("output.zarr")["r2"]
+        >>> plotter = r2_map.fusi.plot.stat_map(anatomical)
+        """
+        return plot_stat_map(
+            self._obj,
+            bg_volume=bg_volume,
+            slice_coords=slice_coords,
+            slice_mode=slice_mode,
+            bg_kwargs=bg_kwargs,
+            cmap=cmap,
+            norm=norm,
+            vmin=vmin,
+            vmax=vmax,
+            auto_range=auto_range,
+            alpha=alpha,
+            threshold=threshold,
+            threshold_mode=threshold_mode,
+            show_colorbar=show_colorbar,
+            cbar_label=cbar_label,
+            cbar_kwargs=cbar_kwargs,
             show_titles=show_titles,
             show_axis_labels=show_axis_labels,
             show_axis_ticks=show_axis_ticks,
