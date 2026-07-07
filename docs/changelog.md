@@ -24,6 +24,11 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`plot_surface`][confusius.plotting.plot_surface] to display triangular meshes
+  (e.g. atlas region surfaces from
+  [`Atlas.get_mesh`][confusius.atlas.Atlas.get_mesh]) as a napari surface layer,
+  overlaying correctly on the reference template or a registered fUSI volume
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 - Added [`plot_matrix`][confusius.plotting.plot_matrix] for plotting 2D matrices
   (e.g. connectivity or correlation matrices), with optional lower/diagonal triangle
   masking, grid lines, and a `groups` parameter that annotates contiguous label runs

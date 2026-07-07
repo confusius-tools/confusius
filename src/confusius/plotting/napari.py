@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import napari
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
@@ -20,7 +21,7 @@ from confusius.plotting._utils import (
 
 if TYPE_CHECKING:
     from napari import Viewer
-    from napari.layers import Image, Labels
+    from napari.layers import Image, Labels, Surface
 
 
 def plot_napari(
@@ -251,6 +252,79 @@ def plot_napari(
             "mm",
         )
         viewer.scale_bar.unit = scale_bar_unit
+
+    return viewer, layer
+
+
+def plot_surface(
+    mesh: tuple[npt.NDArray[np.floating], npt.NDArray[np.integer]],
+    values: npt.NDArray[np.floating] | None = None,
+    viewer: "Viewer | None" = None,
+    show_scale_bar: bool = True,
+    units: str = "mm",
+    **layer_kwargs,
+) -> "tuple[Viewer, Surface]":
+    """Display a triangular mesh as a napari surface layer.
+
+    Adds the mesh as a napari `Surface` layer. This is the
+    counterpart to [`plot_napari`][confusius.plotting.plot_napari] for meshes,
+    such as the region surfaces returned by
+    [`Atlas.get_mesh`][confusius.atlas.Atlas.get_mesh]. Because atlas mesh
+    vertices and image layers both live in the same physical space, a surface
+    overlaid on a viewer that already holds the reference template or a
+    registered fUSI volume aligns without any extra scaling.
+
+    Parameters
+    ----------
+    mesh : tuple[(N, 3) numpy.ndarray, (M, 3) numpy.ndarray]
+        A `(vertices, faces)` pair as returned by
+        [`Atlas.get_mesh`][confusius.atlas.Atlas.get_mesh]. `vertices` holds the
+        vertex coordinates and `faces` holds zero-indexed triangle vertex
+        indices.
+    values : (N,) or (N, T) numpy.ndarray, optional
+        Per-vertex scalar values used to color the surface through the layer's
+        colormap. If not provided, the surface is rendered as a flat color.
+    viewer : napari.Viewer, optional
+        Existing napari viewer to add the layer to. If not provided, a new viewer
+        is created.
+    show_scale_bar : bool, default: True
+        Whether to show the scale bar.
+    units : str, default: "mm"
+        Physical unit of the vertex coordinates, used as the scale bar unit.
+        Atlas meshes are in millimetres.
+    **layer_kwargs
+        Additional keyword arguments passed to `napari.Viewer.add_surface`
+        (e.g. `colormap`, `name`, `opacity`, `shading`).
+
+    Returns
+    -------
+    viewer : napari.Viewer
+        The napari viewer instance with the surface layer added.
+    layer : napari.layers.Surface
+        The surface layer added to the viewer.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> from confusius.atlas import Atlas
+    >>> atlas = Atlas.from_brainglobe("allen_mouse_25um")
+    >>> # Overlay a region mesh on the reference template.
+    >>> viewer, _ = cf.plotting.plot_napari(atlas.reference)
+    >>> viewer, layer = cf.plotting.plot_surface(
+    ...     atlas.get_mesh("VISp"), viewer=viewer, colormap="magenta"
+    ... )
+    """
+    vertices, faces = mesh
+    surface_data = (vertices, faces) if values is None else (vertices, faces, values)
+
+    if viewer is None:
+        viewer = napari.Viewer()
+
+    layer = viewer.add_surface(surface_data, **layer_kwargs)
+
+    if show_scale_bar:
+        viewer.scale_bar.visible = True
+        viewer.scale_bar.unit = units
 
     return viewer, layer
 

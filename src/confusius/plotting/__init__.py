@@ -9,6 +9,7 @@ __all__ = [
     "plot_matrix",
     "plot_napari",
     "plot_stat_map",
+    "plot_surface",
     "plot_volume",
     "VolumePlotter",
 ]
@@ -26,4 +27,5 @@ from confusius.plotting.napari import (
     draw_napari_labels,
     labels_from_layer,
     plot_napari,
+    plot_surface,
 )
