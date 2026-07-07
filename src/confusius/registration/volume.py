@@ -1,7 +1,7 @@
 """Volume-to-volume registration for fUSI data."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, overload
+from typing import Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -19,9 +19,6 @@ from confusius.registration.affines import (
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.validation import validate_matching_spatial_units
-
-if TYPE_CHECKING:
-    pass
 
 
 def _validate_register_volume_inputs(
