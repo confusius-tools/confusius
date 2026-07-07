@@ -8,7 +8,7 @@ icon: lucide/quote
 
 If you use ConfUSIus in your research, please cite it using the following reference:
 
-> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.4.0). Zenodo.
+> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.5.0). Zenodo.
 > https://doi.org/10.5281/zenodo.18611124
 
 Or in BibTeX format:
@@ -19,7 +19,7 @@ Or in BibTeX format:
   title     = {ConfUSIus},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {v0.4.0},
+  version   = {v0.5.0},
   doi       = {10.5281/zenodo.18611124},
   url       = {https://doi.org/10.5281/zenodo.18611124}
 }
