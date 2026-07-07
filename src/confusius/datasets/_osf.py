@@ -99,9 +99,16 @@ def get_index(
 ) -> dict[str, OsfFileInfo]:
     """Return the dataset index, preferring a locally cached copy.
 
-    When `refresh` is `False` and a cached index exists in `data_dir`,
-    it is decoded and returned directly (offline-friendly). Otherwise the
-    index is re-fetched from OSF and persisted to disk.
+    When `refresh` is `False` and a cached index exists in `data_dir`, it is
+    decoded and returned directly (offline-friendly). Otherwise the latest index
+    is fetched from OSF and returned.
+
+    The freshly fetched index is only persisted to disk on the very first fetch
+    (when no cache exists yet). On a refresh of an existing cache it is *not*
+    written back: the caller reconciles it against the cached index and persists
+    the merged result via
+    [`update_cached_index`][confusius.datasets._osf.update_cached_index], so that
+    files the caller did not reconsider keep their recorded md5.
 
     Parameters
     ----------
@@ -128,17 +135,67 @@ def get_index(
         `dataset_index.json`. Indices written before md5 tracking omit `md5`.
     """
     index_path = data_dir / _INDEX_FILENAME
-    if not refresh and index_path.exists():
+    cache_exists = index_path.exists()
+    if not refresh and cache_exists:
         return json.loads(index_path.read_text(encoding="utf-8"))
 
     url = resolve_index_url(project_id, bids_root)
     response = requests.get(url)
     response.raise_for_status()
     index = response.json()
+    if not cache_exists:
+        # First fetch: no cached md5s to preserve, so persist the full index.
+        _write_index(index_path, index)
+    return index
+
+
+def _write_index(index_path: Path, index: dict[str, OsfFileInfo]) -> None:
+    """Write a dataset index to disk as sorted, indented JSON.
+
+    Parameters
+    ----------
+    index_path : pathlib.Path
+        Destination path for `dataset_index.json`.
+    index : dict[str, OsfFileInfo]
+        Index mapping to serialise.
+    """
     index_path.write_text(
         json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    return index
+
+
+def update_cached_index(
+    data_dir: Path,
+    remote_index: dict[str, OsfFileInfo],
+    previous_index: dict[str, OsfFileInfo],
+    files: dict[str, OsfFileInfo],
+) -> None:
+    """Persist a refreshed index by merging, not replacing, the cached one.
+
+    The cached `dataset_index.json` is the record of what is on disk, so it is
+    not overwritten wholesale with the remote index. Instead the merged index
+    is, per file:
+
+    - the remote entry for every requested file (`files`), which has just been
+      reconciled with disk (downloaded, or confirmed unchanged);
+    - the previously cached entry for any other file already known locally, so
+      an md5 baseline the caller did not reconsider is preserved rather than
+      silently advanced to the remote md5;
+    - otherwise the remote entry, cataloguing files not seen before.
+
+    Parameters
+    ----------
+    data_dir : pathlib.Path
+        Directory holding the cached index.
+    remote_index : dict[str, OsfFileInfo]
+        Full index freshly fetched from OSF.
+    previous_index : dict[str, OsfFileInfo]
+        Index cached before the refresh.
+    files : dict[str, OsfFileInfo]
+        Requested subset of `remote_index` that was reconciled with disk.
+    """
+    merged: dict[str, OsfFileInfo] = {**remote_index, **previous_index, **files}
+    _write_index(data_dir / _INDEX_FILENAME, merged)
 
 
 def read_cached_index(data_dir: Path) -> dict[str, OsfFileInfo]:
@@ -176,11 +233,12 @@ def _select_downloads(
 
     A file is selected when it is absent from `bids_dir`. When `refresh` is
     `True`, a cached file is also selected when its md5 in `previous_index` (the
-    index it was last downloaded with) differs from its md5 in `files` (the
-    freshly fetched remote index). The cached index is trusted as the record of
-    what is on disk, so files are never re-hashed; when either md5 is missing
-    (e.g. a cache predating md5 tracking) the file is left as is rather than
-    re-downloaded.
+    index it was last downloaded with) differs from — or is missing next to — its
+    md5 in `files` (the freshly fetched remote index). The cached index is trusted
+    as the record of what is on disk, so files are never re-hashed; a cache entry
+    that lacks an md5 (e.g. one predating md5 tracking) cannot be vouched for, so
+    the file is re-downloaded and its entry refreshed rather than left in an
+    unverifiable state.
 
     Parameters
     ----------
@@ -210,11 +268,10 @@ def _select_downloads(
             continue
         remote_md5 = info.get("md5")
         local_md5 = previous_index.get(rel_path, {}).get("md5")
-        # ponytail: a filtered refresh (e.g. subjects=[...]) rewrites the whole
-        # cached index but only compares the filtered files, so an unfiltered
-        # file that changed upstream stays stale until refreshed in its own
-        # right. Merge the index on write if that ever matters.
-        if remote_md5 and local_md5 and remote_md5 != local_md5:
+        # Re-download when the remote md5 is known and the cached md5 either
+        # differs or is absent (a missing local md5 cannot be verified, so the
+        # file is refreshed instead of assumed current).
+        if remote_md5 and local_md5 != remote_md5:
             selected[rel_path] = info
 
     return selected
@@ -229,8 +286,8 @@ def download_osf_files(
     """Download OSF files that are missing or whose upstream md5 changed.
 
     Files absent from `bids_dir` are always downloaded. When `refresh` is
-    `True`, cached files whose remote md5 differs from the md5 recorded in
-    `previous_index` are re-downloaded as well; see
+    `True`, cached files whose remote md5 differs from — or is missing next to —
+    the md5 recorded in `previous_index` are re-downloaded as well; see
     [`_select_downloads`][confusius.datasets._osf._select_downloads].
 
     Parameters

@@ -5,7 +5,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ._osf import OsfFileInfo, download_osf_files, get_index, read_cached_index
+from ._osf import (
+    OsfFileInfo,
+    download_osf_files,
+    get_index,
+    read_cached_index,
+    update_cached_index,
+)
 from ._utils import get_datasets_dir
 
 _OSF_PROJECT_ID = "dkseb"
@@ -226,5 +232,7 @@ def fetch_landemard_2026(
     files = _filter_files(index, datasets, subjects, acqs, datatypes)
 
     download_osf_files(bids_dir, files, previous_index, refresh=refresh)
+    if refresh:
+        update_cached_index(bids_dir, index, previous_index or {}, files)
 
     return bids_dir

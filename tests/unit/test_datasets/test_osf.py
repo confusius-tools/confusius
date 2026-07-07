@@ -14,6 +14,7 @@ from confusius.datasets._osf import (
     get_index,
     read_cached_index,
     resolve_index_url,
+    update_cached_index,
 )
 
 _FAKE_PROJECT = "testproj"
@@ -96,8 +97,12 @@ def test_get_index_uses_cache_without_network(tmp_path):
     mock_requests.assert_not_called()
 
 
-def test_get_index_refreshes_when_requested(tmp_path):
-    """refresh=True re-fetches the index even when a cached copy exists."""
+def test_get_index_refreshes_without_persisting(tmp_path):
+    """refresh=True re-fetches the remote index but leaves the cache for the caller.
+
+    Persistence of a refreshed index is deferred to `update_cached_index`, which
+    merges rather than replaces, so `get_index` must not overwrite the cache here.
+    """
     (tmp_path / _INDEX_FILENAME).write_text(json.dumps({"stale": "data"}))
 
     responses = _make_osf_responses(_FAKE_INDEX)
@@ -106,7 +111,7 @@ def test_get_index_refreshes_when_requested(tmp_path):
 
     assert result == _FAKE_INDEX
     cached = json.loads((tmp_path / _INDEX_FILENAME).read_text())
-    assert cached == _FAKE_INDEX
+    assert cached == {"stale": "data"}
 
 
 # ---------------------------------------------------------------------------
@@ -235,8 +240,8 @@ def test_refresh_skips_when_md5_unchanged(tmp_path):
     assert calls == []
 
 
-def test_refresh_skips_when_cached_md5_absent(tmp_path):
-    """A cached file whose old index lacked md5 is kept, not re-downloaded silently."""
+def test_refresh_redownloads_when_cached_md5_absent(tmp_path):
+    """A cached file whose old index lacked md5 is re-downloaded, not trusted."""
     (tmp_path / "a.nii.gz").touch()
     files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}}
     previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5}}  # old-format entry
@@ -245,7 +250,8 @@ def test_refresh_skips_when_cached_md5_absent(tmp_path):
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
         download_osf_files(tmp_path, files, previous, refresh=True)
 
-    assert calls == []
+    assert [c["fname"] for c in calls] == ["a.nii.gz"]
+    assert calls[0]["known_hash"] == "md5:new"
 
 
 def test_missing_file_downloads_with_known_hash(tmp_path):
@@ -261,3 +267,35 @@ def test_missing_file_downloads_with_known_hash(tmp_path):
 
     by_name = {c["fname"]: c["known_hash"] for c in calls}
     assert by_name == {"with_md5.nii.gz": "md5:abc123", "no_md5.nii.gz": None}
+
+
+# ---------------------------------------------------------------------------
+# update_cached_index — merge, don't replace
+# ---------------------------------------------------------------------------
+
+
+def test_update_cached_index_merges_without_replacing(tmp_path):
+    """Requested files adopt the remote entry; other files keep their cached one."""
+    remote_index = {
+        "requested.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"},
+        "unrequested.nii.gz": {"osf_path": "/f2", "size": 6, "md5": "remote-changed"},
+        "brand_new.nii.gz": {"osf_path": "/f3", "size": 7, "md5": "fresh"},
+    }
+    previous_index = {
+        "requested.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "old"},
+        "unrequested.nii.gz": {"osf_path": "/f2", "size": 6, "md5": "local-baseline"},
+    }
+    files = {"requested.nii.gz": remote_index["requested.nii.gz"]}
+
+    update_cached_index(tmp_path, remote_index, previous_index, files)
+
+    written = json.loads((tmp_path / _INDEX_FILENAME).read_text())
+    assert written == {
+        # Requested file was reconciled with disk, so it takes the remote md5.
+        "requested.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"},
+        # Untouched file keeps its cached baseline instead of the remote md5,
+        # so a later refresh can still detect it changed upstream.
+        "unrequested.nii.gz": {"osf_path": "/f2", "size": 6, "md5": "local-baseline"},
+        # A file never seen locally is catalogued from the remote index.
+        "brand_new.nii.gz": {"osf_path": "/f3", "size": 7, "md5": "fresh"},
+    }
