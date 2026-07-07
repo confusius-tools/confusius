@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
 import pooch
 import requests
@@ -27,18 +27,26 @@ _OSF_DOWNLOAD_BASE = "https://osf.io/download/{}/"
 _INDEX_FILENAME = "dataset_index.json"
 """Filename of the per-dataset index mapping BIDS-relative paths to metadata."""
 
+_INDEX_ENTRY_KEYS = frozenset({"osf_path", "size", "md5"})
+"""Keys every entry in a current `dataset_index.json` must define.
+
+A cached index whose entries do not all define these keys is from an older,
+incompatible confusius release and is rejected by
+[`read_cached_index`][confusius.datasets._osf.read_cached_index]."""
+
 
 class OsfFileInfo(TypedDict):
     """Per-file metadata entry in an OSF-backed dataset index.
 
-    Indices written before md5 tracking omit the `md5` key entirely; newer
-    ones may still carry `md5: null` for a file whose hash is unknown. Both
-    cases read back as a missing hash via `dict.get("md5")`.
+    Every current index defines `md5` for each file (its value may be `null`
+    for a file whose hash is unknown). A locally cached index missing the key
+    is from an older release and is rejected on load, so consumers can assume
+    the key is present.
     """
 
     osf_path: str
     size: int
-    md5: NotRequired[str | None]
+    md5: str | None
 
 
 def resolve_index_url(project_id: str, bids_root: str) -> str:
@@ -127,15 +135,20 @@ def get_index(
     dict[str, OsfFileInfo]
         Mapping from BIDS-relative file paths to
         [`OsfFileInfo`][confusius.datasets._osf.OsfFileInfo] entries (`osf_path`, `size`
-        in bytes, and an optional `md5` hex digest). The schema is the same for every
-        dataset: the index is produced by the per-dataset upload script in the
-        confusius-tools GitHub organisation and stored on OSF as `dataset_index.json`.
-        Indices written before md5 tracking omit `md5`.
+        in bytes, and an `md5` hex digest). The schema is the same for every dataset: the
+        index is produced by the per-dataset upload script in the confusius-tools GitHub
+        organisation and stored on OSF as `dataset_index.json`.
+
+    Raises
+    ------
+    RuntimeError
+        If a cached index exists but does not match the current schema (see
+        [`read_cached_index`][confusius.datasets._osf.read_cached_index]).
     """
     index_path = data_dir / _INDEX_FILENAME
     cache_exists = index_path.exists()
     if not refresh and cache_exists:
-        return json.loads(index_path.read_text(encoding="utf-8"))
+        return read_cached_index(data_dir)
 
     url = resolve_index_url(project_id, bids_root)
     response = requests.get(url)
@@ -192,6 +205,41 @@ def update_cached_index(
     _write_index(data_dir / _INDEX_FILENAME, merged)
 
 
+def _validate_index(index: object, data_dir: Path) -> None:
+    """Raise a helpful error if a cached index does not match the current schema.
+
+    The check is deliberately structural: every entry must define the keys in
+    `_INDEX_ENTRY_KEYS`. It future-proofs later schema changes—any older on-disk
+    layout fails here rather than being silently mis-handled—and points the user at
+    the dataset directory to delete.
+
+    Parameters
+    ----------
+    index : object
+        Decoded contents of a local `dataset_index.json`.
+    data_dir : pathlib.Path
+        Dataset root directory holding the index, shown to the user so they know
+        which directory to remove.
+
+    Raises
+    ------
+    RuntimeError
+        If `index` is not a mapping whose every entry defines the expected keys.
+    """
+    if isinstance(index, dict) and all(
+        isinstance(entry, dict) and _INDEX_ENTRY_KEYS <= entry.keys()
+        for entry in index.values()
+    ):
+        return
+
+    raise RuntimeError(
+        f"The dataset index in {data_dir} has an outdated or unrecognised structure "
+        f"(every entry must define {sorted(_INDEX_ENTRY_KEYS)}). This local dataset was "
+        f"likely downloaded with an older version of confusius. Delete the dataset "
+        f"directory and fetch it again to update it:\n\n    {data_dir}\n"
+    )
+
+
 def read_cached_index(data_dir: Path) -> dict[str, OsfFileInfo]:
     """Return the locally cached dataset index, or `{}` if none exists.
 
@@ -200,6 +248,9 @@ def read_cached_index(data_dir: Path) -> dict[str, OsfFileInfo]:
     refresh to capture the md5s the cached files were downloaded with, then compare
     those against the freshly fetched remote index to decide which files changed
     upstream.
+
+    A cached index that is present is validated against the current schema, so a stale
+    index from an older confusius release is reported rather than mis-handled.
 
     Parameters
     ----------
@@ -210,11 +261,19 @@ def read_cached_index(data_dir: Path) -> dict[str, OsfFileInfo]:
     -------
     dict[str, OsfFileInfo]
         Cached index mapping, or an empty mapping when no cache exists.
+
+    Raises
+    ------
+    RuntimeError
+        If a cached index exists but does not match the current schema; the message
+        names the dataset directory to delete and re-fetch.
     """
     index_path = data_dir / _INDEX_FILENAME
     if not index_path.exists():
         return {}
-    return json.loads(index_path.read_text(encoding="utf-8"))
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+    _validate_index(index, data_dir)
+    return index
 
 
 def _select_downloads(
@@ -227,11 +286,11 @@ def _select_downloads(
 
     A file is selected when it is absent from `bids_dir`. When `refresh` is `True`, a
     cached file is also selected when its md5 in `previous_index` (the index it was last
-    downloaded with) differs from—or is missing next to—its md5 in `files` (the freshly
+    downloaded with) differs from—or is absent next to—its md5 in `files` (the freshly
     fetched remote index). The cached index is trusted as the record of what is on disk,
-    so files are never re-hashed; a cache entry that lacks an md5 (e.g. one predating
-    md5 tracking) cannot be vouched for, so the file is re-downloaded and its entry
-    refreshed rather than left in an unverifiable state.
+    so files are never re-hashed; a file whose cached entry has no usable md5 (a null
+    hash, or a path not previously catalogued) cannot be vouched for, so it is
+    re-downloaded and its entry refreshed rather than left in an unverifiable state.
 
     Parameters
     ----------
@@ -262,8 +321,8 @@ def _select_downloads(
         remote_md5 = info.get("md5")
         local_md5 = previous_index.get(rel_path, {}).get("md5")
         # Re-download when the remote md5 is known and the cached md5 either
-        # differs or is absent (a missing local md5 cannot be verified, so the
-        # file is refreshed instead of assumed current).
+        # differs or is unavailable (a null hash, or a path not previously
+        # catalogued): it cannot be verified, so refresh rather than assume current.
         if remote_md5 and local_md5 != remote_md5:
             selected[rel_path] = info
 

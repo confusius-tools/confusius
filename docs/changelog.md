@@ -15,7 +15,9 @@ Current development version for the next ConfUSIus release.
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
-  the index MD5. Affects
+  the index MD5. A locally cached dataset whose `dataset_index.json` predates this format
+  is detected on fetch and reported with a clear error naming the directory to delete and
+  re-fetch, rather than being silently mishandled. Affects
   [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]

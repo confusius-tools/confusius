@@ -19,7 +19,10 @@ from confusius.datasets._osf import (
 
 _FAKE_PROJECT = "testproj"
 _FAKE_BIDS_ROOT = "fake-bids"
-_FAKE_INDEX = {"a/b/c.nii.gz": "/file001", "top.json": "/file002"}
+_FAKE_INDEX = {
+    "a/b/c.nii.gz": {"osf_path": "/file001", "size": 10, "md5": "aaa"},
+    "top.json": {"osf_path": "/file002", "size": 20, "md5": "bbb"},
+}
 
 
 def _make_osf_responses(
@@ -177,6 +180,20 @@ def test_read_cached_index_decodes_existing(tmp_path):
     assert read_cached_index(tmp_path) == _FAKE_INDEX
 
 
+def test_read_cached_index_rejects_outdated_structure(tmp_path):
+    """An index missing the current keys errors, naming the directory to delete."""
+    (tmp_path / _INDEX_FILENAME).write_text(
+        json.dumps({"a.nii.gz": {"osf_path": "/f1", "size": 5}})  # no md5 key
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        read_cached_index(tmp_path)
+
+    message = str(excinfo.value)
+    assert str(tmp_path) in message
+    assert "md5" in message
+
+
 # ---------------------------------------------------------------------------
 # download_osf_files — md5-aware, index-vs-index refresh
 # ---------------------------------------------------------------------------
@@ -240,11 +257,11 @@ def test_refresh_skips_when_md5_unchanged(tmp_path):
     assert calls == []
 
 
-def test_refresh_redownloads_when_cached_md5_absent(tmp_path):
-    """A cached file whose old index lacked md5 is re-downloaded, not trusted."""
+def test_refresh_redownloads_when_cached_md5_null(tmp_path):
+    """A cached file whose entry has a null md5 is re-downloaded, not trusted."""
     (tmp_path / "a.nii.gz").touch()
     files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}}
-    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5}}  # old-format entry
+    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": None}}
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
