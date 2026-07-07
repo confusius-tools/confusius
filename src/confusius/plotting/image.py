@@ -1,5 +1,6 @@
 """Image visualization utilities for fUSI data."""
 
+import math
 import numbers
 import warnings
 from collections.abc import Hashable
@@ -252,9 +253,25 @@ def _resolve_cmap(
 
     For `threshold_mode='lower'`: gray between `[-threshold, threshold]`.
     For `threshold_mode='upper'`: gray outside `[-threshold, threshold]`.
+
+    Raises
+    ------
+    ValueError
+        If `norm.vmin` or `norm.vmax` is not finite.
     """
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
+
+    if (
+        norm.vmin is None
+        or norm.vmax is None
+        or not math.isfinite(norm.vmin)
+        or not math.isfinite(norm.vmax)
+    ):
+        raise ValueError(
+            "norm.vmin and norm.vmax must be finite, got "
+            f"vmin={norm.vmin!r}, vmax={norm.vmax!r}."
+        )
 
     cmap = (
         cmap

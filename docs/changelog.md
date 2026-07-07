@@ -6,10 +6,13 @@ icon: lucide/history
 
 # Changelog
 
-## 0.5.0.dev0
+## 0.5.1.dev0
 
 Current development version for the next ConfUSIus release.
 
+## 0.5.0
+
+Released 2026-07-07.
 
 ### :boom: Breaking changes
 
@@ -102,6 +105,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`plot_volume`][confusius.plotting.plot_volume] and other image plotting functions now
+  raise a clear `ValueError` when `vmin`/`vmax` (or a passed-in `norm`) resolve to a
+  non-finite value, instead of crashing deep inside
+  `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque `IndexError`
+  ([#259](https://github.com/confusius-tools/confusius/pull/259)).
 - `save_nifti` now drops attrs that cannot be serialized to JSON as-is (e.g. matplotlib
   `ListedColormap`/`BoundaryNorm` objects) instead of writing their `str()` repr into the
   sidecar, which could corrupt fields such as `cmap` on reload. A warning lists the
