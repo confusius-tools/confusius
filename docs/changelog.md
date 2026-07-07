@@ -98,7 +98,7 @@ Current development version for the next ConfUSIus release.
   raise a clear `ValueError` when `vmin`/`vmax` (or a passed-in `norm`) resolve to a
   non-finite value, instead of crashing deep inside
   `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque `IndexError`
-  ([#258](https://github.com/confusius-tools/confusius/issues/258)).
+  ([#259](https://github.com/confusius-tools/confusius/pull/259)).
 - `save_nifti` now drops attrs that cannot be serialized to JSON as-is (e.g. matplotlib
   `ListedColormap`/`BoundaryNorm` objects) instead of writing their `str()` repr into the
   sidecar, which could corrupt fields such as `cmap` on reload. A warning lists the
