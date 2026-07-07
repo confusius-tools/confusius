@@ -1,7 +1,7 @@
 """Atlas class for brain atlas integration via BrainGlobe."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, TypeAlias, TypedDict
+from typing import TYPE_CHECKING, Literal, TypeAlias
 
 import numpy as np
 import numpy.typing as npt
@@ -10,6 +10,7 @@ import xarray as xr
 from scipy.interpolate import interpn
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.atlas._structures import (
     _build_lookup_df,
     _build_rgb_lookup,
@@ -112,40 +113,6 @@ B-spline or displacement-field DataArrays.
 """
 
 
-class _GridKwargs(TypedDict):
-    shape: list[int]
-    spacing: list[float]
-    origin: list[float]
-    dims: list[str]
-
-
-def _grid_from_dataarray(
-    da: xr.DataArray,
-) -> _GridKwargs:
-    """Return SimpleITK-style grid kwargs extracted from a DataArray.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        Spatial reference DataArray.
-
-    Returns
-    -------
-    _GridKwargs
-        Dictionary with `shape`, `spacing`, `origin`, and `dims` keys.
-    """
-    dims = [str(dim) for dim in da.dims]
-    return {
-        "shape": [int(da.sizes[dim]) for dim in dims],
-        "spacing": [
-            float(da.fusi.spacing[dim]) if da.fusi.spacing[dim] is not None else 1.0
-            for dim in dims
-        ],
-        "origin": [float(da.fusi.origin[dim]) for dim in dims],
-        "dims": dims,
-    }
-
-
 def _validate_mesh_vertex_transform(transform: MeshVertexTransform) -> None:
     """Raise ValueError if `transform` is not a valid mesh vertex transform.
 
@@ -208,7 +175,7 @@ def _transform_points(
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
         field = bspline_to_displacement_field(
-            transform, **_grid_from_dataarray(reference)
+            transform, **get_grid_kwargs_from_dataarray(reference)
         )
     displacement = _interpolate_displacement_field(field, points)
     return points + displacement
@@ -402,7 +369,7 @@ def _apply_mesh_vertex_transform(
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
         field = bspline_to_displacement_field(
-            transform, **_grid_from_dataarray(reference)
+            transform, **get_grid_kwargs_from_dataarray(reference)
         )
 
     initial_guess_affine = None
