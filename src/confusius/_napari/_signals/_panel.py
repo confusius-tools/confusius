@@ -43,17 +43,26 @@ class SignalPanel(QWidget):
         The active napari viewer instance.
     event_store : EventStore, optional
         Shared store of temporal events whose intervals are shaded on the plot.
+    signal_store : SignalStore, optional
+        Shared store of imported/live signals. If not provided, a private store is
+        created. Pass the same instance used elsewhere (e.g. the Preprocessing panel)
+        so imported signals are available across tabs.
     """
 
     def __init__(
-        self, viewer: napari.Viewer, event_store: EventStore | None = None
+        self,
+        viewer: napari.Viewer,
+        event_store: EventStore | None = None,
+        signal_store: SignalStore | None = None,
     ) -> None:
         super().__init__()
         self._viewer = viewer
         self._event_store = event_store
         self._plotter: SignalPlotter | None = None
         self._signals_manager: SignalsManagerDialog | None = None
-        self._signals_store = SignalStore(self)
+        self._signals_store = (
+            signal_store if signal_store is not None else SignalStore(self)
+        )
         self._cached_xaxis_dim_index: int | None = None
         self._setup_ui()
         viewer.events.theme.connect(self._on_theme_changed)

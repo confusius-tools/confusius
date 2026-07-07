@@ -19,6 +19,7 @@ from qtpy.QtCore import QSize, QTimer, Signal
 from qtpy.QtWidgets import QSizePolicy, QVBoxLayout, QWidget
 
 from confusius._dims import TIME_DIM
+from confusius._napari._utils import extract_voxel_trace
 from confusius._napari._export import (
     ExportSignal,
     PlotSignal,
@@ -842,22 +843,7 @@ class SignalPlotter(QWidget):
 
         Always uses the nearest voxel to the cursor position.
         """
-        data = layer.data
-        ind = list(int(round(x)) for x in layer.world_to_data(cursor_pos))
-
-        xaxis_index = self._xaxis_dim_index(layer)
-        # Replace the x-axis index before bounds-checking: the injected x-axis world
-        # coordinate (typically 0) may fall outside the data range (e.g. when the
-        # coordinate starts at a non-zero offset), which would cause the check to
-        # reject valid spatial positions.
-        ind[xaxis_index] = slice(None)  # type: ignore[call-overload]
-
-        if not all(
-            0 <= i < max_i for i, max_i in zip(ind, data.shape) if isinstance(i, int)
-        ):
-            return None
-
-        return data[tuple(ind)]
+        return extract_voxel_trace(layer, cursor_pos, self._xaxis_dim_index(layer))
 
     # ------------------------------------------------------------------
     # Source mode — public setters
@@ -1091,6 +1077,7 @@ class SignalPlotter(QWidget):
                     visible=True,
                     source_type="mouse",
                     source_id=None,
+                    layer_name=None,
                 ),
             ]
         )
@@ -1111,6 +1098,7 @@ class SignalPlotter(QWidget):
                     visible=True,
                     source_type="point",
                     source_id=point_index,
+                    layer_name=self._points_layer.name,
                 )
             )
         self._signals_store.register_live_signals(signals)
@@ -1123,7 +1111,7 @@ class SignalPlotter(QWidget):
         unique_labels : numpy.ndarray
             Array of nonzero label IDs found in the Labels layer.
         """
-        if self._signals_store is None:
+        if self._signals_store is None or self._labels_layer is None:
             return
         signals = []
         for lid in unique_labels:
@@ -1137,6 +1125,7 @@ class SignalPlotter(QWidget):
                     visible=True,
                     source_type="label",
                     source_id=lid_int,
+                    layer_name=self._labels_layer.name,
                 )
             )
         self._signals_store.register_live_signals(signals)

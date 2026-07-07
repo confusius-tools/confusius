@@ -76,6 +76,11 @@ class LiveSignal:
         Kind of napari source that produces this signal.
     source_id : int | None
         ``None`` for mouse, point index for points, label integer for labels.
+    layer_name : str | None
+        Name of the Points or Labels layer `source_id` is defined on, so
+        consumers outside the plotter (e.g. the Preprocessing panel) can
+        re-extract this signal's trace against a different reference image.
+        `None` for mouse signals, which have no backing layer.
     """
 
     id: str
@@ -84,6 +89,7 @@ class LiveSignal:
     visible: bool
     source_type: Literal["mouse", "point", "label"]
     source_id: int | None
+    layer_name: str | None = None
 
 
 class SignalStore(QObject):

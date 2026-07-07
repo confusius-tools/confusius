@@ -30,6 +30,7 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._napari._events._store import EventStore
+from confusius._napari._signals._store import SignalStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
 
@@ -244,7 +245,7 @@ class ConfUSIusWidget(QWidget):
     def __init__(self, napari_viewer: napari.Viewer) -> None:
         super().__init__()
         self.viewer = napari_viewer
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(430)
         self.setSizePolicy(
             QSizePolicy.Policy.MinimumExpanding,
             QSizePolicy.Policy.Expanding,
@@ -253,6 +254,9 @@ class ConfUSIusWidget(QWidget):
         # Shared store of BIDS temporal events, used by the event panel, the signal
         # plotter (background shading) and the time overlay (active-event readout).
         self._event_store = EventStore(self)
+        # Shared store of imported/live signals, used by the Signals panel and the
+        # Preprocessing panel (confounds/sample mask sourcing).
+        self._signal_store = SignalStore(self)
         self._apply_theme()
         self._setup_ui()
         self.viewer.events.theme.connect(self._on_theme_changed)
@@ -495,6 +499,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._data._load_panel import DataPanel
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._events._panel import EventPanel
+        from confusius._napari._preprocessing._panel import PreprocessingPanel
         from confusius._napari._qc._panel import QCPanel
         from confusius._napari._signals._panel import SignalPanel
         from confusius._napari._video._video_panel import VideoPanel
@@ -521,13 +526,19 @@ class ConfUSIusWidget(QWidget):
             ("Data I/O", "file-input"),
             ("Video", "video"),
             ("Signals", "chart-line"),
+            ("Preprocessing", "brush-cleaning"),
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
         panels = [
             data_panel,
             video_panel,
-            SignalPanel(self.viewer, event_store=self._event_store),
+            SignalPanel(
+                self.viewer,
+                event_store=self._event_store,
+                signal_store=self._signal_store,
+            ),
+            PreprocessingPanel(self.viewer, signal_store=self._signal_store),
             EventPanel(self.viewer, self._event_store),
             QCPanel(self.viewer),
         ]
