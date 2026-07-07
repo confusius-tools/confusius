@@ -119,17 +119,9 @@ cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 
 # %%
 registered, rigid_transform, diagnostics = cf.registration.register_volume(
-    moving=moving,
-    fixed=fixed,
-    transform_type="rigid",
-    learning_rate=1.0,
-    show_progress=True,
+    moving=moving, fixed=fixed, transform_type="rigid", show_progress=True
 )
-
-print(f"Iterations: {diagnostics.n_iterations}")
-print(f"Final metric: {diagnostics.final_metric_value:.4f}")
-print(f"Stop condition: {diagnostics.stop_condition}")
-rigid_transform
+print(f"Rigid transform:\n{rigid_transform}")
 
 # %% [markdown]
 # ## Check the alignment after registration
@@ -198,15 +190,10 @@ registered_bspline, bspline_transform, diagnostics_bspline = (
         fixed=fixed,
         transform_type="bspline",
         mesh_size=(6, 6, 6),
-        learning_rate=1.0,
         initialization=rigid_transform,
         show_progress=True,
     )
 )
-
-print(f"Iterations: {diagnostics_bspline.n_iterations}")
-print(f"Final metric: {diagnostics_bspline.final_metric_value:.4f}")
-print(f"Stop condition: {diagnostics_bspline.stop_condition}")
 bspline_transform
 
 # %% [markdown]
@@ -245,7 +232,7 @@ ax.set_ylabel(f"Similarity metric ({diagnostics_bspline.metric})")
 _ = ax.set_title(diagnostics_bspline.stop_condition)
 
 # %% [markdown]
-# ## Visualise the deformation as a quiver
+# ## Visualize the deformation as a quiver
 #
 # To see the deformation directly, sample the B-spline transform into a dense
 # displacement field with
