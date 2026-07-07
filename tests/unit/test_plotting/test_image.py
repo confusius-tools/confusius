@@ -536,7 +536,14 @@ class TestVolumePlotterAddVolume:
     def test_dataarray_alpha_dim_mismatch_raises(
         self, sample_3d_volume, matplotlib_pyplot
     ):
-        alpha = sample_3d_volume.isel(x=0).drop_vars("x")
+        """Still-3D alpha with a differently-named dimension is rejected explicitly.
+
+        Dropping a dimension entirely (e.g. via `.isel(x=0)`) would instead trip the
+        earlier "must be 3D" check in `_prepare_slice_inputs`, not the dims-equality
+        check this test targets, so the mismatch is introduced via `rename` to keep
+        `alpha` 3D.
+        """
+        alpha = sample_3d_volume.rename(x="w")
         with pytest.raises(ValueError, match="dims"):
             VolumePlotter(slice_mode="z").add_volume(
                 sample_3d_volume, match_coordinates=False, alpha=alpha
