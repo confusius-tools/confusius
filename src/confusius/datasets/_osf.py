@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import warnings
 from pathlib import Path
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import pooch
 import requests
@@ -29,10 +31,16 @@ _INDEX_FILENAME = "dataset_index.json"
 
 
 class OsfFileInfo(TypedDict):
-    """Per-file metadata entry in an OSF-backed dataset index."""
+    """Per-file metadata entry in an OSF-backed dataset index.
+
+    Indices written before md5 tracking omit the `md5` key entirely; newer
+    ones may still carry `md5: null` for a file whose hash is unknown. Both
+    cases read back as a missing hash via `dict.get("md5")`.
+    """
 
     osf_path: str
     size: int
+    md5: NotRequired[str | None]
 
 
 def resolve_index_url(project_id: str, bids_root: str) -> str:
@@ -115,10 +123,11 @@ def get_index(
     -------
     dict[str, OsfFileInfo]
         Mapping from BIDS-relative file paths to
-        [`OsfFileInfo`][confusius.datasets._osf.OsfFileInfo] entries (`osf_path` and
-        `size` in bytes). The schema is the same for every dataset: the index is
-        produced by the per-dataset upload script in the confusius-tools GitHub
-        organisation and stored on OSF as `dataset_index.json`.
+        [`OsfFileInfo`][confusius.datasets._osf.OsfFileInfo] entries (`osf_path`,
+        `size` in bytes, and an optional `md5` hex digest). The schema is the same
+        for every dataset: the index is produced by the per-dataset upload script
+        in the confusius-tools GitHub organisation and stored on OSF as
+        `dataset_index.json`. Indices written before md5 tracking omit `md5`.
     """
     index_path = data_dir / _INDEX_FILENAME
     if not refresh and index_path.exists():
@@ -134,8 +143,39 @@ def get_index(
     return index
 
 
-def download_missing_osf_files(bids_dir: Path, files: dict[str, OsfFileInfo]) -> None:
-    """Download missing OSF files described by an index mapping.
+def _file_md5(path: Path) -> str:
+    """Return the hex-encoded MD5 digest of a file.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        File to hash.
+
+    Returns
+    -------
+    str
+        Lowercase hexadecimal MD5 digest, matching the `md5` values stored in
+        `dataset_index.json`.
+    """
+    md5 = hashlib.md5()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            md5.update(chunk)
+    return md5.hexdigest()
+
+
+def _select_downloads(
+    bids_dir: Path,
+    files: dict[str, OsfFileInfo],
+    refresh: bool,
+) -> dict[str, OsfFileInfo]:
+    """Return the subset of `files` that must be (re)downloaded.
+
+    A file is selected when it is absent locally. When `refresh` is `True`, a
+    file that is present but whose local MD5 differs from the index `md5` is
+    also selected. Entries without an `md5` (an index predating md5 tracking,
+    or a `null` hash) fall back to the "download only if missing" behaviour and
+    trigger a single warning, since their content cannot be checked.
 
     Parameters
     ----------
@@ -143,12 +183,71 @@ def download_missing_osf_files(bids_dir: Path, files: dict[str, OsfFileInfo]) ->
         Local BIDS root directory where files are cached.
     files : dict[str, OsfFileInfo]
         Mapping from BIDS-relative paths to OSF download metadata.
+    refresh : bool
+        Whether to re-download cached files whose local MD5 no longer matches
+        the index.
+
+    Returns
+    -------
+    dict[str, OsfFileInfo]
+        Subset of `files` to download, preserving the input order.
     """
-    missing = {p: info for p, info in files.items() if not (bids_dir / p).exists()}
-    if not missing:
+    selected: dict[str, OsfFileInfo] = {}
+    unhashable = False
+
+    for rel_path, info in files.items():
+        dest = bids_dir / rel_path
+        if not dest.exists():
+            selected[rel_path] = info
+            continue
+        if not refresh:
+            continue
+        md5 = info.get("md5")
+        if not md5:
+            unhashable = True
+            continue
+        if _file_md5(dest) != md5:
+            selected[rel_path] = info
+
+    if refresh and unhashable:
+        warnings.warn(
+            "Some cached files could not be checked for upstream changes because "
+            "the dataset index has no md5 for them. Refresh only redownloaded "
+            "missing files for those entries. Re-run the dataset's upload script "
+            "to populate md5 hashes.",
+            stacklevel=2,
+        )
+
+    return selected
+
+
+def download_missing_osf_files(
+    bids_dir: Path,
+    files: dict[str, OsfFileInfo],
+    refresh: bool = False,
+) -> None:
+    """Download OSF files described by an index mapping.
+
+    Files absent from `bids_dir` are always downloaded. When `refresh` is
+    `True`, cached files whose local MD5 differs from the index `md5` are
+    re-downloaded as well; see
+    [`_select_downloads`][confusius.datasets._osf._select_downloads].
+
+    Parameters
+    ----------
+    bids_dir : pathlib.Path
+        Local BIDS root directory where files are cached.
+    files : dict[str, OsfFileInfo]
+        Mapping from BIDS-relative paths to OSF download metadata.
+    refresh : bool, default: False
+        Whether to re-download cached files whose local MD5 no longer matches
+        the index.
+    """
+    to_download = _select_downloads(bids_dir, files, refresh)
+    if not to_download:
         return
 
-    total_bytes = sum(info["size"] for info in missing.values())
+    total_bytes = sum(info["size"] for info in to_download.values())
 
     with quiet_pooch_logger():
         pooch_logger = pooch.get_logger()
@@ -163,7 +262,7 @@ def download_missing_osf_files(bids_dir: Path, files: dict[str, OsfFileInfo]) ->
         ) as progress:
             task = progress.add_task("Downloading dataset...", total=total_bytes)
 
-            for rel_path, file_info in missing.items():
+            for rel_path, file_info in to_download.items():
                 dest = bids_dir / rel_path
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 progress.update(
@@ -172,12 +271,14 @@ def download_missing_osf_files(bids_dir: Path, files: dict[str, OsfFileInfo]) ->
                 )
                 adapter = _RichProgressAdapter(progress, task)
                 osf_path = file_info["osf_path"]
+                md5 = file_info.get("md5")
                 retrieve_with_retries(
                     url=_OSF_DOWNLOAD_BASE.format(osf_path.lstrip("/")),
                     dest=dest,
                     logger=pooch_logger,
                     progressbar=adapter,
                     on_retry=adapter.rewind,
+                    known_hash=f"md5:{md5}" if md5 else None,
                 )
 
             progress.update(task, description="Download complete.")

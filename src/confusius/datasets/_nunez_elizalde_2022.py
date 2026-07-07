@@ -156,8 +156,9 @@ def fetch_nunez_elizalde_2022(
         all acquisitions are downloaded. Only applies to `fusi/` files;
         angiography files are always included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and download any files that are
-        missing locally. If `False` and all requested files are already cached, the
+        Whether to re-fetch the dataset index from OSF and reconcile local files against
+        it: missing files are downloaded, and cached files whose MD5 no longer matches the
+        index are re-downloaded. If `False` and all requested files are already cached, the
         function returns immediately without any network access.
 
     Returns
@@ -195,6 +196,6 @@ def fetch_nunez_elizalde_2022(
     index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
     files = _filter_files(index, subjects, sessions, tasks, acqs)
 
-    download_missing_osf_files(bids_dir, files)
+    download_missing_osf_files(bids_dir, files, refresh=refresh)
 
     return bids_dir

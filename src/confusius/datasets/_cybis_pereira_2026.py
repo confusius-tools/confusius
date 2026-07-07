@@ -231,10 +231,11 @@ def fetch_cybis_pereira_2026(
         (e.g. session-level `scans.tsv`, subject-level derivative
         aggregates) are always included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and download any files
-        that are missing locally. If `False` and all requested files are
-        already cached, the function returns immediately without any network
-        access.
+        Whether to re-fetch the dataset index from OSF and reconcile local
+        files against it: missing files are downloaded, and cached files whose
+        MD5 no longer matches the index are re-downloaded. If `False` and all
+        requested files are already cached, the function returns immediately
+        without any network access.
 
     Returns
     -------
@@ -295,6 +296,6 @@ def fetch_cybis_pereira_2026(
     index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
     files = _filter_files(index, datasets, subjects, sessions, acqs, datatypes)
 
-    download_missing_osf_files(bids_dir, files)
+    download_missing_osf_files(bids_dir, files, refresh=refresh)
 
     return bids_dir
