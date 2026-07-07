@@ -30,7 +30,7 @@ Current development version for the next ConfUSIus release.
   MD5. Affects [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
-  ([#PR](https://github.com/confusius-tools/confusius/pull/PR)).
+  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
 - Added [`plot_matrix`][confusius.plotting.plot_matrix] for plotting 2D matrices
   (e.g. connectivity or correlation matrices), with optional lower/diagonal triangle
   masking, grid lines, and a `groups` parameter that annotates contiguous label runs
