@@ -1977,7 +1977,40 @@ def _build_nifti_sidecar_metadata(
 
     sidecar_attrs.update(_build_extra_dim_sidecar_metadata(data_array))
     sidecar_attrs.update(timing_metadata)
-    return sidecar_attrs
+    return _drop_non_json_serializable_attrs(sidecar_attrs)
+
+
+def _drop_non_json_serializable_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Drop attrs whose values cannot be serialized to JSON as-is.
+
+    Parameters
+    ----------
+    attrs : dict[str, Any]
+        Attributes to filter.
+
+    Returns
+    -------
+    dict[str, Any]
+        Copy of `attrs` containing only entries whose value round-trips through
+        `json.dumps` without coercion.
+    """
+    serializable_attrs = {}
+    dropped_keys = []
+    for key, value in attrs.items():
+        try:
+            json.dumps(value)
+        except TypeError:
+            dropped_keys.append(key)
+        else:
+            serializable_attrs[key] = value
+
+    if dropped_keys:
+        warnings.warn(
+            f"Dropping non-JSON-serializable attrs from NIfTI sidecar: {dropped_keys}.",
+            stacklevel=find_stack_level(),
+        )
+
+    return serializable_attrs
 
 
 def _create_nifti_image(
@@ -2002,9 +2035,8 @@ def _create_nifti_image(
     nifti_version : {1, 2}
         NIfTI image version to instantiate.
     spacings : list[float]
-        Full NIfTI spacing vector, including temporal and extra-dimension entries when
-        present. Signed values are preserved in `pixdim` after calling nibabel's
-        `set_zooms` with their absolute values.
+        Full NIfTI signed spacing vector, including temporal and extra-dimension entries when
+        present.
     qform_affine : (4, 4) numpy.ndarray
         Resolved qform affine in NIfTI axis order.
     sform_affine : (4, 4) numpy.ndarray or None
@@ -2025,12 +2057,15 @@ def _create_nifti_image(
     constructor_affine = sform_affine if sform_affine is not None else qform_affine
     nifti_img = img_class(data, constructor_affine)
 
-    header_zooms = [abs(spacing) for spacing in spacings]
-    nifti_img.header.set_zooms(header_zooms)
-    for axis_index, spacing in enumerate(spacings, start=1):
-        if not np.isclose(spacing, header_zooms[axis_index - 1]):
-            nifti_img.header.structarr["pixdim"][axis_index] = np.float32(spacing)
+    # pixdim[4:] for temporal and extra dimensions are set independently of the qform.
+    for axis_index, spacing in enumerate(spacings[3:], start=4):
+        nifti_img.header.structarr["pixdim"][axis_index] = np.float32(spacing)
 
+    # Setting the qform also sets several parameters in the NIfTI header:
+    # the pixdim[1:4] (from zooms), qoffset_xyz (from translation), qfac (from
+    # determinant of the rotation block) and quatern_bcd (from the quaternion
+    # representation).
+    # obs.: qform is always valid at this point.
     nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
 
     if sform_affine is not None:
@@ -2203,4 +2238,4 @@ def save_nifti(
             )
 
     with open(sidecar_path, "w") as f:
-        json.dump(bids_attrs, f, indent=2, default=str)
+        json.dump(bids_attrs, f, indent=2)

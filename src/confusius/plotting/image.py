@@ -1,6 +1,8 @@
 """Image visualization utilities for fUSI data."""
 
+import numbers
 import warnings
+from collections.abc import Hashable
 from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 import numpy as np
@@ -15,6 +17,10 @@ from confusius.plotting._hover import (
     _normalize_roi_labels,
 )
 from confusius.plotting._utils import (
+    _auto_fg_color,
+    _get_distinct_colors,
+    _resolve_font_sizes,
+    _style_colorbar,
     coerce_complex_to_magnitude,
     sort_coords_for_plot,
 )
@@ -33,50 +39,6 @@ _BASE_SIZE = 4.0
 Actual figure size is computed as `(subplot_size * ncols + 1 inch for colorbar,
 subplot_size * nrows)` and then constrained to a maximum size.
 """
-
-
-def _relative_luminance(color: str) -> float:
-    """Compute WCAG 2.1 relative luminance for any matplotlib color string.
-
-    Parameters
-    ----------
-    color : str
-        Any matplotlib-compatible color string (e.g. `"black"`, `"#1a1a2e"`).
-
-    Returns
-    -------
-    float
-        Relative luminance in [0, 1], where 0 is darkest and 1 is lightest.
-
-    Notes
-    -----
-    Implements the WCAG 2.1 relative luminance definition:
-    https://www.w3.org/TR/WCAG21/#dfn-relative-luminance
-    """
-    import matplotlib.colors as mcolors
-
-    def _linearize(c: float) -> float:
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-    r, g, b = mcolors.to_rgb(color)
-    return 0.2126 * _linearize(r) + 0.7152 * _linearize(g) + 0.0722 * _linearize(b)
-
-
-def _auto_fg_color(bg_color: str) -> str:
-    """Return white or black for maximum WCAG contrast against `bg_color`.
-
-    Parameters
-    ----------
-    bg_color : str
-        Any matplotlib-compatible background color string.
-
-    Returns
-    -------
-    str
-        `"white"` when the background is dark (relative luminance < 0.179),
-        `"black"` otherwise.
-    """
-    return "white" if _relative_luminance(bg_color) < 0.179 else "black"
 
 
 def _compute_grid_dims(
@@ -287,52 +249,49 @@ def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     return label
 
 
-def _resolve_font_sizes(
-    fontsize: float | None,
-) -> tuple[float | None, float | None, float | None]:
-    """Resolve title, label, and tick font sizes from a base size.
-
-    Parameters
-    ----------
-    fontsize : float, optional
-        Base font size for plot text elements.
-
-    Returns
-    -------
-    title_fontsize : float, optional
-        Font size for subplot titles.
-    label_fontsize : float, optional
-        Font size for axis and colorbar labels.
-    tick_fontsize : float, optional
-        Font size for tick labels.
-    """
-    if fontsize is None:
-        return None, None, None
-    return fontsize, fontsize * 0.9, fontsize * 0.85
+def _format_coord(coord: Hashable) -> str:
+    """Format a slice coordinate for display: `.3g` for numeric, `str` otherwise."""
+    if isinstance(coord, numbers.Real):
+        return f"{coord:.3g}"
+    return str(coord)
 
 
-def _get_distinct_colors(n_colors: int) -> list[tuple[float, float, float]]:
-    """Generate `n_colors` visually distinct colors."""
-    import matplotlib
-
-    cmap = matplotlib.colormaps["tab10" if n_colors <= 10 else "tab20"]
-    return [tuple(cmap(i % cmap.N)[:3]) for i in range(n_colors)]
+def _coords_match(
+    stored_coord: Hashable, target_coord: Hashable, tolerance: float
+) -> bool:
+    """Compare two slice coordinates, using a tolerance for numeric values."""
+    if isinstance(stored_coord, numbers.Real) and isinstance(
+        target_coord, numbers.Real
+    ):
+        return abs(float(stored_coord) - float(target_coord)) < tolerance
+    return stored_coord == target_coord
 
 
 def _extract_slices(
-    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[float]
-) -> tuple[list[xr.DataArray], list[float]]:
+    data: xr.DataArray, slice_mode: str, slice_coords: Sequence[Hashable]
+) -> tuple[list[xr.DataArray], list[Hashable]]:
     """Extract 2D slices from `data` along `slice_mode`.
+
+    Numeric coordinates are matched by nearest-neighbour lookup; non-numeric
+    coordinates (e.g. region labels) require an exact match.
 
     Returns the slices and their actual snapped coordinate values.
     """
     slices: list[xr.DataArray] = []
-    actual_coords: list[float] = []
+    actual_coords: list[Hashable] = []
     for coord in slice_coords:
         if slice_mode in data.coords:
-            slice_da = data.sel({slice_mode: coord}, method="nearest")
-            actual_coord = float(slice_da.coords[slice_mode].values)
+            is_numeric = np.issubdtype(data.coords[slice_mode].dtype, np.number)
+            slice_da = data.sel(
+                {slice_mode: coord}, method="nearest" if is_numeric else None
+            )
+            actual_coord = slice_da.coords[slice_mode].values.item()
         else:
+            if not isinstance(coord, numbers.Real):
+                raise ValueError(
+                    f"slice_mode '{slice_mode}' has no coordinates, so slice_coords "
+                    f"must be numeric positional indices, got {coord!r}."
+                )
             idx = int(round(coord))
             slice_da = data.isel({slice_mode: idx})
             actual_coord = float(coord)
@@ -414,7 +373,7 @@ class VolumePlotter:
         self._fg_color = fg_color
         self._yincrease = yincrease
         self._xincrease = xincrease
-        self._coord_to_axis: dict[float, int] = {}
+        self._coord_to_axis: dict[Hashable, int] = {}
         # Explicitly tracked axis data limits to avoid matplotlib's auto-margin.
         self._axis_xlims: dict[int, tuple[float, float]] = {}
         self._axis_ylims: dict[int, tuple[float, float]] = {}
@@ -479,7 +438,7 @@ class VolumePlotter:
             self._hover_manager.roi_labels.update(roi_labels)
 
     def _find_matching_axes(
-        self, actual_coords: list[float], tolerance: float = 1e-6
+        self, actual_coords: list[Hashable], tolerance: float = 1e-6
     ) -> list[tuple[int, int]]:
         """Find axis indices matching the target coordinates.
 
@@ -488,10 +447,12 @@ class VolumePlotter:
 
         Parameters
         ----------
-        actual_coords : list[float]
+        actual_coords : list[collections.abc.Hashable]
             The actual coordinate values of the slices being plotted.
         tolerance : float, default: 1e-6
-            Tolerance for matching coordinates, accounting for floating-point precision.
+            Tolerance for matching numeric coordinates, accounting for floating-point
+            precision. Non-numeric coordinates (e.g. region labels) are matched by
+            equality.
 
         Returns
         -------
@@ -501,7 +462,7 @@ class VolumePlotter:
         matched = []
         for slice_idx, target_coord in enumerate(actual_coords):
             for stored_coord, axis_idx in self._coord_to_axis.items():
-                if abs(stored_coord - target_coord) < tolerance:
+                if _coords_match(stored_coord, target_coord, tolerance):
                     matched.append((axis_idx, slice_idx))
                     break
         return matched
@@ -544,12 +505,12 @@ class VolumePlotter:
         store[axis_idx] = new_lim
         return new_lim
 
-    def _warn_unmatched(self, unmatched_slices: list[tuple[int, float]]) -> None:
+    def _warn_unmatched(self, unmatched_slices: list[tuple[int, Hashable]]) -> None:
         """Warn about slice coordinates that could not be matched to axes."""
         unmatched_str = ", ".join(
-            f"{self.slice_mode}={coord:.3g}" for _, coord in unmatched_slices
+            f"{self.slice_mode}={_format_coord(coord)}" for _, coord in unmatched_slices
         )
-        available_coords = [f"{c:.3g}" for c in self._coord_to_axis]
+        available_coords = [_format_coord(c) for c in self._coord_to_axis]
         warnings.warn(
             f"Could not find matching axes for slices: {unmatched_str}. "
             f"These slices will not be plotted. "
@@ -557,20 +518,20 @@ class VolumePlotter:
             stacklevel=find_stack_level(),
         )
 
-    def _build_slice_title(self, data: xr.DataArray, coord: float) -> str:
-        """Build a slice title such as `z = 0.001 mm`."""
+    def _build_slice_title(self, data: xr.DataArray, coord: Hashable) -> str:
+        """Build a slice title such as `z = 0.001 mm` or `region = LGN`."""
         units = (
             data.coords[self.slice_mode].attrs.get("units")
             if self.slice_mode in data.coords
             else None
         )
-        title = f"{self.slice_mode} = {coord:.3g}"
+        title = f"{self.slice_mode} = {_format_coord(coord)}"
         if units:
             title += f" {units}"
         return title
 
     def _init_sequential_layout(
-        self, actual_coords: list[float]
+        self, actual_coords: list[Hashable]
     ) -> list[tuple[int, int]]:
         """Initialise the coordinate-to-axis map and return sequential plot indices."""
         if not self._coord_to_axis:
@@ -603,7 +564,7 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         n_slices: int,
-        actual_coords: list[float],
+        actual_coords: list[Hashable],
         dim_row: str,
         dim_col: str,
         *,
@@ -663,7 +624,7 @@ class VolumePlotter:
         ax: "Axes",
         axis_idx: int,
         data: xr.DataArray,
-        coord: float,
+        coord: Hashable,
         dim_row: str,
         dim_col: str,
         x_edges: np.ndarray,
@@ -725,7 +686,7 @@ class VolumePlotter:
         self,
         data: xr.DataArray,
         *,
-        slice_coords: Sequence[float] | None = None,
+        slice_coords: Sequence[Hashable] | None = None,
         match_coordinates: bool = True,
         cmap: "str | Colormap | None" = None,
         norm: "Normalize | None" = None,
@@ -754,8 +715,10 @@ class VolumePlotter:
             3D volume data. Unitary dimensions (except `slice_mode`) are squeezed
             before processing. Complex-valued inputs are converted to magnitude
             (`abs(data)`) with a warning.
-        slice_coords : list[float], optional
-            Specific coordinates to plot. If None, uses all coordinates from data.
+        slice_coords : list[collections.abc.Hashable], optional
+            Specific coordinates to plot. Numeric coordinates are matched by
+            nearest-neighbour lookup; non-numeric coordinates (e.g. region labels)
+            require an exact match. If not provided, uses all coordinates from data.
         match_coordinates : bool, default: True
             If True, match slice coordinates to the stored coordinate mapping (for
             overlays). If False, plot sequentially on all axes (requires exact axis
@@ -823,8 +786,6 @@ class VolumePlotter:
         ValueError
             If no matching coordinates are found or axis count doesn't match.
         """
-        import matplotlib.pyplot as plt
-
         resolved_roi_labels = _normalize_roi_labels(
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
@@ -947,14 +908,13 @@ class VolumePlotter:
                     cbar_label = long_name
                 elif units:
                     cbar_label = f"({units})"
-            if cbar_label is not None:
-                cbar.set_label(cbar_label, color=text_color, fontsize=label_fontsize)
-
-            cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-            plt.setp(
-                cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+            _style_colorbar(
+                cbar,
+                text_color,
+                tick_fontsize,
+                label=cbar_label,
+                label_fontsize=label_fontsize,
             )
-            cbar.outline.set_edgecolor(text_color)  # type: ignore
 
         return self
 
@@ -968,7 +928,7 @@ class VolumePlotter:
         rtol: float = 1e-5,
         atol: float = 1e-8,
         normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-        slice_coords: Sequence[float] | None = None,
+        slice_coords: Sequence[Hashable] | None = None,
         match_coordinates: bool = False,
         alpha: float | None = None,
         show_titles: bool = True,
@@ -1031,9 +991,11 @@ class VolumePlotter:
               range. Preserves the absolute-intensity relationship between the
               two inputs, useful when comparing data acquired at the same
               dynamic range.
-        slice_coords : sequence of float, optional
-            Coordinate values along `slice_mode` at which to extract slices. If not
-            provided, all coordinate values from `data1` are used.
+        slice_coords : Sequence[collections.abc.Hashable], optional
+            Coordinate values along `slice_mode` at which to extract slices. Numeric
+            coordinates are matched by nearest-neighbour lookup; non-numeric
+            coordinates (e.g. region labels) require an exact match. If not provided,
+            all coordinate values from `data1` are used.
         match_coordinates : bool, default: False
             If True, match slice coordinates to the stored coordinate mapping of an
             existing figure (for use as an overlay). If False, plot sequentially on
@@ -1246,7 +1208,7 @@ class VolumePlotter:
         linewidths: float = 1.5,
         linestyles: str = "solid",
         match_coordinates: bool = True,
-        slice_coords: list[float] | None = None,
+        slice_coords: list[Hashable] | None = None,
         fontsize: float | None = None,
         roi_labels: dict[int, str] | None = None,
         **kwargs,
@@ -1283,10 +1245,11 @@ class VolumePlotter:
         match_coordinates : bool, default: True
             If `True`, overlay contours on axes whose slice coordinate matches the
             mask. If `False`, plot sequentially on all axes.
-        slice_coords : list[float], optional
+        slice_coords : list[collections.abc.Hashable], optional
             Coordinate values along the plotter's `slice_mode` at which to draw
-            contours. Slices are selected by nearest-neighbour lookup. If not
-            provided, all coordinate values along `slice_mode` are used.
+            contours. Numeric coordinates are matched by nearest-neighbour lookup;
+            non-numeric coordinates (e.g. region labels) require an exact match. If
+            not provided, all coordinate values along `slice_mode` are used.
         fontsize : float, optional
             Base font size for text elements when a standalone contour figure is created
             (`match_coordinates=False`). Subplot titles use `fontsize` directly;
@@ -1609,7 +1572,7 @@ def plot_contours(
     linewidths: float = 1.5,
     linestyles: str = "solid",
     slice_mode: str = "z",
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     fontsize: float | None = None,
     yincrease: bool = False,
     xincrease: bool = True,
@@ -1652,10 +1615,11 @@ def plot_contours(
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After
         slicing, each panel must be 2D.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values along `slice_mode` are used.
     fontsize : float, optional
         Base font size for text elements. Subplot titles use `fontsize` directly; axis
         labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not provided,
@@ -1751,7 +1715,7 @@ def plot_contours(
 def plot_volume(
     data: xr.DataArray,
     *,
-    slice_coords: list[float] | None = None,
+    slice_coords: list[Hashable] | None = None,
     slice_mode: str = "z",
     cmap: "str | Colormap | None" = None,
     norm: "Normalize | None" = None,
@@ -1789,10 +1753,11 @@ def plot_volume(
         Input data array. Unitary dimensions are squeezed before processing. After
         squeezing, data must be 3D. Complex-valued data is converted to magnitude
         before display.
-    slice_coords : list[float], optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
-        along `slice_mode` are used.
+    slice_coords : list[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
+        all coordinate values along `slice_mode` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g., `"x"`, `"y"`, `"z"`,
         `"time"`). After slicing, each panel must be 2D.
@@ -1971,7 +1936,7 @@ def plot_composite(
     rtol: float = 1e-5,
     atol: float = 1e-8,
     normalize_strategy: Literal["per_volume", "per_slice", "shared"] = "per_volume",
-    slice_coords: Sequence[float] | None = None,
+    slice_coords: Sequence[Hashable] | None = None,
     slice_mode: str = "z",
     alpha: float | None = None,
     show_titles: bool = True,
@@ -2034,9 +1999,10 @@ def plot_composite(
         - `"shared"`: rescale both volumes together using a single shared
           `[min(data1.min(), data2.min()), max(data1.max(), data2.max())]` range.
           Preserves the absolute-intensity relationship between the two inputs.
-    slice_coords : sequence of float, optional
-        Coordinate values along `slice_mode` at which to extract slices. Slices are
-        selected by nearest-neighbour lookup. If not provided, all coordinate values
+    slice_coords : Sequence[collections.abc.Hashable], optional
+        Coordinate values along `slice_mode` at which to extract slices. Numeric
+        coordinates are matched by nearest-neighbour lookup; non-numeric
+        coordinates (e.g. region labels) require an exact match. If not provided,
         from `data1` are used.
     slice_mode : str, default: "z"
         Dimension along which to slice (e.g. `"x"`, `"y"`, `"z"`). After slicing, each
@@ -2311,15 +2277,13 @@ def _draw_carpet(
 
     if plotted_quadmesh.colorbar is not None:
         cbar = plotted_quadmesh.colorbar
-        cbar.ax.yaxis.set_tick_params(color=text_color, labelsize=tick_fontsize)
-        plt.setp(
-            cbar.ax.yaxis.get_ticklabels(), color=text_color, fontsize=tick_fontsize
+        _style_colorbar(
+            cbar,
+            text_color,
+            tick_fontsize,
+            bg_color=bg_color,
+            label_fontsize=label_fontsize,
         )
-        cbar.ax.yaxis.label.set_color(text_color)
-        if label_fontsize is not None:
-            cbar.ax.yaxis.label.set_fontsize(label_fontsize)
-        cbar.outline.set_edgecolor(text_color)
-        cbar.ax.set_facecolor(bg_color)
 
     ax.grid(False)
     ax.set_yticks([])

@@ -1,4 +1,5 @@
-# %% [markdown] # NMF on a single fUSI recording
+# %% [markdown]
+# # NMF on a single fUSI recording
 #
 # This example shows how to use non-negative matrix factorization (NMF) to decompose a
 # fUSI recording into non-negative spatial maps and their associated non-negative time

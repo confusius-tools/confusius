@@ -270,6 +270,16 @@ class TestGetMasks:
 
         np.testing.assert_array_equal((left > 0) | (right > 0), both > 0)
 
+    def test_per_region_sides_mask_coord_disambiguated(self, atlas: Atlas) -> None:
+        """Same region with different sides must not share a `mask` coord value."""
+        result = atlas.get_masks([10, 10], sides=["left", "right"])
+        np.testing.assert_array_equal(result.coords["mask"].values, ["ch_L", "ch_R"])
+
+    def test_both_side_mask_coord_is_bare_acronym(self, atlas: Atlas) -> None:
+        """`sides="both"` (the default) must not suffix the acronym."""
+        result = atlas.get_masks(10, sides="both")
+        np.testing.assert_array_equal(result.coords["mask"].values, ["ch"])
+
     def test_str_acronym_gives_same_result_as_integer_id(self, atlas: Atlas) -> None:
         by_id = atlas.get_masks(10).values[0]
         by_acronym = atlas.get_masks("ch").values[0]
