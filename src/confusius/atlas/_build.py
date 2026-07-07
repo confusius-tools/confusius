@@ -12,28 +12,21 @@ if TYPE_CHECKING:
     from brainglobe_atlasapi import BrainGlobeAtlas
 
 
-def atlas_from_brainglobe(
-    atlas: "str | BrainGlobeAtlas", **kwargs: object
-) -> xr.Dataset:
-    """Build an atlas Dataset from a BrainGlobe atlas name or instance.
+def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
+    """Build an atlas Dataset from a loaded BrainGlobe atlas.
 
     The returned Dataset is self-describing and serializable: the structure hierarchy
     rides in `attrs["structures"]` as a flat JSON list (rebuilt into a tree on demand by
     the `.atlas` accessor), so the whole atlas round-trips through
     [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr].
 
+    To fetch and build an atlas by name in one step, use
+    [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas].
+
     Parameters
     ----------
-    atlas : str or brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
-        Either a BrainGlobe atlas name string (e.g. `"allen_mouse_25um"`) or an
-        already-loaded
-        [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
-    **kwargs
-        Additional keyword arguments forwarded to
-        [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] when `atlas`
-        is a string. Common options include `brainglobe_dir` (override the atlas cache
-        directory) and `check_latest` (disable the latest-version check). Ignored when
-        `atlas` is already a
+    atlas : brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas
+        An already-loaded
         [`BrainGlobeAtlas`][brainglobe_atlasapi.bg_atlas.BrainGlobeAtlas] instance.
 
     Returns
@@ -44,19 +37,12 @@ def atlas_from_brainglobe(
 
     Examples
     --------
-    >>> atlas = atlas_from_brainglobe("allen_mouse_25um")
-    >>> atlas = atlas_from_brainglobe("allen_mouse_25um", check_latest=False)
-    >>> atlas = atlas_from_brainglobe(bg_atlas_instance)
+    >>> from brainglobe_atlasapi import BrainGlobeAtlas
+    >>> atlas = atlas_from_brainglobe(BrainGlobeAtlas("allen_mouse_25um"))
     """
-    from brainglobe_atlasapi import BrainGlobeAtlas
-
-    if isinstance(atlas, str):
-        atlas_name = atlas
-        atlas = BrainGlobeAtlas(atlas, **kwargs)
-    else:
-        # A BrainGlobeAtlas exposes ``atlas_name``; mock/duck-typed atlases used in tests
-        # may not, so fall back to the metadata name.
-        atlas_name = getattr(atlas, "atlas_name", atlas.metadata["name"])
+    # A BrainGlobeAtlas exposes ``atlas_name``; mock/duck-typed atlases used in tests may
+    # not, so fall back to the metadata name.
+    atlas_name = getattr(atlas, "atlas_name", atlas.metadata["name"])
 
     meta = atlas.metadata
     resolution_mm = [r * 1e-3 for r in meta["resolution"]]
