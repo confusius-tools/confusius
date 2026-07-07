@@ -10,6 +10,17 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
+  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
+  of only checking whether the file exists; downloads are additionally verified against
+  the index MD5. Affects
+  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
+  [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
+  [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
+  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+
 ## 0.5.0
 
 Released 2026-07-07.
@@ -27,14 +38,6 @@ Released 2026-07-07.
 
 ### :sparkles: Enhancements
 
-- Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
-  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
-  of only checking whether the file exists; downloads are additionally verified against
-  the index MD5. Affects
-  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
-  [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
-  [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
-  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
 - Added [`plot_matrix`][confusius.plotting.plot_matrix] for plotting 2D matrices
   (e.g. connectivity or correlation matrices), with optional lower/diagonal triangle
   masking, grid lines, and a `groups` parameter that annotates contiguous label runs
