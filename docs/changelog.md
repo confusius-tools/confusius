@@ -33,6 +33,31 @@ Current development version for the next ConfUSIus release.
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
   ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+- Added [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
+  and [`invert_displacement_field`][confusius.registration.invert_displacement_field] to
+  sample a B-spline (or composite affine + B-spline) registration transform into a dense
+  displacement field and invert it via SimpleITK's `InvertDisplacementFieldImageFilter`.
+  [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now also accept displacement
+  fields directly, so a saved B-spline transform's inverse can be applied without a
+  closed-form inverse
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+
+### :bug: Fixes
+
+- B-spline control-point DataArrays returned by
+  [`register_volume`][confusius.registration.register_volume] no longer have their
+  per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
+  images. The bug was invisible on isotropic data, which is why it went unnoticed since
+  it shipped [#235](https://github.com/confusius-tools/confusius/pull/235)).
+
+### :books: Documentation
+
+- The [same-subject registration
+  example](examples/_built/registration/register_volume_same_subject.md) now follows
+  the rigid registration step with a B-spline refinement, showing the extra local
+  correction it adds and how its parameters differ from the rigid step's
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 
 ## 0.5.0
 
@@ -92,15 +117,6 @@ Released 2026-07-07.
   downloading the Landemard et al. (2026) fUSI-BIDS dataset from OSF, with
   `datasets`, `subjects`, `acqs`, and `datatypes` filters
   ([#228](https://github.com/confusius-tools/confusius/pull/230)).
-- Added [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
-  and [`invert_displacement_field`][confusius.registration.invert_displacement_field] to
-  sample a B-spline (or composite affine + B-spline) registration transform into a dense
-  displacement field and invert it via SimpleITK's `InvertDisplacementFieldImageFilter`.
-  [`resample_volume`][confusius.registration.resample_volume] and
-  [`resample_like`][confusius.registration.resample_like] now also accept displacement
-  fields directly, so a saved B-spline transform's inverse can be applied without a
-  closed-form inverse
-  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 - Added [`plot_stat_map`][confusius.plotting.plot_stat_map] (and the matching
   `data.fusi.plot.stat_map` accessor) for plotting statistical maps, optionally
   overlaid fully opaque on a background anatomical volume. `vmin`/`vmax` default to
@@ -166,13 +182,6 @@ Released 2026-07-07.
   sidecar (e.g. `bspline_initialization` written by the registration pipeline) when
   merging in the NIfTI qform/sform affines
   ([#222](https://github.com/confusius-tools/confusius/pull/222)).
-- B-spline control-point DataArrays returned by
-  [`register_volume`][confusius.registration.register_volume] no longer have their
-  per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
-  images. The bug was invisible on isotropic data, which is why it went unnoticed since
-  it shipped
-  ([#236](https://github.com/confusius-tools/confusius/issues/236),
-  [#235](https://github.com/confusius-tools/confusius/pull/235)).
 - [`save_nifti`][confusius.io.save_nifti] no longer maps non-time additional axes to the
   NIfTI 4th slot. When additional axes are present in the DataArray, a degenerate
   length-1 `time` axis is inserted at NIfTI axis 4 (NIfTI's conventional time slot) so
@@ -190,11 +199,6 @@ Released 2026-07-07.
 - Add an [NMF example](examples/_built/decomposition/nmf_single_recording.md) to the
   gallery, demonstrating the z-score + absolute-value standardization that makes
   signed fUSI signals NMF-compatible.
-- The [same-subject registration
-  example](examples/_built/registration/register_volume_same_subject.md) now follows
-  the rigid registration step with a B-spline refinement, showing the extra local
-  correction it adds and how its parameters differ from the rigid step's
-  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 - Add an [atlas-based region correlation matrix
   example](examples/_built/connectivity/atlas_correlation_matrix.md) to the gallery,
   demonstrating registration to the Pepe-Mariani 2026 template, resampling the Allen
