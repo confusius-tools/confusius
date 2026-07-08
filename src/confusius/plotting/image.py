@@ -634,7 +634,7 @@ class VolumePlotter:
         return [(idx, idx) for idx in range(len(actual_coords))]
 
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
-        """Coerce complex, squeeze, validate `slice_mode`/3D, and sort coords."""
+        """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
@@ -651,7 +651,11 @@ class VolumePlotter:
                 f"Data must be 3D, but got shape {data.shape} with dims "
                 f"{list(data.dims)}."
             )
-        return sort_coords_for_plot(data, data.dims)
+        # Only the two display dims need sorting for pcolormesh/contour geometry;
+        # sorting slice_mode itself would silently reorder panels (e.g. non-monotonic
+        # z, or a "region" dim built from an arbitrary list of acronyms).
+        display_dims = [d for d in data.dims if d != self.slice_mode]
+        return sort_coords_for_plot(data, display_dims)
 
     def _resolve_axes_layout(
         self,
@@ -1486,7 +1490,10 @@ class VolumePlotter:
         if mask.ndim != 3:
             raise ValueError(f"mask must be 3D, got shape {mask.shape}")
 
-        mask = sort_coords_for_plot(mask, mask.dims)
+        # Only sort the display dims: sorting slice_mode itself would silently
+        # reorder panels (e.g. non-monotonic z, or an arbitrary "region" order).
+        display_dims = [str(d) for d in mask.dims if d != self.slice_mode]
+        mask = sort_coords_for_plot(mask, display_dims)
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -1518,7 +1525,6 @@ class VolumePlotter:
         else:
             color_map = colors
 
-        display_dims = [str(d) for d in mask.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
 
         if slice_coords is None:
