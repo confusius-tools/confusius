@@ -19,8 +19,8 @@
 # Each recording is a single power Doppler image of one slice. We convert it to decibels
 # for both display and registration, which is usually more stable on the log-compressed
 # dynamic range. We also set the coordinate system to the NIfTI `qform`'s space, because
-# the `sform` coordinate system is a weird non-metric space that is not consistent
-# across session.
+# the `sform` coordinate system is currently unusable as it is a proprietary non-metric
+# space.
 
 # %%
 from pathlib import Path
@@ -73,7 +73,7 @@ moving
 # %% [markdown]
 # ## Inspect the misalignment before registration
 #
-# We visualise the alignment with
+# We visualize the alignment with
 # [`plot_composite`][confusius.plotting.plot_composite], which resamples `moving` onto
 # `fixed`'s grid and draws the two as a red/cyan composite: matched anatomy appear in
 # white, while any residual red/cyan fringe reveals the displacement that
@@ -128,7 +128,7 @@ print(f"Rigid transform:\n{rigid_transform}")
 #
 # Plotting the same fixed/moving overlay before and after registration makes the
 # correction obvious: the red/cyan fringe in the first panel should be replaced
-# by a more uniformly desaturated grey in the second.
+# by a more uniformly desaturated gray in the second.
 
 # %% tags=["thumbnail"]
 fig, axes = plt.subplots(1, 2, figsize=(10, 4))
@@ -176,7 +176,7 @@ _ = ax.set_title(diagnostics.stop_condition)
 #
 # !!! warning "B-spline registration may need different parameters than rigid"
 #     Successful non-linear registration is often very dependent on the choice of
-#     parameters. If the B-spline fails to converge, or if defomations are unrealistic,
+#     parameters. If the B-spline fails to converge, or if deformations are unrealistic,
 #     try adjusting the `learning_rate`, `mesh_size`, and multi-resolution settings. The
 #     default values are usually a good starting point, but you may need to experiment
 #     to find the right combination for your data. Here, we use a non-default mesh size
@@ -232,13 +232,13 @@ ax.set_ylabel(f"Similarity metric ({diagnostics_bspline.metric})")
 _ = ax.set_title(diagnostics_bspline.stop_condition)
 
 # %% [markdown]
-# ## Visualize the deformation as a quiver
+# ## Visualize the deformation
 #
 # To see the deformation directly, sample the B-spline transform into a dense
 # displacement field with
 # [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field],
 # which returns one displacement vector per voxel of a reference grid (here `fixed`).
-# Sampling `bspline_transform` includes the rigid pre-affine that was initialised with,
+# Sampling `bspline_transform` includes the rigid pre-affine it was initialized with,
 # giving the *combined* rigid + B-spline warp; dropping that pre-affine leaves only the
 # *local* B-spline deformation.
 
