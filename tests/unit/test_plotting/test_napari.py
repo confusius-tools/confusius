@@ -145,14 +145,18 @@ class TestPlotNapari:
         assert layer.colormap.name == "magma"
         viewer.close()
 
-    def test_labels_without_viewer_create_one_and_cast_to_int(self) -> None:
+    def test_labels_without_viewer_create_one_and_cast_to_int(
+        self, make_napari_viewer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         labels = xr.DataArray(
             np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32),
             dims=["y", "x"],
             coords={"y": [0.0, 1.0], "x": [0.0, 1.0]},
         )
+        viewer = make_napari_viewer()
+        monkeypatch.setattr("confusius.plotting.napari.napari.Viewer", lambda: viewer)
 
-        viewer, layer = plot_napari(
+        created_viewer, layer = plot_napari(
             labels,
             viewer=None,
             layer_type="labels",
@@ -160,6 +164,7 @@ class TestPlotNapari:
             show_scale_bar=False,
         )
 
+        assert created_viewer is viewer
         assert np.issubdtype(np.asarray(layer.data).dtype, np.integer)
         viewer.close()
 
