@@ -104,7 +104,13 @@ def _update_progress_dialog(
 
 
 def open_nunez_elizalde_2022_sample() -> list[FullLayerData]:
-    """Return a sample recording from Nunez-Elizalde et al. (2022)."""
+    """Return a sample recording from Nunez-Elizalde et al. (2022).
+
+    Returns
+    -------
+    list[napari.types.FullLayerData]
+        Layer-data tuple for the sample recording, with a viewer-friendly default gamma.
+    """
     viewer = napari.current_viewer()
     dialog = QProgressDialog(viewer.window._qt_window if viewer is not None else None)
     dialog.setWindowTitle("ConfUSIus sample")
@@ -123,7 +129,11 @@ def open_nunez_elizalde_2022_sample() -> list[FullLayerData]:
         )
         _update_progress_dialog(dialog, 0, 0, "Loading sample...")
         da = load(sample_path).compute()
-        return [convert_dataarray_to_layer_data(da, name=sample_path.name)]
+        layer_data = convert_dataarray_to_layer_data(da, name=sample_path.name)
+        _, kwargs, layer_type = layer_data
+        if layer_type == "image":
+            kwargs.setdefault("gamma", 0.4)
+        return [layer_data]
     except SampleDownloadCancelledError:
         show_info("Sample download cancelled.")
         raise

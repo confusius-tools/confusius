@@ -231,10 +231,10 @@ class TestReaderLayerData:
     ) -> None:
         """An unrecognized `cmap` attr (e.g. a stringified colormap object from a
         pre-fix sidecar) falls back to 'gray' with a warning instead of crashing."""
-        import confusius._napari._io._readers as readers_module
+        import confusius._utils.napari as napari_utils
 
         warnings_seen: list[str] = []
-        monkeypatch.setattr(readers_module, "show_warning", warnings_seen.append)
+        monkeypatch.setattr(napari_utils, "show_warning", warnings_seen.append)
 
         da = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),

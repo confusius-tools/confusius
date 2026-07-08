@@ -51,6 +51,12 @@ The widget contains three collapsible panels—[Data I/O](plugin.md#data-io-pane
 expanded or collapsed independently. If you want a quick walkthrough inside napari
 itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 
+!!! tip "Try the built-in sample"
+    To follow along without preparing your own data first, open **File > Open Sample >
+    Nunez-Elizalde 2022 (ConfUSIus)**. ConfUSIus fetches that recording on demand,
+    shows download progress with an abort button, and loads the same sample acquisition
+    used in this GUI guide.
+
 !!! tip "Running napari programmatically"
     If you prefer to open napari from a Python script or Jupyter notebook, see the
     [Visualization](../user-guide/visualization.md#interactive-exploration-with-napari)
