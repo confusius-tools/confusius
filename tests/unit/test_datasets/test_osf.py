@@ -286,6 +286,43 @@ def test_missing_file_downloads_with_known_hash(tmp_path):
     assert by_name == {"with_md5.nii.gz": "md5:abc123", "no_md5.nii.gz": None}
 
 
+def test_download_progress_callback_reports_cumulative_bytes(tmp_path):
+    """GUI progress callbacks receive cumulative byte counts across files."""
+    files = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 6, "md5": "aaa"},
+        "b.nii.gz": {"osf_path": "/f2", "size": 4, "md5": "bbb"},
+    }
+    updates: list[tuple[int, int, str]] = []
+
+    def progress_callback(current: int, total: int, description: str) -> None:
+        updates.append((current, total, description))
+
+    def retrieve(url, known_hash, fname, path, progressbar):
+        total = files[fname]["size"]
+        progressbar.total = total
+        progressbar.update(total // 2)
+        progressbar.update(total - (total // 2))
+        progressbar.reset()
+        progressbar.close()
+        dest = Path(path) / fname
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.touch()
+        return str(dest)
+
+    with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
+        download_osf_files(
+            tmp_path,
+            files,
+            refresh=False,
+            progress_callback=progress_callback,
+        )
+
+    assert updates[0] == (0, 10, "Preparing download...")
+    assert updates[-1] == (10, 10, "Download complete.")
+    assert (6, 10, "Downloading a.nii.gz") in updates
+    assert (10, 10, "Downloading b.nii.gz") in updates
+
+
 # ---------------------------------------------------------------------------
 # update_cached_index — merge, don't replace
 # ---------------------------------------------------------------------------

@@ -36,10 +36,19 @@ contributions:
       title: Write labels to Zarr store
       python_name: confusius._napari._io._writers:write_zarr
 
+    - id: confusius.open_sample_nunez_elizalde_2022
+      title: Open Nunez-Elizalde 2022 sample
+      python_name: confusius._napari._sample:open_nunez_elizalde_2022_sample
+
   widgets:
     - command: confusius.open_widget
       display_name: ConfUSIus
       autogenerate: false
+
+  sample_data:
+    - key: nunez-elizalde-2022
+      display_name: Nunez-Elizalde 2022
+      command: confusius.open_sample_nunez_elizalde_2022
 
   readers:
     - command: confusius.read_nifti
