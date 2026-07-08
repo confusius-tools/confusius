@@ -27,7 +27,7 @@ _SAMPLE_SESSION = "20201011"
 _SAMPLE_TASK = "spontaneous"
 """Task label for the napari sample recording."""
 
-_SAMPLE_ACQ = "slice03"
+_SAMPLE_ACQ = "slice04"
 """Acquisition label for the napari sample recording."""
 
 _SAMPLE_RELATIVE_PATH = (
