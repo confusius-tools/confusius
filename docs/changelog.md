@@ -26,6 +26,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- **[Napari plugin]** Added a `File > Open Sample` entry for a Nunez-Elizalde 2022
+  recording that fetches the sample on demand, shows download progress with an abort
+  button, and only downloads the matching raw fUSI files instead of the full dataset
+  ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
