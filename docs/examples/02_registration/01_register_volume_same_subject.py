@@ -31,7 +31,6 @@ import numpy as np
 import xarray as xr
 
 import confusius as cf
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -241,52 +240,62 @@ _ = ax.set_title(diagnostics_bspline.stop_condition)
 # Sampling `bspline_transform` includes the rigid pre-affine it was initialized with,
 # giving the *combined* rigid + B-spline warp; dropping that pre-affine leaves only the
 # *local* B-spline deformation.
+#
+# The sampled field follows the pull convention (fixed-to-moving): at each fixed-grid
+# point it indicates where to look in `moving`. That is correct for warping, but less
+# intuitive to read as motion, so for the figure below we invert the field and plot the
+# approximate moving-to-fixed displacement instead. The inverse is only approximate,
+# because a B-spline transform has no closed-form inverse and must be inverted through
+# its sampled displacement field.
 
 # %%
+grid = dict(
+    shape=fixed.shape,
+    spacing=[s or 1.0 for s in fixed.fusi.spacing.values()],
+    origin=list(fixed.fusi.origin.values()),
+    dims=list(fixed.dims),
+)
+
 # Combined rigid + B-spline field.
 composite_field = cf.registration.bspline_to_displacement_field(
-    bspline_transform, **get_grid_kwargs_from_dataarray(fixed)
+    bspline_transform, **grid
 )
 
 # Local-only field: copy the transform and drop the rigid pre-affine before sampling.
 local_bspline = bspline_transform.copy()
 local_bspline.attrs = {**local_bspline.attrs, "affines": {}}
-local_field = cf.registration.bspline_to_displacement_field(
-    local_bspline, **get_grid_kwargs_from_dataarray(fixed)
-)
+local_field = cf.registration.bspline_to_displacement_field(local_bspline, **grid)
+
+# For display, invert the pull fields so the arrows show apparent motion toward
+# `fixed`, rather than the fixed-to-moving lookup direction SimpleITK uses for
+# resampling.
+composite_inverse_field = cf.registration.invert_displacement_field(composite_field)
+local_inverse_field = cf.registration.invert_displacement_field(local_field)
 
 # %% [markdown]
 # A quiver plot draws the in-plane displacement as arrows over the anatomy, so the
 # *direction* of the warp is easy to read. The field carries a leading `component` axis
-# over dims `(z, y, x)`, so **component `i` is the displacement (mm) along axis `i`**: we
-# use the `x` and `y` components (2 and 1), drop the degenerate `z` of the single slice,
-# and subsample the dense grid so the arrows stay legible.
-#
-# Each field is drawn over the power Doppler it acts on: the combined warp over the
-# original `moving` image, and the local B-spline correction over `registered`, the
-# moving image after rigid alignment. The sampled field is the fixed-to-moving pull
-# transform, so we invert it to point the arrows the way the moving image travels toward
-# `fixed`.
+# labeled by the spatial dim names, so we use the `x` and `y` displacement components,
+# drop the degenerate `z` of the single slice, and subsample the dense grid so the
+# arrows stay legible.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(8, 3))
 fig.patch.set_facecolor(bg_color)
 
 for ax, background, field, title in [
-    (axes[0], moving, composite_field, "Combined warp on moving"),
-    (axes[1], registered, local_field, "Local B-spline on registered moving"),
+    (axes[0], fixed, composite_inverse_field, "Approximate inverse combined warp"),
+    (axes[1], fixed, local_inverse_field, "Approximate inverse local B-spline warp"),
 ]:
     cf.plotting.plot_volume(background, axes=ax, show_colorbar=False, bg_color=bg_color)
-    # x-displacement (component 2) and y-displacement (component 1) of the single slice.
-    disp_x = field.sel(component=2).squeeze(drop=True)
-    disp_y = field.sel(component=1).squeeze(drop=True)
+    # x- and y-displacement of the single slice.
+    disp_x = field.sel(component="x").squeeze(drop=True)
+    disp_y = field.sel(component="y").squeeze(drop=True)
     # Subsample to roughly 20 arrows along the shorter axis so the field stays readable.
     step = max(1, min(disp_x.sizes["y"], disp_x.sizes["x"]) // 20)
     grid_x, grid_y = np.meshgrid(disp_x["x"].values[::step], disp_x["y"].values[::step])
-    # The field is the fixed->moving pull transform; invert it so the arrows point the
-    # way the moving image travels to reach `fixed`.
-    u = -disp_x.values[::step, ::step]
-    v = -disp_y.values[::step, ::step]
+    u = disp_x.values[::step, ::step]
+    v = disp_y.values[::step, ::step]
     arrows = ax.quiver(grid_x, grid_y, u, v, np.hypot(u, v), angles="xy", cmap="autumn")
     fig.colorbar(arrows, ax=ax, label="displacement (mm)", shrink=0.75)
     ax.set_aspect("equal")
@@ -298,7 +307,3 @@ for ax, background, field, title in [
 # absolute length between the two.
 fig.tight_layout()
 
-# %% [markdown]
-# Unlike the rigid matrix, `bspline_transform` has no closed-form inverse. To apply its
-# approximate inverse as a warp on other data, invert the sampled field with
-# [`invert_displacement_field`][confusius.registration.invert_displacement_field].

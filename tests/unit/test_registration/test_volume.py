@@ -128,6 +128,7 @@ class TestRegisterVolumeOutput:
         assert isinstance(bspline_tx, xr.DataArray)
         assert bspline_tx.attrs.get("type") == "bspline_transform"
         assert bspline_tx.dims[0] == "component"
+        np.testing.assert_array_equal(bspline_tx.coords["component"].values, ["y", "x"])
 
     def test_bspline_control_point_domain_matches_each_axis_extent(self):
         """Each axis's control-point domain scales with its own physical extent.
@@ -741,6 +742,7 @@ class TestDisplacementField:
 
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
+        np.testing.assert_array_equal(field.coords["component"].values, ["y", "x"])
         assert field.shape == (2, *sample_2d_dataarray_spatial.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
 

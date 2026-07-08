@@ -3,7 +3,9 @@
 A B-spline deformation field is represented as a DataArray with:
 
 - **dims**: `("component", <spatial dims>)` — e.g. `("component", "z", "y", "x")`.
-- **coords**: physical mm positions of the control-point grid along each spatial axis.
+- **coords**: `component` is labeled by the spatial dim names
+  (e.g. `("z", "y", "x")`), and each spatial axis stores the physical mm
+  positions of the control-point grid.
 - **attrs**:
 
   ```python
@@ -29,7 +31,8 @@ A dense displacement field is represented the same way, minus the B-spline-speci
 attributes:
 
 - **dims**: `("component", <spatial dims>)`.
-- **coords**: physical mm positions of every voxel along each spatial axis.
+- **coords**: `component` is labeled by the spatial dim names, and each
+  spatial axis stores the physical mm positions of every voxel.
 - **attrs**: `{"type": "displacement_field_transform"}`.
 
 Unlike the sparse B-spline coefficient lattice, a displacement field stores one
@@ -106,9 +109,8 @@ def sitk_bspline_to_dataarray(
 
     grid_shape = coefficients.shape[1:]  # (nz, ny, nx) or (ny, nx)
     spatial_dims = ["z", "y", "x"][-ndim:]  # ["y", "x"] or ["z", "y", "x"]
-    component_coords = list(range(ndim))
-    coords: dict[str, npt.NDArray[np.float64]] = {
-        "component": np.array(component_coords),
+    coords: dict[str, object] = {
+        "component": np.array(spatial_dims, dtype=np.str_),
     }
     for i, dim in enumerate(spatial_dims):
         coords[dim] = origin[i] + np.arange(grid_shape[i]) * spacing[i]
@@ -448,8 +450,8 @@ def _sitk_displacement_field_to_dataarray(
     # via coords[d].diff(d).mean(). fUSI data routinely carries a singleton spatial
     # axis (a single 2D slice stored as a (1, y, x) array), for which diff() is empty
     # and .mean() silently returns NaN.
-    coords: dict[str, tuple[str, npt.NDArray, dict[str, float]]] = {
-        "component": ("component", np.arange(len(dims)), {})
+    coords: dict[str, object] = {
+        "component": ("component", np.array(dims, dtype=np.str_), {})
     }
     for i, d in enumerate(dims):
         coords[d] = (

@@ -231,14 +231,14 @@ def _compose_mesh_vertex_transforms(
     reference_points = np.stack(grid, axis=-1).reshape(-1, len(dims))
     current_points = _transform_points(new_transform, reference_points, new_reference)
     base_points = _transform_points(old_transform, current_points, old_reference)
-    # Points and displacement components are both in DataArray dim order (component `i`
-    # displaces along `dims[i]`), matching `_transform_points` and
+    # Points and displacement components are both in DataArray dim order (component
+    # `dims[i]` displaces along axis `dims[i]`), matching `_transform_points` and
     # `_interpolate_displacement_field`, so no axis reversal is needed.
     displacement = (base_points - reference_points).T.reshape(
         len(dims), *new_reference.shape
     )
 
-    coords = {"component": np.arange(len(dims))}
+    coords = {"component": np.array(dims, dtype=np.str_)}
     coords.update({dim: new_reference.coords[dim] for dim in dims})
     return xr.DataArray(
         displacement,

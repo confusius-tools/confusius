@@ -611,6 +611,26 @@ class TestResampleLike:
         )
         np.testing.assert_allclose(result, old @ new)
 
+    def test_invert_displacement_field_at_points_empty_returns_empty(self) -> None:
+        field = xr.DataArray(
+            np.zeros((3, 2, 2, 2), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": ["z", "y", "x"],
+                "z": [0.0, 1.0],
+                "y": [0.0, 1.0],
+                "x": [0.0, 1.0],
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        points = np.empty((0, 3), dtype=np.float64)
+
+        result = atlas_module._invert_displacement_field_at_points(field, points)
+
+        assert result.shape == (0, 3)
+        assert result.dtype == np.float64
+        assert result is not points
+
     def test_transform_points_affine(self) -> None:
         reference = xr.DataArray(
             np.zeros((2, 2, 2)),
@@ -678,10 +698,10 @@ class TestResampleLike:
         """Composing through the general path must not swap displacement axes.
 
         `_compose_mesh_vertex_transforms` and the field consumers all work in DataArray
-        dim order `(z, y, x)`, where component `i` displaces along `dims[i]`. Composing
-        two transforms and applying the result must equal applying them in sequence; a
-        stray axis reversal in the compose path would break that on per-axis-different
-        displacements (a symmetric field would hide it).
+        dim order `(z, y, x)`, where the `component` labels match those spatial dims.
+        Composing two transforms and applying the result must equal applying them in
+        sequence; a stray axis reversal in the compose path would break that on
+        per-axis-different displacements (a symmetric field would hide it).
         """
         reference = xr.DataArray(
             np.zeros((2, 2, 2)),
@@ -711,6 +731,9 @@ class TestResampleLike:
 
         composed = atlas_module._compose_mesh_vertex_transforms(
             old_transform, new_transform, reference, reference
+        )
+        np.testing.assert_array_equal(
+            composed.coords["component"].values, ["z", "y", "x"]
         )
 
         points = np.array([[0.5, 0.5, 0.5], [0.2, 0.8, 0.3]])  # (z, y, x).
