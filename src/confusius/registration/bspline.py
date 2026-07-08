@@ -299,8 +299,9 @@ def sample_displacement_field(
     Parameters
     ----------
     transform : xarray.DataArray
-        Registration transform DataArray to sample. Currently this accepts the
-        B-spline control-point DataArrays produced by `sitk_bspline_to_dataarray`.
+        Registration transform DataArray to sample. Currently this accepts B-spline
+        control-point DataArrays produced by
+        [`register_volume`][confusius.registration.register_volume].
     shape : sequence of int
         Number of voxels along each output axis, in DataArray dimension order.
     spacing : sequence of float
@@ -341,30 +342,28 @@ def sample_displacement_field(
 
 
 def sample_displacement_field_like(
-    transform: xr.DataArray,
-    reference: xr.DataArray,
-    *,
-    sitk_threads: int = -1,
+    transform: xr.DataArray, reference: xr.DataArray, *, sitk_threads: int = -1
 ) -> xr.DataArray:
     """Sample a registration transform onto the grid of a reference DataArray.
 
     Convenience wrapper around
-    [`sample_displacement_field`][confusius.registration.sample_displacement_field]
-    that extracts the output grid from `reference`'s coordinates.
+    [`sample_displacement_field`][confusius.registration.sample_displacement_field] that
+    extracts the output grid from `reference`'s coordinates.
 
     Parameters
     ----------
     transform : xarray.DataArray
-        Registration transform DataArray to sample. Currently this accepts the
-        B-spline control-point DataArrays produced by `sitk_bspline_to_dataarray`.
+        Registration transform DataArray to sample. Currently this accepts the B-spline
+        control-point DataArrays produced by
+        [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
         DataArray defining the output grid. Must be 2D or 3D spatial (no time
         dimension). When spatial coordinate `units` metadata is present on both
         `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
-        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
-        means all minus one, and so on.
+        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
+        all minus one, and so on.
 
     Returns
     -------

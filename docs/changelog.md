@@ -10,17 +10,6 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
-### :bug: Fixes
-
-- [`plot_volume`][confusius.plotting.plot_volume],
-  [`plot_stat_map`][confusius.plotting.plot_stat_map],
-  [`plot_composite`][confusius.plotting.plot_composite], and
-  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
-  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
-  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
-  descending `z`). Only the two display dimensions are sorted for plotting geometry now
-  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
-
 ### :sparkles: Enhancements
 
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
@@ -52,6 +41,14 @@ Current development version for the next ConfUSIus release.
   per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
   images. The bug was invisible on isotropic data, which is why it went unnoticed since
   it shipped [#235](https://github.com/confusius-tools/confusius/pull/235)).
+- [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_stat_map`][confusius.plotting.plot_stat_map],
+  [`plot_composite`][confusius.plotting.plot_composite], and
+  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
+  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
+  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
+  descending `z`). Only the two display dimensions are sorted for plotting geometry now
+  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
 
 ### :books: Documentation
 
