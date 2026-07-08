@@ -1,7 +1,7 @@
 """Volume-to-volume registration for fUSI data."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal, overload
+from typing import Literal, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -9,6 +9,7 @@ import xarray as xr
 
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
+    expand_thin_dims,
     replace_affines_attr,
     set_sitk_thread_count,
 )
@@ -17,9 +18,7 @@ from confusius.registration.affines import (
     sitk_linear_transform_to_affine,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
-
-if TYPE_CHECKING:
-    import SimpleITK as sitk
+from confusius.validation import validate_matching_spatial_units
 
 
 def _validate_register_volume_inputs(
@@ -108,6 +107,8 @@ def _validate_register_volume_inputs(
         allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
+    validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))
+
     # --- NaN checks ---
     if np.any(np.isnan(moving.values)):
         raise ValueError(
@@ -203,41 +204,6 @@ def _validate_register_volume_inputs(
         )
 
     return fixed_mask, moving_mask
-
-
-def _expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
-    """Expand any image dimension smaller than `min_size` by replication.
-
-    SimpleITK's registration and multi-resolution pyramid fail when any spatial
-    dimension is smaller than 4 voxels. This helper replicates thin dimensions so that
-    the image is safe to register, while preserving the physical extent (spacing is
-    divided by the expansion factor, keeping `size * spacing` constant).
-
-    Parameters
-    ----------
-    img : SimpleITK.Image
-        Input image. May be 2D or 3D.
-    min_size : int, default: 4
-        Minimum acceptable size along each dimension.
-
-    Returns
-    -------
-    SimpleITK.Image
-        Image with all dimensions >= `min_size`. Returns `img` unchanged if no
-        dimension is too small.
-    """
-    import SimpleITK as sitk
-
-    size = np.array(img.GetSize())
-    factors = np.ones(len(size), dtype=int)
-    thin = size < min_size
-    if not thin.any():
-        return img
-
-    factors[thin] = np.ceil(min_size / size[thin]).astype(int)
-
-    # sitk.Expand replicates voxels and halves spacing proportionally.
-    return sitk.Expand(img, factors.tolist())
 
 
 @overload
@@ -380,8 +346,9 @@ def register_volume(
     moving : xarray.DataArray
         Volume to register to `fixed`. Must be 2D or 3D.
     fixed : xarray.DataArray
-        Reference volume. Must be 2D or 3D. Need not have the same shape as
-        `moving`.
+        Reference volume. Must be 2D or 3D. Need not have the same shape as `moving`.
+        When spatial coordinate `units` metadata is present on both `moving` and
+        `fixed`, it must match.
     fixed_mask : xarray.DataArray, optional
         Mask for the fixed image. Must have boolean dtype and match the shape
         and coordinates of `fixed`. When provided, only voxels where the mask
@@ -566,8 +533,8 @@ def register_volume(
     # dimension is smaller than 4 voxels (common for 2D+t fUSI recordings with a 1-voxel
     # depth). We thus expand thin dimensions before registration; the originals are kept
     # as the resample source/reference so the output grid is never affected.
-    fixed_reg = _expand_thin_dims(fixed_sitk)
-    moving_reg = _expand_thin_dims(moving_sitk)
+    fixed_reg = expand_thin_dims(fixed_sitk)
+    moving_reg = expand_thin_dims(moving_sitk)
 
     # CenteredTransformInitializer (and the registration method) require both images to
     # have the same pixel type. Cast moving to fixed's type when they differ.
@@ -607,14 +574,14 @@ def register_volume(
         fixed_mask_uint8 = fixed_mask.astype(np.uint8)
         fixed_mask_sitk = dataarray_to_sitk_image(fixed_mask_uint8)
         # Expand mask if image was expanded
-        fixed_mask_sitk = _expand_thin_dims(fixed_mask_sitk)
+        fixed_mask_sitk = expand_thin_dims(fixed_mask_sitk)
         registration.SetMetricFixedMask(fixed_mask_sitk)
     if moving_mask is not None:
         # Convert boolean mask to uint8 for SimpleITK
         moving_mask_uint8 = moving_mask.astype(np.uint8)
         moving_mask_sitk = dataarray_to_sitk_image(moving_mask_uint8)
         # Expand mask if image was expanded
-        moving_mask_sitk = _expand_thin_dims(moving_mask_sitk)
+        moving_mask_sitk = expand_thin_dims(moving_mask_sitk)
         registration.SetMetricMovingMask(moving_mask_sitk)
 
     # --- Optimizer ---

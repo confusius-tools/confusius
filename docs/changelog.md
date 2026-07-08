@@ -10,8 +10,37 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
+  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
+  of only checking whether the file exists; downloads are additionally verified against
+  the index MD5. A locally cached dataset whose `dataset_index.json` predates this format
+  is detected on fetch and reported with a clear error naming the directory to delete and
+  re-fetch, rather than being silently mishandled. Affects
+  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
+  [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
+  [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
+  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+- Added [`sample_displacement_field`][confusius.registration.sample_displacement_field],
+  [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like],
+  and [`invert_displacement_field`][confusius.registration.invert_displacement_field]
+  to sample a B-spline (or composite affine + B-spline) registration transform into a
+  dense displacement field and invert it via SimpleITK's
+  `InvertDisplacementFieldImageFilter`.
+  [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now also accept displacement
+  fields directly, so a saved B-spline transform's inverse can be applied without a
+  closed-form inverse
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+
 ### :bug: Fixes
 
+- B-spline control-point DataArrays returned by
+  [`register_volume`][confusius.registration.register_volume] no longer have their
+  per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
+  images. The bug was invisible on isotropic data, which is why it went unnoticed since
+  it shipped [#235](https://github.com/confusius-tools/confusius/pull/235).
 - [`plot_napari`][confusius.plotting.plot_napari] no longer sets
   `viewer.scale_bar.unit` (and the napari 0.7.0 `FutureWarning` is gone for good).
   The previous workaround in
@@ -28,9 +57,6 @@ Current development version for the next ConfUSIus release.
   colormap methods, and no longer passes the deprecated `N=` argument to
   `ListedColormap`. The under colour is now passed as a constructor kwarg, the
   matplotlib-3.11-recommended way to set it.
-- [`plot_napari`][confusius.plotting.plot_napari] no longer emits napari's
-  `FutureWarning` about the deprecated `ScaleBar.unit` API when `show_scale_bar=True`
-  ([#271](https://github.com/confusius-tools/confusius/pull/271)).
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and
@@ -39,6 +65,14 @@ Current development version for the next ConfUSIus release.
   sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
   descending `z`). Only the two display dimensions are sorted for plotting geometry now
   ([#268](https://github.com/confusius-tools/confusius/pull/268)).
+
+### :books: Documentation
+
+- The [same-subject registration
+  example](examples/_built/registration/register_volume_same_subject.md) now follows
+  the rigid registration step with a B-spline refinement, showing the extra local
+  correction it adds and how its parameters differ from the rigid step's
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 
 ### :wrench: Maintenance
 
@@ -66,19 +100,6 @@ Current development version for the next ConfUSIus release.
   mypy's `# type: ignore[code]`), so the old per-code directives silently stopped
   suppressing anything. `_apply_threshold` return type broadened to
   `list[xr.DataArray | np.ndarray]` to reflect what the function actually returns.
-
-### :sparkles: Enhancements
-
-- Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
-  MD5 changed, comparing the cached dataset index against the freshly fetched one instead
-  of only checking whether the file exists; downloads are additionally verified against
-  the index MD5. A locally cached dataset whose `dataset_index.json` predates this format
-  is detected on fetch and reported with a clear error naming the directory to delete and
-  re-fetch, rather than being silently mishandled. Affects
-  [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026],
-  [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
-  [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
-  ([#261](https://github.com/confusius-tools/confusius/pull/261)).
 
 ## 0.5.0
 
