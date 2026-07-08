@@ -272,13 +272,22 @@ def _interpolate_displacement_field(
         If any point lies outside the field domain.
     """
     spatial_dims = [str(dim) for dim in field.dims[1:]]
-    grid = tuple(
-        np.asarray(field.coords[dim].values, dtype=np.float64) for dim in spatial_dims
-    )
+    spacing = field.fusi.spacing
+
+    # Pad the field by 1 spacing at each spatial dimension so that we can accept points
+    # that are within the bounds of coord[dim][-1] + spacing[dim] (that is the case of
+    # the root mesh of the brainglobe distributed allen atlas)
+    padded_field = field.pad({dim: (0, 1) for dim in spatial_dims}, constant_values=0)
+    grid = []
+    for dim in spatial_dims:
+        padded_coord = np.asarray(padded_field.coords[dim], dtype=np.float64).copy()
+        padded_coord[-1] = padded_coord[-2] + spacing[dim]
+        grid.append(padded_coord)
+
     points_for_field = points[:, ::-1]
     displacements = interpn(
         grid,
-        np.moveaxis(np.asarray(field.values, dtype=np.float64), 0, -1),
+        np.moveaxis(np.asarray(padded_field.values, dtype=np.float64), 0, -1),
         points_for_field,
         bounds_error=False,
         fill_value=np.nan,
