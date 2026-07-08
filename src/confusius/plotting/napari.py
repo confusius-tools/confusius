@@ -79,10 +79,10 @@ def plot_napari(
     missing coordinates, no scaling is applied. The spacing is computed as the median
     difference between consecutive coordinate values.
 
-    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list
-    is forwarded to napari as the `units` layer parameter, which populates the status
-    bar with physical coordinates. The scale bar is also updated to reflect the first
-    found unit; it falls back to `"mm"` when no units are present on the coordinates.
+    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list is
+    forwarded to napari as the `units` layer parameter, which populates the status bar
+    with physical coordinates and sets the scale bar unit if units are consistent across
+    displayed axes.
 
     For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
     spacing cannot be inferred from coordinates. In that case, the function looks for a
@@ -121,6 +121,11 @@ def plot_napari(
     >>> viewer, layer = plot_napari(data)
     >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
+    if layer_type not in ("image", "labels"):
+        raise ValueError(
+            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
+        )
+
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
@@ -198,14 +203,13 @@ def plot_napari(
         # directly: cast to silence the type checker.
         layer = cast("Image", layer)
 
-        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray /
-        # Dask) defers contrast-limit computation to the async slice worker.
-        # The worker fires AFTER _should_calc_clims is set, but in napari
-        # 0.6.6 the initial viewer refresh triggered by the `inserted` event
-        # completes before that flag is raised, so contrast limits stay at
-        # (0, 1) for float data until the user manually clicks "once".
-        # Explicitly computing them here is robust across napari versions.
-        # See https://github.com/napari/napari/pull/8756.
+        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray / Dask) defers
+        # contrast-limit computation to the async slice worker. The worker fires AFTER
+        # _should_calc_clims is set, but in napari 0.6.6 the initial viewer refresh
+        # triggered by the `inserted` event completes before that flag is raised, so
+        # contrast limits stay at (0, 1) for float data until the user manually clicks
+        # "once". Explicitly computing them here is robust across napari versions. See
+        # https://github.com/napari/napari/pull/8756.
         if "contrast_limits" not in layer_kwargs:
             layer.reset_contrast_limits_range()
             layer.reset_contrast_limits("data")
@@ -230,7 +234,7 @@ def plot_napari(
             if colormap is not None:
                 layer_kwargs["colormap"] = colormap
 
-        layer = viewer.add_labels(
+        layer = viewer.add_labels(  # type: ignore
             values,
             scale=scale,
             **layer_kwargs,
@@ -239,30 +243,8 @@ def plot_napari(
         if (roi_labels := data.attrs.get("roi_labels")) is not None:
             layer.features = build_roi_labels_features(roi_labels)
 
-    else:
-        raise ValueError(
-            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
-        )
-
-    if show_scale_bar:
-        viewer.scale_bar.visible = True
-        scale_bar_unit = next(
-            (u for d, u in zip(all_dims, all_units) if d != time_dim and u is not None),
-            "mm",
-        )
-        # TODO: napari 0.7.x has deprecated ScaleBar.unit in favor of computing it
-        # from Layer.units, but does not yet implement that computation (planned for
-        # 0.8.0/0.9.0) -- setting it directly here is still the only way to get a
-        # physical unit on the scale bar. Suppress the FutureWarning until napari
-        # actually reads units from the layer list, then switch to relying on the
-        # `units` layer_kwarg set above instead of this call.
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message="Setting unit on the ScaleBar model is deprecated",
-                category=FutureWarning,
-            )
-            viewer.scale_bar.unit = scale_bar_unit
+    assert viewer is not None
+    viewer.scale_bar.visible = show_scale_bar
 
     return viewer, layer
 
@@ -342,7 +324,7 @@ def draw_napari_labels(
     spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
 
     labels_array = np.zeros(spatial_shape, dtype=np.int32)
-    labels_layer = viewer.add_labels(
+    labels_layer = viewer.add_labels(  # type: ignore
         labels_array,
         scale=spatial_scale,
         translate=spatial_translate,

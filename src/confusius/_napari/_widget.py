@@ -471,7 +471,7 @@ class ConfUSIusWidget(QWidget):
         aspect = vb.width() / vb.height() if vb.height() > 0 else 1.0
         target_width = round(target_height * aspect)
 
-        dpr = QApplication.instance().devicePixelRatio()  # type: ignore[union-attr]
+        dpr = QApplication.instance().devicePixelRatio()  # type: ignore
         px_w, px_h = round(target_width * dpr), round(target_height * dpr)
 
         image = QImage(px_w, px_h, QImage.Format.Format_ARGB32_Premultiplied)

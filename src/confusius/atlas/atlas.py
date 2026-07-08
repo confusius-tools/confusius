@@ -188,7 +188,7 @@ class Atlas:
         from brainglobe_atlasapi import BrainGlobeAtlas
 
         if isinstance(atlas, str):
-            atlas = BrainGlobeAtlas(atlas, **kwargs)
+            atlas = BrainGlobeAtlas(atlas, **kwargs)  # type: ignore
 
         dataset = _build_dataset(atlas)
         # OBJ mesh vertices are in microns; scale to millimetres.

@@ -30,9 +30,9 @@ dependencies = [
     "ipython>=9.6.0",
     "joblib>=1.5.2",
     "joblib-progress>=1.0.6",
-    "matplotlib>=3.10.7",
+    "matplotlib>=3.11.0",
     "napari-video>=0.2.13",
-    "napari[all]>=0.7.0",
+    "napari[all]>=0.7.1",
     "nibabel>=5.0.0",
     "numpy>=2.3.4",
     "pooch>=1.9.0",
@@ -80,6 +80,15 @@ dev = [
 # Napari's pyqt5 extra uses the wrong marker (sys_platform == 'Windows')
 # which can cause pyqt5-qt5 to resolve to a macOS-only version.
 required-environments = ["sys_platform == 'win32' and platform_machine == 'AMD64'"]
+# numba 0.62.1 and llvmlite 0.45.1 (the lowest versions satisfying our transitive deps)
+# don't support Python 3.14, but the project advertises requires-python =
+# ">=3.11,<3.15". Force the lock to use versions that still build on 3.14. Override
+# rather than direct pins to avoid fighting napari[all]<=0.7.1's `numba<=0.62.1` upper
+# bound.
+override-dependencies = [
+    "numba>=0.64",
+    "llvmlite>=0.46",
+]
 
 [tool.numpydoc_validation]
 exclude = [
