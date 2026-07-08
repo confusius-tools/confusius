@@ -250,7 +250,19 @@ def plot_napari(
             (u for d, u in zip(all_dims, all_units) if d != time_dim and u is not None),
             "mm",
         )
-        viewer.scale_bar.unit = scale_bar_unit
+        # TODO: napari 0.7.x has deprecated ScaleBar.unit in favor of computing it
+        # from Layer.units, but does not yet implement that computation (planned for
+        # 0.8.0/0.9.0) -- setting it directly here is still the only way to get a
+        # physical unit on the scale bar. Suppress the FutureWarning until napari
+        # actually reads units from the layer list, then switch to relying on the
+        # `units` layer_kwarg set above instead of this call.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Setting unit on the ScaleBar model is deprecated",
+                category=FutureWarning,
+            )
+            viewer.scale_bar.unit = scale_bar_unit
 
     return viewer, layer
 

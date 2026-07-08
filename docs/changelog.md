@@ -49,6 +49,9 @@ Current development version for the next ConfUSIus release.
   sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
   descending `z`). Only the two display dimensions are sorted for plotting geometry now
   ([#268](https://github.com/confusius-tools/confusius/pull/268)).
+- [`plot_napari`][confusius.plotting.plot_napari] no longer emits napari's
+  `FutureWarning` about the deprecated `ScaleBar.unit` API when `show_scale_bar=True`
+  ([#271](https://github.com/confusius-tools/confusius/pull/271)).
 
 ### :books: Documentation
 
