@@ -10,20 +10,6 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
-### :bug: Fixes
-
-- [`plot_napari`][confusius.plotting.plot_napari] no longer emits napari's
-  `FutureWarning` about the deprecated `ScaleBar.unit` API when `show_scale_bar=True`
-  ([#271](https://github.com/confusius-tools/confusius/pull/271)).
-- [`plot_volume`][confusius.plotting.plot_volume],
-  [`plot_stat_map`][confusius.plotting.plot_stat_map],
-  [`plot_composite`][confusius.plotting.plot_composite], and
-  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
-  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
-  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
-  descending `z`). Only the two display dimensions are sorted for plotting geometry now
-  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
-
 ### :sparkles: Enhancements
 
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
@@ -36,6 +22,44 @@ Current development version for the next ConfUSIus release.
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
   ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+- Added [`sample_displacement_field`][confusius.registration.sample_displacement_field],
+  [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like],
+  and [`invert_displacement_field`][confusius.registration.invert_displacement_field]
+  to sample a B-spline (or composite affine + B-spline) registration transform into a
+  dense displacement field and invert it via SimpleITK's
+  `InvertDisplacementFieldImageFilter`.
+  [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now also accept displacement
+  fields directly, so a saved B-spline transform's inverse can be applied without a
+  closed-form inverse
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+
+### :bug: Fixes
+
+- B-spline control-point DataArrays returned by
+  [`register_volume`][confusius.registration.register_volume] no longer have their
+  per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
+  images. The bug was invisible on isotropic data, which is why it went unnoticed since
+  it shipped [#235](https://github.com/confusius-tools/confusius/pull/235)).
+- [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_stat_map`][confusius.plotting.plot_stat_map],
+  [`plot_composite`][confusius.plotting.plot_composite], and
+  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
+  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
+  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
+  descending `z`). Only the two display dimensions are sorted for plotting geometry now
+  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
+- [`plot_napari`][confusius.plotting.plot_napari] no longer emits napari's
+  `FutureWarning` about the deprecated `ScaleBar.unit` API when `show_scale_bar=True`
+  ([#271](https://github.com/confusius-tools/confusius/pull/271)).
+
+### :books: Documentation
+
+- The [same-subject registration
+  example](examples/_built/registration/register_volume_same_subject.md) now follows
+  the rigid registration step with a B-spline refinement, showing the extra local
+  correction it adds and how its parameters differ from the rigid step's
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 
 ## 0.5.0
 

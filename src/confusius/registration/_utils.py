@@ -116,3 +116,40 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     image.SetSpacing(spacing)
     image.SetOrigin(origin)
     return image
+
+
+def expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
+    """Expand any image dimension smaller than `min_size` by replication.
+
+    SimpleITK's registration, multi-resolution pyramid, and displacement-field
+    inversion fail when a spatial dimension is smaller than a handful of voxels
+    (common for 2D+t fUSI recordings with a 1-voxel depth). This helper replicates
+    thin dimensions so that the image is safe to process, while preserving the
+    physical extent (spacing is divided by the expansion factor, keeping
+    `size * spacing` constant).
+
+    Parameters
+    ----------
+    img : SimpleITK.Image
+        Input image. May be 2D or 3D, scalar or vector-valued.
+    min_size : int, default: 4
+        Minimum acceptable size along each dimension.
+
+    Returns
+    -------
+    SimpleITK.Image
+        Image with all dimensions >= `min_size`. Returns `img` unchanged if no
+        dimension is too small.
+    """
+    import SimpleITK as sitk
+
+    size = np.array(img.GetSize())
+    factors = np.ones(len(size), dtype=int)
+    thin = size < min_size
+    if not thin.any():
+        return img
+
+    factors[thin] = np.ceil(min_size / size[thin]).astype(int)
+
+    # sitk.Expand replicates voxels and halves spacing proportionally.
+    return sitk.Expand(img, factors.tolist())
