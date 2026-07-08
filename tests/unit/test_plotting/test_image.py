@@ -632,6 +632,26 @@ class TestNonNumericSliceMode:
         with pytest.raises(ValueError, match="must be numeric positional indices"):
             plot_volume(data, slice_mode="region", slice_coords=["b"])
 
+    def test_region_panel_order_matches_input_not_alphabetical(self, matplotlib_pyplot):
+        """Regression test: panels follow the given region order, unsorted.
+
+        `_prepare_slice_inputs` used to sort every dim (including `slice_mode`)
+        for pcolormesh geometry, which silently reordered non-alphabetical
+        `region` coordinates and desynced them from externally-tracked labels.
+        Only the two display dims should be sorted.
+        """
+        regions = ["SSp-bfd", "RSP", "HIP", "VPM"]
+        data = xr.DataArray(
+            np.arange(4 * 3 * 3, dtype=float).reshape(4, 3, 3),
+            name="r",
+            dims=["region", "y", "x"],
+            coords={"region": regions, "y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
+
+        titles = [ax.get_title() for ax in plotter.axes.ravel()]
+        assert titles == [f"region = {region}" for region in regions]
+
 
 class TestVolumePlotterUtilities:
     """Tests for VolumePlotter utility methods."""

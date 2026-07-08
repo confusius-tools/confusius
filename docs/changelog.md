@@ -10,6 +10,15 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :bug: Fixes
+
+- [`plot_stat_map`][confusius.plotting.plot_stat_map] and
+  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
+  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
+  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
+  descending `z`). Only the two display dimensions are sorted for plotting geometry now
+  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
+
 ### :sparkles: Enhancements
 
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
