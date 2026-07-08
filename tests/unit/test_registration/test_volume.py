@@ -5,6 +5,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.registration.bspline import (
     bspline_to_displacement_field,
     invert_displacement_field,
@@ -466,15 +467,6 @@ class TestRegisterVolumeThinDims:
 class TestResampleVolume:
     """Unit tests for the low-level resample_volume."""
 
-    def _grid_from_da(self, da: xr.DataArray) -> dict:
-        """Extract explicit grid kwargs from a DataArray."""
-        return dict(
-            shape=[da.sizes[d] for d in da.dims],
-            spacing=[float(da.coords[d].diff(d).mean()) for d in da.dims],
-            origin=[float(da.coords[d][0]) for d in da.dims],
-            dims=list(da.dims),
-        )
-
     def test_time_dimension_moving_works(
         self, sample_2d_image, sample_2d_dataarray, sample_2d_dataarray_spatial
     ):
@@ -482,7 +474,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_2d_dataarray,
             np.eye(3),
-            **self._grid_from_da(sample_2d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_2d_dataarray.shape
@@ -497,7 +489,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_3d_dataarray,
             np.eye(4),
-            **self._grid_from_da(sample_3d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_3d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_3d_dataarray.shape
@@ -519,7 +511,7 @@ class TestResampleVolume:
             resample_volume(
                 sample_2d_dataarray_spatial,
                 np.eye(4),
-                **self._grid_from_da(sample_2d_dataarray_spatial),
+                **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
             )
 
     def test_output_shape_matches_requested_shape(
@@ -528,7 +520,9 @@ class TestResampleVolume:
         """Output shape matches the requested shape, not the moving shape."""
         moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result = resample_volume(
-            moving, np.eye(3), **self._grid_from_da(sample_2d_dataarray_spatial)
+            moving,
+            np.eye(3),
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert result.shape == sample_2d_dataarray_spatial.shape
 
@@ -536,7 +530,7 @@ class TestResampleVolume:
         self, sample_2d_dataarray_spatial
     ):
         """Output coordinates are reconstructed from origin and spacing, not copied."""
-        grid = self._grid_from_da(sample_2d_dataarray_spatial)
+        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         result = resample_volume(sample_2d_dataarray_spatial, np.eye(3), **grid)
         for i, d in enumerate(sample_2d_dataarray_spatial.dims):
             expected = (
@@ -565,7 +559,9 @@ class TestResampleVolume:
             resample=True,
         )
         result = resample_volume(
-            moving, affine, **self._grid_from_da(sample_2d_dataarray_spatial)
+            moving,
+            affine,
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
@@ -740,7 +736,7 @@ class TestDisplacementField:
             sample_2d_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = self._grid_from_da(sample_2d_dataarray_spatial)
+        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         field = bspline_to_displacement_field(bspline_tx, **grid)
 
         assert field.attrs["type"] == "displacement_field_transform"
@@ -797,7 +793,7 @@ class TestDisplacementField:
             sample_2d_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = self._grid_from_da(sample_2d_dataarray_spatial)
+        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         field = bspline_to_displacement_field(bspline_tx, **grid)
 
         result_bspline = resample_volume(moving, bspline_tx, **grid)
