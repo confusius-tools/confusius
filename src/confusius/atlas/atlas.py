@@ -228,14 +228,13 @@ def _compose_mesh_vertex_transforms(
         ],
         indexing="ij",
     )
-    reference_points = np.stack(grid, axis=-1).reshape(-1, len(dims))[:, ::-1]
+    reference_points = np.stack(grid, axis=-1).reshape(-1, len(dims))
     current_points = _transform_points(new_transform, reference_points, new_reference)
     base_points = _transform_points(old_transform, current_points, old_reference)
-    # The point columns are in mesh `(x, y, z)` order, but a displacement field stores
-    # its components in DataArray dim order `(z, y, x)` (component `i` displaces along
-    # `dims[i]`). Reverse the component axis before storing so the two agree; without it
-    # z and x are swapped.
-    displacement = (base_points - reference_points)[:, ::-1].T.reshape(
+    # Points and displacement components are both in DataArray dim order (component `i`
+    # displaces along `dims[i]`), matching `_transform_points` and
+    # `_interpolate_displacement_field`, so no axis reversal is needed.
+    displacement = (base_points - reference_points).T.reshape(
         len(dims), *new_reference.shape
     )
 
@@ -259,7 +258,7 @@ def _interpolate_displacement_field(
     field : xarray.DataArray
         Dense displacement field with dimensions `("component", *spatial_dims)`.
     points : (N, D) numpy.ndarray
-        Physical points in atlas mesh order `(x, y, z)` (or `(x, y)` in 2D).
+        Physical points in the same axis order as `field.dims[1:]`.
 
     Returns
     -------
@@ -284,14 +283,13 @@ def _interpolate_displacement_field(
         padded_coord[-1] = padded_coord[-2] + spacing[dim]
         grid.append(padded_coord)
 
-    points_for_field = points[:, ::-1]
     displacements = interpn(
         grid,
         np.moveaxis(np.asarray(padded_field.values, dtype=np.float64), 0, -1),
-        points_for_field,
+        points,
         bounds_error=False,
         fill_value=np.nan,
-    )[:, ::-1]
+    )
     if np.isnan(displacements).any():
         raise ValueError(
             "Mesh vertices fall outside the deformation-field domain; cannot warp "

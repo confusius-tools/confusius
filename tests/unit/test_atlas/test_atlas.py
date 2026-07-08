@@ -487,19 +487,23 @@ class TestResampleLike:
             coords={"component": np.arange(3), **coords},
             attrs={"type": "displacement_field_transform"},
         )
-        field.loc[dict(component=2)] = -0.01
+        field.loc[dict(component=2)] = 0.01
 
         resampled = atlas.resample_like(reference, field)
         vertices_mm, _ = resampled.get_mesh(997)
 
+        # component 2 is the x-displacement (dim order (z, y, x)); the +0.01 pull
+        # inverts to a -0.01 shift of the mesh x column (col 2), leaving z (col 0) and
+        # y (col 1) untouched. Vertices stay inside the field domain (0.05 -> 0.04,
+        # 0.15 -> 0.14).
         expected = np.array(
             [
-                [0.01, 0.0, 0.05],
-                [0.11, 0.0, 0.05],
-                [0.01, 0.1, 0.05],
-                [0.01, 0.0, 0.15],
-                [0.11, 0.0, 0.15],
-                [0.01, 0.1, 0.15],
+                [0.0, 0.0, 0.04],
+                [0.1, 0.0, 0.04],
+                [0.0, 0.1, 0.04],
+                [0.0, 0.0, 0.14],
+                [0.1, 0.0, 0.14],
+                [0.0, 0.1, 0.14],
             ]
         )
         np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
@@ -524,7 +528,7 @@ class TestResampleLike:
             coords={"component": np.arange(3), **coords},
             attrs={"type": "displacement_field_transform"},
         )
-        field.loc[dict(component=2)] = -0.01
+        field.loc[dict(component=2)] = 0.01
 
         def _fake_bspline_to_displacement_field(transform, **kwargs):
             return field
@@ -557,14 +561,18 @@ class TestResampleLike:
         resampled = atlas.resample_like(reference, fake_bspline)
         vertices_mm, _ = resampled.get_mesh(997)
 
+        # component 2 is the x-displacement (dim order (z, y, x)); the +0.01 pull
+        # inverts to a -0.01 shift of the mesh x column (col 2), leaving z (col 0) and
+        # y (col 1) untouched. Vertices stay inside the field domain (0.05 -> 0.04,
+        # 0.15 -> 0.14).
         expected = np.array(
             [
-                [0.01, 0.0, 0.05],
-                [0.11, 0.0, 0.05],
-                [0.01, 0.1, 0.05],
-                [0.01, 0.0, 0.15],
-                [0.11, 0.0, 0.15],
-                [0.01, 0.1, 0.15],
+                [0.0, 0.0, 0.04],
+                [0.1, 0.0, 0.04],
+                [0.0, 0.1, 0.04],
+                [0.0, 0.0, 0.14],
+                [0.1, 0.0, 0.14],
+                [0.0, 0.1, 0.14],
             ]
         )
         np.testing.assert_allclose(vertices_mm, expected, atol=1e-6)
@@ -654,20 +662,19 @@ class TestResampleLike:
         )
         points = np.array([[0.0, 0.0, 0.0]])
         result = atlas_module._transform_points(bspline, points, reference)
-        np.testing.assert_allclose(result, [[0.01, 0.0, 0.0]])
+        # component 2 is the x-displacement (dim order (z, y, x)), so it lands in x.
+        np.testing.assert_allclose(result, [[0.0, 0.0, 0.01]])
 
     def test_compose_general_path_preserves_component_axis_order(
         self, atlas: Atlas
     ) -> None:
-        """Composing through the general path must not swap displacement components.
+        """Composing through the general path must not swap displacement axes.
 
-        Regression test for a bug where `_compose_mesh_vertex_transforms` stored the
-        composed displacement in mesh `(x, y, z)` component order, while every field
-        consumer (`_interpolate_displacement_field`) expects DataArray dim `(z, y, x)`
-        order. With per-axis-different displacements this swapped the z and x
-        components, so composing two transforms and applying the result no longer
-        equalled applying the two transforms in sequence. Isotropic displacements
-        never exposed it because a symmetric field is invariant under the swap.
+        `_compose_mesh_vertex_transforms` and the field consumers all work in DataArray
+        dim order `(z, y, x)`, where component `i` displaces along `dims[i]`. Composing
+        two transforms and applying the result must equal applying them in sequence; a
+        stray axis reversal in the compose path would break that on per-axis-different
+        displacements (a symmetric field would hide it).
         """
         reference = xr.DataArray(
             np.zeros((2, 2, 2)),
@@ -690,16 +697,16 @@ class TestResampleLike:
         new_transform.loc[dict(component=0)] = 0.3  # Displacement along dim z.
         new_transform.loc[dict(component=2)] = 0.1  # Displacement along dim x.
 
-        # An affine translating +0.2 along z and +0.05 along x (mesh (x, y, z) axes).
+        # An affine translating +0.05 along z and +0.2 along x (dim order (z, y, x)).
         old_transform = np.eye(4)
-        old_transform[0, 3] = 0.05  # x.
-        old_transform[2, 3] = 0.2  # z.
+        old_transform[0, 3] = 0.05  # z.
+        old_transform[2, 3] = 0.2  # x.
 
         composed = atlas_module._compose_mesh_vertex_transforms(
             old_transform, new_transform, reference, reference
         )
 
-        points = np.array([[0.5, 0.5, 0.5], [0.2, 0.8, 0.3]])  # (x, y, z).
+        points = np.array([[0.5, 0.5, 0.5], [0.2, 0.8, 0.3]])  # (z, y, x).
         result = atlas_module._transform_points(composed, points, reference)
         # Composition semantics: applying the composed transform equals applying
         # new then old in sequence.
