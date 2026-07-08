@@ -263,23 +263,21 @@ def _interpolate_displacement_field(
     Returns
     -------
     numpy.ndarray
-        Interpolated displacement vectors with shape `(N, D)`.
-
-    Raises
-    ------
-    ValueError
-        If any point lies outside the field domain.
+        Interpolated displacement vectors with shape `(N, D)`. Points beyond the field
+        domain and its one-voxel edge-padded margin are returned as NaN.
     """
     spatial_dims = [str(dim) for dim in field.dims[1:]]
     spacing = field.fusi.spacing
 
-    # Pad the field by 1 spacing at each spatial dimension so that we can accept points
-    # that are within the bounds of coord[dim][-1] + spacing[dim] (that is the case of
-    # the root mesh of the brainglobe distributed allen atlas)
-    padded_field = field.pad({dim: (0, 1) for dim in spatial_dims}, constant_values=0)
+    # Pad the field by one voxel (edge replication) at each end of every spatial dim, so
+    # points within one voxel of a boundary, as barely-outside mesh vertices are, can
+    # still be interpolated. Points beyond the padded margin resolve to NaN; the mesh
+    # caller drops the vertices that could not be warped.
+    padded_field = field.pad({dim: (1, 1) for dim in spatial_dims}, mode="edge")
     grid = []
     for dim in spatial_dims:
         padded_coord = np.asarray(padded_field.coords[dim], dtype=np.float64).copy()
+        padded_coord[0] = padded_coord[1] - spacing[dim]
         padded_coord[-1] = padded_coord[-2] + spacing[dim]
         grid.append(padded_coord)
 
@@ -290,11 +288,6 @@ def _interpolate_displacement_field(
         bounds_error=False,
         fill_value=np.nan,
     )
-    if np.isnan(displacements).any():
-        raise ValueError(
-            "Mesh vertices fall outside the deformation-field domain; cannot warp "
-            "atlas meshes onto the requested reference space."
-        )
     return np.asarray(displacements, dtype=np.float64)
 
 
@@ -328,6 +321,9 @@ def _invert_displacement_field_at_points(
     numpy.ndarray
         Approximate fixed-space points with shape `(N, D)`.
     """
+    if points.shape[0] == 0:
+        return points.copy()
+
     if initial_guess_affine is None:
         fixed_points = points.copy()
     else:
@@ -385,6 +381,57 @@ def _apply_mesh_vertex_transform(
         initial_guess_affine = np.linalg.inv(np.asarray(pre_affine, dtype=np.float64))
 
     return _invert_displacement_field_at_points(field, vertices, initial_guess_affine)
+
+
+def _drop_vertices_outside_grid(
+    vertices: npt.NDArray[np.float64],
+    faces: npt.NDArray[np.int32],
+    reference: xr.DataArray,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
+    """Drop mesh vertices outside the reference grid (plus a margin) and reindex faces.
+
+    Applied to warped mesh vertices: a nonlinear warp can move vertices outside the grid
+    and returns NaN for vertices too far outside to interpolate. Vertices beyond the grid
+    by more than one voxel (the padded interpolation margin), and NaN vertices, are
+    dropped along with any face that references them (NaN fails the bounds comparison, so
+    NaN vertices are removed too).
+
+    Parameters
+    ----------
+    vertices : (N, 3) numpy.ndarray
+        Warped mesh vertices in DataArray dim order `(z, y, x)`.
+    faces : (M, 3) numpy.ndarray
+        Zero-indexed triangle face indices into `vertices`.
+    reference : xarray.DataArray
+        Reference grid whose coordinate bounds define the valid domain.
+
+    Returns
+    -------
+    vertices : numpy.ndarray
+        Surviving vertices, shape `(K, 3)` with `K <= N`.
+    faces : numpy.ndarray
+        Faces whose three vertices all survived, reindexed into the new vertex array.
+    """
+    dims = [str(dim) for dim in reference.dims]
+    spacing = reference.fusi.spacing
+    inside = np.ones(len(vertices), dtype=bool)
+    for axis, dim in enumerate(dims):
+        coord = reference.coords[dim].values
+        # Keep the same one-voxel margin the field interpolation is padded to, so a
+        # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
+        # Allen brain) is retained rather than clipped.
+        margin = spacing[dim] if spacing[dim] is not None else 0.0
+        inside &= (vertices[:, axis] >= coord.min() - margin) & (
+            vertices[:, axis] <= coord.max() + margin
+        )
+
+    keep_idx = np.where(inside)[0]
+    old_to_new = np.full(len(vertices), -1, dtype=np.int64)
+    old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
+
+    new_face_idx = old_to_new[faces]  # (M, 3); -1 for dropped vertices.
+    valid = np.all(new_face_idx >= 0, axis=1)
+    return vertices[keep_idx], new_face_idx[valid].astype(np.int32)
 
 
 class Atlas:
@@ -803,6 +850,14 @@ class Atlas:
             vertices_mm,
             self.reference,
         )
+
+        if isinstance(self._mesh_vertex_transform, xr.DataArray):
+            # A nonlinear warp can move vertices outside the grid, and vertices too far
+            # outside it to interpolate come back as NaN; drop both, and any face that
+            # references them.
+            vertices_m, faces = _drop_vertices_outside_grid(
+                vertices_m, faces, self.reference
+            )
 
         return vertices_m, faces
 

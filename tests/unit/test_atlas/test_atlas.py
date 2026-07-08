@@ -375,9 +375,11 @@ class TestGetMesh:
         with pytest.raises(KeyError):
             atlas.get_mesh(9999)
 
-    def test_nonlinear_mesh_transform_outside_domain_raises(
+    def test_nonlinear_mesh_transform_crops_vertices_outside_domain(
         self, atlas: Atlas, mock_structures
     ) -> None:
+        # The field domain (z, y, x in [0, 0.01]) excludes the whole mesh (vertices at
+        # 0.05-0.15), so every vertex is dropped and the returned mesh is empty.
         transform = xr.DataArray(
             np.zeros((3, 2, 2, 2), dtype=np.float64),
             dims=["component", "z", "y", "x"],
@@ -390,8 +392,9 @@ class TestGetMesh:
             attrs={"type": "displacement_field_transform"},
         )
         nonlinear_atlas = Atlas(atlas._dataset, mock_structures, transform, 0.1)
-        with pytest.raises(ValueError, match="outside the deformation-field domain"):
-            nonlinear_atlas.get_mesh(997)
+        vertices, faces = nonlinear_atlas.get_mesh(997)
+        assert vertices.shape == (0, 3)
+        assert faces.shape == (0, 3)
 
     def test_bspline_transform_with_initialization_uses_inverse_seed(
         self, atlas: Atlas, mock_structures, monkeypatch: pytest.MonkeyPatch
@@ -462,7 +465,11 @@ class TestGetMesh:
 
         monkeypatch.setattr(atlas_module, "_interpolate_displacement_field", _oscillate)
         vertices, _ = nonlinear_atlas.get_mesh(997)
+        # The oscillating field never converges, so the fixed-point solver returns its
+        # last iterate rather than hanging; get_mesh completes with all six vertices,
+        # which stay inside the grid and are finite.
         assert vertices.shape == (6, 3)
+        assert np.isfinite(vertices).all()
 
 
 class TestResampleLike:

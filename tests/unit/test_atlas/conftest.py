@@ -35,7 +35,7 @@ def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Vertices 1-3 lie at RL coordinate 50 µm (right hemisphere).
     Vertices 4-6 lie at RL coordinate 150 µm (left hemisphere).
-    The atlas midline is at 100 µm (shape[2]=8, resolution=25 µm).
+    The RL midline splitting them is at 100 µm.
     """
     mesh_dir = tmp_path_factory.mktemp("meshes")
     path = mesh_dir / "997.obj"
@@ -102,11 +102,11 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
       - [:, :, :4] = 2  (right — low RL in asr orientation)
       - [:, :, 4:] = 1  (left  — high RL in asr orientation)
 
-    Resolution: 25 µm (0.025 mm) isotropic.
-    RL midline: shape[2]/2 * 25 µm = 100 µm.
+    Resolution: 50 µm (0.05 mm) isotropic.
+    RL midline: 100 µm (the OBJ mesh's RL midline, see `obj_path`).
     """
     shape = (4, 6, 8)
-    resolution_mm = 0.025
+    resolution_mm = 0.05
 
     annotation_data = np.zeros(shape, dtype=np.int32)
     annotation_data[:2, :, 2:6] = 10
@@ -158,7 +158,8 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
     )
 
     mesh_vertex_transform = np.eye(4)
-    # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm = 0.1 mm.
-    rl_midline = shape[2] / 2 * 25.0 * 1e-3
+    # RL midline of the OBJ mesh, halfway between its 50 µm and 150 µm vertices, so the
+    # hemisphere clip splits it 3/3. Fixed to the mesh, independent of the resolution.
+    rl_midline = 0.1
 
     return Atlas(dataset, mock_structures, mesh_vertex_transform, rl_midline)
