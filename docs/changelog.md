@@ -12,6 +12,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`plot_napari`][confusius.plotting.plot_napari] no longer emits napari's
+  `FutureWarning` about the deprecated `ScaleBar.unit` API when `show_scale_bar=True`
+  ([#271](https://github.com/confusius-tools/confusius/pull/271)).
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and
