@@ -412,7 +412,7 @@ class TestGetMesh:
         )
         monkeypatch.setattr(
             atlas_module,
-            "sample_bspline_displacement_field_like",
+            "sample_displacement_field_like",
             lambda *args, **kwargs: field,
         )
 
@@ -539,14 +539,12 @@ class TestResampleLike:
         )
         field.loc[dict(component=2)] = 0.01
 
-        def _fake_sample_bspline_displacement_field_like(
-            transform, reference, **kwargs
-        ):
+        def _fake_sample_displacement_field_like(transform, reference, **kwargs):
             return field
 
         monkeypatch.setattr(
-            "confusius.atlas.atlas.sample_bspline_displacement_field_like",
-            _fake_sample_bspline_displacement_field_like,
+            "confusius.atlas.atlas.sample_displacement_field_like",
+            _fake_sample_displacement_field_like,
         )
         monkeypatch.setattr(
             "confusius.atlas.atlas.resample_like_da",
@@ -675,7 +673,7 @@ class TestResampleLike:
         field.loc[dict(component=2)] = 0.01
         monkeypatch.setattr(
             atlas_module,
-            "sample_bspline_displacement_field_like",
+            "sample_displacement_field_like",
             lambda *args, **kwargs: field,
         )
         bspline = xr.DataArray(

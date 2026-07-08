@@ -38,9 +38,9 @@ attributes:
 Unlike the sparse B-spline coefficient lattice, a displacement field stores one
 displacement vector per voxel of an explicit grid. It is produced by sampling a B-spline
 (or composite) transform with
-[`sample_bspline_displacement_field`][confusius.registration.bspline.sample_bspline_displacement_field]
+[`sample_displacement_field`][confusius.registration.bspline.sample_displacement_field]
 or
-[`sample_bspline_displacement_field_like`][confusius.registration.bspline.sample_bspline_displacement_field_like],
+[`sample_displacement_field_like`][confusius.registration.bspline.sample_displacement_field_like],
 and can be inverted with
 [`invert_displacement_field`][confusius.registration.bspline.invert_displacement_field].
 """
@@ -280,7 +280,7 @@ def _validate_bspline_dataarray(da: xr.DataArray) -> None:
         )
 
 
-def sample_bspline_displacement_field(
+def sample_displacement_field(
     transform: xr.DataArray,
     *,
     shape: Sequence[int],
@@ -289,17 +289,18 @@ def sample_bspline_displacement_field(
     dims: Sequence[str],
     sitk_threads: int = -1,
 ) -> xr.DataArray:
-    """Sample a B-spline (or composite) transform onto an explicit output grid.
+    """Sample a registration transform onto an explicit output grid.
 
     Low-level sampling primitive. For the common case of sampling onto the grid of
     another DataArray, use
-    [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like]
+    [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like]
     instead.
 
     Parameters
     ----------
     transform : xarray.DataArray
-        B-spline control-point DataArray as produced by `sitk_bspline_to_dataarray`.
+        Registration transform DataArray to sample. Currently this accepts the
+        B-spline control-point DataArrays produced by `sitk_bspline_to_dataarray`.
     shape : sequence of int
         Number of voxels along each output axis, in DataArray dimension order.
     spacing : sequence of float
@@ -339,22 +340,23 @@ def sample_bspline_displacement_field(
     )
 
 
-def sample_bspline_displacement_field_like(
+def sample_displacement_field_like(
     transform: xr.DataArray,
     reference: xr.DataArray,
     *,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
-    """Sample a B-spline transform onto the grid of a reference DataArray.
+    """Sample a registration transform onto the grid of a reference DataArray.
 
     Convenience wrapper around
-    [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field]
+    [`sample_displacement_field`][confusius.registration.sample_displacement_field]
     that extracts the output grid from `reference`'s coordinates.
 
     Parameters
     ----------
     transform : xarray.DataArray
-        B-spline control-point DataArray to sample.
+        Registration transform DataArray to sample. Currently this accepts the
+        B-spline control-point DataArrays produced by `sitk_bspline_to_dataarray`.
     reference : xarray.DataArray
         DataArray defining the output grid. Must be 2D or 3D spatial (no time
         dimension). When spatial coordinate `units` metadata is present on both
@@ -390,7 +392,7 @@ def sample_bspline_displacement_field_like(
         (("transform", transform), ("reference", reference))
     )
 
-    result = sample_bspline_displacement_field(
+    result = sample_displacement_field(
         transform,
         **get_grid_kwargs_from_dataarray(reference),
         sitk_threads=sitk_threads,
@@ -422,9 +424,9 @@ def invert_displacement_field(
     ----------
     field : xarray.DataArray
         Dense displacement field DataArray as produced by
-        [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field]
+        [`sample_displacement_field`][confusius.registration.sample_displacement_field]
         or
-        [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like].
+        [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like].
     max_iterations : int, default: 20
         Maximum number of fixed-point iterations.
     max_error_tolerance : float, default: 0.1

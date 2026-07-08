@@ -17,7 +17,7 @@ from confusius.atlas._structures import (
     _load_obj,
     _resolve_region_id,
 )
-from confusius.registration.bspline import sample_bspline_displacement_field_like
+from confusius.registration.bspline import sample_displacement_field_like
 from confusius.registration.resampling import resample_like as resample_like_da
 
 if TYPE_CHECKING:
@@ -173,7 +173,7 @@ def _transform_points(
 
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
-        field = sample_bspline_displacement_field_like(transform, reference)
+        field = sample_displacement_field_like(transform, reference)
     displacement = _interpolate_displacement_field(field, points)
     return points + displacement
 
@@ -368,7 +368,7 @@ def _apply_mesh_vertex_transform(
 
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
-        field = sample_bspline_displacement_field_like(transform, reference)
+        field = sample_displacement_field_like(transform, reference)
 
     initial_guess_affine = None
     pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")

@@ -7,8 +7,8 @@ from confusius.registration.affines import (
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
-    sample_bspline_displacement_field,
-    sample_bspline_displacement_field_like,
+    sample_displacement_field,
+    sample_displacement_field_like,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import (
@@ -26,8 +26,8 @@ from confusius.registration.volumewise import register_volumewise
 __all__ = [
     "RegistrationDiagnostics",
     "RegistrationProgressPlotter",
-    "sample_bspline_displacement_field",
-    "sample_bspline_displacement_field_like",
+    "sample_displacement_field",
+    "sample_displacement_field_like",
     "compose_affine",
     "decompose_affine",
     "invert_displacement_field",

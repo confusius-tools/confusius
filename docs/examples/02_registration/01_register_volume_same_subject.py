@@ -235,7 +235,7 @@ _ = ax.set_title(diagnostics_bspline.stop_condition)
 #
 # To see the deformation directly, sample the B-spline transform onto `fixed`'s grid
 # with
-# [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like],
+# [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like],
 # which returns one displacement vector per voxel of the reference grid.
 # Sampling `bspline_transform` includes the rigid pre-affine it was initialized with,
 # giving the *combined* rigid + B-spline warp; dropping that pre-affine leaves only the
@@ -250,16 +250,14 @@ _ = ax.set_title(diagnostics_bspline.stop_condition)
 
 # %%
 # Combined rigid + B-spline field.
-composite_field = cf.registration.sample_bspline_displacement_field_like(
+composite_field = cf.registration.sample_displacement_field_like(
     bspline_transform, fixed
 )
 
 # Local-only field: copy the transform and drop the rigid pre-affine before sampling.
 local_bspline = bspline_transform.copy()
 local_bspline.attrs = {**local_bspline.attrs, "affines": {}}
-local_field = cf.registration.sample_bspline_displacement_field_like(
-    local_bspline, fixed
-)
+local_field = cf.registration.sample_displacement_field_like(local_bspline, fixed)
 
 # For display, invert the pull fields so the arrows show apparent motion toward
 # `fixed`, rather than the fixed-to-moving lookup direction SimpleITK uses for

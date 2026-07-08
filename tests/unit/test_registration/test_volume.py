@@ -8,8 +8,8 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.registration.bspline import (
     invert_displacement_field,
-    sample_bspline_displacement_field,
-    sample_bspline_displacement_field_like,
+    sample_displacement_field,
+    sample_displacement_field_like,
     sitk_bspline_to_dataarray,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
@@ -705,7 +705,7 @@ class TestDisplacementField:
         with pytest.raises(TypeError, match="BSplineTransform"):
             sitk_bspline_to_dataarray(sitk.AffineTransform(2))
 
-    def test_sample_bspline_displacement_field_wrong_type_attr_raises(self):
+    def test_sample_displacement_field_wrong_type_attr_raises(self):
         """A DataArray with the wrong `type` attr is rejected."""
         transform = xr.DataArray(
             np.zeros((2, 4, 4)),
@@ -718,7 +718,7 @@ class TestDisplacementField:
             },
         )
         with pytest.raises(ValueError, match="bspline_transform"):
-            sample_bspline_displacement_field(
+            sample_displacement_field(
                 transform,
                 shape=[4, 4],
                 spacing=[1.0, 1.0],
@@ -726,7 +726,7 @@ class TestDisplacementField:
                 dims=["y", "x"],
             )
 
-    def test_sample_bspline_displacement_field_missing_required_attr_raises(self):
+    def test_sample_displacement_field_missing_required_attr_raises(self):
         """Missing B-spline metadata is rejected."""
         transform = xr.DataArray(
             np.zeros((2, 4, 4)),
@@ -735,7 +735,7 @@ class TestDisplacementField:
             attrs={"type": "bspline_transform", "order": 3},
         )
         with pytest.raises(ValueError, match="direction"):
-            sample_bspline_displacement_field(
+            sample_displacement_field(
                 transform,
                 shape=[4, 4],
                 spacing=[1.0, 1.0],
@@ -743,7 +743,7 @@ class TestDisplacementField:
                 dims=["y", "x"],
             )
 
-    def test_sample_bspline_displacement_field_wrong_first_dim_raises(self):
+    def test_sample_displacement_field_wrong_first_dim_raises(self):
         """A B-spline DataArray without leading 'component' is rejected."""
         transform = xr.DataArray(
             np.zeros((4, 4, 2)),
@@ -756,7 +756,7 @@ class TestDisplacementField:
             },
         )
         with pytest.raises(ValueError, match="'component' as its first dimension"):
-            sample_bspline_displacement_field(
+            sample_displacement_field(
                 transform,
                 shape=[4, 4],
                 spacing=[1.0, 1.0],
@@ -764,7 +764,7 @@ class TestDisplacementField:
                 dims=["y", "x"],
             )
 
-    def test_sample_bspline_displacement_field_like_time_reference_raises(
+    def test_sample_displacement_field_like_time_reference_raises(
         self, sample_2d_dataarray
     ):
         """The `_like` wrapper rejects references with a time dimension."""
@@ -779,7 +779,7 @@ class TestDisplacementField:
             },
         )
         with pytest.raises(ValueError, match="time dimension"):
-            sample_bspline_displacement_field_like(transform, sample_2d_dataarray)
+            sample_displacement_field_like(transform, sample_2d_dataarray)
 
     def test_invert_displacement_field_wrong_type_attr_raises(self):
         """A DataArray with the wrong `type` attr is rejected."""
@@ -803,7 +803,7 @@ class TestDisplacementField:
         with pytest.raises(ValueError, match="'component' as its first dimension"):
             invert_displacement_field(field)
 
-    def test_sample_bspline_displacement_field_returns_valid_dataarray(
+    def test_sample_displacement_field_returns_valid_dataarray(
         self, sample_2d_dataarray_spatial
     ):
         """Sampling an identity B-spline transform yields a near-zero dense field."""
@@ -813,7 +813,7 @@ class TestDisplacementField:
             transform_type="bspline",
         )
         grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
-        field = sample_bspline_displacement_field(bspline_tx, **grid)
+        field = sample_displacement_field(bspline_tx, **grid)
 
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
@@ -821,7 +821,7 @@ class TestDisplacementField:
         assert field.shape == (2, *sample_2d_dataarray_spatial.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
 
-    def test_sample_bspline_displacement_field_like_matches_explicit_grid(
+    def test_sample_displacement_field_like_matches_explicit_grid(
         self, sample_2d_dataarray_spatial
     ):
         """The `_like` wrapper matches explicit-grid sampling."""
@@ -831,10 +831,10 @@ class TestDisplacementField:
             transform_type="bspline",
         )
 
-        by_grid = sample_bspline_displacement_field(
+        by_grid = sample_displacement_field(
             bspline_tx, **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         )
-        by_reference = sample_bspline_displacement_field_like(
+        by_reference = sample_displacement_field_like(
             bspline_tx, sample_2d_dataarray_spatial
         )
 
@@ -899,7 +899,7 @@ class TestDisplacementField:
             transform_type="bspline",
         )
         grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
-        field = sample_bspline_displacement_field(bspline_tx, **grid)
+        field = sample_displacement_field(bspline_tx, **grid)
 
         result_bspline = resample_volume(moving, bspline_tx, **grid)
         result_field = resample_volume(moving, field, **grid)
@@ -936,7 +936,7 @@ class TestDisplacementField:
             origin=[fixed.fusi.origin[d] for d in fixed.dims],
             dims=list(fixed.dims),
         )
-        field = sample_bspline_displacement_field(bspline_tx, **grid)
+        field = sample_displacement_field(bspline_tx, **grid)
         assert not np.isnan(field.values).any()
 
         result_bspline = resample_volume(moving, bspline_tx, **grid)
@@ -977,7 +977,7 @@ class TestDisplacementField:
             origin=[fixed.fusi.origin[d] for d in fixed.dims],
             dims=list(fixed.dims),
         )
-        field = sample_bspline_displacement_field(bspline_tx, **grid)
+        field = sample_displacement_field(bspline_tx, **grid)
         inverse_field = invert_displacement_field(field)
 
         # The degenerate z axis has no spatial variation to invert against, so its
