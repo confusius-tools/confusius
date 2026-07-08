@@ -296,7 +296,7 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
     Bundles the `shape`, `spacing`, `origin`, and `dims` that a DataArray defines into
     the keyword arguments expected by SimpleITK-based resampling helpers such as
     [`resample_volume`][confusius.registration.resample_volume] and
-    [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field].
+    [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field].
     Spacing comes from
     [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings],
     falling back to `1.0` for dimensions whose spacing is undefined; origin comes from

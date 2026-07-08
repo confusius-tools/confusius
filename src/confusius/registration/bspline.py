@@ -38,7 +38,9 @@ attributes:
 Unlike the sparse B-spline coefficient lattice, a displacement field stores one
 displacement vector per voxel of an explicit grid. It is produced by sampling a B-spline
 (or composite) transform with
-[`bspline_to_displacement_field`][confusius.registration.bspline.bspline_to_displacement_field]
+[`sample_bspline_displacement_field`][confusius.registration.bspline.sample_bspline_displacement_field]
+or
+[`sample_bspline_displacement_field_like`][confusius.registration.bspline.sample_bspline_displacement_field_like],
 and can be inverted with
 [`invert_displacement_field`][confusius.registration.bspline.invert_displacement_field].
 """
@@ -50,8 +52,13 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
 from confusius.registration.affines import affine_to_sitk_linear_transform
+from confusius.validation import (
+    validate_fusi_dataarray,
+    validate_matching_spatial_units,
+)
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -273,7 +280,7 @@ def _validate_bspline_dataarray(da: xr.DataArray) -> None:
         )
 
 
-def bspline_to_displacement_field(
+def sample_bspline_displacement_field(
     transform: xr.DataArray,
     *,
     shape: Sequence[int],
@@ -282,7 +289,12 @@ def bspline_to_displacement_field(
     dims: Sequence[str],
     sitk_threads: int = -1,
 ) -> xr.DataArray:
-    """Sample a B-spline (or composite) transform into a dense displacement field.
+    """Sample a B-spline (or composite) transform onto an explicit output grid.
+
+    Low-level sampling primitive. For the common case of sampling onto the grid of
+    another DataArray, use
+    [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like]
+    instead.
 
     Parameters
     ----------
@@ -327,6 +339,71 @@ def bspline_to_displacement_field(
     )
 
 
+def sample_bspline_displacement_field_like(
+    transform: xr.DataArray,
+    reference: xr.DataArray,
+    *,
+    sitk_threads: int = -1,
+) -> xr.DataArray:
+    """Sample a B-spline transform onto the grid of a reference DataArray.
+
+    Convenience wrapper around
+    [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field]
+    that extracts the output grid from `reference`'s coordinates.
+
+    Parameters
+    ----------
+    transform : xarray.DataArray
+        B-spline control-point DataArray to sample.
+    reference : xarray.DataArray
+        DataArray defining the output grid. Must be 2D or 3D spatial (no time
+        dimension). When spatial coordinate `units` metadata is present on both
+        `transform` and `reference`, they must match.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use internally. Negative values resolve to
+        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        means all minus one, and so on.
+
+    Returns
+    -------
+    xarray.DataArray
+        Dense displacement field DataArray sampled on `reference`'s grid.
+
+    Raises
+    ------
+    ValueError
+        If `reference` contains a `time` dimension or is not 2D or 3D.
+    """
+    if "time" in reference.dims:
+        raise ValueError(
+            f"'reference' must not have a time dimension; got dims {reference.dims}."
+        )
+
+    validate_fusi_dataarray(
+        reference,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+        minimum_spatial_dims=2,
+    )
+    validate_matching_spatial_units(
+        (("transform", transform), ("reference", reference))
+    )
+
+    result = sample_bspline_displacement_field(
+        transform,
+        **get_grid_kwargs_from_dataarray(reference),
+        sitk_threads=sitk_threads,
+    )
+    return result.assign_coords(
+        {
+            dim: reference.coords[dim]
+            for dim in reference.dims
+            if dim in reference.coords
+        }
+    )
+
+
 def invert_displacement_field(
     field: xr.DataArray,
     *,
@@ -345,7 +422,9 @@ def invert_displacement_field(
     ----------
     field : xarray.DataArray
         Dense displacement field DataArray as produced by
-        [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field].
+        [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field]
+        or
+        [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like].
     max_iterations : int, default: 20
         Maximum number of fixed-point iterations.
     max_error_tolerance : float, default: 0.1

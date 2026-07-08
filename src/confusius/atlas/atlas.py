@@ -10,7 +10,6 @@ import xarray as xr
 from scipy.interpolate import interpn
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.atlas._structures import (
     _build_lookup_df,
     _build_rgb_lookup,
@@ -18,7 +17,7 @@ from confusius.atlas._structures import (
     _load_obj,
     _resolve_region_id,
 )
-from confusius.registration.bspline import bspline_to_displacement_field
+from confusius.registration.bspline import sample_bspline_displacement_field_like
 from confusius.registration.resampling import resample_like as resample_like_da
 
 if TYPE_CHECKING:
@@ -174,9 +173,7 @@ def _transform_points(
 
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
-        field = bspline_to_displacement_field(
-            transform, **get_grid_kwargs_from_dataarray(reference)
-        )
+        field = sample_bspline_displacement_field_like(transform, reference)
     displacement = _interpolate_displacement_field(field, points)
     return points + displacement
 
@@ -371,9 +368,7 @@ def _apply_mesh_vertex_transform(
 
     field = transform
     if transform.attrs.get("type") == "bspline_transform":
-        field = bspline_to_displacement_field(
-            transform, **get_grid_kwargs_from_dataarray(reference)
-        )
+        field = sample_bspline_displacement_field_like(transform, reference)
 
     initial_guess_affine = None
     pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")

@@ -33,10 +33,12 @@ Current development version for the next ConfUSIus release.
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
   ([#261](https://github.com/confusius-tools/confusius/pull/261)).
-- Added [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
-  and [`invert_displacement_field`][confusius.registration.invert_displacement_field] to
-  sample a B-spline (or composite affine + B-spline) registration transform into a dense
-  displacement field and invert it via SimpleITK's `InvertDisplacementFieldImageFilter`.
+- Added [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field],
+  [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like],
+  and [`invert_displacement_field`][confusius.registration.invert_displacement_field]
+  to sample a B-spline (or composite affine + B-spline) registration transform into a
+  dense displacement field and invert it via SimpleITK's
+  `InvertDisplacementFieldImageFilter`.
   [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like] now also accept displacement
   fields directly, so a saved B-spline transform's inverse can be applied without a

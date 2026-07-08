@@ -58,7 +58,7 @@ def resample_volume(
           == "bspline_transform"` as returned by `register_volume(transform="bspline")`.
         - **Displacement field** (`xarray.DataArray`): dense field with
           `attrs["type"] == "displacement_field_transform"`, as returned by
-          [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field]
+          [`sample_bspline_displacement_field`][confusius.registration.sample_bspline_displacement_field]
           or
           [`invert_displacement_field`][confusius.registration.invert_displacement_field].
 

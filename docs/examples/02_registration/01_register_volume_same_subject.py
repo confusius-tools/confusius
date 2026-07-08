@@ -19,7 +19,7 @@
 # Each recording is a single power Doppler image of one slice. We convert it to decibels
 # for both display and registration, which is usually more stable on the log-compressed
 # dynamic range. We also set the coordinate system to the NIfTI `qform`'s space, because
-# the `sform` coordinate system is currently unusable as it is a proprietary non-metric
+# the `sform` coordinate system is currently unusable as it is a custom non-metric
 # space.
 
 # %%
@@ -233,10 +233,10 @@ _ = ax.set_title(diagnostics_bspline.stop_condition)
 # %% [markdown]
 # ## Visualize the deformation
 #
-# To see the deformation directly, sample the B-spline transform into a dense
-# displacement field with
-# [`bspline_to_displacement_field`][confusius.registration.bspline_to_displacement_field],
-# which returns one displacement vector per voxel of a reference grid (here `fixed`).
+# To see the deformation directly, sample the B-spline transform onto `fixed`'s grid
+# with
+# [`sample_bspline_displacement_field_like`][confusius.registration.sample_bspline_displacement_field_like],
+# which returns one displacement vector per voxel of the reference grid.
 # Sampling `bspline_transform` includes the rigid pre-affine it was initialized with,
 # giving the *combined* rigid + B-spline warp; dropping that pre-affine leaves only the
 # *local* B-spline deformation.
@@ -249,22 +249,17 @@ _ = ax.set_title(diagnostics_bspline.stop_condition)
 # its sampled displacement field.
 
 # %%
-grid = dict(
-    shape=fixed.shape,
-    spacing=[s or 1.0 for s in fixed.fusi.spacing.values()],
-    origin=list(fixed.fusi.origin.values()),
-    dims=list(fixed.dims),
-)
-
 # Combined rigid + B-spline field.
-composite_field = cf.registration.bspline_to_displacement_field(
-    bspline_transform, **grid
+composite_field = cf.registration.sample_bspline_displacement_field_like(
+    bspline_transform, fixed
 )
 
 # Local-only field: copy the transform and drop the rigid pre-affine before sampling.
 local_bspline = bspline_transform.copy()
 local_bspline.attrs = {**local_bspline.attrs, "affines": {}}
-local_field = cf.registration.bspline_to_displacement_field(local_bspline, **grid)
+local_field = cf.registration.sample_bspline_displacement_field_like(
+    local_bspline, fixed
+)
 
 # For display, invert the pull fields so the arrows show apparent motion toward
 # `fixed`, rather than the fixed-to-moving lookup direction SimpleITK uses for
@@ -306,4 +301,3 @@ for ax, background, field, title in [
 # Arrow lengths are autoscaled per panel, so compare directions and patterns, not
 # absolute length between the two.
 fig.tight_layout()
-
