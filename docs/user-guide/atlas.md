@@ -43,8 +43,11 @@ icon: lucide/brain
     **Registration:**
 
     - [`ds.atlas.resample_like`][confusius.atlas.AtlasAccessor.resample_like]: Resample the
-      atlas onto the grid of a fUSI volume using a pull affine returned by
-      [`register_volume`][confusius.registration.register_volume].
+      atlas onto the grid of a fUSI volume using a transform returned by
+      [`register_volume`][confusius.registration.register_volume] — an affine, a B-spline,
+      or a displacement field. Region meshes are warped through the same transform.
+    - [`ds.atlas.resample`][confusius.atlas.AtlasAccessor.resample]: Resample onto an
+      explicit output grid (shape, spacing, origin, dims).
 
     Please refer to the [API Reference](../api/atlas.md) for
     more information.

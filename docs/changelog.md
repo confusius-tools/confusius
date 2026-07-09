@@ -33,6 +33,11 @@ Current development version for the next ConfUSIus release.
   Dataset is a well-formed atlas, alongside `validate_fusi_dataarray` and
   `validate_iq_dataarray`
   ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+- `ds.atlas.resample_like` now accepts B-spline and displacement-field transforms in
+  addition to affines, warping region meshes (returned by `ds.atlas.get_mesh`) through the
+  same nonlinear transform and dropping vertices that fall outside the target grid. A new
+  `ds.atlas.resample` resamples onto an explicit grid specification
+  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
