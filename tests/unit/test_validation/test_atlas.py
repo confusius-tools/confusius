@@ -37,8 +37,8 @@ def _make_atlas(dims: tuple[str, ...] = ("z", "y", "x")) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": json.dumps(structures),
-            "mesh_to_physical": np.diag([1e-3, 1e-3, 1e-3, 1.0]).tolist(),
-            "rl_midline_um": 100.0,
+            "mesh_vertex_transform": np.eye(4).tolist(),
+            "rl_midline": 0.1,
         },
     )
 
@@ -54,7 +54,7 @@ def test_valid_2d_atlas_passes() -> None:
 
 def test_non_dataset_raises_type_error() -> None:
     with pytest.raises(TypeError, match="xarray.Dataset"):
-        validate_atlas_dataset(xr.DataArray(np.zeros((3, 3, 3))))  # type: ignore[arg-type]
+        validate_atlas_dataset(xr.DataArray(np.zeros((3, 3, 3))))  # ty: ignore[invalid-argument-type]
 
 
 def test_missing_data_var_raises() -> None:
@@ -87,8 +87,25 @@ def test_annotation_wrong_dtype_raises_type_error() -> None:
 
 def test_missing_attr_raises() -> None:
     ds = _make_atlas()
-    del ds.attrs["rl_midline_um"]
-    with pytest.raises(ValueError, match="rl_midline_um"):
+    del ds.attrs["rl_midline"]
+    with pytest.raises(ValueError, match="rl_midline"):
+        validate_atlas_dataset(ds)
+
+
+def test_mesh_vertex_transform_as_data_var_passes() -> None:
+    """A nonlinear atlas carries mesh_vertex_transform as a data var, not an attr."""
+    ds = _make_atlas()
+    del ds.attrs["mesh_vertex_transform"]
+    ds["mesh_vertex_transform"] = xr.DataArray(
+        np.zeros((3, 3, 3, 3)), dims=("component", "z", "y", "x")
+    )
+    validate_atlas_dataset(ds)
+
+
+def test_missing_mesh_vertex_transform_raises() -> None:
+    ds = _make_atlas()
+    del ds.attrs["mesh_vertex_transform"]
+    with pytest.raises(ValueError, match="mesh_vertex_transform"):
         validate_atlas_dataset(ds)
 
 

@@ -14,8 +14,33 @@ from brainglobe_atlasapi.structure_class import StructuresDict
 
 from confusius.atlas import atlas_from_brainglobe, atlas_from_zarr, atlas_to_zarr
 from confusius.atlas._structures import structures_from_json, structures_to_json
+from confusius.validation import validate_atlas_dataset
 
 from .conftest import _MockBgAtlas
+
+
+def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
+    """Build a displacement-field transform DataArray on `reference`'s grid."""
+    dims = [str(d) for d in reference.dims]
+    return xr.DataArray(
+        data,
+        dims=["component", *dims],
+        coords={
+            "component": np.array(dims, dtype=np.str_),
+            **{d: reference.coords[d] for d in dims},
+        },
+        attrs={"type": "displacement_field_transform"},
+    )
+
+
+def _with_mesh_transform(
+    atlas_ds: xr.Dataset, transform: xr.DataArray
+) -> xr.Dataset:
+    """Return a copy of `atlas_ds` carrying `transform` as its mesh vertex transform."""
+    ds = atlas_ds.copy()
+    ds.attrs = {k: v for k, v in atlas_ds.attrs.items() if k != "mesh_vertex_transform"}
+    ds["mesh_vertex_transform"] = transform
+    return ds
 
 
 class TestBuilder:
@@ -56,7 +81,7 @@ class TestBuilder:
 
     def test_from_brainglobe_schema(self, mock_structures: StructuresDict) -> None:
         """atlas_from_brainglobe must produce the locked schema (dims/vars/coords/attrs)."""
-        result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # type: ignore[arg-type]
+        result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
 
         assert isinstance(result, xr.Dataset)
         assert set(result.data_vars) == {"reference", "annotation", "hemispheres"}
@@ -69,8 +94,8 @@ class TestBuilder:
             "species",
             "orientation",
             "structures",
-            "mesh_to_physical",
-            "rl_midline_um",
+            "mesh_vertex_transform",
+            "rl_midline",
         } <= set(result.attrs)
         # Coordinates should be in mm: step = resolution_um[0] * 1e-3.
         np.testing.assert_allclose(
@@ -81,10 +106,10 @@ class TestBuilder:
         self, mock_structures: StructuresDict
     ) -> None:
         """The serializable attrs must be JSON-native (str / list), not numpy/objects."""
-        result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # type: ignore[arg-type]
+        result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
         assert isinstance(result.attrs["structures"], str)
-        assert isinstance(result.attrs["mesh_to_physical"], list)
-        assert isinstance(result.attrs["rl_midline_um"], float)
+        assert isinstance(result.attrs["mesh_vertex_transform"], list)
+        assert isinstance(result.attrs["rl_midline"], float)
 
 
 class TestStructuresSerialization:
@@ -274,7 +299,7 @@ class TestGetMasks:
 
     def test_invalid_side_value_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="Invalid side"):
-            atlas_ds.atlas.get_masks(10, sides="center")  # type: ignore[arg-type]
+            atlas_ds.atlas.get_masks(10, sides="center")
 
     def test_unknown_region_id_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(KeyError):
@@ -294,7 +319,8 @@ class TestGetMesh:
       Face 0: triangle (0, 1, 2) — entirely right
       Face 1: triangle (3, 4, 5) — entirely left
 
-    mesh_to_physical scales µm → mm (factor 1e-3).
+    get_mesh converts µm → mm (factor 1e-3); the identity mesh vertex transform leaves the
+    millimetre vertices unchanged.
     """
 
     def test_vertices_transformed_to_mm(self, atlas_ds: xr.Dataset) -> None:
@@ -475,6 +501,128 @@ class TestIO:
             vertices, atlas_ds.atlas.get_mesh(997)[0]
         )
         assert len(faces) == 2
+
+
+class TestNonlinearMesh:
+    """Nonlinear (displacement-field / B-spline) mesh resampling on the accessor.
+
+    A displacement field's component `i` displaces along DataArray axis `dims[i]` in
+    `(z, y, x)` order; mesh vertex columns are likewise `(z, y, x)`. A `+δ` pull on a
+    component warps the matching mesh column by `-δ` (the mesh transform is inverted on
+    apply). This axis-order convention is load-bearing (it was a real z/x-swap bug).
+    """
+
+    def test_field_warps_mesh_x_column(self, atlas_ds: xr.Dataset) -> None:
+        """A uniform +0.01 pull on component 2 (x) shifts only the mesh x-column by -0.01."""
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.01  # component 2 == x
+        ds = _with_mesh_transform(atlas_ds, _field_on_grid(reference, data))
+
+        warped, _ = ds.atlas.get_mesh(997)
+        base, _ = atlas_ds.atlas.get_mesh(997)
+        expected = base.copy()
+        expected[:, 2] -= 0.01
+        np.testing.assert_allclose(warped, expected, atol=1e-6)
+
+    def test_field_drops_vertices_warped_outside_grid(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """Vertices a nonlinear warp pushes outside the reference grid are dropped."""
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid
+        ds = _with_mesh_transform(atlas_ds, _field_on_grid(reference, data))
+
+        vertices, faces = ds.atlas.get_mesh(997)
+        assert vertices.shape == (0, 3)
+        assert faces.shape == (0, 3)
+
+    def test_bspline_transform_samples_field(
+        self, atlas_ds: xr.Dataset, monkeypatch
+    ) -> None:
+        """A B-spline mesh transform is sampled to a dense field before warping."""
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.01
+        field = _field_on_grid(reference, data)
+        monkeypatch.setattr(
+            "confusius.atlas._mesh_transform.sample_displacement_field_like",
+            lambda transform, ref: field,
+        )
+        bspline = xr.DataArray(
+            np.zeros((2, 2, 2, 3)),
+            dims=["cz", "cy", "cx", "comp"],
+            attrs={"type": "bspline_transform"},
+        )
+        ds = _with_mesh_transform(atlas_ds, bspline)
+
+        warped, _ = ds.atlas.get_mesh(997)
+        base, _ = atlas_ds.atlas.get_mesh(997)
+        expected = base.copy()
+        expected[:, 2] -= 0.01
+        np.testing.assert_allclose(warped, expected, atol=1e-6)
+
+    def test_resample_like_affine_stores_transform_in_attrs(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, np.eye(4))
+        assert "mesh_vertex_transform" in resampled.attrs
+        assert "mesh_vertex_transform" not in resampled.data_vars
+
+    def test_resample_like_field_stores_transform_as_data_var(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        reference = atlas_ds.atlas.reference
+        field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
+        resampled = atlas_ds.atlas.resample_like(reference, field)
+        assert "mesh_vertex_transform" in resampled.data_vars
+        assert "mesh_vertex_transform" not in resampled.attrs
+        validate_atlas_dataset(resampled)
+
+    def test_resample_like_affine_shifts_mesh(self, atlas_ds: xr.Dataset) -> None:
+        """An affine pull translation warps the mesh by its inverse."""
+        transform = np.eye(4)
+        transform[2, 3] = 0.02  # +0.02 pull on x → mesh x shifted by -0.02
+        resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, transform)
+
+        warped, _ = resampled.atlas.get_mesh(997)
+        base, _ = atlas_ds.atlas.get_mesh(997)
+        expected = base.copy()
+        expected[:, 2] -= 0.02
+        np.testing.assert_allclose(warped, expected, atol=1e-5)
+
+    def test_nonlinear_atlas_roundtrips_through_zarr(
+        self, atlas_ds: xr.Dataset, tmp_path
+    ) -> None:
+        """The displacement-field data variable serializes and get_mesh works post-load."""
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.01
+        resampled = atlas_ds.atlas.resample_like(reference, _field_on_grid(reference, data))
+
+        path = tmp_path / "atlas.zarr"
+        atlas_to_zarr(resampled, path)
+        loaded = atlas_from_zarr(path)
+
+        assert "mesh_vertex_transform" in loaded.data_vars
+        np.testing.assert_allclose(
+            loaded.atlas.get_mesh(997)[0], resampled.atlas.get_mesh(997)[0], atol=1e-6
+        )
+
+    def test_resample_matches_resample_like(self, atlas_ds: xr.Dataset) -> None:
+        """Grid-spec resample equals resample_like on an equivalent reference."""
+        reference = atlas_ds.atlas.reference
+        by_like = atlas_ds.atlas.resample_like(reference, np.eye(4))
+        by_grid = atlas_ds.atlas.resample(
+            np.eye(4),
+            shape=reference.shape,
+            spacing=[0.05, 0.05, 0.05],
+            origin=[0.0, 0.0, 0.0],
+            dims=["z", "y", "x"],
+        )
+        for var in ["reference", "annotation", "hemispheres"]:
+            np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
 
 
 class TestGroupbyIntegration:

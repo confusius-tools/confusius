@@ -92,11 +92,13 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
       - [:, :, :4] = 2  (right — low RL in asr orientation)
       - [:, :, 4:] = 1  (left  — high RL in asr orientation)
 
-    Resolution: 25 µm (0.025 mm) isotropic.
-    RL midline: shape[2]/2 * 25 µm = 100 µm.
+    Resolution: 50 µm (0.05 mm) isotropic.
+    RL midline: 100 µm (0.1 mm), the OBJ mesh's RL midline.
     """
     shape = (4, 6, 8)
-    resolution_mm = 0.025
+    # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the reference grid, which the
+    # nonlinear get_mesh tests require.
+    resolution_mm = 0.05
 
     annotation_data = np.zeros(shape, dtype=np.int32)
     annotation_data[:2, :, 2:6] = 10
@@ -150,9 +152,10 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": json.dumps(structure_list),
-            "mesh_to_physical": np.diag([1e-3, 1e-3, 1e-3, 1.0]).tolist(),
-            # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm.
-            "rl_midline_um": shape[2] / 2 * 25.0,
+            "mesh_vertex_transform": np.eye(4).tolist(),
+            # RL midline of the OBJ mesh in mm, halfway between its 50 µm and 150 µm
+            # vertices, so the hemisphere clip splits it 3/3. Fixed to the mesh.
+            "rl_midline": 0.1,
         },
     )
 
