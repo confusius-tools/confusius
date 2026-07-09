@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
@@ -122,6 +123,13 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     }
     to_save = ds.copy()
     to_save["annotation"] = annotation
+
+    # A nonlinear (displacement-field) mesh transform carries a decorative string
+    # `component` coordinate that zarr v3 cannot serialize stably. Replace it with integer
+    # indices, which serialize cleanly and keep `.fusi.spacing` defined on load; the
+    # transform math uses the dimension order, not the component labels.
+    if "mesh_vertex_transform" in to_save.data_vars and "component" in to_save.coords:
+        to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
 
     to_copy: dict[str, Path] = {}
     if "structures" in to_save.attrs:

@@ -51,7 +51,9 @@ def fetch_brainglobe_atlas(
     from brainglobe_atlasapi import BrainGlobeAtlas
 
     bg_atlas = BrainGlobeAtlas(
-        atlas_name,
+        # BrainGlobeAtlas types atlas_name as a Literal of every known atlas name; we
+        # accept any str so new atlases work without a stub bump.
+        atlas_name,  # ty: ignore[invalid-argument-type]
         brainglobe_dir=data_dir,
         check_latest=check_latest,
     )

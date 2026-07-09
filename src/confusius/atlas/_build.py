@@ -80,11 +80,15 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
         },
     )
 
-    # OBJ mesh vertices are in microns; scale to millimetres.
-    mesh_to_physical = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-    # For asr orientation: shape[2] is the RL axis length (voxels); resolution[2] is the
-    # voxel size in microns. The midline sits at the centre of the volume.
-    rl_midline_um = metadata["shape"][2] / 2 * metadata["resolution"][2]
+    # The mesh vertex transform is a pure base→current physical (mm) pull transform,
+    # identity for a fresh atlas; OBJ vertices are converted microns→millimetres inside
+    # get_mesh, not folded into this transform, so it composes uniformly with the
+    # nonlinear (displacement-field) transforms that resample_like can produce.
+    mesh_vertex_transform = np.eye(4)
+    # RL midline in millimetres (base atlas space). For asr orientation: shape[2] is the
+    # RL axis length (voxels), resolution[2] the voxel size in microns; the midline sits
+    # at the centre of the volume.
+    rl_midline = metadata["shape"][2] / 2 * metadata["resolution"][2] * 1e-3
 
     # hemispheres is a per-voxel left/right partition (1 = left, 2 = right). It is a data
     # variable, not a coordinate: as a coordinate it would ride along on `reference` and
@@ -110,7 +114,7 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
             "species": metadata["species"],
             "orientation": metadata["orientation"],
             "structures": structures_to_json(atlas.structures),
-            "mesh_to_physical": mesh_to_physical.tolist(),
-            "rl_midline_um": float(rl_midline_um),
+            "mesh_vertex_transform": mesh_vertex_transform.tolist(),
+            "rl_midline": float(rl_midline),
         },
     )

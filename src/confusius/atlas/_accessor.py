@@ -10,6 +10,12 @@ import pandas as pd
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius.atlas._mesh_transform import (
+    MeshVertexTransform,
+    _apply_mesh_vertex_transform,
+    _compose_mesh_vertex_transforms,
+    _drop_vertices_outside_grid,
+)
 from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
@@ -85,6 +91,24 @@ class AtlasAccessor:
             The hemisphere map data variable.
         """
         return self._ds["hemispheres"]
+
+    @property
+    def _mesh_vertex_transform(self) -> MeshVertexTransform:
+        """Pull transform mapping current atlas physical space back to base atlas space.
+
+        Affine transforms live in `attrs["mesh_vertex_transform"]` (the common case, a
+        JSON-native list); a nonlinear transform produced by `resample_like` lives in the
+        `mesh_vertex_transform` data variable (a displacement-field DataArray), which
+        takes precedence when present.
+
+        Returns
+        -------
+        numpy.ndarray or xarray.DataArray
+            The `(4, 4)` affine, or the dense displacement-field DataArray.
+        """
+        if "mesh_vertex_transform" in self._ds.data_vars:
+            return self._ds["mesh_vertex_transform"]
+        return np.asarray(self._ds.attrs["mesh_vertex_transform"], dtype=np.float64)
 
     # ── Structure metadata ────────────────────────────────────────────────────
 
@@ -323,9 +347,9 @@ class AtlasAccessor:
             Structure index or acronym.
         side : {"left", "right", "both"}, default: "both"
             Hemisphere to include. `"both"` keeps the full mesh. `"left"` and
-            `"right"` clip in the original atlas micron space along the RL axis at the
-            volume midline. Only triangles whose three vertices all fall on the
-            requested side are retained; the cut face is not closed.
+            `"right"` clip in the base atlas physical space (millimetres) along the RL
+            axis at the volume midline. Only triangles whose three vertices all fall on
+            the requested side are retained; the cut face is not closed.
 
             !!! note
                Generalising axis detection from the orientation attribute for non-`asr`
@@ -334,7 +358,8 @@ class AtlasAccessor:
         Returns
         -------
         vertices : numpy.ndarray, shape (N, 3)
-            Vertex coordinates in the current physical space (millimetres).
+            Vertex coordinates in the current physical space (millimetres). After a
+            nonlinear resample, vertices warped outside the reference grid are dropped.
         faces : numpy.ndarray, shape (M, 3)
             Zero-indexed triangle face indices (int32).
 
@@ -364,36 +389,43 @@ class AtlasAccessor:
             )
 
         vertices_um, faces = _load_obj(mesh_path)
+        vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
         if side != "both":
-            # Clip in micron space along the RL axis (column 2 for asr
-            # orientation) before applying the physical transform.
+            # Clip in base atlas physical space (mm) along the RL axis (column 2 for asr
+            # orientation) before applying the mesh vertex transform.
             # For asr, axis 2 increases from right (0) to left (max), so:
             #   right hemisphere → RL < midline
             #   left  hemisphere → RL >= midline
             # TODO: generalize axis detection for non-asr atlases.
-            rl_midline_um = self._ds.attrs["rl_midline_um"]
+            rl_midline = self._ds.attrs["rl_midline"]
             if side == "right":
-                keep = vertices_um[:, 2] < rl_midline_um
+                keep = vertices_mm[:, 2] < rl_midline
             else:  # "left"
-                keep = vertices_um[:, 2] >= rl_midline_um
+                keep = vertices_mm[:, 2] >= rl_midline
 
             keep_idx = np.where(keep)[0]
-            old_to_new = np.full(len(vertices_um), -1, dtype=np.int64)
+            old_to_new = np.full(len(vertices_mm), -1, dtype=np.int64)
             old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
 
             # Retain only faces where all three vertices survive the clip.
             new_face_idx = old_to_new[faces]  # (M, 3); -1 if vertex removed.
             valid = np.all(new_face_idx >= 0, axis=1)
-            vertices_um = vertices_um[keep_idx]
+            vertices_mm = vertices_mm[keep_idx]
             faces = new_face_idx[valid].astype(np.int32)
 
-        # Apply homogeneous transform: microns → physical millimetres.
-        # mesh_to_physical maps [x_um, y_um, z_um, 1]^T → [x_mm, y_mm, z_mm, 1]^T.
-        mesh_to_physical = np.asarray(self._ds.attrs["mesh_to_physical"])
-        n = len(vertices_um)
-        vertices_h = np.hstack([vertices_um, np.ones((n, 1), dtype=np.float64)])
-        vertices_m = (mesh_to_physical @ vertices_h.T).T[:, :3]
+        mesh_transform = self._mesh_vertex_transform
+        vertices_m = _apply_mesh_vertex_transform(
+            mesh_transform, vertices_mm, self.reference
+        )
+
+        if isinstance(mesh_transform, xr.DataArray):
+            # A nonlinear warp can move vertices outside the grid, and vertices too far
+            # outside it to interpolate come back as NaN; drop both, and any face that
+            # references them.
+            vertices_m, faces = _drop_vertices_outside_grid(
+                vertices_m, faces, self.reference
+            )
 
         return vertices_m, faces
 
@@ -402,7 +434,7 @@ class AtlasAccessor:
     def resample_like(
         self,
         reference: xr.DataArray,
-        transform: "npt.NDArray[np.float64]",
+        transform: MeshVertexTransform,
         *,
         reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         sitk_threads: int = -1,
@@ -418,13 +450,21 @@ class AtlasAccessor:
           to preserve integer labels.
         - Meshes returned by `get_mesh` will also be in the new physical space.
 
+        `reference` and any DataArray transform must use the same physical coordinate
+        units when such metadata is defined.
+
         Parameters
         ----------
         reference : xarray.DataArray
             Target grid. Must be 2D or 3D and must not have a `time` dimension.
-        transform : (N+1, N+1) numpy.ndarray
-            Pull/inverse affine returned by `register_volume`, mapping
-            `reference` physical coordinates to atlas physical coordinates.
+        transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
+            Pull/inverse transform returned by `register_volume`, mapping `reference`
+            physical coordinates to atlas physical coordinates.
+
+            - **Affine** (`numpy.ndarray`): homogeneous matrix.
+            - **B-spline** (`xarray.DataArray`): control-point DataArray.
+            - **Displacement field** (`xarray.DataArray`): dense field with
+              `attrs["type"] == "displacement_field_transform"`.
         reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the `reference` variable.
         sitk_threads : int, default: -1
@@ -434,7 +474,9 @@ class AtlasAccessor:
         Returns
         -------
         xarray.Dataset
-            New atlas Dataset on `reference`'s grid.
+            New atlas Dataset on `reference`'s grid. When `transform` (or a previously
+            composed one) is nonlinear, the composed mesh transform is stored as a
+            `mesh_vertex_transform` data variable rather than an `attrs` entry.
 
         Examples
         --------
@@ -470,20 +512,93 @@ class AtlasAccessor:
             sitk_threads=sitk_threads,
         )
 
-        new_attrs = dict(self._ds.attrs)
-        # The mesh→physical affine composes with the resampling pull transform;
-        # rl_midline_um is a property of the original atlas micron space and is unchanged.
-        new_attrs["mesh_to_physical"] = (
-            np.linalg.inv(transform) @ np.asarray(self._ds.attrs["mesh_to_physical"])
-        ).tolist()
+        composed = _compose_mesh_vertex_transforms(
+            self._mesh_vertex_transform, transform, reference, self.reference
+        )
 
-        return xr.Dataset(
-            {
-                "reference": resampled_ref,
-                "annotation": resampled_ann,
-                "hemispheres": resampled_hemi,
-            },
-            attrs=new_attrs,
+        data_vars: dict[str, xr.DataArray] = {
+            "reference": resampled_ref,
+            "annotation": resampled_ann,
+            "hemispheres": resampled_hemi,
+        }
+        new_attrs = dict(self._ds.attrs)
+        # rl_midline is a property of the base atlas physical space and does not change
+        # when the DataArrays are resampled to a new grid.
+        if isinstance(composed, np.ndarray):
+            new_attrs["mesh_vertex_transform"] = composed.tolist()
+        else:
+            # A nonlinear (displacement-field) transform cannot live in attrs; store it
+            # as a data variable, which the _mesh_vertex_transform property prefers.
+            new_attrs.pop("mesh_vertex_transform", None)
+            data_vars["mesh_vertex_transform"] = composed
+
+        return xr.Dataset(data_vars, attrs=new_attrs)
+
+    def resample(
+        self,
+        transform: MeshVertexTransform,
+        *,
+        shape: Sequence[int],
+        spacing: Sequence[float],
+        origin: Sequence[float],
+        dims: Sequence[str],
+        reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+        sitk_threads: int = -1,
+    ) -> xr.Dataset:
+        """Resample the atlas onto an explicit output grid.
+
+        Mirrors
+        [`confusius.registration.resample_volume`][confusius.registration.resample_volume]
+        for atlas Datasets by constructing a temporary reference grid and delegating to
+        [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
+
+        Parameters
+        ----------
+        transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
+            Pull transform mapping output physical coordinates to the current atlas
+            physical coordinates. Affine, B-spline, or displacement-field, as for
+            [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
+        shape : sequence of int
+            Number of voxels along each output axis, in `dims` order.
+        spacing : sequence of float
+            Voxel spacing along each output axis, in `dims` order.
+        origin : sequence of float
+            Physical origin along each output axis, in `dims` order.
+        dims : sequence of str
+            Dimension names of the output atlas grid.
+        reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
+            Interpolation used for the `reference` volume.
+        sitk_threads : int, default: -1
+            Number of SimpleITK threads.
+
+        Returns
+        -------
+        xarray.Dataset
+            Resampled atlas Dataset on the requested grid.
+        """
+        coords = {}
+        for i, dim in enumerate(dims):
+            dim_str = str(dim)
+            coord_attrs = {}
+            if dim_str in self.reference.coords:
+                coord_attrs = self.reference.coords[dim_str].attrs.copy()
+            coord_attrs["voxdim"] = float(spacing[i])
+            coords[dim_str] = xr.Variable(
+                dim_str,
+                np.asarray(origin[i]) + np.arange(shape[i]) * np.asarray(spacing[i]),
+                attrs=coord_attrs,
+            )
+
+        reference = xr.DataArray(
+            np.zeros(tuple(shape), dtype=np.float32),
+            dims=[str(dim) for dim in dims],
+            coords=coords,
+        )
+        return self.resample_like(
+            reference,
+            transform,
+            reference_interpolation=reference_interpolation,
+            sitk_threads=sitk_threads,
         )
 
     # ── Tree helpers  ─────────────────────────────────────────────────────────────────
@@ -522,4 +637,4 @@ class AtlasAccessor:
             The tree is printed to standard output.
         """
         kwargs.setdefault("stdout", False)
-        print(self.structures.tree.show(**kwargs))
+        print(self.structures.tree.show(**kwargs))  # ty: ignore[invalid-argument-type]

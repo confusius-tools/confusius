@@ -16,10 +16,13 @@ _REQUIRED_ATTRS = (
     "species",
     "orientation",
     "structures",
-    "mesh_to_physical",
-    "rl_midline_um",
+    "rl_midline",
 )
-"""Attributes every atlas Dataset must carry (the self-describing metadata)."""
+"""Attributes every atlas Dataset must carry (the self-describing metadata).
+
+`mesh_vertex_transform` is required too but checked separately: it is an `attrs` entry for
+the common affine case and a data variable for a nonlinear (displacement-field) transform.
+"""
 
 
 def validate_atlas_dataset(ds: xr.Dataset) -> None:
@@ -39,7 +42,9 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: the self-describing metadata `name`, `citation`, `species`,
-       `orientation`, `structures`, `mesh_to_physical`, and `rl_midline_um` are present.
+       `orientation`, `structures`, and `rl_midline` are present, plus
+       `mesh_vertex_transform` (an `attrs` affine, or a data variable for a nonlinear
+       transform).
     6. **Structures**: `attrs["structures"]` parses as a JSON list.
 
     Parameters
@@ -102,6 +107,17 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
             f"Atlas Dataset is missing required attributes: {missing_attrs}. "
             "xarray drops attrs on many operations by default; run atlas pipelines "
             "under xarray.set_options(keep_attrs=True)."
+        )
+
+    # mesh_vertex_transform is an affine in attrs for the common case, or a data variable
+    # (a displacement field) after a nonlinear resample.
+    if (
+        "mesh_vertex_transform" not in ds.attrs
+        and "mesh_vertex_transform" not in ds.data_vars
+    ):
+        raise ValueError(
+            "Atlas Dataset is missing 'mesh_vertex_transform' (expected either an attrs "
+            "affine or a data variable holding a nonlinear displacement field)."
         )
 
     try:
