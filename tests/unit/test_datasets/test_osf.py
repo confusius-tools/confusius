@@ -17,6 +17,7 @@ from confusius.datasets._osf import (
     resolve_index_url,
     update_cached_index,
 )
+from confusius.datasets._pooch import _CallbackProgressAdapter
 
 _FAKE_PROJECT = "testproj"
 _FAKE_BIDS_ROOT = "fake-bids"
@@ -372,3 +373,79 @@ def test_update_cached_index_merges_without_replacing(tmp_path):
         # A file never seen locally is catalogued from the remote index.
         "brand_new.nii.gz": {"osf_path": "/f3", "size": 7, "md5": "fresh"},
     }
+
+
+def test_callback_progress_adapter_ignores_updates_after_reset() -> None:
+    """Once pooch finalizes the file, later update calls are ignored."""
+    updates: list[tuple[int, int, str]] = []
+
+    def callback(current: int, total: int, description: str) -> None:
+        updates.append((current, total, description))
+
+    adapter = _CallbackProgressAdapter(
+        callback,
+        total_bytes=10,
+        completed_bytes=2,
+        description="Downloading a.nii.gz",
+    )
+
+    adapter.total = 6
+    assert adapter.total == 6
+    adapter.update(4)
+    adapter.reset()
+    adapter.update(2)
+    adapter.close()
+
+    assert updates == [
+        (6, 10, "Downloading a.nii.gz"),
+        (8, 10, "Downloading a.nii.gz"),
+    ]
+    assert adapter.current_bytes == 6
+
+
+def test_callback_progress_adapter_close_before_reset_does_nothing() -> None:
+    """A failed download must not credit bytes just because close() ran."""
+    updates: list[tuple[int, int, str]] = []
+
+    def callback(current: int, total: int, description: str) -> None:
+        updates.append((current, total, description))
+
+    adapter = _CallbackProgressAdapter(
+        callback,
+        total_bytes=10,
+        completed_bytes=2,
+        description="Downloading a.nii.gz",
+    )
+
+    adapter.total = 6
+    adapter.close()
+
+    assert updates == []
+
+
+def test_callback_progress_adapter_rewind_resets_partial_progress() -> None:
+    """Retries rewind already-counted bytes before the next attempt."""
+    updates: list[tuple[int, int, str]] = []
+
+    def callback(current: int, total: int, description: str) -> None:
+        updates.append((current, total, description))
+
+    adapter = _CallbackProgressAdapter(
+        callback,
+        total_bytes=10,
+        completed_bytes=2,
+        description="Downloading a.nii.gz",
+    )
+
+    adapter.total = 6
+    adapter.update(4)
+    adapter.rewind()
+    adapter.reset()
+    adapter.close()
+
+    assert updates == [
+        (6, 10, "Downloading a.nii.gz"),
+        (2, 10, "Downloading a.nii.gz"),
+        (8, 10, "Downloading a.nii.gz"),
+    ]
+    assert adapter.current_bytes == 6
