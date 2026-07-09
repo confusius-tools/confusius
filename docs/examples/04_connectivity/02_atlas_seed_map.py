@@ -54,10 +54,12 @@ moving = data.mean(dim="time").fusi.scale.db().compute()
 template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
 
 # %% [markdown]
-# As in the correlation-matrix example, we initialize registration with an affine
-# measured once in Napari's registration widget, inverted so it maps template physical
-# coordinates to recording physical coordinates, and crop the template to a thin band
-# around the recording's expected location.
+# As in the correlation-matrix example, we initialize the registration with an affine
+# transformed obtained using [napari's manual transform
+# tool](https://napari.org/stable/howtos/layers/image.html#buttons) by placing the
+# recording at an approximate location on the template. The transform is not perfect,
+# but it is close enough to allow the registration algorithm to converge to a good
+# solution.
 
 # %%
 napari_affine = np.array(

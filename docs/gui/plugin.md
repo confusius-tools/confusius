@@ -14,7 +14,8 @@ introduction, click **Take a Tour** in the sidebar header.
 - [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
   the signal plot.
 - [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
-- [**Registration**](#registration-panel) — run between-scan or within-scan registration, inspect progress, and save/apply transforms.
+- [**Registration**](#registration-panel) — run between-scan or within-scan
+  registration, inspect progress, and save/apply transforms.
 
 ## Data I/O Panel
 
