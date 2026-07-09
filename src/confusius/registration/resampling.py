@@ -9,7 +9,7 @@ import xarray as xr
 
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
-    replace_affines_attr,
+    replace_spatial_geometry_attrs,
     set_sitk_thread_count,
 )
 from confusius.registration.bspline import _dataarray_to_sitk_bspline
@@ -26,6 +26,7 @@ def resample_volume(
     dims: Sequence[str],
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     default_value: float | None = None,
+    direction: npt.ArrayLike | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
@@ -65,6 +66,9 @@ def resample_volume(
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity).
+    direction : array-like, optional
+        Spatial direction matrix for the output grid, in DataArray spatial-dimension
+        order. If not provided, the output grid is treated as axis-aligned.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -127,6 +131,15 @@ def resample_volume(
     ref = sitk.Image(list(shape), sitk.sitkFloat32)
     ref.SetSpacing(list(spacing))
     ref.SetOrigin(list(origin))
+    if direction is None:
+        ref.SetDirection(np.eye(ndim, dtype=np.float64).flatten().tolist())
+    else:
+        direction_array = np.asarray(direction, dtype=np.float64)
+        if direction_array.shape != (ndim, ndim):
+            raise ValueError(
+                f"direction must have shape {(ndim, ndim)}, got {direction_array.shape}."
+            )
+        ref.SetDirection(direction_array.flatten().tolist())
 
     if interpolation == "nearest":
         sitk_interpolation = sitk.sitkNearestNeighbor
@@ -241,8 +254,17 @@ def resample_like(
     )
 
     shape = list(reference.sizes[str(d)] for d in reference.dims)
-    spacing = [s if s is not None else 1.0 for s in reference.fusi.spacing.values()]
+    spacing_dict = reference.fusi.spacing
+    undefined_dims = [dim for dim, spacing in spacing_dict.items() if spacing is None]
+    if undefined_dims:
+        raise ValueError(
+            "resample_like requires defined spatial spacing on the reference grid, "
+            f"but {undefined_dims!r} are undefined. Add coordinate `voxdim` "
+            "attributes or otherwise define their physical spacing first."
+        )
+    spacing = [float(spacing_dict[str(d)]) for d in reference.dims]
     origin = list(reference.fusi.origin.values())
+    direction = reference.fusi.direction
     dims = [str(d) for d in reference.dims]
 
     result = resample_volume(
@@ -254,6 +276,7 @@ def resample_like(
         dims=dims,
         interpolation=interpolation,
         default_value=default_value,
+        direction=direction,
         sitk_threads=sitk_threads,
     )
 
@@ -265,5 +288,4 @@ def resample_like(
     result = result.assign_coords(
         {d: reference.coords[d] for d in dims if d in reference.coords}
     )
-    replace_affines_attr(result, reference)
-    return result
+    return replace_spatial_geometry_attrs(result, reference)

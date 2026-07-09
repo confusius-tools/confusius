@@ -671,6 +671,50 @@ class TestAffineApplyMethod:
         )
         assert "x" not in result.coords
 
+    def test_voxel_affine_accepts_matching_2d_affine_shape(self):
+        """Voxel-affine 2D scans accept 3x3 physical-space transforms."""
+        base = xr.DataArray(
+            np.zeros((3, 4)),
+            dims=["j", "i"],
+            coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            attrs={"affines": {"physical_to_lab": np.eye(3)}},
+        )
+        da = add_physical_coords_from_voxel_affine(
+            base,
+            np.array(
+                [
+                    [0.2, 0.05, 10.0],
+                    [0.08, 0.18, 20.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
+        )
+        shift = np.array(
+            [
+                [1.0, 0.0, 3.0],
+                [0.0, 1.0, -4.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+
+        result, orientation = da.fusi.affine.apply(shift)
+
+        np.testing.assert_allclose(
+            result.attrs["voxel_to_physical"], shift @ da.attrs["voxel_to_physical"]
+        )
+        np.testing.assert_allclose(orientation, np.eye(3))
+        np.testing.assert_allclose(
+            result.attrs["affines"]["physical_to_lab"], np.linalg.inv(shift)
+        )
+        np.testing.assert_allclose(
+            result.coords["y"].values, da.coords["y"].values + 3.0
+        )
+        np.testing.assert_allclose(
+            result.coords["x"].values, da.coords["x"].values - 4.0
+        )
+
     def test_unexpected_affine_shape_is_passed_through(self):
         """Unexpected stored affine shapes are kept unchanged."""
         weird = np.array([1.0, 2.0, 3.0])

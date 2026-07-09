@@ -607,17 +607,19 @@ def get_physical_spacings(
     Returns
     -------
     dict[str, float | None]
-        Physical spacing keyed by voxel-space dimension. Returns `None` when the
-        voxel-space coordinate is irregular or has fewer than two samples.
+        Physical spacing keyed by voxel-space dimension. Returns `None` only when the
+        voxel-space coordinate is irregular. For singleton voxel axes, the spacing is
+        inferred from one voxel-space unit along that affine column.
     """
     scalings = get_affine_axis_scalings(voxel_to_physical, tuple(voxel_coords))
     spacings: dict[str, float | None] = {}
     for dim, values in voxel_coords.items():
-        step, approximate = get_representative_step(
-            np.asarray(values, dtype=np.float64)
-        )
-        if step is None or approximate:
+        values_array = np.asarray(values, dtype=np.float64)
+        step, approximate = get_representative_step(values_array)
+        if approximate:
             spacings[dim] = None
+        elif step is None:
+            spacings[dim] = scalings[dim]
         else:
             spacings[dim] = abs(step) * scalings[dim]
     return spacings

@@ -5,9 +5,76 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius.registration._utils import (
+    build_voxel_affine_plane_initial_transform,
+    dataarray_to_sitk_image,
+)
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
+
+
+def _make_voxel_affine_2d() -> xr.DataArray:
+    """Create a small 2D voxel-affine test image."""
+    yy, xx = np.mgrid[-1.0:1.0:32j, -1.0:1.0:40j]
+    values = np.exp(-((xx - 0.2) ** 2 + (yy + 0.1) ** 2) / 0.15).astype(np.float32)
+    base = xr.DataArray(
+        values,
+        dims=("j", "i"),
+        coords={
+            "j": np.arange(values.shape[0], dtype=np.float64),
+            "i": np.arange(values.shape[1], dtype=np.float64),
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.array(
+            [
+                [0.2, 0.05, 10.0],
+                [0.08, 0.18, 20.0],
+                [0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("j", "i"),
+        physical_coord_names=("y", "x"),
+        physical_coord_attrs={
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
+def _make_voxel_affine_3d_slab() -> xr.DataArray:
+    """Create a small 3D voxel-affine slab with a singleton slice dimension."""
+    base = xr.DataArray(
+        np.zeros((1, 5, 6), dtype=np.float32),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [0.0],
+            "j": np.arange(5, dtype=np.float64),
+            "i": np.arange(6, dtype=np.float64),
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.array(
+            [
+                [0.4, 0.0, 0.0, 10.0],
+                [0.0, 2.0, 0.0, 20.0],
+                [0.0, 0.0, 3.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        ),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
 
 
 class TestRegisterVolumeValidation:
@@ -48,6 +115,20 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
+    def test_undefined_singleton_spacing_raises(self):
+        """Registration rejects singleton spatial axes with undefined spacing."""
+        da = xr.DataArray(
+            np.zeros((1, 4), dtype=np.float32),
+            dims=("y", "x"),
+            coords={"y": [0.0], "x": np.arange(4, dtype=np.float64)},
+        )
+        with pytest.warns(
+            UserWarning,
+            match="single coordinate point and no 'voxdim' attribute",
+        ):
+            with pytest.raises(ValueError, match="defined spatial spacing"):
+                register_volume(da, da, transform_type="translation")
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -60,6 +141,23 @@ class TestRegisterVolumeValidation:
             resample=False,
         )
         assert result.shape == moving.shape
+
+
+class TestSimpleITKGeometry:
+    """SimpleITK conversion preserves ConfUSIus spatial geometry."""
+
+    def test_dataarray_to_sitk_image_sets_voxel_affine_origin_spacing_direction(self):
+        """Voxel-affine DataArrays map to SimpleITK origin/spacing/direction."""
+        data = _make_voxel_affine_2d()
+
+        image = dataarray_to_sitk_image(data)
+
+        assert_allclose(image.GetOrigin(), (10.0, 20.0))
+        assert_allclose(image.GetSpacing(), (np.hypot(0.2, 0.08), np.hypot(0.05, 0.18)))
+        assert_allclose(
+            np.array(image.GetDirection()).reshape(2, 2),
+            data.fusi.direction,
+        )
 
 
 class TestRegisterVolumeOutput:
@@ -129,6 +227,24 @@ class TestRegisterVolumeOutput:
             result.attrs["affines"]["physical_to_lab"],
             fixed.attrs["affines"]["physical_to_lab"],
         )
+
+    def test_resample_true_inherits_fixed_voxel_affine_geometry(self):
+        """resample=True output inherits voxel-affine geometry from the fixed grid."""
+        moving = _make_voxel_affine_2d()
+        fixed = _make_voxel_affine_2d()
+
+        result, _, _ = register_volume(
+            moving,
+            fixed,
+            transform_type="translation",
+            resample=True,
+        )
+
+        assert_allclose(
+            result.attrs["voxel_to_physical"], fixed.attrs["voxel_to_physical"]
+        )
+        assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
+        assert result.coords["x"].dims == fixed.coords["x"].dims
 
 
 class TestRegisterVolumeResample:
@@ -439,6 +555,66 @@ class TestInitialTransform:
                 initial_transform=np.eye(4),  # wrong: 3D affine for 2D images
             )
 
+    def test_plane_initializer_aligns_voxel_affine_slabs(self):
+        """The voxel-affine slab initializer rotates and translates planes into coincidence."""
+        fixed = _make_voxel_affine_3d_slab()
+        rotation = np.array(
+            [
+                [np.cos(np.deg2rad(2.5)), -np.sin(np.deg2rad(2.5)), 0.0, 0.0],
+                [np.sin(np.deg2rad(2.5)), np.cos(np.deg2rad(2.5)), 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        translation = np.eye(4, dtype=np.float64)
+        translation[:3, 3] = [-25.0, 4.0, 7.5]
+        expected_transform = translation @ rotation
+        moving, _ = fixed.fusi.affine.apply(expected_transform)
+
+        initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
+        seeded, _ = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
+
+        assert_allclose(initial_transform, expected_transform, atol=1e-10)
+        assert_allclose(seeded.fusi.direction, fixed.fusi.direction, atol=1e-10)
+        assert_allclose(seeded.coords["z"].values, fixed.coords["z"].values, atol=1e-10)
+        assert_allclose(seeded.coords["y"].values, fixed.coords["y"].values, atol=1e-10)
+        assert_allclose(seeded.coords["x"].values, fixed.coords["x"].values, atol=1e-10)
+
+    def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
+        """A supplied initial affine is used directly, without extra centering shift."""
+        fixed = xr.DataArray(
+            np.arange(16, dtype=np.float32).reshape(4, 4),
+            dims=("y", "x"),
+            coords={
+                "y": np.arange(4, dtype=np.float64),
+                "x": np.arange(4, dtype=np.float64),
+            },
+        )
+        moving = xr.DataArray(
+            fixed.values.copy(),
+            dims=fixed.dims,
+            coords={
+                "y": fixed.coords["y"].values + 10.0,
+                "x": fixed.coords["x"].values + 20.0,
+            },
+        )
+        initial_transform = np.eye(3, dtype=np.float64)
+        initial_transform[:2, 2] = [20.0, 10.0]
+
+        _, transform, _ = register_volume(
+            moving,
+            fixed,
+            transform_type="affine",
+            initial_transform=initial_transform,
+            optimizer_weights=[0.0] * 6,
+            learning_rate=1.0,
+            number_of_iterations=1,
+            resample=False,
+        )
+
+        assert_allclose(transform, initial_transform)
+
     def test_bspline_with_initial_transform_stores_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
@@ -580,7 +756,9 @@ class TestResampleLike:
                 "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
             },
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0)
+        result = resample_like(
+            moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0
+        )
         assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
 
     def test_output_coords_match_reference(
@@ -610,6 +788,19 @@ class TestResampleLike:
             result.attrs["affines"]["physical_to_lab"],
             reference.attrs["affines"]["physical_to_lab"],
         )
+
+    def test_inherits_reference_voxel_affine_geometry(self):
+        """resample_like output inherits voxel-affine metadata and CTI coords."""
+        moving = _make_voxel_affine_2d()
+        reference = _make_voxel_affine_2d()
+
+        result = resample_like(moving, reference, np.eye(3))
+
+        assert_allclose(
+            result.attrs["voxel_to_physical"], reference.attrs["voxel_to_physical"]
+        )
+        assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
+        assert result.coords["x"].dims == reference.coords["x"].dims
 
     def test_matches_register_volume_resample_2d(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -811,4 +1002,6 @@ class TestRegisterVolumeFillValue:
             transform_type="translation",
         )
         # Default fill should be moving.min() == 2.0, not 0.0.
-        assert float(result.values[0, 0]) == pytest.approx(float(moving.min()), abs=1e-5)
+        assert float(result.values[0, 0]) == pytest.approx(
+            float(moving.min()), abs=1e-5
+        )

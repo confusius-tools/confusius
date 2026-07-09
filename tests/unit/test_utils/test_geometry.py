@@ -166,6 +166,28 @@ def test_affine_geometry_helpers_extract_origin_vectors_scalings_and_orientation
     )
 
 
+def test_get_physical_spacings_singleton_axis_uses_affine_column_norm() -> None:
+    """Singleton voxel axes still have a physical per-voxel spacing from the affine."""
+    voxel_coords = {
+        "k": [0.0],
+        "j": [0.0, 2.0, 4.0],
+        "i": [0.0, 1.0, 2.0, 3.0],
+    }
+    voxel_to_physical = np.array(
+        [
+            [0.4, 0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0, 0.0],
+            [0.0, 0.0, 5.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+
+    spacing = get_physical_spacings(voxel_coords, voxel_to_physical)
+
+    assert spacing == {"k": 0.4, "j": 6.0, "i": 5.0}
+
+
+
 def test_get_physical_spacings_returns_none_for_irregular_voxel_axes() -> None:
     """Physical spacing is undefined when voxel-space sampling is irregular."""
     voxel_coords = {
