@@ -23,6 +23,8 @@ from confusius._napari._registration._panel_transforms import (
     refresh_transform_controls,
 )
 from confusius._napari._registration._transform_payloads import (
+    _deserialize_bspline_dataarray,
+    _serialize_bspline_dataarray,
     get_affine_transform_from_payload,
     get_bspline_transform_from_payload,
     get_input_grid_from_payload,
@@ -87,7 +89,7 @@ def _make_bspline_transform() -> xr.DataArray:
         np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
         dims=["component", "y", "x"],
         coords={
-            "component": xr.DataArray([0, 1], dims=["component"]),
+            "component": xr.DataArray(["y", "x"], dims=["component"]),
             "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
             "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
         },
@@ -170,6 +172,21 @@ class TestRefreshLayers:
 
         assert registration_panel._moving_combo.count() == 1
         assert registration_panel._moving_combo.itemText(0) == "vol"
+
+
+class TestTransformPayloads:
+    def test_bspline_payload_round_trip_preserves_string_component_coords(self):
+        transform = _make_bspline_transform()
+
+        payload = _serialize_bspline_dataarray(transform)
+        roundtripped = _deserialize_bspline_dataarray(payload)
+
+        np.testing.assert_array_equal(
+            roundtripped.coords["component"].values, ["y", "x"]
+        )
+        np.testing.assert_allclose(roundtripped.coords["y"].values, [0.0, 0.2, 0.4])
+        np.testing.assert_allclose(roundtripped.coords["x"].values, [0.0, 0.1, 0.2, 0.3])
+        np.testing.assert_allclose(roundtripped.values, transform.values)
 
 
 class TestOperationMode:
@@ -276,7 +293,7 @@ class TestOperationMode:
         assert registration_panel._transform_combo.currentText() == "rigid"
         assert registration_panel._scale_combo.currentText() == "decibel"
         assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
-        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.1)
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(1.0)
         assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
             1e-10
         )
@@ -1014,24 +1031,26 @@ class TestTransforms:
         self, viewer, registration_panel, monkeypatch
     ):
         source = xr.DataArray(
-            np.arange(12, dtype=np.float32).reshape(3, 4),
+            np.zeros((20, 20), dtype=np.float32),
             dims=["y", "x"],
             coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+                "y": xr.DataArray(np.arange(20) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(20) * 0.1, dims=["x"]),
             },
         )
-        target = xr.DataArray(
-            np.arange(30, dtype=np.float32).reshape(5, 6),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(5) * 0.3, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.15, dims=["x"]),
-            },
-        )
+        source.values[5:10, 6:11] = 1.0
         affine = np.array(
-            [[1.0, 0.0, 0.5], [0.0, 1.0, -0.25], [0.0, 0.0, 1.0]],
+            [[1.0, 0.0, -0.4], [0.0, 1.0, 0.3], [0.0, 0.0, 1.0]],
             dtype=float,
+        )
+        target = resample_volume(
+            source,
+            affine,
+            shape=[source.sizes["y"], source.sizes["x"]],
+            spacing=[0.2, 0.1],
+            origin=[0.0, 0.0],
+            dims=["y", "x"],
+            interpolation="nearest",
         )
         payload = make_affine_transform_payload(
             affine,
@@ -1060,25 +1079,145 @@ class TestTransforms:
 
         apply_selected_inverse_transform(registration_panel)
 
-        input_grid = get_input_grid_from_payload(payload)
-        assert input_grid is not None
-        expected = resample_volume(
-            target,
-            np.linalg.inv(affine),
-            shape=input_grid["shape"],
-            spacing=input_grid["spacing"],
-            origin=input_grid["origin"],
-            dims=input_grid["dims"],
-            interpolation="linear",
-        )
         layer = viewer.layers["target → source"]
         result = layer.metadata["xarray"]
-        np.testing.assert_allclose(result.values, expected.values)
+        np.testing.assert_allclose(result.values, source.values)
         assert tuple(result.dims) == tuple(source.dims)
         np.testing.assert_allclose(result.coords["y"], source.coords["y"])
         np.testing.assert_allclose(result.coords["x"], source.coords["x"])
         assert layer.metadata["transform_source"] == "source → target (affine)"
         assert layer.metadata["registration_operation"] == "apply_inverse_transform"
+
+    def test_apply_inverse_transform_uses_approximate_inverse_bspline_and_input_grid(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        source = xr.DataArray(
+            np.arange(12, dtype=np.float32).reshape(3, 4),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
+            },
+        )
+        target = xr.DataArray(
+            np.arange(30, dtype=np.float32).reshape(5, 6),
+            dims=["y", "x"],
+            coords={
+                "y": xr.DataArray(np.arange(5) * 0.3, dims=["y"]),
+                "x": xr.DataArray(np.arange(6) * 0.15, dims=["x"]),
+            },
+        )
+        bspline = _make_bspline_transform().astype(float)
+        payload = make_bspline_transform_payload(
+            bspline,
+            reference=target,
+            source=source,
+            source_layer_name="source",
+            target_layer_name="target",
+            operation="register_volume",
+            transform_model="bspline",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+        viewer.add_image(source.values, name="source", metadata={"xarray": source})
+        viewer.add_image(target.values, name="target", metadata={"xarray": target})
+        viewer.add_image(
+            target.values,
+            name="Registered",
+            metadata={"xarray": target, "confusius_transform": payload},
+        )
+        refresh_transform_controls(registration_panel)
+        registration_panel._transform_source_combo.setCurrentText(
+            "source → target (bspline)"
+        )
+        registration_panel._transform_target_combo.setCurrentText("target")
+        _install_immediate_thread_worker(monkeypatch)
+
+        calls: dict[str, Any] = {}
+        input_grid = get_input_grid_from_payload(payload)
+        assert input_grid is not None
+        inverse_field = xr.DataArray(
+            np.zeros((2, *input_grid["shape"]), dtype=np.float32),
+            dims=["component", *input_grid["dims"]],
+            coords={
+                "component": xr.DataArray([0, 1], dims=["component"]),
+                **{
+                    dim: xr.DataArray(
+                        input_grid["origin"][i]
+                        + np.arange(input_grid["shape"][i]) * input_grid["spacing"][i],
+                        dims=[dim],
+                    )
+                    for i, dim in enumerate(input_grid["dims"])
+                },
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+        expected = xr.DataArray(
+            np.full(input_grid["shape"], 9.0, dtype=np.float32),
+            dims=input_grid["dims"],
+            coords={
+                dim: xr.DataArray(
+                    input_grid["origin"][i]
+                    + np.arange(input_grid["shape"][i]) * input_grid["spacing"][i],
+                    dims=[dim],
+                )
+                for i, dim in enumerate(input_grid["dims"])
+            },
+        )
+
+        def _fake_sample_displacement_field(transform: Any, **grid: Any) -> xr.DataArray:
+            calls["sample_transform"] = transform
+            calls["sample_grid"] = grid
+            return inverse_field
+
+        def _fake_invert_displacement_field(field: xr.DataArray) -> xr.DataArray:
+            calls["invert_field"] = field
+            return inverse_field
+
+        def _fake_resample_volume(*args: Any, **kwargs: Any) -> xr.DataArray:
+            calls["resample_args"] = args
+            calls["resample_kwargs"] = kwargs
+            return expected
+
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel_transforms.sample_displacement_field",
+            _fake_sample_displacement_field,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel_transforms.invert_displacement_field",
+            _fake_invert_displacement_field,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._registration._panel_transforms.resample_volume",
+            _fake_resample_volume,
+        )
+
+        apply_selected_inverse_transform(registration_panel)
+
+        assert calls["sample_transform"].identical(bspline)
+        assert calls["sample_grid"] == {
+            "shape": input_grid["shape"],
+            "spacing": input_grid["spacing"],
+            "origin": input_grid["origin"],
+            "dims": input_grid["dims"],
+        }
+        assert calls["invert_field"] is inverse_field
+        assert calls["resample_args"][0] is target
+        assert calls["resample_args"][1] is inverse_field
+        assert calls["resample_kwargs"] == {
+            "shape": input_grid["shape"],
+            "spacing": input_grid["spacing"],
+            "origin": input_grid["origin"],
+            "dims": input_grid["dims"],
+            "interpolation": "linear",
+        }
+
+        layer = viewer.layers["target → source"]
+        result = layer.metadata["xarray"]
+        np.testing.assert_array_equal(result.values, expected.values)
+        assert layer.metadata["transform_source"] == "source → target (bspline)"
+        assert layer.metadata["registration_operation"] == "apply_inverse_transform"
+        assert "approximate" in registration_panel._apply_inverse_transform_btn.toolTip()
 
 
 class TestVolumewiseProgress:

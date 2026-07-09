@@ -51,7 +51,7 @@ class BSplineDataArrayPayload(TypedDict):
 
     dims: list[str]
     data: list[object]
-    coords: dict[str, list[float]]
+    coords: dict[str, list[object]]
     attrs: dict[str, object]
 
 
@@ -226,7 +226,11 @@ def _serialize_bspline_dataarray(transform: "xr.DataArray") -> BSplineDataArrayP
         "dims": [str(dim) for dim in transform.dims],
         "data": np.asarray(transform, dtype=float).tolist(),
         "coords": {
-            str(dim): np.asarray(transform.coords[dim], dtype=float).tolist()
+            str(dim): (
+                np.asarray(transform.coords[dim], dtype=np.str_).tolist()
+                if str(dim) == "component"
+                else np.asarray(transform.coords[dim], dtype=float).tolist()
+            )
             for dim in transform.dims
             if dim in transform.coords
         },
@@ -249,7 +253,14 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
     """
     dims = [str(dim) for dim in payload["dims"]]
     coords = {
-        str(dim): xr.DataArray(np.asarray(values, dtype=float), dims=[str(dim)])
+        str(dim): xr.DataArray(
+            (
+                np.asarray(values, dtype=np.str_)
+                if str(dim) == "component"
+                else np.asarray(values, dtype=float)
+            ),
+            dims=[str(dim)],
+        )
         for dim, values in payload["coords"].items()
     }
     transform = xr.DataArray(
@@ -473,12 +484,13 @@ def _save_bspline_transform_payload(
         raise ValueError("B-spline transform files must have .zarr extension.")
 
     transform = get_bspline_transform_from_payload(payload)
-    ds = transform.to_dataset(name="bspline_transform")
-    payload_metadata = {
-        key: value for key, value in payload.items() if key not in {"kind", "bspline"}
-    }
+    ds = transform.assign_coords(
+        component=np.arange(transform.sizes["component"], dtype=int)
+    ).to_dataset(name="bspline_transform")
     ds.attrs["confusius_transform_kind"] = "bspline"
-    ds.attrs["confusius_transform_payload_json"] = json.dumps(payload_metadata)
+    ds.attrs["confusius_transform_payload_json"] = json.dumps(
+        {key: value for key, value in payload.items() if key != "kind"}
+    )
     ds.to_zarr(path, mode="w")
 
 
@@ -509,6 +521,10 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
         transform = ds["bspline_transform"].load()
     finally:
         ds.close()
+
+    if "bspline" in payload_metadata:
+        payload_with_kind = {"kind": "bspline", **payload_metadata}
+        return cast("BSplineTransformPayload", payload_with_kind)
 
     validate_bspline_dataarray(transform)
     payload: BSplineTransformPayload = {

@@ -34,7 +34,7 @@ def get_default_registration_parameters(
         "scale": "dB",
         "initialization": "center_geometry",
         "learning_rate_auto": not is_volumewise,
-        "learning_rate_value": 0.01 if is_volumewise else 0.1,
+        "learning_rate_value": 0.01 if is_volumewise else 1.0,
         "number_of_iterations": 100,
         "number_of_histogram_bins": 50,
         "mesh_size": (10, 10, 10),

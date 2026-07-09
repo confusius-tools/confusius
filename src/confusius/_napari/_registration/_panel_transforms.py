@@ -34,7 +34,11 @@ from confusius._napari._registration._transform_payloads import (
     save_transform_payload,
 )
 from confusius.plotting.napari import plot_napari
-from confusius.registration import resample_volume
+from confusius.registration import (
+    invert_displacement_field,
+    resample_volume,
+    sample_displacement_field,
+)
 
 if TYPE_CHECKING:
     from napari.layers import Layer
@@ -276,6 +280,32 @@ def get_available_transform_payloads(
     return payloads
 
 
+def update_apply_transform_button_tooltips(panel: "RegistrationPanel") -> None:
+    """Refresh apply-transform button tooltips for the current transform selection.
+
+    Parameters
+    ----------
+    panel : RegistrationPanel
+        Registration panel whose transform action buttons should be updated.
+    """
+    forward_tooltip = "Apply the selected transform onto its target/output grid."
+    inverse_tooltip = (
+        "Apply the inverse of the selected transform onto its source/input grid."
+    )
+
+    payload = get_selected_transform_payload(panel)
+    if payload is not None and payload["kind"] == "bspline":
+        inverse_tooltip = (
+            inverse_tooltip
+            + " For B-spline transforms this inverse is approximate: ConfUSIus "
+            "samples the transform onto the source grid, then inverts the resulting "
+            "displacement field."
+        )
+
+    panel._apply_transform_btn.setToolTip(forward_tooltip)
+    panel._apply_inverse_transform_btn.setToolTip(inverse_tooltip)
+
+
 def refresh_transform_controls(panel: "RegistrationPanel") -> None:
     """Refresh the transform, initialization, and target selectors from the current viewer state.
 
@@ -383,6 +413,8 @@ def refresh_transform_controls(panel: "RegistrationPanel") -> None:
     target_index = panel._transform_target_combo.findText(target_name)
     if target_index >= 0:
         panel._transform_target_combo.setCurrentIndex(target_index)
+
+    update_apply_transform_button_tooltips(panel)
 
 
 def get_selected_transform_payload(
@@ -806,13 +838,19 @@ def apply_selected_inverse_transform(panel: "RegistrationPanel") -> None:
 
     try:
         moving = _get_source_dataarray(moving_layer)
+        output_grid = _get_inverse_output_grid(panel, payload)
         if payload["kind"] == "affine":
             transform = np.linalg.inv(get_affine_transform_from_payload(payload))
         else:
-            raise ValueError(
-                "Inverse apply for B-spline transforms is not available yet."
+            transform = invert_displacement_field(
+                sample_displacement_field(
+                    get_bspline_transform_from_payload(payload),
+                    shape=output_grid["shape"],
+                    spacing=output_grid["spacing"],
+                    origin=output_grid["origin"],
+                    dims=output_grid["dims"],
+                )
             )
-        output_grid = _get_inverse_output_grid(panel, payload)
     except Exception as exc:  # noqa: BLE001
         panel._set_error(str(exc))
         return

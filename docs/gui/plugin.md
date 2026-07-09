@@ -4,7 +4,7 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains five collapsible panels. Each panel operates
+The ConfUSIus sidebar contains six collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
@@ -327,7 +327,7 @@ large-scale and local deformation at once.
 | **Metric** | Chooses the similarity criterion (`correlation` or `mattes_mi`). | `correlation` is a good default for power Doppler data; `mattes_mi` is more robust when intensity distributions differ. |
 | **Scale** | Applies optional intensity scaling before registration. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. |
 | **Initialization** | Sets the starting transform before optimization. | Use `center_geometry` or `center_moments` for coarse setup; reuse a saved/manual affine transform when you already have a good approximate alignment. |
-| **Learning rate** | Sets the optimizer step size. | Lower values are safer but slower; higher values can converge faster but may create instabilities. |
+| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `1.0`). |
 | **Iterations** | Maximum number of optimizer steps. | Increase it when alignment is still improving near the end of a run. |
 
 #### Advanced parameters
@@ -335,13 +335,15 @@ large-scale and local deformation at once.
 | Parameter | What it does | When it is useful |
 |---|---|---|
 | **Histogram bins** | Number of bins used by `mattes_mi`. | Tune only when using mutual information; more bins can capture finer intensity structure but may be noisier. |
-| **Convergence minimum value** | Minimum optimizer improvement required to keep iterating. | Lower it when you want stricter convergence. |
-| **Convergence window size** | Number of recent iterations used to test convergence. | Increase it to make convergence detection less sensitive to noise. |
+| **Convergence min** | Minimum optimizer improvement required to keep iterating. | Lower it when you want stricter convergence. |
+| **Convergence window** | Number of recent iterations used to test convergence. | Increase it to make convergence detection less sensitive to noise. |
 | **Multi-resolution** | Runs registration from coarse to fine scales. | Usually helpful for difficult B-spline alignments or large initial offsets. |
 | **Shrink factors** | Downsampling factors for each resolution level. | Use larger coarse levels when the initial mismatch is large. |
 | **Smoothing sigmas** | Gaussian smoothing at each resolution level. | Helps emphasize global structure before fine alignment. |
 | **Resample interp.** | Interpolation used for the registered output and previews. | `linear` is the usual default; `bspline` can give smoother resampled images. |
 | **Fill value** | Value written outside the moving field of view after resampling. | Useful for controlling the appearance of padded background. |
+| **ITK Threads** | Number of SimpleITK threads used for between-scan registration. | Reduce it when you are running several heavy jobs at once; `-1` uses all CPUs. |
+| **Optimizer weights** | Applies per-parameter optimizer weights. | Use it to freeze or down-weight specific affine parameters; not available for B-spline transforms. |
 
 The animation below uses between-session angiography volumes from the same animal across
 different days. ConfUSIus keeps the original layers untouched, adds dedicated preview
@@ -369,7 +371,7 @@ Use **Within-scan** for motion correction inside a single time series.
 | **Metric** | Chooses the volume-to-reference similarity criterion. | `correlation` is usually a good default for within-recording motion correction. |
 | **Scale** | Applies optional preprocessing before registration. | Useful when an intensity transform makes anatomy more stable across time for the optimizer. |
 | **Initialization** | Sets the initial volume-wise centering transform. | Most runs can use no initialization. |
-| **Learning rate** | Sets the optimizer step size for each frame. | Reduce it if updates look unstable; increase it if frames are already close and convergence is too slow. |
+| **Learning rate** | Sets the optimizer step size for each frame. | Within-scan uses a fixed value here; the default is `0.01`. Reduce it if updates look unstable; increase it if frames are already close and convergence is too slow. |
 | **Iterations** | Maximum optimizer steps per frame. | Increase it for harder motion or more flexible transforms. |
 
 #### Advanced parameters
@@ -377,15 +379,15 @@ Use **Within-scan** for motion correction inside a single time series.
 | Parameter | What it does | When it is useful |
 |---|---|---|
 | **Histogram bins** | Number of bins used by `mattes_mi`. | Only relevant when using mutual information. |
-| **Convergence minimum value** | Minimum optimizer improvement required to keep iterating. | Lower it when you want stricter volume-wise convergence. |
-| **Convergence window size** | Number of recent iterations used to test convergence. | Increase it when convergence decisions look too jittery. |
+| **Convergence min** | Minimum optimizer improvement required to keep iterating. | Lower it when you want stricter volume-wise convergence. |
+| **Convergence window** | Number of recent iterations used to test convergence. | Increase it when convergence decisions look too jittery. |
 | **Multi-resolution** | Runs each frame registration from coarse to fine scales. | Helpful when motion is large or frames are noisy. |
 | **Shrink factors** | Downsampling factors for each resolution level. | Useful for coarse-to-fine motion correction. |
 | **Smoothing sigmas** | Gaussian smoothing at each resolution level. | Helps stabilize coarse registration before fine refinement. |
 | **Resample interp.** | Interpolation used for the motion-corrected output. | Controls output smoothness. |
 | **Fill value** | Value used outside the field of view after resampling. | Mostly useful for controlling output background appearance. |
-| **Parallel jobs** | Number of workers used for volume-wise registration. | Increase it to speed up long runs; reduce it if your machine is already busy. `-1` uses all available CPUs  |
-| **Keep full traces** | Stores full volume-wise optimizer diagnostics. | Enable it only when you want detailed debugging or later inspection. |
+| **Diagnostics** | Stores full volume-wise optimizer traces. | Enable it only when you want detailed debugging or later inspection. |
+| **Parallel jobs** | Number of workers used for volume-wise registration. | Increase it to speed up long runs; reduce it if your machine is already busy. `-1` uses all available CPUs. |
 
 This workflow returns a `Motion corrected` layer and updates the progress bar as frames
 finish. The animation below uses a short open-field recording chunk and shows the result

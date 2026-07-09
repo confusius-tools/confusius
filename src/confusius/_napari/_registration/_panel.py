@@ -71,6 +71,7 @@ from confusius._napari._registration._panel_transforms import (
     load_transform,
     refresh_transform_controls,
     save_selected_transform,
+    update_apply_transform_button_tooltips,
 )
 from confusius._napari._registration._panel_utils import (
     ScientificDoubleSpinBox,
@@ -1044,8 +1045,14 @@ class RegistrationPanel(QWidget):
         self._load_transform_btn = QPushButton("Load")
         self._load_transform_btn.clicked.connect(self._load_transform_callback)
         self._apply_transform_btn = QPushButton("Forward")
+        self._apply_transform_btn.setToolTip(
+            "Apply the selected transform onto its target/output grid."
+        )
         self._apply_transform_btn.clicked.connect(self._apply_transform_callback)
         self._apply_inverse_transform_btn = QPushButton("Inverse")
+        self._apply_inverse_transform_btn.setToolTip(
+            "Apply the inverse of the selected transform onto its source/input grid."
+        )
         self._apply_inverse_transform_btn.clicked.connect(
             self._apply_inverse_transform_callback
         )
@@ -1085,6 +1092,9 @@ class RegistrationPanel(QWidget):
         )
         self._transform_source_combo.currentTextChanged.connect(
             self._validate_registration_selection
+        )
+        self._transform_source_combo.currentTextChanged.connect(
+            lambda _text: update_apply_transform_button_tooltips(self)
         )
         self._learning_rate_auto_check.toggled.connect(
             lambda checked: self._learning_rate_edit.setEnabled(not checked)
