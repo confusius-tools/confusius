@@ -25,9 +25,10 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - Atlases are now serializable: save and reload a complete atlas, including its structure
-  hierarchy, with [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr] /
-  [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]
-  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  hierarchy and region meshes, with [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr] /
+  [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]. The region `.obj` meshes are
+  bundled into the Zarr store, so a reloaded atlas renders meshes without the BrainGlobe
+  cache ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
 - [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
   Dataset is a well-formed atlas, alongside `validate_fusi_dataarray` and
   `validate_iq_dataarray`
