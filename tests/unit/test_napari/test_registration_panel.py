@@ -185,7 +185,9 @@ class TestTransformPayloads:
             roundtripped.coords["component"].values, ["y", "x"]
         )
         np.testing.assert_allclose(roundtripped.coords["y"].values, [0.0, 0.2, 0.4])
-        np.testing.assert_allclose(roundtripped.coords["x"].values, [0.0, 0.1, 0.2, 0.3])
+        np.testing.assert_allclose(
+            roundtripped.coords["x"].values, [0.0, 0.1, 0.2, 0.3]
+        )
         np.testing.assert_allclose(roundtripped.values, transform.values)
 
 
@@ -707,9 +709,7 @@ class TestRunRegistration:
                     "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
                 },
             )
-            viewer.add_image(
-                moving.values, name="moving", metadata={"xarray": moving}
-            )
+            viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
             registration_panel._time_series_radio.setChecked(True)
             registration_panel._refresh_layers()
             registration_panel._moving_combo.setCurrentText("moving")
@@ -732,16 +732,10 @@ class TestRunRegistration:
                 dims=["z", "y", "x"],
                 coords=moving.coords,
             )
-            viewer.add_image(
-                moving.values, name="moving", metadata={"xarray": moving}
-            )
+            viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
             viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
-            viewer.add_labels(
-                np.ones((4, 6, 8), dtype=np.int32), name="fixed mask"
-            )
-            viewer.add_labels(
-                np.ones((4, 6, 8), dtype=np.int32), name="moving mask"
-            )
+            viewer.add_labels(np.ones((4, 6, 8), dtype=np.int32), name="fixed mask")
+            viewer.add_labels(np.ones((4, 6, 8), dtype=np.int32), name="moving mask")
             registration_panel._refresh_layers()
             registration_panel._moving_combo.setCurrentText("moving")
             registration_panel._fixed_combo.setCurrentText("fixed")
@@ -904,8 +898,9 @@ class TestTransforms:
             diagnostics=_FakeDiagnostics(),
         )
 
-        path = tmp_path / "bspline.zarr"
-        save_transform_payload(path, payload)
+        path = tmp_path / "bspline.nii.gz"
+        with pytest.warns(UserWarning, match="Dimension 'z' has no coordinate"):
+            save_transform_payload(path, payload)
         loaded = load_transform_payload(path)
 
         assert loaded["name"] == "moving → fixed (bspline)"
@@ -914,10 +909,18 @@ class TestTransforms:
         input_grid = get_input_grid_from_payload(loaded)
         assert input_grid is not None
         assert input_grid["shape"] == [3, 4]
-        xr.testing.assert_identical(
-            get_bspline_transform_from_payload(loaded),
-            transform.astype(float),
+        roundtripped = get_bspline_transform_from_payload(loaded)
+        np.testing.assert_array_equal(
+            roundtripped.coords["component"].values,
+            transform.coords["component"].values,
         )
+        np.testing.assert_allclose(
+            roundtripped.coords["y"].values, transform.coords["y"].values
+        )
+        np.testing.assert_allclose(
+            roundtripped.coords["x"].values, transform.coords["x"].values
+        )
+        np.testing.assert_allclose(roundtripped.values, transform.values)
 
     def test_bspline_transform_is_not_offered_for_initialization(
         self, viewer, registration_panel
@@ -1165,7 +1168,9 @@ class TestTransforms:
             },
         )
 
-        def _fake_sample_displacement_field(transform: Any, **grid: Any) -> xr.DataArray:
+        def _fake_sample_displacement_field(
+            transform: Any, **grid: Any
+        ) -> xr.DataArray:
             calls["sample_transform"] = transform
             calls["sample_grid"] = grid
             return inverse_field
@@ -1217,7 +1222,9 @@ class TestTransforms:
         np.testing.assert_array_equal(result.values, expected.values)
         assert layer.metadata["transform_source"] == "source → target (bspline)"
         assert layer.metadata["registration_operation"] == "apply_inverse_transform"
-        assert "approximate" in registration_panel._apply_inverse_transform_btn.toolTip()
+        assert (
+            "approximate" in registration_panel._apply_inverse_transform_btn.toolTip()
+        )
 
 
 class TestVolumewiseProgress:

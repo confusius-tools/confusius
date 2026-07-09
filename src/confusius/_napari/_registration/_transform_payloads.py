@@ -18,6 +18,8 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius.io import load as load_dataarray
+from confusius.io import save as save_dataarray
 from confusius.registration.bspline import validate_bspline_dataarray
 
 if TYPE_CHECKING:
@@ -89,6 +91,23 @@ class BSplineTransformPayload(TypedDict):
 
 TransformPayload = AffineTransformPayload | BSplineTransformPayload
 """Union of affine and B-spline transform payloads."""
+
+
+def _make_json_serializable(value: object) -> object:
+    """Return a JSON-serializable copy of a nested value."""
+    if isinstance(value, np.ndarray):
+        return (
+            _make_json_serializable(np.asarray(value).astype(object).reshape(-1)[0])
+            if value.ndim == 0
+            else [_make_json_serializable(v) for v in list(value)]
+        )
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {str(k): _make_json_serializable(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [_make_json_serializable(v) for v in value]
+    return value
 
 
 def make_output_grid_payload(reference: "xr.DataArray") -> OutputGridPayload:
@@ -234,7 +253,7 @@ def _serialize_bspline_dataarray(transform: "xr.DataArray") -> BSplineDataArrayP
             for dim in transform.dims
             if dim in transform.coords
         },
-        "attrs": json.loads(json.dumps(transform.attrs)),
+        "attrs": json.loads(json.dumps(_make_json_serializable(transform.attrs))),
     }
 
 
@@ -271,6 +290,43 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
     )
     validate_bspline_dataarray(transform)
     return transform
+
+
+def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray:
+    """Drop NIfTI-added metadata and synthetic singleton spatial dims."""
+    normalized = transform.copy(deep=False)
+    normalized.attrs = normalized.attrs.copy()
+    for key in (
+        "confusius_transform_kind",
+        "confusius_transform_metadata_json",
+        "name",
+        "source_layer_name",
+        "target_layer_name",
+        "operation",
+        "transform_model",
+        "metric",
+        "output_grid",
+        "input_grid",
+        "diagnostics",
+        "qform_code",
+    ):
+        normalized.attrs.pop(key, None)
+
+    affines = normalized.attrs.get("affines")
+    if isinstance(affines, dict):
+        normalized_affines = dict(affines)
+        normalized_affines.pop("physical_to_qform", None)
+        if normalized_affines:
+            normalized.attrs["affines"] = normalized_affines
+        else:
+            normalized.attrs.pop("affines", None)
+
+    component_values = [str(v) for v in normalized.coords["component"].values]
+    for dim in list(normalized.dims[1:]):
+        if dim not in component_values and normalized.sizes[dim] == 1:
+            normalized = normalized.squeeze(dim, drop=True)
+
+    return normalized
 
 
 def make_bspline_transform_payload(
@@ -465,80 +521,132 @@ def get_input_grid_from_payload(
 def _save_bspline_transform_payload(
     path: str | Path, payload: BSplineTransformPayload
 ) -> None:
-    """Save a B-spline transform payload as Zarr.
+    """Save a B-spline transform payload as NIfTI plus sidecar.
 
     Parameters
     ----------
     path : str or pathlib.Path
-        Output Zarr path.
+        Output NIfTI path.
     payload : BSplineTransformPayload
         Transform payload to save.
 
     Raises
     ------
     ValueError
-        If `path` does not have a `.zarr` extension.
+        If `path` does not have a `.nii` or `.nii.gz` extension.
     """
     path = Path(path)
-    if path.suffix != ".zarr":
-        raise ValueError("B-spline transform files must have .zarr extension.")
+    if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
+        raise ValueError(
+            "B-spline transform files must have .nii or .nii.gz extension."
+        )
 
-    transform = get_bspline_transform_from_payload(payload)
-    ds = transform.assign_coords(
-        component=np.arange(transform.sizes["component"], dtype=int)
-    ).to_dataset(name="bspline_transform")
-    ds.attrs["confusius_transform_kind"] = "bspline"
-    ds.attrs["confusius_transform_payload_json"] = json.dumps(
-        {key: value for key, value in payload.items() if key != "kind"}
-    )
-    ds.to_zarr(path, mode="w")
+    transform = get_bspline_transform_from_payload(payload).copy(deep=False)
+    transform.attrs = transform.attrs.copy()
+    transform.attrs["confusius_transform_kind"] = "bspline"
+    for key in (
+        "name",
+        "source_layer_name",
+        "target_layer_name",
+        "operation",
+        "transform_model",
+        "metric",
+        "output_grid",
+        "diagnostics",
+    ):
+        transform.attrs[key] = _make_json_serializable(payload[key])
+    if "input_grid" in payload:
+        transform.attrs["input_grid"] = _make_json_serializable(payload["input_grid"])
+    save_dataarray(transform, path)
 
 
 def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload:
-    """Load a B-spline transform payload from Zarr.
+    """Load a B-spline transform payload from NIfTI or legacy Zarr.
 
     Parameters
     ----------
     path : str or pathlib.Path
-        Input Zarr path.
+        Input transform path.
 
     Returns
     -------
     BSplineTransformPayload
         Loaded B-spline transform payload.
     """
-    ds = xr.open_zarr(path)
-    try:
-        if ds.attrs.get("confusius_transform_kind") != "bspline":
-            raise ValueError(
-                "Zarr transform store does not contain a ConfUSIus B-spline transform."
+    path = Path(path)
+    if path.suffix == ".zarr":
+        ds = xr.open_zarr(path)
+        try:
+            if ds.attrs.get("confusius_transform_kind") != "bspline":
+                raise ValueError(
+                    "Zarr transform store does not contain a ConfUSIus B-spline transform."
+                )
+            payload_metadata = json.loads(
+                cast("str", ds.attrs["confusius_transform_payload_json"])
             )
-        payload_metadata = json.loads(
-            cast("str", ds.attrs["confusius_transform_payload_json"])
-        )
-        if not isinstance(payload_metadata, dict):
-            raise ValueError("Stored transform payload metadata is malformed.")
-        transform = ds["bspline_transform"].load()
-    finally:
-        ds.close()
+            if not isinstance(payload_metadata, dict):
+                raise ValueError("Stored transform payload metadata is malformed.")
+            transform = ds["bspline_transform"].load()
+        finally:
+            ds.close()
 
-    if "bspline" in payload_metadata:
-        payload_with_kind = {"kind": "bspline", **payload_metadata}
-        return cast("BSplineTransformPayload", payload_with_kind)
+        if "bspline" in payload_metadata:
+            payload_with_kind = {"kind": "bspline", **payload_metadata}
+            return cast("BSplineTransformPayload", payload_with_kind)
+    else:
+        transform = load_dataarray(path)
+        if transform.attrs.get("confusius_transform_kind") != "bspline":
+            raise ValueError(
+                "NIfTI transform file does not contain a ConfUSIus B-spline transform."
+            )
+        if "confusius_transform_metadata_json" in transform.attrs:
+            payload_metadata = json.loads(
+                cast("str", transform.attrs["confusius_transform_metadata_json"])
+            )
+            if not isinstance(payload_metadata, dict):
+                raise ValueError("Stored transform payload metadata is malformed.")
+        else:
+            payload_metadata = {
+                key: transform.attrs[key]
+                for key in (
+                    "name",
+                    "source_layer_name",
+                    "target_layer_name",
+                    "operation",
+                    "transform_model",
+                    "metric",
+                    "output_grid",
+                    "diagnostics",
+                )
+                if key in transform.attrs
+            }
+            if "input_grid" in transform.attrs:
+                payload_metadata["input_grid"] = transform.attrs["input_grid"]
 
+    transform = _normalize_loaded_bspline_transform(transform)
     validate_bspline_dataarray(transform)
     payload: BSplineTransformPayload = {
         "kind": "bspline",
         "bspline": _serialize_bspline_dataarray(transform),
-        "name": str(payload_metadata["name"]),
-        "source_layer_name": str(payload_metadata["source_layer_name"]),
-        "target_layer_name": str(payload_metadata["target_layer_name"]),
-        "operation": str(payload_metadata["operation"]),
-        "transform_model": str(payload_metadata["transform_model"]),
-        "metric": str(payload_metadata["metric"]),
+        "name": str(payload_metadata.get("name", path.stem)),
+        "source_layer_name": str(payload_metadata.get("source_layer_name", "loaded")),
+        "target_layer_name": str(payload_metadata.get("target_layer_name", "loaded")),
+        "operation": str(payload_metadata.get("operation", "loaded_transform")),
+        "transform_model": str(payload_metadata.get("transform_model", "bspline")),
+        "metric": str(payload_metadata.get("metric", "unknown")),
         "output_grid": get_output_grid_from_payload(payload_metadata),
         "diagnostics": cast(
-            "TransformDiagnosticsPayload", payload_metadata["diagnostics"]
+            "TransformDiagnosticsPayload",
+            payload_metadata.get(
+                "diagnostics",
+                {
+                    "metric": str(payload_metadata.get("metric", "unknown")),
+                    "final_metric_value": 0.0,
+                    "n_iterations": 0,
+                    "stop_condition": "Loaded from disk.",
+                    "status": "completed",
+                },
+            ),
         ),
     }
     input_grid = get_input_grid_from_payload(payload_metadata)
@@ -548,7 +656,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
 
 
 def save_transform_payload(path: str | Path, payload: TransformPayload) -> None:
-    """Save a transform payload to disk as JSON for affine payloads or Zarr for B-spline payloads.
+    """Save a transform payload to disk as JSON for affine payloads or NIfTI for B-spline payloads.
 
     Parameters
     ----------
@@ -559,7 +667,7 @@ def save_transform_payload(path: str | Path, payload: TransformPayload) -> None:
 
     Notes
     -----
-    Affine payloads are saved as JSON. B-spline payloads are saved as Zarr.
+    Affine payloads are saved as JSON. B-spline payloads are saved as NIfTI.
     """
     if payload["kind"] == "affine":
         Path(path).write_text(json.dumps(payload, indent=2) + "\n")
@@ -581,7 +689,11 @@ def load_transform_payload(path: str | Path) -> TransformPayload:
         Loaded transform payload.
     """
     path = Path(path)
-    if path.suffix == ".zarr":
+    if (
+        path.suffix == ".zarr"
+        or path.name.endswith(".nii")
+        or path.name.endswith(".nii.gz")
+    ):
         return _load_bspline_transform_payload(path)
 
     payload = json.loads(path.read_text())
@@ -592,7 +704,7 @@ def load_transform_payload(path: str | Path) -> TransformPayload:
     if kind != "affine":
         raise ValueError(
             "JSON transform files currently support affine payloads only. "
-            "Use .zarr for B-spline transforms."
+            "Use .nii or .nii.gz for B-spline transforms."
         )
     get_affine_transform_from_payload(payload)
     get_output_grid_from_payload(payload)

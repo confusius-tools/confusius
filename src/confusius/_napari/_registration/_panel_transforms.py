@@ -677,9 +677,11 @@ def save_selected_transform(panel: "RegistrationPanel") -> None:
         return
 
     default_name = payload["name"].replace("/", "-")
-    suffix = ".json" if payload["kind"] == "affine" else ".zarr"
+    suffix = ".json" if payload["kind"] == "affine" else ".nii.gz"
     file_filter = (
-        "JSON files (*.json)" if payload["kind"] == "affine" else "Zarr stores (*.zarr)"
+        "JSON files (*.json)"
+        if payload["kind"] == "affine"
+        else "NIfTI files (*.nii *.nii.gz)"
     )
     start = str(Path.home() / f"{default_name}{suffix}")
     path_str, _ = QFileDialog.getSaveFileName(
@@ -705,7 +707,7 @@ def load_transform(panel: "RegistrationPanel") -> None:
         panel,
         "Load transform",
         start,
-        "Transform files (*.json *.zarr)",
+        "Transform files (*.json *.nii *.nii.gz *.zarr)",
     )
     if not path_str:
         return
