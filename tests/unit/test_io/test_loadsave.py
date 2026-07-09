@@ -148,6 +148,19 @@ class TestSaveZarrSanitizesAttrs:
             assert isinstance(restored, np.ndarray)
             npt.assert_array_equal(restored, expected)
 
+    def test_numpy_scalar_and_list_attrs_round_trip(self, tmp_path):
+        """Numpy scalars and lists containing numpy values are kept, not dropped."""
+        da = xr.DataArray(
+            np.zeros((2, 2)),
+            attrs={"code": np.int16(3), "angles": [np.float64(1.5), np.float64(-2.0)]},
+        )
+        path = tmp_path / "scalars.zarr"
+        save(da, path)
+
+        loaded = load(path)
+        assert loaded.attrs["code"] == 3
+        npt.assert_array_equal(loaded.attrs["angles"], [1.5, -2.0])
+
     def test_non_serializable_attr_dropped_with_warning(self, tmp_path):
         """Attrs that cannot be JSON-encoded are dropped, with a warning naming them."""
         da = xr.DataArray(np.zeros((2, 2)), attrs={"units": "dB", "cmap": object()})
