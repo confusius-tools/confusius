@@ -74,7 +74,7 @@ Current development version for the next ConfUSIus release.
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
 - Long output in gallery examples — warnings, text reprs, tracebacks, and rich-rendered
   text such as the dataset citation banner — now wraps instead of showing a horizontal
-  scrollbar ([#284](https://github.com/confusius-tools/confusius/pull/284)).
+  scrollbar ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ### :wrench: Maintenance
 
@@ -84,7 +84,7 @@ Current development version for the next ConfUSIus release.
   (`uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py`),
   running only those; the rest of the gallery is still rendered, taken from cache if
   present or built without outputs
-  ([#284](https://github.com/confusius-tools/confusius/pull/284)).
+  ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ## 0.5.0
 
