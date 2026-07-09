@@ -216,6 +216,7 @@ class FUSIRegistrationAccessor:
         shrink_factors: Sequence[int] = (6, 2, 1),
         smoothing_sigmas: Sequence[int] = (6, 2, 1),
         resample_interpolation: Literal["linear", "bspline"] = "linear",
+        fill_value: float | None = None,
         show_progress: bool = True,
         progress_reporter: VolumewiseProgressReporter | None = None,
         abort_event: Event | None = None,
@@ -273,6 +274,9 @@ class FUSIRegistrationAccessor:
             coarsest to finest. Only used when `use_multi_resolution=True`.
         resample_interpolation : {"linear", "bspline"}, default: "linear"
             Interpolation method used for the final resample step.
+        fill_value : float, optional
+            Fill value for voxels outside each moving volume's field of view after
+            resampling. If not provided, defaults to that volume's minimum value.
         show_progress : bool, default: True
             Whether to display a progress bar while registering volumes.
         progress_reporter : VolumewiseProgressReporter, optional
@@ -313,6 +317,7 @@ class FUSIRegistrationAccessor:
             shrink_factors=shrink_factors,
             smoothing_sigmas=smoothing_sigmas,
             resample_interpolation=resample_interpolation,
+            fill_value=fill_value,
             show_progress=show_progress,
             progress_reporter=progress_reporter,
             abort_event=abort_event,

@@ -1285,8 +1285,8 @@ class TestResampleLike:
         result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3))
         assert float(result.values[-1, -1]) == pytest.approx(5.0, abs=1e-5)
 
-    def test_explicit_default_value_overrides(self, sample_2d_dataarray_spatial):
-        """Explicit default_value overrides the auto-default."""
+    def test_explicit_fill_value_overrides(self, sample_2d_dataarray_spatial):
+        """Explicit fill_value overrides the auto-default."""
         moving = xr.DataArray(
             np.ones((8, 8), dtype=np.float32) * 5.0,
             dims=("y", "x"),
@@ -1296,7 +1296,7 @@ class TestResampleLike:
             },
         )
         result = resample_like(
-            moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0
+            moving, sample_2d_dataarray_spatial, np.eye(3), fill_value=0.0
         )
         assert float(result.values[-1, -1]) == pytest.approx(0.0, abs=1e-5)
 

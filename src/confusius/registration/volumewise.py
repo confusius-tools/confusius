@@ -39,6 +39,7 @@ def register_volumewise(
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample_interpolation: Literal["linear", "bspline"] = "linear",
+    fill_value: float | None = None,
     show_progress: bool = True,
     progress_reporter: "VolumewiseProgressReporter | None" = None,
     abort_event: "Event | None" = None,
@@ -117,6 +118,9 @@ def register_volumewise(
         `"linear"` is fast and appropriate for motion correction.
         `"bspline"` (3rd-order B-spline) produces smoother results at the
         cost of speed.
+    fill_value : float, optional
+        Fill value for voxels outside each moving volume's field of view after
+        resampling. If not provided, defaults to that volume's minimum value.
     show_progress : bool, default: True
         Whether to display a progress bar while registering volumes.
     progress_reporter : VolumewiseProgressReporter, optional
@@ -250,6 +254,7 @@ def register_volumewise(
             smoothing_sigmas=smoothing_sigmas,
             resample=True,
             resample_interpolation=resample_interpolation,
+            fill_value=fill_value,
             # Restrict SimpleITK to 1 thread per worker to avoid
             # over-subscribing the CPU when joblib spawns many workers.
             sitk_threads=1,

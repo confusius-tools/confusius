@@ -10,6 +10,14 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now use `fill_value`
+  instead of `default_value` for out-of-field-of-view resampling, matching
+  [`register_volume`][confusius.registration.register_volume] and the progress-plot
+  resampling API.
+
 ### :sparkles: Enhancements
 
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream

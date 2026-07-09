@@ -32,7 +32,7 @@ def resample_volume(
     origin: Sequence[float],
     dims: Sequence[str],
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float | None = None,
+    fill_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
@@ -73,7 +73,7 @@ def resample_volume(
         Dimension names of the output DataArray.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, optional
+    fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
@@ -137,7 +137,7 @@ def resample_volume(
 
     moving_sitk = dataarray_to_sitk_image(moving)
 
-    _default_value = default_value if default_value is not None else float(moving.min())
+    resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
 
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.
@@ -160,7 +160,7 @@ def resample_volume(
             ref,
             tx,
             sitk_interpolation,
-            _default_value,
+            resolved_fill_value,
             moving_sitk.GetPixelID(),
         )
         # .T restores DataArray axis order, inverse of the .T used to build the SITK
@@ -190,7 +190,7 @@ def resample_like(
     reference: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float | None = None,
+    fill_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto the grid of a reference DataArray.
@@ -224,7 +224,7 @@ def resample_like(
 
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, optional
+    fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
@@ -279,7 +279,7 @@ def resample_like(
         transform,
         **grid,
         interpolation=interpolation,
-        default_value=default_value,
+        fill_value=fill_value,
         sitk_threads=sitk_threads,
     )
 
