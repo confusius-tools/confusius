@@ -62,16 +62,16 @@ dev = [
     "jupytext>=1.16.0",
     "nbclient>=0.10.0",
     "nbformat>=5.10.0",
-    "numpydoc>=1.9.0",
-    "prek>=0.2.0,<0.3.0",
-    "pytest>=8.4.2",
+    "numpydoc>=1.11.0rc0",
+    "prek>=0.4.8",
+    "pytest>=9.1.1",
     "pytest-cov>=6.0.0",
-    "pytest-mpl>=0.16.0",
-    "ruff>=0.8.0",
-    "ty>=0.0.10,<0.1.0",
+    "pytest-mpl>=0.19.0",
+    "ruff>=0.15.20",
+    "ty>=0.0.57,<0.1.0",
     "mike @ git+https://github.com/squidfunk/mike.git",
-    "zensical>=0.0.40",
-    "mkdocstrings[python]>=1.0.3",
+    "zensical>=0.0.47",
+    "mkdocstrings[python]>=1.0.4",
     "pytest-qt>=4.5.0",
 ]
 
@@ -112,6 +112,9 @@ omit = ["*/confusius/_napari/*", "*/confusius/_cli.py"]
 
 [tool.ruff]
 exclude = ["benchmark/*"]
+
+[tool.ty.src]
+include = ["src", "tests"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

@@ -113,9 +113,12 @@ def _hex_triplet_to_rgb(raw_hex: str) -> tuple[float, float, float] | None:
         return None
 
     try:
-        return tuple(int(value[i : i + 2], 16) / 255 for i in (0, 2, 4))
+        r = int(value[0:2], 16) / 255
+        g = int(value[2:4], 16) / 255
+        b = int(value[4:6], 16) / 255
     except ValueError:
         return None
+    return r, g, b
 
 
 def _require_structure_tree_csv(bids_root: Path) -> Path:
@@ -403,7 +406,7 @@ def _napari_screenshot(
     sees or resizes it.
     """
     win = viewer.window._qt_window
-    win.setAttribute(Qt.WA_DontShowOnScreen)
+    win.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win.show()
     win.resize(1100, 750)
     get_qapp().processEvents()
@@ -500,7 +503,7 @@ try:
     viewer_orbit.dims.ndisplay = 3
 
     win = viewer_orbit.window._qt_window
-    win.setAttribute(Qt.WA_DontShowOnScreen)
+    win.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win.show()
     win.resize(1100, 750)
     get_qapp().processEvents()
@@ -526,13 +529,18 @@ try:
         h, w = raw.shape[:2]
         scale = GIF_WIDTH / w
         frames_pil.append(
-            Image.fromarray(raw).resize((GIF_WIDTH, int(h * scale)), Image.LANCZOS)
+            Image.fromarray(raw).resize(
+                (GIF_WIDTH, int(h * scale)), Image.Resampling.LANCZOS
+            )
         )
 
     viewer_orbit.close()
 
-    palette_src = frames_pil[0].quantize(colors=256, dither=0)
-    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
+    palette_src = frames_pil[0].quantize(colors=256, dither=Image.Dither.NONE)
+    quantized = [
+        frame.quantize(palette=palette_src, dither=Image.Dither.NONE)
+        for frame in frames_pil
+    ]
 
     out_path = str(HERE / "napari-3d-orbit.gif")
     quantized[0].save(
@@ -669,8 +677,6 @@ try:
         colormap="gray",
     )
 
-    labels_layer.data[...] = 0
-
     if atlas_mask is None or not roi_labels:
         raise RuntimeError(f"Atlas-driven {_ROI_STRUCTURE_NAME} ROIs are unavailable.")
 
@@ -681,8 +687,9 @@ try:
         roi_labels,
     )
 
-    labels_layer.data[..., left_roi] = 1
-    labels_layer.data[..., right_roi] = 2
+    labels_data = np.asarray(labels_layer.data)
+    labels_data[..., left_roi] = 1
+    labels_data[..., right_roi] = 2
     console.print(
         "  Painted symmetric atlas ROIs "
         f"for {_ROI_STRUCTURE_NAME} ({len(label_ids)} labels)"

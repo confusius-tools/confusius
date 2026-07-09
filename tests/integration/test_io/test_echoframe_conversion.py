@@ -272,6 +272,7 @@ class TestEchoFrameConversion:
 
         zarr_group = zarr.open_group(output_path, mode="r")
         iq_array = zarr_group["iq"]
+        assert isinstance(iq_array, zarr.Array)
         assert iq_array.shards == (6, 1, 6, 4)
 
     def test_cleanup_on_error(self, synthetic_echoframe_session, tmp_path):

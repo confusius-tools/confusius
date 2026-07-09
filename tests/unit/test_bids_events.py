@@ -161,7 +161,7 @@ class TestWriteEvents:
         """A non-DataFrame events argument is rejected."""
         path = tmp_path / "events.tsv"
         with pytest.raises(TypeError, match="DataFrame"):
-            write_events(path, [(0.0, 1.0, "stim")])
+            write_events(path, [(0.0, 1.0, "stim")])  # ty: ignore[invalid-argument-type]
 
     def test_rejects_missing_required_column(self, tmp_path):
         """A DataFrame without a duration column is rejected."""

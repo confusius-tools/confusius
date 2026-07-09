@@ -7,6 +7,11 @@ import xarray as xr
 from confusius.plotting import VolumePlotter, plot_stat_map
 
 
+def _axes(plotter):
+    assert plotter.axes is not None
+    return plotter.axes
+
+
 def _signed_stat_map(template: xr.DataArray) -> xr.DataArray:
     """Return a stat map on `template`'s grid with known signed values.
 
@@ -113,7 +118,7 @@ class TestPlotStatMapVisualRegression:
     def test_plot_stat_map_non_diverging(self, matplotlib_pyplot):
         """Baseline test for a non-diverging statistic (auto-detected: sequential + viridis)."""
         bg_volume, stat_map = _create_deterministic_bg_and_stat_map()
-        plotter = plot_stat_map(np.abs(stat_map), bg_volume=bg_volume, slice_mode="z")
+        plotter = plot_stat_map(abs(stat_map), bg_volume=bg_volume, slice_mode="z")
         return plotter.figure
 
 
@@ -124,7 +129,7 @@ class TestPlotStatMap:
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         assert isinstance(plotter, VolumePlotter)
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["z"]
         # Background + overlay were both drawn on every panel.
         assert all(len(ax.collections) == 2 for ax in rendered)
@@ -133,7 +138,7 @@ class TestPlotStatMap:
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="y")
         assert plotter.slice_mode == "y"
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["y"]
 
     def test_overlay_sets_no_explicit_alpha_by_default(
@@ -143,7 +148,7 @@ class TestPlotStatMap:
         through (the default colormaps are opaque)."""
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() is None
 
     def test_explicit_alpha_blends_overlay_with_background(
@@ -153,7 +158,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(
             stat_map, bg_volume=sample_3d_volume, slice_mode="z", alpha=0.5
         )
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() == 0.5
 
     def test_overlay_uses_coolwarm_by_default_for_signed_data(
@@ -161,7 +166,7 @@ class TestPlotStatMap:
     ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("coolwarm")
 
     def test_default_bounds_are_symmetric_min_max_for_signed_data(
@@ -169,7 +174,7 @@ class TestPlotStatMap:
     ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
-        norm = plotter.axes.ravel()[0].collections[-1].norm
+        norm = _axes(plotter).ravel()[0].collections[-1].norm
         assert norm.vmax == 10.0
         assert norm.vmin == -10.0
 
@@ -180,7 +185,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(
             stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmin=-5.0, vmax=5.0
         )
-        norm = plotter.axes.ravel()[0].collections[-1].norm
+        norm = _axes(plotter).ravel()[0].collections[-1].norm
         assert norm.vmax == 5.0
         assert norm.vmin == -5.0
 
@@ -193,7 +198,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(
             stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmax=5.0
         )
-        norm = plotter.axes.ravel()[0].collections[-1].norm
+        norm = _axes(plotter).ravel()[0].collections[-1].norm
         assert norm.vmax == 10.0
         assert norm.vmin == -10.0
 
@@ -202,7 +207,7 @@ class TestPlotStatMap:
     ):
         stat_map = _nonneg_stat_map(sample_3d_volume)  # min=0, max=10
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("viridis")
         assert overlay.norm.vmin == 0.0
         assert overlay.norm.vmax == 10.0
@@ -212,7 +217,7 @@ class TestPlotStatMap:
     ):
         stat_map = -_nonneg_stat_map(sample_3d_volume)  # min=-10, max=0
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("viridis_r")
         assert overlay.norm.vmin == -10.0
         assert overlay.norm.vmax == 0.0
@@ -229,7 +234,7 @@ class TestPlotStatMap:
             vmax=5.0,
             auto_range=False,
         )
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("coolwarm")
         assert overlay.norm.vmin == -2.0
         assert overlay.norm.vmax == 5.0
@@ -241,7 +246,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(
             stat_map, bg_volume=sample_3d_volume, slice_mode="z", cmap="hot"
         )
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("hot")
 
     def test_threshold_masks_overlay(self, sample_3d_volume, matplotlib_pyplot):
@@ -253,7 +258,7 @@ class TestPlotStatMap:
             threshold=9.0,
             threshold_mode="lower",
         )
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         arr = overlay.get_array()
         assert np.ma.is_masked(arr)
 
@@ -267,7 +272,7 @@ class TestPlotStatMap:
             slice_mode="z",
             bg_kwargs={"cmap": "hot", "vmin": 0.0, "vmax": 1.0},
         )
-        background = plotter.axes.ravel()[0].collections[0]
+        background = _axes(plotter).ravel()[0].collections[0]
         assert background.cmap.name.startswith("hot")
         assert background.norm.vmin == 0.0
         assert background.norm.vmax == 1.0
@@ -284,7 +289,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(
             stat_map, bg_volume=bg_volume, slice_mode="z", alpha=alpha
         )
-        overlay = plotter.axes.ravel()[0].collections[-1]
+        overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() == pytest.approx(0.5)
 
     def test_without_background_plots_stat_map_alone(
@@ -292,7 +297,7 @@ class TestPlotStatMap:
     ):
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, slice_mode="z")
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == stat_map.sizes["z"]
         assert all(len(ax.collections) == 1 for ax in rendered)
         norm = rendered[0].collections[0].norm
@@ -313,7 +318,7 @@ class TestStatMapAccessor:
             bg_volume=sample_3d_volume, slice_mode="z"
         )
         assert isinstance(plotter, VolumePlotter)
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["z"]
 
     def test_accessor_without_background(self, sample_3d_volume, matplotlib_pyplot):
@@ -321,6 +326,6 @@ class TestStatMapAccessor:
 
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = stat_map.fusi.plot.stat_map(slice_mode="z")
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == stat_map.sizes["z"]
         assert all(len(ax.collections) == 1 for ax in rendered)

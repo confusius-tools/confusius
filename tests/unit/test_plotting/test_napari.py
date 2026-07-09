@@ -115,7 +115,7 @@ class TestPlotNapari:
 
     def test_invalid_layer_type_raises(self, sample_3d_volume) -> None:
         with pytest.raises(ValueError, match="Unknown layer_type"):
-            plot_napari(sample_3d_volume, layer_type="bogus")  # type: ignore[arg-type]
+            plot_napari(sample_3d_volume, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
     def test_non_uniform_spatial_coords_warn(
         self, sample_3d_volume, make_napari_viewer

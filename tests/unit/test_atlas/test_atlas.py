@@ -69,7 +69,7 @@ class TestAtlasConstruction:
                 "resolution": resolution_um,
             }
 
-        result = Atlas.from_brainglobe(_MockBgAtlas())  # type: ignore[arg-type]
+        result = Atlas.from_brainglobe(_MockBgAtlas())  # ty: ignore[invalid-argument-type]
 
         assert isinstance(result, Atlas)
         assert result.reference.dtype == np.float32
@@ -298,7 +298,7 @@ class TestGetMasks:
 
     def test_invalid_side_value_raises(self, atlas: Atlas) -> None:
         with pytest.raises(ValueError, match="Invalid side"):
-            atlas.get_masks(10, sides="center")  # type: ignore[arg-type]
+            atlas.get_masks(10, sides="center")  # ty: ignore[invalid-argument-type]
 
     def test_unknown_region_id_raises(self, atlas: Atlas) -> None:
         with pytest.raises(KeyError):
@@ -736,6 +736,7 @@ class TestResampleLike:
         composed = atlas_module._compose_mesh_vertex_transforms(
             old_transform, new_transform, reference, reference
         )
+        assert isinstance(composed, xr.DataArray)
         np.testing.assert_array_equal(
             composed.coords["component"].values, ["z", "y", "x"]
         )
@@ -798,7 +799,7 @@ class TestResampleLike:
             shape=reference.shape,
             spacing=[0.05, 0.05, 0.05],
             origin=[0.0, 0.0, 0.0],
-            dims=reference.dims,
+            dims=[str(dim) for dim in reference.dims],
         )
 
         np.testing.assert_allclose(by_grid.reference.values, by_like.reference.values)

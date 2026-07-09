@@ -61,7 +61,7 @@ class TestRegisterVolumeValidation:
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
-                initialization="moments",
+                initialization="moments",  # ty: ignore[invalid-argument-type]
             )
 
     def test_non_array_initialization_raises_value_error(
@@ -72,7 +72,7 @@ class TestRegisterVolumeValidation:
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
-                initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
             )
 
     def test_shape_mismatch_no_error(
@@ -151,8 +151,11 @@ class TestRegisterVolumeOutput:
             dims=("y", "x"),
             coords={"y": np.arange(20) * 0.5, "x": np.arange(40) * 0.1},
         )
-        _, bspline_tx, _ = register_volume(
-            da, da, transform_type="bspline", mesh_size=(4, 4)
+        _, bspline_tx, _ = register_volume(  # ty: ignore[no-matching-overload]
+            da,
+            da,
+            transform_type="bspline",
+            mesh_size=(4, 4),
         )
 
         y_span = float(
@@ -930,12 +933,7 @@ class TestDisplacementField:
         moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
-        grid = dict(
-            shape=[fixed.sizes[d] for d in fixed.dims],
-            spacing=[fixed.fusi.spacing[d] for d in fixed.dims],
-            origin=[fixed.fusi.origin[d] for d in fixed.dims],
-            dims=list(fixed.dims),
-        )
+        grid = get_grid_kwargs_from_dataarray(fixed)
         field = sample_displacement_field(bspline_tx, **grid)
         assert not np.isnan(field.values).any()
 
@@ -971,12 +969,7 @@ class TestDisplacementField:
         moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
-        grid = dict(
-            shape=[fixed.sizes[d] for d in fixed.dims],
-            spacing=[fixed.fusi.spacing[d] for d in fixed.dims],
-            origin=[fixed.fusi.origin[d] for d in fixed.dims],
-            dims=list(fixed.dims),
-        )
+        grid = get_grid_kwargs_from_dataarray(fixed)
         field = sample_displacement_field(bspline_tx, **grid)
         inverse_field = invert_displacement_field(field)
 

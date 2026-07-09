@@ -59,9 +59,9 @@ def mock_structures(obj_path: Path) -> _MockStructuresDict:
     Only the root region (997) has a mesh file assigned.
     """
     tree = treelib.Tree()
-    tree.create_node("root", 997)
-    tree.create_node("child", 10, parent=997)
-    tree.create_node("grandchild", 20, parent=10)
+    tree.create_node("root", 997)  # ty: ignore[invalid-argument-type]
+    tree.create_node("child", 10, parent=997)  # ty: ignore[invalid-argument-type]
+    tree.create_node("grandchild", 20, parent=10)  # ty: ignore[invalid-argument-type]
 
     structure_list = [
         {
@@ -162,4 +162,9 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
     # hemisphere clip splits it 3/3. Fixed to the mesh, independent of the resolution.
     rl_midline = 0.1
 
-    return Atlas(dataset, mock_structures, mesh_vertex_transform, rl_midline)
+    return Atlas(
+        dataset,
+        mock_structures,  # ty: ignore[invalid-argument-type]
+        mesh_vertex_transform,
+        rl_midline,
+    )

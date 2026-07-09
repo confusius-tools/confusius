@@ -29,6 +29,7 @@ def test_recolor_toolbar_icons_preserves_disabled_state(qtbot):
     qtbot.addWidget(toolbar)
 
     action = toolbar.addAction("Back")
+    assert action is not None
     action.setIcon(_solid_icon("#000000"))
 
     recolor_toolbar_icons(toolbar, "#ffffff")
@@ -50,6 +51,7 @@ def test_recolor_toolbar_icons_uses_original_icon_on_retheme(qtbot):
     qtbot.addWidget(toolbar)
 
     action = toolbar.addAction("Back")
+    assert action is not None
     action.setIcon(_solid_icon("#000000"))
 
     recolor_toolbar_icons(toolbar, "#ffffff")
