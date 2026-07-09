@@ -746,6 +746,42 @@ class TestLoadNifti:
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" not in da.attrs["affines"]
 
+    def test_load_nifti_coordinate_affine_sform_forces_sform(self, tmp_path: Path) -> None:
+        """`coordinate_affine="sform"` makes sform define CTI geometry."""
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        qform = np.diag([5.0, 6.0, 7.0, 1.0])
+        data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
+        img = nib.Nifti1Image(data, sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(qform, code=1)
+        nifti_path = tmp_path / "prefer_sform.nii.gz"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path, coordinate_affine="sform")
+
+        np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
+        np.testing.assert_allclose(da.attrs["voxel_to_physical"][:3, :3], np.diag([4.0, 3.0, 2.0]))
+        assert "physical_to_sform" in da.attrs["affines"]
+        assert "physical_to_qform" in da.attrs["affines"]
+
+    def test_load_nifti_coordinate_affine_qform_forces_qform(self, tmp_path: Path) -> None:
+        """`coordinate_affine="qform"` makes qform define CTI geometry."""
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        qform = np.diag([5.0, 6.0, 7.0, 1.0])
+        data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
+        img = nib.Nifti1Image(data, sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(qform, code=1)
+        nifti_path = tmp_path / "prefer_qform.nii.gz"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path, coordinate_affine="qform")
+
+        np.testing.assert_allclose(da.coords["z"].values, [0.0, 7.0])
+        np.testing.assert_allclose(da.attrs["voxel_to_physical"][:3, :3], np.diag([7.0, 6.0, 5.0]))
+        assert "physical_to_qform" in da.attrs["affines"]
+        assert "physical_to_sform" in da.attrs["affines"]
+
     def test_load_nifti_rotated_affine_probe_relative_coords(
         self, tmp_path: Path
     ) -> None:

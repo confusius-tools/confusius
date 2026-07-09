@@ -1016,11 +1016,15 @@ def load_nifti(
         - `-1` or `None` as a blocksize indicate the size of the corresponding
           dimension.
     coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
-        Header affine to use as the primary coordinate-defining geometry. `"auto"`
-        prefers sform over qform when both are valid.
-    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
-        Header affine to use as the primary coordinate-defining geometry. `"auto"`
-        prefers sform over qform when both are valid.
+        Header affine to use as the primary coordinate-defining geometry.
+
+        - `"auto"`` prefers sform when both sform and qform are valid, and falls
+          back to qform when only qform is valid.
+        - `"sform"` forces the sform to define the in-memory CTI geometry.
+        - `"qform"` forces the qform to define the in-memory CTI geometry.
+
+        The non-selected valid header affine is still preserved in
+        `data_array.attrs["affines"]` as a physical-to-world transform.
 
     Returns
     -------
@@ -1031,6 +1035,12 @@ def load_nifti(
 
     Notes
     -----
+    In memory, the coordinate-defining geometry is always represented by the CTI /
+    voxel-affine model: voxel dimensions `k`, `j`, `i`; physical coordinates `z`, `y`,
+    `x`; and `data_array.attrs["voxel_to_physical"]` as the source of truth.
+    `coordinate_affine` controls which NIfTI header affine becomes that
+    `voxel_to_physical` mapping.
+
     Physical-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
     affine name. Each value is a 4×4 affine in ConfUSIus `(z, y, x)` convention that
     maps **physical coordinates** (as stored in `da.coords`) to world-space
@@ -1042,7 +1052,7 @@ def load_nifti(
     `physical_to_*` affines are invariant to any slicing or downsampling because they
     operate on physical positions, not grid indices.
 
-    Affine selection follows NIfTI conventions:
+    With `coordinate_affine="auto"`, affine selection follows NIfTI conventions:
 
     - If `sform_code > 0`: sform is used as the primary affine; a
       `"physical_to_sform"` entry is written. When `qform_code > 0` as well, a
@@ -1052,6 +1062,11 @@ def load_nifti(
     - If both codes are zero: a warning is emitted, coordinates are built from
       `pixdim` only (origin 0, step = voxel size), and no `"affines"` entry is
       stored in `da.attrs`.
+
+    Choosing `coordinate_affine="sform"` or `"qform"` overrides the automatic
+    preference only when that header affine is valid. If the requested affine is not
+    present, loading falls back to the same `pixdim`-only path as a file with no valid
+    header affine.
 
     The raw integer form codes are stored as `da.attrs["qform_code"]` and
     `da.attrs["sform_code"]` (only when > 0) so that a save/load roundtrip can
@@ -1066,7 +1081,8 @@ def load_nifti(
     >>> import confusius as cf
     >>> da = cf.io.load_nifti("brain.nii.gz")
     >>> print(da.dims)
-    ("time", "z", "y", "x")
+    ("time", "k", "j", "i")
+    >>> da = cf.io.load_nifti("brain.nii.gz", coordinate_affine="qform")
     """
     path = check_path(path, type="file")
 
