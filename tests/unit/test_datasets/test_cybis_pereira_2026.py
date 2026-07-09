@@ -9,7 +9,11 @@ import pytest
 import requests
 
 from confusius.datasets import fetch_cybis_pereira_2026
-from confusius.datasets._cybis_pereira_2026 import _BIDS_ROOT, _OSF_PROJECT_ID
+from confusius.datasets._cybis_pereira_2026 import (
+    _BIDS_ROOT,
+    _CITATION,
+    _OSF_PROJECT_ID,
+)
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
 
 # Minimal fake index representing the different file categories in the dataset.
@@ -122,6 +126,14 @@ def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
     result = fetch_cybis_pereira_2026(data_dir=tmp_path)
     assert result == tmp_path / _BIDS_ROOT
     assert isinstance(result, Path)
+
+
+def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys):
+    fetch_cybis_pereira_2026(data_dir=tmp_path)
+    assert _CITATION in capsys.readouterr().out
+
+    fetch_cybis_pereira_2026(data_dir=tmp_path, show_citation_msg=False)
+    assert capsys.readouterr().out == ""
 
 
 def test_fetch_downloads_all_missing_files(tmp_path, mock_get_index, mock_retrieve):

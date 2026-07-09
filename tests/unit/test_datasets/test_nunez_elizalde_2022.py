@@ -11,6 +11,7 @@ import requests
 from confusius.datasets import fetch_nunez_elizalde_2022, get_datasets_dir
 from confusius.datasets._nunez_elizalde_2022 import (
     _BIDS_ROOT,
+    _CITATION,
     _OSF_PROJECT_ID,
 )
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
@@ -150,6 +151,14 @@ def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
     result = fetch_nunez_elizalde_2022(data_dir=tmp_path)
     assert result == tmp_path / _BIDS_ROOT
     assert isinstance(result, Path)
+
+
+def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys):
+    fetch_nunez_elizalde_2022(data_dir=tmp_path)
+    assert _CITATION in capsys.readouterr().out
+
+    fetch_nunez_elizalde_2022(data_dir=tmp_path, show_citation_msg=False)
+    assert capsys.readouterr().out == ""
 
 
 def test_fetch_downloads_all_missing_files(tmp_path, mock_get_index, mock_retrieve):
