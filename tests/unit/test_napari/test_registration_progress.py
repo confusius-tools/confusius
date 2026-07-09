@@ -15,6 +15,7 @@ from confusius._napari._registration._progress import (
     NapariRegistrationProgressReporterBridge,
     make_napari_progress_factory,
 )
+from confusius.registration import RegistrationDiagnostics
 
 
 @pytest.fixture
@@ -173,12 +174,19 @@ class TestNapariRegistrationProgressReporter:
             lambda index, array: frame_payloads.append((index, array))
         )
         frame = xr.DataArray(np.ones((2, 2), dtype=np.float32), dims=("y", "x"))
-        diagnostics = object()
+        diagnostics = RegistrationDiagnostics(
+            metric="correlation",
+            metric_values=np.array([-1.0]),
+            final_metric_value=-1.0,
+            n_iterations=1,
+            stop_condition="done",
+            status="completed",
+        )
 
         with qtbot.waitSignals(
             [bridge.frame_progress, bridge.frame_completed], timeout=1000
         ):
-            reporter.frame_completed(1, frame, diagnostics)  # type: ignore[arg-type]
+            reporter.frame_completed(1, frame, diagnostics)
 
         assert progress_payloads == [(1, 3)]
         assert len(frame_payloads) == 1
@@ -195,10 +203,17 @@ class TestNapariRegistrationProgressReporter:
             lambda completed, total: progress_payloads.append((completed, total))
         )
         frame = xr.DataArray(np.ones((2, 2), dtype=np.float32), dims=("y", "x"))
-        diagnostics = object()
+        diagnostics = RegistrationDiagnostics(
+            metric="correlation",
+            metric_values=np.array([-1.0]),
+            final_metric_value=-1.0,
+            n_iterations=1,
+            stop_condition="done",
+            status="completed",
+        )
 
-        reporter.frame_completed(1, frame, diagnostics)  # type: ignore[arg-type]
-        reporter.frame_completed(2, frame, diagnostics)  # type: ignore[arg-type]
+        reporter.frame_completed(1, frame, diagnostics)
+        reporter.frame_completed(2, frame, diagnostics)
 
         qtbot.waitUntil(lambda: len(progress_payloads) == 2, timeout=1000)
         assert progress_payloads == [(1, 3), (2, 3)]

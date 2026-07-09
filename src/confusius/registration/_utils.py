@@ -5,7 +5,9 @@ import signal
 import threading
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import TYPE_CHECKING, Generator
+from collections.abc import Callable
+from types import FrameType
+from typing import TYPE_CHECKING, Generator, TypeGuard
 
 import numpy as np
 import xarray as xr
@@ -14,6 +16,15 @@ if TYPE_CHECKING:
     from threading import Event
 
     import SimpleITK as sitk
+
+
+SignalHandler = Callable[[int, FrameType | None], object]
+"""Python-level SIGINT handler callable."""
+
+
+def _is_python_signal_handler(handler: object) -> TypeGuard[SignalHandler]:
+    """Return whether `handler` is a callable Python SIGINT handler."""
+    return callable(handler)
 
 
 def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
@@ -110,7 +121,7 @@ def abort_on_sigint(
     previous_handler = signal.getsignal(signal.SIGINT)
     saw_sigint = False
 
-    def _handle_sigint(signum: int, frame: object) -> None:
+    def _handle_sigint(signum: int, frame: FrameType | None) -> None:
         nonlocal saw_sigint
         if not saw_sigint:
             saw_sigint = True
@@ -121,7 +132,7 @@ def abort_on_sigint(
             raise KeyboardInterrupt
         if previous_handler == signal.SIG_IGN:
             return
-        if callable(previous_handler):
+        if _is_python_signal_handler(previous_handler):
             previous_handler(signum, frame)
 
     signal.signal(signal.SIGINT, _handle_sigint)

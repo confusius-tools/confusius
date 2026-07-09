@@ -1417,7 +1417,9 @@ class RegistrationPanel(QWidget):
             kwargs["scale"] = scale
         if translate is not None:
             kwargs["translate"] = translate
-        self.viewer.add_labels(
+        # `add_labels` exists at runtime, but napari injects it dynamically onto
+        # `ViewerModel`, so ty does not see it on `napari.Viewer`.
+        self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
             np.zeros(shape, dtype=np.int32),
             name=name,
             **kwargs,

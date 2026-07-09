@@ -858,7 +858,9 @@ class TestTransforms:
         assert loaded["source_layer_name"] == "moving"
         assert loaded["name"] == "moving → fixed (rigid)"
         assert get_output_grid_from_payload(loaded)["shape"] == [4, 6]
-        assert get_input_grid_from_payload(loaded)["shape"] == [4, 6]
+        input_grid = get_input_grid_from_payload(loaded)
+        assert input_grid is not None
+        assert input_grid["shape"] == [4, 6]
         np.testing.assert_array_equal(
             get_affine_transform_from_payload(loaded), np.eye(3)
         )
@@ -892,7 +894,9 @@ class TestTransforms:
         assert loaded["name"] == "moving → fixed (bspline)"
         assert loaded["kind"] == "bspline"
         assert get_output_grid_from_payload(loaded)["shape"] == [3, 4]
-        assert get_input_grid_from_payload(loaded)["shape"] == [3, 4]
+        input_grid = get_input_grid_from_payload(loaded)
+        assert input_grid is not None
+        assert input_grid["shape"] == [3, 4]
         xr.testing.assert_identical(
             get_bspline_transform_from_payload(loaded),
             transform.astype(float),
@@ -1057,6 +1061,7 @@ class TestTransforms:
         apply_selected_inverse_transform(registration_panel)
 
         input_grid = get_input_grid_from_payload(payload)
+        assert input_grid is not None
         expected = resample_volume(
             target,
             np.linalg.inv(affine),

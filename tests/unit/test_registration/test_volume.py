@@ -1,7 +1,10 @@
 """Unit tests for single-volume registration."""
 
 import signal
+from collections.abc import Callable
 from threading import Event
+from types import FrameType
+from typing import TypeGuard
 
 import numpy as np
 import pytest
@@ -20,6 +23,13 @@ from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
 
 
+def _is_signal_handler(
+    handler: object,
+) -> TypeGuard[Callable[[int, FrameType | None], object]]:
+    """Return whether `handler` is a callable Python SIGINT handler."""
+    return callable(handler)
+
+
 class TestRegisterVolumeSigint:
     """Ctrl+C handling exposed through the public `register_volume` API."""
 
@@ -34,7 +44,7 @@ class TestRegisterVolumeSigint:
         def fake_execute(self, fixed, moving):
             del self, fixed, moving
             handler = signal.getsignal(signal.SIGINT)
-            assert callable(handler)
+            assert _is_signal_handler(handler)
             handler(signal.SIGINT, None)
             return sitk.TranslationTransform(2)
 
@@ -60,7 +70,7 @@ class TestRegisterVolumeSigint:
         def fake_execute(self, fixed, moving):
             del self, fixed, moving
             handler = signal.getsignal(signal.SIGINT)
-            assert callable(handler)
+            assert _is_signal_handler(handler)
             handler(signal.SIGINT, None)
             handler(signal.SIGINT, None)
             return sitk.TranslationTransform(2)
@@ -88,7 +98,7 @@ class TestRegisterVolumeSigint:
         def fake_execute(self, fixed, moving):
             del self, fixed, moving
             handler = signal.getsignal(signal.SIGINT)
-            assert callable(handler)
+            assert _is_signal_handler(handler)
             handler(signal.SIGINT, None)
             handler(signal.SIGINT, None)
             return sitk.TranslationTransform(2)
@@ -123,7 +133,7 @@ class TestRegisterVolumeSigint:
         def fake_execute(self, fixed, moving):
             del self, fixed, moving
             handler = signal.getsignal(signal.SIGINT)
-            assert callable(handler)
+            assert _is_signal_handler(handler)
             handler(signal.SIGINT, None)
             handler(signal.SIGINT, None)
             return sitk.TranslationTransform(2)
