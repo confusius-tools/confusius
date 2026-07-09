@@ -46,8 +46,7 @@ Current development version for the next ConfUSIus release.
   The previous workaround in
   [#271](https://github.com/confusius-tools/confusius/pull/271) is no longer needed:
   napari ≥ 0.7.1 infers the scale bar unit from the layer's `units` attribute, which
-  `plot_napari` already forwards from the spatial coordinates. Minimum supported
-  napari bumped to 0.7.1.
+  `plot_napari` already forwards from the spatial coordinates.
 - [`plot_volume`][confusius.plotting.plot_volume] and friends no longer crash on
   matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
   now requires strictly monotonic `(value, color)` pairs, and the threshold gray
@@ -76,30 +75,8 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
-- Bumped the lock to the latest napari (≥ 0.7.1), matplotlib (≥ 3.11), numpy
-  (≥ 2.4), numba (≥ 0.64), and llvmlite (≥ 0.46). Minimum supported matplotlib
-  is now 3.11.0: matplotlib 3.11 overhauled text rendering and FreeType and
-  cannot reproduce the pixel values of previous versions, so the regenerated
-  visual baselines below only match 3.11+. `numba` and `llvmlite` are forced via
-  `tool.uv.override-dependencies` so the lock still resolves on Python 3.14 (the
-  project advertises 3.14 support but the lowest resolvable numba/llvmlite drop
-  it). Override (not direct pins) avoids fighting napari ≤ 0.7.1's
-  `numba<=0.62.1` cap on darwin x86_64.
-- Visual regression baselines for `plot_volume`, `plot_contours`, `plot_carpet`,
-  `plot_stat_map`, `plot_composite`, and `plot_matrix` regenerated for the
-  matplotlib ≥ 3.11 renderer. Pixel-level diffs were caused by upstream rendering
-  changes (text rasterisation, subpixel alignment), not by ConfUSIus output.
-- `test_feature_names_in_for_string_feature_labels` ignores the
-  `invalid value encountered in dot` warning from sklearn's NMF iteration. The
-  test only inspects `feature_names_in_`, which is independent of the iteration
-  result, and the warning is transient on BLAS implementations that flush
-  denormals differently than OpenBLAS (e.g. Accelerate on macOS, exposed by
-  numpy ≥ 2.4's stricter `np.dot` NaN detection).
-- `# type: ignore[old-mypy-code]` comments across the codebase replaced with bare
-  `# type: ignore` after the lock upgrade. ty uses `# ty: ignore[code]` (not
-  mypy's `# type: ignore[code]`), so the old per-code directives silently stopped
-  suppressing anything. `_apply_threshold` return type broadened to
-  `list[xr.DataArray | np.ndarray]` to reflect what the function actually returns.
+- Raised the minimum supported versions to **napari 0.7.1** and
+  **matplotlib 3.11**.
 
 ## 0.5.0
 
