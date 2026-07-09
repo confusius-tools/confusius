@@ -983,6 +983,7 @@ class TestDisplacementField:
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
         np.testing.assert_array_equal(field.coords["component"].values, ["y", "x"])
+        assert_allclose(np.asarray(field.attrs["direction"]), np.eye(2))
         assert field.shape == (2, *sample_2d_dataarray_spatial.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
 
@@ -1006,6 +1007,10 @@ class TestDisplacementField:
         assert_array_equal(by_reference.coords["component"].values, ["y", "x"])
         assert_allclose(by_reference.values, by_grid.values, atol=1e-6)
         assert_allclose(
+            np.asarray(by_reference.attrs["direction"]),
+            sample_2d_dataarray_spatial.fusi.direction,
+        )
+        assert_allclose(
             by_reference.coords["y"].values,
             sample_2d_dataarray_spatial.coords["y"].values,
         )
@@ -1013,6 +1018,19 @@ class TestDisplacementField:
             by_reference.coords["x"].values,
             sample_2d_dataarray_spatial.coords["x"].values,
         )
+
+    def test_sample_and_invert_displacement_field_preserve_direction(self):
+        """Direction survives field sampling and inversion on oblique grids."""
+        fixed = _make_voxel_affine_2d()
+        _, bspline_tx, _ = register_volume(fixed, fixed, transform_type="bspline")
+
+        field = sample_displacement_field_like(bspline_tx, fixed)
+        inverted = invert_displacement_field(field)
+
+        assert_allclose(np.asarray(field.attrs["direction"]), fixed.fusi.direction)
+        assert_allclose(np.asarray(inverted.attrs["direction"]), fixed.fusi.direction)
+        assert_allclose(field.values, 0.0, atol=1e-6)
+        assert_allclose(inverted.values, 0.0, atol=1e-6)
 
     def test_invert_displacement_field_undoes_translation(self):
         """Inverting a constant translation field approximately negates it.
