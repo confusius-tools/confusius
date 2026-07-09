@@ -112,6 +112,8 @@ def open_nunez_elizalde_2022_sample() -> list[FullLayerData]:
         Layer-data tuple for the sample recording, with a viewer-friendly default gamma.
     """
     viewer = napari.current_viewer()
+    if viewer is not None:
+        viewer.scale_bar.visible = True
     dialog = QProgressDialog(viewer.window._qt_window if viewer is not None else None)
     dialog.setWindowTitle("ConfUSIus sample")
     dialog.setLabelText("Checking sample cache...")

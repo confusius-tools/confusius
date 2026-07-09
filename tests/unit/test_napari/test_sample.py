@@ -42,8 +42,8 @@ def test_update_progress_dialog_raises_when_cancelled():
         _update_progress_dialog(dialog, 1, 10, "Downloading")
 
 
-def test_open_sample_sets_default_gamma(monkeypatch, tmp_path):
-    """The sample loader uses a softer default gamma for the demo recording."""
+def test_open_sample_sets_default_gamma_and_shows_scale_bar(monkeypatch, tmp_path):
+    """The sample loader uses a softer default gamma and enables the scale bar."""
 
     class _Dialog:
         def __init__(self, *args, **kwargs):
@@ -82,12 +82,26 @@ def test_open_sample_sets_default_gamma(monkeypatch, tmp_path):
         def wasCanceled(self):
             return False
 
+    class _ScaleBar:
+        def __init__(self):
+            self.visible = False
+
+    class _Viewer:
+        def __init__(self):
+            self.scale_bar = _ScaleBar()
+            self.window = Mock()
+            self.window._qt_window = object()
+
+    viewer = _Viewer()
+
     monkeypatch.setattr("confusius._napari._sample.QProgressDialog", _Dialog)
     monkeypatch.setattr(
         "confusius._napari._sample._resolve_nunez_elizalde_2022_sample_path",
         lambda progress_callback=None: tmp_path / "sample.nii.gz",
     )
-    monkeypatch.setattr("confusius._napari._sample.napari.current_viewer", lambda: None)
+    monkeypatch.setattr(
+        "confusius._napari._sample.napari.current_viewer", lambda: viewer
+    )
 
     da = xr.DataArray(
         np.zeros((2, 3), dtype=np.float32),
@@ -105,7 +119,7 @@ def test_open_sample_sets_default_gamma(monkeypatch, tmp_path):
     assert isinstance(data, np.ndarray)
     assert layer_type == "image"
     assert kwargs["gamma"] == 0.4
-
+    assert viewer.scale_bar.visible is True
 
 
 def test_resolve_nunez_elizalde_2022_sample_path(monkeypatch, tmp_path):
