@@ -306,7 +306,7 @@ def test_missing_file_downloads_with_known_hash(tmp_path):
 
 def test_download_progress_callback_reports_cumulative_bytes(tmp_path):
     """GUI progress callbacks receive cumulative byte counts across files."""
-    files = {
+    files: dict[str, OsfFileInfo] = {
         "a.nii.gz": {"osf_path": "/f1", "size": 6, "md5": "aaa"},
         "b.nii.gz": {"osf_path": "/f2", "size": 4, "md5": "bbb"},
     }
@@ -316,10 +316,11 @@ def test_download_progress_callback_reports_cumulative_bytes(tmp_path):
         updates.append((current, total, description))
 
     def retrieve(url, known_hash, fname, path, progressbar):
-        total = files[fname]["size"]
+        total = int(files[fname]["size"])
         progressbar.total = total
-        progressbar.update(total // 2)
-        progressbar.update(total - (total // 2))
+        halfway = total // 2
+        progressbar.update(halfway)
+        progressbar.update(total - halfway)
         progressbar.reset()
         progressbar.close()
         dest = Path(path) / fname
