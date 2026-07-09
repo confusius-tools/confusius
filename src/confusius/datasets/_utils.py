@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 import pooch
+from rich import print as rich_print
 
 _ENV_VAR = "CONFUSIUS_DATA"
 
@@ -21,9 +22,8 @@ def print_citation_message(citation: str, kind: Literal["dataset", "template"]) 
     kind : {"dataset", "template"}
         Resource kind used in the prompt.
     """
-    print(
-        f"If you use this {kind} in your work, please cite the following source:\n{citation}"
-    )
+    print(f"If you use this {kind} in your work, please cite the following source:\n")
+    rich_print(f"[bold]{citation}[/bold]")
 
 
 def get_datasets_dir(data_dir: str | Path | None = None) -> Path:
