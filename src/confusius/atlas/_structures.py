@@ -33,8 +33,10 @@ def structures_to_json(structures: "StructuresDict") -> str:
 
     The `treelib` hierarchy is never serialized directly; it is a derived index that
     [`structures_from_json`][confusius.atlas._structures.structures_from_json] rebuilds
-    from the flat list. `mesh_filename` is stored as a basename only (never an absolute
-    path) so the JSON is portable across machines; the directory is re-attached on load.
+    from the flat list. `mesh_filename` is stored verbatim (the complete path), so a
+    freshly fetched atlas points straight at the OBJ files in the BrainGlobe cache. When
+    the atlas is saved with [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr], the meshes
+    are bundled into the store and the paths are re-pointed there on load.
 
     Parameters
     ----------
@@ -46,20 +48,20 @@ def structures_to_json(structures: "StructuresDict") -> str:
     str
         JSON-encoded list of structure dictionaries, each holding
         `id`, `acronym`, `name`, `rgb_triplet`, `structure_id_path`, and
-        `mesh_filename` (basename or `None`).
+        `mesh_filename` (complete path or `None`).
     """
     structures_list = []
     for _, info in structures.items():
         record = {field: info[field] for field in _SERIALIZED_STRUCTURE_FIELDS[:-1]}
         mesh_filename = info.get("mesh_filename")
         record["mesh_filename"] = (
-            Path(mesh_filename).name if mesh_filename is not None else None
+            str(mesh_filename) if mesh_filename is not None else None
         )
         structures_list.append(record)
     return json.dumps(structures_list)
 
 
-def structures_from_json(blob: str, meshes_dir: Path | None = None) -> "StructuresDict":
+def structures_from_json(blob: str) -> "StructuresDict":
     """Rebuild a StructuresDict (and its tree) from a serialized structures list.
 
     Parameters
@@ -67,10 +69,6 @@ def structures_from_json(blob: str, meshes_dir: Path | None = None) -> "Structur
     blob : str
         JSON string produced by
         [`structures_to_json`][confusius.atlas._structures.structures_to_json].
-    meshes_dir : pathlib.Path, optional
-        Directory holding the atlas OBJ meshes. When provided, each non-null
-        `mesh_filename` basename is re-pointed into `meshes_dir`. If not provided, the
-        basenames are left untouched (the atlas works for everything except `get_mesh`).
 
     Returns
     -------
@@ -79,12 +77,7 @@ def structures_from_json(blob: str, meshes_dir: Path | None = None) -> "Structur
     """
     from brainglobe_atlasapi.structure_class import StructuresDict
 
-    structures_list = json.loads(blob)
-    if meshes_dir is not None:
-        for record in structures_list:
-            if record.get("mesh_filename") is not None:
-                record["mesh_filename"] = str(meshes_dir / record["mesh_filename"])
-    return StructuresDict(structures_list)
+    return StructuresDict(json.loads(blob))
 
 
 def _build_lookup_df(structures: "StructuresDict") -> pd.DataFrame:
@@ -149,20 +142,17 @@ def _resolve_region_id(structures: "StructuresDict", region: int | str) -> int:
         If `region` is a string or integer not found in the structures dictionary.
     """
     if isinstance(region, str):
-        acronym_map: dict[str, int] = {
-            info["acronym"]: sid for sid, info in structures.items()
-        }
-        if region not in acronym_map:
+        if region not in structures.acronym_to_id_map:
             raise KeyError(
                 f"Acronym '{region}' not found in atlas. "
-                f"Use atlas.search() to find the correct acronym."
+                f"Use atlas.search('{region}') to find the correct acronym."
             )
-        return acronym_map[region]
+        return int(structures.acronym_to_id_map[region])
 
     if region not in structures:
         raise KeyError(
             f"Structure id {region} not found in atlas. "
-            f"Use atlas.search() to browse available structures."
+            f"Use atlas.search({region}) to browse available structures."
         )
     return int(region)
 

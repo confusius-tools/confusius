@@ -40,13 +40,9 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
     >>> from brainglobe_atlasapi import BrainGlobeAtlas
     >>> atlas = atlas_from_brainglobe(BrainGlobeAtlas("allen_mouse_25um"))
     """
-    # A BrainGlobeAtlas exposes ``atlas_name``; mock/duck-typed atlases used in tests may
-    # not, so fall back to the metadata name.
-    atlas_name = getattr(atlas, "atlas_name", atlas.metadata["name"])
-
-    meta = atlas.metadata
-    resolution_mm = [r * 1e-3 for r in meta["resolution"]]
-    shape = meta["shape"]
+    metadata = atlas.metadata
+    resolution_mm = [r * 1e-3 for r in metadata["resolution"]]
+    shape = metadata["shape"]
 
     coords = {
         dim: (
@@ -88,7 +84,7 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
     mesh_to_physical = np.diag([1e-3, 1e-3, 1e-3, 1.0])
     # For asr orientation: shape[2] is the RL axis length (voxels); resolution[2] is the
     # voxel size in microns. The midline sits at the centre of the volume.
-    rl_midline_um = meta["shape"][2] / 2 * meta["resolution"][2]
+    rl_midline_um = metadata["shape"][2] / 2 * metadata["resolution"][2]
 
     # hemispheres is a per-voxel left/right partition (1 = left, 2 = right). It is a data
     # variable, not a coordinate: as a coordinate it would ride along on `reference` and
@@ -109,10 +105,10 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
             "hemispheres": hemispheres,
         },
         attrs={
-            "name": meta["name"],
-            "species": meta["species"],
-            "orientation": meta["orientation"],
-            "atlas_name": atlas_name,
+            "name": metadata["name"],
+            "citation": metadata["citation"],
+            "species": metadata["species"],
+            "orientation": metadata["orientation"],
             "structures": structures_to_json(atlas.structures),
             "mesh_to_physical": mesh_to_physical.tolist(),
             "rl_midline_um": float(rl_midline_um),

@@ -12,9 +12,9 @@ _REQUIRED_DATA_VARS = ("reference", "annotation", "hemispheres")
 
 _REQUIRED_ATTRS = (
     "name",
+    "citation",
     "species",
     "orientation",
-    "atlas_name",
     "structures",
     "mesh_to_physical",
     "rl_midline_um",
@@ -38,8 +38,8 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
        subset of `(z, y, x)` (2D or 3D, so a resampled single slice is accepted).
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
-    5. **Attributes**: the self-describing metadata `name`, `species`, `orientation`,
-       `atlas_name`, `structures`, `mesh_to_physical`, and `rl_midline_um` are present.
+    5. **Attributes**: the self-describing metadata `name`, `citation`, `species`,
+       `orientation`, `structures`, `mesh_to_physical`, and `rl_midline_um` are present.
     6. **Structures**: `attrs["structures"]` parses as a JSON list.
 
     Parameters

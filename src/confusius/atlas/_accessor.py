@@ -47,7 +47,6 @@ class AtlasAccessor:
         self._ds = ds
         self._structures: StructuresDict | None = None
         self._lookup: pd.DataFrame | None = None
-        self._meshes_dir: Path | None = None
 
     # ── Data properties ───────────────────────────────────────────────────────────────
 
@@ -304,23 +303,6 @@ class AtlasAccessor:
 
     # ── Meshes ────────────────────────────────────────────────────────────────────────
 
-    def _resolve_meshes_dir(self) -> Path:
-        """Return the atlas meshes directory, resolving it from the cache on first use.
-
-        Returns
-        -------
-        pathlib.Path
-            The `meshes` directory of the named BrainGlobe atlas
-            (`Dataset.attrs["atlas_name"]`). The atlas is fetched by name if it is not
-            already present in the local BrainGlobe cache. Cached on the accessor.
-        """
-        if self._meshes_dir is None:
-            from brainglobe_atlasapi import BrainGlobeAtlas
-
-            root = BrainGlobeAtlas(self._ds.attrs["atlas_name"]).root_dir
-            self._meshes_dir = Path(root) / "meshes"
-        return self._meshes_dir
-
     def get_mesh(
         self,
         region: int | str,
@@ -328,12 +310,12 @@ class AtlasAccessor:
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
         """Return vertex coordinates and face indices for a region's mesh.
 
-        Reads the OBJ file bundled with the BrainGlobe atlas, optionally clips to one
-        hemisphere, then transforms vertices from micron space to the DataArrays'
-        current physical space (millimetres). The OBJ files are not stored in the
-        Dataset; the meshes directory is resolved on demand from
-        `Dataset.attrs["atlas_name"]` (the named atlas is re-fetched by name if it is not
-        already in the local BrainGlobe cache).
+        Reads the region's OBJ file, optionally clips to one hemisphere, then transforms
+        vertices from micron space to the DataArrays' current physical space
+        (millimetres). The OBJ path comes from the structure's `mesh_filename`: for a
+        freshly fetched atlas this points into the BrainGlobe cache; for an atlas loaded
+        with [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] it points at the mesh
+        bundled inside the store.
 
         Parameters
         ----------
@@ -373,16 +355,13 @@ class AtlasAccessor:
                 "Not all BrainGlobe atlases include mesh files."
             )
 
-        # Serialized atlases store mesh_filename as a basename; re-point it into the
-        # atlas meshes directory when it does not resolve as-is.
         mesh_path = Path(mesh_filename)
-        if not mesh_path.exists():
-            mesh_path = self._resolve_meshes_dir() / mesh_path.name
-            if not mesh_path.exists():
-                raise ValueError(
-                    f"Mesh file '{mesh_path.name}' for region '{region}' (id {rid}) "
-                    f"not found in {mesh_path.parent}."
-                )
+        if not mesh_path.is_file():
+            raise ValueError(
+                f"Mesh file for region '{region}' (id {rid}) not found at {mesh_path}. "
+                "A freshly fetched atlas reads meshes from the BrainGlobe cache; a loaded "
+                "atlas reads them from the meshes bundled in its Zarr store."
+            )
 
         vertices_um, faces = _load_obj(mesh_path)
 
