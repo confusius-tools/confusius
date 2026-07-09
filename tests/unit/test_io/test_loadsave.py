@@ -1,6 +1,6 @@
 """Unit tests for confusius.io.loadsave module."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import numpy.testing as npt
@@ -100,21 +100,19 @@ class TestSaveDispatch:
             save(da, path)
         mock.assert_called_once_with(da, path.resolve())
 
-    def test_zarr_dispatches_to_to_zarr(self, tmp_path):
-        """.zarr extension calls DataArray.to_zarr."""
+    def test_zarr_writes_readable_store(self, tmp_path):
+        """.zarr extension writes a store that reloads to the same data."""
         path = tmp_path / "data.zarr"
-        da = MagicMock(spec=xr.DataArray)
-        with patch("confusius.io.nifti.save_nifti") as mock:
-            save(da, path)
-        da.to_zarr.assert_called_once_with(path.resolve())
+        da = xr.DataArray(np.arange(12.0).reshape(4, 3))
+        save(da, path)
+        npt.assert_array_equal(load(path).values, da.values)
 
     def test_compound_zarr_extension(self, tmp_path):
-        """.source.zarr compound extension calls DataArray.to_zarr."""
+        """.source.zarr compound extension writes a readable store."""
         path = tmp_path / "data.source.zarr"
-        da = MagicMock(spec=xr.DataArray)
-        with patch("confusius.io.nifti.save_nifti") as mock:
-            save(da, path)
-        da.to_zarr.assert_called_once_with(path.resolve())
+        da = xr.DataArray(np.arange(12.0).reshape(4, 3))
+        save(da, path)
+        npt.assert_array_equal(load(path).values, da.values)
 
     def test_kwargs_forwarded_to_saver(self, tmp_path):
         """Extra kwargs are forwarded to the underlying saver."""
@@ -129,6 +127,43 @@ class TestSaveDispatch:
         da = MagicMock(spec=xr.DataArray)
         with pytest.raises(ValueError, match="Unsupported file extension"):
             save(da, tmp_path / "data.scan")
+
+
+class TestSaveZarrSanitizesAttrs:
+    """Non-JSON-serializable attrs are handled when saving to Zarr."""
+
+    def test_nested_numpy_affines_round_trip(self, tmp_path):
+        """`attrs["affines"]` numpy arrays survive a round-trip and reload as arrays."""
+        affines = {
+            "physical_to_world": np.eye(4),
+            "stack": np.arange(32.0).reshape(2, 4, 4),
+        }
+        da = xr.DataArray(np.zeros((2, 2)), attrs={"affines": affines})
+        path = tmp_path / "affines.zarr"
+        save(da, path)
+
+        loaded = load(path)
+        for key, expected in affines.items():
+            restored = loaded.attrs["affines"][key]
+            assert isinstance(restored, np.ndarray)
+            npt.assert_array_equal(restored, expected)
+
+    def test_non_serializable_attr_dropped_with_warning(self, tmp_path):
+        """Attrs that cannot be JSON-encoded are dropped, with a warning naming them."""
+        da = xr.DataArray(np.zeros((2, 2)), attrs={"units": "dB", "cmap": object()})
+        path = tmp_path / "drop.zarr"
+        with pytest.warns(UserWarning, match="cmap"):
+            save(da, path)
+
+        loaded = load(path)
+        assert loaded.attrs["units"] == "dB"
+        assert "cmap" not in loaded.attrs
+
+    def test_save_does_not_mutate_input_attrs(self, tmp_path):
+        """The caller's DataArray keeps its original numpy attrs after saving."""
+        da = xr.DataArray(np.zeros((2, 2)), attrs={"affines": {"m": np.eye(4)}})
+        save(da, tmp_path / "nomutate.zarr")
+        assert isinstance(da.attrs["affines"]["m"], np.ndarray)
 
 
 class TestLoadZarr:
