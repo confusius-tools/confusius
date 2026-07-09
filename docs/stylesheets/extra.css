@@ -449,3 +449,10 @@
   aspect-ratio: 4 / 3;
   object-fit: cover;
 }
+
+/* Rich console output (e.g. dataset citations) scrolls horizontally when a line is
+   wider than the page. rich sets overflow-x on the <pre> but no bottom padding, so the
+   scrollbar sits on top of the last line — reserve space below it. */
+.gallery-rich-output > pre {
+  padding-bottom: 0.75rem;
+}

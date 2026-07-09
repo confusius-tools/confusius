@@ -48,6 +48,7 @@ bids_root = cf.datasets.fetch_cybis_pereira_2026(
 )
 
 
+# %%
 def _load_angio_for_registration(session: str) -> xr.DataArray:
     """Load an angio acquisition and scale its intensity for registration."""
     path = (
@@ -64,6 +65,7 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
 fixed = _load_angio_for_registration(sessions[0])
 
 fixed
+
 # %%
 moving = _load_angio_for_registration(sessions[1])
 
