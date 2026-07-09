@@ -11,7 +11,7 @@ import xarray as xr
 from confusius.io.loadsave import load
 
 from ._pooch import quiet_pooch_logger, retrieve_with_retries
-from ._utils import get_datasets_dir, print_citation_message
+from ._utils import get_datasets_dir, plain_citation, print_citation_message
 
 _OSF_PROJECT_ID = "am3jw"
 _TEMPLATE_ROOT = "huang-2025-template"
@@ -21,7 +21,8 @@ _CITATION = (
     "Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M., "
     "Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). OfUSA: OpenfUS "
     "Analyzer, a versatile open-source framework for the analysis and visualization "
-    "of functional ultrasound imaging data across animal models. bioRxiv. "
+    "of functional ultrasound imaging data across animal models. "
+    "[italic]bioRxiv[/italic]. "
     "https://doi.org/10.1101/2025.09.16.676515"
 )
 
@@ -111,7 +112,7 @@ def fetch_template_huang_2025(
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
     da = load(dest)
-    da.attrs["citation"] = _CITATION
+    da.attrs["citation"] = plain_citation(_CITATION)
 
     if print_citation:
         print_citation_message(_CITATION, "template")

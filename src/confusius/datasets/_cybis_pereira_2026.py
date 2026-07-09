@@ -21,7 +21,8 @@ _CITATION = (
     "Cybis Pereira, F., Castedo, S. H., Meur-Diebolt, S. L., Ialy-Radio, N., "
     "Bhattacharya, S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R., "
     "Pezet, S., & Tanter, M. (2026). A vascular code for speed in the spatial "
-    "navigation system. Cell Reports, 45(1). https://doi.org/10.1016/"
+    "navigation system. [italic]Cell Reports[/italic], [bold]45(1)[/bold]. "
+    "https://doi.org/10.1016/"
     "j.celrep.2025.116791"
 )
 

@@ -15,6 +15,7 @@ from confusius.datasets._landemard_2026 import (
     _OSF_PROJECT_ID,
 )
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
+from confusius.datasets._utils import plain_citation
 
 # Minimal fake index representing the different file categories in the dataset.
 _FAKE_INDEX = {
@@ -130,8 +131,11 @@ def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
 def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys):
     fetch_landemard_2026(data_dir=tmp_path)
     out = capsys.readouterr().out
-    assert "If you use this dataset in your work, please cite the following source:" in out
-    assert _CITATION in out
+    assert (
+        "If you use this dataset in your work, please cite the following source:" in out
+    )
+    # Rich word-wraps the printed citation, so compare on whitespace-normalized text.
+    assert plain_citation(_CITATION) in " ".join(out.split())
 
     fetch_landemard_2026(data_dir=tmp_path, print_citation=False)
     assert capsys.readouterr().out == ""

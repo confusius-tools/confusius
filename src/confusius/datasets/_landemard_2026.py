@@ -19,7 +19,7 @@ _BIDS_ROOT = "landemard-2026-bids"
 _TOTAL_SIZE_BYTES = 42_036_009_786
 _CITATION = (
     "Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide "
-    "blood volume reflects opposing neural populations. Nature. "
+    "blood volume reflects opposing neural populations. [italic]Nature[/italic]. "
     "https://doi.org/10.1038/s41586-026-10350-9"
 )
 

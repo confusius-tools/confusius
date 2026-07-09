@@ -16,6 +16,7 @@ from confusius.datasets._pepe_mariani_2026 import (
     _TEMPLATE_ROOT,
     resolve_template_url,
 )
+from confusius.datasets._utils import plain_citation
 
 
 class _Response:
@@ -141,12 +142,16 @@ def test_fetch_refresh_redownloads_cached_template(
 def test_fetch_sets_citation(tmp_path, mock_resolve, mock_retrieve, mock_load, capsys):
     result = fetch_template_pepe_mariani_2026(data_dir=tmp_path)
 
-    assert result.attrs["citation"] == _CITATION
+    # The attribute holds the plain citation, with rich markup stripped.
+    assert result.attrs["citation"] == plain_citation(_CITATION)
+    assert "[italic]" not in result.attrs["citation"]
+
     out = capsys.readouterr().out
     assert out.startswith(
         "If you use this template in your work, please cite the following source:"
     )
-    assert _CITATION in out
+    # Rich word-wraps the printed citation, so compare on whitespace-normalized text.
+    assert plain_citation(_CITATION) in " ".join(out.split())
 
     fetch_template_pepe_mariani_2026(data_dir=tmp_path, print_citation=False)
     assert capsys.readouterr().out == ""

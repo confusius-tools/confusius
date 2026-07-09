@@ -8,6 +8,7 @@ from typing import Literal
 
 import pooch
 from rich import print as rich_print
+from rich.text import Text
 
 _ENV_VAR = "CONFUSIUS_DATA"
 
@@ -18,12 +19,30 @@ def print_citation_message(citation: str, kind: Literal["dataset", "template"]) 
     Parameters
     ----------
     citation : str
-        Citation text to print.
+        Citation text to print. Rich markup (e.g. `[italic]`) is rendered.
     kind : {"dataset", "template"}
         Resource kind used in the prompt.
     """
     print(f"If you use this {kind} in your work, please cite the following source:\n")
-    rich_print(f"[bold]{citation}[/bold]")
+    # Render as a Text renderable rather than a str so the markup styles apply but
+    # rich's auto-highlighter does not colorize numbers, URLs, etc.
+    rich_print(Text.from_markup(citation))
+
+
+def plain_citation(citation: str) -> str:
+    """Strip rich markup tags from a citation.
+
+    Parameters
+    ----------
+    citation : str
+        Citation text, possibly containing rich markup tags (e.g. `[italic]`).
+
+    Returns
+    -------
+    str
+        The citation with all markup tags removed, leaving only the visible text.
+    """
+    return Text.from_markup(citation).plain
 
 
 def get_datasets_dir(data_dir: str | Path | None = None) -> Path:

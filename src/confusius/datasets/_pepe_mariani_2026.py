@@ -11,7 +11,7 @@ import xarray as xr
 from confusius.io.loadsave import load
 
 from ._pooch import quiet_pooch_logger, retrieve_with_retries
-from ._utils import get_datasets_dir, print_citation_message
+from ._utils import get_datasets_dir, plain_citation, print_citation_message
 
 _OSF_PROJECT_ID = "43tu9"
 _TEMPLATE_ROOT = "pepe-mariani-2026-template"
@@ -21,7 +21,8 @@ _CITATION = (
     "Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., "
     "Galbusera, A., Iurilli, G., & Gozzi, A. (2026). Structural and dynamic "
     "embedding of the mouse functional connectome revealed by functional ultrasound "
-    "imaging (fUSI). bioRxiv. https://doi.org/10.64898/2026.02.05.704055"
+    "imaging (fUSI). [italic]bioRxiv[/italic]. "
+    "https://doi.org/10.64898/2026.02.05.704055"
 )
 
 
@@ -110,7 +111,7 @@ def fetch_template_pepe_mariani_2026(
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
     da = load(dest)
-    da.attrs["citation"] = _CITATION
+    da.attrs["citation"] = plain_citation(_CITATION)
 
     if print_citation:
         print_citation_message(_CITATION, "template")
