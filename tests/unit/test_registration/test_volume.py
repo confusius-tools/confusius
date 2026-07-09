@@ -5,7 +5,14 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius.registration.bspline import (
+    invert_displacement_field,
+    sample_displacement_field,
+    sample_displacement_field_like,
+    sitk_bspline_to_dataarray,
+)
 from confusius.registration._utils import (
     build_voxel_affine_plane_initial_transform,
     dataarray_to_sitk_image,
@@ -115,19 +122,25 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
-    def test_undefined_singleton_spacing_raises(self):
-        """Registration rejects singleton spatial axes with undefined spacing."""
-        da = xr.DataArray(
-            np.zeros((1, 4), dtype=np.float32),
-            dims=("y", "x"),
-            coords={"y": [0.0], "x": np.arange(4, dtype=np.float64)},
-        )
-        with pytest.warns(
-            UserWarning,
-            match="single coordinate point and no 'voxdim' attribute",
-        ):
-            with pytest.raises(ValueError, match="defined spatial spacing"):
-                register_volume(da, da, transform_type="translation")
+    def test_invalid_initialization_raises(self, sample_2d_dataarray_spatial):
+        """Unknown initialization mode raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization="moments",  # ty: ignore[invalid-argument-type]
+            )
+
+    def test_non_array_initialization_raises_value_error(
+        self, sample_2d_dataarray_spatial
+    ):
+        """A non-ndarray sequence raises ValueError, not an unhashable TypeError."""
+        with pytest.raises(ValueError, match="Invalid initialization"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
+            )
 
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -141,6 +154,18 @@ class TestRegisterVolumeValidation:
             resample=False,
         )
         assert result.shape == moving.shape
+
+    def test_mismatched_spatial_units_raise(self, sample_2d_dataarray_spatial):
+        """moving and fixed must agree on spatial coordinate units when declared."""
+        moving = sample_2d_dataarray_spatial.copy()
+        fixed = sample_2d_dataarray_spatial.copy()
+        moving.coords["y"].attrs["units"] = "mm"
+        moving.coords["x"].attrs["units"] = "mm"
+        fixed.coords["y"].attrs["units"] = "um"
+        fixed.coords["x"].attrs["units"] = "um"
+
+        with pytest.raises(ValueError, match="units"):
+            register_volume(moving, fixed, transform_type="translation")
 
 
 class TestSimpleITKGeometry:
@@ -189,6 +214,47 @@ class TestRegisterVolumeOutput:
         assert isinstance(bspline_tx, xr.DataArray)
         assert bspline_tx.attrs.get("type") == "bspline_transform"
         assert bspline_tx.dims[0] == "component"
+        np.testing.assert_array_equal(bspline_tx.coords["component"].values, ["y", "x"])
+
+    def test_bspline_control_point_domain_matches_each_axis_extent(self):
+        """Each axis's control-point domain scales with its own physical extent.
+
+        Regression test for a bug where `sitk_bspline_to_dataarray` assumed
+        SimpleITK reverses axis order relative to the DataArray (`(x, y, z)` vs.
+        `(z, y, x)`), when in fact this codebase's convention (see
+        `dataarray_to_sitk_image`) never reverses axes: sitk axis `i` maps directly
+        to DataArray dim `i`. On an anisotropic image, the erroneous reversal
+        swapped the y/x control-point grids: `y`'s spacing was computed from `x`'s
+        physical domain and vice versa. Isotropic test fixtures never exposed this
+        because swapping equal-sized, equal-spacing axes is a no-op.
+        """
+        img = np.zeros((20, 40), dtype=np.float32)
+        img[6:14, 10:30] = 100.0
+        da = xr.DataArray(
+            img,
+            dims=("y", "x"),
+            coords={"y": np.arange(20) * 0.5, "x": np.arange(40) * 0.1},
+        )
+        _, bspline_tx, _ = register_volume(  # ty: ignore[no-matching-overload]
+            da,
+            da,
+            transform_type="bspline",
+            mesh_size=(4, 4),
+        )
+
+        y_span = float(
+            bspline_tx.coords["y"].values[-1] - bspline_tx.coords["y"].values[0]
+        )
+        x_span = float(
+            bspline_tx.coords["x"].values[-1] - bspline_tx.coords["x"].values[0]
+        )
+        # The control-point domain is padded beyond the image FOV for boundary
+        # support, so spans are somewhat larger than the raw physical extent (9.5 mm
+        # for y, 3.9 mm for x). Padding scales with each axis's own extent (same mesh
+        # size, so padding is proportional to domain size), so the span ratio should
+        # track the physical extent ratio (9.5 / 3.9 ~= 2.44) rather than being
+        # swapped with the other axis's.
+        assert y_span / x_span == pytest.approx(9.5 / 3.9, rel=0.3)
 
     def test_resample_true_coords_match_fixed(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -245,6 +311,77 @@ class TestRegisterVolumeOutput:
         )
         assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
         assert result.coords["x"].dims == fixed.coords["x"].dims
+
+
+class TestRegisterVolumeMask:
+    """Metric masks for register_volume."""
+
+    def test_integer_label_mask_matches_boolean_mask(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """A single-label integer mask registers identically to its boolean form.
+
+        Guards against single-label integer masks (e.g. ``{0, 512}`` from
+        `Atlas.get_masks`) reaching SimpleITK's metric mask uncoerced: 512 wraps to 0
+        under the `numpy.uint8` cast, which silently empties the mask and turns
+        registration into a no-op.
+        """
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True  # covers the bright square in both volumes
+        bool_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        # 512 is a multiple of 256: a uint8 cast of the raw integer mask wraps it to 0.
+        int_mask = xr.DataArray(
+            region.astype(np.int32) * 512, dims=fixed.dims, coords=fixed.coords
+        )
+
+        _, affine_bool, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=bool_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        _, affine_int, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=int_mask,
+            transform_type="translation",
+            resample=False,
+        )
+
+        # The masked registration must actually recover the planted shift; otherwise the
+        # equality check would also pass for a silently-emptied (no-op) mask.
+        assert not np.allclose(affine_bool, np.eye(3), atol=1e-2)
+        assert_allclose(affine_int, affine_bool)
+
+    def test_both_masks_coerced_to_bool(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """Both fixed_mask and moving_mask are coerced to boolean."""
+        shift = 2
+        shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
+        fixed = sample_2d_dataarray_spatial
+        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+
+        region = np.zeros(fixed.shape, dtype=bool)
+        region[4:28, 4:28] = True
+        fixed_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        moving_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+
+        _, affine, _ = register_volume(
+            moving,
+            fixed,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            transform_type="translation",
+            resample=False,
+        )
+        assert not np.allclose(affine, np.eye(3), atol=1e-2)
 
 
 class TestRegisterVolumeResample:
@@ -438,15 +575,6 @@ class TestRegisterVolumeThinDims:
 class TestResampleVolume:
     """Unit tests for the low-level resample_volume."""
 
-    def _grid_from_da(self, da: xr.DataArray) -> dict:
-        """Extract explicit grid kwargs from a DataArray."""
-        return dict(
-            shape=[da.sizes[d] for d in da.dims],
-            spacing=[float(da.coords[d].diff(d).mean()) for d in da.dims],
-            origin=[float(da.coords[d][0]) for d in da.dims],
-            dims=list(da.dims),
-        )
-
     def test_time_dimension_moving_works(
         self, sample_2d_image, sample_2d_dataarray, sample_2d_dataarray_spatial
     ):
@@ -454,7 +582,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_2d_dataarray,
             np.eye(3),
-            **self._grid_from_da(sample_2d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_2d_dataarray.shape
@@ -469,7 +597,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_3d_dataarray,
             np.eye(4),
-            **self._grid_from_da(sample_3d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_3d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_3d_dataarray.shape
@@ -491,7 +619,7 @@ class TestResampleVolume:
             resample_volume(
                 sample_2d_dataarray_spatial,
                 np.eye(4),
-                **self._grid_from_da(sample_2d_dataarray_spatial),
+                **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
             )
 
     def test_output_shape_matches_requested_shape(
@@ -500,7 +628,9 @@ class TestResampleVolume:
         """Output shape matches the requested shape, not the moving shape."""
         moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result = resample_volume(
-            moving, np.eye(3), **self._grid_from_da(sample_2d_dataarray_spatial)
+            moving,
+            np.eye(3),
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert result.shape == sample_2d_dataarray_spatial.shape
 
@@ -508,7 +638,7 @@ class TestResampleVolume:
         self, sample_2d_dataarray_spatial
     ):
         """Output coordinates are reconstructed from origin and spacing, not copied."""
-        grid = self._grid_from_da(sample_2d_dataarray_spatial)
+        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         result = resample_volume(sample_2d_dataarray_spatial, np.eye(3), **grid)
         for i, d in enumerate(sample_2d_dataarray_spatial.dims):
             expected = (
@@ -537,22 +667,24 @@ class TestResampleVolume:
             resample=True,
         )
         result = resample_volume(
-            moving, affine, **self._grid_from_da(sample_2d_dataarray_spatial)
+            moving,
+            affine,
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
-class TestInitialTransform:
-    """Tests for the initial_transform parameter of register_volume."""
+class TestInitialization:
+    """Tests for the initialization parameter of register_volume."""
 
     def test_wrong_shape_raises(self, sample_2d_dataarray_spatial):
-        """initial_transform with wrong shape raises ValueError."""
-        with pytest.raises(ValueError, match="initial_transform shape"):
+        """Affine initialization with wrong shape raises ValueError."""
+        with pytest.raises(ValueError, match="initialization shape"):
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
                 transform_type="bspline",
-                initial_transform=np.eye(4),  # wrong: 3D affine for 2D images
+                initialization=np.eye(4),  # wrong: 3D affine for 2D images
             )
 
     def test_plane_initializer_aligns_voxel_affine_slabs(self):
@@ -606,7 +738,7 @@ class TestInitialTransform:
             moving,
             fixed,
             transform_type="affine",
-            initial_transform=initial_transform,
+            initialization=initial_transform,
             optimizer_weights=[0.0] * 6,
             learning_rate=1.0,
             number_of_iterations=1,
@@ -615,25 +747,25 @@ class TestInitialTransform:
 
         assert_allclose(transform, initial_transform)
 
-    def test_bspline_with_initial_transform_stores_pre_affine(
+    def test_bspline_with_affine_initialization_stores_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
-        """B-spline result DataArray stores the pre-affine in attrs when initial_transform is given."""
+        """B-spline result stores the pre-affine when affine initialization is given."""
         pre_affine = np.eye(3)
         _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
-            initial_transform=pre_affine,
+            initialization=pre_affine,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         assert "affines" in bspline_tx.attrs
         assert "bspline_initialization" in bspline_tx.attrs["affines"]
 
-    def test_bspline_without_initial_transform_has_no_pre_affine(
+    def test_bspline_without_affine_initialization_has_no_pre_affine(
         self, sample_2d_dataarray_spatial
     ):
-        """B-spline result DataArray without initial_transform has no bspline_initialization key."""
+        """B-spline result without affine initialization has no bspline_initialization key."""
         _, bspline_tx, _ = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
@@ -642,6 +774,30 @@ class TestInitialTransform:
         assert isinstance(bspline_tx, xr.DataArray)
         affines = bspline_tx.attrs.get("affines", {})
         assert "bspline_initialization" not in affines
+
+    def test_center_moments_uses_moments_initializer(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """center_moments uses SimpleITK's moments-based centering initializer."""
+        import SimpleITK as sitk
+
+        original_initializer = sitk.CenteredTransformInitializer
+        calls = []
+
+        def wrapped_initializer(fixed, moving, transform, operation_mode):
+            calls.append(operation_mode)
+            return original_initializer(fixed, moving, transform, operation_mode)
+
+        monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
+
+        register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="affine",
+            initialization="center_moments",
+        )
+
+        assert calls == [sitk.CenteredTransformInitializerFilter.MOMENTS]
 
 
 class TestResampleVolumeWithBspline:
@@ -674,7 +830,7 @@ class TestResampleVolumeWithBspline:
     def test_resample_like_with_composite_bspline_matches_direct_resample(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
-        """resample_like with composite B-spline (with initial_transform) matches register_volume(resample=True)."""
+        """resample_like with composite B-spline matches register_volume(resample=True)."""
         rng = np.random.default_rng(1)
         shift = rng.integers(2, 4, size=2)
         shifted = np.roll(
@@ -696,12 +852,295 @@ class TestResampleVolumeWithBspline:
             moving,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
-            initial_transform=affine_tx,
+            initialization=affine_tx,
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
+
+
+class TestDisplacementField:
+    """Tests for displacement-field sampling, inversion, and resampling."""
+
+    def test_sitk_bspline_to_dataarray_rejects_non_bspline_transform(self):
+        """Non-B-spline SimpleITK transforms are rejected."""
+        import SimpleITK as sitk
+
+        with pytest.raises(TypeError, match="BSplineTransform"):
+            sitk_bspline_to_dataarray(sitk.AffineTransform(2))
+
+    def test_sample_displacement_field_wrong_type_attr_raises(self):
+        """A DataArray with the wrong `type` attr is rejected."""
+        transform = xr.DataArray(
+            np.zeros((2, 4, 4)),
+            dims=["component", "y", "x"],
+            coords={"component": ["y", "x"], "y": np.arange(4.0), "x": np.arange(4.0)},
+            attrs={
+                "type": "displacement_field_transform",
+                "order": 3,
+                "direction": np.eye(2).tolist(),
+            },
+        )
+        with pytest.raises(ValueError, match="bspline_transform"):
+            sample_displacement_field(
+                transform,
+                shape=[4, 4],
+                spacing=[1.0, 1.0],
+                origin=[0.0, 0.0],
+                dims=["y", "x"],
+            )
+
+    def test_sample_displacement_field_missing_required_attr_raises(self):
+        """Missing B-spline metadata is rejected."""
+        transform = xr.DataArray(
+            np.zeros((2, 4, 4)),
+            dims=["component", "y", "x"],
+            coords={"component": ["y", "x"], "y": np.arange(4.0), "x": np.arange(4.0)},
+            attrs={"type": "bspline_transform", "order": 3},
+        )
+        with pytest.raises(ValueError, match="direction"):
+            sample_displacement_field(
+                transform,
+                shape=[4, 4],
+                spacing=[1.0, 1.0],
+                origin=[0.0, 0.0],
+                dims=["y", "x"],
+            )
+
+    def test_sample_displacement_field_wrong_first_dim_raises(self):
+        """A B-spline DataArray without leading 'component' is rejected."""
+        transform = xr.DataArray(
+            np.zeros((4, 4, 2)),
+            dims=["y", "x", "component"],
+            coords={"y": np.arange(4.0), "x": np.arange(4.0), "component": ["y", "x"]},
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(2).tolist(),
+            },
+        )
+        with pytest.raises(ValueError, match="'component' as its first dimension"):
+            sample_displacement_field(
+                transform,
+                shape=[4, 4],
+                spacing=[1.0, 1.0],
+                origin=[0.0, 0.0],
+                dims=["y", "x"],
+            )
+
+    def test_sample_displacement_field_like_time_reference_raises(
+        self, sample_2d_dataarray
+    ):
+        """The `_like` wrapper rejects references with a time dimension."""
+        transform = xr.DataArray(
+            np.zeros((2, 4, 4)),
+            dims=["component", "y", "x"],
+            coords={"component": ["y", "x"], "y": np.arange(4.0), "x": np.arange(4.0)},
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(2).tolist(),
+            },
+        )
+        with pytest.raises(ValueError, match="time dimension"):
+            sample_displacement_field_like(transform, sample_2d_dataarray)
+
+    def test_invert_displacement_field_wrong_type_attr_raises(self):
+        """A DataArray with the wrong `type` attr is rejected."""
+        field = xr.DataArray(
+            np.zeros((2, 4, 4)),
+            dims=["component", "y", "x"],
+            coords={"component": [0, 1], "y": np.arange(4.0), "x": np.arange(4.0)},
+            attrs={"type": "bspline_transform"},
+        )
+        with pytest.raises(ValueError, match="displacement_field_transform"):
+            invert_displacement_field(field)
+
+    def test_invert_displacement_field_wrong_first_dim_raises(self):
+        """A DataArray without 'component' as its first dimension is rejected."""
+        field = xr.DataArray(
+            np.zeros((4, 4, 2)),
+            dims=["y", "x", "component"],
+            coords={"y": np.arange(4.0), "x": np.arange(4.0), "component": [0, 1]},
+            attrs={"type": "displacement_field_transform"},
+        )
+        with pytest.raises(ValueError, match="'component' as its first dimension"):
+            invert_displacement_field(field)
+
+    def test_sample_displacement_field_returns_valid_dataarray(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Sampling an identity B-spline transform yields a near-zero dense field."""
+        _, bspline_tx, _ = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+        )
+        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        field = sample_displacement_field(bspline_tx, **grid)
+
+        assert field.attrs["type"] == "displacement_field_transform"
+        assert field.dims[0] == "component"
+        np.testing.assert_array_equal(field.coords["component"].values, ["y", "x"])
+        assert field.shape == (2, *sample_2d_dataarray_spatial.shape)
+        assert_allclose(field.values, 0.0, atol=1e-6)
+
+    def test_sample_displacement_field_like_matches_explicit_grid(
+        self, sample_2d_dataarray_spatial
+    ):
+        """The `_like` wrapper matches explicit-grid sampling."""
+        _, bspline_tx, _ = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+        )
+
+        by_grid = sample_displacement_field(
+            bspline_tx, **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        )
+        by_reference = sample_displacement_field_like(
+            bspline_tx, sample_2d_dataarray_spatial
+        )
+
+        assert_array_equal(by_reference.coords["component"].values, ["y", "x"])
+        assert_allclose(by_reference.values, by_grid.values, atol=1e-6)
+        assert_allclose(
+            by_reference.coords["y"].values,
+            sample_2d_dataarray_spatial.coords["y"].values,
+        )
+        assert_allclose(
+            by_reference.coords["x"].values,
+            sample_2d_dataarray_spatial.coords["x"].values,
+        )
+
+    def test_invert_displacement_field_undoes_translation(self):
+        """Inverting a constant translation field approximately negates it.
+
+        Only the interior of the grid is checked: pixels near the boundary map
+        outside the field's domain under the translation, which the inversion
+        cannot resolve (there is nothing to invert against there).
+        """
+        shape = (12, 12)
+        dims = ["y", "x"]
+        translation = np.array([2.0, -1.5])
+        array = np.broadcast_to(translation[:, None, None], (2, *shape)).astype(
+            np.float64
+        )
+        field = xr.DataArray(
+            array.copy(),
+            dims=["component", *dims],
+            coords={
+                "component": [0, 1],
+                "y": np.arange(shape[0], dtype=np.float64),
+                "x": np.arange(shape[1], dtype=np.float64),
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        inverted = invert_displacement_field(field)
+
+        assert inverted.attrs["type"] == "displacement_field_transform"
+        interior = np.s_[:, 4:8, 4:8]
+        assert_allclose(inverted.values[interior], -array[interior], atol=1e-2)
+
+    def test_resample_volume_with_displacement_field_matches_bspline(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """resample_volume with a displacement field matches the equivalent B-spline resample."""
+        rng = np.random.default_rng(2)
+        shift = rng.integers(3, 6, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(
+            shifted,
+            dims=sample_2d_dataarray_spatial.dims,
+            coords=sample_2d_dataarray_spatial.coords,
+        )
+        _, bspline_tx, _ = register_volume(
+            moving,
+            sample_2d_dataarray_spatial,
+            transform_type="bspline",
+        )
+        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        field = sample_displacement_field(bspline_tx, **grid)
+
+        result_bspline = resample_volume(moving, bspline_tx, **grid)
+        result_field = resample_volume(moving, field, **grid)
+
+        assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
+
+    def test_matches_bspline_with_singleton_spatial_dim(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """A singleton spatial dim (a single 2D slice stored as (1, y, x)) must not
+        produce NaN spacing anywhere in the field round trip.
+
+        Regression test: `coords[dim].diff(dim)` is empty for a length-1 axis, so
+        `.mean()` silently returns NaN. Field construction/consumption must fall back
+        to the `voxdim` coordinate attribute instead (via the `fusi` accessor), as
+        `resample_volume`'s own grid handling already does.
+        """
+        fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
+            "z", "y", "x"
+        )
+        fixed.coords["z"].attrs["voxdim"] = 0.5
+
+        rng = np.random.default_rng(3)
+        shift = rng.integers(3, 6, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
+        _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
+
+        grid = get_grid_kwargs_from_dataarray(fixed)
+        field = sample_displacement_field(bspline_tx, **grid)
+        assert not np.isnan(field.values).any()
+
+        result_bspline = resample_volume(moving, bspline_tx, **grid)
+        result_field = resample_volume(moving, field, **grid)
+        assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
+
+        inverse_field = invert_displacement_field(field)
+        assert not np.isnan(inverse_field.values).any()
+
+    def test_invert_displacement_field_with_singleton_spatial_dim_is_nonzero(
+        self, sample_2d_image, sample_2d_dataarray_spatial
+    ):
+        """Inverting a field with a singleton spatial axis must not silently no-op.
+
+        Regression test: `InvertDisplacementFieldImageFilter` requires an N-D image
+        with N-component vectors and silently returns an all-zero field when any
+        spatial axis has size 1, since it has no local neighborhood to compute a
+        fixed-point update from along that axis. `invert_displacement_field` must
+        expand the degenerate axis before inverting and crop it back down afterward,
+        rather than passing the degenerate field straight to the filter.
+        """
+        fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
+            "z", "y", "x"
+        )
+        fixed.coords["z"].attrs["voxdim"] = 0.5
+
+        rng = np.random.default_rng(4)
+        shift = rng.integers(3, 6, size=2)
+        shifted = np.roll(
+            np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
+        )
+        moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
+        _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
+
+        grid = get_grid_kwargs_from_dataarray(fixed)
+        field = sample_displacement_field(bspline_tx, **grid)
+        inverse_field = invert_displacement_field(field)
+
+        # The degenerate z axis has no spatial variation to invert against, so its
+        # displacement component is ~zero (platform-dependent floating-point noise,
+        # not exactly 0.0), but y/x must be genuinely inverted, not silently zeroed
+        # out along with it.
+        assert_allclose(inverse_field.values[0], 0.0, atol=1e-9)
+        assert np.abs(inverse_field.values[1:]).max() > 0.1
 
 
 class TestResampleLike:
@@ -726,6 +1165,41 @@ class TestResampleLike:
         """reference with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="time"):
             resample_like(sample_2d_dataarray_spatial, sample_2d_dataarray, np.eye(3))
+
+    def test_mismatched_units_between_moving_and_reference_raise(
+        self, sample_2d_dataarray_spatial
+    ):
+        """moving and reference must agree on spatial coordinate units when declared."""
+        moving = sample_2d_dataarray_spatial.copy()
+        reference = sample_2d_dataarray_spatial.copy()
+        moving.coords["y"].attrs["units"] = "mm"
+        moving.coords["x"].attrs["units"] = "mm"
+        reference.coords["y"].attrs["units"] = "um"
+        reference.coords["x"].attrs["units"] = "um"
+
+        with pytest.raises(ValueError, match="units"):
+            resample_like(moving, reference, np.eye(3))
+
+    def test_mismatched_units_between_transform_and_reference_raise(
+        self, sample_2d_dataarray_spatial
+    ):
+        """DataArray transforms must agree with the reference units when declared."""
+        reference = sample_2d_dataarray_spatial.copy()
+        reference.coords["y"].attrs["units"] = "mm"
+        reference.coords["x"].attrs["units"] = "mm"
+        transform = xr.DataArray(
+            np.zeros((2, 2, 2), dtype=np.float64),
+            dims=["component", "y", "x"],
+            coords={
+                "component": np.arange(2),
+                "y": xr.Variable("y", [0.0, 1.0], attrs={"units": "um"}),
+                "x": xr.Variable("x", [0.0, 1.0], attrs={"units": "um"}),
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        with pytest.raises(ValueError, match="units"):
+            resample_like(reference, reference, transform)
 
     def test_wrong_ndim_reference_raises(self):
         """1D reference raises ValueError."""
@@ -846,10 +1320,10 @@ class TestResampleLike:
         result = resample_like(moving, sample_3d_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
-    def test_matches_register_volume_with_initial_transform(
+    def test_matches_register_volume_with_affine_initialization(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
-        """resample_like matches register_volume(resample=True) when initial_transform is used.
+        """resample_like matches register_volume(resample=True) when affine initialization is used.
 
         Regression test for a bug where CompositeTransform sub-transforms were
         composed in the wrong order in _sitk_linear_transform_to_affine, causing
@@ -873,7 +1347,7 @@ class TestResampleLike:
             moving,
             sample_2d_dataarray_spatial,
             transform_type="affine",
-            initial_transform=affine_init,
+            initialization=affine_init,
             resample=True,
         )
         result = resample_like(moving, sample_2d_dataarray_spatial, affine)

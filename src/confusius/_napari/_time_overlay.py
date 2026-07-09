@@ -6,10 +6,36 @@ from typing import TYPE_CHECKING
 
 import napari
 import napari.layers
-import numpy as np
+
+from confusius._dims import TIME_DIM
+from confusius._napari._timeaxis import (
+    find_time_dim_index,
+    read_frame_window,
+    read_time_units,
+    read_time_value,
+)
 
 if TYPE_CHECKING:
     from napari.layers import Layer
+
+    from confusius._napari._events._store import EventStore
+
+
+def _truncate_name(name: str) -> str:
+    """Shorten a trial type for the overlay readout.
+
+    Parameters
+    ----------
+    name : str
+        Trial type name.
+
+    Returns
+    -------
+    str
+        The name unchanged when it has at most 10 characters, otherwise its
+        first 8 characters followed by `...`.
+    """
+    return name if len(name) <= 10 else name[:8] + "..."
 
 
 class _TimeOverlay:
@@ -39,6 +65,7 @@ class _TimeOverlay:
         self._time_idx: int | None = None
         self._units: str | None = None
         self._ref_layer: Layer | None = None
+        self._event_store: EventStore | None = None
 
         viewer.layers.events.inserted.connect(self.check)
         viewer.layers.events.removed.connect(self._on_layer_removed)
@@ -47,86 +74,84 @@ class _TimeOverlay:
         viewer.dims.events.axis_labels.connect(self.check)
         viewer.layers.selection.events.changed.connect(self._on_selection_changed)
 
-    # -- helpers ----------------------------------------------------------
+    # -- events -----------------------------------------------------------
 
-    def _find_time_dim_index(self) -> int | None:
-        """Return the viewer axis index for "time", or `None` if absent.
+    def set_event_store(self, store: EventStore | None) -> None:
+        """Attach an event store whose active events annotate the overlay.
 
-        napari does not propagate `axis_labels` from layers to
-        `viewer.dims`, so we inspect each layer's labels directly and
-        map the layer-local index to the viewer axis (layers are
-        right-aligned in the viewer dims).
+        Parameters
+        ----------
+        store : EventStore, optional
+            Store of temporal events. When provided, the trial types of the
+            events active at the current time are appended to the overlay text.
         """
-        for layer in self._viewer.layers:
-            labels = layer.axis_labels
-            if "time" in labels:
-                layer_idx = list(labels).index("time")
-                offset = self._viewer.dims.ndim - layer.ndim
-                return offset + layer_idx
-        return None
+        self._event_store = store
+        self.update()
 
-    def _read_time_units(self) -> str | None:
-        """Read time units from the reference layer's metadata."""
-        if self._ref_layer is not None:
-            da = self._ref_layer.metadata.get("xarray")
-            if da is not None and "time" in da.coords:
-                return da.coords["time"].attrs.get("units", "s")
-            # Fallback for non-xarray layers (e.g., video).
-            return self._ref_layer.metadata.get("time_units")
-        return None
+    def _event_status(self, time_val: float) -> str:
+        """Return a suffix naming the events active on the current frame.
 
-    def _read_time_value(self) -> float | None:
-        """Read the actual time coordinate from the reference layer.
+        Uses the reference layer's acquisition window (when its time coordinate
+        carries `volume_acquisition_reference`/`volume_acquisition_duration`
+        attributes) so that events overlapping the frame's acquisition are
+        reported, and events too short to overlap any frame are reported on the
+        next frame.
 
-        Maps the viewer's world coordinate to the layer's data index via
-        `world_to_data` so that layers with different time origins or
-        scales are resolved correctly.  The data index is then used to
-        look up the true xarray coordinate, avoiding napari's linear
-        scale/translate approximation for non-uniform spacing.
+        Parameters
+        ----------
+        time_val : float
+            Current time coordinate value, used when no frame window can be
+            resolved from the reference layer.
 
-        For layers without xarray metadata (e.g., video layers), returns
-        `None` so that the caller falls back to ``dims.point`` which is
-        correct as long as the layer's time scale is set properly.
+        Returns
+        -------
+        str
+            A leading separator and one `name [onset, end)` entry per active
+            event, or an empty string when no events are active or the store is
+            disabled.
         """
-        if self._ref_layer is None:
-            return None
-        da = self._ref_layer.metadata.get("xarray")
-        if da is None or "time" not in da.coords:
-            return None
-
-        # Map the viewer world coordinate to this layer's data space.
-        world_point = np.array(self._viewer.dims.point)
-        offset = self._viewer.dims.ndim - self._ref_layer.ndim
-        layer_world_point = world_point[offset:]
-        data_point = self._ref_layer.world_to_data(layer_world_point)
-
-        time_local_idx = list(da.dims).index("time")
-        step = int(np.round(data_point[time_local_idx]))
-
-        coords = da.coords["time"].values
-        if 0 <= step < len(coords):
-            return float(coords[step])
-        return None
+        store = self._event_store
+        if store is None or not store.show_in_overlay:
+            return ""
+        frame = read_frame_window(self._ref_layer, self._viewer)
+        if frame is None:
+            active = store.active_events(time_val)
+        else:
+            window, previous_window = frame
+            active = store.active_events(
+                time_val, window=window, previous_window=previous_window
+            )
+        if active.empty:
+            return ""
+        unit = f" {self._units}" if self._units else ""
+        parts = [
+            f"{_truncate_name(trial_type)} "
+            f"[{onset:.2f}{unit}, {onset + duration:.2f}{unit})"
+            for onset, duration, trial_type in zip(
+                active["onset"], active["duration"], active["trial_type"], strict=True
+            )
+        ]
+        return "  ●  " + ", ".join(parts)
 
     # -- lifecycle --------------------------------------------------------
 
     def _activate(self) -> None:
         """Cache time axis index, units, and configure overlay appearance."""
-        self._time_idx = self._find_time_dim_index()
+        self._time_idx = find_time_dim_index(self._viewer)
 
         # Pick a default reference layer when none is set.
         if self._ref_layer is None:
             for layer in self._viewer.layers:
-                if "time" in layer.axis_labels:
+                if TIME_DIM in layer.axis_labels:
                     self._ref_layer = layer
                     break
 
-        self._units = self._read_time_units()
+        self._units = read_time_units(self._ref_layer)
 
         overlay = self._viewer.text_overlay
         overlay.position = "bottom_left"
         overlay.font_size = 14
-        overlay.color = "white"
+        overlay.color = "white"  # type: ignore
         overlay.opacity = 0.6
         self._active = True
 
@@ -154,16 +179,16 @@ class _TimeOverlay:
         selected_with_time = [
             layer
             for layer in self._viewer.layers.selection
-            if "time" in layer.axis_labels
+            if TIME_DIM in layer.axis_labels
         ]
         if len(selected_with_time) == 1:
             self._ref_layer = selected_with_time[0]
-            self._units = self._read_time_units()
+            self._units = read_time_units(self._ref_layer)
             self.update()
 
     def check(self) -> None:
         """Activate or deactivate the overlay based on current dims."""
-        time_idx = self._find_time_dim_index()
+        time_idx = find_time_dim_index(self._viewer)
         is_sliced = time_idx is not None and time_idx not in self._viewer.dims.displayed
 
         if is_sliced:
@@ -177,12 +202,11 @@ class _TimeOverlay:
         """Set the overlay text to the current time value."""
         if not self._active or self._time_idx is None:
             return
-        time_val = self._read_time_value()
+        time_val = read_time_value(self._ref_layer, self._viewer)
         if time_val is None:
             # Fall back to napari's linear approximation when no xarray metadata is
             # available.
             time_val = float(self._viewer.dims.point[self._time_idx])
-        self._viewer.text_overlay.text = (
-            f"{time_val:.2f} {self._units if self._units else ''}"
-        )
+        base = f"{time_val:.2f} {self._units if self._units else ''}".rstrip()
+        self._viewer.text_overlay.text = base + self._event_status(time_val)
         self._viewer.text_overlay.visible = True

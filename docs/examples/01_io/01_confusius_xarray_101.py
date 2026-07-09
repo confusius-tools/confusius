@@ -24,7 +24,6 @@ import matplotlib.pyplot as plt
 import xarray as xr
 
 import confusius as cf
-from confusius.datasets import fetch_nunez_elizalde_2022
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -32,7 +31,7 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 # Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
-bids_root = fetch_nunez_elizalde_2022(
+bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022",
     sessions="20201011",
     tasks="spontaneous",

@@ -122,7 +122,13 @@ for is_dark, suffix in [(False, "light"), (True, "dark")]:
 
     flagged = dvars > threshold
     flagged_dvars = dvars.where(flagged, drop=True)
-    dvars.plot(ax=ax, color=line_color, linewidth=0.8, label=dvars.attrs["long_name"])
+    ax.plot(
+        dvars.coords["time"].values,
+        dvars.values,
+        color=line_color,
+        linewidth=0.8,
+        label=dvars.attrs["long_name"],
+    )
     if flagged_dvars.size > 0:
         ax.plot(
             np.asarray(flagged_dvars["time"].values, dtype=float),
@@ -162,9 +168,9 @@ _ok("Saved qc-dvars-light.png and qc-dvars-dark.png")
 _section("Carpet Plot")
 
 for bg_color, suffix in [("white", "light"), ("black", "dark")]:
-    fig, ax = plot_carpet(pwd, mask=brain_mask, bg_color=bg_color)
-    fig.savefig(str(HERE / f"qc-carpet-{suffix}.png"), **_SAVEFIG_KWARGS)
-    plt.close(fig)
+    fig, _ax = plot_carpet(pwd, mask=brain_mask, bg_color=bg_color)
+    fig.figure.savefig(str(HERE / f"qc-carpet-{suffix}.png"), **_SAVEFIG_KWARGS)
+    plt.close(fig.figure)
 
 _ok("Saved qc-carpet-light.png and qc-carpet-dark.png")
 

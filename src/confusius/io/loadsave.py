@@ -1,23 +1,17 @@
 """Generic file loading and saving dispatcher."""
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
-from confusius._utils.geometry import restore_physical_coords_from_voxel_affine
+from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius.io.utils import check_path
 
 
-def load(
-    path: str | Path,
-    variable: str | None = None,
-    *,
-    coordinate_model: Literal["legacy", "voxel_affine"] = "legacy",
-    **kwargs: Any,
-) -> xr.DataArray:
+def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
     """Load a fUSI DataArray from file, dispatching by extension.
 
     Supported formats:
@@ -28,6 +22,12 @@ def load(
       variable is extracted. For loading the full dataset, use
       [`xarray.open_zarr`][xarray.open_zarr] directly.
 
+    If `attrs["rgb_lookup"]` is present but `attrs["cmap"]`/`attrs["norm"]` are missing
+    (as happens after a save/load round-trip, since matplotlib colormap/norm objects are
+    not JSON-serializable and are dropped on save), `cmap`/`norm` are rebuilt via
+    [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm] so
+    atlas-derived masks and annotations keep their canonical colors after reload.
+
     Parameters
     ----------
     path : str or pathlib.Path
@@ -35,13 +35,6 @@ def load(
     variable : str, optional
         Zarr only. Name of the variable to extract as a DataArray. If not provided, the
         first variable in the dataset is returned.
-    coordinate_model : {"legacy", "voxel_affine"}, default: "legacy"
-        Spatial coordinate representation to construct or restore.
-
-        - `"legacy"` keeps ConfUSIus' current axis-aligned coordinate model.
-        - `"voxel_affine"` requests the voxel-space plus CTI-derived physical
-          coordinate model. For Zarr, this rebuilds the CTI from stored
-          `voxel_to_physical` metadata when available.
     **kwargs
         Additional keyword arguments forwarded to the underlying loader.
 
@@ -59,24 +52,44 @@ def load(
     name = path.name
 
     if name.endswith(".nii") or name.endswith(".nii.gz"):
-        return _nifti.load_nifti(path, coordinate_model=coordinate_model, **kwargs)
-    if name.endswith(".scan"):
-        return _scan.load_scan(path, coordinate_model=coordinate_model, **kwargs)
-    if name.endswith(".zarr"):
+        data_array = _nifti.load_nifti(path, **kwargs)
+    elif name.endswith(".scan"):
+        data_array = _scan.load_scan(path, **kwargs)
+    elif name.endswith(".zarr"):
         ds = xr.open_zarr(path, **kwargs)
-        if variable is not None:
-            data = ds[variable]
-        else:
-            first_var = next(iter(ds.data_vars))
-            data = ds[first_var]
-        if coordinate_model == "voxel_affine":
-            return restore_physical_coords_from_voxel_affine(data)
-        return data
+        data_array = (
+            ds[variable] if variable is not None else ds[next(iter(ds.data_vars))]
+        )
+    else:
+        raise ValueError(
+            f"Unsupported file extension in {name!r}. Supported"
+            " extensions are: .nii, .nii.gz, .scan, .zarr."
+        )
 
-    raise ValueError(
-        f"Unsupported file extension in {name!r}. Supported"
-        " extensions are: .nii, .nii.gz, .scan, .zarr."
-    )
+    _restore_atlas_cmap_and_norm(data_array)
+    return data_array
+
+
+def _restore_atlas_cmap_and_norm(data_array: xr.DataArray) -> None:
+    """Rebuild `cmap`/`norm` attrs from `rgb_lookup` in place, when missing.
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        DataArray to update in place.
+
+    Returns
+    -------
+    None
+        This function mutates `data_array.attrs` and returns nothing.
+    """
+    if "rgb_lookup" not in data_array.attrs:
+        return
+    if "cmap" in data_array.attrs and "norm" in data_array.attrs:
+        return
+    cmap, norm = build_atlas_cmap_and_norm(data_array.attrs["rgb_lookup"])
+    data_array.attrs["cmap"] = cmap
+    data_array.attrs["norm"] = norm
 
 
 def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:

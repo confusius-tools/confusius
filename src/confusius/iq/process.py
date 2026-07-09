@@ -988,8 +988,9 @@ def process_iq_blocks(
     """Process blocks of IQ data using sliding windows.
 
     This function applies a processing operation to IQ data using Dask. It uses
-    `dask.array.map_blocks` for non-overlapping windows and
-    `dask.array.map_overlap` when temporal overlap is required.
+    `dask.array.map_blocks` for non-overlapping windows. When temporal overlap is
+    required, it batches multiple sliding windows into each task, applies explicit
+    overlap between batches, and runs `process_func` on each window within the batch.
 
     !!! warning
         Depending on the window width and stride, some input volumes may be dropped if
@@ -1048,13 +1049,13 @@ def process_iq_blocks(
         )
         iq = iq[:total_volumes_in_windows]
 
-    chunks_volumes = (window_width,) + (window_stride,) * (n_windows - 1)
-    iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
-
-    dummy_result = process_func(iq.blocks[0].compute(), **kwargs)
-    meta = np.array((), dtype=dummy_result.dtype)
-
     if overlap_width == 0:
+        chunks_volumes = (window_width,) + (window_stride,) * (n_windows - 1)
+        iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
+
+        dummy_result = process_func(iq.blocks[0].compute(), **kwargs)
+        meta = np.array((), dtype=dummy_result.dtype)
+
         return da.map_blocks(
             process_func,
             iq,
@@ -1065,13 +1066,88 @@ def process_iq_blocks(
             **kwargs,
         )
 
-    return da.map_overlap(
-        process_func,
+    overlap_window_width = window_width
+    overlap_window_stride = window_stride
+
+    # Batch several overlapping windows into each task so every post-first chunk is at
+    # least as large as the requested overlap. Otherwise Dask auto-rechunks the tiny
+    # stride-sized chunks and breaks the expected one-output-block-per-input-block
+    # mapping.
+    min_windows_per_block = max(
+        1,
+        (overlap_width + overlap_window_stride - 1) // overlap_window_stride,
+    )
+    first_block_windows = n_windows % min_windows_per_block
+    if first_block_windows == 0:
+        first_block_windows = min_windows_per_block
+
+    windows_per_block = (first_block_windows,) + (min_windows_per_block,) * (
+        (n_windows - first_block_windows) // min_windows_per_block
+    )
+    chunks_volumes = (
+        overlap_window_width + (first_block_windows - 1) * overlap_window_stride,
+    ) + tuple(
+        n_block_windows * overlap_window_stride
+        for n_block_windows in windows_per_block[1:]
+    )
+    iq = iq.rechunk((chunks_volumes,) + iq.shape[1:])
+    iq = da.overlap.overlap(
         iq,
         depth={0: (overlap_width, 0)},
         boundary="none",
-        trim=False,
-        chunks=dummy_result.shape,
+        allow_rechunk=False,
+    )
+
+    def process_overlapping_batch(
+        block: npt.NDArray, **batch_kwargs: Any
+    ) -> npt.NDArray:
+        """Apply `process_func` to every overlapping outer window in a batch.
+
+        Parameters
+        ----------
+        block : numpy.ndarray
+            Batched input block containing one or more overlapping windows.
+        **batch_kwargs
+            Additional keyword arguments passed to `process_func`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Concatenated outputs from all sliding windows in `block`.
+        """
+        outputs = [
+            process_func(block[start : start + overlap_window_width], **batch_kwargs)
+            for start in range(
+                0,
+                block.shape[0] - overlap_window_width + 1,
+                overlap_window_stride,
+            )
+        ]
+        return np.concatenate(outputs, axis=0)
+
+    first_block_index = (0,) * iq.ndim
+    dummy_result = process_overlapping_batch(
+        iq.blocks[first_block_index].compute(), **kwargs
+    )
+    meta = np.array((), dtype=dummy_result.dtype)
+
+    output_time_chunks = [dummy_result.shape[0]]
+    if len(windows_per_block) > 1:
+        next_block_index = (1,) + (0,) * (iq.ndim - 1)
+        repeated_dummy_result = process_overlapping_batch(
+            iq.blocks[next_block_index].compute(), **kwargs
+        )
+        output_time_chunks.extend(
+            [repeated_dummy_result.shape[0]] * (len(windows_per_block) - 1)
+        )
+
+    output_chunks = (tuple(output_time_chunks),) + tuple(
+        (axis_size,) for axis_size in dummy_result.shape[1:]
+    )
+    return da.map_blocks(
+        process_overlapping_batch,
+        iq,
+        chunks=output_chunks,
         drop_axis=drop_axis,
         new_axis=new_axis,
         meta=meta,
@@ -1200,7 +1276,7 @@ def process_iq_to_power_doppler(
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        validate_mask(clutter_mask, iq, "clutter_mask")
+        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values
 
     dask_iq: Array = iq.data
@@ -1208,7 +1284,7 @@ def process_iq_to_power_doppler(
         dask_iq = da.from_array(dask_iq)
 
     if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])
+        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if clutter_window_stride is None:
         clutter_window_stride = clutter_window_width
     if doppler_window_width is None:
@@ -1341,7 +1417,7 @@ def process_iq_to_bmode(
         dask_iq = da.from_array(dask_iq)
 
     if bmode_window_width is None:
-        bmode_window_width = cast(int, dask_iq.chunksize[0])
+        bmode_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if bmode_window_stride is None:
         bmode_window_stride = bmode_window_width
 
@@ -1549,7 +1625,7 @@ def process_iq_to_axial_velocity(
 
     clutter_mask_array = None
     if clutter_mask is not None:
-        validate_mask(clutter_mask, iq, "clutter_mask")
+        clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values
 
     dask_iq: Array = iq.data
@@ -1557,7 +1633,7 @@ def process_iq_to_axial_velocity(
         dask_iq = da.from_array(dask_iq)
 
     if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])
+        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if clutter_window_stride is None:
         clutter_window_stride = clutter_window_width
     if velocity_window_width is None:

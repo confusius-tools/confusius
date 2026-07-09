@@ -25,6 +25,11 @@ _THEME_COMMON_PRE: list[str] = [
     "import matplotlib as mpl",
     "from matplotlib import style as mpl_style",
     "warnings.filterwarnings('ignore', message='IProgress not found.*')",
+    # rich.live.Live.refresh() warns once per process (Python's default warning
+    # dedup) the first time it detects a Jupyter kernel without ipywidgets
+    # installed. Left unfiltered, this fires in only one of the light/dark
+    # passes, breaking the gallery's output-parity check.
+    "warnings.filterwarnings('ignore', message='install \"ipywidgets\" for Jupyter support')",
 ]
 _THEME_COMMON_MID: list[str] = [
     "mpl.rcParams['figure.dpi'] = 160",
@@ -86,7 +91,7 @@ def execute_example(
         notebook.cells.insert(0, _theme_setup_cell(theme))
 
     kernel_manager = KernelManager()
-    kernel_manager.kernel_cmd = [  # type: ignore[unresolved-attribute]
+    kernel_manager.kernel_cmd = [  # ty: ignore[unresolved-attribute]
         sys.executable,
         "-m",
         "ipykernel_launcher",

@@ -1,11 +1,21 @@
 """Tests for CompCor functions."""
 
+from typing import NotRequired, TypedDict
+
+import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
 from confusius.signal import compute_compcor_confounds
+
+
+class _CompcorKwargs(TypedDict):
+    n_components: int
+    detrend: bool
+    noise_mask: NotRequired[xr.DataArray]
+    variance_threshold: NotRequired[float]
 
 
 def _create_mask_like(data, mask_values):
@@ -123,6 +133,38 @@ def test_compute_compcor_xarray_noise_mask(sample_timeseries):
     assert components.shape == (100, 5)
 
 
+@pytest.mark.parametrize("region_id", [1009, 1008])
+def test_compute_compcor_integer_label_mask(sample_timeseries, region_id):
+    """Integer single-label masks ({0, region_id}) must select only in-region voxels.
+
+    `Atlas.get_masks` returns integer masks whose foreground voxels carry the region
+    id rather than `True`. The selection must be identical to the equivalent boolean
+    mask and must not fall back to selecting every voxel. Both odd and even region ids
+    are checked because a bitwise (rather than logical) AND is parity-dependent.
+    """
+    signals = sample_timeseries(n_time=100, n_voxels=50)
+
+    int_values = np.zeros(50, dtype=np.int32)
+    int_values[10:20] = region_id
+    int_mask = _create_mask_like(signals.isel(time=0), int_values)
+    bool_mask = _create_mask_like(signals.isel(time=0), int_values.astype(bool))
+
+    from_int = compute_compcor_confounds(signals, noise_mask=int_mask, n_components=3)
+    from_bool = compute_compcor_confounds(signals, noise_mask=bool_mask, n_components=3)
+    explicit = compute_compcor_confounds(
+        signals.isel(space=slice(10, 20)),
+        noise_mask=_create_mask_like(
+            signals.isel(time=0, space=slice(10, 20)), np.ones(10, dtype=bool)
+        ),
+        n_components=3,
+    )
+
+    assert from_int.shape == (100, 3)
+    # Absolute value guards against arbitrary SVD sign flips.
+    assert_allclose(np.abs(from_int.values), np.abs(from_bool.values))
+    assert_allclose(np.abs(from_int.values), np.abs(explicit.values))
+
+
 def test_compute_compcor_requires_mode():
     """Test error when neither noise_mask nor variance_threshold specified."""
     signals = xr.DataArray(
@@ -185,10 +227,10 @@ def test_compute_compcor_invalid_n_components(sample_timeseries):
     noise_mask = np.ones(50, dtype=bool)
 
     with pytest.raises(ValueError, match="must be positive"):
-        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=0)
+        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=0)  # ty: ignore[invalid-argument-type]
 
     with pytest.raises(ValueError, match="must be positive"):
-        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=-1)
+        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=-1)  # ty: ignore[invalid-argument-type]
 
 
 def test_compute_compcor_no_time_dimension():
@@ -200,7 +242,7 @@ def test_compute_compcor_no_time_dimension():
     noise_mask = np.ones(50, dtype=bool)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
-        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
+        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)  # ty: ignore[invalid-argument-type]
 
 
 def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
@@ -213,6 +255,27 @@ def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
 
     with pytest.raises(ValueError, match="does not match"):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
+
+
+def test_compute_compcor_mask_size_mismatch_after_flatten(sample_3dt_volume):
+    """Test error when a subset-dimension mask flattens to the wrong size."""
+    noise_mask = xr.DataArray(
+        np.ones(
+            (sample_3dt_volume.sizes["z"], sample_3dt_volume.sizes["y"]), dtype=bool
+        ),
+        dims=["z", "y"],
+        coords={
+            "z": sample_3dt_volume.coords["z"],
+            "y": sample_3dt_volume.coords["y"],
+        },
+    )
+
+    with pytest.raises(ValueError, match="Noise mask size"):
+        compute_compcor_confounds(
+            sample_3dt_volume,
+            noise_mask=noise_mask,
+            n_components=3,
+        )
 
 
 def test_compute_compcor_empty_mask(sample_timeseries):
@@ -261,6 +324,53 @@ def test_compute_compcor_scaling_invariance(sample_timeseries):
     for i in range(5):
         corr = np.abs(np.corrcoef(comp1.values[:, i], comp2.values[:, i])[0, 1])
         assert corr > 0.99
+
+
+def test_compute_compcor_ignores_zero_variance_voxels(sample_timeseries):
+    """Constant voxels are dropped before CompCor SVD."""
+    signals = sample_timeseries(n_time=100, n_voxels=10)
+    signals.values[:, :3] = 5.0
+
+    all_voxels_mask = _create_mask_like(
+        signals.isel(time=0), np.ones(signals.sizes["space"], dtype=bool)
+    )
+    varying_voxels = signals.isel(space=slice(3, None))
+    varying_mask = _create_mask_like(
+        varying_voxels.isel(time=0), np.ones(varying_voxels.sizes["space"], dtype=bool)
+    )
+
+    result = compute_compcor_confounds(
+        signals,
+        noise_mask=all_voxels_mask,
+        n_components=3,
+        detrend=False,
+    )
+    expected = compute_compcor_confounds(
+        varying_voxels,
+        noise_mask=varying_mask,
+        n_components=3,
+        detrend=False,
+    )
+
+    assert_allclose(np.abs(result.values), np.abs(expected.values))
+
+
+def test_compute_compcor_all_zero_variance_selected_voxels_error(sample_timeseries):
+    """CompCor fails when every selected voxel is constant."""
+    signals = sample_timeseries(n_time=100, n_voxels=10)
+    signals.values[:, :4] = 2.0
+
+    mask_values = np.zeros(signals.sizes["space"], dtype=bool)
+    mask_values[:4] = True
+    noise_mask = _create_mask_like(signals.isel(time=0), mask_values)
+
+    with pytest.raises(ValueError, match="All voxels have variance below tolerance"):
+        compute_compcor_confounds(
+            signals,
+            noise_mask=noise_mask,
+            n_components=2,
+            detrend=False,
+        )
 
 
 def test_compute_compcor_tcompcor_selects_high_variance(sample_timeseries, rng):
@@ -359,7 +469,7 @@ def test_compute_compcor_reference_svd(
         signals.values[:, i] *= (i + 1) * 0.1
 
     # Build kwargs based on mode
-    kwargs = {"n_components": 5, "detrend": False}
+    kwargs: _CompcorKwargs = {"n_components": 5, "detrend": False}
 
     if use_noise_mask:
         mask_values = np.zeros(n_voxels, dtype=bool)
@@ -429,6 +539,26 @@ def test_compute_compcor_time_chunked():
 
     with pytest.raises(ValueError, match="chunked along the 'time' dimension"):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
+
+
+def test_compute_compcor_dask_path(sample_timeseries):
+    """Test CompCor uses the Dask SVD path when data are Dask-backed."""
+    signals = sample_timeseries(n_time=100, n_voxels=50).chunk(
+        {"time": -1, "space": 10}
+    )
+    noise_mask = _create_mask_like(signals.isel(time=0), np.ones(50, dtype=bool))
+
+    components = compute_compcor_confounds(
+        signals, noise_mask=noise_mask, n_components=5, detrend=False
+    )
+
+    assert isinstance(components.data, da.Array)
+    assert components.shape == (100, 5)
+    assert_allclose(
+        components.compute().values.T @ components.compute().values,
+        np.eye(5),
+        atol=1e-10,
+    )
 
 
 def test_compute_compcor_explained_variance_ratio():

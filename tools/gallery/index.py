@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html as html_lib
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -10,6 +11,28 @@ from ._types import RenderedExample
 
 _DEFAULT_THUMB_LIGHT = "_assets/default_thumb.svg"
 _DEFAULT_THUMB_DARK = "_assets/default_thumb_dark.svg"
+
+# Markdown inline link: [text](url). Card summaries are copied verbatim onto the gallery
+# index page (at the examples root), where an example's relative links — written against
+# its own built page — would not resolve and fail `zensical build --strict`. The full
+# links still render on the example's own page.
+_INLINE_LINK = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+
+
+def _flatten_links(text: str) -> str:
+    """Replace Markdown inline links with their visible text.
+
+    Parameters
+    ----------
+    text : str
+        Markdown text that may contain inline links.
+
+    Returns
+    -------
+    str
+        The text with every `[label](target)` reduced to `label`.
+    """
+    return _INLINE_LINK.sub(r"\1", text)
 
 
 def _demote_h1(text: str) -> str:
@@ -67,7 +90,7 @@ def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
                 f"-   {image}\n\n    ---\n\n    **[{rendered_example.title}]({href})**"
             )
             if rendered_example.summary:
-                card += f"\n\n    {rendered_example.summary}"
+                card += f"\n\n    {_flatten_links(rendered_example.summary)}"
             parts.append(card + "\n\n")
         parts.append("</div>\n\n")
 

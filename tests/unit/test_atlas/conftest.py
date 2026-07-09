@@ -35,7 +35,7 @@ def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Vertices 1-3 lie at RL coordinate 50 µm (right hemisphere).
     Vertices 4-6 lie at RL coordinate 150 µm (left hemisphere).
-    The atlas midline is at 100 µm (shape[2]=8, resolution=25 µm).
+    The RL midline splitting them is at 100 µm.
     """
     mesh_dir = tmp_path_factory.mktemp("meshes")
     path = mesh_dir / "997.obj"
@@ -59,9 +59,9 @@ def mock_structures(obj_path: Path) -> _MockStructuresDict:
     Only the root region (997) has a mesh file assigned.
     """
     tree = treelib.Tree()
-    tree.create_node("root", 997)
-    tree.create_node("child", 10, parent=997)
-    tree.create_node("grandchild", 20, parent=10)
+    tree.create_node("root", 997)  # ty: ignore[invalid-argument-type]
+    tree.create_node("child", 10, parent=997)  # ty: ignore[invalid-argument-type]
+    tree.create_node("grandchild", 20, parent=10)  # ty: ignore[invalid-argument-type]
 
     structure_list = [
         {
@@ -102,11 +102,11 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
       - [:, :, :4] = 2  (right — low RL in asr orientation)
       - [:, :, 4:] = 1  (left  — high RL in asr orientation)
 
-    Resolution: 25 µm (0.025 mm) isotropic.
-    RL midline: shape[2]/2 * 25 µm = 100 µm.
+    Resolution: 50 µm (0.05 mm) isotropic.
+    RL midline: 100 µm (the OBJ mesh's RL midline, see `obj_path`).
     """
     shape = (4, 6, 8)
-    resolution_mm = 0.025
+    resolution_mm = 0.05
 
     annotation_data = np.zeros(shape, dtype=np.int32)
     annotation_data[:2, :, 2:6] = 10
@@ -157,8 +157,14 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
         attrs={"name": "mock_atlas", "species": "Mus musculus", "orientation": "asr"},
     )
 
-    mesh_to_physical = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-    # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm.
-    rl_midline_um = shape[2] / 2 * 25.0
+    mesh_vertex_transform = np.eye(4)
+    # RL midline of the OBJ mesh, halfway between its 50 µm and 150 µm vertices, so the
+    # hemisphere clip splits it 3/3. Fixed to the mesh, independent of the resolution.
+    rl_midline = 0.1
 
-    return Atlas(dataset, mock_structures, mesh_to_physical, rl_midline_um)
+    return Atlas(
+        dataset,
+        mock_structures,  # ty: ignore[invalid-argument-type]
+        mesh_vertex_transform,
+        rl_midline,
+    )

@@ -36,6 +36,7 @@ nav = [
         { "Decomposition" = "user-guide/decomposition.md" },
         { "Functional Connectivity" = "user-guide/connectivity.md" },
         { "General Linear Model" = "user-guide/glm.md" },
+        { "Statistical Inference" = "user-guide/stats.md" },
         { "Datasets" = "user-guide/datasets.md" },
     ]},
     { "Graphical Interface" = [
@@ -60,6 +61,7 @@ nav = [
         { "Decomposition" = "api/decomposition.md" },
         { "Functional Connectivity" = "api/connectivity.md" },
         { "General Linear Model" = "api/glm.md" },
+        { "Statistical Inference" = "api/stats.md" },
         { "Xarray Integration" = "api/xarray.md" },
         { "Datasets" = "api/datasets.md" },
     ]},
@@ -74,6 +76,11 @@ nav = [
         { "Decomposition" = [
             { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },
             { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
+            { "NMF on a single fUSI recording" = "examples/_built/decomposition/nmf_single_recording.md" },
+        ]},
+        { "Connectivity" = [
+            { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
+            { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },

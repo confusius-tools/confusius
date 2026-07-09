@@ -6,6 +6,11 @@ from confusius.registration.affines import (
     compose_affine,
     decompose_affine,
 )
+from confusius.registration.bspline import (
+    invert_displacement_field,
+    sample_displacement_field,
+    sample_displacement_field_like,
+)
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import (
     compute_framewise_displacement,
@@ -22,9 +27,12 @@ from confusius.registration.volumewise import register_volumewise
 __all__ = [
     "RegistrationDiagnostics",
     "RegistrationProgressPlotter",
+    "sample_displacement_field",
+    "sample_displacement_field_like",
     "compose_affine",
     "decompose_affine",
     "build_voxel_affine_plane_initial_transform",
+    "invert_displacement_field",
     "register_volume",
     "resample_volume",
     "resample_like",

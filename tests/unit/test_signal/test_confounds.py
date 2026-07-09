@@ -200,7 +200,16 @@ def test_regress_confounds_invalid_type(sample_timeseries):
     signals = sample_timeseries()
 
     with pytest.raises(TypeError, match="must be an xarray.DataArray"):
-        regress_confounds(signals, "invalid")  # type: ignore[arg-type]
+        regress_confounds(signals, "invalid")  # ty: ignore[invalid-argument-type]
+
+
+def test_regress_confounds_confounds_missing_time_dimension(sample_timeseries):
+    """Test error when confounds have no time dimension."""
+    signals = sample_timeseries()
+    confounds = xr.DataArray(np.random.randn(10, 3), dims=["sample", "confound"])
+
+    with pytest.raises(ValueError, match="must have a 'time' dimension"):
+        regress_confounds(signals, confounds)
 
 
 def test_regress_confounds_wrong_dimensions(sample_timeseries):
@@ -228,6 +237,17 @@ def test_regress_confounds_single_confound_1d(sample_timeseries):
     # Should work and be treated as single confound
     cleaned = regress_confounds(signals, confound)
     assert cleaned.shape == signals.shape
+
+
+def test_regress_confounds_mismatched_time_length_without_coordinates(
+    sample_timeseries,
+):
+    """Test shape mismatch path when confounds have no time coordinates."""
+    signals = sample_timeseries(n_time=100, n_voxels=50)
+    confounds = xr.DataArray(np.random.randn(50, 3), dims=["time", "confound"])
+
+    with pytest.raises(ValueError, match="does not match signals time dimension"):
+        regress_confounds(signals, confounds)
 
 
 def test_regress_confounds_xarray_confounds(sample_timeseries):
@@ -297,6 +317,22 @@ def test_regress_confounds_4d_imaging(sample_3dt_volume):
             cleaned.coords[dim].values,
             sample_3dt_volume.coords[dim].values,
         )
+
+
+def test_regress_confounds_nonleading_time_axis(sample_timeseries):
+    """Test confound regression when time is not the leading axis."""
+    signals = sample_timeseries(n_time=100, n_voxels=20)
+    confounds = xr.DataArray(
+        np.random.randn(100, 3),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    expected = regress_confounds(signals, confounds)
+    transposed = signals.transpose("space", "time")
+    result = regress_confounds(transposed, confounds).transpose("time", "space")
+
+    assert_allclose(result.values, expected.values)
 
 
 def test_regress_confounds_dask_compatibility(sample_timeseries):

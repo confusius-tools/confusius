@@ -18,6 +18,7 @@ import pandas as pd
 import scipy.linalg as spla
 from scipy.interpolate import interp1d
 
+from confusius._utils.bids import DEFAULT_TRIAL_TYPE
 from confusius._utils.coordinates import get_representative_step
 from confusius._utils.stack import find_stack_level
 from confusius.glm._hrf_models import HRFModel, _hrf_kernel
@@ -243,7 +244,7 @@ def _validate_events(events: pd.DataFrame) -> pd.DataFrame:
             "'trial_type' column not found in the given events data.",
             stacklevel=find_stack_level(),
         )
-        events["trial_type"] = "dummy"
+        events["trial_type"] = DEFAULT_TRIAL_TYPE
 
     if (events["duration"] == 0).any():
         conditions = events.loc[events["duration"] == 0, "trial_type"].unique()

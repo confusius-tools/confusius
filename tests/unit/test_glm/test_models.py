@@ -143,6 +143,7 @@ class TestARModel:
             [np.corrcoef(results.residuals[:-1, v], results.residuals[1:, v])[0, 1]
              for v in range(n_voxels)]
         )
+        assert results.whitened_residuals is not None
         white_ac = np.mean(
             [np.corrcoef(results.whitened_residuals[:-1, v],
                          results.whitened_residuals[1:, v])[0, 1]

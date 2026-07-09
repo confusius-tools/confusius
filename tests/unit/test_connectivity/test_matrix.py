@@ -186,13 +186,13 @@ class TestValidation:
         """fit raises TypeError for non-iterable input."""
         measure = ConnectivityMatrix()
         with pytest.raises(TypeError, match="DataArray"):
-            measure.fit(1.0)
+            measure.fit(1.0)  # ty: ignore[invalid-argument-type]
 
     def test_numpy_array_input_raises(self):
         """fit raises TypeError for numpy array input (DataArrays required)."""
         measure = ConnectivityMatrix()
         with pytest.raises(TypeError, match="DataArray"):
-            measure.fit([np.ones((100, N_FEATURES))])
+            measure.fit([np.ones((100, N_FEATURES))])  # ty: ignore[invalid-argument-type]
 
     def test_no_time_dim_raises(self):
         """fit raises ValueError when a subject is missing the time dimension."""
@@ -226,7 +226,7 @@ class TestValidation:
 
     def test_invalid_kind_raises(self, signals):
         """fit raises ValueError for an unknown kind."""
-        measure = ConnectivityMatrix(kind="unknown")
+        measure = ConnectivityMatrix(kind="unknown")  # ty: ignore[invalid-argument-type]
         with pytest.raises(ValueError, match="kind must be one of"):
             measure.fit(signals)
 

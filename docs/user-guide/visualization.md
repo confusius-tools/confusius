@@ -14,7 +14,9 @@ generation**:
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
+| [`plot_stat_map`][confusius.plotting.plot_stat_map] / [`.fusi.plot.stat_map()`][confusius.xarray.FUSIPlotAccessor.stat_map] | Matplotlib | Statistical overlays on an anatomical background |
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
+| [`plot_matrix`][confusius.plotting.plot_matrix] | Matplotlib | Any square 2D matrix (e.g. correlation, connectivity, or statistical matrices) |
 
 All functions accept DataArrays and use physical coordinates for axis scaling
 automatically. The [Xarray accessor](xarray.md) variants (`.fusi.plot.*`) offer a more
@@ -172,8 +174,6 @@ ideal for visualizing an atlas alongside your power Doppler data. With the Nunez
 dataset, you can use the precomputed Allen segmentation in `derivatives/allenccf_align`:
 
 ```python
-import confusius as cf
-
 # Load power Doppler mean volume and open viewer.
 viewer, layer = cf.plotting.plot_napari(
     mean_vol.fusi.scale.db(),
@@ -289,7 +289,7 @@ maps, or 3D angiography data.
 
     ```python
     import xarray as xr
-    import confusius
+    import confusius as cf
 
     pwd = cf.load("sub-01_task-awake_pwd.zarr")
 
@@ -369,7 +369,7 @@ plotter = stat_map.fusi.plot.volume(
     slice_mode="z",
     threshold=3.0,
     threshold_mode="lower",
-    cmap="RdBu_r",
+    cmap="coolwarm",
     vmin=-6,
     vmax=6,
 )
@@ -389,6 +389,76 @@ plotter.close()
 Pass any keyword argument accepted by
 [`matplotlib.figure.Figure.savefig`][matplotlib.figure.Figure.savefig] (e.g.,
 `bbox_inches="tight"`, `transparent=True`).
+
+## Statistical Maps
+
+[`plot_stat_map`][confusius.plotting.plot_stat_map] (also available as the
+`data.fusi.plot.stat_map` accessor) wraps the
+[`plot_volume`][confusius.plotting.plot_volume] +
+[`add_volume`][confusius.plotting.VolumePlotter.add_volume] pattern used above for
+statistical overlays: a background anatomical volume, an overlay that is fully opaque
+by default, and a colormap + range picked automatically from the sign of the
+statistical map:
+
+```python
+plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
+```
+
+`bg_volume` is optional—call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
+statistical map on its own. When `alpha` is not provided, `t_map` fully covers `pwd`
+wherever it has a value; `pwd` only shows through where `t_map` is masked out by
+`threshold`. `vmin`/`vmax` default to the actual min/max of `t_map`, and
+`auto_range=True` (default) picks the colormap layout from `t_map`'s sign:
+
+- Both positive and negative values: diverging, symmetric `[-m, m]` range
+  (`m = max(|vmin|, |vmax|)`), `cmap` defaulting to `"coolwarm"`.
+- Only non-negative values (e.g. R², F-statistics): sequential `[0, vmax]` range,
+  `cmap` defaulting to `"viridis"`.
+- Only non-positive values: sequential `[vmin, 0]` range, `cmap` defaulting to
+  `"viridis_r"` (so values near zero map to the same end of the colormap in both
+  the non-negative and non-positive cases).
+
+Pass `vmax` explicitly for a fixed range across figures, `alpha` to blend the overlay
+with the background instead of fully covering it, and `bg_kwargs` to customize the
+background layer's own colormap/range:
+
+```python
+plotter = t_map.fusi.plot.stat_map(
+    pwd,
+    slice_mode="z",
+    threshold=3.0,
+    vmax=6.0,
+    alpha=0.6,
+    cbar_label="t-statistic",
+    bg_kwargs={"cmap": "gray", "vmin": -20, "vmax": 0},
+)
+```
+
+A non-diverging statistic (e.g. R²) needs no extra arguments — the sequential range and
+colormap are picked up automatically since the data has only non-negative values:
+
+```python
+plotter = r2_map.fusi.plot.stat_map(pwd)
+```
+
+Pass an explicit `cmap` to override the automatic choice, `auto_range=False` to use
+`vmin`/`vmax` directly with no zero-anchoring (e.g. a custom, asymmetric range), or a
+[`matplotlib.colors.Normalize`][matplotlib.colors.Normalize] instance as `norm` (e.g.
+`TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`) for ranges the other three can't express —
+`norm`, when provided, overrides `vmin`, `vmax`, and `auto_range` entirely. For
+anything `plot_stat_map` still doesn't expose (e.g. `roi_labels` hover names), call
+`plot_volume` and `add_volume` directly instead, as shown in the
+[Thresholding](#thresholding) section above.
+
+![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_light.png#only-light)
+![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_dark.png#only-dark)
+
+This figure is generated in the [atlas-based seed connectivity maps
+example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
+registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
+Atlas][confusius.atlas.Atlas] onto the recording's native grid, and computing
+voxel-wise seed-based correlation maps with
+[`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
 
 ## Overlaying Contours
 
@@ -557,7 +627,7 @@ metrics, see the [Quality Control](quality-control.md) guide.
 
     ```python
     import xarray as xr
-    import confusius
+    import confusius as cf
 
     brain_mask = cf.load("brain_mask.zarr")
 
@@ -581,6 +651,40 @@ Without a `mask`, all non-zero voxels are included. With a mask, only voxels whe
 
 ![Carpet plot of power Doppler voxel time-series](../images/visualization/carpet-plot-light.png#only-light)
 ![Carpet plot of power Doppler voxel time-series](../images/visualization/carpet-plot-dark.png#only-dark)
+
+## Matrix Plots
+
+[`plot_matrix`][confusius.plotting.plot_matrix] plots any square 2D matrix: a
+region-by-region correlation or connectivity matrix, a confusion matrix, or any other
+`(n, n)` array. It supports optional lower/upper triangle masking and grid lines. A
+`groups` parameter annotates contiguous blocks of rows/columns with colored strips,
+handy for marking anatomical groupings (e.g. cortex, thalamus) without cluttering the
+plot with per-region colors. `triangle` can also overlay two matrices on the same axes—for
+example, an estimate on the lower triangle and its significance mask on the
+upper—by calling `plot_matrix` twice with complementary `triangle` values.
+
+```python
+import confusius as cf
+
+fig, ax = cf.plotting.plot_matrix(
+    connectivity,
+    labels=region_order,
+    groups=group_labels,
+    group_colors=group_colors,
+    grid="gray",
+    cbar_label="correlation",
+)
+```
+
+![Region correlation matrix](../examples/_built/connectivity/atlas_correlation_matrix_thumb_light.png#only-light)
+![Region correlation matrix](../examples/_built/connectivity/atlas_correlation_matrix_thumb_dark.png#only-dark)
+
+This figure is generated in the [atlas-based region correlation matrix
+example](../examples/_built/connectivity/atlas_correlation_matrix.md), which walks
+through registering a recording to an Allen-space template, resampling the [Allen
+Mouse Brain Atlas][confusius.atlas.Atlas] onto the recording's native grid, and
+extracting region signals—including `group_colors`, sourced directly from the atlas
+so each area is colored with its official Allen color.
 
 ## Next Steps
 

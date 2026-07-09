@@ -39,9 +39,6 @@ import numpy as np
 import xarray as xr
 
 import confusius as cf
-from confusius.datasets import fetch_nunez_elizalde_2022
-from confusius.decomposition import PCA
-from confusius.signal import standardize
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
@@ -49,7 +46,7 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 # Keep notebook output compact for large DataArray displays.
 xr.set_options(display_expand_data=False)
 
-bids_root = fetch_nunez_elizalde_2022(
+bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022",
     sessions="20201011",
     tasks="spontaneous",
@@ -70,7 +67,7 @@ data
 # ## Correct for brain motion
 #
 # This recording contains some brain motion, which we can mitigate by performing a rigid
-# translation correction with
+# transform correction with
 # [`register_volumewise`][confusius.registration.register_volumewise]. This is a common
 # preprocessing step for fUSI data, and it can help avoid spurious components driven by
 # brain motion.
@@ -92,7 +89,7 @@ data = cf.registration.register_volumewise(data, learning_rate=1e-2)
 # near large blood vessels, which may not be of primary interest.
 
 # %%
-data_std = standardize(data)
+data_std = cf.signal.standardize(data)
 
 # %% [markdown]
 # In ConfUSIus, the [`PCA`][confusius.decomposition.PCA] model wraps the familiar
@@ -110,7 +107,7 @@ data_std = standardize(data)
 # Here, we fit a PCA model with all available components.
 
 # %%
-pca_t = PCA(random_state=0, mode="temporal")
+pca_t = cf.decomposition.PCA(random_state=0, mode="temporal")
 signals_t = pca_t.fit_transform(data_std)
 signals_t
 
@@ -173,14 +170,10 @@ for i, comp in enumerate(range(n_show)):
     var = float(pca_t.explained_variance_ratio_.sel(component=comp)) * 100
 
     component_map = pca_t.maps_.isel(component=[comp])
-    vmax = float(np.abs(component_map).max())
-    cf.plotting.plot_volume(
+    cf.plotting.plot_stat_map(
         component_map,
         axes=fig.add_subplot(gs[i, 0]),
         slice_mode="component",
-        cmap="coolwarm",
-        vmin=-vmax,
-        vmax=vmax,
         show_axes=False,
         show_colorbar=False,
         show_titles=False,
@@ -205,7 +198,7 @@ _ = fig.suptitle("Temporal PCA maps and time courses (first 6 components)", font
 # spatial maps as principal components.
 
 # %%
-pca_s = PCA(random_state=0, mode="spatial")
+pca_s = cf.decomposition.PCA(random_state=0, mode="spatial")
 signals_s = pca_s.fit_transform(data_std)
 signals_s
 
@@ -227,12 +220,11 @@ for i, comp in enumerate(range(n_show)):
 
     component_map = pca_s.maps_.isel(component=[comp])
     vmax = float(np.abs(component_map).max())
-    cf.plotting.plot_volume(
+    cf.plotting.plot_stat_map(
         component_map,
         axes=fig.add_subplot(gs[i, 0]),
         slice_mode="component",
         cmap="coolwarm",
-        vmin=-vmax,
         vmax=vmax,
         show_axes=False,
         show_colorbar=False,

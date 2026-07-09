@@ -7,23 +7,19 @@ files: |
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.19
+    rev: v0.15.20
     hooks:
-      # Run the linter.
       - id: ruff-check
         exclude: ^docs/
         types_or: [python, pyi, jupyter]
         args: [ --fix ]
-      # Run the formatter.
       - id: ruff-format
         types_or: [ python, pyi, jupyter ]
 
-  - repo: local
+  - repo: https://github.com/astral-sh/ty-pre-commit
+    rev: v0.0.57
     hooks:
-    - id: ty
-      name: ty check
-      entry: uv run ty check src/
-      language: python
+      - id: ty
 
   - repo: https://github.com/codespell-project/codespell
     rev: v2.4.2

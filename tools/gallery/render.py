@@ -10,6 +10,18 @@ from pathlib import Path
 import nbformat
 
 
+def _join_str_list(value: object) -> str | None:
+    """Join a list of strings, returning `None` for any other input."""
+    if not isinstance(value, list):
+        return None
+    parts: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        parts.append(item)
+    return "".join(parts)
+
+
 def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
     """Return the tags attached to one notebook cell."""
     return set(cell.metadata.get("tags", []))
@@ -18,11 +30,12 @@ def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
 def _png_data(output: dict[str, object]) -> str | None:
     """Return the base64 PNG payload from an output if present."""
     data = output.get("data")
-    if not isinstance(data, dict) or "image/png" not in data:
+    if not isinstance(data, dict):
         return None
-    png = data["image/png"]
-    if isinstance(png, list):
-        return "".join(png)
+    png = data.get("image/png")
+    png_joined = _join_str_list(png)
+    if png_joined is not None:
+        return png_joined
     if isinstance(png, str):
         return png
     return None
@@ -128,6 +141,40 @@ def _clean_stream_text(text: str) -> str:
     return "\n".join(cleaned_lines).strip("\n")
 
 
+def _is_blank_widget_output(output: dict[str, object]) -> bool:
+    """Return whether `output` is a content-free rich/Jupyter display artifact.
+
+    Some dependency prints via `rich`'s Jupyter console protocol, which renders a
+    `display_data` output carrying both `text/html` and `text/plain` regardless of
+    whether there's anything meaningful to show (confirmed in CI: an empty
+    `<pre style="...">` tag with a blank `text/plain`). Because *when* this fires
+    isn't tied to a specific cell in a deterministic way, it can show up in only
+    one of the light/dark passes.
+
+    `text/plain` is the one part of Jupyter's mimetype-bundle convention every
+    real result populates (it's the accessibility/fallback representation, and
+    matplotlib figures instead carry `image/png`), so a blank one reliably means
+    "nothing a reader would want to see" regardless of what the accompanying
+    `text/html` contains. Safe to drop: real cell output (a matplotlib figure, a
+    DataArray repr, printed text) never has a blank `text/plain`.
+    """
+    if output.get("output_type") != "display_data":
+        return False
+    data = output.get("data")
+    if not isinstance(data, dict) or not data:
+        return False
+    if any(isinstance(key, str) and key.startswith("image/") for key in data):
+        return False
+    if not set(data).issubset({"text/html", "text/plain"}):
+        return False
+
+    plain = data.get("text/plain", "")
+    text = _join_str_list(plain)
+    if text is None:
+        text = str(plain)
+    return not text.strip()
+
+
 def _summarize_output(output: dict[str, object]) -> str:
     """Return a one-line human-readable summary of one notebook output.
 
@@ -154,9 +201,17 @@ def _summarize_output(output: dict[str, object]) -> str:
         data = output.get("data", {})
         keys = sorted(data) if isinstance(data, dict) else []
         summary = f"{output_type}: {{{', '.join(keys)}}}"
-        if isinstance(data, dict) and "text/plain" in data:
-            preview = str(data["text/plain"]).replace("\n", "\\n")
-            summary += f" -> {preview[:120]}"
+        if isinstance(data, dict):
+            for key in keys:
+                value = data[key]
+                text = _join_str_list(value)
+                if text is None:
+                    text = str(value)
+                text = text.replace("\n", "\\n")
+                summary += f"\n    {key}: {text[:500]}"
+        metadata = output.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            summary += f"\n    metadata: {metadata}"
         return summary
     if output_type == "error":
         return f"error: {output.get('ename')}: {output.get('evalue')}"
@@ -231,9 +286,16 @@ def render_notebook(
         # (typically a one-shot download or a warning that fired only once),
         # and silently dropping the extras would hide a real difference
         # between the two rendered notebooks. Pre-warm caches outside the
-        # gallery so both runs start from the same state.
-        light_outputs = light_cell.get("outputs", [])
-        dark_outputs = dark_cell.get("outputs", [])
+        # gallery so both runs start from the same state. Blank rich/Jupyter
+        # display artifacts are the one known exception: they carry no
+        # content, so dropping them can't hide a real difference (see
+        # `_is_blank_widget_output`).
+        light_outputs = [
+            o for o in light_cell.get("outputs", []) if not _is_blank_widget_output(o)
+        ]
+        dark_outputs = [
+            o for o in dark_cell.get("outputs", []) if not _is_blank_widget_output(o)
+        ]
         if len(light_outputs) != len(dark_outputs):
             raise ValueError(
                 f"{base_name}: cell {cell_index} produced "
