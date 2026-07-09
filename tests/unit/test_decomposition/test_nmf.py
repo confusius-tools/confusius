@@ -1,5 +1,7 @@
 """Tests for confusius.decomposition.NMF."""
 
+import warnings
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -61,7 +63,13 @@ def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
 
-    model = NMF(n_components=2, random_state=0).fit(data)
+    # sklearn's NMF iteration can hit a transient `RuntimeWarning: invalid value
+    # encountered in dot` on BLAS implementations that flush denormals differently
+    # (notably Accelerate on macOS). The test only inspects `feature_names_in_`,
+    # which is independent of the iteration's numerical result.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="invalid value encountered in dot")
+        model = NMF(n_components=2, random_state=0).fit(data)
 
     np.testing.assert_array_equal(
         model.feature_names_in_,

@@ -198,7 +198,7 @@ class SignalPanel(QWidget):
         self._autoscale_check.toggled.connect(self._on_autoscale_changed)
         autoscale_label = QLabel("Autoscale <i>y</i>-axis")
         autoscale_label.setTextFormat(Qt.TextFormat.RichText)
-        autoscale_label.mousePressEvent = lambda _e: self._autoscale_check.toggle()  # type: ignore[method-assign]
+        autoscale_label.mousePressEvent = lambda _e: self._autoscale_check.toggle()  # type: ignore
         autoscale_row.addWidget(self._autoscale_check)
         autoscale_row.addWidget(autoscale_label)
         autoscale_row.addStretch()
@@ -769,7 +769,7 @@ class SignalPanel(QWidget):
             kwargs["size"] = 2.0
         if translate is not None:
             kwargs["translate"] = translate
-        layer = self._viewer.add_points(
+        layer = self._viewer.add_points(  # type: ignore
             np.empty((0, ndim)),
             name="Points (3D)",
             ndim=ndim,
@@ -793,7 +793,7 @@ class SignalPanel(QWidget):
             kwargs["scale"] = scale
         if translate is not None:
             kwargs["translate"] = translate
-        self._viewer.add_labels(
+        self._viewer.add_labels(  # type: ignore
             np.zeros(shape, dtype=np.int32),
             name="Labels (3D)",
             **kwargs,

@@ -520,7 +520,7 @@ class Atlas:
         from brainglobe_atlasapi import BrainGlobeAtlas
 
         if isinstance(atlas, str):
-            atlas = BrainGlobeAtlas(atlas, **kwargs)
+            atlas = BrainGlobeAtlas(atlas, **kwargs)  # type: ignore
 
         dataset = _build_dataset(atlas)
         mesh_vertex_transform = np.eye(4, dtype=np.float64)

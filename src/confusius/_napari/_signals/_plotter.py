@@ -850,7 +850,7 @@ class SignalPlotter(QWidget):
         # coordinate (typically 0) may fall outside the data range (e.g. when the
         # coordinate starts at a non-zero offset), which would cause the check to
         # reject valid spatial positions.
-        ind[xaxis_index] = slice(None)  # type: ignore[call-overload]
+        ind[xaxis_index] = slice(None)  # type: ignore
 
         if not all(
             0 <= i < max_i for i, max_i in zip(ind, data.shape) if isinstance(i, int)

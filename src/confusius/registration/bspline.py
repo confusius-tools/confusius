@@ -237,11 +237,11 @@ def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
 
     name = transform.GetName()
     if "BSpline" in name:
-        return transform  # type: ignore[return-value]
+        return transform  # type: ignore
     if name == "CompositeTransform":
-        n = transform.GetNumberOfTransforms()  # type: ignore[attr-defined]
+        n = transform.GetNumberOfTransforms()  # type: ignore
         # The B-spline is the last sub-transform (it was added last and is optimised).
-        last = transform.GetNthTransform(n - 1)  # type: ignore[attr-defined]
+        last = transform.GetNthTransform(n - 1)  # type: ignore
         if "BSpline" in last.GetName():
             return last
     raise TypeError(
@@ -447,7 +447,7 @@ def invert_displacement_field(
     """
     import SimpleITK as sitk
 
-    dims = list(field.dims[1:])
+    dims = [str(dim) for dim in field.dims[1:]]
     shape = [field.sizes[d] for d in dims]
 
     field_sitk = _dataarray_to_sitk_displacement_field(field)

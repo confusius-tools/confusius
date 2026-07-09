@@ -151,7 +151,7 @@ class _TimeOverlay:
         overlay = self._viewer.text_overlay
         overlay.position = "bottom_left"
         overlay.font_size = 14
-        overlay.color = "white"
+        overlay.color = "white"  # type: ignore
         overlay.opacity = 0.6
         self._active = True
 

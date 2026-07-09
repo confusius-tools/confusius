@@ -227,7 +227,7 @@ def _threshold_slices(
     slices: list[xr.DataArray],
     threshold: float | None,
     threshold_mode: Literal["lower", "upper"],
-) -> list[np.ndarray]:
+) -> list[xr.DataArray | np.ndarray]:
     """Apply thresholding to a list of slices, returning masked arrays."""
     if threshold is None:
         return [s.values for s in slices]
@@ -316,20 +316,33 @@ def _resolve_cmap(
             gray_band_high = []
         new_colors = gray_band_low + colors_middle + gray_band_high
 
+    # Matplotlib 3.11+ requires (value, color) pairs passed to `from_list` to be
+    # strictly monotonically increasing in value. Our boundary points can collide
+    # with neighboring cmap entries (e.g. when `gray_low == 0` the first
+    # `colors_before` entry shares its value with the start of `gray_band`).
+    # Collapse duplicates by value, keeping the later entry so gray-band
+    # boundaries take precedence over the underlying cmap at the same value.
+    deduped: dict[float, "str | tuple[float, ...] | list[float]"] = {}
+    for value, color in new_colors:
+        deduped[value] = color
+    new_colors = list(deduped.items())
+
     # Preserve the source colormap's resolution. The default N=256 of
     # `LinearSegmentedColormap.from_list` collapses larger discrete cmaps such as
     # the atlas `ListedColormap` (N == number of regions, often >256), aliasing
-    # high indices to wrong (or out-of-range) colours.
-    new_cmap = mcolors.LinearSegmentedColormap.from_list(
-        f"{cmap.name}_thresholded", new_colors, N=cmap.N
+    # high indices to wrong (or out-of-range) colours. Propagate under/over/bad
+    # colours so the atlas's transparent under-colour for label 0 (background)
+    # survives the rebuild. Cast to tuple because the getters return numpy arrays
+    # but the kwargs expect a color-like. `from_list` accepts these kwargs since
+    # matplotlib 3.11, no need for a separate `with_extremes` round-trip.
+    return mcolors.LinearSegmentedColormap.from_list(
+        f"{cmap.name}_thresholded",
+        new_colors,
+        N=cmap.N,
+        under=tuple(cmap.get_under()),
+        over=tuple(cmap.get_over()),
+        bad=tuple(cmap.get_bad()),
     )
-    # Propagate under/over/bad colours so the atlas's transparent under-colour
-    # for label 0 (background) survives the rebuild. Cast to tuple because the
-    # getters return numpy arrays but the setters expect a color-like.
-    new_cmap.set_under(tuple(cmap.get_under()))
-    new_cmap.set_over(tuple(cmap.get_over()))
-    new_cmap.set_bad(tuple(cmap.get_bad()))
-    return new_cmap
 
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
