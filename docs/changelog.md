@@ -10,26 +10,18 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
-### :bug: Fixes
-
-- [`plot_napari`][confusius.plotting.plot_napari] no longer emits napari's
-  `FutureWarning` about the deprecated `ScaleBar.unit` API when `show_scale_bar=True`
-  ([#271](https://github.com/confusius-tools/confusius/pull/271)).
-- [`plot_volume`][confusius.plotting.plot_volume],
-  [`plot_stat_map`][confusius.plotting.plot_stat_map],
-  [`plot_composite`][confusius.plotting.plot_composite], and
-  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
-  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
-  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
-  descending `z`). Only the two display dimensions are sorted for plotting geometry now
-  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
-
 ### :sparkles: Enhancements
 
 - **[Napari plugin]** Added a `File > Open Sample` entry for a Nunez-Elizalde 2022
   recording that fetches the sample on demand, shows download progress with an abort
   button, and only downloads the matching raw fUSI files instead of the full dataset
   ([#273](https://github.com/confusius-tools/confusius/pull/273)).
+- Dataset fetchers now print the citation to use for the fetched data and accept a
+  `print_citation` argument to silence it. The template fetchers
+  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
+  also expose the citation on the returned DataArray as `da.attrs["citation"]`
+  ([#279](https://github.com/confusius-tools/confusius/pull/279)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
@@ -40,6 +32,74 @@ Current development version for the next ConfUSIus release.
   [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022], and
   [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
   ([#261](https://github.com/confusius-tools/confusius/pull/261)).
+- Added [`sample_displacement_field`][confusius.registration.sample_displacement_field],
+  [`sample_displacement_field_like`][confusius.registration.sample_displacement_field_like],
+  and [`invert_displacement_field`][confusius.registration.invert_displacement_field]
+  to sample a B-spline (or composite affine + B-spline) registration transform into a
+  dense displacement field and invert it via SimpleITK's
+  `InvertDisplacementFieldImageFilter`.
+  [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now also accept displacement
+  fields directly, so a saved B-spline transform's inverse can be applied without a
+  closed-form inverse
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+
+### :bug: Fixes
+
+- Saving to Zarr (via [`save`][confusius.io.save] or `DataArray.fusi.save`) now works
+  for data carrying affines or other numpy-valued attributes: nested numpy arrays are
+  stored as lists and non-serializable attrs (e.g. matplotlib colormaps) are dropped
+  with a warning, matching the NIfTI sidecar behaviour
+  ([#284](https://github.com/confusius-tools/confusius/pull/284)).
+- B-spline control-point DataArrays returned by
+  [`register_volume`][confusius.registration.register_volume] no longer have their
+  per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
+  images. The bug was invisible on isotropic data, which is why it went unnoticed since
+  it shipped [#235](https://github.com/confusius-tools/confusius/pull/235).
+- [`plot_napari`][confusius.plotting.plot_napari] no longer sets
+  `viewer.scale_bar.unit` (and the napari 0.7.0 `FutureWarning` is gone for good).
+  The previous workaround in
+  [#271](https://github.com/confusius-tools/confusius/pull/271) is no longer needed:
+  napari ≥ 0.7.1 infers the scale bar unit from the layer's `units` attribute, which
+  `plot_napari` already forwards from the spatial coordinates.
+- [`plot_volume`][confusius.plotting.plot_volume] and friends no longer crash on
+  matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
+  now requires strictly monotonic `(value, color)` pairs, and the threshold gray
+  band could collide with neighbouring cmap entries at the boundary values.
+- [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm]
+  no longer calls the matplotlib-3.11-deprecated `set_under`/`set_over`/`set_bad`
+  colormap methods, and no longer passes the deprecated `N=` argument to
+  `ListedColormap`. The under colour is now passed as a constructor kwarg, the
+  matplotlib-3.11-recommended way to set it.
+- [`plot_volume`][confusius.plotting.plot_volume],
+  [`plot_stat_map`][confusius.plotting.plot_stat_map],
+  [`plot_composite`][confusius.plotting.plot_composite], and
+  [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours] no
+  longer silently reorder panels when `slice_mode`'s own coordinate isn't already
+  sorted (e.g. a `region` dimension built from an arbitrary list of acronyms, or a
+  descending `z`). Only the two display dimensions are sorted for plotting geometry now
+  ([#268](https://github.com/confusius-tools/confusius/pull/268)).
+
+### :books: Documentation
+
+- The [same-subject registration
+  example](examples/_built/registration/register_volume_same_subject.md) now follows
+  the rigid registration step with a B-spline refinement, showing the extra local
+  correction it adds and how its parameters differ from the rigid step's
+  ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+- Long output in gallery examples—warnings, text reprs, tracebacks, and rich-rendered
+  text such as the dataset citation banner—now wraps instead of showing a horizontal
+  scrollbar ([#285](https://github.com/confusius-tools/confusius/pull/285)).
+
+### :wrench: Maintenance
+
+- Raised the minimum supported versions to **napari 0.7.1** and
+  **matplotlib 3.11**.
+- The example-gallery build tool now accepts specific example scripts as arguments
+  (`uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py`),
+  running only those; the rest of the gallery is still rendered, taken from cache if
+  present or built without outputs
+  ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ## 0.5.0
 
@@ -110,7 +170,7 @@ Released 2026-07-07.
 - [`plot_volume`][confusius.plotting.plot_volume] and
   [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
   accessors) now accept `cbar_kwargs`, forwarded to
-  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]—useful to
   shrink a shared colorbar down to size on a multi-panel grid
   ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 - [`apply_affine`][confusius.xarray.affine.apply_affine] and the
@@ -133,14 +193,14 @@ Released 2026-07-07.
   non-finite value, instead of crashing deep inside
   `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque `IndexError`
   ([#259](https://github.com/confusius-tools/confusius/pull/259)).
-- `save_nifti` now drops attrs that cannot be serialized to JSON as-is (e.g. matplotlib
-  `ListedColormap`/`BoundaryNorm` objects) instead of writing their `str()` repr into the
-  sidecar, which could corrupt fields such as `cmap` on reload. A warning lists the
-  dropped keys. [`confusius.load`][confusius.io.load] now rebuilds `cmap`/`norm` from
-  `rgb_lookup` when they are missing, so atlas-derived masks and annotations keep their
-  canonical colors after a save/load round-trip. **[Napari plugin]** The reader now
-  falls back to the `"gray"` colormap (with a napari warning) instead of crashing when a
-  layer's `cmap` attr is not a valid napari colormap name
+- [`save_nifti`][confusius.io.save_nifti] now drops attrs that cannot be serialized to
+  JSON as-is (e.g. matplotlib `ListedColormap`/`BoundaryNorm` objects) instead of
+  writing their `str()` repr into the sidecar, which could corrupt fields such as `cmap`
+  on reload. A warning lists the dropped keys. [`confusius.load`][confusius.io.load] now
+  rebuilds `cmap`/`norm` from `rgb_lookup` when they are missing, so atlas-derived masks
+  and annotations keep their canonical colors after a save/load round-trip. **[Napari
+  plugin]** The reader now falls back to the `"gray"` colormap (with a napari warning)
+  instead of crashing when a layer's `cmap` attr is not a valid napari colormap name
   ([#255](https://github.com/confusius-tools/confusius/pull/255)).
 - [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
   coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region

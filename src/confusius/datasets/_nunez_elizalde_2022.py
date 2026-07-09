@@ -13,7 +13,7 @@ from ._osf import (
     read_cached_index,
     update_cached_index,
 )
-from ._utils import get_datasets_dir
+from ._utils import get_datasets_dir, print_citation_message
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,6 +21,13 @@ if TYPE_CHECKING:
 _OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
+_CITATION = (
+    "Nunez-Elizalde, A. O., Krumin, M., Reddy, C. B., Montaldo, G., Urban, A., "
+    "Harris, K. D., & Carandini, M. (2022). [citation.title]Neural correlates of blood "
+    "flow measured by ultrasound.[/citation.title] [italic]Neuron[/italic], 110(10), "
+    "1631–1640.e4. "
+    "[citation.doi]https://doi.org/10.1016/j.neuron.2022.02.012[/citation.doi]"
+)
 
 _VALID_DATASETS = frozenset({"rawdata", "allenccf_align"})
 """Valid values for the `datasets` parameter of `fetch_nunez_elizalde_2022`."""
@@ -168,6 +175,7 @@ def fetch_nunez_elizalde_2022(
     datatypes: str | list[str] | None = None,
     refresh: bool = False,
     progress_callback: Callable[[int, int, str], None] | None = None,
+    print_citation: bool = True,
 ) -> Path:
     """Fetch the Nunez-Elizalde 2022 fUSI-BIDS dataset.
 
@@ -222,6 +230,8 @@ def fetch_nunez_elizalde_2022(
     progress_callback : Callable[[int, int, str], None], optional
         Callback receiving cumulative downloaded bytes, total bytes to download,
         and a user-facing description. Intended for GUI progress bars.
+    print_citation : bool, default: True
+        Whether to print the citation for the dataset.
 
     Returns
     -------
@@ -302,4 +312,6 @@ def fetch_nunez_elizalde_2022(
     if refresh:
         update_cached_index(bids_dir, index, previous_index or {}, files)
 
+    if print_citation:
+        print_citation_message(_CITATION, "dataset")
     return bids_dir

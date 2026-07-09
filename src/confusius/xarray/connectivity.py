@@ -36,7 +36,7 @@ class FUSIConnectivityAccessor:
             "mean", "sum", "median", "min", "max", "var", "std"
         ] = "mean",
         clean_kwargs: dict | None = None,
-    ) -> "confusius.connectivity.SeedBasedMaps":  # type: ignore[name-defined]  # noqa: F821
+    ) -> "confusius.connectivity.SeedBasedMaps":  # type: ignore  # noqa: F821
         """Fit a seed-based correlation map.
 
         Convenience wrapper around

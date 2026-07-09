@@ -1284,7 +1284,7 @@ def process_iq_to_power_doppler(
         dask_iq = da.from_array(dask_iq)
 
     if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])
+        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if clutter_window_stride is None:
         clutter_window_stride = clutter_window_width
     if doppler_window_width is None:
@@ -1417,7 +1417,7 @@ def process_iq_to_bmode(
         dask_iq = da.from_array(dask_iq)
 
     if bmode_window_width is None:
-        bmode_window_width = cast(int, dask_iq.chunksize[0])
+        bmode_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if bmode_window_stride is None:
         bmode_window_stride = bmode_window_width
 
@@ -1633,7 +1633,7 @@ def process_iq_to_axial_velocity(
         dask_iq = da.from_array(dask_iq)
 
     if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])
+        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if clutter_window_stride is None:
         clutter_window_stride = clutter_window_width
     if velocity_window_width is None:

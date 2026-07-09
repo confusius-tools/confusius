@@ -42,6 +42,7 @@ bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022", sessions="20201007", tasks="spontaneous", acqs="slice02"
 )
 
+# %%
 data_path = (
     Path(bids_root)
     / "sub-CR022"

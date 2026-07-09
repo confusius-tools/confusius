@@ -10,6 +10,18 @@ from pathlib import Path
 import nbformat
 
 
+def _join_str_list(value: object) -> str | None:
+    """Join a list of strings, returning `None` for any other input."""
+    if not isinstance(value, list):
+        return None
+    parts: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        parts.append(item)
+    return "".join(parts)
+
+
 def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
     """Return the tags attached to one notebook cell."""
     return set(cell.metadata.get("tags", []))
@@ -18,11 +30,12 @@ def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
 def _png_data(output: dict[str, object]) -> str | None:
     """Return the base64 PNG payload from an output if present."""
     data = output.get("data")
-    if not isinstance(data, dict) or "image/png" not in data:
+    if not isinstance(data, dict):
         return None
-    png = data["image/png"]
-    if isinstance(png, list):
-        return "".join(png)
+    png = data.get("image/png")
+    png_joined = _join_str_list(png)
+    if png_joined is not None:
+        return png_joined
     if isinstance(png, str):
         return png
     return None
@@ -41,6 +54,31 @@ def _image_tag(*, src: str, alt: str) -> str:
 def _html_block(html: str) -> str:
     """Return a raw HTML block for Markdown output."""
     return '<div class="gallery-rich-output">' + html.rstrip() + "</div>\n"
+
+
+def _output_code_block(text: str) -> str:
+    """Return a fenced code block for plain-text cell output.
+
+    The block is wrapped in a ``gallery-output`` container so docs CSS can wrap long
+    output lines (warnings, reprs, tracebacks) instead of showing a horizontal
+    scrollbar, without affecting the syntax-highlighted input code cells. The
+    ``markdown`` attribute lets Zensical still render the fence as a highlighted block.
+
+    Parameters
+    ----------
+    text : str
+        The plain-text output to display.
+
+    Returns
+    -------
+    str
+        The Markdown for the wrapped, fenced output block.
+    """
+    return (
+        '<div class="gallery-output" markdown>\n\n```\n'
+        + text.rstrip("\n")
+        + "\n```\n\n</div>\n"
+    )
 
 
 def _normalize_html_output(html: str) -> str:
@@ -150,13 +188,15 @@ def _is_blank_widget_output(output: dict[str, object]) -> bool:
     data = output.get("data")
     if not isinstance(data, dict) or not data:
         return False
-    if any(key.startswith("image/") for key in data):
+    if any(isinstance(key, str) and key.startswith("image/") for key in data):
         return False
     if not set(data).issubset({"text/html", "text/plain"}):
         return False
 
     plain = data.get("text/plain", "")
-    text = "".join(plain) if isinstance(plain, list) else str(plain)
+    text = _join_str_list(plain)
+    if text is None:
+        text = str(plain)
     return not text.strip()
 
 
@@ -189,7 +229,9 @@ def _summarize_output(output: dict[str, object]) -> str:
         if isinstance(data, dict):
             for key in keys:
                 value = data[key]
-                text = "".join(value) if isinstance(value, list) else str(value)
+                text = _join_str_list(value)
+                if text is None:
+                    text = str(value)
                 text = text.replace("\n", "\\n")
                 summary += f"\n    {key}: {text[:500]}"
         metadata = output.get("metadata")
@@ -299,7 +341,7 @@ def render_notebook(
             if output_type == "stream":
                 stream_text = _clean_stream_text(str(light_output.get("text", "")))
                 if stream_text:
-                    parts.append("```\n" + stream_text + "\n```\n")
+                    parts.append(_output_code_block(stream_text))
                 continue
 
             if output_type in {"execute_result", "display_data"}:
@@ -342,14 +384,12 @@ def render_notebook(
                     parts.append(_html_block(_normalize_html_output(str(html))))
                     continue
                 if isinstance(light_data, dict) and "text/plain" in light_data:
-                    parts.append(
-                        "```\n" + str(light_data["text/plain"]).rstrip("\n") + "\n```\n"
-                    )
+                    parts.append(_output_code_block(str(light_data["text/plain"])))
                 continue
 
             if output_type == "error":
                 traceback = "\n".join(light_output.get("traceback", []))
-                parts.append("```\n" + traceback + "\n```\n")
+                parts.append(_output_code_block(traceback))
 
     parts.append("\n---\n")
     parts.append(f"**Total running time:** {runtime_seconds:.1f} s\n\n")

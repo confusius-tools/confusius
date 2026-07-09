@@ -1,5 +1,7 @@
 """Tests for confusius.decomposition.FastICA."""
 
+from typing import Literal, TypedDict
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -9,7 +11,15 @@ from sklearn.utils.validation import check_is_fitted
 from confusius.decomposition import FastICA
 
 
-FASTICA_TEST_KWARGS = {
+class _FasticaTestKwargs(TypedDict):
+    n_components: int
+    random_state: int
+    max_iter: int
+    tol: float
+    fun: Literal["cube"]
+
+
+FASTICA_TEST_KWARGS: _FasticaTestKwargs = {
     "n_components": 2,
     "random_state": 0,
     "max_iter": 1000,
@@ -182,13 +192,13 @@ def test_inverse_transform_raises_for_invalid_input_type(sample_3dt_volume):
     model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
-        model.inverse_transform([1, 2, 3])
+        model.inverse_transform([1, 2, 3])  # ty: ignore[invalid-argument-type]
 
 
 def test_fit_rejects_invalid_mode(sample_3dt_volume):
     """fit raises ValueError for unknown mode values."""
     with pytest.raises(ValueError, match="mode must be"):
-        FastICA(mode="invalid").fit(sample_3dt_volume)  # type: ignore[arg-type]
+        FastICA(mode="invalid").fit(sample_3dt_volume)  # ty: ignore[invalid-argument-type]
 
 
 def test_fit_requires_time_dimension(sample_3dt_volume):
@@ -220,7 +230,7 @@ def test_fit_rejects_unexpected_fit_params(sample_3dt_volume):
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         FastICA().fit(
             sample_3dt_volume,
-            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),
+            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),  # ty: ignore[unknown-argument]
         )
 
 

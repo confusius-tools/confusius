@@ -16,7 +16,7 @@ class TestWithLabels:
         with pytest.raises(TypeError, match="xarray.DataArray"):
             extract.extract_with_labels(
                 sample_3dt_volume,
-                np.zeros((4, 6, 8), dtype=int),  # type: ignore[arg-type]
+                np.zeros((4, 6, 8), dtype=int),  # ty: ignore[invalid-argument-type]
             )
 
     def test_labels_dtype_validation(self, sample_3dt_volume):
@@ -127,7 +127,7 @@ class TestWithLabels:
         labels = xr.DataArray(np.ones((3, 4), dtype=int), dims=["y", "x"])
 
         with pytest.raises(ValueError, match="Invalid reduction"):
-            extract.extract_with_labels(data, labels, reduction="invalid")  # type: ignore[arg-type]
+            extract.extract_with_labels(data, labels, reduction="invalid")  # ty: ignore[invalid-argument-type]
 
     def test_dask_laziness(self):
         """Test that the result is lazy when the input is a Dask-backed array."""

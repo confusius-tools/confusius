@@ -136,7 +136,7 @@ def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
 def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
     """Test filter_butterworth_kwargs must be a dict."""
     with pytest.raises(TypeError, match="filter_butterworth_kwargs must be a dict"):
-        clean(sample_timeseries(), filter_butterworth_kwargs=1)  # type: ignore[arg-type]
+        clean(sample_timeseries(), filter_butterworth_kwargs=1)  # ty: ignore[invalid-argument-type]
 
 
 def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
@@ -148,7 +148,7 @@ def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
 def test_clean_rejects_non_dict_interpolate_kwargs(sample_timeseries):
     """Test interpolate_kwargs must be a dict."""
     with pytest.raises(TypeError, match="interpolate_kwargs must be a dict"):
-        clean(sample_timeseries(), interpolate_kwargs=1)  # type: ignore[arg-type]
+        clean(sample_timeseries(), interpolate_kwargs=1)  # ty: ignore[invalid-argument-type]
 
 
 def test_clean_rejects_method_inside_interpolate_kwargs(sample_timeseries):

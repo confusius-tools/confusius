@@ -1,6 +1,7 @@
 """Coordinate spacing and origin helpers shared across modules."""
 
 import warnings
+from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt
@@ -274,6 +275,53 @@ def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
             else:
                 result[dim] = float(coord.values.flat[0])
     return result
+
+
+class GridKwargs(TypedDict):
+    """Output grid specification for SimpleITK-based resampling.
+
+    Bundles the keyword arguments (`shape`, `spacing`, `origin`, `dims`) that
+    resampling helpers accept, each a list in DataArray dimension order.
+    """
+
+    shape: list[int]
+    spacing: list[float]
+    origin: list[float]
+    dims: list[str]
+
+
+def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
+    """Return the resampling grid specification extracted from a DataArray.
+
+    Bundles the `shape`, `spacing`, `origin`, and `dims` that a DataArray defines into
+    the keyword arguments expected by SimpleITK-based resampling helpers such as
+    [`resample_volume`][confusius.registration.resample_volume] and
+    [`sample_displacement_field`][confusius.registration.sample_displacement_field].
+    Spacing comes from
+    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings],
+    falling back to `1.0` for dimensions whose spacing is undefined; origin comes from
+    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Spatial reference DataArray.
+
+    Returns
+    -------
+    GridKwargs
+        Dictionary with `shape`, `spacing`, `origin`, and `dims` keys, each a list in
+        DataArray dimension order.
+    """
+    dims = [str(dim) for dim in data.dims]
+    spacings = get_coordinate_spacings(data)
+    origins = get_coordinate_origins(data)
+    return {
+        "shape": [int(data.sizes[dim]) for dim in dims],
+        "spacing": [s if s is not None else 1.0 for s in spacings.values()],
+        "origin": [float(o) for o in origins.values()],
+        "dims": dims,
+    }
 
 
 def get_axis_aligned_affine(

@@ -32,7 +32,12 @@ class TestDecompose44:
                 for zooms in permutations([1.1, 1.9, 2.3]):
                     for shears in permutations([0.01, 0.04, 0.09]):
                         Rmat = Rotation.from_euler("xyz", rots).as_matrix()
-                        M = compose_affine(trans, Rmat, zooms, shears)
+                        M = compose_affine(
+                            np.asarray(trans, dtype=float),
+                            Rmat,
+                            np.asarray(zooms, dtype=float),
+                            np.asarray(shears, dtype=float),
+                        )
                         T, R, Z, S = decompose_affine(M)
                         assert_array_almost_equal(compose_affine(T, R, Z, S), M)
 

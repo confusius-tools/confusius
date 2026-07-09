@@ -186,7 +186,7 @@ def run(args: argparse.Namespace, viewer: napari.Viewer | None = None) -> napari
                 "--video requires a data file to be specified as well."
             )
         video_panel = widget._accordion_panels["Video"]
-        video_panel._add_video(args.video, layers[0])
+        video_panel._add_video(args.video, layers[0])  # type: ignore
 
     return viewer
 

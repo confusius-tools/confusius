@@ -1,5 +1,7 @@
 """Unit tests for IQ processing functions."""
 
+from typing import Literal, NotRequired, TypedDict
+
 import dask.array as da
 import numpy as np
 import numpy.typing as npt
@@ -17,6 +19,14 @@ from confusius.iq.process import (
     process_iq_to_bmode,
     process_iq_to_power_doppler,
 )
+
+
+class _ProcessedTimingKwargs(TypedDict):
+    clutter_window_width: int
+    clutter_window_stride: int
+    inner_window_width: int
+    inner_window_stride: int
+    processed_time_reference: NotRequired[Literal["start", "center", "end"]]
 
 
 class TestComputeProcessedVolumeTimes:
@@ -167,29 +177,36 @@ class TestComputeProcessedVolumeTimes:
                     },
                 )
             )
-            kwargs = dict(processed_time_reference="start")
+            with pytest.raises(ValueError, match=bad_ref_kwarg):
+                compute_processed_volume_timings(
+                    iq,
+                    clutter_window_width=10,
+                    clutter_window_stride=10,
+                    inner_window_width=10,
+                    inner_window_stride=10,
+                    processed_time_reference="start",
+                )
         else:
-            kwargs = dict(processed_time_reference="invalid")
-
-        kwargs.update(
-            clutter_window_width=10,
-            clutter_window_stride=10,
-            inner_window_width=10,
-            inner_window_stride=10,
-        )
-        with pytest.raises(ValueError, match=bad_ref_kwarg):
-            compute_processed_volume_timings(iq, **kwargs)
+            with pytest.raises(ValueError, match=bad_ref_kwarg):
+                compute_processed_volume_timings(
+                    iq,
+                    clutter_window_width=10,
+                    clutter_window_stride=10,
+                    inner_window_width=10,
+                    inner_window_stride=10,
+                    processed_time_reference="invalid",  # ty: ignore[invalid-argument-type]
+                )
 
     def test_matches_docstring_example(self):
         """Result matches the examples from the docstring."""
         iq = self._make_iq(np.arange(100) * 0.1, volume_acquisition_duration=0.1)
-        kwargs = dict(
-            clutter_window_width=50,
-            clutter_window_stride=50,
-            inner_window_width=50,
-            inner_window_stride=50,
-            processed_time_reference="start",
-        )
+        kwargs: _ProcessedTimingKwargs = {
+            "clutter_window_width": 50,
+            "clutter_window_stride": 50,
+            "inner_window_width": 50,
+            "inner_window_stride": 50,
+            "processed_time_reference": "start",
+        }
         output_times, output_durations = compute_processed_volume_timings(iq, **kwargs)
         assert_allclose(
             output_times,
@@ -197,7 +214,12 @@ class TestComputeProcessedVolumeTimes:
         )
         assert_allclose(output_durations, [5.0, 5.0])
         output_times, output_durations = compute_processed_volume_timings(
-            iq, **{**kwargs, "processed_time_reference": "center"}
+            iq,
+            clutter_window_width=kwargs["clutter_window_width"],
+            clutter_window_stride=kwargs["clutter_window_stride"],
+            inner_window_width=kwargs["inner_window_width"],
+            inner_window_stride=kwargs["inner_window_stride"],
+            processed_time_reference="center",
         )
         assert_allclose(
             output_times,

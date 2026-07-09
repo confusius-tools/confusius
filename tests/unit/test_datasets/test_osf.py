@@ -10,6 +10,7 @@ import pytest
 
 from confusius.datasets._osf import (
     _INDEX_FILENAME,
+    OsfFileInfo,
     download_osf_files,
     get_index,
     read_cached_index,
@@ -19,7 +20,7 @@ from confusius.datasets._osf import (
 
 _FAKE_PROJECT = "testproj"
 _FAKE_BIDS_ROOT = "fake-bids"
-_FAKE_INDEX = {
+_FAKE_INDEX: dict[str, OsfFileInfo] = {
     "a/b/c.nii.gz": {"osf_path": "/file001", "size": 10, "md5": "aaa"},
     "top.json": {"osf_path": "/file002", "size": 20, "md5": "bbb"},
 }
@@ -220,8 +221,12 @@ def _recording_retrieve():
 def test_download_skips_cached_file_without_refresh(tmp_path):
     """A cached file is not re-downloaded when refresh is False, even if stale."""
     (tmp_path / "a.nii.gz").touch()
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}}
-    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "old"}}
+    files: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}
+    }
+    previous: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "old"}
+    }
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
@@ -233,8 +238,12 @@ def test_download_skips_cached_file_without_refresh(tmp_path):
 def test_refresh_redownloads_on_md5_change(tmp_path):
     """refresh re-downloads a cached file whose remote md5 differs from the cache."""
     (tmp_path / "a.nii.gz").touch()
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": "new"}}
-    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": "old"}}
+    files: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": "new"}
+    }
+    previous: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 11, "md5": "old"}
+    }
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
@@ -247,8 +256,12 @@ def test_refresh_redownloads_on_md5_change(tmp_path):
 def test_refresh_skips_when_md5_unchanged(tmp_path):
     """refresh leaves a cached file untouched when the cached and remote md5 match."""
     (tmp_path / "a.nii.gz").touch()
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": "same"}}
-    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": "same"}}
+    files: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": "same"}
+    }
+    previous: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 12, "md5": "same"}
+    }
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
@@ -260,8 +273,12 @@ def test_refresh_skips_when_md5_unchanged(tmp_path):
 def test_refresh_redownloads_when_cached_md5_null(tmp_path):
     """A cached file whose entry has a null md5 is re-downloaded, not trusted."""
     (tmp_path / "a.nii.gz").touch()
-    files = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}}
-    previous = {"a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": None}}
+    files: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"}
+    }
+    previous: dict[str, OsfFileInfo] = {
+        "a.nii.gz": {"osf_path": "/f1", "size": 5, "md5": None}
+    }
 
     retrieve, calls = _recording_retrieve()
     with patch("confusius.datasets._pooch.pooch.retrieve", side_effect=retrieve):
@@ -273,9 +290,9 @@ def test_refresh_redownloads_when_cached_md5_null(tmp_path):
 
 def test_missing_file_downloads_with_known_hash(tmp_path):
     """A missing file is downloaded and its index md5 is forwarded to pooch."""
-    files = {
+    files: dict[str, OsfFileInfo] = {
         "with_md5.nii.gz": {"osf_path": "/f1", "size": 3, "md5": "abc123"},
-        "no_md5.nii.gz": {"osf_path": "/f2", "size": 3},
+        "no_md5.nii.gz": {"osf_path": "/f2", "size": 3, "md5": None},
     }
 
     retrieve, calls = _recording_retrieve()
@@ -330,16 +347,18 @@ def test_download_progress_callback_reports_cumulative_bytes(tmp_path):
 
 def test_update_cached_index_merges_without_replacing(tmp_path):
     """Requested files adopt the remote entry; other files keep their cached one."""
-    remote_index = {
+    remote_index: dict[str, OsfFileInfo] = {
         "requested.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "new"},
         "unrequested.nii.gz": {"osf_path": "/f2", "size": 6, "md5": "remote-changed"},
         "brand_new.nii.gz": {"osf_path": "/f3", "size": 7, "md5": "fresh"},
     }
-    previous_index = {
+    previous_index: dict[str, OsfFileInfo] = {
         "requested.nii.gz": {"osf_path": "/f1", "size": 5, "md5": "old"},
         "unrequested.nii.gz": {"osf_path": "/f2", "size": 6, "md5": "local-baseline"},
     }
-    files = {"requested.nii.gz": remote_index["requested.nii.gz"]}
+    files: dict[str, OsfFileInfo] = {
+        "requested.nii.gz": remote_index["requested.nii.gz"]
+    }
 
     update_cached_index(tmp_path, remote_index, previous_index, files)
 

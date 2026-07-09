@@ -11,12 +11,20 @@ import xarray as xr
 from confusius.io.loadsave import load
 
 from ._pooch import quiet_pooch_logger, retrieve_with_retries
-from ._utils import get_datasets_dir
+from ._utils import get_datasets_dir, plain_citation, print_citation_message
 
 _OSF_PROJECT_ID = "am3jw"
 _TEMPLATE_ROOT = "huang-2025-template"
 _FILENAME = "huang-2026-space-allen50_desc-vascular.nii.gz"
 _TOTAL_SIZE_BYTES = 16_338_947
+_CITATION = (
+    "Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M., "
+    "Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). "
+    "[citation.title]OfUSA: OpenfUS Analyzer, a versatile open-source framework for the "
+    "analysis and visualization of functional ultrasound imaging data across animal "
+    "models.[/citation.title] [italic]bioRxiv[/italic]. "
+    "[citation.doi]https://doi.org/10.1101/2025.09.16.676515[/citation.doi]"
+)
 
 
 def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
@@ -52,6 +60,7 @@ def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
 def fetch_template_huang_2025(
     data_dir: str | Path | None = None,
     refresh: bool = False,
+    print_citation: bool = True,
 ) -> xr.DataArray:
     """Fetch the Huang et al. (2025) mouse vascular fUSI template.
 
@@ -67,6 +76,8 @@ def fetch_template_huang_2025(
         `CONFUSIUS_DATA` environment variable.
     refresh : bool, default: False
         Whether to redownload the template even if it is already cached.
+    print_citation : bool, default: True
+        Whether to print the citation for the template.
 
     Returns
     -------
@@ -100,4 +111,9 @@ def fetch_template_huang_2025(
         with quiet_pooch_logger():
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
-    return load(dest)
+    da = load(dest)
+    da.attrs["citation"] = plain_citation(_CITATION)
+
+    if print_citation:
+        print_citation_message(_CITATION, "template")
+    return da

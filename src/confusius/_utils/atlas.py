@@ -35,7 +35,6 @@ def build_atlas_cmap_and_norm(
     # transparently instead of stealing the first structure's color.
     boundaries = ordered_ids + [ordered_ids[-1] + 1]
 
-    cmap = ListedColormap(rgba, N=len(ordered_ids))
-    cmap.set_under((0.0, 0.0, 0.0, 0.0))
+    cmap = ListedColormap(rgba, under=(0.0, 0.0, 0.0, 0.0))
     norm = BoundaryNorm(boundaries, ncolors=len(ordered_ids), clip=False)
     return cmap, norm

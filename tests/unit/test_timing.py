@@ -89,7 +89,7 @@ def test_convert_time_reference_rejects_invalid_reference() -> None:
         convert_time_reference(
             np.array([0.0, 1.0]),
             volume_duration=0.5,
-            from_reference="invalid",
+            from_reference="invalid",  # ty: ignore[invalid-argument-type]
             to_reference="start",
         )
 
