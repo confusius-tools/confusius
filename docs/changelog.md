@@ -42,6 +42,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Saving to Zarr (via [`save`][confusius.io.save] or `DataArray.fusi.save`) now works
+  for data carrying affines or other numpy-valued attributes: nested numpy arrays are
+  stored as lists and non-serializable attrs (e.g. matplotlib colormaps) are dropped
+  with a warning, matching the NIfTI sidecar behaviour
+  ([#284](https://github.com/confusius-tools/confusius/pull/284)).
 - B-spline control-point DataArrays returned by
   [`register_volume`][confusius.registration.register_volume] no longer have their
   per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
