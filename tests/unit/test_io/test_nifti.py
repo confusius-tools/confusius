@@ -2344,6 +2344,43 @@ class TestSaveNifti:
             loaded.header.get_qform()[:3, :3], np.diag([3.0, 3.0, 3.0]), atol=1e-6
         )
 
+    def test_sheared_coordinate_defining_affine_is_written_to_sform(self, tmp_path):
+        """A sheared coordinate-defining affine is written to sform and preserves pixdim."""
+        data = np.zeros((4, 3, 2), dtype=np.float32)
+        sheared_affine = np.array(
+            [
+                [1.0, 0.25, 0.0, 4.0],
+                [0.0, 1.0, 0.0, 5.0],
+                [0.0, 0.0, 1.0, 6.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        da = xr.DataArray(
+            data,
+            dims=["z", "y", "x"],
+            coords={
+                "z": np.arange(4) * 1.0,
+                "y": np.arange(3) * 1.0,
+                "x": np.arange(2) * 1.0,
+            },
+            attrs={"affines": {"physical_to_qform": sheared_affine}},
+        )
+        output_path = tmp_path / "sheared_qform_promoted.nii.gz"
+        with pytest.warns(UserWarning, match="coordinate-defining affine contains shear"):
+            save_nifti(da, output_path)
+
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
+        assert loaded.header.get_qform(coded=True)[1] == 0
+        assert loaded.header.get_sform(coded=True)[1] == 1
+        expected_sform = sheared_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+        np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
+        np.testing.assert_allclose(loaded.header.structarr["pixdim"][1:4], [1.0, 1.0, 1.0])
+
+        sidecar_path = tmp_path / "sheared_qform_promoted.json"
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert "ConfUSIusAffines" not in sidecar
+
     def test_named_sform_sets_sform_code(self, tmp_path):
         """Providing `sform=` writes a sform with code=1 by default."""
         data = np.zeros((4, 3, 2), dtype=np.float32)

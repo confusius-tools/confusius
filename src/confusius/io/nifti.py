@@ -1919,6 +1919,14 @@ def _build_selected_nifti_affine(
     return np.asarray(transform)[[2, 1, 0, 3]][:, [2, 1, 0, 3]] @ voxel_to_physical
 
 
+def _nifti_affine_has_shear(
+    affine: npt.NDArray[np.floating], *, atol: float = 1e-8
+) -> bool:
+    """Whether a NIfTI-order affine contains shear and cannot be stored in qform."""
+    _, _, _, shear = decompose_affine(np.asarray(affine, dtype=np.float64))
+    return not np.allclose(shear, 0.0, atol=atol)
+
+
 def _prepare_nifti_xforms(
     data_array: xr.DataArray,
     *,
@@ -1978,6 +1986,7 @@ def _prepare_nifti_xforms(
     }
     resolved_codes: dict[str, int] = {}
     header_affines: dict[str, npt.NDArray[np.floating] | None] = {}
+    resolved_keys: dict[str, str | None] = {}
     written_header_affine_keys: set[str] = set()
 
     for form_name in ("qform", "sform"):
@@ -1987,6 +1996,7 @@ def _prepare_nifti_xforms(
             selected_key=selected_keys[form_name],
             default_key=default_affine_keys[form_name],
         )
+        resolved_keys[form_name] = resolved_key
         resolved_code = _resolve_nifti_xform_code(
             data_array,
             form_name=form_name,
@@ -2009,9 +2019,28 @@ def _prepare_nifti_xforms(
         if resolved_code > 0 and resolved_key is not None:
             written_header_affine_keys.add(resolved_key)
 
-    # We're guaranteed that qform isn't None since we always build a fallback affine for
-    # it.
     assert header_affines["qform"] is not None
+    if resolved_codes["qform"] > 0 and _nifti_affine_has_shear(header_affines["qform"]):
+        warnings.warn(
+            "The coordinate-defining affine contains shear, which NIfTI qform cannot "
+            "represent. Writing this geometry to sform instead and disabling qform.",
+            stacklevel=find_stack_level(),
+        )
+        resolved_codes["qform"] = 0
+        qform_key = resolved_keys["qform"]
+        if qform_key is not None:
+            written_header_affine_keys.discard(qform_key)
+
+        if resolved_codes["sform"] == 0 or header_affines["sform"] is None:
+            header_affines["sform"] = header_affines["qform"].copy()
+            resolved_codes["sform"] = _resolve_nifti_xform_code(
+                data_array,
+                form_name="sform",
+                code=explicit_codes["sform"],
+                has_affine=True,
+            )
+            if qform_key is not None:
+                written_header_affine_keys.add(qform_key)
     return (
         stored_affines,
         header_affines["qform"],
@@ -2190,14 +2219,26 @@ def _create_nifti_image(
     # Setting the qform also sets several parameters in the NIfTI header:
     # the pixdim[1:4] (from zooms), qoffset_xyz (from translation), qfac (from
     # determinant of the rotation block) and quatern_bcd (from the quaternion
-    # representation).
-    # obs.: qform is always valid at this point.
-    nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
+    # representation). When qform_code is 0, leave qform unset rather than letting
+    # nibabel silently strip an unrepresentable shear.
+    if resolved_qform_code > 0:
+        nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
+    else:
+        nifti_img.header.set_qform(None, code=0)
 
     if sform_affine is not None:
         nifti_img.header.set_sform(sform_affine, code=resolved_sform_code)
     else:
         nifti_img.header.set_sform(None, code=0)
+
+    # When qform is disabled (for example because the coordinate-defining affine
+    # contains shear and was promoted to sform), keep the header voxel sizes tied to
+    # the coordinate spacing we chose for serialization. Do not do this when qform is
+    # active: qform owns pixdim[1:4], including signed-axis handling via qfac.
+    if resolved_qform_code == 0:
+        nifti_img.header.structarr["pixdim"][1:4] = np.asarray(
+            np.abs(spacings[:3]), dtype=np.float32
+        )
 
     spatial_units = set()
     for dim in ("x", "y", "z"):
@@ -2252,11 +2293,16 @@ def save_nifti(
     qform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
         provided, `"physical_to_qform"` is used if present; otherwise qform falls back
-        to a diagonal affine derived from voxel spacing.
+        to the coordinate-defining voxel geometry.
+
+        If the coordinate-defining affine contains shear, qform writing is disabled
+        because the NIfTI qform cannot represent shear. In that case, the geometry is
+        written to sform instead.
     sform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
         provided, `"physical_to_sform"` is used if present; otherwise no sform is
-        written.
+        written unless the coordinate-defining affine contains shear and must be
+        written to sform.
     qform_code : int, optional
         NIfTI qform code to write. When provided, takes precedence over
         `data_array.attrs["qform_code"]`. When not provided, the value from
