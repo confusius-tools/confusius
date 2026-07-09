@@ -16,6 +16,10 @@
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
+#
+# The recording is a single coronal slice imaged for approximately 4 minutes at 3.33 Hz.
+# Registration works on a static anatomical image, so we use the temporal mean,
+# converted to decibels for a more stable dynamic range.
 
 # %%
 from pathlib import Path
@@ -32,13 +36,13 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 xr.set_options(display_expand_data=False)
 
+template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
+
 bids_root = cf.datasets.fetch_nunez_elizalde_2022(
-    subjects="CR022",
-    sessions="20201007",
-    tasks="spontaneous",
-    acqs="slice02",
+    subjects="CR022", sessions="20201007", tasks="spontaneous", acqs="slice02"
 )
 
+# %%
 data_path = (
     Path(bids_root)
     / "sub-CR022"
@@ -46,12 +50,10 @@ data_path = (
     / "fusi"
     / "sub-CR022_ses-20201007_task-spontaneous_acq-slice02_pwd.nii.gz"
 )
-# The recording's timepoints are not perfectly uniformly spaced, so we resample to a
-# uniform grid before any time-domain processing.
+# The recording's timepoints are not perfectly uniformly spaced so we resample to a
+# uniform grid before any time-domain processing (filtering below requires it).
 data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
-
-template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
 
 # %% [markdown]
 # As in the correlation-matrix example, we initialize the registration with an affine

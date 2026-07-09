@@ -449,3 +449,25 @@
   aspect-ratio: 4 / 3;
   object-fit: cover;
 }
+
+/* Rich-rendered text (e.g. the dataset citation banner the fetchers print) embeds
+   as a monospace block carrying inline `white-space:pre;overflow-x:auto`, which
+   produces a horizontal scrollbar on narrow columns. Wrap it instead. Scoped by
+   rich's inline `font-family:Menlo…` so xarray HTML reprs, which should keep
+   scrolling horizontally, are left untouched. `overflow-wrap:anywhere` breaks a
+   long unbreakable token (e.g. a DOI URL) that has no natural wrap point. */
+.gallery-rich-output [style*="Menlo"] {
+  white-space: pre-wrap !important;
+  overflow-x: hidden !important;
+  overflow-wrap: anywhere;
+}
+
+/* Plain-text example output (warnings, reprs, tracebacks) is wrapped in a
+   `.gallery-output` container by the gallery builder. Wrap long lines instead of
+   showing a horizontal scrollbar. Scoped to that container so authored code
+   blocks and xarray text reprs elsewhere in the docs keep scrolling. */
+.gallery-output .highlight pre,
+.gallery-output .highlight code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

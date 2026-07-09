@@ -8,6 +8,8 @@ from qtpy.QtGui import QColor, QIcon, QImage, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer as _QSvgRenderer
 from qtpy.QtWidgets import QApplication, QToolButton, QWidget
 
+from confusius._utils.colors import RED, RED_DARK
+
 _ASSETS_DIR = Path(__file__).parent / "assets"
 """Directory containing SVG icon assets for export buttons."""
 
@@ -59,7 +61,7 @@ def get_napari_colors(theme_name: str) -> dict:
     return {
         "bg": bg,
         "fg": fg,
-        "accent": "#e94b5f" if is_dark else "#d93a54",
+        "accent": RED if is_dark else RED_DARK,
         "is_dark": is_dark,
     }
 
