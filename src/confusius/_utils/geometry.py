@@ -330,6 +330,16 @@ def add_physical_coords_from_voxel_affine(
             if name in result.coords:
                 result.coords[name].attrs.update(dict(attrs))
 
+    physical_spacings = get_physical_spacings(voxel_coords, voxel_to_physical_array)
+    for dim, name in zip(voxel_dims, physical_coord_names, strict=True):
+        spacing = physical_spacings[dim]
+        if (
+            name in result.coords
+            and spacing is not None
+            and "voxdim" not in result.coords[name].attrs
+        ):
+            result.coords[name].attrs["voxdim"] = float(spacing)
+
     return result
 
 
@@ -361,7 +371,11 @@ def restore_physical_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArra
 
     physical_coord_names = get_voxel_affine_physical_coord_names(data)
     physical_coord_attrs = {
-        name: dict(data.coords[name].attrs)
+        name: {
+            key: value
+            for key, value in dict(data.coords[name].attrs).items()
+            if key != "voxdim"
+        }
         for name in physical_coord_names
         if name in data.coords
     }

@@ -74,7 +74,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("y", "x")
+        assert da.dims == ("j", "i")
         assert da.shape == (6, 8)
         assert da.dtype == np.float32
         np.testing.assert_array_equal(da.values, expected_data.T)
@@ -85,7 +85,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("z", "y", "x")
+        assert da.dims == ("k", "j", "i")
         assert da.shape == (6, 8, 10)
         assert da.dtype == np.float32
         np.testing.assert_array_equal(da.values, expected_data.transpose(2, 1, 0))
@@ -96,7 +96,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         assert da.shape == (6, 8, 10, 12)
         assert da.dtype == np.float64
         np.testing.assert_array_equal(
@@ -112,7 +112,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("dim4", "time", "z", "y", "x")
+        assert da.dims == ("dim4", "time", "k", "j", "i")
         assert da.shape == (6, 5, 4, 3, 2)
         np.testing.assert_array_equal(da.values, data.transpose(4, 3, 2, 1, 0))
 
@@ -133,7 +133,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
+        assert da.dims == ("component", "k", "j", "i")
         assert da.shape == (3, 4, 5, 6)
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
@@ -156,7 +156,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("blahblah", "z", "y", "x")
+        assert da.dims == ("blahblah", "k", "j", "i")
         assert da.sizes["blahblah"] == 2
 
     def test_load_4d_nifti_without_dim4_sidecar_keeps_time(
@@ -169,7 +169,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         assert "time" in da.coords
 
     def test_load_6d_nifti_with_dim5_sidecar(self, tmp_path: Path) -> None:
@@ -191,7 +191,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("echo", "channel", "time", "z", "y", "x")
+        assert da.dims == ("echo", "channel", "time", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["channel"].values, np.array([0.0, 1.0])
         )
@@ -210,7 +210,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
+        assert da.dims == ("component", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
@@ -232,7 +232,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
+        assert da.dims == ("component", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
@@ -255,7 +255,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
+        assert da.dims == ("component", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, -2.0, -4.0])
         )
@@ -274,7 +274,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["time"].values, np.arange(5, dtype=np.float64)
         )
@@ -347,7 +347,7 @@ class TestLoadNifti:
 
         loaded = load_nifti(path)
 
-        assert loaded.coords["slice_time"].dims == ("time", "z")
+        assert loaded.coords["slice_time"].dims == ("time", "k")
         np.testing.assert_allclose(
             loaded.coords["slice_time"].values,
             loaded.coords["time"].values[:, np.newaxis]
@@ -384,7 +384,7 @@ class TestLoadNifti:
         assert "volume_timing" not in loaded.attrs
         assert "volume_acquisition_duration" not in loaded.attrs
 
-        assert loaded.coords["slice_time"].dims == ("z",)
+        assert loaded.coords["slice_time"].dims == ("k",)
         np.testing.assert_allclose(
             loaded.coords["slice_time"].values,
             np.array([2.05, 2.15, 2.25]),
@@ -892,7 +892,7 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
             da = load_nifti(nifti_path)
 
-        assert da.dims == ("y", "x")
+        assert da.dims == ("j", "i")
         assert "z" not in da.coords
         assert da.coords["x"].attrs["units"] == "mm"
         assert da.coords["y"].attrs["units"] == "mm"
@@ -1066,7 +1066,7 @@ class TestSaveNifti:
         )
 
         roundtripped = load_nifti(output_path)
-        assert roundtripped.dims == ("channel", "time", "z", "y", "x")
+        assert roundtripped.dims == ("channel", "time", "k", "j", "i")
         np.testing.assert_array_equal(roundtripped.values, data)
 
     def test_save_4d_no_time_writes_dim4_sidecar(self, tmp_path) -> None:
@@ -1124,12 +1124,12 @@ class TestSaveNifti:
         # `y` was missing on save; NIfTI requires a length-1 `y` slot, so the
         # roundtrip exposes it as a singleton axis (the loader cannot tell it
         # apart from a genuine unitary `y`).
-        assert roundtripped.dims == ("component", "z", "y", "x")
-        assert roundtripped.sizes == {"component": 3, "z": 4, "y": 1, "x": 6}
+        assert roundtripped.dims == ("component", "k", "j", "i")
+        assert roundtripped.sizes == {"component": 3, "k": 4, "j": 1, "i": 6}
         np.testing.assert_array_equal(
             roundtripped.coords["component"].values, [0, 1, 2]
         )
-        np.testing.assert_array_equal(roundtripped.squeeze("y", drop=True).values, data)
+        np.testing.assert_array_equal(roundtripped.squeeze("j", drop=True).values, data)
 
     def test_save_irregular_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""
@@ -1203,7 +1203,7 @@ class TestSaveNifti:
         save_nifti(da, output_path)
 
         roundtripped = load_nifti(output_path)
-        assert roundtripped.dims == ("component", "z", "y", "x")
+        assert roundtripped.dims == ("component", "k", "j", "i")
         assert roundtripped.sizes["component"] == 1
         np.testing.assert_array_equal(roundtripped.coords["component"].values, [0.0])
 

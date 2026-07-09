@@ -276,9 +276,9 @@ def _attach_scan_voxel_affine_geometry(
         voxel_dims=("k", "j", "i"),
         physical_coord_names=("z", "y", "x"),
         physical_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
+            "z": {"units": "mm", "voxdim": float(abs(voxel_to_physical[0, 0]))},
+            "y": {"units": "mm", "voxdim": float(abs(voxel_to_physical[1, 1]))},
+            "x": {"units": "mm", "voxdim": float(abs(voxel_to_physical[2, 2]))},
         },
     )
 
@@ -341,7 +341,6 @@ def load_scan(
     path: str | Path,
     bps_path: str | Path | None = None,
     chunks: int | tuple[int, ...] | str | None = "auto",
-    coordinate_model: str = "legacy",
 ) -> xr.DataArray:
     """Load an Iconeus SCAN file as a lazy Xarray DataArray.
 
@@ -352,6 +351,10 @@ def load_scan(
     file remains open while the Dask graph is un-computed. Call `.compute()` before
     closing the file, or keep the returned DataArray in scope to prevent the handle from
     being garbage-collected.
+
+    The returned scan always uses the voxel-affine coordinate model: 1D voxel-space
+    coordinates `k`, `j`, `i` plus physical coordinates `z`, `y`, `x` derived from a
+    single `attrs["voxel_to_physical"]` affine.
 
     Parameters
     ----------
@@ -369,32 +372,17 @@ def load_scan(
         - A size in bytes like `"100 MiB"`.
         - `"auto"` to let Dask choose based on heuristics.
         - `-1` or `None` for the full dimension size (no chunking).
-    coordinate_model : {"legacy", "voxel_affine"}, default: "legacy"
-        Spatial coordinate representation to construct.
-
-        - `"legacy"` keeps the current 1D physical coordinates `z`, `y`, `x`.
-        - `"voxel_affine"` creates 1D voxel-space coordinates `k`, `j`, `i` plus
-          lazy physical coordinates `z`, `y`, `x` derived from a single
-          `attrs["voxel_to_physical"]` affine.
 
     Returns
     -------
     xarray.DataArray
         Lazy DataArray with dimensions and coordinates:
 
-        - `coordinate_model="legacy"`:
+        - `2Dscan` → `(time, k, j, i)`.
+        - `3Dscan` → `(pose, k, j, i)`.
+        - `4Dscan` → `(time, pose, k, j, i)`.
 
-          - `2Dscan` → `(time, z, y, x)`.
-          - `3Dscan` → `(pose, z, y, x)`.
-          - `4Dscan` → `(time, pose, z, y, x)`.
-
-        - `coordinate_model="voxel_affine"`:
-
-          - `2Dscan` → `(time, k, j, i)`.
-          - `3Dscan` → `(pose, k, j, i)`.
-          - `4Dscan` → `(time, pose, k, j, i)`.
-
-        All physical coordinates are in millimeters. The `time` coordinate is in
+        Physical coordinates `z`, `y`, `x` are in millimeters. The `time` coordinate is in
         seconds. For `4Dscan`, a `pose_time` non-dimension coordinate of shape
         `(time, pose)` stores the actual per-pose acquisition timestamps.
 
@@ -442,9 +430,6 @@ def load_scan(
             h5["/acqMetaData/probeToLab"][()], dtype=np.float64
         )
 
-        spatial_coords = _coords_from_voxels_to_probe(
-            voxels_to_probe, size_x, size_y, size_z
-        )
         voxel_coords = _make_scan_voxel_coords(size_x, size_y, size_z)
         voxel_to_physical = _build_voxel_to_confusius_physical(voxels_to_probe)
         physical_to_lab = _build_physical_to_lab(probe_to_lab)
@@ -463,48 +448,28 @@ def load_scan(
 
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
 
-        if coordinate_model == "legacy":
-            if mode == "2Dscan":
-                data_array = _load_2dscan(h5, raw_lazy, spatial_coords, attrs)
-            elif mode == "3Dscan":
-                data_array = _load_3dscan(raw_lazy, spatial_coords, attrs, npose)
-            elif mode == "4Dscan":
-                data_array = _load_4dscan(
-                    h5, raw_lazy, spatial_coords, attrs, npose, nblock_repeat
-                )
-            else:
-                raise ValueError(
-                    f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
-                    " '3Dscan', '4Dscan'."
-                )
-        elif coordinate_model == "voxel_affine":
-            if mode == "2Dscan":
-                data_array = _load_2dscan_voxel_affine(
-                    h5, raw_lazy, voxel_coords, attrs, voxel_to_physical
-                )
-            elif mode == "3Dscan":
-                data_array = _load_3dscan_voxel_affine(
-                    raw_lazy, voxel_coords, attrs, npose, voxel_to_physical
-                )
-            elif mode == "4Dscan":
-                data_array = _load_4dscan_voxel_affine(
-                    h5,
-                    raw_lazy,
-                    voxel_coords,
-                    attrs,
-                    npose,
-                    nblock_repeat,
-                    voxel_to_physical,
-                )
-            else:
-                raise ValueError(
-                    f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
-                    " '3Dscan', '4Dscan'."
-                )
+        if mode == "2Dscan":
+            data_array = _load_2dscan_voxel_affine(
+                h5, raw_lazy, voxel_coords, attrs, voxel_to_physical
+            )
+        elif mode == "3Dscan":
+            data_array = _load_3dscan_voxel_affine(
+                raw_lazy, voxel_coords, attrs, npose, voxel_to_physical
+            )
+        elif mode == "4Dscan":
+            data_array = _load_4dscan_voxel_affine(
+                h5,
+                raw_lazy,
+                voxel_coords,
+                attrs,
+                npose,
+                nblock_repeat,
+                voxel_to_physical,
+            )
         else:
             raise ValueError(
-                f"Unknown coordinate_model {coordinate_model!r}. Expected 'legacy' or "
-                "'voxel_affine'."
+                f"Unknown acquisitionMode: {mode!r}. Expected one of '2Dscan',"
+                " '3Dscan', '4Dscan'."
             )
 
         data_array.name = attrs["iconeus_scan"] or path.stem

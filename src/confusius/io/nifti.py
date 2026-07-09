@@ -14,6 +14,11 @@ import dask.array as da
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+
+from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
+    has_voxel_affine_geometry,
+)
 from pydantic import ValidationError
 
 from confusius._utils.coordinates import (
@@ -203,6 +208,8 @@ class _NiftiHeaderExtractor:
 
 def _select_affines(
     header: "nib.nifti1.Nifti1Header | nib.nifti2.Nifti2Header",
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> tuple[npt.NDArray[np.floating] | None, npt.NDArray[np.floating] | None]:
     """Select primary and secondary affine matrices from a NiBabel header.
 
@@ -228,6 +235,15 @@ def _select_affines(
     qform, qform_code = header.get_qform(coded=True)
     sform_valid = sform_code > 0 and sform is not None
     qform_valid = qform_code > 0 and qform is not None
+
+    if coordinate_affine == "sform":
+        if not sform_valid:
+            return None, None
+        return sform, (qform if qform_valid else None)
+    if coordinate_affine == "qform":
+        if not qform_valid:
+            return None, None
+        return qform, (sform if sform_valid else None)
 
     if sform_valid:
         return sform, (qform if qform_valid else None)
@@ -313,6 +329,8 @@ def _create_spatial_coords_from_nifti(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
     extractor: "_NiftiHeaderExtractor",
     dims: tuple[str, ...],
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> tuple[dict[str, xr.DataArray], dict[str, Any]]:
     """Create spatial coordinate arrays and affine attributes from a NIfTI image.
 
@@ -348,7 +366,10 @@ def _create_spatial_coords_from_nifti(
     """
     voxel_sizes = extractor.get_voxel_dimensions()
     space_unit, _ = extractor.get_unit_strings()
-    primary_affine, secondary_affine = _select_affines(img.header)
+    primary_affine, secondary_affine = _select_affines(
+        img.header,
+        coordinate_affine=coordinate_affine,
+    )
 
     coords: dict[str, xr.DataArray] = {}
     extra_attrs: dict[str, Any] = {}
@@ -914,8 +935,58 @@ def _squeeze_synthetic_singleton_dims(
     return data_array.squeeze(dim="time", drop=True)
 
 
+def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
+    """Convert loaded NIfTI coordinates to the voxel-affine model.
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        Loaded NIfTI DataArray using axis-aligned spatial dims.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray with voxel dims `k`/`j`/`i` plus physical `z`/`y`/`x` coordinates.
+    """
+    spatial_dims = tuple(dim for dim in ("z", "y", "x") if dim in data_array.dims)
+    if len(spatial_dims) not in {2, 3}:
+        return data_array
+
+    voxel_dims = tuple(dim for dim in ("k", "j", "i")[-len(spatial_dims) :])
+    rename_map = dict(zip(spatial_dims, voxel_dims, strict=True))
+    physical_coord_attrs = {
+        dim: dict(data_array.coords[dim].attrs)
+        for dim in spatial_dims
+        if dim in data_array.coords
+    }
+    spacing = [
+        float(data_array.coords[dim].attrs.get("voxdim", 1.0)) for dim in spatial_dims
+    ]
+    origin = [
+        float(np.asarray(data_array.coords[dim].values)[0]) for dim in spatial_dims
+    ]
+    voxel_to_physical = np.eye(len(spatial_dims) + 1, dtype=np.float64)
+    voxel_to_physical[:-1, :-1] = np.diag(spacing)
+    voxel_to_physical[:-1, -1] = origin
+
+    result = data_array.rename(rename_map)
+    for dim in voxel_dims:
+        result = result.assign_coords({dim: np.arange(result.sizes[dim], dtype=float)})
+
+    return add_physical_coords_from_voxel_affine(
+        result,
+        voxel_to_physical,
+        voxel_dims=voxel_dims,
+        physical_coord_names=spatial_dims,
+        physical_coord_attrs=physical_coord_attrs,
+    )
+
+
 def load_nifti(
-    path: str | Path, chunks: int | tuple[int, ...] | str | None = "auto"
+    path: str | Path,
+    chunks: int | tuple[int, ...] | str | None = "auto",
+    *,
+    coordinate_affine: Literal["auto", "sform", "qform"] = "auto",
 ) -> xr.DataArray:
     """Load a NIfTI file as a lazy Xarray DataArray.
 
@@ -931,7 +1002,7 @@ def load_nifti(
     path : str or pathlib.Path
         Path to the NIfTI file (`.nii` or `.nii.gz`).
     chunks : int or tuple[int, ...] or str or None, default: "auto"
-        How to chunk the array. Must be one of the following forms:
+        How to chunk the array. Must be one of the following forms.
 
         - A blocksize like `1000`.
         - A blockshape like `(1000, 1000)`.
@@ -944,12 +1015,19 @@ def load_nifti(
           determined.
         - `-1` or `None` as a blocksize indicate the size of the corresponding
           dimension.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry. `"auto"`
+        prefers sform over qform when both are valid.
+    coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
+        Header affine to use as the primary coordinate-defining geometry. `"auto"`
+        prefers sform over qform when both are valid.
 
     Returns
     -------
     xarray.DataArray
-        Lazy DataArray with dimensions in ConfUSIus order. Data is wrapped in a Dask
-        array for out-of-core computation.
+        Lazy DataArray with voxel-space dimensions in ConfUSIus order (`k`, `j`, `i`
+        plus optional `time`) and physical coordinates `z`, `y`, `x`. Data is wrapped
+        in a Dask array for out-of-core computation.
 
     Notes
     -----
@@ -1015,7 +1093,10 @@ def load_nifti(
     _pop_extra_dim_attrs(attrs)
 
     spatial_coords, affine_attrs = _create_spatial_coords_from_nifti(
-        img=img, extractor=extractor, dims=nifti_dims
+        img=img,
+        extractor=extractor,
+        dims=nifti_dims,
+        coordinate_affine=coordinate_affine,
     )
     # Merge NIfTI-header-derived affines with any pre-existing affines (e.g. loaded
     # from the sidecar) so sidecar entries like `bspline_initialization` are not
@@ -1057,7 +1138,10 @@ def load_nifti(
         and has_extra_dims
         and not has_explicit_time_metadata
     )
-    return _squeeze_synthetic_singleton_dims(data_array, drop_time=drop_synthetic_time)
+    data_array = _squeeze_synthetic_singleton_dims(
+        data_array, drop_time=drop_synthetic_time
+    )
+    return _promote_nifti_to_voxel_affine(data_array)
 
 
 def _infer_repetition_time(
@@ -1752,6 +1836,54 @@ def _resolve_nifti_xform_code(
     return 1 if has_affine else 0
 
 
+def _build_nifti_voxel_to_physical_affine(
+    data_array: xr.DataArray,
+    *,
+    spatial_spacings: list[float],
+) -> npt.NDArray[np.floating]:
+    """Build the NIfTI voxel-to-physical affine for serialized grid geometry."""
+    if not has_voxel_affine_geometry(data_array):
+        origin = np.array(
+            [
+                float(data_array.coords[dim][0]) if dim in data_array.coords else 0.0
+                for dim in ("x", "y", "z")
+            ]
+        )
+        spacings = np.array(spatial_spacings)
+        return get_axis_aligned_affine(origin, spacings)
+
+    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data_array.dims)
+    if len(voxel_dims) != 3:
+        raise ValueError(
+            "Saving voxel-affine NIfTI currently requires 3D spatial geometry."
+        )
+
+    index_to_voxel = np.eye(4, dtype=np.float64)
+    for axis, dim in enumerate(voxel_dims):
+        coord = np.asarray(data_array.coords[dim].values, dtype=np.float64)
+        if coord.size == 0:
+            raise ValueError(f"Cannot save empty voxel coordinate {dim!r} to NIfTI.")
+        if coord.size == 1:
+            start = float(coord[0])
+            step = 1.0
+        else:
+            step, approximate = get_representative_step(coord)
+            if approximate or step is None:
+                raise ValueError(
+                    "Saving voxel-affine data to NIfTI requires regularly sampled "
+                    f"voxel coordinates, but {dim!r} is irregular."
+                )
+            start = float(coord[0])
+        index_to_voxel[axis, axis] = float(step)
+        index_to_voxel[axis, 3] = start
+
+    voxel_to_physical = np.asarray(
+        data_array.attrs["voxel_to_physical"], dtype=np.float64
+    )
+    confusius_affine = voxel_to_physical @ index_to_voxel
+    return confusius_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+
+
 def _build_selected_nifti_affine(
     data_array: xr.DataArray,
     *,
@@ -1759,38 +1891,16 @@ def _build_selected_nifti_affine(
     stored_affines: dict[str, Any],
     affine_key: str | None,
 ) -> npt.NDArray[np.floating]:
-    """Build a NIfTI header affine from a selected stored affine key.
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        Array being serialized.
-    spatial_spacings : list[float]
-        Spatial spacings for the NIfTI `x`, `y`, and `z` axes.
-    stored_affines : dict[str, Any]
-        Affines stored in `data_array.attrs["affines"]`.
-    affine_key : str, optional
-        Key of the stored ConfUSIus physical-to-world affine to encode. When `None`, a
-        diagonal NIfTI affine is built directly from coordinate origin and spacing.
-
-    Returns
-    -------
-    (4, 4) numpy.ndarray
-        NIfTI voxel-to-world affine in NIfTI axis order.
-    """
-    origin = np.array(
-        [
-            float(data_array.coords[dim][0]) if dim in data_array.coords else 0.0
-            for dim in ("x", "y", "z")
-        ]
+    """Build a NIfTI header affine from voxel geometry plus an optional transform."""
+    voxel_to_physical = _build_nifti_voxel_to_physical_affine(
+        data_array,
+        spatial_spacings=spatial_spacings,
     )
-    spacings = np.array(spatial_spacings)
-    transform = (
-        _validate_affine_matrix(stored_affines[affine_key], name=affine_key)
-        if affine_key is not None
-        else None
-    )
-    return _build_nifti_affine(transform, origin, spacings)
+    if affine_key is None:
+        return voxel_to_physical
+
+    transform = _validate_affine_matrix(stored_affines[affine_key], name=affine_key)
+    return np.asarray(transform)[[2, 1, 0, 3]][:, [2, 1, 0, 3]] @ voxel_to_physical
 
 
 def _prepare_nifti_xforms(
@@ -1958,7 +2068,7 @@ def _build_nifti_sidecar_metadata(
     sidecar_attrs = {
         k: v
         for k, v in data_array.attrs.items()
-        if k not in ("sform_code", "qform_code", "affines")
+        if k not in ("sform_code", "qform_code", "affines", "voxel_to_physical")
     }
     if "time" in data_array.coords:
         from_unit = data_array.coords["time"].attrs.get("units")
