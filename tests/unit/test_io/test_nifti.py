@@ -1776,7 +1776,7 @@ class TestSaveNifti:
         output_path = tmp_path / "output_nifti2.nii"
         save_nifti(da, output_path, nifti_version=2)
 
-        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
+        loaded = nib.nifti2.Nifti2Image.from_filename(output_path)
         assert isinstance(loaded, nib.nifti2.Nifti2Image)
 
     def test_save_valid_derived_metadata_emits_no_validation_warning(
