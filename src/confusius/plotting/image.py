@@ -219,7 +219,9 @@ def _project_voxel_affine_plane(
 
 
 def _resample_voxel_affine_to_physical_grid(
-    data: xr.DataArray, slice_mode: str
+    data: xr.DataArray,
+    slice_mode: str,
+    reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
     """Resample voxel-affine data onto an axis-aligned physical grid for plotting.
 
@@ -229,6 +231,10 @@ def _resample_voxel_affine_to_physical_grid(
         Three-dimensional voxel-affine DataArray.
     slice_mode : str
         Requested plotting slice dimension.
+    reference : xarray.DataArray, optional
+        Axis-aligned physical-grid DataArray to reuse as the resampling target.
+        If not provided, a new plotting grid is synthesized from `data`'s physical
+        bounds and finest spatial spacing.
 
     Returns
     -------
@@ -239,37 +245,44 @@ def _resample_voxel_affine_to_physical_grid(
     if not _has_voxel_affine_geometry(data) or slice_mode not in {"z", "y", "x"}:
         return data
 
-    from confusius.registration import resample_volume
+    from confusius.registration import resample_like, resample_volume
 
     physical_dims = get_voxel_affine_physical_coord_names(data)
     if slice_mode not in physical_dims:
         return data
 
-    spacing_values = [
-        float(spacing)
-        for dim, spacing in data.fusi.spacing.items()
-        if dim != "time" and spacing is not None
-    ]
-    spacing = min(spacing_values)
+    if reference is not None:
+        result = resample_like(
+            data,
+            reference,
+            np.eye(len(physical_dims) + 1, dtype=np.float64),
+        )
+    else:
+        spacing_values = [
+            float(spacing)
+            for dim, spacing in data.fusi.spacing.items()
+            if dim != "time" and spacing is not None
+        ]
+        spacing = min(spacing_values)
 
-    origin: list[float] = []
-    shape: list[int] = []
-    for dim in physical_dims:
-        values = np.asarray(data.coords[dim].values, dtype=np.float64)
-        lower = float(np.min(values))
-        upper = float(np.max(values))
-        origin.append(lower)
-        shape.append(int(np.ceil((upper - lower) / spacing)) + 1)
+        origin: list[float] = []
+        shape: list[int] = []
+        for dim in physical_dims:
+            values = np.asarray(data.coords[dim].values, dtype=np.float64)
+            lower = float(np.min(values))
+            upper = float(np.max(values))
+            origin.append(lower)
+            shape.append(int(np.ceil((upper - lower) / spacing)) + 1)
 
-    result = resample_volume(
-        data,
-        np.eye(len(physical_dims) + 1, dtype=np.float64),
-        shape=shape,
-        spacing=[spacing] * len(physical_dims),
-        origin=origin,
-        dims=physical_dims,
-        direction=np.eye(len(physical_dims), dtype=np.float64),
-    )
+        result = resample_volume(
+            data,
+            np.eye(len(physical_dims) + 1, dtype=np.float64),
+            shape=shape,
+            spacing=[spacing] * len(physical_dims),
+            origin=origin,
+            dims=physical_dims,
+            direction=np.eye(len(physical_dims), dtype=np.float64),
+        )
     result.attrs.pop("voxel_to_physical", None)
     for dim in physical_dims:
         result.coords[dim].attrs = data.coords[dim].attrs.copy()
@@ -696,6 +709,7 @@ class VolumePlotter:
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
         self._hover_manager = _HoverManager()
+        self._physical_grid_reference: xr.DataArray | None = None
 
     def _ensure_figure(
         self,
@@ -861,7 +875,11 @@ class VolumePlotter:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
         _validate_voxel_affine_slice_mode(data, self.slice_mode)
-        data = _resample_voxel_affine_to_physical_grid(data, self.slice_mode)
+        data = _resample_voxel_affine_to_physical_grid(
+            data,
+            self.slice_mode,
+            reference=self._physical_grid_reference,
+        )
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
@@ -1128,6 +1146,8 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
         data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
+        if self.slice_mode in {"z", "y", "x"} and self._physical_grid_reference is None:
+            self._physical_grid_reference = data
 
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]

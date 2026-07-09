@@ -594,6 +594,52 @@ class TestVolumePlotterAddVolume:
                 cmap="viridis",
             )
 
+    def test_voxel_affine_physical_overlay_reuses_first_display_grid(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Physical CTI overlays resample onto the first plotted physical grid."""
+        overlay = add_physical_coords_from_voxel_affine(
+            sample_3d_volume.rename(z="k", y="j", x="i").assign_coords(
+                k=sample_3d_volume.coords["z"].values,
+                j=sample_3d_volume.coords["y"].values,
+                i=sample_3d_volume.coords["x"].values,
+            ),
+            np.array(
+                [
+                    [0.9, -0.1, 0.0, 0.2],
+                    [0.1, 0.9, 0.0, -0.1],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": dict(sample_3d_volume.coords["z"].attrs),
+                "y": dict(sample_3d_volume.coords["y"].attrs),
+                "x": dict(sample_3d_volume.coords["x"].attrs),
+            },
+        )
+        z_coords = list(sample_3d_volume.coords["z"].values[:2])
+
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=z_coords,
+            show_colorbar=False,
+        )
+        plotter.add_volume(
+            overlay,
+            slice_coords=z_coords,
+            cmap="hot",
+            alpha=0.5,
+            show_colorbar=False,
+        )
+
+        axes_flat = _axes(plotter).ravel()
+        assert len(axes_flat[0].collections) == 2
+        assert len(axes_flat[1].collections) == 2
+
     def test_dataarray_alpha_applies_independently_per_slice(
         self, sample_3d_volume, matplotlib_pyplot
     ):
