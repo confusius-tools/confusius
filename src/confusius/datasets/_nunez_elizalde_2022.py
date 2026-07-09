@@ -19,10 +19,10 @@ _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
 _CITATION = (
     "Nunez-Elizalde, A. O., Krumin, M., Reddy, C. B., Montaldo, G., Urban, A., "
-    "Harris, K. D., & Carandini, M. (2022). Neural correlates of blood flow "
-    "measured by ultrasound. [italic]Neuron[/italic], 110(10), "
+    "Harris, K. D., & Carandini, M. (2022). [magenta]Neural correlates of blood flow "
+    "measured by ultrasound.[/magenta] [italic]Neuron[/italic], 110(10), "
     "1631–1640.e4. "
-    "https://doi.org/10.1016/j.neuron.2022.02.012"
+    "[blue]https://doi.org/10.1016/j.neuron.2022.02.012[/blue]"
 )
 
 
