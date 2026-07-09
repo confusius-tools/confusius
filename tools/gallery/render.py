@@ -56,6 +56,31 @@ def _html_block(html: str) -> str:
     return '<div class="gallery-rich-output">' + html.rstrip() + "</div>\n"
 
 
+def _output_code_block(text: str) -> str:
+    """Return a fenced code block for plain-text cell output.
+
+    The block is wrapped in a ``gallery-output`` container so docs CSS can wrap long
+    output lines (warnings, reprs, tracebacks) instead of showing a horizontal
+    scrollbar, without affecting the syntax-highlighted input code cells. The
+    ``markdown`` attribute lets Zensical still render the fence as a highlighted block.
+
+    Parameters
+    ----------
+    text : str
+        The plain-text output to display.
+
+    Returns
+    -------
+    str
+        The Markdown for the wrapped, fenced output block.
+    """
+    return (
+        '<div class="gallery-output" markdown>\n\n```\n'
+        + text.rstrip("\n")
+        + "\n```\n\n</div>\n"
+    )
+
+
 def _normalize_html_output(html: str) -> str:
     """Normalize rich HTML reprs for static docs rendering.
 
@@ -316,7 +341,7 @@ def render_notebook(
             if output_type == "stream":
                 stream_text = _clean_stream_text(str(light_output.get("text", "")))
                 if stream_text:
-                    parts.append("```\n" + stream_text + "\n```\n")
+                    parts.append(_output_code_block(stream_text))
                 continue
 
             if output_type in {"execute_result", "display_data"}:
@@ -359,14 +384,12 @@ def render_notebook(
                     parts.append(_html_block(_normalize_html_output(str(html))))
                     continue
                 if isinstance(light_data, dict) and "text/plain" in light_data:
-                    parts.append(
-                        "```\n" + str(light_data["text/plain"]).rstrip("\n") + "\n```\n"
-                    )
+                    parts.append(_output_code_block(str(light_data["text/plain"])))
                 continue
 
             if output_type == "error":
                 traceback = "\n".join(light_output.get("traceback", []))
-                parts.append("```\n" + traceback + "\n```\n")
+                parts.append(_output_code_block(traceback))
 
     parts.append("\n---\n")
     parts.append(f"**Total running time:** {runtime_seconds:.1f} s\n\n")

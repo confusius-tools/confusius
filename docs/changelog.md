@@ -72,11 +72,19 @@ Current development version for the next ConfUSIus release.
   the rigid registration step with a B-spline refinement, showing the extra local
   correction it adds and how its parameters differ from the rigid step's
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+- Long output in gallery examples — warnings, text reprs, tracebacks, and rich-rendered
+  text such as the dataset citation banner — now wraps instead of showing a horizontal
+  scrollbar ([#284](https://github.com/confusius-tools/confusius/pull/284)).
 
 ### :wrench: Maintenance
 
 - Raised the minimum supported versions to **napari 0.7.1** and
   **matplotlib 3.11**.
+- The example-gallery build tool now accepts specific example scripts as arguments
+  (`uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py`),
+  running only those; the rest of the gallery is still rendered, taken from cache if
+  present or built without outputs
+  ([#284](https://github.com/confusius-tools/confusius/pull/284)).
 
 ## 0.5.0
 
