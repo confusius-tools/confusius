@@ -20,9 +20,10 @@ _TOTAL_SIZE_BYTES = 5_507_550
 _CITATION = (
     "Pepe, C., Mariani, J.-C., Urosevic, M., Gini, S., Stuefer, A., Ricci, F., "
     "Galbusera, A., Iurilli, G., & Gozzi, A. (2026). "
-    "[magenta]Structural and dynamic embedding of the mouse functional connectome "
-    "revealed by functional ultrasound imaging (fUSI).[/magenta] "
-    "[italic]bioRxiv[/italic]. [blue]https://doi.org/10.64898/2026.02.05.704055[/blue]"
+    "[citation.title]Structural and dynamic embedding of the mouse functional "
+    "connectome revealed by functional ultrasound imaging (fUSI).[/citation.title] "
+    "[italic]bioRxiv[/italic]. "
+    "[citation.doi]https://doi.org/10.64898/2026.02.05.704055[/citation.doi]"
 )
 
 

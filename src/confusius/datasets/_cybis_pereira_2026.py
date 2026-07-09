@@ -20,9 +20,9 @@ _TOTAL_SIZE_BYTES = 12_883_924_421
 _CITATION = (
     "Cybis Pereira, F., Castedo, S. H., Meur-Diebolt, S. L., Ialy-Radio, N., "
     "Bhattacharya, S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R., "
-    "Pezet, S., & Tanter, M. (2026). [magenta]A vascular code for speed in the spatial "
-    "navigation system.[/magenta] [italic]Cell Reports[/italic], 45(1). "
-    "[blue]https://doi.org/10.1016/j.celrep.2025.116791[/blue]"
+    "Pezet, S., & Tanter, M. (2026). [citation.title]A vascular code for speed in the "
+    "spatial navigation system.[/citation.title] [italic]Cell Reports[/italic], 45(1). "
+    "[citation.doi]https://doi.org/10.1016/j.celrep.2025.116791[/citation.doi]"
 )
 
 

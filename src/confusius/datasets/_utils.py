@@ -7,10 +7,24 @@ from pathlib import Path
 from typing import Literal
 
 import pooch
-from rich import print as rich_print
+from rich.console import Console
 from rich.text import Text
+from rich.theme import Theme
 
 _ENV_VAR = "CONFUSIUS_DATA"
+
+CONFUSIUS_TURQUOISE = "#3ad9a4"
+"""Confusius brand turquoise, matching the docs theme."""
+
+CONFUSIUS_RED = "#e94b5f"
+"""Confusius brand red, matching the docs theme."""
+
+_CITATION_THEME = Theme(
+    {"citation.title": CONFUSIUS_RED, "citation.doi": CONFUSIUS_TURQUOISE}
+)
+"""Maps the citation style names used in `_CITATION` markup to brand colors."""
+
+_console = Console(theme=_CITATION_THEME)
 
 
 def print_citation_message(citation: str, kind: Literal["dataset", "template"]) -> None:
@@ -19,17 +33,20 @@ def print_citation_message(citation: str, kind: Literal["dataset", "template"]) 
     Parameters
     ----------
     citation : str
-        Citation text to print. Rich markup (e.g. `[italic]`) is rendered.
+        Citation text to print. Rich markup (e.g. `[italic]`, `[citation.title]`)
+        is rendered.
     kind : {"dataset", "template"}
         Resource kind used in the prompt.
     """
-    print(f"If you use this {kind} in your work, please cite the following source:\n")
+    _console.print(
+        f"If you use this {kind} in your work, please cite the following source:\n"
+    )
     # Render as a Text renderable rather than a str so the markup styles apply but
     # rich's auto-highlighter does not colorize numbers, URLs, etc.
     text = Text.from_markup(citation)
     # Bold the whole citation; the rest of the markup is in each _CITATION string.
     text.stylize("bold")
-    rich_print(text)
+    _console.print(text)
 
 
 def plain_citation(citation: str) -> str:

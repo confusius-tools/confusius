@@ -20,10 +20,10 @@ _TOTAL_SIZE_BYTES = 16_338_947
 _CITATION = (
     "Huang, Y.-A., Lambert, T., Verbeyst, D., Fitzgerald, N. E., Grillet, M., "
     "Brunner, C., Montaldo, G., Vanduffel, W., & Urban, A. (2025). "
-    "[magenta]OfUSA: OpenfUS Analyzer, a versatile open-source framework for the "
+    "[citation.title]OfUSA: OpenfUS Analyzer, a versatile open-source framework for the "
     "analysis and visualization of functional ultrasound imaging data across animal "
-    "models.[/magenta] [italic]bioRxiv[/italic]. "
-    "[blue]https://doi.org/10.1101/2025.09.16.676515[/blue]"
+    "models.[/citation.title] [italic]bioRxiv[/italic]. "
+    "[citation.doi]https://doi.org/10.1101/2025.09.16.676515[/citation.doi]"
 )
 
 
