@@ -17,6 +17,7 @@ _OSF_PROJECT_ID = "am3jw"
 _TEMPLATE_ROOT = "huang-2025-template"
 _FILENAME = "huang-2026-space-allen50_desc-vascular.nii.gz"
 _TOTAL_SIZE_BYTES = 16_338_947
+_CITATION = "Huang, Y.-A. et al. (2025), https://doi.org/10.1101/2025.09.16.676515"
 
 
 def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
@@ -52,6 +53,7 @@ def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
 def fetch_template_huang_2025(
     data_dir: str | Path | None = None,
     refresh: bool = False,
+    show_citation_msg: bool = True,
 ) -> xr.DataArray:
     """Fetch the Huang et al. (2025) mouse vascular fUSI template.
 
@@ -67,6 +69,8 @@ def fetch_template_huang_2025(
         `CONFUSIUS_DATA` environment variable.
     refresh : bool, default: False
         Whether to redownload the template even if it is already cached.
+    show_citation_msg : bool, default: True
+        Whether to print a message with the citation for the template.
 
     Returns
     -------
@@ -100,4 +104,9 @@ def fetch_template_huang_2025(
         with quiet_pooch_logger():
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
-    return load(dest)
+    da = load(dest)
+    da.attrs["citation"] = _CITATION
+
+    if show_citation_msg:
+        print(f"Fetched data from {_CITATION}.")
+    return da

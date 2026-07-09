@@ -17,6 +17,7 @@ _OSF_PROJECT_ID = "43tu9"
 _TEMPLATE_ROOT = "pepe-mariani-2026-template"
 _FILENAME = "pepe-mariani-2026-fusi-template.nii.gz"
 _TOTAL_SIZE_BYTES = 5_507_550
+_CITATION = "Pepe, C. et al. (2026), https://doi.org/10.64898/2026.02.05.704055"
 
 
 def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
@@ -52,6 +53,7 @@ def resolve_template_url(project_id: str = _OSF_PROJECT_ID) -> str:
 def fetch_template_pepe_mariani_2026(
     data_dir: str | Path | None = None,
     refresh: bool = False,
+    show_citation_msg: bool = True,
 ) -> xr.DataArray:
     """Fetch the Pepe, Mariani et al. (2026) mouse fUSI template.
 
@@ -67,6 +69,8 @@ def fetch_template_pepe_mariani_2026(
         `CONFUSIUS_DATA` environment variable.
     refresh : bool, default: False
         Whether to redownload the template even if it is already cached.
+    show_citation_msg : bool, default: True
+        Whether to print a message with the citation for the template.
 
     Returns
     -------
@@ -100,4 +104,9 @@ def fetch_template_pepe_mariani_2026(
         with quiet_pooch_logger():
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
-    return load(dest)
+    da = load(dest)
+    da.attrs["citation"] = _CITATION
+
+    if show_citation_msg:
+        print(f"Fetched data from {_CITATION}.")
+    return da

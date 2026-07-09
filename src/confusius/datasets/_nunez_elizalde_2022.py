@@ -17,6 +17,9 @@ from ._utils import get_datasets_dir
 _OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
+_CITATION = (
+    "Nunez-Elizalde, A.O. et al. (2022), https://doi.org/10.1016/j.neuron.2022.02.012"
+)
 
 
 def _filter_files(
@@ -125,6 +128,7 @@ def fetch_nunez_elizalde_2022(
     tasks: str | list[str] | None = None,
     acqs: str | list[str] | None = None,
     refresh: bool = False,
+    show_citation_msg: bool = True,
 ) -> Path:
     """Fetch the Nunez-Elizalde 2022 fUSI-BIDS dataset.
 
@@ -167,6 +171,8 @@ def fetch_nunez_elizalde_2022(
         (comparing the cached index against the refreshed one) are re-downloaded. If
         `False` and all requested files are already cached, the function returns
         immediately without any network access.
+    show_citation_msg : bool, default: True
+        Whether to print a message with the citation for the dataset.
 
     Returns
     -------
@@ -208,4 +214,6 @@ def fetch_nunez_elizalde_2022(
     if refresh:
         update_cached_index(bids_dir, index, previous_index or {}, files)
 
+    if show_citation_msg:
+        print(f"Fetched data from {_CITATION}.")
     return bids_dir

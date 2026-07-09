@@ -17,6 +17,9 @@ from ._utils import get_datasets_dir
 _OSF_PROJECT_ID = "2v6f7"
 _BIDS_ROOT = "cybis-pereira-2026-bids"
 _TOTAL_SIZE_BYTES = 12_883_924_421
+_CITATION = (
+    "Cybis Pereira, F. et al. (2026), https://doi.org/10.1016/j.celrep.2025.116791"
+)
 
 
 _VALID_DATASETS = frozenset(
@@ -192,6 +195,7 @@ def fetch_cybis_pereira_2026(
     acqs: str | list[str] | None = None,
     datatypes: str | list[str] | None = None,
     refresh: bool = False,
+    show_citation_msg: bool = True,
 ) -> Path:
     """Fetch the Cybis Pereira 2026 fUSI-BIDS dataset.
 
@@ -242,6 +246,8 @@ def fetch_cybis_pereira_2026(
         MD5 changed upstream (comparing the cached index against the refreshed
         one) are re-downloaded. If `False` and all requested files are already
         cached, the function returns immediately without any network access.
+    show_citation_msg : bool, default: True
+        Whether to print a message with the citation for the dataset.
 
     Returns
     -------
@@ -307,4 +313,6 @@ def fetch_cybis_pereira_2026(
     if refresh:
         update_cached_index(bids_dir, index, previous_index or {}, files)
 
+    if show_citation_msg:
+        print(f"Fetched data from {_CITATION}.")
     return bids_dir
