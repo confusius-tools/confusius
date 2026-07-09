@@ -128,8 +128,7 @@ atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 # `seed_masks`.
 
 # %%
-seed_regions = ["SSp-bfd", "RSP", "HIP", "VPM"]
-seed_masks = atlas_native.atlas.get_masks(seed_regions, sides="left")
+seed_masks = atlas_native.atlas.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="left")
 
 # %% [markdown]
 # ## Smooth and compute nuisance regressors
@@ -203,14 +202,11 @@ plotter = cf.plotting.plot_stat_map(
     vmax=0.8,
     threshold=0.20,
     cbar_label="Pearson correlation",
-    show_titles=False,
     show_axes=False,
     figure=fig,
     axes=axes,
     bg_color=bg_color,
 )
 plotter.add_contours(seed_masks.rename(mask="region"), linewidths=1.5)
-for ax, region in zip(axes.ravel(), seed_regions):
-    ax.set_title(region)
 
 _ = fig.suptitle("Seed-based connectivity maps", fontsize=16)

@@ -17,6 +17,16 @@ from confusius.plotting import (
 )
 
 
+def _axes(plotter):
+    assert plotter.axes is not None
+    return plotter.axes
+
+
+def _figure(plotter):
+    assert plotter.figure is not None
+    return plotter.figure
+
+
 class TestPlotVolume:
     """Tests for plot_volume function."""
 
@@ -64,7 +74,7 @@ class TestPlotVolume:
         with pytest.warns(UserWarning, match="Complex-valued data"):
             plotter = plot_volume(complex_data, slice_mode="z", slice_coords=[z_coord])
 
-        plotted_values = plotter.axes[0, 0].collections[0].get_array().data
+        plotted_values = _axes(plotter)[0, 0].collections[0].get_array().data
         assert np.all(plotted_values >= 0)
 
     @pytest.mark.parametrize("threshold_mode", ["lower", "upper"])
@@ -86,7 +96,7 @@ class TestPlotVolume:
             threshold_mode=threshold_mode,
         )
 
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
         plotted_data = ax.collections[0].get_array()
         original_slice = sample_3d_volume.sel(z=z_coord, method="nearest").values
 
@@ -111,7 +121,7 @@ class TestPlotVolume:
             data, slice_mode="z", slice_coords=[z_coord], threshold=0.5
         )
         # norm(0) = 0.5, which is inside [-0.5, 0.5] — must map to gray.
-        r, g, b, _ = plotter.axes[0, 0].collections[0].cmap(0.5)
+        r, g, b, _ = _axes(plotter)[0, 0].collections[0].cmap(0.5)
         assert r == pytest.approx(g, abs=1e-2)
         assert g == pytest.approx(b, abs=1e-2)
 
@@ -135,7 +145,7 @@ class TestPlotVolume:
         )
         # Position 0.55 is between the wrong linear boundary (0.5) and the correct
         # norm boundary (≈0.667), so it must map to gray.
-        r, g, b, _ = plotter.axes[0, 0].collections[0].cmap(0.55)
+        r, g, b, _ = _axes(plotter)[0, 0].collections[0].cmap(0.55)
         assert r == pytest.approx(g, abs=1e-2)
         assert g == pytest.approx(b, abs=1e-2)
 
@@ -150,7 +160,7 @@ class TestPlotVolume:
             vmax=3.0,
         )
 
-        collection = plotter.axes[0, 0].collections[0]
+        collection = _axes(plotter)[0, 0].collections[0]
         assert collection.norm.vmin == pytest.approx(-3.0)
         assert collection.norm.vmax == pytest.approx(3.0)
 
@@ -171,7 +181,7 @@ class TestPlotVolume:
             show_colorbar=False,
         )
 
-        quadmesh = plotter.axes[0, 0].collections[0]
+        quadmesh = _axes(plotter)[0, 0].collections[0]
         quadmesh.update_scalarmappable()
         alphas = np.unique(quadmesh.get_facecolor()[:, 3])
         assert alphas.size > 0
@@ -182,8 +192,8 @@ class TestPlotVolume:
         z_coord = sample_3d_volume.coords["z"].values[0]
         plotter = plot_volume(sample_3d_volume, slice_mode="z", slice_coords=[z_coord])
 
-        plot_axes = set(plotter.axes.ravel())
-        extra_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
+        plot_axes = set(_axes(plotter).ravel())
+        extra_axes = [ax for ax in _figure(plotter).axes if ax not in plot_axes]
         assert len(extra_axes) == 1
 
     def test_no_colorbar_when_disabled(self, sample_3d_volume, matplotlib_pyplot):
@@ -196,8 +206,8 @@ class TestPlotVolume:
             show_colorbar=False,
         )
 
-        plot_axes = set(plotter.axes.ravel())
-        extra_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
+        plot_axes = set(_axes(plotter).ravel())
+        extra_axes = [ax for ax in _figure(plotter).axes if ax not in plot_axes]
         assert len(extra_axes) == 0
 
     def test_cbar_label_is_set(self, sample_3d_volume, matplotlib_pyplot):
@@ -210,8 +220,8 @@ class TestPlotVolume:
             cbar_label="Power (dB)",
         )
 
-        plot_axes = set(plotter.axes.ravel())
-        extra_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
+        plot_axes = set(_axes(plotter).ravel())
+        extra_axes = [ax for ax in _figure(plotter).axes if ax not in plot_axes]
         assert len(extra_axes) == 1
         assert extra_axes[0].get_ylabel() == "Power (dB)"
 
@@ -228,14 +238,14 @@ class TestPlotVolume:
             cbar_label="Power (dB)",
         )
 
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
         assert ax.title.get_fontsize() == pytest.approx(20)
         assert ax.xaxis.label.get_fontsize() == pytest.approx(18)
         assert ax.yaxis.label.get_fontsize() == pytest.approx(18)
         assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(17)
 
-        plot_axes = set(plotter.axes.ravel())
-        cbar_axes = [ax for ax in plotter.figure.axes if ax not in plot_axes]
+        plot_axes = set(_axes(plotter).ravel())
+        cbar_axes = [ax for ax in _figure(plotter).axes if ax not in plot_axes]
         assert len(cbar_axes) == 1
         assert cbar_axes[0].yaxis.label.get_fontsize() == pytest.approx(18)
         assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(17)
@@ -295,14 +305,14 @@ class TestPlotVolume:
             sample_3d_volume, slice_mode="z", slice_coords=z_coords, nrows=2, ncols=2
         )
 
-        for ax in plotter.axes.ravel()[2:]:
+        for ax in _axes(plotter).ravel()[2:]:
             assert not ax.get_visible()
 
     def test_axis_limits_match_data_edges(self, sample_3d_volume, matplotlib_pyplot):
         """Axes limits exactly equal data edges — no matplotlib auto-margin."""
         z_coord = sample_3d_volume.coords["z"].values[0]
         plotter = plot_volume(sample_3d_volume, slice_mode="z", slice_coords=[z_coord])
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
 
         x_centers = sample_3d_volume.coords["x"].values.astype(float)
         y_centers = sample_3d_volume.coords["y"].values.astype(float)
@@ -323,7 +333,7 @@ class TestPlotVolume:
         plotter = plot_volume(
             data, slice_mode="z", slice_coords=[0], show_colorbar=False
         )
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
 
         assert ax.get_xlim() == pytest.approx((0.0, 5.0))
         assert ax.get_ylim() == pytest.approx((4.0, 0.0))
@@ -340,7 +350,7 @@ class TestPlotVolume:
             yincrease=True,
             show_colorbar=False,
         )
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
         y_centers = sample_3d_volume.coords["y"].values.astype(float)
         dy = y_centers[1] - y_centers[0]
         assert ax.get_ylim() == pytest.approx(
@@ -402,9 +412,9 @@ class TestPlotVolume:
         )
         # Should plot single slice without error
         plotter = plot_volume(data, slice_mode="z", show_colorbar=False)
-        assert plotter.axes.shape == (1, 1)
+        assert _axes(plotter).shape == (1, 1)
         # Verify the slice was plotted
-        assert len(plotter.axes[0, 0].collections) == 1
+        assert len(_axes(plotter)[0, 0].collections) == 1
 
     def test_non_monotonic_coords_are_sorted_before_plotting(
         self, sample_3d_volume, matplotlib_pyplot
@@ -416,7 +426,7 @@ class TestPlotVolume:
         plotter = plot_volume(
             data, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
         )
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
 
         y_sorted = np.sort(data.coords["y"].values.astype(float))
         x_sorted = np.sort(data.coords["x"].values.astype(float))
@@ -472,7 +482,7 @@ class TestVolumePlotterAddVolume:
         subset = sample_3d_volume.sel(z=sample_3d_volume.coords["z"].values[:2])
         plotter.add_volume(subset, cmap="hot", alpha=0.5, show_colorbar=False)
 
-        axes_flat = plotter.axes.ravel()
+        axes_flat = _axes(plotter).ravel()
         assert len(axes_flat[0].collections) == 2
         assert len(axes_flat[1].collections) == 2
         assert len(axes_flat[2].collections) == 1
@@ -507,7 +517,7 @@ class TestVolumePlotterAddVolume:
             sample_3d_volume, match_coordinates=False, alpha=alpha
         )
 
-        axes_flat = plotter.axes.ravel()
+        axes_flat = _axes(plotter).ravel()
         npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
         npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
 
@@ -528,7 +538,7 @@ class TestVolumePlotterAddVolume:
 
         plotter = plot_volume(descending, alpha=alpha)
 
-        axes_flat = plotter.axes.ravel()
+        axes_flat = _axes(plotter).ravel()
         npt.assert_allclose(axes_flat[0].collections[0].get_alpha(), 0.25)
         npt.assert_allclose(axes_flat[1].collections[0].get_alpha(), 0.75)
 
@@ -602,7 +612,7 @@ class TestNonNumericSliceMode:
             data, slice_mode="region", slice_coords=["b"], show_colorbar=False
         )
 
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
         np.testing.assert_array_equal(
             ax.collections[0].get_array().data, data.sel(region="b").values
         )
@@ -632,6 +642,26 @@ class TestNonNumericSliceMode:
         with pytest.raises(ValueError, match="must be numeric positional indices"):
             plot_volume(data, slice_mode="region", slice_coords=["b"])
 
+    def test_region_panel_order_matches_input_not_alphabetical(self, matplotlib_pyplot):
+        """Regression test: panels follow the given region order, unsorted.
+
+        `_prepare_slice_inputs` used to sort every dim (including `slice_mode`)
+        for pcolormesh geometry, which silently reordered non-alphabetical
+        `region` coordinates and desynced them from externally-tracked labels.
+        Only the two display dims should be sorted.
+        """
+        regions = ["SSp-bfd", "RSP", "HIP", "VPM"]
+        data = xr.DataArray(
+            np.arange(4 * 3 * 3, dtype=float).reshape(4, 3, 3),
+            name="r",
+            dims=["region", "y", "x"],
+            coords={"region": regions, "y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        plotter = plot_volume(data, slice_mode="region", show_colorbar=False)
+
+        titles = [ax.get_title() for ax in _axes(plotter).ravel()]
+        assert titles == [f"region = {region}" for region in regions]
+
 
 class TestVolumePlotterUtilities:
     """Tests for VolumePlotter utility methods."""
@@ -656,7 +686,7 @@ class TestVolumePlotterUtilities:
         import matplotlib.pyplot as plt
 
         plotter = plot_volume(sample_3d_volume, slice_mode="z")
-        fig_num = plotter.figure.number
+        fig_num = _figure(plotter).number
 
         plotter.close()
 
@@ -747,7 +777,7 @@ class TestPlotContours:
             coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
         )
         plotter = plot_contours(mask, slice_mode="z", fontsize=16)
-        ax = plotter.axes[0, 0]
+        ax = _axes(plotter)[0, 0]
 
         assert ax.title.get_fontsize() == pytest.approx(16)
         assert ax.xaxis.label.get_fontsize() == pytest.approx(14.4)
@@ -781,7 +811,7 @@ class TestVolumePlotterAddContours:
         mask = self._make_mask(sample_3d_volume, [0, 1])
         plotter.add_contours(mask, colors="red")
 
-        axes_flat = plotter.axes.ravel()
+        axes_flat = _axes(plotter).ravel()
         assert len(axes_flat[0].lines) > 0
         assert len(axes_flat[1].lines) > 0
         assert len(axes_flat[2].lines) == 0
@@ -882,7 +912,7 @@ class TestRoiHover:
             show_colorbar=False,
             roi_labels=roi_labels,
         )
-        ax = atlas_plotter.axes.flat[0]
+        ax = _axes(atlas_plotter).flat[0]
         self._fire_motion(ax, x, y)
         assert (
             ax.format_coord(x, y)
@@ -899,7 +929,7 @@ class TestRoiHover:
         volume_plotter = plot_volume(
             volume, slice_mode="z", slice_coords=[0.0], show_colorbar=False
         )
-        ax = volume_plotter.axes.flat[0]
+        ax = _axes(volume_plotter).flat[0]
         self._fire_motion(ax, x, y)
         assert (
             ax.format_coord(x, y) == f"x={x:.3g}, y={y:.3g}; pd={sampled_value:.4g} dB"
@@ -911,7 +941,7 @@ class TestRoiHover:
             volume, slice_coords=[0.0], match_coordinates=False, show_colorbar=False
         )
         overlay.add_contours(labels, slice_coords=[0.0], roi_labels=roi_labels)
-        ax = overlay.axes.flat[0]
+        ax = _axes(overlay).flat[0]
         self._fire_motion(ax, x, y)
         assert (
             ax.format_coord(x, y) == f"x={x:.3g}, y={y:.3g}; pd={sampled_value:.4g} dB"
@@ -953,8 +983,8 @@ class TestRoiHover:
             show_colorbar=False,
             roi_labels=roi_labels,
         )
-        fig = plotter.figure
-        ax = plotter.axes.flat[0]
+        fig = _figure(plotter)
+        ax = _axes(plotter).flat[0]
         plotter_ref = weakref.ref(plotter)
         manager_ref = weakref.ref(plotter._hover_manager)
         assert manager_ref() in _CONFUSIUS_HOVER_MANAGERS

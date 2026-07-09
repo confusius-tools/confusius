@@ -377,5 +377,5 @@ class TestCorrectSliceTiming:
         with pytest.raises(ValueError, match="broadcast"):
             correct_slice_timings(
                 consolidated_scan_4d.load(),
-                fill_value=(1.0, 2.0, 3.0),  # type: ignore[arg-type]
+                fill_value=(1.0, 2.0, 3.0),  # ty: ignore[invalid-argument-type]
             )

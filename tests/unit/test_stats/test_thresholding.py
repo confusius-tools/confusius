@@ -134,7 +134,7 @@ class TestAdjustPvalues:
     def test_invalid_method_raises(self, pmap):
         """An unknown correction method is rejected."""
         with pytest.raises(ValueError, match="method must be one of"):
-            adjust_pvalues(pmap, method="hochberg")
+            adjust_pvalues(pmap, method="hochberg")  # ty: ignore[invalid-argument-type]
 
     def test_no_tested_voxels_raises(self):
         """An all-zero p-map with skipzero leaves nothing to test."""
@@ -346,7 +346,7 @@ class TestValidation:
     def test_invalid_method(self, zmap):
         """An unknown correction method is rejected."""
         with pytest.raises(ValueError, match="method must be None or one of"):
-            apply_statistical_threshold(zmap, method="hochberg")
+            apply_statistical_threshold(zmap, method="hochberg")  # ty: ignore[invalid-argument-type]
 
     def test_negative_cluster_threshold(self, zmap):
         """A negative cluster threshold is rejected."""

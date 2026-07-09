@@ -113,6 +113,61 @@ class TestPlotNapari:
         assert layer.metadata["xarray"] is labels
         viewer.close()
 
+    def test_invalid_layer_type_raises(self, sample_3d_volume) -> None:
+        with pytest.raises(ValueError, match="Unknown layer_type"):
+            plot_napari(sample_3d_volume, layer_type="bogus")  # ty: ignore[invalid-argument-type]
+
+    def test_non_uniform_spatial_coords_warn(
+        self, sample_3d_volume, make_napari_viewer
+    ):
+        data = sample_3d_volume.assign_coords(y=[2.0, 2.1, 2.4, 2.6, 2.7, 2.9])
+        viewer = make_napari_viewer()
+        with pytest.warns(UserWarning, match="non-uniform spacing"):
+            _, _ = plot_napari(
+                data,
+                viewer=viewer,
+                show_colorbar=False,
+                show_scale_bar=False,
+            )
+        viewer.close()
+
+    def test_image_attrs_cmap_is_forwarded(self, sample_3d_volume, make_napari_viewer):
+        data = sample_3d_volume.copy()
+        data.attrs["cmap"] = "magma"
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            data,
+            viewer=viewer,
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+
+        assert layer.colormap.name == "magma"
+        viewer.close()
+
+    def test_labels_without_viewer_create_one_and_cast_to_int(
+        self, make_napari_viewer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        labels = xr.DataArray(
+            np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32),
+            dims=["y", "x"],
+            coords={"y": [0.0, 1.0], "x": [0.0, 1.0]},
+        )
+        viewer = make_napari_viewer()
+        monkeypatch.setattr("confusius.plotting.napari.napari.Viewer", lambda: viewer)
+
+        created_viewer, layer = plot_napari(
+            labels,
+            viewer=None,
+            layer_type="labels",
+            show_colorbar=False,
+            show_scale_bar=False,
+        )
+
+        assert created_viewer is viewer
+        assert np.issubdtype(np.asarray(layer.data).dtype, np.integer)
+        viewer.close()
+
     def test_complex_data_warns_and_plots_magnitude(
         self, sample_3dt_volume_complex, make_napari_viewer
     ):

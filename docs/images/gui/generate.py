@@ -38,12 +38,14 @@ Notes
 
 import csv
 from pathlib import Path
+from typing import cast
 
 import napari
 import numpy as np
 from napari.layers import Image
 from napari.qt import get_qapp
 from qtpy.QtCore import QEventLoop, Qt, QTimer
+from qtpy.QtWidgets import QWidget
 from rich.console import Console
 
 import confusius as cf  # noqa: F401  # Register xarray accessors.
@@ -368,7 +370,7 @@ def _napari_screenshot(viewer: napari.Viewer, path: str) -> None:
     sees or resizes it.
     """
     win = viewer.window._qt_window
-    win.setAttribute(Qt.WA_DontShowOnScreen)
+    win.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win.show()
     win.resize(1400, 900)
     get_qapp().processEvents()
@@ -477,10 +479,14 @@ try:
 
     # Retrieve the Signals panel from the accordion container layout.
     _container2 = widget2._accordion_btns[0][0].parent()
-    ts_panel = _container2.layout().itemAt(2 * 2 + 1).widget()
+    if not isinstance(_container2, QWidget):
+        raise RuntimeError("Accordion container is not a QWidget")
+    _layout2 = _container2.layout()
+    _item2 = _layout2.itemAt(2 * 2 + 1) if _layout2 is not None else None
+    ts_panel = cast(QWidget, _item2.widget() if _item2 is not None else None)
 
     # Open the bottom dock with the signals plotter.
-    plotter = ts_panel._ensure_plotter()
+    plotter = getattr(ts_panel, "_ensure_plotter")()
     _qt_sleep(350)  # Let the dock resize QTimer.singleShot(200, …) fire.
 
     # Inject a signal from the spatial centre of the volume directly,
@@ -527,9 +533,10 @@ try:
     qc_panel = widget3._accordion_panels["Quality Control"]
 
     # Select the layer in the QC panel.
-    idx = qc_panel._layer_combo.findText(layer_name)
+    layer_combo = getattr(qc_panel, "_layer_combo")
+    idx = layer_combo.findText(layer_name)
     if idx >= 0:
-        qc_panel._layer_combo.setCurrentIndex(idx)
+        layer_combo.setCurrentIndex(idx)
 
     # Compute QC metrics synchronously (bypasses the background thread).
     console.print("  Computing DVARS")
@@ -540,7 +547,7 @@ try:
     results["carpet"] = _prepare_carpet_data(da)
 
     # Inject results — this creates the bottom dock and draws the plots.
-    qc_panel._on_compute_returned(results, da, layer_name)
+    getattr(qc_panel, "_on_compute_returned")(results, da, layer_name)
     get_qapp().processEvents()
 
     # Wait for the dock resize QTimer.singleShot(200, …) to fire.
@@ -577,7 +584,11 @@ try:
     # Open Signals panel (index 2).
     _open_accordion(widget4, 2)
     _container4 = widget4._accordion_btns[0][0].parent()
-    ts_panel4 = _container4.layout().itemAt(2 * 2 + 1).widget()
+    if not isinstance(_container4, QWidget):
+        raise RuntimeError("Accordion container is not a QWidget")
+    _layout4 = _container4.layout()
+    _item4 = _layout4.itemAt(2 * 2 + 1) if _layout4 is not None else None
+    ts_panel4 = cast(QWidget, _item4.widget() if _item4 is not None else None)
 
     layer4 = viewer4.layers[0]
     shape4 = layer4.data.shape[1:]  # (z, y, x)
@@ -587,7 +598,7 @@ try:
     # Place points at the centroids of the two atlas-derived cortical ROIs.
     pt_red = GUI_POINT_LEFT
     pt_teal = GUI_POINT_RIGHT
-    pts_layer4 = viewer4.add_points(
+    pts_layer4 = getattr(viewer4, "add_points")(
         np.array([pt_red, pt_teal]),
         name="ROI Points",
         scale=scale_3d4,
@@ -598,7 +609,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter4 = ts_panel4._ensure_plotter()
+    plotter4 = getattr(ts_panel4, "_ensure_plotter")()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -610,7 +621,7 @@ try:
     # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
     # on the plotter automatically.
-    ts_panel4._radio_points.setChecked(True)
+    getattr(ts_panel4, "_radio_points").setChecked(True)
     get_qapp().processEvents()
 
     viewer4.window._qt_window.resize(1400, 1050)
@@ -643,7 +654,11 @@ try:
     # Open Signals panel (index 2).
     _open_accordion(widget5, 2)
     _container5 = widget5._accordion_btns[0][0].parent()
-    ts_panel5 = _container5.layout().itemAt(2 * 2 + 1).widget()
+    if not isinstance(_container5, QWidget):
+        raise RuntimeError("Accordion container is not a QWidget")
+    _layout5 = _container5.layout()
+    _item5 = _layout5.itemAt(2 * 2 + 1) if _layout5 is not None else None
+    ts_panel5 = cast(QWidget, _item5.widget() if _item5 is not None else None)
 
     layer5 = viewer5.layers[0]
     shape5 = layer5.data.shape[1:]  # (z, y, x)
@@ -655,7 +670,7 @@ try:
     labels_data[0, GUI_LEFT_ROI] = 1
     labels_data[0, GUI_RIGHT_ROI] = 2
 
-    labels_layer5 = viewer5.add_labels(
+    labels_layer5 = getattr(viewer5, "add_labels")(
         labels_data,
         name="Brain Regions",
         scale=scale_3d5,
@@ -663,7 +678,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter5 = ts_panel5._ensure_plotter()
+    plotter5 = getattr(ts_panel5, "_ensure_plotter")()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -674,7 +689,7 @@ try:
     # Select the Labels radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter automatically.
-    ts_panel5._radio_labels.setChecked(True)
+    getattr(ts_panel5, "_radio_labels").setChecked(True)
     get_qapp().processEvents()
 
     viewer5.window._qt_window.resize(1400, 1050)
@@ -734,7 +749,7 @@ try:
 
     # Size the window, then refit camera to layers (napari "home" button).
     win6 = viewer6.window._qt_window
-    win6.setAttribute(Qt.WA_DontShowOnScreen)
+    win6.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win6.show()
     win6.resize(1400, 900)
     get_qapp().processEvents()
@@ -831,7 +846,7 @@ try:
     _label_data8 = np.zeros(spatial_shape8, dtype=np.int32)
     _label_data8[0][_blob1] = 1
     _label_data8[0][_blob2] = 2
-    labels8 = viewer8.add_labels(
+    labels8 = getattr(viewer8, "add_labels")(
         _label_data8,
         name="Labels (3D)",
         scale=spatial_scale8,
@@ -855,7 +870,7 @@ try:
 
     # --- Signals plotter in Labels mode (mean signal per region) with the cursor. ---
     signals_panel8 = widget8._accordion_panels["Signals"]
-    plotter8 = signals_panel8._ensure_plotter()
+    plotter8 = getattr(signals_panel8, "_ensure_plotter")()
     _qt_sleep(350)
     plotter8.set_source_mode("labels")
     plotter8.set_labels_layer(labels8)
@@ -873,7 +888,7 @@ try:
     # Open the Events accordion and show the window so the geometry is final.
     _open_accordion(widget8, _accordion_index(widget8, "Events"))
     win8 = viewer8.window._qt_window
-    win8.setAttribute(Qt.WA_DontShowOnScreen)
+    win8.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win8.show()
     win8.resize(1400, 1050)
     get_qapp().processEvents()
@@ -884,9 +899,9 @@ try:
     scroll8 = widget8.findChild(QScrollArea)
     if scroll8 is not None and scroll8.widget() is not None:
         first_btn8 = widget8._accordion_btns[0][0]
-        scroll8.verticalScrollBar().setValue(
-            first_btn8.mapTo(scroll8.widget(), QPoint(0, 0)).y()
-        )
+        scroll_bar = scroll8.verticalScrollBar()
+        if scroll_bar is not None:
+            scroll_bar.setValue(first_btn8.mapTo(scroll8.widget(), QPoint(0, 0)).y())
     get_qapp().processEvents()
 
     # --- GIF frame capture --------------------------------------------------
@@ -940,11 +955,12 @@ try:
 
     def _type_name8(name: str) -> None:
         """Type *name* into the event-name field one character at a time."""
-        events_panel8._name_edit.setText("")
+        name_edit = getattr(events_panel8, "_name_edit")
+        name_edit.setText("")
         get_qapp().processEvents()
         _grab8(repeat=2)
         for i in range(1, len(name) + 1):
-            events_panel8._name_edit.setText(name[:i])
+            name_edit.setText(name[:i])
             get_qapp().processEvents()
             _grab8()
         _grab8(repeat=2)
@@ -954,7 +970,7 @@ try:
         _set_cursor8(onset)
         _type_name8(name)
         # Start (S) marks the onset at the current time.
-        events_panel8._on_start()
+        getattr(events_panel8, "_on_start")()
         get_qapp().processEvents()
         _grab8(badge_text="S  ·  Start", repeat=7)
         # Scrub the time slider forward to the offset.
@@ -962,7 +978,7 @@ try:
             _set_cursor8(float(t))
             _grab8()
         # End (E) creates the event, shading the plot and filling the table.
-        events_panel8._on_end()
+        getattr(events_panel8, "_on_end")()
         get_qapp().processEvents()
         get_qapp().processEvents()
         _grab8(badge_text="E  ·  End", repeat=7)

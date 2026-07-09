@@ -640,9 +640,9 @@ class VideoPanel(QWidget):
         if entry.layer is not None:
             # In-place update: reuse the existing vispy node.
             clims = entry.layer.contrast_limits
-            entry.layer.data = data  # type: ignore[invalid-assignment]
+            entry.layer.data = data  # type: ignore  # invalid-assignment ignored: data descriptor has a custom __set__
             entry.layer.contrast_limits = clims
-            entry.layer.scale = tuple(scale)  # type: ignore[invalid-assignment]
+            entry.layer.scale = tuple(scale)
             entry.layer.translate = tuple(translate)
             return
 
@@ -816,7 +816,7 @@ class VideoPanel(QWidget):
             y_step = float(np.median(np.diff(coords)))
         else:
             dim_name = self._axis_labels[vertical_dim]
-            xr_da = self._ref_layer.metadata["xarray"]  # type: ignore[union-attr]
+            xr_da = self._ref_layer.metadata["xarray"]  # type: ignore
             y_step = float(xr_da.coords[dim_name].attrs.get("voxdim", 1.0))
 
         fusi_extent = (y_max - y_min) + abs(y_step)

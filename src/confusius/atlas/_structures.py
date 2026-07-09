@@ -172,7 +172,7 @@ def _get_descendant_ids(structures: "StructuresDict", region_id: int) -> list[in
     list[int]
         All ids in the subtree rooted at `region_id`, inclusive.
     """
-    subtree = structures.tree.subtree(region_id)
+    subtree = structures.tree.subtree(region_id)  # type: ignore
     return list(subtree.nodes.keys())
 
 

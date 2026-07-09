@@ -1,5 +1,7 @@
 """Tests for CompCor functions."""
 
+from typing import NotRequired, TypedDict
+
 import dask.array as da
 import numpy as np
 import pytest
@@ -7,6 +9,13 @@ import xarray as xr
 from numpy.testing import assert_allclose
 
 from confusius.signal import compute_compcor_confounds
+
+
+class _CompcorKwargs(TypedDict):
+    n_components: int
+    detrend: bool
+    noise_mask: NotRequired[xr.DataArray]
+    variance_threshold: NotRequired[float]
 
 
 def _create_mask_like(data, mask_values):
@@ -218,10 +227,10 @@ def test_compute_compcor_invalid_n_components(sample_timeseries):
     noise_mask = np.ones(50, dtype=bool)
 
     with pytest.raises(ValueError, match="must be positive"):
-        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=0)
+        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=0)  # ty: ignore[invalid-argument-type]
 
     with pytest.raises(ValueError, match="must be positive"):
-        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=-1)
+        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=-1)  # ty: ignore[invalid-argument-type]
 
 
 def test_compute_compcor_no_time_dimension():
@@ -233,7 +242,7 @@ def test_compute_compcor_no_time_dimension():
     noise_mask = np.ones(50, dtype=bool)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
-        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
+        compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)  # ty: ignore[invalid-argument-type]
 
 
 def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
@@ -460,7 +469,7 @@ def test_compute_compcor_reference_svd(
         signals.values[:, i] *= (i + 1) * 0.1
 
     # Build kwargs based on mode
-    kwargs = {"n_components": 5, "detrend": False}
+    kwargs: _CompcorKwargs = {"n_components": 5, "detrend": False}
 
     if use_noise_mask:
         mask_values = np.zeros(n_voxels, dtype=bool)

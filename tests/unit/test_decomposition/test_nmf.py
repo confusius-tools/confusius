@@ -1,5 +1,7 @@
 """Tests for confusius.decomposition.NMF."""
 
+import warnings
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -61,7 +63,13 @@ def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
 
-    model = NMF(n_components=2, random_state=0).fit(data)
+    # sklearn's NMF iteration can hit a transient `RuntimeWarning: invalid value
+    # encountered in dot` on BLAS implementations that flush denormals differently
+    # (notably Accelerate on macOS). The test only inspects `feature_names_in_`,
+    # which is independent of the iteration's numerical result.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="invalid value encountered in dot")
+        model = NMF(n_components=2, random_state=0).fit(data)
 
     np.testing.assert_array_equal(
         model.feature_names_in_,
@@ -210,7 +218,7 @@ def test_inverse_transform_raises_for_invalid_input_type(nmf_3dt_volume):
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
-        model.inverse_transform([1, 2, 3])
+        model.inverse_transform([1, 2, 3])  # ty: ignore[invalid-argument-type]
 
 
 def test_fit_requires_time_dimension(nmf_3dt_volume):
@@ -265,7 +273,7 @@ def test_fit_rejects_unexpected_fit_params(nmf_3dt_volume):
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         NMF().fit(
             nmf_3dt_volume,
-            sample_weight=np.ones(nmf_3dt_volume.sizes["time"]),
+            sample_weight=np.ones(nmf_3dt_volume.sizes["time"]),  # ty: ignore[unknown-argument]
         )
 
 
@@ -438,7 +446,7 @@ def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
 def test_fit_rejects_invalid_mode(nmf_3dt_volume):
     """fit raises for unsupported NMF mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
-        NMF(mode="invalid").fit(nmf_3dt_volume)  # type: ignore[arg-type]
+        NMF(mode="invalid").fit(nmf_3dt_volume)  # ty: ignore[invalid-argument-type]
 
 
 def test_mask_restricts_features(nmf_3dt_volume):
