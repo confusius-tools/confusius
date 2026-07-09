@@ -129,9 +129,11 @@ def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
 
 def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys):
     fetch_landemard_2026(data_dir=tmp_path)
-    assert _CITATION in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "If you use this dataset in your work, please cite the following source:" in out
+    assert _CITATION in out
 
-    fetch_landemard_2026(data_dir=tmp_path, show_citation_msg=False)
+    fetch_landemard_2026(data_dir=tmp_path, print_citation=False)
     assert capsys.readouterr().out == ""
 
 

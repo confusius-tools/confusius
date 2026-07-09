@@ -12,12 +12,16 @@ from ._osf import (
     read_cached_index,
     update_cached_index,
 )
-from ._utils import get_datasets_dir
+from ._utils import get_datasets_dir, print_citation_message
 
 _OSF_PROJECT_ID = "dkseb"
 _BIDS_ROOT = "landemard-2026-bids"
 _TOTAL_SIZE_BYTES = 42_036_009_786
-_CITATION = "Landemard, A. et al. (2026), https://doi.org/10.1038/s41586-026-10350-9"
+_CITATION = (
+    "Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide "
+    "blood volume reflects opposing neural populations. Nature. "
+    "https://doi.org/10.1038/s41586-026-10350-9"
+)
 
 
 _VALID_DATASETS = frozenset({"rawdata", "atlas_mapping", "processed_data"})
@@ -133,7 +137,7 @@ def fetch_landemard_2026(
     acqs: str | list[str] | None = None,
     datatypes: str | list[str] | None = None,
     refresh: bool = False,
-    show_citation_msg: bool = True,
+    print_citation: bool = True,
 ) -> Path:
     """Fetch the Landemard 2026 fUSI-BIDS dataset.
 
@@ -174,8 +178,8 @@ def fetch_landemard_2026(
         (comparing the cached index against the refreshed one) are re-downloaded. If
         `False` and all requested files are already cached, the function returns
         immediately without any network access.
-    show_citation_msg : bool, default: True
-        Whether to print a message with the citation for the dataset.
+    print_citation : bool, default: True
+        Whether to print the citation for the dataset.
 
     Returns
     -------
@@ -239,6 +243,6 @@ def fetch_landemard_2026(
     if refresh:
         update_cached_index(bids_dir, index, previous_index or {}, files)
 
-    if show_citation_msg:
-        print(f"Fetched data from {_CITATION}.")
+    if print_citation:
+        print_citation_message(_CITATION, "dataset")
     return bids_dir

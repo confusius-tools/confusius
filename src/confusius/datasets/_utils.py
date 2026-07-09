@@ -4,10 +4,26 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
 
 import pooch
 
 _ENV_VAR = "CONFUSIUS_DATA"
+
+
+def print_citation_message(citation: str, kind: Literal["dataset", "template"]) -> None:
+    """Print a citation prompt for a fetched dataset or template.
+
+    Parameters
+    ----------
+    citation : str
+        Citation text to print.
+    kind : {"dataset", "template"}
+        Resource kind used in the prompt.
+    """
+    print(
+        f"If you use this {kind} in your work, please cite the following source:\n{citation}"
+    )
 
 
 def get_datasets_dir(data_dir: str | Path | None = None) -> Path:

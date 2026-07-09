@@ -12,13 +12,17 @@ from ._osf import (
     read_cached_index,
     update_cached_index,
 )
-from ._utils import get_datasets_dir
+from ._utils import get_datasets_dir, print_citation_message
 
 _OSF_PROJECT_ID = "2v6f7"
 _BIDS_ROOT = "cybis-pereira-2026-bids"
 _TOTAL_SIZE_BYTES = 12_883_924_421
 _CITATION = (
-    "Cybis Pereira, F. et al. (2026), https://doi.org/10.1016/j.celrep.2025.116791"
+    "Cybis Pereira, F., Castedo, S. H., Meur-Diebolt, S. L., Ialy-Radio, N., "
+    "Bhattacharya, S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R., "
+    "Pezet, S., & Tanter, M. (2026). A vascular code for speed in the spatial "
+    "navigation system. Cell Reports, 45(1). https://doi.org/10.1016/"
+    "j.celrep.2025.116791"
 )
 
 
@@ -195,7 +199,7 @@ def fetch_cybis_pereira_2026(
     acqs: str | list[str] | None = None,
     datatypes: str | list[str] | None = None,
     refresh: bool = False,
-    show_citation_msg: bool = True,
+    print_citation: bool = True,
 ) -> Path:
     """Fetch the Cybis Pereira 2026 fUSI-BIDS dataset.
 
@@ -246,8 +250,8 @@ def fetch_cybis_pereira_2026(
         MD5 changed upstream (comparing the cached index against the refreshed
         one) are re-downloaded. If `False` and all requested files are already
         cached, the function returns immediately without any network access.
-    show_citation_msg : bool, default: True
-        Whether to print a message with the citation for the dataset.
+    print_citation : bool, default: True
+        Whether to print the citation for the dataset.
 
     Returns
     -------
@@ -313,6 +317,6 @@ def fetch_cybis_pereira_2026(
     if refresh:
         update_cached_index(bids_dir, index, previous_index or {}, files)
 
-    if show_citation_msg:
-        print(f"Fetched data from {_CITATION}.")
+    if print_citation:
+        print_citation_message(_CITATION, "dataset")
     return bids_dir

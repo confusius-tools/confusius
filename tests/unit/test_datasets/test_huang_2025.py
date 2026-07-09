@@ -140,7 +140,11 @@ def test_fetch_sets_citation(tmp_path, mock_resolve, mock_retrieve, mock_load, c
     result = fetch_template_huang_2025(data_dir=tmp_path)
 
     assert result.attrs["citation"] == _CITATION
-    assert _CITATION in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert out.startswith(
+        "If you use this template in your work, please cite the following source:"
+    )
+    assert _CITATION in out
 
-    fetch_template_huang_2025(data_dir=tmp_path, show_citation_msg=False)
+    fetch_template_huang_2025(data_dir=tmp_path, print_citation=False)
     assert capsys.readouterr().out == ""
