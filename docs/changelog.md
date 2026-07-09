@@ -83,8 +83,8 @@ Current development version for the next ConfUSIus release.
   the rigid registration step with a B-spline refinement, showing the extra local
   correction it adds and how its parameters differ from the rigid step's
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
-- Long output in gallery examples — warnings, text reprs, tracebacks, and rich-rendered
-  text such as the dataset citation banner — now wraps instead of showing a horizontal
+- Long output in gallery examples—warnings, text reprs, tracebacks, and rich-rendered
+  text such as the dataset citation banner—now wraps instead of showing a horizontal
   scrollbar ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ### :wrench: Maintenance
@@ -166,7 +166,7 @@ Released 2026-07-07.
 - [`plot_volume`][confusius.plotting.plot_volume] and
   [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
   accessors) now accept `cbar_kwargs`, forwarded to
-  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]—useful to
   shrink a shared colorbar down to size on a multi-panel grid
   ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 - [`apply_affine`][confusius.xarray.affine.apply_affine] and the
