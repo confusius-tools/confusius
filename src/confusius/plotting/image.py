@@ -10,6 +10,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.geometry import get_voxel_affine_physical_coord_names
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
@@ -91,18 +92,26 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
     Raises
     ------
     ValueError
-        If voxel-affine data is sliced along anything other than its native voxel-space
-        dimensions.
+        If voxel-affine data is sliced along an unsupported dimension.
     """
     if not _has_voxel_affine_geometry(data):
         return
 
     valid_slice_modes = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    valid_slice_modes += tuple(
+        dim
+        for dim in get_voxel_affine_physical_coord_names(data)
+        if dim not in valid_slice_modes
+    )
     if slice_mode not in valid_slice_modes:
         raise ValueError(
-            "Voxel-affine plotting currently supports only native voxel-plane slicing "
-            f"along {valid_slice_modes!r}, got slice_mode={slice_mode!r}. Physical-"
-            "plane slicing is not implemented yet."
+            "Voxel-affine plotting supports only native voxel-plane slicing or "
+            f"physical z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
+            f"modes: {valid_slice_modes!r}."
+        )
+    if slice_mode in {"z", "y", "x"} and len(data.dims) != 3:
+        raise ValueError(
+            "Physical z/y/x slicing for voxel-affine plotting requires 3D data."
         )
 
 
@@ -207,6 +216,64 @@ def _project_voxel_affine_plane(
     x_edges, y_edges = _project(row_edges, col_edges)
     x_centers, y_centers = _project(row_vals, col_vals)
     return x_edges, y_edges, x_centers, y_centers
+
+
+def _resample_voxel_affine_to_physical_grid(
+    data: xr.DataArray, slice_mode: str
+) -> xr.DataArray:
+    """Resample voxel-affine data onto an axis-aligned physical grid for plotting.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Three-dimensional voxel-affine DataArray.
+    slice_mode : str
+        Requested plotting slice dimension.
+
+    Returns
+    -------
+    xarray.DataArray
+        Axis-aligned physical-grid DataArray when `slice_mode` is a physical
+        `z`/`y`/`x` axis, otherwise the original input.
+    """
+    if not _has_voxel_affine_geometry(data) or slice_mode not in {"z", "y", "x"}:
+        return data
+
+    from confusius.registration import resample_volume
+
+    physical_dims = get_voxel_affine_physical_coord_names(data)
+    if slice_mode not in physical_dims:
+        return data
+
+    spacing_values = [
+        float(spacing)
+        for dim, spacing in data.fusi.spacing.items()
+        if dim != "time" and spacing is not None
+    ]
+    spacing = min(spacing_values)
+
+    origin: list[float] = []
+    shape: list[int] = []
+    for dim in physical_dims:
+        values = np.asarray(data.coords[dim].values, dtype=np.float64)
+        lower = float(np.min(values))
+        upper = float(np.max(values))
+        origin.append(lower)
+        shape.append(int(np.ceil((upper - lower) / spacing)) + 1)
+
+    result = resample_volume(
+        data,
+        np.eye(len(physical_dims) + 1, dtype=np.float64),
+        shape=shape,
+        spacing=[spacing] * len(physical_dims),
+        origin=origin,
+        dims=physical_dims,
+        direction=np.eye(len(physical_dims), dtype=np.float64),
+    )
+    result.attrs.pop("voxel_to_physical", None)
+    for dim in physical_dims:
+        result.coords[dim].attrs = data.coords[dim].attrs.copy()
+    return result
 
 
 def _slice_edges_and_centers(
@@ -794,6 +861,7 @@ class VolumePlotter:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
         _validate_voxel_affine_slice_mode(data, self.slice_mode)
+        data = _resample_voxel_affine_to_physical_grid(data, self.slice_mode)
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]

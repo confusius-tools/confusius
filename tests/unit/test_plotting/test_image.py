@@ -510,12 +510,25 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "i in-plane (mm)"
         assert ax.get_ylabel() == "j in-plane (mm)"
 
-    def test_voxel_affine_volume_rejects_physical_slice_mode(self, matplotlib_pyplot):
-        """Voxel-affine plotting accepts only native voxel-space slice modes."""
+    def test_voxel_affine_volume_resamples_for_physical_slice_mode(
+        self, matplotlib_pyplot
+    ):
+        """Voxel-affine volumes plot physical z-slices after axis-aligned resampling."""
         data = _make_voxel_affine_volume()
+        z_coord = float(np.asarray(data.coords["z"].values, dtype=float).mean())
 
-        with pytest.raises(ValueError, match="native voxel-plane slicing"):
-            plot_volume(data, slice_mode="z", slice_coords=[0.0], show_colorbar=False)
+        plotter = plot_volume(
+            data,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            show_colorbar=False,
+        )
+
+        ax = _axes(plotter)[0, 0]
+        quadmesh = ax.collections[0]
+        assert quadmesh.get_coordinates().ndim == 3
+        assert ax.get_xlabel() == "x (mm)"
+        assert ax.get_ylabel() == "y (mm)"
 
 
 class TestCentersToEdges:
