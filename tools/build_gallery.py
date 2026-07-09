@@ -3,10 +3,18 @@
 Run as::
 
     uv run python tools/build_gallery.py
+
+to run every example, or pass specific example scripts to run only those::
+
+    uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py
+
+The whole gallery is still rendered either way; the examples you do not name are
+restored from cache if present, or rendered without outputs (code only).
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -50,20 +58,38 @@ def _deps_fingerprint() -> str:
 
 def main() -> int:
     """Run the gallery builder end-to-end."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "examples",
+        nargs="*",
+        type=Path,
+        help=(
+            "Example scripts to run (paths under docs/examples/). The whole gallery "
+            "is still rendered; unnamed examples are taken from cache if present, or "
+            "rendered without outputs. If not provided, all examples are run."
+        ),
+    )
+    args = parser.parse_args()
+
     if not EXAMPLES_ROOT.is_dir():
         print(f"No examples directory at {EXAMPLES_ROOT}", file=sys.stderr)
         return 1
 
     binder_ref = os.environ.get("CONFUSIUS_BINDER_REF", "main")
-    build_gallery(
-        examples_root=EXAMPLES_ROOT,
-        built_dir=BUILT_DIR,
-        cache_root=CACHE_ROOT,
-        deps_fingerprint=_deps_fingerprint(),
-        repo_root=REPO_ROOT,
-        binder_repo=BINDER_REPO,
-        binder_ref=binder_ref,
-    )
+    try:
+        build_gallery(
+            examples_root=EXAMPLES_ROOT,
+            built_dir=BUILT_DIR,
+            cache_root=CACHE_ROOT,
+            deps_fingerprint=_deps_fingerprint(),
+            repo_root=REPO_ROOT,
+            binder_repo=BINDER_REPO,
+            binder_ref=binder_ref,
+            only=args.examples or None,
+        )
+    except ValueError as exc:
+        print(exc, file=sys.stderr)
+        return 1
     return 0
 
 
