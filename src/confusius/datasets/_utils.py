@@ -31,10 +31,12 @@ def print_citation_message(citation: str, kind: Literal["dataset", "template"]) 
     # Render as a Text renderable rather than a str so the markup styles apply but
     # rich's auto-highlighter does not colorize numbers, URLs, etc.
     text = Text.from_markup(citation)
-    # Turn the DOI into an OSC 8 hyperlink where the terminal supports it.
+    # Bold the whole citation; the journal name's `[italic]` markup makes it bold italic.
+    text.stylize("bold")
+    # Show the DOI as a blue OSC 8 hyperlink where the terminal supports it.
     match = _DOI_URL_RE.search(text.plain)
     if match:
-        text.stylize(f"link {match.group()}", match.start(), match.end())
+        text.stylize(f"blue link {match.group()}", match.start(), match.end())
     rich_print(text)
 
 
