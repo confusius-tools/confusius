@@ -7,9 +7,10 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
+from confusius._utils.geometry import has_voxel_affine_geometry
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
+    get_defined_spatial_spacing,
     replace_spatial_geometry_attrs,
     set_sitk_thread_count,
 )
@@ -284,14 +285,23 @@ def resample_like(
             (("transform", transform), ("reference", reference))
         )
 
-    grid = get_grid_kwargs_from_dataarray(reference)
+    dims, spacing = get_defined_spatial_spacing(reference)
+    shape = [int(reference.sizes[dim]) for dim in dims]
+    origin_dict = reference.fusi.origin
+    origin = (
+        [origin_dict[dim] for dim in dims]
+        if not has_voxel_affine_geometry(reference)
+        else [o for d, o in origin_dict.items() if d != "time"]
+    )
     direction = reference.fusi.direction
-    dims = grid["dims"]
 
     result = resample_volume(
         moving,
         transform,
-        **grid,
+        shape=shape,
+        spacing=spacing,
+        origin=origin,
+        dims=dims,
         interpolation=interpolation,
         default_value=default_value,
         direction=direction,

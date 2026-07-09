@@ -946,6 +946,36 @@ class TestDisplacementField:
         with pytest.raises(ValueError, match="time dimension"):
             sample_displacement_field_like(transform, sample_2d_dataarray)
 
+    def test_sample_displacement_field_like_singleton_dim_without_voxdim_raises(self):
+        """Thin references without `voxdim` are rejected during field sampling."""
+        transform = xr.DataArray(
+            np.zeros((3, 4, 4, 4)),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": ["z", "y", "x"],
+                "z": np.arange(4.0),
+                "y": np.arange(4.0),
+                "x": np.arange(4.0),
+            },
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(3).tolist(),
+            },
+        )
+        reference = xr.DataArray(
+            np.zeros((1, 8, 8), dtype=np.float32),
+            dims=("z", "y", "x"),
+            coords={
+                "z": np.array([0.0]),
+                "y": np.arange(8, dtype=np.float64) * 0.1,
+                "x": np.arange(8, dtype=np.float64) * 0.1,
+            },
+        )
+
+        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
+            sample_displacement_field_like(transform, reference)
+
     def test_invert_displacement_field_wrong_type_attr_raises(self):
         """A DataArray with the wrong `type` attr is rejected."""
         field = xr.DataArray(
@@ -1031,6 +1061,26 @@ class TestDisplacementField:
         assert_allclose(np.asarray(inverted.attrs["direction"]), fixed.fusi.direction)
         assert_allclose(field.values, 0.0, atol=1e-6)
         assert_allclose(inverted.values, 0.0, atol=1e-6)
+
+    def test_invert_displacement_field_singleton_dim_without_voxdim_raises(self):
+        """Thin displacement fields without `voxdim` are rejected on inversion."""
+        field = xr.DataArray(
+            np.zeros((3, 1, 8, 8), dtype=np.float64),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": ["z", "y", "x"],
+                "z": np.array([0.0]),
+                "y": np.arange(8, dtype=np.float64) * 0.1,
+                "x": np.arange(8, dtype=np.float64) * 0.1,
+            },
+            attrs={
+                "type": "displacement_field_transform",
+                "direction": np.eye(3).tolist(),
+            },
+        )
+
+        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
+            invert_displacement_field(field)
 
     def test_invert_displacement_field_undoes_translation(self):
         """Inverting a constant translation field approximately negates it.
@@ -1183,6 +1233,22 @@ class TestResampleLike:
         """reference with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="time"):
             resample_like(sample_2d_dataarray_spatial, sample_2d_dataarray, np.eye(3))
+
+    def test_singleton_reference_dim_without_voxdim_raises_helpful_error(self):
+        """Thin references without `voxdim` are rejected with a repair hint."""
+        reference = xr.DataArray(
+            np.zeros((1, 8, 8), dtype=np.float32),
+            dims=("z", "y", "x"),
+            coords={
+                "z": np.array([0.0]),
+                "y": np.arange(8, dtype=np.float64) * 0.1,
+                "x": np.arange(8, dtype=np.float64) * 0.1,
+            },
+        )
+        moving = reference.copy()
+
+        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
+            resample_like(moving, reference, np.eye(4))
 
     def test_mismatched_units_between_moving_and_reference_raise(
         self, sample_2d_dataarray_spatial

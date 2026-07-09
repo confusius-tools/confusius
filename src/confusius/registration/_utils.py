@@ -20,6 +20,70 @@ if TYPE_CHECKING:
     import SimpleITK as sitk
 
 
+def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
+    """Raise a consistent registration spacing error.
+
+    Parameters
+    ----------
+    undefined_dims : list[str]
+        Spatial dimensions whose spacing could not be determined.
+
+    Raises
+    ------
+    ValueError
+        Always raised with a message explaining how to repair singleton axes.
+    """
+    raise ValueError(
+        "Registration requires defined spatial spacing for all spatial "
+        f"dimensions, but {undefined_dims!r} are undefined. For singleton spatial "
+        "axes, set a `voxdim` coordinate attribute (e.g. `da.coords['z'].attrs['voxdim'] = 0.5`) "
+        "before registering."
+    )
+
+
+def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float]]:
+    """Return spatial dims and their defined spacings for registration.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        Spatial or spatiotemporal DataArray.
+
+    Returns
+    -------
+    spatial_dims : list[str]
+        Spatial dimension names in DataArray order.
+    spacing : list[float]
+        Physical spacing for each spatial dimension.
+
+    Raises
+    ------
+    ValueError
+        If any spatial spacing is undefined.
+    """
+    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
+
+    if has_voxel_affine_geometry(da):
+        spacing_dict = da.fusi.spacing
+        undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
+        if undefined_dims:
+            _raise_undefined_spatial_spacing_error(undefined_dims)
+        return spatial_dims, [float(spacing_dict[dim]) for dim in spatial_dims]
+
+    spacing: list[float] = []
+    undefined_dims: list[str] = []
+    for dim in spatial_dims:
+        spacing_info = get_coordinate_spacing_info(dim, da, uniformity_tolerance=1e-2)
+        if spacing_info.value is None:
+            undefined_dims.append(dim)
+        else:
+            spacing.append(float(spacing_info.value))
+    if undefined_dims:
+        _raise_undefined_spatial_spacing_error(undefined_dims)
+
+    return spatial_dims, spacing
+
+
 def _rotation_matrix_aligning_vectors(
     source: np.ndarray,
     target: np.ndarray,
@@ -283,41 +347,13 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     origin_dict = da.fusi.origin
 
     has_time = "time" in da.dims
-    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
+    spatial_dims, spacing = get_defined_spatial_spacing(da)
+    direction = np.asarray(da.fusi.direction, dtype=np.float64)
 
     if has_voxel_affine_geometry(da):
-        spacing_dict = da.fusi.spacing
-        undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
-        if undefined_dims:
-            raise ValueError(
-                "Registration requires defined spatial spacing for all spatial "
-                f"dimensions, but {undefined_dims!r} are undefined. For singleton spatial "
-                "axes, set a `voxdim` coordinate attribute (e.g. `da.coords['z'].attrs['voxdim'] = 0.5`) "
-                "before registering."
-            )
-        spacing = [float(spacing_dict[dim]) for dim in spatial_dims]
-        direction = np.asarray(da.fusi.direction, dtype=np.float64)
+        origin = tuple(o for d, o in origin_dict.items() if str(d) != "time")
     else:
-        spacing = []
-        undefined_dims = []
-        for dim in spatial_dims:
-            spacing_info = get_coordinate_spacing_info(
-                dim, da, uniformity_tolerance=1e-2
-            )
-            if spacing_info.value is None:
-                undefined_dims.append(dim)
-            else:
-                spacing.append(float(spacing_info.value))
-        if undefined_dims:
-            raise ValueError(
-                "Registration requires defined spatial spacing for all spatial "
-                f"dimensions, but {undefined_dims!r} are undefined. For singleton spatial "
-                "axes, set a `voxdim` coordinate attribute (e.g. `da.coords['z'].attrs['voxdim'] = 0.5`) "
-                "before registering."
-            )
-        direction = np.asarray(da.fusi.direction, dtype=np.float64)
-
-    origin = tuple(o for d, o in origin_dict.items() if str(d) != "time")
+        origin = tuple(origin_dict[d] for d in spatial_dims)
     spatial_ndim = len(spacing)
     if direction.shape != (spatial_ndim, spatial_ndim):
         direction = np.eye(spatial_ndim, dtype=np.float64)

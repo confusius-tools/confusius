@@ -52,8 +52,12 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
-from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
+from confusius._utils.geometry import has_voxel_affine_geometry
+from confusius.registration._utils import (
+    expand_thin_dims,
+    get_defined_spatial_spacing,
+    set_sitk_thread_count,
+)
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
     validate_fusi_dataarray,
@@ -404,9 +408,18 @@ def sample_displacement_field_like(
         (("transform", transform), ("reference", reference))
     )
 
+    dims, spacing = get_defined_spatial_spacing(reference)
+    origin_dict = reference.fusi.origin
     result = sample_displacement_field(
         transform,
-        **get_grid_kwargs_from_dataarray(reference),
+        shape=[int(reference.sizes[dim]) for dim in dims],
+        spacing=spacing,
+        origin=(
+            [origin_dict[dim] for dim in dims]
+            if not has_voxel_affine_geometry(reference)
+            else [o for d, o in origin_dict.items() if d != "time"]
+        ),
+        dims=dims,
         direction=reference.fusi.direction,
         sitk_threads=sitk_threads,
     )
@@ -494,10 +507,9 @@ def invert_displacement_field(
             inverted_expanded, size=shape, index=index
         )
 
-    spacing_dict = field.fusi.spacing
-    origin_dict = field.fusi.origin
-    spacing = [spacing_dict[d] if spacing_dict[d] is not None else 1.0 for d in dims]
-    origin = [origin_dict[d] for d in dims]
+    field_grid = field.isel(component=0, drop=True)
+    _, spacing = get_defined_spatial_spacing(field_grid)
+    origin = [field_grid.fusi.origin[d] for d in dims]
     direction = np.asarray(
         field.attrs.get("direction", np.eye(len(dims))), dtype=np.float64
     )
@@ -597,17 +609,9 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
 
     _validate_displacement_field_dataarray(da)
 
-    spatial_dims = list(da.dims[1:])
-    # da.fusi.spacing falls back to the 'voxdim' coordinate attribute for singleton
-    # spatial dims (e.g. a single 2D slice stored as a (1, y, x) array), where
-    # coords[dim].diff(dim) is empty and .mean() would silently return NaN.
-    spacing_dict = da.fusi.spacing
-    origin_dict = da.fusi.origin
-    spacing = [
-        spacing_dict[dim] if spacing_dict[dim] is not None else 1.0
-        for dim in spatial_dims
-    ]
-    origin = [origin_dict[dim] for dim in spatial_dims]
+    field_grid = da.isel(component=0, drop=True)
+    spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
+    origin = [field_grid.fusi.origin[dim] for dim in spatial_dims]
     direction = np.asarray(
         da.attrs.get("direction", np.eye(len(spatial_dims))), dtype=np.float64
     )
