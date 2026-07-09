@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Dataset fetchers now print the citation to use for the fetched data and accept a
+  `show_citation_msg` argument to silence it. The template fetchers
+  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
+  also expose the citation on the returned DataArray as `da.attrs["citation"]`
+  ([#279](https://github.com/confusius-tools/confusius/pull/279)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
