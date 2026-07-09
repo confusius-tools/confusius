@@ -12,11 +12,18 @@ from ._osf import (
     read_cached_index,
     update_cached_index,
 )
-from ._utils import get_datasets_dir
+from ._utils import get_datasets_dir, print_citation_message
 
 _OSF_PROJECT_ID = "43skw"
 _BIDS_ROOT = "nunez-elizalde-2022-bids"
 _TOTAL_SIZE_BYTES = 6_982_575_320
+_CITATION = (
+    "Nunez-Elizalde, A. O., Krumin, M., Reddy, C. B., Montaldo, G., Urban, A., "
+    "Harris, K. D., & Carandini, M. (2022). [citation.title]Neural correlates of blood "
+    "flow measured by ultrasound.[/citation.title] [italic]Neuron[/italic], 110(10), "
+    "1631–1640.e4. "
+    "[citation.doi]https://doi.org/10.1016/j.neuron.2022.02.012[/citation.doi]"
+)
 
 
 def _filter_files(
@@ -125,6 +132,7 @@ def fetch_nunez_elizalde_2022(
     tasks: str | list[str] | None = None,
     acqs: str | list[str] | None = None,
     refresh: bool = False,
+    print_citation: bool = True,
 ) -> Path:
     """Fetch the Nunez-Elizalde 2022 fUSI-BIDS dataset.
 
@@ -167,6 +175,8 @@ def fetch_nunez_elizalde_2022(
         (comparing the cached index against the refreshed one) are re-downloaded. If
         `False` and all requested files are already cached, the function returns
         immediately without any network access.
+    print_citation : bool, default: True
+        Whether to print the citation for the dataset.
 
     Returns
     -------
@@ -208,4 +218,6 @@ def fetch_nunez_elizalde_2022(
     if refresh:
         update_cached_index(bids_dir, index, previous_index or {}, files)
 
+    if print_citation:
+        print_citation_message(_CITATION, "dataset")
     return bids_dir
