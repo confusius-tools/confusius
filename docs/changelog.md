@@ -33,6 +33,10 @@ Current development version for the next ConfUSIus release.
   fields directly, so a saved B-spline transform's inverse can be applied without a
   closed-form inverse
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+- **[Napari plugin]** Added an interactive registration panel for volume alignment in
+  napari, including linear and non-linear transforms, progress preview, manual and
+  automatic initialization, saving/loading transforms, and forward/inverse transform
+  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
 
 ### :bug: Fixes
 
