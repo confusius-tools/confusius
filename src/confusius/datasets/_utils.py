@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -11,6 +12,9 @@ from rich import print as rich_print
 from rich.text import Text
 
 _ENV_VAR = "CONFUSIUS_DATA"
+
+_DOI_URL_RE = re.compile(r"https://doi\.org/\S+")
+"""Pattern matching a DOI URL, rendered as a clickable link in the citation."""
 
 
 def print_citation_message(citation: str, kind: Literal["dataset", "template"]) -> None:
@@ -26,7 +30,12 @@ def print_citation_message(citation: str, kind: Literal["dataset", "template"]) 
     print(f"If you use this {kind} in your work, please cite the following source:\n")
     # Render as a Text renderable rather than a str so the markup styles apply but
     # rich's auto-highlighter does not colorize numbers, URLs, etc.
-    rich_print(Text.from_markup(citation))
+    text = Text.from_markup(citation)
+    # Turn the DOI into an OSC 8 hyperlink where the terminal supports it.
+    match = _DOI_URL_RE.search(text.plain)
+    if match:
+        text.stylize(f"link {match.group()}", match.start(), match.end())
+    rich_print(text)
 
 
 def plain_citation(citation: str) -> str:
