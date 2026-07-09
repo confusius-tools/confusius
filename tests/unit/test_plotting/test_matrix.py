@@ -45,7 +45,7 @@ class TestPlotMatrixValidation:
     def test_unknown_triangle_raises(self, matplotlib_pyplot):
         """An unsupported triangle mode raises ValueError."""
         with pytest.raises(ValueError, match="Unknown triangle mode"):
-            plot_matrix(_correlation_matrix(4), triangle="bogus")
+            plot_matrix(_correlation_matrix(4), triangle="bogus")  # ty: ignore[invalid-argument-type]
 
 
 class TestPlotMatrixBehaviour:
@@ -190,9 +190,13 @@ class TestPlotMatrixBehaviour:
         groups = ["cortex"] * 3 + ["thalamus"] * 3
         fig, ax = plot_matrix(_correlation_matrix(6), labels=labels, groups=groups)
 
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+
         fig.canvas.draw()
+        assert isinstance(fig.canvas, FigureCanvasAgg)
         renderer = fig.canvas.get_renderer()
         label_bbox = ax.yaxis.get_tightbbox(renderer)
+        assert label_bbox is not None
         row_ax = min(
             (axis for axis in fig.axes if axis is not ax),
             key=lambda axis: axis.get_position().x0,
@@ -272,7 +276,10 @@ class TestPlotMatrixBehaviour:
     def test_tri_masks_expected_side(self, matplotlib_pyplot, tri, masked_upper):
         """lower/diag_lower mask the strict upper triangle and vice versa."""
         _, ax = plot_matrix(_correlation_matrix(4), triangle=tri)
-        image_mask = ax.collections[0].get_array().mask
+        image_mask = np.asarray(
+            np.ma.masked_array(ax.collections[0].get_array()).mask,
+            dtype=bool,
+        )
         assert bool(image_mask[0, 1]) == masked_upper
         assert bool(image_mask[1, 0]) == (not masked_upper)
 
@@ -280,7 +287,11 @@ class TestPlotMatrixBehaviour:
     def test_tri_strict_excludes_diagonal(self, matplotlib_pyplot, tri):
         """lower/upper mask the diagonal; diag_lower/diag_upper keep it."""
         _, ax = plot_matrix(_correlation_matrix(4), triangle=tri)
-        assert bool(ax.collections[0].get_array().mask[0, 0])
+        image_mask = np.asarray(
+            np.ma.masked_array(ax.collections[0].get_array()).mask,
+            dtype=bool,
+        )
+        assert bool(image_mask[0, 0])
 
 
 class TestPlotMatrixVisualRegression:

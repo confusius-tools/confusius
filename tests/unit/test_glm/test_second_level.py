@@ -173,7 +173,7 @@ class TestSecondLevelModelContrast:
 
     def test_invalid_output_type_raises(self):
         with pytest.raises(ValueError, match="output_type"):
-            self.model.compute_contrast(output_type="invalid")
+            self.model.compute_contrast(output_type="invalid")  # ty: ignore[invalid-argument-type]
 
 
 class TestSecondLevelModelFContrast:
@@ -262,12 +262,12 @@ class TestSecondLevelModelErrors:
     def test_not_list_raises(self):
         model = SecondLevelModel()
         with pytest.raises(ValueError, match="non-empty list"):
-            model.fit(xr.DataArray(np.ones((5, 3))))
+            model.fit(xr.DataArray(np.ones((5, 3))))  # ty: ignore[invalid-argument-type]
 
     def test_list_of_non_dataarrays_raises(self):
         model = SecondLevelModel()
         with pytest.raises(TypeError, match="FirstLevelModel or"):
-            model.fit([np.ones((3, 4)), np.ones((3, 4))])
+            model.fit([np.ones((3, 4)), np.ones((3, 4))])  # ty: ignore[invalid-argument-type]
 
     def test_empty_input_raises(self):
         model = SecondLevelModel()

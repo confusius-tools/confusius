@@ -10,6 +10,18 @@ from pathlib import Path
 import nbformat
 
 
+def _join_str_list(value: object) -> str | None:
+    """Join a list of strings, returning `None` for any other input."""
+    if not isinstance(value, list):
+        return None
+    parts: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return None
+        parts.append(item)
+    return "".join(parts)
+
+
 def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
     """Return the tags attached to one notebook cell."""
     return set(cell.metadata.get("tags", []))
@@ -18,11 +30,12 @@ def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
 def _png_data(output: dict[str, object]) -> str | None:
     """Return the base64 PNG payload from an output if present."""
     data = output.get("data")
-    if not isinstance(data, dict) or "image/png" not in data:
+    if not isinstance(data, dict):
         return None
-    png = data["image/png"]
-    if isinstance(png, list):
-        return "".join(png)
+    png = data.get("image/png")
+    png_joined = _join_str_list(png)
+    if png_joined is not None:
+        return png_joined
     if isinstance(png, str):
         return png
     return None
@@ -150,13 +163,15 @@ def _is_blank_widget_output(output: dict[str, object]) -> bool:
     data = output.get("data")
     if not isinstance(data, dict) or not data:
         return False
-    if any(key.startswith("image/") for key in data):
+    if any(isinstance(key, str) and key.startswith("image/") for key in data):
         return False
     if not set(data).issubset({"text/html", "text/plain"}):
         return False
 
     plain = data.get("text/plain", "")
-    text = "".join(plain) if isinstance(plain, list) else str(plain)
+    text = _join_str_list(plain)
+    if text is None:
+        text = str(plain)
     return not text.strip()
 
 
@@ -189,7 +204,9 @@ def _summarize_output(output: dict[str, object]) -> str:
         if isinstance(data, dict):
             for key in keys:
                 value = data[key]
-                text = "".join(value) if isinstance(value, list) else str(value)
+                text = _join_str_list(value)
+                if text is None:
+                    text = str(value)
                 text = text.replace("\n", "\\n")
                 summary += f"\n    {key}: {text[:500]}"
         metadata = output.get("metadata")

@@ -147,7 +147,7 @@ def test_interpolate_rejects_non_dataarray_mask(sample_timeseries):
     signals = sample_timeseries(n_time=100)
 
     with pytest.raises(TypeError, match="sample_mask must be an xarray.DataArray"):
-        interpolate_samples(signals, np.ones(100, dtype=bool))  # type: ignore[arg-type]
+        interpolate_samples(signals, np.ones(100, dtype=bool))  # ty: ignore[invalid-argument-type]
 
 
 def test_interpolate_rejects_mask_without_time_dimension(sample_timeseries):

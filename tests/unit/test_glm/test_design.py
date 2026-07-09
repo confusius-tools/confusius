@@ -469,7 +469,7 @@ class TestEdgeCases:
         """Unknown drift_model values raise."""
         with pytest.raises(ValueError, match="drift_model"):
             make_first_level_design_matrix(
-                frame_times, basic_events, drift_model="unknown"
+                frame_times, basic_events, drift_model="unknown"  # ty: ignore[invalid-argument-type]
             )
 
 
@@ -488,7 +488,7 @@ class TestDesignMatrixInputValidation:
 
     def test_invalid_hrf_model_raises(self, frame_times, stim_event):
         with pytest.raises(ValueError, match="Unknown hrf_model"):
-            make_first_level_design_matrix(frame_times, stim_event, hrf_model="invalid")
+            make_first_level_design_matrix(frame_times, stim_event, hrf_model="invalid")  # ty: ignore[invalid-argument-type]
 
     def test_invalid_drift_order_raises(self, frame_times, stim_event):
         with pytest.raises(ValueError, match="drift_order must be >= 0"):
@@ -511,7 +511,7 @@ class TestDesignMatrixInputValidation:
 
     def test_events_must_be_dataframe(self, frame_times):
         with pytest.raises(TypeError, match="pandas DataFrame"):
-            make_first_level_design_matrix(frame_times, events=[1, 2, 3])
+            make_first_level_design_matrix(frame_times, events=[1, 2, 3])  # ty: ignore[invalid-argument-type]
 
     def test_events_missing_onset_column_raises(self, frame_times):
         events = pd.DataFrame({"trial_type": ["stim"], "duration": [1.0]})

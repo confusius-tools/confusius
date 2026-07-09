@@ -407,8 +407,11 @@ class TestDaFromNapariLayer:
         from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         # Simulate pint Unit objects as napari passes them.
-        pixel_unit = MagicMock()
-        pixel_unit.__str__ = lambda self: "pixel"
+        class _PixelUnit:
+            def __str__(self) -> str:
+                return "pixel"
+
+        pixel_unit = _PixelUnit()
 
         data = np.zeros((4,))
         da = _compute_dataarray_from_layer(

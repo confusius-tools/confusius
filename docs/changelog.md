@@ -170,14 +170,14 @@ Released 2026-07-07.
   non-finite value, instead of crashing deep inside
   `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque `IndexError`
   ([#259](https://github.com/confusius-tools/confusius/pull/259)).
-- `save_nifti` now drops attrs that cannot be serialized to JSON as-is (e.g. matplotlib
-  `ListedColormap`/`BoundaryNorm` objects) instead of writing their `str()` repr into the
-  sidecar, which could corrupt fields such as `cmap` on reload. A warning lists the
-  dropped keys. [`confusius.load`][confusius.io.load] now rebuilds `cmap`/`norm` from
-  `rgb_lookup` when they are missing, so atlas-derived masks and annotations keep their
-  canonical colors after a save/load round-trip. **[Napari plugin]** The reader now
-  falls back to the `"gray"` colormap (with a napari warning) instead of crashing when a
-  layer's `cmap` attr is not a valid napari colormap name
+- [`save_nifti`][confusius.io.save_nifti] now drops attrs that cannot be serialized to
+  JSON as-is (e.g. matplotlib `ListedColormap`/`BoundaryNorm` objects) instead of
+  writing their `str()` repr into the sidecar, which could corrupt fields such as `cmap`
+  on reload. A warning lists the dropped keys. [`confusius.load`][confusius.io.load] now
+  rebuilds `cmap`/`norm` from `rgb_lookup` when they are missing, so atlas-derived masks
+  and annotations keep their canonical colors after a save/load round-trip. **[Napari
+  plugin]** The reader now falls back to the `"gray"` colormap (with a napari warning)
+  instead of crashing when a layer's `cmap` attr is not a valid napari colormap name
   ([#255](https://github.com/confusius-tools/confusius/pull/255)).
 - [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
   coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region

@@ -139,7 +139,7 @@ def test_inverse_transform_raises_for_invalid_input_type(sample_3dt_volume):
     model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
-        model.inverse_transform([1, 2, 3])
+        model.inverse_transform([1, 2, 3])  # ty: ignore[invalid-argument-type]
 
 
 def test_fit_requires_time_dimension(sample_3dt_volume):
@@ -194,7 +194,7 @@ def test_fit_rejects_unexpected_fit_params(sample_3dt_volume):
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         PCA().fit(
             sample_3dt_volume,
-            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),
+            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),  # ty: ignore[unknown-argument]
         )
 
 
@@ -370,7 +370,7 @@ def test_spatial_mode_matches_reference_implementation(sample_3dt_volume):
 def test_fit_raises_for_invalid_mode(sample_3dt_volume):
     """fit raises for unsupported PCA mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
-        PCA(mode="invalid").fit(sample_3dt_volume)  # type: ignore[arg-type]
+        PCA(mode="invalid").fit(sample_3dt_volume)  # ty: ignore[invalid-argument-type]
 
 
 def test_mask_restricts_features(sample_3dt_volume):
