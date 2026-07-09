@@ -11,17 +11,11 @@ from rich.console import Console
 from rich.text import Text
 from rich.theme import Theme
 
+from confusius._utils.colors import RED, TURQUOISE
+
 _ENV_VAR = "CONFUSIUS_DATA"
 
-CONFUSIUS_TURQUOISE = "#3ad9a4"
-"""Confusius brand turquoise, matching the docs theme."""
-
-CONFUSIUS_RED = "#e94b5f"
-"""Confusius brand red, matching the docs theme."""
-
-_CITATION_THEME = Theme(
-    {"citation.title": CONFUSIUS_RED, "citation.doi": CONFUSIUS_TURQUOISE}
-)
+_CITATION_THEME = Theme({"citation.title": RED, "citation.doi": TURQUOISE})
 """Maps the citation style names used in `_CITATION` markup to brand colors."""
 
 _console = Console(theme=_CITATION_THEME)
