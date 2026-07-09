@@ -234,7 +234,7 @@ def _resample_voxel_affine_to_physical_grid(
     reference : xarray.DataArray, optional
         Axis-aligned physical-grid DataArray to reuse as the resampling target.
         If not provided, a new plotting grid is synthesized from `data`'s physical
-        bounds and finest spatial spacing.
+        bounds and per-axis physical spacing.
 
     Returns
     -------
@@ -258,27 +258,26 @@ def _resample_voxel_affine_to_physical_grid(
             np.eye(len(physical_dims) + 1, dtype=np.float64),
         )
     else:
-        spacing_values = [
-            float(spacing)
-            for dim, spacing in data.fusi.spacing.items()
-            if dim != "time" and spacing is not None
-        ]
-        spacing = min(spacing_values)
-
+        spacing: list[float] = []
         origin: list[float] = []
         shape: list[int] = []
         for dim in physical_dims:
             values = np.asarray(data.coords[dim].values, dtype=np.float64)
             lower = float(np.min(values))
             upper = float(np.max(values))
+            dim_spacing = data.coords[dim].attrs.get("voxdim")
+            if dim_spacing is None:
+                dim_spacing = float(np.median(np.abs(np.diff(values))))
+            dim_spacing = float(dim_spacing)
             origin.append(lower)
-            shape.append(int(np.ceil((upper - lower) / spacing)) + 1)
+            spacing.append(dim_spacing)
+            shape.append(int(np.ceil((upper - lower) / dim_spacing)) + 1)
 
         result = resample_volume(
             data,
             np.eye(len(physical_dims) + 1, dtype=np.float64),
             shape=shape,
-            spacing=[spacing] * len(physical_dims),
+            spacing=spacing,
             origin=origin,
             dims=physical_dims,
             direction=np.eye(len(physical_dims), dtype=np.float64),

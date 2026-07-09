@@ -530,6 +530,18 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "x (mm)"
         assert ax.get_ylabel() == "y (mm)"
 
+    def test_voxel_affine_physical_resampling_preserves_per_axis_spacing(self):
+        """The first physical display grid keeps each axis's own physical spacing."""
+        from confusius.plotting.image import _resample_voxel_affine_to_physical_grid
+
+        data = _make_voxel_affine_volume()
+
+        result = _resample_voxel_affine_to_physical_grid(data, "z")
+
+        for dim in ("z", "y", "x"):
+            spacing = float(np.diff(np.asarray(result.coords[dim].values, dtype=float))[0])
+            assert spacing == pytest.approx(float(data.coords[dim].attrs["voxdim"]))
+
 
 class TestCentersToEdges:
     """Tests for _centers_to_edges helper function."""
