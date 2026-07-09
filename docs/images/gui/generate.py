@@ -378,7 +378,7 @@ def _napari_screenshot(viewer: napari.Viewer, path: str) -> None:
     sees or resizes it.
     """
     win = viewer.window._qt_window
-    win.setAttribute(Qt.WA_DontShowOnScreen)
+    win.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win.show()
     win.resize(1400, 900)
     get_qapp().processEvents()
@@ -590,7 +590,7 @@ try:
     # Place points at the centroids of the two atlas-derived cortical ROIs.
     pt_red = GUI_POINT_LEFT
     pt_teal = GUI_POINT_RIGHT
-    pts_layer4 = viewer4.add_points(
+    pts_layer4 = getattr(viewer4, "add_points")(
         np.array([pt_red, pt_teal]),
         name="ROI Points",
         scale=scale_3d4,
@@ -601,7 +601,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter4 = ts_panel4._ensure_plotter()
+    plotter4 = getattr(ts_panel4, "_ensure_plotter")()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -613,7 +613,7 @@ try:
     # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
     # on the plotter automatically.
-    ts_panel4._radio_points.setChecked(True)
+    getattr(ts_panel4, "_radio_points").setChecked(True)
     get_qapp().processEvents()
 
     viewer4.window._qt_window.resize(1400, 1050)
@@ -655,7 +655,7 @@ try:
     labels_data[0, GUI_LEFT_ROI] = 1
     labels_data[0, GUI_RIGHT_ROI] = 2
 
-    labels_layer5 = viewer5.add_labels(
+    labels_layer5 = getattr(viewer5, "add_labels")(
         labels_data,
         name="Brain Regions",
         scale=scale_3d5,
@@ -663,7 +663,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter5 = ts_panel5._ensure_plotter()
+    plotter5 = getattr(ts_panel5, "_ensure_plotter")()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -674,7 +674,7 @@ try:
     # Select the Labels radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter automatically.
-    ts_panel5._radio_labels.setChecked(True)
+    getattr(ts_panel5, "_radio_labels").setChecked(True)
     get_qapp().processEvents()
 
     viewer5.window._qt_window.resize(1400, 1050)
@@ -739,7 +739,7 @@ try:
 
     # Size the window, then refit camera to layers (napari "home" button).
     win6 = viewer6.window._qt_window
-    win6.setAttribute(Qt.WA_DontShowOnScreen)
+    win6.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win6.show()
     win6.resize(1400, 900)
     get_qapp().processEvents()
@@ -872,7 +872,7 @@ try:
     _qt_sleep(100)
 
     win7 = viewer7.window._qt_window
-    win7.setAttribute(Qt.WA_DontShowOnScreen)
+    win7.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win7.show()
     win7.resize(1500, 950)
     get_qapp().processEvents()
@@ -1032,7 +1032,7 @@ try:
     _qt_sleep(100)
 
     win8 = viewer8.window._qt_window
-    win8.setAttribute(Qt.WA_DontShowOnScreen)
+    win8.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win8.show()
     win8.resize(1500, 950)
     get_qapp().processEvents()
@@ -1224,7 +1224,7 @@ try:
     # Open the Events accordion and show the window so the geometry is final.
     _open_accordion_panel(widget9, "Events")
     win9 = viewer9.window._qt_window
-    win9.setAttribute(Qt.WA_DontShowOnScreen)
+    win9.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win9.show()
     win9.resize(1400, 1050)
     get_qapp().processEvents()

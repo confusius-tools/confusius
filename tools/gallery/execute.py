@@ -91,7 +91,7 @@ def execute_example(
         notebook.cells.insert(0, _theme_setup_cell(theme))
 
     kernel_manager = KernelManager()
-    kernel_manager.kernel_cmd = [  # type: ignore[unresolved-attribute]
+    kernel_manager.kernel_cmd = [  # ty: ignore[unresolved-attribute]
         sys.executable,
         "-m",
         "ipykernel_launcher",

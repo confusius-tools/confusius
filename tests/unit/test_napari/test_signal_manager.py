@@ -14,8 +14,12 @@ def test_manager_refreshes_rows_from_store(qtbot, signals_store, signals_csv):
     qtbot.addWidget(dialog)
 
     assert dialog._table.rowCount() == 2
-    assert dialog._table.item(0, 1).text() == "a"
-    assert dialog._table.item(1, 3).text() == "series.csv"
+    name_item = dialog._table.item(0, 1)
+    file_item = dialog._table.item(1, 3)
+    assert name_item is not None
+    assert file_item is not None
+    assert name_item.text() == "a"
+    assert file_item.text() == "series.csv"
 
 
 def test_manager_applies_store_mutations(
@@ -26,10 +30,12 @@ def test_manager_applies_store_mutations(
     qtbot.addWidget(dialog)
 
     name_item = dialog._table.item(0, 1)
+    assert name_item is not None
     name_item.setText("baseline")
     assert signals_store.imported_signals()[0].name == "baseline"
 
     visible_item = dialog._table.item(0, 0)
+    assert visible_item is not None
     visible_item.setCheckState(Qt.CheckState.Unchecked)
     assert signals_store.imported_signals()[0].visible is False
 

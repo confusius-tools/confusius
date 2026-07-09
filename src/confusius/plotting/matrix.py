@@ -637,7 +637,7 @@ def plot_matrix(
             row_ax,
             "vertical",
             spans,
-            colors,
+            colors,  # type: ignore
             show_group_labels,
             label_fontsize,
         )
@@ -646,7 +646,7 @@ def plot_matrix(
             col_ax,
             "horizontal",
             spans,
-            colors,
+            colors,  # type: ignore
             show_group_labels,
             label_fontsize,
         )

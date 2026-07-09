@@ -399,7 +399,7 @@ class GuidedTour(QObject):
 
     # -- Event handling ------------------------------------------------------
 
-    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore[invalid-method-override]  # noqa: N802
+    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore  # noqa: N802
         """Reposition the overlay when the watched window is resized.
 
         Parameters

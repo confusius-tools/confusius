@@ -756,7 +756,7 @@ class SignalPanel(QWidget):
             kwargs["size"] = 2.0
         if translate is not None:
             kwargs["translate"] = translate
-        layer = self._viewer.add_points(
+        layer = self._viewer.add_points(  # type: ignore
             np.empty((0, ndim)),
             name="Points (3D)",
             ndim=ndim,
@@ -780,7 +780,7 @@ class SignalPanel(QWidget):
             kwargs["scale"] = scale
         if translate is not None:
             kwargs["translate"] = translate
-        self._viewer.add_labels(
+        self._viewer.add_labels(  # type: ignore
             np.zeros(shape, dtype=np.int32),
             name="Labels (3D)",
             **kwargs,
