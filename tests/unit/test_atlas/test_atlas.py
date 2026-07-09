@@ -33,9 +33,7 @@ def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
     )
 
 
-def _with_mesh_transform(
-    atlas_ds: xr.Dataset, transform: xr.DataArray
-) -> xr.Dataset:
+def _with_mesh_transform(atlas_ds: xr.Dataset, transform: xr.DataArray) -> xr.Dataset:
     """Return a copy of `atlas_ds` carrying `transform` as its mesh vertex transform."""
     ds = atlas_ds.copy()
     ds.attrs = {k: v for k, v in atlas_ds.attrs.items() if k != "mesh_vertex_transform"}
@@ -122,9 +120,10 @@ class TestStructuresSerialization:
         # Levels, structure_id_path, and acronym↔id map must survive the round-trip.
         assert {i: rebuilt.tree.level(i) for i in ids} == {997: 0, 10: 1, 20: 2}
         for i in ids:
-            assert rebuilt[i]["structure_id_path"] == mock_structures[i][
-                "structure_id_path"
-            ]
+            assert (
+                rebuilt[i]["structure_id_path"]
+                == mock_structures[i]["structure_id_path"]
+            )
         assert rebuilt.acronym_to_id_map == mock_structures.acronym_to_id_map
 
     def test_mesh_filename_kept_complete(
@@ -194,7 +193,9 @@ class TestSearch:
         assert 10 in result.index
         assert 20 in result.index
 
-    def test_search_no_match_returns_empty_dataframe(self, atlas_ds: xr.Dataset) -> None:
+    def test_search_no_match_returns_empty_dataframe(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
         result = atlas_ds.atlas.search("no_such_region_xyz")
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 0
@@ -446,6 +447,25 @@ class TestIO:
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
 
+    def test_resampled_atlas_with_affines_roundtrips(
+        self, atlas_ds: xr.Dataset, tmp_path
+    ) -> None:
+        """A resampled atlas inherits an `affines` dict of arrays; it must round-trip."""
+        aff = np.array(
+            [[1.0, 0, 0, 0.5], [0, 1, 0, -0.2], [0, 0, 1, 0.3], [0, 0, 0, 1.0]]
+        )
+        reference = atlas_ds.atlas.reference.copy()
+        reference.attrs = {**reference.attrs, "affines": {"physical_to_sform": aff}}
+        resampled = atlas_ds.atlas.resample_like(reference, np.eye(4))
+        assert "affines" in resampled["reference"].attrs  # guards the scenario.
+
+        path = tmp_path / "atlas.zarr"
+        atlas_to_zarr(resampled, path)
+        loaded = atlas_from_zarr(path)
+        got = loaded["reference"].attrs["affines"]["physical_to_sform"]
+        assert isinstance(got, np.ndarray)
+        np.testing.assert_allclose(got, aff)
+
     def test_structural_queries_work_post_load(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
@@ -497,9 +517,7 @@ class TestIO:
 
         loaded = atlas_from_zarr(path)
         vertices, faces = loaded.atlas.get_mesh(997)
-        np.testing.assert_array_equal(
-            vertices, atlas_ds.atlas.get_mesh(997)[0]
-        )
+        np.testing.assert_array_equal(vertices, atlas_ds.atlas.get_mesh(997)[0])
         assert len(faces) == 2
 
 
@@ -599,7 +617,9 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01
-        resampled = atlas_ds.atlas.resample_like(reference, _field_on_grid(reference, data))
+        resampled = atlas_ds.atlas.resample_like(
+            reference, _field_on_grid(reference, data)
+        )
 
         path = tmp_path / "atlas.zarr"
         atlas_to_zarr(resampled, path)

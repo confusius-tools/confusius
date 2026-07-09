@@ -26,6 +26,53 @@ travel with it when the store is copied or zipped. `atlas_from_zarr` re-points e
 """
 
 
+def _encode_affines_attr(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Copy `attrs` with any `affines` matrices turned into JSON-native nested lists.
+
+    A resampled atlas inherits an `affines` attr (a dict of `(4, 4)` numpy arrays mapping
+    the grid to world space) from the fUSI volume it was warped onto. Zarr cannot serialize
+    numpy arrays nested inside an attr, so each matrix is converted to a nested list;
+    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] restores them to arrays on load.
+
+    Parameters
+    ----------
+    attrs : dict[str, typing.Any]
+        Variable or Dataset attributes to encode.
+
+    Returns
+    -------
+    dict[str, typing.Any]
+        A shallow copy of `attrs` whose `affines` matrices (if any) are nested lists.
+    """
+    if "affines" not in attrs:
+        return dict(attrs)
+    encoded = dict(attrs)
+    encoded["affines"] = {
+        key: np.asarray(matrix).tolist() for key, matrix in attrs["affines"].items()
+    }
+    return encoded
+
+
+def _decode_affines_attr(attrs: dict[str, Any]) -> None:
+    """Restore `attrs["affines"]` list matrices to numpy arrays, in place.
+
+    Parameters
+    ----------
+    attrs : dict[str, typing.Any]
+        Variable or Dataset attributes read back from a Zarr store.
+
+    Returns
+    -------
+    None
+        `attrs` is mutated in place.
+    """
+    if "affines" in attrs:
+        attrs["affines"] = {
+            key: np.asarray(matrix, dtype=np.float64)
+            for key, matrix in attrs["affines"].items()
+        }
+
+
 def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
     """Basename each `mesh_filename` and list the OBJ files that must be copied.
 
@@ -124,6 +171,16 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     to_save = ds.copy()
     to_save["annotation"] = annotation
 
+    # JSON-encode any `affines` matrices (a resampled atlas inherits them, as dicts of
+    # numpy arrays, from the fUSI grid it was warped onto). zarr cannot serialize numpy
+    # arrays nested inside an attr; atlas_from_zarr restores them to arrays on load.
+    for name in list(to_save.data_vars):
+        if "affines" in to_save[name].attrs:
+            var = to_save[name].copy()
+            var.attrs = _encode_affines_attr(var.attrs)
+            to_save[name] = var
+    to_save.attrs = _encode_affines_attr(to_save.attrs)
+
     # A nonlinear (displacement-field) mesh transform carries a decorative string
     # `component` coordinate that zarr v3 cannot serialize stably. Replace it with integer
     # indices, which serialize cleanly and keep `.fusi.spacing` defined on load; the
@@ -170,6 +227,12 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
     """
     path = Path(path)
     ds = xr.open_zarr(path, **kwargs)
+
+    # Restore any `affines` matrices JSON-encoded on save back to numpy arrays, so they
+    # match the arrays a NIfTI-loaded volume carries.
+    for name in ds.data_vars:
+        _decode_affines_attr(ds[name].attrs)
+    _decode_affines_attr(ds.attrs)
 
     annotation = ds["annotation"]
     if "rgb_lookup" in annotation.attrs and not all(
