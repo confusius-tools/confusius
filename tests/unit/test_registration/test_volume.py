@@ -518,9 +518,10 @@ class TestRegisterVolumeThinDims:
                 "x": np.arange(32) * 0.1,
             },
         )
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _, _ = register_volume(da, da, transform_type="translation")
-        assert result.shape == da.shape
+        with pytest.raises(
+            ValueError, match="singleton spatial axes.*voxdim"
+        ):
+            register_volume(da, da, transform_type="translation")
 
     def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
         """resample=True preserves the original shape for a depth-1 volume."""
@@ -535,11 +536,10 @@ class TestRegisterVolumeThinDims:
                 "x": np.arange(32) * 0.1,
             },
         )
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _, _ = register_volume(
-                da, da, transform_type="translation", resample=True
-            )
-        assert result.shape == da.shape
+        with pytest.raises(
+            ValueError, match="singleton spatial axes.*voxdim"
+        ):
+            register_volume(da, da, transform_type="translation", resample=True)
 
     def test_float32_moving_float64_fixed_does_not_crash(
         self, sample_2d_dataarray_spatial
