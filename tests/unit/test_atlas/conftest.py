@@ -146,9 +146,9 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
         },
         attrs={
             "name": "mock_atlas",
+            "citation": "Mock et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
-            "atlas_name": "mock_atlas",
             "structures": json.dumps(structure_list),
             "mesh_to_physical": np.diag([1e-3, 1e-3, 1e-3, 1.0]).tolist(),
             # shape[2]=8, resolution=25 µm → midline = 8/2 * 25 = 100 µm.
@@ -167,6 +167,7 @@ class _MockBgAtlas:
         self.structures = structures
         self.metadata = {
             "name": "test_atlas",
+            "citation": "Test et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
             "shape": list(shape),

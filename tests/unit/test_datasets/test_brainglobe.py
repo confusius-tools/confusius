@@ -39,6 +39,7 @@ class _FakeBgAtlas:
         )
         self.metadata = {
             "name": atlas_name,
+            "citation": "Fake et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
             "shape": list(shape),
@@ -64,7 +65,7 @@ def test_returns_valid_atlas_dataset(fake_atlases: list[_FakeBgAtlas]) -> None:
     result = fetch_brainglobe_atlas("allen_mouse_25um")
     assert isinstance(result, xr.Dataset)
     assert set(result.data_vars) == {"reference", "annotation", "hemispheres"}
-    assert result.attrs["atlas_name"] == "allen_mouse_25um"
+    assert result.attrs["name"] == "allen_mouse_25um"
     # The builder output must satisfy the atlas validator.
     validate_atlas_dataset(result)
 

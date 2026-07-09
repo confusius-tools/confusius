@@ -4,6 +4,8 @@ Reference implementations are used for get_masks and get_mesh to avoid
 testing against the implementation itself.
 """
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -63,9 +65,9 @@ class TestBuilder:
         assert result.atlas.annotation.dtype == np.int32
         assert {
             "name",
+            "citation",
             "species",
             "orientation",
-            "atlas_name",
             "structures",
             "mesh_to_physical",
             "rl_midline_um",
@@ -100,20 +102,12 @@ class TestStructuresSerialization:
             ]
         assert rebuilt.acronym_to_id_map == mock_structures.acronym_to_id_map
 
-    def test_mesh_filename_serialized_as_basename(
-        self, mock_structures: StructuresDict
+    def test_mesh_filename_kept_complete(
+        self, mock_structures: StructuresDict, obj_path
     ) -> None:
-        """An absolute mesh path must be stored as a bare basename (portable JSON)."""
+        """The complete mesh path is preserved (fetched atlases read from the cache)."""
         rebuilt = structures_from_json(structures_to_json(mock_structures))
-        assert rebuilt[997]["mesh_filename"] == "997.obj"
-
-    def test_meshes_dir_repoints_basename(
-        self, mock_structures: StructuresDict, tmp_path
-    ) -> None:
-        rebuilt = structures_from_json(
-            structures_to_json(mock_structures), meshes_dir=tmp_path
-        )
-        assert rebuilt[997]["mesh_filename"] == str(tmp_path / "997.obj")
+        assert rebuilt[997]["mesh_filename"] == str(obj_path)
 
 
 class TestStructureMetadata:
@@ -439,6 +433,48 @@ class TestIO:
         np.testing.assert_array_equal(
             loaded.atlas.get_masks(10).values, atlas_ds.atlas.get_masks(10).values
         )
+
+    def test_meshes_bundled_into_store(self, atlas_ds: xr.Dataset, tmp_path) -> None:
+        """The region OBJ files are copied into the store's meshes/ subdirectory."""
+        path = tmp_path / "atlas.zarr"
+        atlas_to_zarr(atlas_ds, path)
+        assert (path / "meshes" / "997.obj").is_file()
+
+    def test_loaded_mesh_filename_points_into_store(
+        self, atlas_ds: xr.Dataset, tmp_path
+    ) -> None:
+        path = tmp_path / "atlas.zarr"
+        atlas_to_zarr(atlas_ds, path)
+        loaded = atlas_from_zarr(path)
+        structures = json.loads(loaded.attrs["structures"])
+        mesh_by_id = {s["id"]: s["mesh_filename"] for s in structures}
+        assert mesh_by_id[997] == str(path / "meshes" / "997.obj")
+        assert mesh_by_id[10] is None
+
+    def test_get_mesh_reads_bundle_when_source_is_gone(
+        self, atlas_ds: xr.Dataset, obj_path, tmp_path
+    ) -> None:
+        """A loaded atlas renders meshes from the bundle, without the original source."""
+        # Point a copy of the atlas at a throwaway mesh we are free to delete.
+        source = tmp_path / "src_997.obj"
+        source.write_text(obj_path.read_text())
+        structures = json.loads(atlas_ds.attrs["structures"])
+        for record in structures:
+            if record["id"] == 997:
+                record["mesh_filename"] = str(source)
+        ds = atlas_ds.copy()
+        ds.attrs = {**atlas_ds.attrs, "structures": json.dumps(structures)}
+
+        path = tmp_path / "atlas.zarr"
+        atlas_to_zarr(ds, path)
+        source.unlink()  # the BrainGlobe cache / original mesh is now unavailable.
+
+        loaded = atlas_from_zarr(path)
+        vertices, faces = loaded.atlas.get_mesh(997)
+        np.testing.assert_array_equal(
+            vertices, atlas_ds.atlas.get_mesh(997)[0]
+        )
+        assert len(faces) == 2
 
 
 class TestGroupbyIntegration:

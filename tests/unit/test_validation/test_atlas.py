@@ -33,9 +33,9 @@ def _make_atlas(dims: tuple[str, ...] = ("z", "y", "x")) -> xr.Dataset:
         },
         attrs={
             "name": "mock",
+            "citation": "Mock et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
-            "atlas_name": "mock",
             "structures": json.dumps(structures),
             "mesh_to_physical": np.diag([1e-3, 1e-3, 1e-3, 1.0]).tolist(),
             "rl_midline_um": 100.0,
