@@ -12,9 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- **[Napari plugin]** Added a `File > Open Sample` entry for a Nunez-Elizalde 2022
-  recording that fetches the sample on demand, shows download progress with an abort
-  button, and only downloads the matching raw fUSI files instead of the full dataset
+- **[Napari plugin]** Added a `File > Open Sample` entries for a [Nunez-Elizalde
+  2022](citing.md#nunez-elizalde-et-al-2022) mouse recording and for a pair of [Cybis
+  Pereira 2026](citing.md#cybis-pereira-et-al-2026) rat recordings. Samples are fetched on
+  demand, shows download progress with an abort button, and only downloads the matching
+  raw fUSI files instead of the full dataset
   ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers now print the citation to use for the fetched data and accept a
   `print_citation` argument to silence it. The template fetchers
