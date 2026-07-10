@@ -96,23 +96,17 @@ class AtlasAccessor:
     def _physical_to_base_transform(self) -> PhysicalToBaseTransform:
         """Pull transform mapping the atlas's physical space back to base atlas space.
 
-        Stored directly as this physical→base pull transform: an affine in
-        `attrs["affines"]["physical_to_base"]` in the common case, or a `physical_to_base`
-        displacement-field data variable after a nonlinear resample (which takes
-        precedence). It is returned as-is — the mesh-warping helpers consume the pull form
-        (they invert the affine, or invert the field per point, when mapping base vertices
-        into physical space).
+        Held directly in `attrs["physical_to_base"]` as either a `(4, 4)` numpy affine or a
+        dense displacement-field DataArray after a nonlinear resample. It is returned as-is
+        — the mesh-warping helpers consume the pull form (they invert the affine, or invert
+        the field per point, when mapping base vertices into physical space).
 
         Returns
         -------
         numpy.ndarray or xarray.DataArray
             The `(4, 4)` pull affine, or the dense displacement-field DataArray.
         """
-        if "physical_to_base" in self._ds.data_vars:
-            return self._ds["physical_to_base"]
-        return np.asarray(
-            self._ds.attrs["affines"]["physical_to_base"], dtype=np.float64
-        )
+        return self._ds.attrs["physical_to_base"]
 
     # ── Structure metadata ────────────────────────────────────────────────────
 
@@ -361,9 +355,9 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             New atlas Dataset on `reference`'s grid. The composed physical→base pull
-            transform is stored in `attrs["affines"]["physical_to_base"]`; when `transform`
-            (or a previously composed one) is nonlinear, it is stored as a
-            `physical_to_base` displacement-field data variable instead.
+            transform is stored in the `attrs["physical_to_base"]` attribute — a numpy
+            affine, or a displacement-field DataArray when `transform` (or a previously
+            composed one) is nonlinear.
 
         Examples
         --------
@@ -408,26 +402,11 @@ class AtlasAccessor:
             "annotation": resampled_ann,
             "hemispheres": resampled_hemi,
         }
+        # `composed` is the pull (physical→base) transform: a numpy affine when both inputs
+        # are affine, otherwise a dense displacement-field DataArray. Either rides directly
+        # in the single `physical_to_base` attr.
         new_attrs = dict(self._ds.attrs)
-        affines = {
-            k: v
-            for k, v in new_attrs.get("affines", {}).items()
-            if k != "physical_to_base"
-        }
-        if isinstance(composed, np.ndarray):
-            # `composed` is already the pull (physical→base) affine; store it directly,
-            # alongside any other spatial affines.
-            affines["physical_to_base"] = composed
-            new_attrs["affines"] = affines
-        else:
-            # A nonlinear (displacement-field) transform cannot be an affine; store the
-            # pull field as a physical_to_base data variable, which the
-            # _physical_to_base_transform property prefers over the affines entry.
-            if affines:
-                new_attrs["affines"] = affines
-            else:
-                new_attrs.pop("affines", None)
-            data_vars["physical_to_base"] = composed
+        new_attrs["physical_to_base"] = composed
 
         return xr.Dataset(data_vars, attrs=new_attrs)
 

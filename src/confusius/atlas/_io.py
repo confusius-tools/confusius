@@ -139,10 +139,22 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         )
         to_save.attrs = {**to_save.attrs, "structures": blob}
 
-    # Sanitize numpy-valued attrs that zarr cannot serialize. A resampled atlas inherits
-    # an `affines` dict of numpy arrays from the fUSI grid it was warped onto;
-    # atlas_from_zarr restores them to arrays on load. cmap/norm are stripped above, so
-    # nothing is dropped here.
+    # physical_to_base rides in a single attr as either a numpy affine or a displacement
+    # field. A DataArray cannot live in JSON attrs, so a displacement field is moved into a
+    # data variable of the same name for storage (atlas_from_zarr lifts it back into attrs);
+    # a numpy affine is left in attrs and JSON-sanitized like any other array below.
+    physical_to_base = to_save.attrs.get("physical_to_base")
+    if isinstance(physical_to_base, xr.DataArray):
+        to_save = to_save.assign(physical_to_base=physical_to_base)
+        to_save.attrs = {
+            k: v for k, v in to_save.attrs.items() if k != "physical_to_base"
+        }
+
+    # Sanitize numpy-valued attrs that zarr cannot serialize: the top-level numpy
+    # `physical_to_base` affine, and any per-variable `affines` dicts (e.g. physical_to_sform
+    # inherited from the fUSI grid a resampled atlas was warped onto). atlas_from_zarr
+    # restores them to arrays on load. cmap/norm are stripped above, so nothing is dropped
+    # here.
     for name in list(to_save.data_vars):
         var = to_save[name].copy()
         var.attrs = zarr_safe_attrs(var.attrs)
@@ -188,18 +200,34 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
     -------
     xarray.Dataset
         The loaded atlas Dataset, with `attrs["structures"]` rebuilt into a
-        `StructuresDict`, `cmap`/`norm` restored on `annotation.attrs`, and
+        `StructuresDict`, `attrs["physical_to_base"]` restored to a numpy affine or
+        displacement-field DataArray, `cmap`/`norm` restored on `annotation.attrs`, and
         `mesh_filename` paths pointing at the bundled meshes.
     """
     path = Path(path)
     ds = xr.open_zarr(path, **kwargs)
 
-    # Restore any `affines` matrices JSON-encoded on save back to numpy arrays, so they
-    # match the arrays a NIfTI-loaded volume carries. This also covers the atlas'
-    # `physical_to_base` mesh affine, which rides in the dataset-level affines dict.
+    # Restore any per-variable `affines` matrices (e.g. physical_to_sform) JSON-encoded on
+    # save back to numpy arrays, so they match the arrays a NIfTI-loaded volume carries.
     for name in ds.data_vars:
         restore_affines(ds[name].attrs)
     restore_affines(ds.attrs)
+
+    # Restore the physical_to_base transform to its single attr: a displacement field was
+    # stored as a data variable (lift it back into attrs); a numpy affine was JSON-encoded
+    # as a nested list (convert it back to an array).
+    if "physical_to_base" in ds.data_vars:
+        field = ds["physical_to_base"]
+        ds = ds.drop_vars("physical_to_base")
+        # `component` was that field's dimension coordinate; drop it once it is orphaned so
+        # the loaded atlas keeps only its spatial dims.
+        if "component" in ds.coords:
+            ds = ds.drop_vars("component")
+        ds.attrs["physical_to_base"] = field
+    elif "physical_to_base" in ds.attrs:
+        ds.attrs["physical_to_base"] = np.asarray(
+            ds.attrs["physical_to_base"], dtype=np.float64
+        )
 
     annotation = ds["annotation"]
     if "rgb_lookup" in annotation.attrs and not all(

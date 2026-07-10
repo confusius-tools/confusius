@@ -36,7 +36,7 @@ def _make_atlas(dims: tuple[str, ...] = ("z", "y", "x")) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": StructuresDict(structures),
-            "affines": {"physical_to_base": np.eye(4)},
+            "physical_to_base": np.eye(4),
         },
     )
 
@@ -90,11 +90,10 @@ def test_missing_attr_raises() -> None:
         validate_atlas_dataset(ds)
 
 
-def test_physical_to_base_as_data_var_passes() -> None:
-    """A nonlinear atlas carries physical_to_base as a data var, not an affine attr."""
+def test_physical_to_base_as_dataarray_attr_passes() -> None:
+    """A nonlinear atlas carries physical_to_base as a displacement-field DataArray attr."""
     ds = _make_atlas()
-    del ds.attrs["affines"]
-    ds["physical_to_base"] = xr.DataArray(
+    ds.attrs["physical_to_base"] = xr.DataArray(
         np.zeros((3, 3, 3, 3)), dims=("component", "z", "y", "x")
     )
     validate_atlas_dataset(ds)
@@ -102,7 +101,7 @@ def test_physical_to_base_as_data_var_passes() -> None:
 
 def test_missing_physical_to_base_raises() -> None:
     ds = _make_atlas()
-    del ds.attrs["affines"]
+    del ds.attrs["physical_to_base"]
     with pytest.raises(ValueError, match="physical_to_base"):
         validate_atlas_dataset(ds)
 

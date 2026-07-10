@@ -14,12 +14,12 @@ _REQUIRED_ATLAS_ATTRS = (
     "species",
     "orientation",
     "structures",
+    "physical_to_base",
 )
 """Attributes every atlas Dataset must carry (the self-describing metadata).
 
-The `physical_to_base` mesh transform is required too but checked separately: it is an
-`attrs["affines"]` entry for the common affine case and a data variable for a nonlinear
-(displacement-field) transform.
+`physical_to_base` is the pull mesh transform: a single attr holding either a numpy affine
+or a displacement-field DataArray.
 """
 
 
@@ -79,9 +79,8 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: the self-describing metadata `name`, `citation`, `species`,
-       `orientation`, and `structures` are present, plus the `physical_to_base` mesh
-       transform (an `attrs["affines"]` affine, or a data variable for a nonlinear
-       transform).
+       `orientation`, and `structures` are present, plus `physical_to_base` — the pull mesh
+       transform, a numpy affine or displacement-field DataArray.
     6. **Affines**: where two data variables both define an affine of the same name (in
        `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
        are not on a common physical frame.
@@ -147,18 +146,6 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
             f"Atlas Dataset is missing required attributes: {missing_attrs}. "
             "xarray drops attrs on many operations by default; run atlas pipelines "
             "under xarray.set_options(keep_attrs=True)."
-        )
-
-    # physical_to_base is an affine in attrs["affines"] for the common case, or a data
-    # variable (a displacement field) after a nonlinear resample.
-    if (
-        "physical_to_base" not in ds.attrs.get("affines", {})
-        and "physical_to_base" not in ds.data_vars
-    ):
-        raise ValueError(
-            "Atlas Dataset is missing 'physical_to_base' (expected either an "
-            "attrs['affines'] affine or a data variable holding a nonlinear "
-            "displacement field)."
         )
 
     _validate_variable_affines(ds)
