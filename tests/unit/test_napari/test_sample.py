@@ -73,11 +73,30 @@ class _ScaleBar:
         self.visible = False
 
 
+class _Dims:
+    def __init__(self):
+        self.axis_labels = ("0", "1")
+
+
 class _Viewer:
     def __init__(self):
         self.scale_bar = _ScaleBar()
+        self.dims = _Dims()
         self.window = Mock()
         self.window._qt_window = object()
+
+
+class _ImmediateTimer:
+    """Stand-in for `QTimer` that runs the callback synchronously.
+
+    `_open_sample` defers the viewer axis-label update via `QTimer.singleShot`.
+    Running it inline keeps the update inside the test instead of leaking a live
+    timer that fires (and errors) during a later test's event loop.
+    """
+
+    @staticmethod
+    def singleShot(msec, callback):
+        callback()
 
 
 def test_manifest_registers_samples():
@@ -119,6 +138,7 @@ def test_open_awake_mouse_sample_sets_default_gamma_and_shows_scale_bar(
     viewer = _Viewer()
 
     monkeypatch.setattr("confusius._napari._sample.QProgressDialog", _Dialog)
+    monkeypatch.setattr("confusius._napari._sample.QTimer", _ImmediateTimer)
     monkeypatch.setattr(
         "confusius._napari._sample._SAMPLE_SPECS",
         {
@@ -151,6 +171,9 @@ def test_open_awake_mouse_sample_sets_default_gamma_and_shows_scale_bar(
     assert layer_type == "image"
     assert kwargs["gamma"] == 0.4
     assert viewer.scale_bar.visible is True
+    # The sample's dims are pushed onto the viewer sliders (napari does not do
+    # this for the sample path on its own).
+    assert viewer.dims.axis_labels == ("z", "x")
 
 
 def test_open_rat_registration_pair_loads_two_layers_with_qform(monkeypatch, tmp_path):
