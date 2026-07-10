@@ -170,15 +170,11 @@ class FUSIAccessor:
     def spacing(self) -> dict[str, float | None]:
         """Coordinate spacing for all dimensions.
 
-        For regular axis-aligned data, spacing is computed as the median of
-        consecutive coordinate differences. A coordinate is considered uniform if every
-        interval is within 1% of the median interval (per-interval
-        `|diff - median| <= 0.01 * |median|`).
-
-        For voxel-affine data (`k/j/i` plus `attrs["voxel_to_physical"]`), spacing is
-        reported in DataArray dimension order, but each voxel-space dimension receives
-        its physical step length derived from the affine column norm and the 1D
-        voxel-coordinate step.
+        Spacing is reported in DataArray dimension order. For native voxel dimensions
+        `k/j/i`, each voxel-space dimension receives its physical step length derived
+        from the voxel-to-physical affine column norm and the 1D voxel-coordinate
+        step. A coordinate is considered uniform if every interval is within 1% of the
+        median interval (per-interval `|diff - median| <= 0.01 * |median|`).
 
         Returns
         -------
@@ -192,12 +188,18 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
-        ...     np.zeros((10, 20)),
-        ...     dims=["y", "x"],
-        ...     coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
+        ...     np.zeros((3, 10, 20)),
+        ...     dims=["k", "j", "i"],
+        ...     coords={"k": [0, 1, 2], "j": np.arange(10), "i": np.arange(20)},
         ... )
+        >>> data = data.assign_coords(
+        ...     z=("k", np.array([0.0, 0.2, 0.4])),
+        ...     y=("j", np.arange(10) * 0.1),
+        ...     x=("i", np.arange(20) * 0.05),
+        ... )
+        >>> data.attrs["voxel_to_physical"] = np.diag([0.2, 0.1, 0.05, 1.0])
         >>> data.fusi.spacing
-        {'y': 0.2, 'x': 0.1}
+        {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
         from confusius._utils.coordinates import get_coordinate_spacings
         from confusius._utils.geometry import (
@@ -223,13 +225,9 @@ class FUSIAccessor:
     def origin(self) -> dict[str, float]:
         """Physical origin metadata for the DataArray.
 
-        For regular axis-aligned data, this returns the first coordinate value for each
-        dimension. If a coordinate is missing, warns and falls back to `0.0`.
-
-        For voxel-affine data, non-spatial dimensions still use their first coordinate
-        value, while spatial origin is returned in physical coordinate order as the
-        physical location of the first sampled voxel under the stored
-        `voxel_to_physical` affine.
+        Non-spatial dimensions use their first coordinate value. Spatial origin is
+        returned in physical coordinate order as the physical location of the first
+        sampled voxel under the stored `voxel_to_physical` affine.
 
         Returns
         -------
@@ -242,12 +240,20 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
-        ...     np.zeros((10, 20)),
-        ...     dims=["y", "x"],
-        ...     coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
+        ...     np.zeros((3, 10, 20)),
+        ...     dims=["k", "j", "i"],
+        ...     coords={"k": [0, 1, 2], "j": np.arange(10), "i": np.arange(20)},
+        ... )
+        >>> data = data.assign_coords(
+        ...     z=("k", np.array([0.0, 0.2, 0.4])),
+        ...     y=("j", 2.0 + np.arange(10) * 0.1),
+        ...     x=("i", 3.0 + np.arange(20) * 0.05),
+        ... )
+        >>> data.attrs["voxel_to_physical"] = np.array(
+        ...     [[0.2, 0.0, 0.0, 1.0], [0.0, 0.1, 0.0, 2.0], [0.0, 0.0, 0.05, 3.0], [0.0, 0.0, 0.0, 1.0]]
         ... )
         >>> data.fusi.origin
-        {'y': 0.0, 'x': 0.0}
+        {'z': 1.0, 'y': 2.0, 'x': 3.0}
         """
         from confusius._utils.coordinates import get_coordinate_origins
         from confusius._utils.geometry import (
@@ -341,7 +347,7 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import confusius  # noqa: F401
         >>> data = xr.DataArray(
-        ...     np.zeros((10, 32, 1, 64)), dims=["time", "z", "y", "x"]
+        ...     np.zeros((10, 32, 1, 64)), dims=["time", "k", "j", "i"]
         ... )
         >>> data.fusi.save("recording.nii.gz")
         """

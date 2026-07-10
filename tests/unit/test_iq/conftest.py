@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
 
 @pytest.fixture
 def sample_iq_block_4d(rng):
@@ -54,14 +56,15 @@ def spatial_mask_small(rng, sample_iq_block_4d_small):
 def sample_iq_dataarray(rng):
     """Create sample xarray DataArray with IQ data.
 
-    Shape: (20, 4, 6, 8) with proper coordinates and required attributes.
+    Shape: (20, 4, 6, 8) with canonical `(time, k, j, i)` coordinates and linked
+    physical `z/y/x` coordinates.
     """
     shape = (20, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
 
-    return xr.DataArray(
+    base = xr.DataArray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         coords={
             "time": xr.DataArray(
                 np.arange(20) * 0.1,
@@ -72,14 +75,37 @@ def sample_iq_dataarray(rng):
                     "volume_acquisition_reference": "start",
                 },
             ),
-            "z": np.arange(4) * 0.1,
-            "y": np.arange(6) * 0.05,
-            "x": np.arange(8) * 0.05,
+            "k": xr.DataArray(
+                np.arange(4),
+                dims=("k",),
+                attrs={"voxdim": 1.0},
+            ),
+            "j": xr.DataArray(
+                np.arange(6),
+                dims=("j",),
+                attrs={"voxdim": 1.0},
+            ),
+            "i": xr.DataArray(
+                np.arange(8),
+                dims=("i",),
+                attrs={"voxdim": 1.0},
+            ),
         },
         attrs={
             "compound_sampling_frequency": 10.0,
             "transmit_frequency": 15.625e6,
             "beamforming_sound_velocity": 1540.0,
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.diag([0.1, 0.05, 0.05, 1.0]),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm", "voxdim": 0.1},
+            "y": {"units": "mm", "voxdim": 0.05},
+            "x": {"units": "mm", "voxdim": 0.05},
         },
     )
 
@@ -88,15 +114,18 @@ def sample_iq_dataarray(rng):
 def sample_spatial_mask_xarray(rng, sample_iq_dataarray):
     """Create a boolean spatial mask matching sample_iq_dataarray.
 
-    Shape: (z=4, y=6, x=8) with coordinates matching sample_iq_dataarray.
+    Shape: (k=4, j=6, i=8) with coordinates matching sample_iq_dataarray.
     """
-    z = sample_iq_dataarray.sizes["z"]
-    y = sample_iq_dataarray.sizes["y"]
-    x = sample_iq_dataarray.sizes["x"]
+    k = sample_iq_dataarray.sizes["k"]
+    j = sample_iq_dataarray.sizes["j"]
+    i = sample_iq_dataarray.sizes["i"]
     return xr.DataArray(
-        rng.random((z, y, x)) > 0.5,
-        dims=("z", "y", "x"),
+        rng.random((k, j, i)) > 0.5,
+        dims=("k", "j", "i"),
         coords={
+            "k": sample_iq_dataarray.coords["k"],
+            "j": sample_iq_dataarray.coords["j"],
+            "i": sample_iq_dataarray.coords["i"],
             "z": sample_iq_dataarray.coords["z"],
             "y": sample_iq_dataarray.coords["y"],
             "x": sample_iq_dataarray.coords["x"],

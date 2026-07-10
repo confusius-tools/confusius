@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.validation import validate_iq_dataarray
 
 
@@ -13,18 +14,45 @@ class TestValidateIqDataArray:
     @pytest.fixture
     def valid_iq_dataarray(self) -> xr.DataArray:
         """Create a valid IQ DataArray with all required attributes."""
-        return xr.DataArray(
+        base = xr.DataArray(
             np.ones((10, 4, 6, 8), dtype=np.complex64),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-                "x": np.arange(8),
+                "time": xr.DataArray(
+                    np.arange(10) * 0.1,
+                    dims=("time",),
+                    attrs={"units": "s"},
+                ),
+                "k": xr.DataArray(
+                    np.arange(4),
+                    dims=("k",),
+                    attrs={"voxdim": 1.0},
+                ),
+                "j": xr.DataArray(
+                    np.arange(6),
+                    dims=("j",),
+                    attrs={"voxdim": 1.0},
+                ),
+                "i": xr.DataArray(
+                    np.arange(8),
+                    dims=("i",),
+                    attrs={"voxdim": 1.0},
+                ),
             },
             attrs={
                 "transmit_frequency": 15.625e6,
                 "beamforming_sound_velocity": 1540.0,
+            },
+        )
+        return add_physical_coords_from_voxel_affine(
+            base,
+            np.diag([0.1, 0.05, 0.05, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": {"units": "mm", "voxdim": 0.1},
+                "y": {"units": "mm", "voxdim": 0.05},
+                "x": {"units": "mm", "voxdim": 0.05},
             },
         )
 
@@ -35,21 +63,9 @@ class TestValidateIqDataArray:
         with pytest.raises(ValueError, match="must have a 'time' dimension"):
             validate_iq_dataarray(iq)
 
-    def test_missing_coordinates_raises(self) -> None:
+    def test_missing_coordinates_raises(self, valid_iq_dataarray: xr.DataArray) -> None:
         """Missing required coordinates raises `ValueError`."""
-        iq = xr.DataArray(
-            np.ones((10, 4, 6, 8), dtype=np.complex64),
-            dims=("time", "z", "y", "x"),
-            coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-            },
-            attrs={
-                "transmit_frequency": 15.625e6,
-                "beamforming_sound_velocity": 1540.0,
-            },
-        )
+        iq = valid_iq_dataarray.drop_vars("i")
 
         with pytest.raises(ValueError, match="Missing required coordinate"):
             validate_iq_dataarray(iq)
