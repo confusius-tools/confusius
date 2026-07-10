@@ -59,10 +59,10 @@ itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 
 ## Opening Data
 
-!!! tip "Try the built-in sample"
-    To follow along without preparing your own data first, open **File > Open Sample >
-    Nunez-Elizalde 2022 (ConfUSIus)**. ConfUSIus fetches that recording on demand and
-    loads the same sample acquisition used in this GUI guide.
+!!! tip "Try the built-in samples"
+    To follow along without preparing your own data first, open **File > Open Sample**.
+    Sample recordings from [ConfUSIus' dataset fetchers][confusius.datasets] are
+    available in this menu.
 
 ### Recommended: Data Panel and CLI
 

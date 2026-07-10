@@ -36,9 +36,13 @@ contributions:
       title: Write labels to Zarr store
       python_name: confusius._napari._io._writers:write_zarr
 
-    - id: confusius.open_sample_nunez_elizalde_2022
-      title: Open Nunez-Elizalde 2022 sample
-      python_name: confusius._napari._sample:open_nunez_elizalde_2022_sample
+    - id: confusius.open_sample_awake_mouse_recording
+      title: Open awake mouse recording sample
+      python_name: confusius._napari._sample:open_awake_mouse_recording_sample
+
+    - id: confusius.open_sample_rat_registration_pair
+      title: Open rat registration pair sample
+      python_name: confusius._napari._sample:open_rat_registration_pair_sample
 
   widgets:
     - command: confusius.open_widget
@@ -46,9 +50,13 @@ contributions:
       autogenerate: false
 
   sample_data:
-    - key: nunez-elizalde-2022
-      display_name: Nunez-Elizalde 2022
-      command: confusius.open_sample_nunez_elizalde_2022
+    - key: awake-mouse-recording
+      display_name: Awake mouse recording (2D+t)
+      command: confusius.open_sample_awake_mouse_recording
+
+    - key: rat-registration-pair
+      display_name: Rat registration pair (2D slices)
+      command: confusius.open_sample_rat_registration_pair
 
   readers:
     - command: confusius.read_nifti
