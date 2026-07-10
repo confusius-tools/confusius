@@ -416,6 +416,20 @@ class TestPlotVolume:
         # Verify the slice was plotted
         assert len(_axes(plotter)[0, 0].collections) == 1
 
+    def test_scalar_slice_mode_from_selection(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """plot_volume accepts a scalar slice_mode coordinate (issue #295).
+
+        Selecting a single index (isel(z=1)) drops z to a scalar coordinate; it
+        should plot like the size-1 z dimension from isel(z=[1]).
+        """
+        plotter = plot_volume(
+            sample_3d_volume.isel(z=1), slice_mode="z", show_colorbar=False
+        )
+        assert _axes(plotter).shape == (1, 1)
+        assert len(_axes(plotter)[0, 0].collections) == 1
+
     def test_non_monotonic_coords_are_sorted_before_plotting(
         self, sample_3d_volume, matplotlib_pyplot
     ):
@@ -783,6 +797,20 @@ class TestPlotContours:
         assert ax.xaxis.label.get_fontsize() == pytest.approx(14.4)
         assert ax.yaxis.label.get_fontsize() == pytest.approx(14.4)
         assert ax.get_xticklabels()[0].get_fontsize() == pytest.approx(13.6)
+
+    def test_scalar_slice_mode_from_selection(self, matplotlib_pyplot):
+        """plot_contours accepts a scalar slice_mode coordinate (issue #295).
+
+        Selecting a single index (sel(z=0.0)) drops z to a scalar coordinate; it
+        should plot like the size-1 z dimension it was selected from.
+        """
+        mask = xr.DataArray(
+            np.array([[[0, 0, 0, 0], [0, 1, 1, 0], [0, 1, 1, 0], [0, 0, 0, 0]]]),
+            dims=["z", "y", "x"],
+            coords={"z": [0.0], "y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
+        )
+        plotter = plot_contours(mask.sel(z=0.0), slice_mode="z")
+        assert _axes(plotter).shape == (1, 1)
 
 
 class TestVolumePlotterAddContours:

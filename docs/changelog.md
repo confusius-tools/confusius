@@ -17,6 +17,12 @@ Current development version for the next ConfUSIus release.
   instead of `default_value` for out-of-field-of-view resampling, matching
   [`register_volume`][confusius.registration.register_volume] and the progress-plot
   resampling API.
+  
+### :bug: Fixes
+
+- Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
+  single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
+  `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
 
 ## 0.5.2
 
