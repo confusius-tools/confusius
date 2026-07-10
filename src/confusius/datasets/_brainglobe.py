@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import xarray as xr
 
 from confusius.atlas import atlas_from_brainglobe
 
+if TYPE_CHECKING:
+    from brainglobe_atlasapi.atlas_name import AtlasName
+
 
 def fetch_brainglobe_atlas(
-    atlas_name: str,
+    atlas_name: AtlasName,
     *,
     data_dir: str | Path | None = None,
     check_latest: bool = False,
@@ -26,7 +30,7 @@ def fetch_brainglobe_atlas(
 
     Parameters
     ----------
-    atlas_name : str
+    atlas_name : brainglobe_atlasapi.atlas_name.AtlasName
         BrainGlobe atlas name, e.g. `"allen_mouse_25um"`. See the
         [BrainGlobe atlas list](https://brainglobe.info/documentation/brainglobe-atlasapi/usage/atlas-details.html).
     data_dir : str or pathlib.Path, optional
@@ -53,7 +57,7 @@ def fetch_brainglobe_atlas(
     bg_atlas = BrainGlobeAtlas(
         # BrainGlobeAtlas types atlas_name as a Literal of every known atlas name; we
         # accept any str so new atlases work without a stub bump.
-        atlas_name,  # ty: ignore[invalid-argument-type]
+        atlas_name,
         brainglobe_dir=data_dir,
         check_latest=check_latest,
     )
