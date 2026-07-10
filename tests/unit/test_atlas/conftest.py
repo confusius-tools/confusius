@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -152,7 +151,7 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "citation": "Mock et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
-            "structures": json.dumps(structure_list),
+            "structures": StructuresDict(structure_list),
             "affines": {"base_to_current": np.eye(4)},
         },
     )

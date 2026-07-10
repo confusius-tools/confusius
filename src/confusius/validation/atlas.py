@@ -1,7 +1,5 @@
 """Atlas Dataset validation utilities."""
 
-import json
-
 import numpy as np
 import xarray as xr
 
@@ -87,7 +85,7 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     6. **Affines**: where two data variables both define an affine of the same name (in
        `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
        are not on a common physical frame.
-    7. **Structures**: `attrs["structures"]` parses as a JSON list.
+    7. **Structures**: `attrs["structures"]` is a brainglobe `StructuresDict`.
 
     Parameters
     ----------
@@ -102,7 +100,7 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     ValueError
         If any required data variable or attribute is missing, if the variables do not
         share dimensions that are a subset of `(z, y, x)`, or if `attrs["structures"]`
-        does not parse as a JSON list.
+        is not a brainglobe `StructuresDict`.
 
     Examples
     --------
@@ -165,15 +163,13 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
 
     _validate_variable_affines(ds)
 
-    try:
-        structures = json.loads(ds.attrs["structures"])
-    except (TypeError, json.JSONDecodeError) as error:
+    # In memory the structures ride as a BrainGlobe StructuresDict (serialized to JSON only
+    # inside the Zarr store); atlas_from_brainglobe and atlas_from_zarr both produce one.
+    from brainglobe_atlasapi.structure_class import StructuresDict
+
+    if not isinstance(ds.attrs["structures"], StructuresDict):
         raise ValueError(
-            "Atlas attribute 'structures' must be a JSON string; "
-            f"failed to parse it ({error})."
-        ) from error
-    if not isinstance(structures, list):
-        raise ValueError(
-            "Atlas attribute 'structures' must be a JSON list of structure records, "
-            f"got {type(structures).__name__}."
+            "Atlas attribute 'structures' must be a brainglobe StructuresDict (as built "
+            "by atlas_from_brainglobe or atlas_from_zarr), got "
+            f"{type(ds.attrs['structures']).__name__}."
         )

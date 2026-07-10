@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
-
 import numpy as np
 import pytest
 import xarray as xr
+from brainglobe_atlasapi.structure_class import StructuresDict
 
 from confusius.validation import validate_atlas_dataset
 
@@ -36,7 +35,7 @@ def _make_atlas(dims: tuple[str, ...] = ("z", "y", "x")) -> xr.Dataset:
             "citation": "Mock et al. (2026)",
             "species": "Mus musculus",
             "orientation": "asr",
-            "structures": json.dumps(structures),
+            "structures": StructuresDict(structures),
             "affines": {"base_to_current": np.eye(4)},
         },
     )
@@ -137,20 +136,16 @@ def test_non_spatial_dims_raise() -> None:
 def test_mismatched_dims_raise() -> None:
     ds = _make_atlas()
     # Give annotation a different (but still spatial) dim set than reference.
-    ds = ds.assign(annotation=xr.DataArray(np.zeros((3, 3), dtype=np.int32), dims=("y", "x")))
+    ds = ds.assign(
+        annotation=xr.DataArray(np.zeros((3, 3), dtype=np.int32), dims=("y", "x"))
+    )
     with pytest.raises(ValueError, match="share dimensions"):
         validate_atlas_dataset(ds)
 
 
-def test_unparseable_structures_raises() -> None:
+def test_non_structuresdict_structures_raises() -> None:
+    """structures stored as anything other than a StructuresDict is invalid."""
     ds = _make_atlas()
-    ds.attrs["structures"] = "not valid json {"
-    with pytest.raises(ValueError, match="structures"):
-        validate_atlas_dataset(ds)
-
-
-def test_structures_not_a_list_raises() -> None:
-    ds = _make_atlas()
-    ds.attrs["structures"] = json.dumps({"not": "a list"})
-    with pytest.raises(ValueError, match="JSON list"):
+    ds.attrs["structures"] = [{"id": 997, "acronym": "root"}]
+    with pytest.raises(ValueError, match="StructuresDict"):
         validate_atlas_dataset(ds)

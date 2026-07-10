@@ -20,7 +20,6 @@ from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
     _resolve_region_id,
-    structures_from_json,
 )
 from confusius.registration.resampling import resample_like as resample_like_da
 
@@ -36,10 +35,12 @@ class AtlasAccessor:
 
     Registered as the `.atlas` namespace on any Dataset produced by
     [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] or
-    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]. The structure hierarchy is
-    lazily rebuilt from `Dataset.attrs["structures"]`, so structural queries keep working
-    for as long as that attribute rides along (xarray drops `attrs` on many ops by
-    default; use `xarray.set_options(keep_attrs=True)` in pipelines).
+    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]. `Dataset.attrs["structures"]`
+    holds the BrainGlobe
+    [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] directly, so
+    structural queries keep working for as long as that attribute rides along (xarray
+    drops `attrs` on many ops by default; use `xarray.set_options(keep_attrs=True)` in
+    pipelines).
 
     Parameters
     ----------
@@ -50,7 +51,6 @@ class AtlasAccessor:
 
     def __init__(self, ds: xr.Dataset) -> None:
         self._ds = ds
-        self._structures: StructuresDict | None = None
         self._lookup: pd.DataFrame | None = None
 
     # ── Data properties ───────────────────────────────────────────────────────────────
@@ -118,12 +118,12 @@ class AtlasAccessor:
 
     @property
     def structures(self) -> "StructuresDict":
-        """Structure dictionary rebuilt from `Dataset.attrs["structures"]`.
+        """BrainGlobe structure dictionary held in `Dataset.attrs["structures"]`.
 
         Returns
         -------
         brainglobe_atlasapi.structure_class.StructuresDict
-            The structure dictionary with its hierarchy tree. Parsed once and cached.
+            The structure dictionary with its hierarchy tree.
 
         Raises
         ------
@@ -131,16 +131,14 @@ class AtlasAccessor:
             If `Dataset.attrs` has no `structures` entry (e.g. after an xarray op that
             dropped `attrs`; wrap the pipeline in `xarray.set_options(keep_attrs=True)`).
         """
-        if self._structures is None:
-            if "structures" not in self._ds.attrs:
-                raise KeyError(
-                    "This Dataset has no 'structures' attribute, so its structure "
-                    "hierarchy cannot be rebuilt. xarray drops attrs on many operations "
-                    "by default; run atlas pipelines under "
-                    "xarray.set_options(keep_attrs=True)."
-                )
-            self._structures = structures_from_json(self._ds.attrs["structures"])
-        return self._structures
+        if "structures" not in self._ds.attrs:
+            raise KeyError(
+                "This Dataset has no 'structures' attribute, so its structure "
+                "hierarchy is unavailable. xarray drops attrs on many operations "
+                "by default; run atlas pipelines under "
+                "xarray.set_options(keep_attrs=True)."
+            )
+        return self._ds.attrs["structures"]
 
     @property
     def lookup(self) -> pd.DataFrame:

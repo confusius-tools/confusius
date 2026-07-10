@@ -4,8 +4,6 @@ Reference implementations are used for get_masks and get_mesh to avoid
 testing against the implementation itself.
 """
 
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -37,7 +35,9 @@ def _with_mesh_transform(atlas_ds: xr.Dataset, transform: xr.DataArray) -> xr.Da
     """Return a copy of `atlas_ds` carrying `transform` as its base_to_current transform."""
     ds = atlas_ds.copy()
     new_attrs = dict(atlas_ds.attrs)
-    affines = {k: v for k, v in new_attrs.get("affines", {}).items() if k != "base_to_current"}
+    affines = {
+        k: v for k, v in new_attrs.get("affines", {}).items() if k != "base_to_current"
+    }
     if affines:
         new_attrs["affines"] = affines
     else:
@@ -109,9 +109,9 @@ class TestBuilder:
     def test_from_brainglobe_schema_attr_types(
         self, mock_structures: StructuresDict
     ) -> None:
-        """structures is a JSON string; base_to_current is a numpy affine matrix."""
+        """structures is a StructuresDict; base_to_current is a numpy affine matrix."""
         result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
-        assert isinstance(result.attrs["structures"], str)
+        assert isinstance(result.attrs["structures"], StructuresDict)
         base_to_current = result.attrs["affines"]["base_to_current"]
         assert isinstance(base_to_current, np.ndarray)
         assert base_to_current.shape == (4, 4)
@@ -510,24 +510,23 @@ class TestIO:
         path = tmp_path / "atlas.zarr"
         atlas_to_zarr(atlas_ds, path)
         loaded = atlas_from_zarr(path)
-        structures = json.loads(loaded.attrs["structures"])
-        mesh_by_id = {s["id"]: s["mesh_filename"] for s in structures}
-        assert mesh_by_id[997] == str(path / "meshes" / "997.obj")
-        assert mesh_by_id[10] is None
+        structures = loaded.attrs["structures"]
+        assert structures[997]["mesh_filename"] == str(path / "meshes" / "997.obj")
+        assert structures[10]["mesh_filename"] is None
 
     def test_get_mesh_reads_bundle_when_source_is_gone(
-        self, atlas_ds: xr.Dataset, obj_path, tmp_path
+        self, atlas_ds: xr.Dataset, structure_list: list[dict], obj_path, tmp_path
     ) -> None:
         """A loaded atlas renders meshes from the bundle, without the original source."""
         # Point a copy of the atlas at a throwaway mesh we are free to delete.
         source = tmp_path / "src_997.obj"
         source.write_text(obj_path.read_text())
-        structures = json.loads(atlas_ds.attrs["structures"])
-        for record in structures:
+        records = [dict(record) for record in structure_list]
+        for record in records:
             if record["id"] == 997:
                 record["mesh_filename"] = str(source)
         ds = atlas_ds.copy()
-        ds.attrs = {**atlas_ds.attrs, "structures": json.dumps(structures)}
+        ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
 
         path = tmp_path / "atlas.zarr"
         atlas_to_zarr(ds, path)

@@ -10,6 +10,7 @@ import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.io import restore_affines, zarr_safe_attrs
+from confusius.atlas._structures import structures_from_json, structures_to_json
 
 _NONSERIALIZABLE_ANNOTATION_ATTRS = ("cmap", "norm")
 """`annotation` attrs that are matplotlib objects and cannot be written to Zarr.
@@ -37,8 +38,8 @@ def _plan_mesh_bundle(structures_blob: str) -> tuple[str, dict[str, Path]]:
     Parameters
     ----------
     structures_blob : str
-        Serialized structures list (`attrs["structures"]`), with complete `mesh_filename`
-        paths.
+        Serialized structures list (from `structures_to_json`), with complete
+        `mesh_filename` paths.
 
     Returns
     -------
@@ -91,12 +92,15 @@ def _rebase_meshes(structures_blob: str, meshes_dir: Path) -> str:
 def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     """Save an atlas Dataset to a Zarr store, bundling its region meshes.
 
-    The region OBJ meshes are copied into a `meshes/` subdirectory of the store (as plain
-    sibling files) and each ROI's `mesh_filename` is stored as a basename, so a loaded
-    atlas can render meshes without the BrainGlobe cache. The non-serializable `cmap`/`norm`
-    matplotlib objects in `annotation.attrs` are stripped before writing (the caller's
-    in-memory Dataset is left untouched); [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]
-    rebuilds them from `rgb_lookup` and re-points the mesh paths on load.
+    The in-memory `attrs["structures"]`
+    [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] is serialized to
+    a flat JSON list for storage. The region OBJ meshes are copied into a `meshes/`
+    subdirectory of the store (as plain sibling files) and each ROI's `mesh_filename` is
+    stored as a basename, so a loaded atlas can render meshes without the BrainGlobe cache.
+    The non-serializable `cmap`/`norm` matplotlib objects in `annotation.attrs` are stripped
+    before writing (the caller's in-memory Dataset is left untouched);
+    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] rebuilds the `StructuresDict`, the
+    `cmap`/`norm` from `rgb_lookup`, and re-points the mesh paths on load.
 
     Parameters
     ----------
@@ -125,6 +129,16 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     to_save = ds.copy()
     to_save["annotation"] = annotation
 
+    # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
+    # Done before attr sanitization below, which would otherwise drop the (non-JSON)
+    # StructuresDict along with the other non-serializable attrs.
+    to_copy: dict[str, Path] = {}
+    if "structures" in to_save.attrs:
+        blob, to_copy = _plan_mesh_bundle(
+            structures_to_json(to_save.attrs["structures"])
+        )
+        to_save.attrs = {**to_save.attrs, "structures": blob}
+
     # Sanitize numpy-valued attrs that zarr cannot serialize. A resampled atlas inherits
     # an `affines` dict of numpy arrays from the fUSI grid it was warped onto;
     # atlas_from_zarr restores them to arrays on load. cmap/norm are stripped above, so
@@ -142,11 +156,6 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     if "base_to_current" in to_save.data_vars and "component" in to_save.coords:
         to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
 
-    to_copy: dict[str, Path] = {}
-    if "structures" in to_save.attrs:
-        blob, to_copy = _plan_mesh_bundle(to_save.attrs["structures"])
-        to_save.attrs = {**to_save.attrs, "structures": blob}
-
     # Write the store first (to_zarr requires the path not to exist yet), then copy the
     # OBJ files into its meshes/ subdirectory.
     to_save.to_zarr(path, **kwargs)
@@ -160,10 +169,12 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
 def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
     """Load an atlas Dataset from a Zarr store.
 
-    The `cmap`/`norm` colormap objects dropped on save are rebuilt into `annotation.attrs`
-    from `rgb_lookup`, and each ROI's `mesh_filename` is re-pointed at the meshes bundled
-    under the store's `meshes/` subdirectory, so `get_mesh` works on the loaded atlas
-    without the BrainGlobe cache.
+    The serialized structures are rebuilt into a
+    [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] in
+    `attrs["structures"]`. The `cmap`/`norm` colormap objects dropped on save are rebuilt
+    into `annotation.attrs` from `rgb_lookup`, and each ROI's `mesh_filename` is re-pointed
+    at the meshes bundled under the store's `meshes/` subdirectory, so `get_mesh` works on
+    the loaded atlas without the BrainGlobe cache.
 
     Parameters
     ----------
@@ -176,7 +187,8 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
     Returns
     -------
     xarray.Dataset
-        The loaded atlas Dataset, with `cmap`/`norm` restored on `annotation.attrs` and
+        The loaded atlas Dataset, with `attrs["structures"]` rebuilt into a
+        `StructuresDict`, `cmap`/`norm` restored on `annotation.attrs`, and
         `mesh_filename` paths pointing at the bundled meshes.
     """
     path = Path(path)
@@ -198,7 +210,6 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
         annotation.attrs["norm"] = norm
 
     if "structures" in ds.attrs:
-        ds.attrs["structures"] = _rebase_meshes(
-            ds.attrs["structures"], path / _MESHES_SUBDIR
-        )
+        blob = _rebase_meshes(ds.attrs["structures"], path / _MESHES_SUBDIR)
+        ds.attrs["structures"] = structures_from_json(blob)
     return ds

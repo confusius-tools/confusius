@@ -6,7 +6,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius.atlas._structures import _build_rgb_lookup, structures_to_json
+from confusius.atlas._structures import _build_rgb_lookup
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi import BrainGlobeAtlas
@@ -16,8 +16,10 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
     """Build an atlas Dataset from a loaded BrainGlobe atlas.
 
     The returned Dataset is self-describing and serializable: the structure hierarchy
-    rides in `attrs["structures"]` as a flat JSON list (rebuilt into a tree on demand by
-    the `.atlas` accessor), so the whole atlas round-trips through
+    rides in `attrs["structures"]` as the BrainGlobe
+    [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] itself (the
+    `.atlas` accessor returns it directly), and is serialized to a flat JSON list only at
+    the Zarr boundary, so the whole atlas round-trips through
     [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr].
 
     To fetch and build an atlas by name in one step, use
@@ -117,7 +119,7 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
             "citation": metadata["citation"],
             "species": metadata["species"],
             "orientation": metadata["orientation"],
-            "structures": structures_to_json(atlas.structures),
+            "structures": atlas.structures,
             "affines": {"base_to_current": base_to_current},
         },
     )
