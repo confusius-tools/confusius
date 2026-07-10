@@ -6,10 +6,12 @@ icon: lucide/brain
 
 A brain atlas ties every voxel of a reference volume to a named anatomical region. In
 ConfUSIus an atlas is a plain [`xarray.Dataset`][xarray.Dataset] with three data
-variables on a common `(z, y, x)` grid (`reference`, the template volume; `annotation`,
-integer region labels; and `hemispheres`, 1 = left, 2 = right), plus a registered
-`.atlas` accessor ([`AtlasAccessor`][confusius.atlas.AtlasAccessor]) that carries all
-atlas-aware operations. The structure hierarchy rides along in
+variables on a common `(z, y, x)` grid
+([`reference`][confusius.atlas.AtlasAccessor.reference], the template volume;
+[`annotation`][confusius.atlas.AtlasAccessor.annotation], integer region labels; and
+[`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left, 2 = right), plus a
+registered `.atlas` accessor ([`AtlasAccessor`][confusius.atlas.AtlasAccessor]) that
+carries all atlas-aware operations. The structure hierarchy rides along in
 `Dataset.attrs["structures"]`, so a single object fully describes the atlas and its
 region tree.
 
@@ -56,7 +58,7 @@ Attributes:
     physical_to_base:  [[1. 0. 0. 0.] ...
 ```
 
-Coordinates are in millimetres, so an atlas plots and registers against fUSI recordings
+Coordinates are in millimeters, so an atlas plots and registers against fUSI recordings
 directly.
 
 !!! tip "Building your own atlas"
@@ -71,7 +73,7 @@ directly.
 
 ## Exploring the structure hierarchy
 
-Regions form a tree: `root` contains grey and white matter, which contain areas, which
+Regions form a tree: `root` contains gray and white matter, which contain areas, which
 contain layers. [`show_tree`][confusius.atlas.AtlasAccessor.show_tree] prints the whole
 hierarchy, and its `nid` argument restricts the printout to one branch, which is handy
 since the full Allen tree has well over a thousand nodes:
@@ -120,7 +122,7 @@ nodes, from the root down to (but excluding) the region:
 
 [`lookup`][confusius.atlas.AtlasAccessor.lookup] flattens the hierarchy into a
 [`pandas.DataFrame`][pandas.DataFrame] indexed by region id, with the acronym, full name,
-and RGB colour of every structure:
+and RGB color of every structure:
 
 ```pycon
 >>> atlas.atlas.lookup.head()
@@ -169,7 +171,7 @@ forms validate the Dataset as an atlas before running.
 The reference and annotation volumes plot with the ordinary
 [`plot_volume`][confusius.plotting.plot_volume] tools. Overlaying the region boundaries on
 a reference slice with [`add_contours`][confusius.plotting.VolumePlotter.add_contours]
-gives the familiar atlas view; contour colours come from each region's atlas colour
+gives the familiar atlas view; contour colors come from each region's atlas color
 automatically:
 
 ```python
@@ -186,7 +188,7 @@ plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 
 Many BrainGlobe atlases bundle a triangular surface mesh per region.
 [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] returns the mesh as a `(vertices,
-faces)` pair in the atlas's physical space (millimetres), ready to hand to any 3D viewer.
+faces)` pair in the atlas's physical space (millimeters), ready to hand to any 3D viewer.
 napari's `add_surface` takes exactly that pair:
 
 ```python
@@ -216,8 +218,10 @@ masks = atlas.atlas.get_masks(["VISp", "AUDp", "MOp"])
 left_hip = atlas.atlas.get_masks("HIP", sides="left")
 ```
 
-These masks feed directly into signal extraction and connectivity; see the
-[Connectivity](connectivity.md) guide.
+These masks feed directly into signal extraction and connectivity; see the examples
+[Atlas-based region correlation
+matrix](../examples/_built/connectivity/atlas_correlation_matrix.md) and [Atlas-based
+seed connectivity maps](../examples/_built/connectivity/atlas_seed_map.md) for more.
 
 ## Aligning an atlas to a recording
 
