@@ -6,9 +6,11 @@ icon: lucide/history
 
 # Changelog
 
-## 0.5.3.dev0
+## 0.6.0.dev0
 
-### :bug: Fixes
+Current development version for the next ConfUSIus release.
+
+### :sparkles: Enhancements
 
 - **[Napari plugin]** Imported signal tables now accept BIDS physio `*.tsv.gz` files with column names and timing read from the JSON sidecar.
 
