@@ -183,12 +183,63 @@ def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray
     return data
 
 
+def convert_axis_aligned_voxel_affine_to_physical_grid(
+    data: xr.DataArray,
+) -> xr.DataArray:
+    """Expose axis-aligned voxel-affine data on plain physical `z/y/x` dims.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Axis-aligned voxel-affine DataArray.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray whose spatial dimensions are renamed from voxel `k/j/i` to physical
+        `z/y/x`, with the linked physical coordinates promoted to dimension
+        coordinates and `voxel_to_physical` removed from attrs.
+    """
+    if not has_axis_aligned_voxel_affine_geometry(data):
+        return data
+
+    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    physical_dims = get_voxel_affine_physical_coord_names(data)
+    dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+    result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)
+
+    result = xr.DataArray(
+        data=data.data,
+        dims=result_dims,
+        coords={
+            dim_map.get(str(dim), str(dim)): (
+                dim_map.get(str(dim), str(dim)),
+                data.coords[dim_map.get(str(dim), str(dim))].values
+                if str(dim) in dim_map
+                else data.coords[str(dim)].values,
+            )
+            for dim in data.dims
+            if (str(dim) in dim_map) or (str(dim) in data.coords)
+        },
+        name=data.name,
+        attrs=data.attrs.copy(),
+    )
+    for dim in data.dims:
+        result_dim = dim_map.get(str(dim), str(dim))
+        source_coord = (
+            data.coords[result_dim] if str(dim) in dim_map else data.coords[str(dim)]
+        )
+        result.coords[result_dim].attrs = dict(source_coord.attrs)
+    result.attrs.pop("voxel_to_physical", None)
+    return result
+
+
 def resample_voxel_affine_to_physical_grid(
     data: xr.DataArray,
     *,
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    """Resample CTI data onto an axis-aligned physical grid for display.
+    """Resample voxel-affine data onto an axis-aligned physical grid for display.
 
     Parameters
     ----------

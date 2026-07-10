@@ -94,8 +94,8 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [10.0, 20.0, 30.0], rtol=1e-5)
         viewer.close()
 
-    def test_axis_aligned_voxel_affine_skips_resampling(self, make_napari_viewer):
-        """Axis-aligned CTI volumes stay on their native k/j/i grid in napari."""
+    def test_axis_aligned_voxel_affine_uses_physical_display_by_default(self, make_napari_viewer):
+        """Axis-aligned data uses physical z/y/x display by default in napari."""
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
@@ -111,9 +111,9 @@ class TestPlotNapari:
         viewer = make_napari_viewer()
         _, layer = plot_napari(data, viewer=viewer, show_colorbar=False, show_scale_bar=False)
 
-        assert layer.metadata["xarray"] is data
+        assert layer.metadata["xarray"].dims == ("z", "y", "x")
         assert layer.metadata["source_xarray"] is data
-        assert tuple(layer.axis_labels) == ("k", "j", "i")
+        assert tuple(layer.axis_labels) == ("z", "y", "x")
         npt.assert_allclose(layer.scale, [0.4, 0.3, 0.25], rtol=1e-5)
         npt.assert_allclose(layer.translate, [0.0, 0.0, 0.0], rtol=1e-5)
         viewer.close()

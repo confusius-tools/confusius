@@ -245,8 +245,8 @@ class TestReaderLayerData:
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
         npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
 
-    def test_axis_aligned_voxel_affine_skips_resampling(self, tmp_path: Path) -> None:
-        """Axis-aligned CTI reader output stays on the native k/j/i grid."""
+    def test_axis_aligned_voxel_affine_uses_physical_display_by_default(self, tmp_path: Path) -> None:
+        """Axis-aligned reader output uses physical z/y/x display by default."""
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
@@ -267,10 +267,10 @@ class TestReaderLayerData:
         _, kwargs, layer_type = reader(str(path))[0]
 
         assert layer_type == "image"
-        assert kwargs["axis_labels"] == ["k", "j", "i"]
+        assert kwargs["axis_labels"] == ["z", "y", "x"]
         npt.assert_allclose(kwargs["scale"], [0.4, 0.3, 0.25], rtol=1e-5)
         npt.assert_allclose(kwargs["translate"], [0.0, 0.0, 0.0], rtol=1e-5)
-        assert kwargs["metadata"]["xarray"].dims == ("k", "j", "i")
+        assert kwargs["metadata"]["xarray"].dims == ("z", "y", "x")
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
 
     def test_default_colormap_is_gray(self, zarr_3d_path: Path) -> None:

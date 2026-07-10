@@ -3,6 +3,13 @@
 These are called by napari when files are opened via File → Open, drag-and-drop,
 or the CLI.
 
+ConfUSIus loaders use voxel-affine coordinates: SCAN and NIfTI files are loaded into
+DataArrays, typically with native voxel dimensions such as `k/j/i` plus linked
+physical `z/y/x` coordinates. Napari display uses physical `z/y/x` axes:
+axis-aligned data is promoted to a plain physical grid without interpolation, while
+oblique or sheared data is resampled to an axis-aligned physical display grid that
+napari can represent.
+
 Each public function is a `get_reader` command: it receives the path, does a
 lightweight validity check, and either returns `None` (cannot read) or a
 `ReaderFunction` that does the actual loading.
@@ -19,18 +26,16 @@ from napari.utils.colormaps import ensure_colormap
 from napari.utils.notifications import show_warning
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
-from confusius._utils.geometry import (
-    get_voxel_affine_physical_coord_names,
-    get_voxel_affine_spatial_dims,
-    has_axis_aligned_voxel_affine_geometry,
-)
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
     infer_layer_type,
 )
 from confusius.io import load
-from confusius.plotting._utils import resample_voxel_affine_to_physical_grid
+from confusius.plotting._utils import (
+    convert_axis_aligned_voxel_affine_to_physical_grid,
+    resample_voxel_affine_to_physical_grid,
+)
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -42,35 +47,6 @@ def _get_napari_scale_translate_units(
 ) -> tuple[list[float], list[float], list[str | None], list[str], dict[str, float]]:
     """Return napari layer geometry metadata for `data`."""
     all_dims = list(data.dims)
-
-    if has_axis_aligned_voxel_affine_geometry(data):
-        voxel_dims = get_voxel_affine_spatial_dims(data)
-        physical_dims = get_voxel_affine_physical_coord_names(data)
-        physical_view = data.swap_dims(
-            dict(zip(voxel_dims, physical_dims, strict=True))
-        ).drop_vars(list(voxel_dims))
-        spacing, non_uniform = get_coordinate_spacings_best_effort(physical_view)
-        origin = physical_view.fusi.origin
-        units_by_dim = {
-            dim: physical_view.coords[dim].attrs.get("units") for dim in physical_dims
-        }
-        dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
-        scale = [
-            spacing[dim_map[str(dim)]] if str(dim) in dim_map else spacing[str(dim)]
-            for dim in all_dims
-        ]
-        translate = [
-            origin[dim_map[str(dim)]] if str(dim) in dim_map else origin[str(dim)]
-            for dim in all_dims
-        ]
-        units = [
-            units_by_dim[dim_map[str(dim)]] if str(dim) in dim_map else None
-            for dim in all_dims
-        ]
-        warned_dims = [
-            dim_map[dim] for dim in voxel_dims if dim_map[dim] in non_uniform
-        ]
-        return scale, translate, units, warned_dims, spacing
 
     spacing, non_uniform = get_coordinate_spacings_best_effort(data)
     origin = data.fusi.origin
@@ -97,6 +73,12 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
 
     Mirrors the logic of [`plot_napari`][confusius.plotting.plot_napari]
 
+    * Napari readers use physical display space by default, so layers are shown on
+      physical `z/y/x` axes.
+    * Axis-aligned data is promoted to plain physical `z/y/x` dimensions without
+      interpolation.
+    * Oblique or sheared data is resampled to an axis-aligned physical `z/y/x`
+      display grid before layer creation.
     * Uses
       [`get_coordinate_spacings_best_effort`][confusius._utils.coordinates.get_coordinate_spacings_best_effort]
       for the `scale`: uniform coordinates use their exact spacing; non-uniform
@@ -114,6 +96,7 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
     """
 
     source_da = da
+    da = convert_axis_aligned_voxel_affine_to_physical_grid(da)
     da = resample_voxel_affine_to_physical_grid(da)
 
     all_dims = list(da.dims)
@@ -168,8 +151,10 @@ def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData
     """Return a `ReaderFunction` for `path`.
 
     The returned function loads the file via [`confusius.load`][confusius.load] (which
-    dispatches on extension) and converts the result to a `FullLayerData` tuple. This
-    function may raise; napari will surface any exception to the user.
+    dispatches on extension) and converts the result to a `FullLayerData` tuple using
+    the same voxel-affine-aware display rules as
+    [`plot_napari`][confusius.plotting.plot_napari]. This function may raise; napari
+    will surface any exception to the user.
     """
 
     def _read(_path: PathOrPaths) -> list[FullLayerData]:

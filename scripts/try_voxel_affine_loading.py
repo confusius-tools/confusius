@@ -1,5 +1,5 @@
 # %%
-"""iPython-friendly CTI geometry demo on real Nunez-Elizalde data."""
+"""iPython-friendly voxel-to-physical geometry demo on real data."""
 
 from pathlib import Path
 
@@ -81,7 +81,7 @@ def _make_center_preserving_oblique_copy(native: cf.DataArray) -> cf.DataArray:
     return _make_center_preserving_transformed_copy(
         native,
         rot_z @ rot_x,
-        name="oblique CTI",
+        name="oblique",
     )
 
 
@@ -97,9 +97,8 @@ def _make_center_preserving_sheared_copy(native: cf.DataArray) -> cf.DataArray:
     return _make_center_preserving_transformed_copy(
         native,
         shear,
-        name="sheared CTI",
+        name="sheared",
     )
-
 
 
 def _as_axis_aligned_physical_grid(data: cf.DataArray) -> cf.DataArray:
@@ -139,7 +138,7 @@ angio_path = (
     / "sub-CR022_ses-20201011_pwd.nii.gz"
 )
 
-native = cf.load(angio_path).compute().rename("axis-aligned CTI")
+native = cf.load(angio_path).compute().rename("axis-aligned")
 oblique = _make_center_preserving_oblique_copy(native)
 sheared = _make_center_preserving_sheared_copy(native)
 
@@ -154,7 +153,7 @@ for label, volume in {
     print(f"\n--- {label} ---")
     print("dims:", volume.dims)
     print("coord names:", list(volume.coords))
-    print("axis-aligned CTI:", has_axis_aligned_voxel_affine_geometry(volume))
+    print("axis-aligned voxel-to-physical geometry:", has_axis_aligned_voxel_affine_geometry(volume))
     print("voxel_to_physical:\n", np.asarray(volume.attrs["voxel_to_physical"]))
     print("origin:", volume.fusi.origin)
     print("spacing:", volume.fusi.spacing)
@@ -209,12 +208,13 @@ plotter.add_volume(
 )
 plotter.show()
 
+
 # %%
 # Physical-plane comparisons.
 #
 # Here `slice_mode in {"z", "y", "x"}` means "show the same physical planes"
-# in all volumes. Axis-aligned CTI stays native; oblique and sheared CTI are
-# resampled onto the display grid first.
+# in all volumes. The axis-aligned volume is exposed on a plain `z/y/x` grid,
+# while oblique and sheared geometry are resampled onto that display grid.
 def _shared_range(dim: str) -> tuple[float, float]:
     return (
         max(
@@ -228,6 +228,7 @@ def _shared_range(dim: str) -> tuple[float, float]:
             float(np.asarray(sheared.coords[dim].values, dtype=float).max()),
         ),
     )
+
 
 for slice_mode in ("z", "y", "x"):
     lower, upper = _shared_range(slice_mode)
@@ -260,9 +261,9 @@ for slice_mode in ("z", "y", "x"):
 # %%
 # Napari comparison.
 #
-# Axis-aligned CTI stays native on `k/j/i`. Oblique and sheared CTI are the
-# cases that napari now resamples to an axis-aligned physical `z/y/x` grid. The
-# original source DataArray is preserved in `layer.metadata["source_xarray"]`.
+# Napari always shows physical `z/y/x` axes. Axis-aligned data is promoted to a
+# plain physical grid without interpolation, while oblique and sheared geometry
+# are resampled to a physical display grid.
 viewer, native_layer = cf.plotting.plot_napari(
     native,
     show_colorbar=False,
@@ -284,12 +285,13 @@ _, sheared_layer = cf.plotting.plot_napari(
     colormap="cyan",
     opacity=0.35,
 )
+print("\nnapari physical display:")
 for label, layer in {
     "native": native_layer,
     "oblique": oblique_layer,
     "sheared": sheared_layer,
 }.items():
-    print(f"{label} napari dims:", layer.metadata["xarray"].dims)
-    print(f"{label} napari source dims:", layer.metadata["source_xarray"].dims)
+    print(f"{label} displayed dims:", layer.metadata["xarray"].dims)
+    print(f"{label} source dims:", layer.metadata["source_xarray"].dims)
 
 viewer
