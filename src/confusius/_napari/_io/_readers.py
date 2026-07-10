@@ -11,97 +11,13 @@ lightweight validity check, and either returns `None` (cannot read) or a
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Callable
 
-from napari.layers.utils.layer_utils import calc_data_range
-from napari.utils.colormaps import ensure_colormap
-from napari.utils.notifications import show_warning
-
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
-from confusius._utils.napari import (
-    build_direct_label_colormap,
-    build_roi_labels_features,
-    infer_layer_type,
-)
+from confusius._utils.napari import convert_dataarray_to_layer_data
 from confusius.io import load
 
 if TYPE_CHECKING:
-    import xarray as xr
     from napari.types import FullLayerData, PathOrPaths
-
-
-def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerData:
-    """Convert a ConfUSIus DataArray to a napari FullLayerData tuple.
-
-    Mirrors the logic of [`plot_napari`][confusius.plotting.plot_napari]
-
-    * Uses
-      [`get_coordinate_spacings_best_effort`][confusius._utils.coordinates.get_coordinate_spacings_best_effort]
-      for the `scale`: uniform coordinates use their exact spacing; non-uniform
-      coordinates fall back to the median diff and a napari warning is shown.
-    * Includes [`origin`][confusius.xarray.FUSIAccessor.origin] as `translate`
-      so the layer is positioned correctly in physical space.
-    * Passes `axis_labels` and `units` from the DataArray dimensions and coordinate
-      attributes. These are stored on the layer but napari does not yet propagate them
-      to `viewer.dims.axis_labels` when loading via a reader plugin.
-    * Integer-dtype arrays (e.g. atlas annotations, ROI masks) are returned as a
-      `"labels"` layer, with a per-label `DirectLabelColormap` built from `da.attrs`
-      when available. All other dtypes are returned as an `"image"` layer, reading
-      `"cmap"` from `da.attrs` for the colormap when present, falling back to `"gray"`
-      (with a napari warning) when the stored value is not a valid napari colormap.
-    """
-
-    all_dims = list(da.dims)
-
-    spacing, non_uniform = get_coordinate_spacings_best_effort(da)
-    for dim in non_uniform:
-        show_warning(
-            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
-            "(positions along this axis may be approximate)."
-        )
-    origin = da.fusi.origin
-
-    scale: list[float] = [spacing[str(d)] for d in all_dims]
-    translate: list[float] = [origin[d] for d in all_dims]
-    all_units: list[str | None] = [
-        da.coords[d].attrs.get("units") if d in da.coords else None for d in all_dims
-    ]
-
-    kwargs: dict[str, Any] = {
-        "name": name,
-        "scale": scale,
-        "translate": translate,
-        "axis_labels": all_dims,
-        "metadata": {"xarray": da},
-    }
-    if any(u is not None for u in all_units):
-        kwargs["units"] = all_units
-
-    layer_type = infer_layer_type(da.dtype)
-    if layer_type == "labels":
-        colormap = build_direct_label_colormap(da)
-        if colormap is not None:
-            kwargs["colormap"] = colormap
-        if (roi_labels := da.attrs.get("roi_labels")) is not None:
-            kwargs["features"] = build_roi_labels_features(roi_labels)
-    else:
-        # Pre-compute contrast limits so napari displays the image correctly on load.
-        # In napari 0.6.6+ the deferred _should_calc_clims mechanism does not fire
-        # reliably for non-numpy data during the insertion event. calc_data_range
-        # samples a few planes, so it is fast even for large arrays.
-        colormap = da.attrs.get("cmap", "gray")
-        try:
-            ensure_colormap(colormap)
-        except (KeyError, TypeError):
-            show_warning(
-                f"{colormap!r} is not a valid napari colormap; falling back to 'gray'."
-            )
-            colormap = "gray"
-        kwargs["colormap"] = colormap
-        kwargs["blending"] = "additive"
-        kwargs["contrast_limits"] = calc_data_range(da.data)
-
-    return da.data, kwargs, layer_type
 
 
 def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData]]:
@@ -117,7 +33,7 @@ def _make_reader(path: str | Path) -> Callable[[PathOrPaths], list[FullLayerData
         # `_path`, which may be a list when napari replays the reader.
         da = load(path)
         name = Path(path).name
-        return [_convert_dataarray_to_layer_data(da, name)]
+        return [convert_dataarray_to_layer_data(da, name)]
 
     return _read
 

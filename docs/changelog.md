@@ -18,8 +18,28 @@ Current development version for the next ConfUSIus release.
   [`register_volume`][confusius.registration.register_volume] and the progress-plot
   resampling API.
 
+## 0.5.2
+
+Released 2026-07-10.
+
+### :wrench: Maintenance
+
+- Python 3.14 now keeps `xarray[accel]` everywhere except macOS Intel, where ConfUSIus
+  falls back to plain `xarray` to avoid a `numba` / `llvmlite` build failure caused by
+  napari's macOS Intel `numba<=0.62.1` cap.
+
+## 0.5.1
+
+Released 2026-07-10.
+
 ### :sparkles: Enhancements
 
+- **[Napari plugin]** Added a `File > Open Sample` entries for a [Nunez-Elizalde
+  2022](citing.md#nunez-elizalde-et-al-2022) mouse recording and for a pair of [Cybis
+  Pereira 2026](citing.md#cybis-pereira-et-al-2026) rat recordings. Samples are fetched on
+  demand, shows download progress with an abort button, and only downloads the matching
+  raw fUSI files instead of the full dataset
+  ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers now print the citation to use for the fetched data and accept a
   `print_citation` argument to silence it. The template fetchers
   [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
@@ -74,11 +94,6 @@ Current development version for the next ConfUSIus release.
   matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
   now requires strictly monotonic `(value, color)` pairs, and the threshold gray
   band could collide with neighbouring cmap entries at the boundary values.
-- [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm]
-  no longer calls the matplotlib-3.11-deprecated `set_under`/`set_over`/`set_bad`
-  colormap methods, and no longer passes the deprecated `N=` argument to
-  `ListedColormap`. The under colour is now passed as a constructor kwarg, the
-  matplotlib-3.11-recommended way to set it.
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and

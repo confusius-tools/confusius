@@ -23,6 +23,9 @@ _MAX_DOWNLOAD_RETRIES = 3
 _RETRY_BACKOFF_BASE = 2.0
 """Base of the exponential backoff (seconds) between retry attempts."""
 
+_PROGRESS_CALLBACK_STEP_BYTES = 1_048_576
+"""Minimum byte delta between GUI progress callback emissions."""
+
 
 @contextlib.contextmanager
 def quiet_pooch_logger() -> Iterator[None]:
@@ -182,4 +185,82 @@ class _RichProgressAdapter:  # pragma: no cover
         if self._advanced > 0:
             self._progress.update(self._task_id, advance=-self._advanced)
         self._advanced = 0
+        self._finalized = False
+
+
+class _CallbackProgressAdapter:
+    """Adapt pooch's progress API to a throttled byte-progress callback.
+
+    Parameters
+    ----------
+    callback : Callable[[int, int, str], None]
+        Callback receiving downloaded bytes so far, total bytes across all files,
+        and a user-facing description.
+    total_bytes : int
+        Total bytes across the full download batch.
+    completed_bytes : int
+        Bytes already completed before the current file started.
+    description : str
+        User-facing description for the current transfer.
+    """
+
+    def __init__(
+        self,
+        callback: Callable[[int, int, str], None],
+        total_bytes: int,
+        completed_bytes: int,
+        description: str,
+    ) -> None:
+        self._callback = callback
+        self._total_bytes = total_bytes
+        self._completed_bytes = completed_bytes
+        self._description = description
+        self._file_total = 0
+        self._advanced = 0
+        self._finalized = False
+        self._last_emitted = -_PROGRESS_CALLBACK_STEP_BYTES
+
+    @property
+    def current_bytes(self) -> int:
+        """Return bytes credited to the current file so far."""
+        return self._advanced
+
+    @property
+    def total(self) -> int:
+        return self._file_total
+
+    @total.setter
+    def total(self, value: int) -> None:
+        self._file_total = value
+
+    def _emit(self, force: bool = False) -> None:
+        absolute = min(self._completed_bytes + self._advanced, self._total_bytes)
+        if not force and absolute - self._last_emitted < _PROGRESS_CALLBACK_STEP_BYTES:
+            return
+        self._last_emitted = absolute
+        self._callback(absolute, self._total_bytes, self._description)
+
+    def update(self, n: int) -> None:
+        if self._finalized:
+            return
+        clamped = min(n, self._file_total - self._advanced)
+        if clamped > 0:
+            self._advanced += clamped
+            self._emit()
+
+    def reset(self) -> None:
+        self._finalized = True
+
+    def close(self) -> None:
+        if not self._finalized:
+            return
+        remaining = self._file_total - self._advanced
+        if remaining > 0:
+            self._advanced = self._file_total
+        self._emit(force=True)
+
+    def rewind(self) -> None:
+        if self._advanced > 0:
+            self._advanced = 0
+            self._emit(force=True)
         self._finalized = False
