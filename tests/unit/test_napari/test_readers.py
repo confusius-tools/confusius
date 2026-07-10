@@ -15,6 +15,10 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
+from confusius._utils.napari import (
+    build_direct_label_colormap,
+    convert_dataarray_to_layer_data,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -231,10 +235,10 @@ class TestReaderLayerData:
     ) -> None:
         """An unrecognized `cmap` attr (e.g. a stringified colormap object from a
         pre-fix sidecar) falls back to 'gray' with a warning instead of crashing."""
-        import confusius._napari._io._readers as readers_module
+        import confusius._utils.napari as napari_utils
 
         warnings_seen: list[str] = []
-        monkeypatch.setattr(readers_module, "show_warning", warnings_seen.append)
+        monkeypatch.setattr(napari_utils, "show_warning", warnings_seen.append)
 
         da = xr.DataArray(
             np.zeros((4, 6), dtype=np.float32),
@@ -287,3 +291,46 @@ class TestReaderLayerData:
         # sample_roi_labels' roi_labels attr should populate hover-status features.
         features = kwargs["features"]
         assert dict(zip(features["index"], features["name"]))[7] == "somatosensory"
+
+    def test_build_direct_label_colormap_returns_none_without_color_attrs(self) -> None:
+        """Labels with no cmap/norm or rgb_lookup keep colormap unset."""
+        da = xr.DataArray(
+            np.array([[0, 1]], dtype=np.int16),
+            dims=["z", "x"],
+            coords={"z": [0.0], "x": [0.0, 1.0]},
+        )
+
+        assert build_direct_label_colormap(da) is None
+
+    def test_build_direct_label_colormap_rebuilds_from_rgb_lookup(self) -> None:
+        """rgb_lookup alone is enough to rebuild atlas label colors."""
+        da = xr.DataArray(
+            np.array([[0, 3, 7]], dtype=np.int16),
+            dims=["z", "x"],
+            coords={"z": [0.0], "x": [0.0, 1.0, 2.0]},
+            attrs={"rgb_lookup": {3: [0, 0, 255], 7: [255, 0, 0]}},
+        )
+
+        colormap = build_direct_label_colormap(da)
+
+        assert colormap is not None
+        npt.assert_allclose(colormap.map(np.array([3])), [[0.0, 0.0, 1.0, 1.0]])
+        npt.assert_allclose(colormap.map(np.array([7])), [[1.0, 0.0, 0.0, 1.0]])
+
+    def test_non_uniform_spacing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Non-uniform coords warn and still use the best-effort median spacing."""
+        warnings_seen: list[str] = []
+        monkeypatch.setattr("confusius._utils.napari.show_warning", warnings_seen.append)
+
+        da = xr.DataArray(
+            np.zeros((3, 2), dtype=np.float32),
+            dims=["z", "x"],
+            coords={"z": [0.0, 1.0, 3.0], "x": [10.0, 10.5]},
+        )
+
+        _, kwargs, _ = convert_dataarray_to_layer_data(da, "demo")
+
+        assert warnings_seen == [
+            "'z' has non-uniform spacing; using median 1.5 (positions along this axis may be approximate)."
+        ]
+        npt.assert_allclose(kwargs["scale"], [1.5, 0.5])
