@@ -82,6 +82,9 @@ nav = [
             { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
             { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
+        { "Atlases and Templates" = [
+            { "Save and reload a resampled atlas" = "examples/_built/atlases_and_templates/saving_resampled_atlas.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },
