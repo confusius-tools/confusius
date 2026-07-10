@@ -362,6 +362,28 @@ def _format_coord(coord: Hashable) -> str:
     return str(coord)
 
 
+def _is_scalar_coord(data: xr.DataArray, name: Hashable) -> bool:
+    """Whether `name` is a scalar (0-dimensional) coordinate of `data`.
+
+    This is the state left after selecting a single index along a dimension
+    (e.g. `data.sel(z=6)`): the dimension is dropped and its coordinate becomes
+    scalar, so it can be promoted back to a size-1 dimension with `expand_dims`.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        The DataArray whose coordinates are inspected.
+    name : hashable
+        The candidate coordinate name.
+
+    Returns
+    -------
+    bool
+        Whether `name` is a coordinate of `data` with zero dimensions.
+    """
+    return name in data.coords and data.coords[name].ndim == 0
+
+
 def _coords_match(
     stored_coord: Hashable, target_coord: Hashable, tolerance: float
 ) -> bool:
@@ -649,6 +671,10 @@ class VolumePlotter:
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
+        # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
+        # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
+        if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
+            data = data.expand_dims(self.slice_mode)
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
@@ -1490,6 +1516,11 @@ class VolumePlotter:
                     **kwargs,
                 )
             return self
+
+        # A single-index selection (e.g. mask.sel(z=6)) drops slice_mode to a scalar
+        # coordinate; promote it back to a size-1 dimension so it plots like mask.sel(z=[6]).
+        if self.slice_mode not in mask.dims and _is_scalar_coord(mask, self.slice_mode):
+            mask = mask.expand_dims(self.slice_mode)
 
         squeeze_dims = [
             d for d in mask.dims if d != self.slice_mode and mask.sizes[d] == 1
