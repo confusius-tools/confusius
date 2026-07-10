@@ -95,19 +95,24 @@ class AtlasAccessor:
     def _mesh_vertex_transform(self) -> MeshVertexTransform:
         """Pull transform mapping current atlas physical space back to base atlas space.
 
-        Affine transforms live in `attrs["mesh_vertex_transform"]` (the common case, a
-        JSON-native list); a nonlinear transform produced by `resample_like` lives in the
-        `mesh_vertex_transform` data variable (a displacement-field DataArray), which
-        takes precedence when present.
+        The atlas stores the base→current mapping: an affine in
+        `attrs["affines"]["base_to_current"]` in the common case, or a `base_to_current`
+        displacement-field data variable after a nonlinear resample (which takes
+        precedence). This returns it in the pull (current→base) form the mesh-warping
+        helpers expect: the affine is inverted; the displacement field is returned as-is
+        (the helpers invert it per point).
 
         Returns
         -------
         numpy.ndarray or xarray.DataArray
-            The `(4, 4)` affine, or the dense displacement-field DataArray.
+            The `(4, 4)` pull affine, or the dense displacement-field DataArray.
         """
-        if "mesh_vertex_transform" in self._ds.data_vars:
-            return self._ds["mesh_vertex_transform"]
-        return np.asarray(self._ds.attrs["mesh_vertex_transform"], dtype=np.float64)
+        if "base_to_current" in self._ds.data_vars:
+            return self._ds["base_to_current"]
+        base_to_current = np.asarray(
+            self._ds.attrs["affines"]["base_to_current"], dtype=np.float64
+        )
+        return np.linalg.inv(base_to_current)
 
     # ── Structure metadata ────────────────────────────────────────────────────
 
@@ -335,26 +340,25 @@ class AtlasAccessor:
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
         """Return vertex coordinates and face indices for a region's mesh.
 
-        Reads the region's OBJ file, optionally clips to one hemisphere, then transforms
-        vertices from micron space to the DataArrays' current physical space
-        (millimetres). The OBJ path comes from the structure's `mesh_filename`: for a
-        freshly fetched atlas this points into the BrainGlobe cache; for an atlas loaded
-        with [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] it points at the mesh
-        bundled inside the store.
+        Reads the region's OBJ mesh, transforms its vertices from micron space to the
+        DataArrays' current physical space (millimetres), then optionally drops
+        out-of-grid vertices and clips to one hemisphere. The mesh comes from the
+        structure's `mesh_filename`: for a freshly fetched atlas this points into the
+        BrainGlobe cache; for an atlas loaded with
+        [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] it points at the mesh bundled
+        inside the store.
 
         Parameters
         ----------
         region : int or str
             Structure index or acronym.
         side : {"left", "right", "both"}, default: "both"
-            Hemisphere to include. `"both"` keeps the full mesh. `"left"` and
-            `"right"` clip in the base atlas physical space (millimetres) along the RL
-            axis at the volume midline. Only triangles whose three vertices all fall on
-            the requested side are retained; the cut face is not closed.
-
-            !!! note
-               Generalising axis detection from the orientation attribute for non-`asr`
-               atlases is not yet implemented.
+            Hemisphere to include. `"both"` keeps the full mesh. `"left"` and `"right"`
+            keep only vertices whose nearest `hemispheres` voxel carries that side's label
+            (`hemispheres.attrs["left"]` / `["right"]`), sampled in the current physical
+            space. Faces are kept only when all three of their vertices survive, so the
+            cut face is not closed. Sampling the hemisphere map makes this
+            orientation-agnostic and correct after an arbitrary resample.
         clip : bool, default: True
             Whether to clip the final mesh to the current reference grid. If `False`,
             the mesh will still be transformed to the current physical space, but the
@@ -400,29 +404,6 @@ class AtlasAccessor:
 
         vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
-        if side != "both":
-            # Clip in base atlas physical space (mm) along the RL axis (column 2 for asr
-            # orientation) before applying the mesh vertex transform.
-            # For asr, axis 2 increases from right (0) to left (max), so:
-            #   right hemisphere → RL < midline
-            #   left  hemisphere → RL >= midline
-            # TODO: generalize midline detection directly from hemispheres.
-            rl_midline = self._ds.attrs["rl_midline"]
-            if side == "right":
-                keep = vertices_mm[:, 2] < rl_midline
-            else:  # "left"
-                keep = vertices_mm[:, 2] >= rl_midline
-
-            keep_idx = np.where(keep)[0]
-            old_to_new = np.full(len(vertices_mm), -1, dtype=np.int64)
-            old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
-
-            # Retain only faces where all three vertices survive the clip.
-            new_face_idx = old_to_new[faces]  # (M, 3); -1 if vertex removed.
-            valid = np.all(new_face_idx >= 0, axis=1)
-            vertices_mm = vertices_mm[keep_idx]
-            faces = new_face_idx[valid].astype(np.int32)
-
         mesh_transform = self._mesh_vertex_transform
         vertices_m = _apply_mesh_vertex_transform(
             mesh_transform, vertices_mm, self.reference
@@ -432,6 +413,24 @@ class AtlasAccessor:
             vertices_m, faces = _drop_vertices_outside_grid(
                 vertices_m, faces, self.reference
             )
+
+        if side != "both":
+            sel = {
+                d: xr.DataArray(vertices_m[:, i], dims="point")
+                for i, d in enumerate("zyx")
+            }
+            side_value = self.hemispheres.attrs[side]
+            hem_points = self.hemispheres.sel(sel, method="nearest").compute()
+
+            keep_idx = np.where(hem_points == side_value)[0]
+            old_to_new = np.full(len(vertices_m), -1, dtype=np.int64)
+            old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
+
+            new_face_idx = old_to_new[faces]  # (M, 3); -1 for dropped vertices.
+            valid = np.all(new_face_idx >= 0, axis=1)
+
+            vertices_m = vertices_m[keep_idx]
+            faces = new_face_idx[valid].astype(np.int32)
 
         return vertices_m, faces
 
@@ -480,9 +479,10 @@ class AtlasAccessor:
         Returns
         -------
         xarray.Dataset
-            New atlas Dataset on `reference`'s grid. When `transform` (or a previously
-            composed one) is nonlinear, the composed mesh transform is stored as a
-            `mesh_vertex_transform` data variable rather than an `attrs` entry.
+            New atlas Dataset on `reference`'s grid. The composed base→current mesh
+            transform is stored in `attrs["affines"]["base_to_current"]`; when `transform`
+            (or a previously composed one) is nonlinear, it is stored as a
+            `base_to_current` displacement-field data variable instead.
 
         Examples
         --------
@@ -528,15 +528,25 @@ class AtlasAccessor:
             "hemispheres": resampled_hemi,
         }
         new_attrs = dict(self._ds.attrs)
-        # rl_midline is a property of the base atlas physical space and does not change
-        # when the DataArrays are resampled to a new grid.
+        affines = {
+            k: v
+            for k, v in new_attrs.get("affines", {}).items()
+            if k != "base_to_current"
+        }
         if isinstance(composed, np.ndarray):
-            new_attrs["mesh_vertex_transform"] = composed.tolist()
+            # `composed` is the pull (current→base); store the forward base→current affine
+            # in the affines dict, alongside any other spatial affines.
+            affines["base_to_current"] = np.linalg.inv(composed)
+            new_attrs["affines"] = affines
         else:
-            # A nonlinear (displacement-field) transform cannot live in attrs; store it
-            # as a data variable, which the _mesh_vertex_transform property prefers.
-            new_attrs.pop("mesh_vertex_transform", None)
-            data_vars["mesh_vertex_transform"] = composed
+            # A nonlinear (displacement-field) transform cannot be an affine; store it as a
+            # base_to_current data variable, which the _mesh_vertex_transform property
+            # prefers over the affines entry.
+            if affines:
+                new_attrs["affines"] = affines
+            else:
+                new_attrs.pop("affines", None)
+            data_vars["base_to_current"] = composed
 
         return xr.Dataset(data_vars, attrs=new_attrs)
 

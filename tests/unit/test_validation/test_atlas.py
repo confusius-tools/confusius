@@ -37,8 +37,7 @@ def _make_atlas(dims: tuple[str, ...] = ("z", "y", "x")) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": json.dumps(structures),
-            "mesh_vertex_transform": np.eye(4).tolist(),
-            "rl_midline": 0.1,
+            "affines": {"base_to_current": np.eye(4)},
         },
     )
 
@@ -87,25 +86,46 @@ def test_annotation_wrong_dtype_raises_type_error() -> None:
 
 def test_missing_attr_raises() -> None:
     ds = _make_atlas()
-    del ds.attrs["rl_midline"]
-    with pytest.raises(ValueError, match="rl_midline"):
+    del ds.attrs["citation"]
+    with pytest.raises(ValueError, match="citation"):
         validate_atlas_dataset(ds)
 
 
-def test_mesh_vertex_transform_as_data_var_passes() -> None:
-    """A nonlinear atlas carries mesh_vertex_transform as a data var, not an attr."""
+def test_base_to_current_as_data_var_passes() -> None:
+    """A nonlinear atlas carries base_to_current as a data var, not an affine attr."""
     ds = _make_atlas()
-    del ds.attrs["mesh_vertex_transform"]
-    ds["mesh_vertex_transform"] = xr.DataArray(
+    del ds.attrs["affines"]
+    ds["base_to_current"] = xr.DataArray(
         np.zeros((3, 3, 3, 3)), dims=("component", "z", "y", "x")
     )
     validate_atlas_dataset(ds)
 
 
-def test_missing_mesh_vertex_transform_raises() -> None:
+def test_missing_base_to_current_raises() -> None:
     ds = _make_atlas()
-    del ds.attrs["mesh_vertex_transform"]
-    with pytest.raises(ValueError, match="mesh_vertex_transform"):
+    del ds.attrs["affines"]
+    with pytest.raises(ValueError, match="base_to_current"):
+        validate_atlas_dataset(ds)
+
+
+def test_matching_variable_affines_pass() -> None:
+    """Two variables sharing an equal same-named affine are valid."""
+    ds = _make_atlas()
+    aff = np.eye(4)
+    aff[0, 3] = 5.0
+    ds["reference"].attrs["affines"] = {"physical_to_sform": aff}
+    ds["annotation"].attrs["affines"] = {"physical_to_sform": aff.copy()}
+    validate_atlas_dataset(ds)
+
+
+def test_mismatched_variable_affines_raise() -> None:
+    """Two variables disagreeing on a same-named affine are invalid."""
+    ds = _make_atlas()
+    ds["reference"].attrs["affines"] = {"physical_to_sform": np.eye(4)}
+    other = np.eye(4)
+    other[0, 3] = 5.0
+    ds["hemispheres"].attrs["affines"] = {"physical_to_sform": other}
+    with pytest.raises(ValueError, match="physical_to_sform"):
         validate_atlas_dataset(ds)
 
 

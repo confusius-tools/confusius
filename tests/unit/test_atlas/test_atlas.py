@@ -34,10 +34,16 @@ def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
 
 
 def _with_mesh_transform(atlas_ds: xr.Dataset, transform: xr.DataArray) -> xr.Dataset:
-    """Return a copy of `atlas_ds` carrying `transform` as its mesh vertex transform."""
+    """Return a copy of `atlas_ds` carrying `transform` as its base_to_current transform."""
     ds = atlas_ds.copy()
-    ds.attrs = {k: v for k, v in atlas_ds.attrs.items() if k != "mesh_vertex_transform"}
-    ds["mesh_vertex_transform"] = transform
+    new_attrs = dict(atlas_ds.attrs)
+    affines = {k: v for k, v in new_attrs.get("affines", {}).items() if k != "base_to_current"}
+    if affines:
+        new_attrs["affines"] = affines
+    else:
+        new_attrs.pop("affines", None)
+    ds.attrs = new_attrs
+    ds["base_to_current"] = transform
     return ds
 
 
@@ -92,22 +98,23 @@ class TestBuilder:
             "species",
             "orientation",
             "structures",
-            "mesh_vertex_transform",
-            "rl_midline",
+            "affines",
         } <= set(result.attrs)
+        assert "base_to_current" in result.attrs["affines"]
         # Coordinates should be in mm: step = resolution_um[0] * 1e-3.
         np.testing.assert_allclose(
             result.atlas.annotation.coords["z"].values[1], 25 * 1e-3
         )
 
-    def test_from_brainglobe_attrs_are_json_native(
+    def test_from_brainglobe_schema_attr_types(
         self, mock_structures: StructuresDict
     ) -> None:
-        """The serializable attrs must be JSON-native (str / list), not numpy/objects."""
+        """structures is a JSON string; base_to_current is a numpy affine matrix."""
         result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
         assert isinstance(result.attrs["structures"], str)
-        assert isinstance(result.attrs["mesh_vertex_transform"], list)
-        assert isinstance(result.attrs["rl_midline"], float)
+        base_to_current = result.attrs["affines"]["base_to_current"]
+        assert isinstance(base_to_current, np.ndarray)
+        assert base_to_current.shape == (4, 4)
 
 
 class TestStructuresSerialization:
@@ -210,8 +217,8 @@ class TestGetMasks:
       - elsewhere    = 0    (background)
 
     Hemisphere layout:
-      - [:, :, :4] = 2   (right)
-      - [:, :, 4:] = 1   (left)
+      - [:, :, :2] = 2   (right)
+      - [:, :, 2:] = 1   (left)
     """
 
     def test_single_region_both_sides_vs_reference(self, atlas_ds: xr.Dataset) -> None:
@@ -447,14 +454,14 @@ class TestIO:
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
 
-    def test_mesh_vertex_transform_restored_as_array(
+    def test_base_to_current_restored_as_array(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
-        """The affine mesh_vertex_transform reloads as a numpy array, not a JSON list."""
+        """The affine base_to_current reloads as a numpy array, not a JSON list."""
         path = tmp_path / "atlas.zarr"
         atlas_to_zarr(atlas_ds, path)
         loaded = atlas_from_zarr(path)
-        transform = loaded.attrs["mesh_vertex_transform"]
+        transform = loaded.attrs["affines"]["base_to_current"]
         assert isinstance(transform, np.ndarray)
         np.testing.assert_allclose(transform, np.eye(4))
 
@@ -596,8 +603,8 @@ class TestNonlinearMesh:
         self, atlas_ds: xr.Dataset
     ) -> None:
         resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, np.eye(4))
-        assert "mesh_vertex_transform" in resampled.attrs
-        assert "mesh_vertex_transform" not in resampled.data_vars
+        assert "base_to_current" in resampled.attrs["affines"]
+        assert "base_to_current" not in resampled.data_vars
 
     def test_resample_like_field_stores_transform_as_data_var(
         self, atlas_ds: xr.Dataset
@@ -605,8 +612,8 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
         resampled = atlas_ds.atlas.resample_like(reference, field)
-        assert "mesh_vertex_transform" in resampled.data_vars
-        assert "mesh_vertex_transform" not in resampled.attrs
+        assert "base_to_current" in resampled.data_vars
+        assert "base_to_current" not in resampled.attrs.get("affines", {})
         validate_atlas_dataset(resampled)
 
     def test_resample_like_affine_shifts_mesh(self, atlas_ds: xr.Dataset) -> None:
@@ -636,7 +643,7 @@ class TestNonlinearMesh:
         atlas_to_zarr(resampled, path)
         loaded = atlas_from_zarr(path)
 
-        assert "mesh_vertex_transform" in loaded.data_vars
+        assert "base_to_current" in loaded.data_vars
         np.testing.assert_allclose(
             loaded.atlas.get_mesh(997)[0], resampled.atlas.get_mesh(997)[0], atol=1e-6
         )

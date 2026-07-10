@@ -7,22 +7,61 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS
 
-_REQUIRED_DATA_VARS = ("reference", "annotation", "hemispheres")
+_REQUIRED_ATLAS_DATA_VARS = ("reference", "annotation", "hemispheres")
 """Data variables every atlas Dataset must carry."""
 
-_REQUIRED_ATTRS = (
+_REQUIRED_ATLAS_ATTRS = (
     "name",
     "citation",
     "species",
     "orientation",
     "structures",
-    "rl_midline",
 )
 """Attributes every atlas Dataset must carry (the self-describing metadata).
 
-`mesh_vertex_transform` is required too but checked separately: it is an `attrs` entry for
-the common affine case and a data variable for a nonlinear (displacement-field) transform.
+The `base_to_current` mesh transform is required too but checked separately: it is an
+`attrs["affines"]` entry for the common affine case and a data variable for a nonlinear
+(displacement-field) transform.
 """
+
+
+def _validate_variable_affines(ds: xr.Dataset) -> None:
+    """Check that same-named affines agree across the Dataset's data variables.
+
+    Each data variable may carry an `attrs["affines"]` dict mapping a name (e.g.
+    `physical_to_sform`) to a matrix. Two variables that both define an affine of a given
+    name describe the same grid, so those matrices must be equal; a mismatch means the
+    variables are not on a common physical frame and the atlas is invalid.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Atlas Dataset whose data variables' `affines` attrs are cross-checked.
+
+    Raises
+    ------
+    ValueError
+        If two data variables hold different matrices for the same affine name.
+    """
+    seen: dict[str, tuple[str, np.ndarray]] = {}
+    for var_name in ds.data_vars:
+        affines = ds[var_name].attrs.get("affines")
+        if not isinstance(affines, dict):
+            continue
+        for affine_name, matrix in affines.items():
+            matrix = np.asarray(matrix, dtype=np.float64)
+            if affine_name not in seen:
+                seen[affine_name] = (str(var_name), matrix)
+                continue
+            first_var, first_matrix = seen[affine_name]
+            if first_matrix.shape != matrix.shape or not np.allclose(
+                first_matrix, matrix
+            ):
+                raise ValueError(
+                    f"Atlas variables disagree on affine '{affine_name}': "
+                    f"'{first_var}' and '{var_name}' hold different matrices, so they are "
+                    "not on a common physical frame."
+                )
 
 
 def validate_atlas_dataset(ds: xr.Dataset) -> None:
@@ -42,10 +81,13 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: the self-describing metadata `name`, `citation`, `species`,
-       `orientation`, `structures`, and `rl_midline` are present, plus
-       `mesh_vertex_transform` (an `attrs` affine, or a data variable for a nonlinear
+       `orientation`, and `structures` are present, plus the `base_to_current` mesh
+       transform (an `attrs["affines"]` affine, or a data variable for a nonlinear
        transform).
-    6. **Structures**: `attrs["structures"]` parses as a JSON list.
+    6. **Affines**: where two data variables both define an affine of the same name (in
+       `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
+       are not on a common physical frame.
+    7. **Structures**: `attrs["structures"]` parses as a JSON list.
 
     Parameters
     ----------
@@ -71,16 +113,16 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     if not isinstance(ds, xr.Dataset):
         raise TypeError(f"Expected an xarray.Dataset, got {type(ds).__name__}.")
 
-    missing_vars = [v for v in _REQUIRED_DATA_VARS if v not in ds.data_vars]
+    missing_vars = [v for v in _REQUIRED_ATLAS_DATA_VARS if v not in ds.data_vars]
     if missing_vars:
         raise ValueError(
             f"Atlas Dataset is missing required data variables: {missing_vars}. "
-            f"An atlas must have data variables {list(_REQUIRED_DATA_VARS)} "
+            f"An atlas must have data variables {list(_REQUIRED_ATLAS_DATA_VARS)} "
             "(hemispheres must be a data variable, not a coordinate)."
         )
 
     reference_dims = ds["reference"].dims
-    for name in _REQUIRED_DATA_VARS:
+    for name in _REQUIRED_ATLAS_DATA_VARS:
         if ds[name].dims != reference_dims:
             raise ValueError(
                 f"Atlas variables must share dimensions; '{name}' has dims "
@@ -101,7 +143,7 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
                 f"Atlas '{name}' must be integer-valued, got dtype {ds[name].dtype}."
             )
 
-    missing_attrs = [a for a in _REQUIRED_ATTRS if a not in ds.attrs]
+    missing_attrs = [a for a in _REQUIRED_ATLAS_ATTRS if a not in ds.attrs]
     if missing_attrs:
         raise ValueError(
             f"Atlas Dataset is missing required attributes: {missing_attrs}. "
@@ -109,16 +151,19 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
             "under xarray.set_options(keep_attrs=True)."
         )
 
-    # mesh_vertex_transform is an affine in attrs for the common case, or a data variable
-    # (a displacement field) after a nonlinear resample.
+    # base_to_current is an affine in attrs["affines"] for the common case, or a data
+    # variable (a displacement field) after a nonlinear resample.
     if (
-        "mesh_vertex_transform" not in ds.attrs
-        and "mesh_vertex_transform" not in ds.data_vars
+        "base_to_current" not in ds.attrs.get("affines", {})
+        and "base_to_current" not in ds.data_vars
     ):
         raise ValueError(
-            "Atlas Dataset is missing 'mesh_vertex_transform' (expected either an attrs "
-            "affine or a data variable holding a nonlinear displacement field)."
+            "Atlas Dataset is missing 'base_to_current' (expected either an "
+            "attrs['affines'] affine or a data variable holding a nonlinear "
+            "displacement field)."
         )
+
+    _validate_variable_affines(ds)
 
     try:
         structures = json.loads(ds.attrs["structures"])

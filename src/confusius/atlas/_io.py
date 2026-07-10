@@ -135,11 +135,11 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         to_save[name] = var
     to_save.attrs = zarr_safe_attrs(to_save.attrs)
 
-    # A nonlinear (displacement-field) mesh transform carries a decorative string
-    # `component` coordinate that zarr v3 cannot serialize stably. Replace it with integer
-    # indices, which serialize cleanly and keep `.fusi.spacing` defined on load; the
-    # transform math uses the dimension order, not the component labels.
-    if "mesh_vertex_transform" in to_save.data_vars and "component" in to_save.coords:
+    # A nonlinear (displacement-field) base_to_current transform carries a decorative
+    # string `component` coordinate that zarr v3 cannot serialize stably. Replace it with
+    # integer indices, which serialize cleanly and keep `.fusi.spacing` defined on load;
+    # the transform math uses the dimension order, not the component labels.
+    if "base_to_current" in to_save.data_vars and "component" in to_save.coords:
         to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
 
     to_copy: dict[str, Path] = {}
@@ -183,17 +183,11 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
     ds = xr.open_zarr(path, **kwargs)
 
     # Restore any `affines` matrices JSON-encoded on save back to numpy arrays, so they
-    # match the arrays a NIfTI-loaded volume carries.
+    # match the arrays a NIfTI-loaded volume carries. This also covers the atlas'
+    # `base_to_current` mesh affine, which rides in the dataset-level affines dict.
     for name in ds.data_vars:
         restore_affines(ds[name].attrs)
     restore_affines(ds.attrs)
-
-    # An affine mesh vertex transform is a 4x4 stored as a JSON list; restore it to a
-    # numpy array (a nonlinear transform rides as a data variable and needs no restoring).
-    if "mesh_vertex_transform" in ds.attrs:
-        ds.attrs["mesh_vertex_transform"] = np.asarray(
-            ds.attrs["mesh_vertex_transform"], dtype=np.float64
-        )
 
     annotation = ds["annotation"]
     if "rgb_lookup" in annotation.attrs and not all(

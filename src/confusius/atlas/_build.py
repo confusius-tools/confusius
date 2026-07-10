@@ -80,26 +80,30 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
         },
     )
 
-    # The mesh vertex transform is a pure base→current physical (mm) pull transform,
-    # identity for a fresh atlas; OBJ vertices are converted microns→millimetres inside
-    # get_mesh, not folded into this transform, so it composes uniformly with the
-    # nonlinear (displacement-field) transforms that resample_like can produce.
-    mesh_vertex_transform = np.eye(4)
-    # RL midline in millimetres (base atlas space). For asr orientation: shape[2] is the
-    # RL axis length (voxels), resolution[2] the voxel size in microns; the midline sits
-    # at the centre of the volume.
-    rl_midline = metadata["shape"][2] / 2 * metadata["resolution"][2] * 1e-3
+    # base_to_current is the affine mapping base atlas physical (mm) coordinates to the
+    # current grid; identity for a freshly built atlas. It rides in the standard `affines`
+    # dict so it composes and serializes like any other spatial affine. resample_like
+    # updates it, or replaces it with a `base_to_current` displacement-field data variable
+    # for a nonlinear resample. OBJ vertices are converted microns→millimetres inside
+    # get_mesh, not folded into this transform.
+    base_to_current = np.eye(4)
 
-    # hemispheres is a per-voxel left/right partition (1 = left, 2 = right). It is a data
-    # variable, not a coordinate: as a coordinate it would ride along on `reference` and
-    # `annotation` and be silently linear-interpolated (to fractional, meaningless labels)
-    # by any regridding op — e.g. resampling into a non-orthogonal frame. As a data
-    # variable it is on equal footing with `annotation` and only changes when explicitly
-    # resampled with nearest-neighbour, which preserves the integer labels.
+    # hemispheres is a per-voxel left/right partition. It is a data variable, not a
+    # coordinate: as a coordinate it would ride along on `reference` and `annotation` and
+    # be silently linear-interpolated (to fractional, meaningless labels) by any regridding
+    # op — e.g. resampling into a non-orthogonal frame. As a data variable it is on equal
+    # footing with `annotation` and only changes when explicitly resampled with
+    # nearest-neighbour, which preserves the integer labels. The label values (BrainGlobe
+    # uses 1 = left, 2 = right) ride in attrs so get_mesh can select a hemisphere by
+    # sampling the map at each vertex.
     hemispheres = xr.DataArray(
         atlas.hemispheres.astype(np.int8),
         dims=["z", "y", "x"],
         coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        attrs={
+            "left": int(getattr(atlas, "left_hemisphere_value", 1)),
+            "right": int(getattr(atlas, "right_hemisphere_value", 2)),
+        },
     )
 
     return xr.Dataset(
@@ -114,7 +118,6 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
             "species": metadata["species"],
             "orientation": metadata["orientation"],
             "structures": structures_to_json(atlas.structures),
-            "mesh_vertex_transform": mesh_vertex_transform.tolist(),
-            "rl_midline": float(rl_midline),
+            "affines": {"base_to_current": base_to_current},
         },
     )

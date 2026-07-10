@@ -88,12 +88,12 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
       - [2:, :, 2:6] = 20  (grandchild)
       - elsewhere   = 0   (background)
 
-    Hemispheres (shape 4, 6, 8):
-      - [:, :, :4] = 2  (right — low RL in asr orientation)
-      - [:, :, 4:] = 1  (left  — high RL in asr orientation)
+    Hemispheres (shape 4, 6, 8), with attrs {"left": 1, "right": 2}:
+      - [:, :, :2] = 2  (right — RL below the 0.1 mm mesh midline)
+      - [:, :, 2:] = 1  (left  — RL at/above the 0.1 mm mesh midline)
 
-    Resolution: 50 µm (0.05 mm) isotropic.
-    RL midline: 100 µm (0.1 mm), the OBJ mesh's RL midline.
+    Resolution: 50 µm (0.05 mm) isotropic. The split matches the OBJ mesh's RL midline
+    (0.1 mm), so sampling the map splits the mesh 3/3.
     """
     shape = (4, 6, 8)
     # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the reference grid, which the
@@ -105,8 +105,8 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
     annotation_data[2:, :, 2:6] = 20
 
     hemispheres_data = np.zeros(shape, dtype=np.int8)
-    hemispheres_data[:, :, :4] = 2  # right
-    hemispheres_data[:, :, 4:] = 1  # left
+    hemispheres_data[:, :, :2] = 2  # right (RL < 0.1 mm mesh midline)
+    hemispheres_data[:, :, 2:] = 1  # left  (RL >= 0.1 mm mesh midline)
 
     coords = {
         dim: (
@@ -138,6 +138,7 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
         hemispheres_data,
         dims=["z", "y", "x"],
         coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        attrs={"left": 1, "right": 2},
     )
 
     return xr.Dataset(
@@ -152,10 +153,7 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": json.dumps(structure_list),
-            "mesh_vertex_transform": np.eye(4).tolist(),
-            # RL midline of the OBJ mesh in mm, halfway between its 50 µm and 150 µm
-            # vertices, so the hemisphere clip splits it 3/3. Fixed to the mesh.
-            "rl_midline": 0.1,
+            "affines": {"base_to_current": np.eye(4)},
         },
     )
 
