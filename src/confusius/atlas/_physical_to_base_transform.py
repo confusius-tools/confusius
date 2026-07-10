@@ -1,11 +1,11 @@
-"""Mesh-vertex transforms for atlas resampling (affine and nonlinear).
+"""Physical-to-base transforms for atlas resampling (affine and nonlinear).
 
-An atlas mesh vertex transform is a *pull* transform, following the same convention as
-`confusius.registration`: it maps a point in the atlas's current physical space back to
-its base (BrainGlobe OBJ) physical space. Affine transforms are homogeneous `(4, 4)`
-matrices; nonlinear transforms are B-spline or dense displacement-field DataArrays. All
-points, vertices, and displacement components are in DataArray dim order `(z, y, x)`:
-component `i` of a displacement field displaces along axis `dims[i]`.
+An atlas physical-to-base transform is a *pull* transform, following the same convention
+as `confusius.registration`: it maps a point in the atlas's physical space back to its
+base (BrainGlobe OBJ) physical space. Affine transforms are homogeneous `(4, 4)` matrices;
+nonlinear transforms are B-spline or dense displacement-field DataArrays. All points,
+vertices, and displacement components are in DataArray dim order `(z, y, x)`: component `i`
+of a displacement field displaces along axis `dims[i]`.
 """
 
 import numpy as np
@@ -15,8 +15,8 @@ from scipy.interpolate import interpn
 
 from confusius.registration.bspline import sample_displacement_field_like
 
-MeshVertexTransform = npt.NDArray[np.float64] | xr.DataArray
-"""Transform mapping current atlas physical coordinates back to base atlas space.
+PhysicalToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
+"""Pull transform mapping the atlas's physical coordinates back to base atlas space.
 
 Affine transforms use homogeneous `(4, 4)` matrices; nonlinear transforms use B-spline or
 displacement-field DataArrays (`attrs["type"]` in `{"bspline_transform",
@@ -24,8 +24,8 @@ displacement-field DataArrays (`attrs["type"]` in `{"bspline_transform",
 """
 
 
-def _validate_mesh_vertex_transform(transform: MeshVertexTransform) -> None:
-    """Raise ValueError if `transform` is not a valid mesh vertex transform.
+def _validate_physical_to_base_transform(transform: PhysicalToBaseTransform) -> None:
+    """Raise ValueError if `transform` is not a valid physical-to-base transform.
 
     Parameters
     ----------
@@ -41,21 +41,21 @@ def _validate_mesh_vertex_transform(transform: MeshVertexTransform) -> None:
     if isinstance(transform, np.ndarray):
         if transform.shape != (4, 4):
             raise ValueError(
-                f"Mesh affine transform must have shape (4, 4); got {transform.shape}."
+                f"Affine transform must have shape (4, 4); got {transform.shape}."
             )
         return
 
     transform_type = transform.attrs.get("type")
     if transform_type not in {"bspline_transform", "displacement_field_transform"}:
         raise ValueError(
-            "Mesh nonlinear transform must have attrs['type'] equal to "
+            "Nonlinear transform must have attrs['type'] equal to "
             "'bspline_transform' or 'displacement_field_transform'; got "
             f"{transform_type!r}."
         )
 
 
 def _transform_points(
-    transform: MeshVertexTransform,
+    transform: PhysicalToBaseTransform,
     points: npt.NDArray[np.float64],
     reference: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
@@ -76,7 +76,7 @@ def _transform_points(
     numpy.ndarray
         Transformed points with shape `(N, D)`.
     """
-    _validate_mesh_vertex_transform(transform)
+    _validate_physical_to_base_transform(transform)
 
     if isinstance(transform, np.ndarray):
         n_points, ndim = points.shape
@@ -90,12 +90,12 @@ def _transform_points(
     return points + displacement
 
 
-def _compose_mesh_vertex_transforms(
-    old_transform: MeshVertexTransform,
-    new_transform: MeshVertexTransform,
+def _compose_physical_to_base_transforms(
+    old_transform: PhysicalToBaseTransform,
+    new_transform: PhysicalToBaseTransform,
     new_reference: xr.DataArray,
     old_reference: xr.DataArray,
-) -> MeshVertexTransform:
+) -> PhysicalToBaseTransform:
     """Compose mesh pull transforms as `old_transform ∘ new_transform`.
 
     Parameters
@@ -253,28 +253,28 @@ def _invert_displacement_field_at_points(
     return fixed_points
 
 
-def _apply_mesh_vertex_transform(
-    transform: MeshVertexTransform,
+def _apply_physical_to_base_transform(
+    transform: PhysicalToBaseTransform,
     vertices: npt.NDArray[np.float64],
     reference: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Transform mesh vertices from base atlas space into current physical space.
+    """Transform mesh vertices from base atlas space into the atlas's physical space.
 
     Parameters
     ----------
     transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the current atlas physical space back to the base atlas
-        physical space.
+        Pull transform from the atlas's physical space back to the base atlas physical
+        space.
     vertices : (N, 3) numpy.ndarray
         Mesh vertices expressed in the base atlas physical coordinates (millimetres).
     reference : xarray.DataArray
-        Current atlas reference grid. Used to sample B-spline transforms into a dense
+        The atlas's reference grid. Used to sample B-spline transforms into a dense
         displacement field when needed.
 
     Returns
     -------
     numpy.ndarray
-        Mesh vertices in the current physical space.
+        Mesh vertices in the atlas's physical space.
     """
     if isinstance(transform, np.ndarray):
         n_vertices, ndim = vertices.shape

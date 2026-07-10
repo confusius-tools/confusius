@@ -149,11 +149,11 @@ def atlas_to_zarr(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
         to_save[name] = var
     to_save.attrs = zarr_safe_attrs(to_save.attrs)
 
-    # A nonlinear (displacement-field) base_to_current transform carries a decorative
+    # A nonlinear (displacement-field) physical_to_base transform carries a decorative
     # string `component` coordinate that zarr v3 cannot serialize stably. Replace it with
     # integer indices, which serialize cleanly and keep `.fusi.spacing` defined on load;
     # the transform math uses the dimension order, not the component labels.
-    if "base_to_current" in to_save.data_vars and "component" in to_save.coords:
+    if "physical_to_base" in to_save.data_vars and "component" in to_save.coords:
         to_save = to_save.assign_coords(component=np.arange(to_save.sizes["component"]))
 
     # Write the store first (to_zarr requires the path not to exist yet), then copy the
@@ -196,7 +196,7 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
 
     # Restore any `affines` matrices JSON-encoded on save back to numpy arrays, so they
     # match the arrays a NIfTI-loaded volume carries. This also covers the atlas'
-    # `base_to_current` mesh affine, which rides in the dataset-level affines dict.
+    # `physical_to_base` mesh affine, which rides in the dataset-level affines dict.
     for name in ds.data_vars:
         restore_affines(ds[name].attrs)
     restore_affines(ds.attrs)

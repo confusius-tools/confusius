@@ -10,10 +10,10 @@ import pandas as pd
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius.atlas._mesh_transform import (
-    MeshVertexTransform,
-    _apply_mesh_vertex_transform,
-    _compose_mesh_vertex_transforms,
+from confusius.atlas._physical_to_base_transform import (
+    PhysicalToBaseTransform,
+    _apply_physical_to_base_transform,
+    _compose_physical_to_base_transforms,
     _drop_vertices_outside_grid,
 )
 from confusius.atlas._structures import (
@@ -92,27 +92,26 @@ class AtlasAccessor:
         return self._ds["hemispheres"]
 
     @property
-    def _mesh_vertex_transform(self) -> MeshVertexTransform:
-        """Pull transform mapping current atlas physical space back to base atlas space.
+    def _physical_to_base_transform(self) -> PhysicalToBaseTransform:
+        """Pull transform mapping the atlas's physical space back to base atlas space.
 
-        The atlas stores the base→current mapping: an affine in
-        `attrs["affines"]["base_to_current"]` in the common case, or a `base_to_current`
+        Stored directly as this physical→base pull transform: an affine in
+        `attrs["affines"]["physical_to_base"]` in the common case, or a `physical_to_base`
         displacement-field data variable after a nonlinear resample (which takes
-        precedence). This returns it in the pull (current→base) form the mesh-warping
-        helpers expect: the affine is inverted; the displacement field is returned as-is
-        (the helpers invert it per point).
+        precedence). It is returned as-is — the mesh-warping helpers consume the pull form
+        (they invert the affine, or invert the field per point, when mapping base vertices
+        into physical space).
 
         Returns
         -------
         numpy.ndarray or xarray.DataArray
             The `(4, 4)` pull affine, or the dense displacement-field DataArray.
         """
-        if "base_to_current" in self._ds.data_vars:
-            return self._ds["base_to_current"]
-        base_to_current = np.asarray(
-            self._ds.attrs["affines"]["base_to_current"], dtype=np.float64
+        if "physical_to_base" in self._ds.data_vars:
+            return self._ds["physical_to_base"]
+        return np.asarray(
+            self._ds.attrs["affines"]["physical_to_base"], dtype=np.float64
         )
-        return np.linalg.inv(base_to_current)
 
     # ── Structure metadata ────────────────────────────────────────────────────
 
@@ -402,9 +401,9 @@ class AtlasAccessor:
 
         vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
-        mesh_transform = self._mesh_vertex_transform
-        vertices_m = _apply_mesh_vertex_transform(
-            mesh_transform, vertices_mm, self.reference
+        physical_to_base = self._physical_to_base_transform
+        vertices_m = _apply_physical_to_base_transform(
+            physical_to_base, vertices_mm, self.reference
         )
 
         if clip:
@@ -437,7 +436,7 @@ class AtlasAccessor:
     def resample_like(
         self,
         reference: xr.DataArray,
-        transform: MeshVertexTransform,
+        transform: PhysicalToBaseTransform,
         *,
         reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         sitk_threads: int = -1,
@@ -477,10 +476,10 @@ class AtlasAccessor:
         Returns
         -------
         xarray.Dataset
-            New atlas Dataset on `reference`'s grid. The composed base→current mesh
-            transform is stored in `attrs["affines"]["base_to_current"]`; when `transform`
+            New atlas Dataset on `reference`'s grid. The composed physical→base pull
+            transform is stored in `attrs["affines"]["physical_to_base"]`; when `transform`
             (or a previously composed one) is nonlinear, it is stored as a
-            `base_to_current` displacement-field data variable instead.
+            `physical_to_base` displacement-field data variable instead.
 
         Examples
         --------
@@ -516,8 +515,8 @@ class AtlasAccessor:
             sitk_threads=sitk_threads,
         )
 
-        composed = _compose_mesh_vertex_transforms(
-            self._mesh_vertex_transform, transform, reference, self.reference
+        composed = _compose_physical_to_base_transforms(
+            self._physical_to_base_transform, transform, reference, self.reference
         )
 
         data_vars: dict[str, xr.DataArray] = {
@@ -529,28 +528,28 @@ class AtlasAccessor:
         affines = {
             k: v
             for k, v in new_attrs.get("affines", {}).items()
-            if k != "base_to_current"
+            if k != "physical_to_base"
         }
         if isinstance(composed, np.ndarray):
-            # `composed` is the pull (current→base); store the forward base→current affine
-            # in the affines dict, alongside any other spatial affines.
-            affines["base_to_current"] = np.linalg.inv(composed)
+            # `composed` is already the pull (physical→base) affine; store it directly,
+            # alongside any other spatial affines.
+            affines["physical_to_base"] = composed
             new_attrs["affines"] = affines
         else:
-            # A nonlinear (displacement-field) transform cannot be an affine; store it as a
-            # base_to_current data variable, which the _mesh_vertex_transform property
-            # prefers over the affines entry.
+            # A nonlinear (displacement-field) transform cannot be an affine; store the
+            # pull field as a physical_to_base data variable, which the
+            # _physical_to_base_transform property prefers over the affines entry.
             if affines:
                 new_attrs["affines"] = affines
             else:
                 new_attrs.pop("affines", None)
-            data_vars["base_to_current"] = composed
+            data_vars["physical_to_base"] = composed
 
         return xr.Dataset(data_vars, attrs=new_attrs)
 
     def resample(
         self,
-        transform: MeshVertexTransform,
+        transform: PhysicalToBaseTransform,
         *,
         shape: Sequence[int],
         spacing: Sequence[float],

@@ -31,19 +31,19 @@ def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
     )
 
 
-def _with_mesh_transform(atlas_ds: xr.Dataset, transform: xr.DataArray) -> xr.Dataset:
-    """Return a copy of `atlas_ds` carrying `transform` as its base_to_current transform."""
+def _with_physical_to_base_transform(atlas_ds: xr.Dataset, transform: xr.DataArray) -> xr.Dataset:
+    """Return a copy of `atlas_ds` carrying `transform` as its physical_to_base transform."""
     ds = atlas_ds.copy()
     new_attrs = dict(atlas_ds.attrs)
     affines = {
-        k: v for k, v in new_attrs.get("affines", {}).items() if k != "base_to_current"
+        k: v for k, v in new_attrs.get("affines", {}).items() if k != "physical_to_base"
     }
     if affines:
         new_attrs["affines"] = affines
     else:
         new_attrs.pop("affines", None)
     ds.attrs = new_attrs
-    ds["base_to_current"] = transform
+    ds["physical_to_base"] = transform
     return ds
 
 
@@ -100,7 +100,7 @@ class TestBuilder:
             "structures",
             "affines",
         } <= set(result.attrs)
-        assert "base_to_current" in result.attrs["affines"]
+        assert "physical_to_base" in result.attrs["affines"]
         # Coordinates should be in mm: step = resolution_um[0] * 1e-3.
         np.testing.assert_allclose(
             result.atlas.annotation.coords["z"].values[1], 25 * 1e-3
@@ -109,12 +109,12 @@ class TestBuilder:
     def test_from_brainglobe_schema_attr_types(
         self, mock_structures: StructuresDict
     ) -> None:
-        """structures is a StructuresDict; base_to_current is a numpy affine matrix."""
+        """structures is a StructuresDict; physical_to_base is a numpy affine matrix."""
         result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
         assert isinstance(result.attrs["structures"], StructuresDict)
-        base_to_current = result.attrs["affines"]["base_to_current"]
-        assert isinstance(base_to_current, np.ndarray)
-        assert base_to_current.shape == (4, 4)
+        physical_to_base = result.attrs["affines"]["physical_to_base"]
+        assert isinstance(physical_to_base, np.ndarray)
+        assert physical_to_base.shape == (4, 4)
 
 
 class TestStructuresSerialization:
@@ -454,14 +454,14 @@ class TestIO:
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
 
-    def test_base_to_current_restored_as_array(
+    def test_physical_to_base_restored_as_array(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
-        """The affine base_to_current reloads as a numpy array, not a JSON list."""
+        """The affine physical_to_base reloads as a numpy array, not a JSON list."""
         path = tmp_path / "atlas.zarr"
         atlas_to_zarr(atlas_ds, path)
         loaded = atlas_from_zarr(path)
-        transform = loaded.attrs["affines"]["base_to_current"]
+        transform = loaded.attrs["affines"]["physical_to_base"]
         assert isinstance(transform, np.ndarray)
         np.testing.assert_allclose(transform, np.eye(4))
 
@@ -552,7 +552,7 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01  # component 2 == x
-        ds = _with_mesh_transform(atlas_ds, _field_on_grid(reference, data))
+        ds = _with_physical_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
@@ -567,7 +567,7 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid
-        ds = _with_mesh_transform(atlas_ds, _field_on_grid(reference, data))
+        ds = _with_physical_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
         vertices, faces = ds.atlas.get_mesh(997)
         assert vertices.shape == (0, 3)
@@ -582,7 +582,7 @@ class TestNonlinearMesh:
         data[2] = 0.01
         field = _field_on_grid(reference, data)
         monkeypatch.setattr(
-            "confusius.atlas._mesh_transform.sample_displacement_field_like",
+            "confusius.atlas._physical_to_base_transform.sample_displacement_field_like",
             lambda transform, ref: field,
         )
         bspline = xr.DataArray(
@@ -590,7 +590,7 @@ class TestNonlinearMesh:
             dims=["cz", "cy", "cx", "comp"],
             attrs={"type": "bspline_transform"},
         )
-        ds = _with_mesh_transform(atlas_ds, bspline)
+        ds = _with_physical_to_base_transform(atlas_ds, bspline)
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
@@ -602,8 +602,8 @@ class TestNonlinearMesh:
         self, atlas_ds: xr.Dataset
     ) -> None:
         resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, np.eye(4))
-        assert "base_to_current" in resampled.attrs["affines"]
-        assert "base_to_current" not in resampled.data_vars
+        assert "physical_to_base" in resampled.attrs["affines"]
+        assert "physical_to_base" not in resampled.data_vars
 
     def test_resample_like_field_stores_transform_as_data_var(
         self, atlas_ds: xr.Dataset
@@ -611,8 +611,8 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
         resampled = atlas_ds.atlas.resample_like(reference, field)
-        assert "base_to_current" in resampled.data_vars
-        assert "base_to_current" not in resampled.attrs.get("affines", {})
+        assert "physical_to_base" in resampled.data_vars
+        assert "physical_to_base" not in resampled.attrs.get("affines", {})
         validate_atlas_dataset(resampled)
 
     def test_resample_like_affine_shifts_mesh(self, atlas_ds: xr.Dataset) -> None:
@@ -642,7 +642,7 @@ class TestNonlinearMesh:
         atlas_to_zarr(resampled, path)
         loaded = atlas_from_zarr(path)
 
-        assert "base_to_current" in loaded.data_vars
+        assert "physical_to_base" in loaded.data_vars
         np.testing.assert_allclose(
             loaded.atlas.get_mesh(997)[0], resampled.atlas.get_mesh(997)[0], atol=1e-6
         )

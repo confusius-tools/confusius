@@ -82,13 +82,14 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
         },
     )
 
-    # base_to_current is the affine mapping base atlas physical (mm) coordinates to the
-    # current grid; identity for a freshly built atlas. It rides in the standard `affines`
-    # dict so it composes and serializes like any other spatial affine. resample_like
-    # updates it, or replaces it with a `base_to_current` displacement-field data variable
-    # for a nonlinear resample. OBJ vertices are converted microns→millimetres inside
-    # get_mesh, not folded into this transform.
-    base_to_current = np.eye(4)
+    # physical_to_base is the pull affine mapping the atlas's physical (mm) coordinates
+    # back to base atlas space; identity for a freshly built atlas, whose physical space is
+    # the base space. It rides in the standard `affines` dict so it composes and serializes
+    # like any other spatial affine. resample_like updates it, or replaces it with a
+    # `physical_to_base` displacement-field data variable for a nonlinear resample. OBJ
+    # vertices are converted microns→millimetres inside get_mesh, not folded into this
+    # transform.
+    physical_to_base = np.eye(4)
 
     # hemispheres is a per-voxel left/right partition. It is a data variable, not a
     # coordinate: as a coordinate it would ride along on `reference` and `annotation` and
@@ -120,6 +121,6 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
             "species": metadata["species"],
             "orientation": metadata["orientation"],
             "structures": atlas.structures,
-            "affines": {"base_to_current": base_to_current},
+            "affines": {"physical_to_base": physical_to_base},
         },
     )

@@ -17,7 +17,7 @@ _REQUIRED_ATLAS_ATTRS = (
 )
 """Attributes every atlas Dataset must carry (the self-describing metadata).
 
-The `base_to_current` mesh transform is required too but checked separately: it is an
+The `physical_to_base` mesh transform is required too but checked separately: it is an
 `attrs["affines"]` entry for the common affine case and a data variable for a nonlinear
 (displacement-field) transform.
 """
@@ -79,7 +79,7 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: the self-describing metadata `name`, `citation`, `species`,
-       `orientation`, and `structures` are present, plus the `base_to_current` mesh
+       `orientation`, and `structures` are present, plus the `physical_to_base` mesh
        transform (an `attrs["affines"]` affine, or a data variable for a nonlinear
        transform).
     6. **Affines**: where two data variables both define an affine of the same name (in
@@ -149,14 +149,14 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
             "under xarray.set_options(keep_attrs=True)."
         )
 
-    # base_to_current is an affine in attrs["affines"] for the common case, or a data
+    # physical_to_base is an affine in attrs["affines"] for the common case, or a data
     # variable (a displacement field) after a nonlinear resample.
     if (
-        "base_to_current" not in ds.attrs.get("affines", {})
-        and "base_to_current" not in ds.data_vars
+        "physical_to_base" not in ds.attrs.get("affines", {})
+        and "physical_to_base" not in ds.data_vars
     ):
         raise ValueError(
-            "Atlas Dataset is missing 'base_to_current' (expected either an "
+            "Atlas Dataset is missing 'physical_to_base' (expected either an "
             "attrs['affines'] affine or a data variable holding a nonlinear "
             "displacement field)."
         )
