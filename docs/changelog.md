@@ -6,9 +6,15 @@ icon: lucide/history
 
 # Changelog
 
-## 0.6.0.dev0
+## 0.5.2.dev0
 
 Current development version for the next ConfUSIus release.
+
+### :wrench: Maintenance
+
+- Python 3.14 now keeps `xarray[accel]` everywhere except macOS Intel, where ConfUSIus
+  falls back to plain `xarray` to avoid a `numba` / `llvmlite` build failure caused by
+  napari's macOS Intel `numba<=0.62.1` cap.
 
 ## 0.5.1
 
