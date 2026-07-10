@@ -15,7 +15,7 @@ carries all atlas-aware operations. The structure hierarchy rides along in
 `Dataset.attrs["structures"]`, so a single object fully describes the atlas and its
 region tree.
 
-## BrainGlobe atlases
+## BrainGlobe Atlases
 
 ConfUSIus does not ship its own atlases. It builds on the
 [BrainGlobe Atlas API](https://brainglobe.info/documentation/brainglobe-atlasapi/index.html),
@@ -71,7 +71,7 @@ directly.
     walk through packaging a reference stack, an annotation stack, and a structure
     hierarchy into a distributable atlas.
 
-## Exploring the structure hierarchy
+## Exploring the Structure Hierarchy
 
 Regions form a tree: `root` contains gray and white matter, which contain areas, which
 contain layers. [`show_tree`][confusius.atlas.AtlasAccessor.show_tree] prints the whole
@@ -118,7 +118,7 @@ nodes, from the root down to (but excluding) the region:
 ['root (997)', 'grey (8)', 'CH (567)', 'CTX (688)', 'CTXpl (695)', 'HPF (1089)']
 ```
 
-## Looking up and searching regions
+## Looking Up and Searching Regions
 
 [`lookup`][confusius.atlas.AtlasAccessor.lookup] flattens the hierarchy into a
 [`pandas.DataFrame`][pandas.DataFrame] indexed by region id, with the acronym, full name,
@@ -166,7 +166,7 @@ id
 `cf.atlas.search(atlas, "visual")` is equivalent to `atlas.atlas.search("visual")`. Both
 forms validate the Dataset as an atlas before running.
 
-## Plotting annotations over the reference
+## Plotting Annotations over the Reference
 
 The reference and annotation volumes plot with the ordinary
 [`plot_volume`][confusius.plotting.plot_volume] tools. Overlaying the region boundaries on
@@ -184,7 +184,7 @@ plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 ![Coronal reference slice with Allen region annotation contours](../images/atlas/atlas-annotation-light.png#only-light)
 ![Coronal reference slice with Allen region annotation contours](../images/atlas/atlas-annotation-dark.png#only-dark)
 
-## Region surface meshes
+## Region Surface Meshes
 
 Many BrainGlobe atlases bundle a triangular surface mesh per region.
 [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] returns the mesh as a `(vertices,
@@ -205,7 +205,7 @@ Pass `side="left"` or `side="right"` to clip the mesh to one hemisphere. Because
 come back in the atlas's current physical space, they stay aligned with the volumes after
 a resample (see below).
 
-## Masks for regional analysis
+## Masks for Regional Analysis
 
 [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] turns regions into integer voxel
 masks stacked along a `mask` dimension, automatically including every descendant in the
@@ -223,7 +223,7 @@ These masks feed directly into signal extraction and connectivity; see the examp
 matrix](../examples/_built/connectivity/atlas_correlation_matrix.md) and [Atlas-based
 seed connectivity maps](../examples/_built/connectivity/atlas_seed_map.md) for more.
 
-## Aligning an atlas to a recording
+## Aligning an Atlas to a Recording
 
 An atlas is only useful once it shares a grid with your data. After registering a
 recording to the atlas template (see [Registration](registration.md)),
