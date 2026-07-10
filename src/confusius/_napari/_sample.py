@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import napari
 from napari.utils.notifications import show_info
+from qtpy.QtCore import QTimer
 from qtpy.QtWidgets import QApplication, QProgressDialog
 
 from confusius.datasets import (
@@ -297,6 +298,31 @@ def _dataarray_to_layer_data(
     return layer_data
 
 
+def _apply_sample_axis_labels(
+    viewer: napari.Viewer, axis_labels: tuple[str, ...]
+) -> None:
+    """Right-align sample axis labels onto the viewer dimension sliders.
+
+    napari does not copy a layer's `axis_labels` onto `viewer.dims` for the
+    sample/reader path, so the sliders would otherwise keep the default
+    `-N ... -1` labels. Called after napari has added the sample layers, so
+    `viewer.dims.ndim` already accounts for them; the labels are applied to the
+    trailing axes to preserve any leading labels from higher-dimensional layers.
+
+    Parameters
+    ----------
+    viewer : napari.Viewer
+        Viewer whose dimension labels should be updated.
+    axis_labels : tuple[str, ...]
+        Axis labels of the highest-dimensional sample layer.
+    """
+    current = list(viewer.dims.axis_labels)
+    count = len(axis_labels)
+    if count <= len(current):
+        current[-count:] = axis_labels
+        viewer.dims.axis_labels = tuple(current)
+
+
 def _open_sample(sample_key: str) -> list[FullLayerData]:
     """Open one registered napari sample.
 
@@ -353,6 +379,15 @@ def _open_sample(sample_key: str) -> list[FullLayerData]:
                     layer_kwargs=sample_file.layer_kwargs,
                 )
             )
+        # napari adds the returned layers after this command returns, so defer the
+        # dims-label update to the next event-loop iteration when ndim is settled.
+        # Viewer ndim matches the highest-dimensional layer; reuse its axis labels.
+        if viewer is not None and layers:
+            target = viewer
+            axis_labels = tuple(
+                max((kwargs["axis_labels"] for _, kwargs, _ in layers), key=len)
+            )
+            QTimer.singleShot(0, lambda: _apply_sample_axis_labels(target, axis_labels))
         return layers
     except SampleDownloadCancelledError:
         show_info("Sample download cancelled.")
