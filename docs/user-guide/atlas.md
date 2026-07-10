@@ -151,7 +151,7 @@ id
 ```
 
 Pass `field="acronym"` (or `"name"`) to match one column exactly with a regex, useful for
-pinning down a single area without its layer sub-divisions:
+pinning down a single area without its layer subdivisions:
 
 ```pycon
 >>> atlas.atlas.search("VISp", field="acronym")
@@ -160,9 +160,10 @@ id
 385    VISp  Primary visual area  [8, 133, 140]
 ```
 
-`search`, [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and
-[`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] are also exposed as free functions in
-`confusius.atlas` that take the Dataset as their first argument, so
+[`search`][confusius.atlas.AtlasAccessor.search],
+[`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and
+[`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] are also exposed as free functions
+in `confusius.atlas` that take the Dataset as their first argument, so
 `cf.atlas.search(atlas, "visual")` is equivalent to `atlas.atlas.search("visual")`. Both
 forms validate the Dataset as an atlas before running.
 
@@ -211,11 +212,27 @@ a resample (see below).
 masks stacked along a `mask` dimension, automatically including every descendant in the
 hierarchy. Pass one region or many, and optionally restrict each to a hemisphere:
 
-```python
-masks = atlas.atlas.get_masks(["VISp", "AUDp", "MOp"])
-# masks has dims (mask, z, y, x); the `mask` coordinate holds the acronyms.
+```pycon
+>>> atlas.atlas.get_masks(["VISp", "AUDp", "MOp"])
+<xarray.DataArray (mask: 3, z: 132, y: 80, x: 114)> Size: 14MB
+0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 ... 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+Coordinates:
+  * mask     (mask) <U4 48B 'VISp' 'AUDp' 'MOp'
+  * z        (z) float64 1kB 0.0 0.1 0.2 0.3 0.4 ... 12.7 12.8 12.9 13.0 13.1
+  * y        (y) float64 640B 0.0 0.1 0.2 0.3 0.4 0.5 ... 7.5 7.6 7.7 7.8 7.9
+  * x        (x) float64 912B 0.0 0.1 0.2 0.3 0.4 ... 10.9 11.0 11.1 11.2 11.3
+Attributes:
+    rgb_lookup:  {997: [255, 255, 255], 8: [191, 218, 227], 567: [176, 240, 2...
+    roi_labels:  {997: 'root (root)', 8: 'Basic cell groups and regions (grey...
+    cmap:        <matplotlib.colors.ListedColormap object at 0x71ba5c798050>
+    norm:        <matplotlib.colors.BoundaryNorm object at 0x71ba5cb3f230>
 
-left_hip = atlas.atlas.get_masks("HIP", sides="left")
+>>> left_hip = atlas.atlas.get_masks("HIP", sides="left")
+>>> left_hip.mask
+<xarray.DataArray 'mask' (mask: 1)> Size: 20B
+'HIP_L'
+Coordinates:
+  * mask     (mask) <U5 20B 'HIP_L'
 ```
 
 These masks feed directly into signal extraction and connectivity; see the examples
