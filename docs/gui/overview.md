@@ -59,6 +59,11 @@ itself, click **Take a Tour** in the upper-right corner of the sidebar header.
 
 ## Opening Data
 
+!!! tip "Try the built-in samples"
+    To follow along without preparing your own data first, open **File > Open Sample**.
+    Sample recordings from [ConfUSIus' dataset fetchers][confusius.datasets] are
+    available in this menu.
+
 ### Recommended: Data Panel and CLI
 
 The recommended way to open files is through the [Data Panel](plugin.md#data-io-panel) or
