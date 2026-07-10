@@ -9,6 +9,8 @@ __all__ = [
     "EchoFrameMetadata",
     "load",
     "save",
+    "load_atlas",
+    "save_atlas",
     "load_echoframe_dat",
     "load_echoframe_metadata",
     "load_nifti",
@@ -17,6 +19,7 @@ __all__ = [
     "save_nifti",
 ]
 
+from confusius.io.atlas import load_atlas, save_atlas
 from confusius.io.autc import AUTCDAT, AUTCDATsLoader, convert_autc_dats_to_zarr
 from confusius.io.echoframe import (
     EchoFrameMetadata,

@@ -20,7 +20,7 @@ def atlas_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
     [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] itself (the
     `.atlas` accessor returns it directly), and is serialized to a flat JSON list only at
     the Zarr boundary, so the whole atlas round-trips through
-    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr].
+    [`load_atlas`][confusius.io.load_atlas].
 
     To fetch and build an atlas by name in one step, use
     [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas].

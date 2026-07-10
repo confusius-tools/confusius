@@ -18,8 +18,8 @@ icon: lucide/brain
     - [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe]: Load any BrainGlobe
       atlas by name or from an existing instance, as a self-describing Dataset with
       physical coordinates in millimetres.
-    - [`atlas_to_zarr`][confusius.atlas.atlas_to_zarr] /
-      [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]: Save and reload the whole
+    - [`save_atlas`][confusius.io.save_atlas] /
+      [`load_atlas`][confusius.io.load_atlas]: Save and reload the whole
       atlas (including its structure hierarchy) to and from a Zarr store.
 
     **Structure lookup:**

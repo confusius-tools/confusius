@@ -36,7 +36,7 @@ class AtlasAccessor:
 
     Registered as the `.atlas` namespace on any Dataset produced by
     [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] or
-    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr]. `Dataset.attrs["structures"]`
+    [`load_atlas`][confusius.io.load_atlas]. `Dataset.attrs["structures"]`
     holds the BrainGlobe
     [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] directly, so
     structural queries keep working for as long as that attribute rides along (xarray
@@ -273,7 +273,7 @@ class AtlasAccessor:
         out-of-grid vertices and clips to one hemisphere. The mesh comes from the
         structure's `mesh_filename`: for a freshly fetched atlas this points into the
         BrainGlobe cache; for an atlas loaded with
-        [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] it points at the mesh bundled
+        [`load_atlas`][confusius.io.load_atlas] it points at the mesh bundled
         inside the store.
 
         Parameters
@@ -694,7 +694,7 @@ def get_mesh(
     physical space (millimetres), then optionally drops out-of-grid vertices and clips to
     one hemisphere. The mesh comes from the structure's `mesh_filename`: for a freshly
     fetched atlas this points into the BrainGlobe cache; for an atlas loaded with
-    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] it points at the mesh bundled
+    [`load_atlas`][confusius.io.load_atlas] it points at the mesh bundled
     inside the store.
 
     Parameters

@@ -187,13 +187,13 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
     _validate_variable_affines(ds)
 
     # In memory the structures ride as a BrainGlobe StructuresDict (serialized to JSON only
-    # inside the Zarr store); atlas_from_brainglobe and atlas_from_zarr both produce one.
+    # inside the Zarr store); atlas_from_brainglobe and load_atlas both produce one.
     from brainglobe_atlasapi.structure_class import StructuresDict
 
     if not isinstance(ds.attrs["structures"], StructuresDict):
         raise ValueError(
             "Atlas attribute 'structures' must be a brainglobe StructuresDict (as built "
-            "by atlas_from_brainglobe or atlas_from_zarr), got "
+            "by atlas_from_brainglobe or load_atlas), got "
             f"{type(ds.attrs['structures']).__name__}."
         )
 

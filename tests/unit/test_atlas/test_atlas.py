@@ -11,8 +11,9 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 import confusius as cf
-from confusius.atlas import atlas_from_brainglobe, atlas_from_zarr, atlas_to_zarr
-from confusius.atlas._structures import structures_from_json, structures_to_json
+from confusius.atlas import atlas_from_brainglobe
+from confusius.io import load_atlas, save_atlas
+from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas_dataset
 
 from .conftest import _MockBgAtlas
@@ -412,12 +413,22 @@ class TestAncestors:
 class TestIO:
     """Zarr save/load round-trip (W3)."""
 
+    def test_save_rejects_non_zarr_suffix(
+        self, atlas_ds: xr.Dataset, tmp_path
+    ) -> None:
+        with pytest.raises(ValueError, match=".zarr"):
+            save_atlas(atlas_ds, tmp_path / "atlas.zip")
+
+    def test_load_rejects_non_zarr_suffix(self, tmp_path) -> None:
+        with pytest.raises(ValueError, match=".zarr"):
+            load_atlas(tmp_path / "atlas")
+
     def test_roundtrip_preserves_fields_bit_for_bit(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(atlas_ds, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(atlas_ds, path)
+        loaded = load_atlas(path)
 
         np.testing.assert_array_equal(
             loaded.atlas.reference.values, atlas_ds.atlas.reference.values
@@ -436,13 +447,13 @@ class TestIO:
         # Give the in-memory annotation a cmap so there is something to strip.
         ds = atlas_ds.copy()
         ds["annotation"].attrs["cmap"] = atlas_ds.atlas.cmap
-        atlas_to_zarr(ds, tmp_path / "atlas.zarr")
+        save_atlas(ds, tmp_path / "atlas.zarr")
         assert "cmap" in ds["annotation"].attrs
 
     def test_cmap_norm_rebuilt_on_load(self, atlas_ds: xr.Dataset, tmp_path) -> None:
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(atlas_ds, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(atlas_ds, path)
+        loaded = load_atlas(path)
         # cmap/norm are not stored, but must be rebuilt into annotation.attrs on load.
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
@@ -452,8 +463,8 @@ class TestIO:
     ) -> None:
         """The affine physical_to_base reloads as a numpy array, not a JSON list."""
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(atlas_ds, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(atlas_ds, path)
+        loaded = load_atlas(path)
         transform = loaded.attrs["physical_to_base"]
         assert isinstance(transform, np.ndarray)
         np.testing.assert_allclose(transform, np.eye(4))
@@ -471,8 +482,8 @@ class TestIO:
         assert "affines" in resampled["reference"].attrs  # guards the scenario.
 
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(resampled, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(resampled, path)
+        loaded = load_atlas(path)
         got = loaded["reference"].attrs["affines"]["physical_to_sform"]
         assert isinstance(got, np.ndarray)
         np.testing.assert_allclose(got, aff)
@@ -481,8 +492,8 @@ class TestIO:
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(atlas_ds, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(atlas_ds, path)
+        loaded = load_atlas(path)
 
         assert loaded.atlas.search("gc", field="acronym").index.tolist() == [20]
         assert [n.identifier for n in loaded.atlas.ancestors(20)] == [997, 10]
@@ -494,15 +505,15 @@ class TestIO:
     def test_meshes_bundled_into_store(self, atlas_ds: xr.Dataset, tmp_path) -> None:
         """The region OBJ files are copied into the store's meshes/ subdirectory."""
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(atlas_ds, path)
+        save_atlas(atlas_ds, path)
         assert (path / "meshes" / "997.obj").is_file()
 
     def test_loaded_mesh_filename_points_into_store(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(atlas_ds, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(atlas_ds, path)
+        loaded = load_atlas(path)
         structures = loaded.attrs["structures"]
         assert structures[997]["mesh_filename"] == str(path / "meshes" / "997.obj")
         assert structures[10]["mesh_filename"] is None
@@ -522,10 +533,10 @@ class TestIO:
         ds.attrs = {**atlas_ds.attrs, "structures": StructuresDict(records)}
 
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(ds, path)
+        save_atlas(ds, path)
         source.unlink()  # the BrainGlobe cache / original mesh is now unavailable.
 
-        loaded = atlas_from_zarr(path)
+        loaded = load_atlas(path)
         vertices, faces = loaded.atlas.get_mesh(997)
         np.testing.assert_array_equal(vertices, atlas_ds.atlas.get_mesh(997)[0])
         assert len(faces) == 2
@@ -632,8 +643,8 @@ class TestNonlinearMesh:
         )
 
         path = tmp_path / "atlas.zarr"
-        atlas_to_zarr(resampled, path)
-        loaded = atlas_from_zarr(path)
+        save_atlas(resampled, path)
+        loaded = load_atlas(path)
 
         assert isinstance(loaded.attrs["physical_to_base"], xr.DataArray)
         assert "physical_to_base" not in loaded.data_vars
