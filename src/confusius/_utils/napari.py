@@ -1,15 +1,18 @@
 """Napari layer-construction helpers shared by the CLI, GUI panels, and file readers."""
 
 from collections import defaultdict
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import xarray as xr
-from napari.utils.colormaps import DirectLabelColormap
+from napari.layers.utils.layer_utils import calc_data_range
+from napari.utils.colormaps import DirectLabelColormap, ensure_colormap
+from napari.utils.notifications import show_warning
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.coordinates import get_coordinate_spacings_best_effort
 
 
 def infer_layer_type(dtype: npt.DTypeLike) -> Literal["image", "labels"]:
@@ -65,6 +68,76 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
             cmap_attr(norm_attr(int(label))), dtype=np.float32
         )
     return DirectLabelColormap(color_dict=color_dict, background_value=0)
+
+
+def convert_dataarray_to_layer_data(
+    da: xr.DataArray, name: str
+) -> tuple[Any, dict[str, Any], Literal["image", "labels"]]:
+    """Convert a ConfUSIus DataArray to a napari FullLayerData tuple.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray to convert.
+    name : str
+        Layer name to assign in napari.
+
+    Returns
+    -------
+    data : Any
+        Layer data payload.
+    kwargs : dict[str, Any]
+        Keyword arguments for the napari layer constructor.
+    layer_type : {"image", "labels"}
+        Napari layer type inferred from `da.dtype`.
+    """
+    all_dims = list(da.dims)
+
+    spacing, non_uniform = get_coordinate_spacings_best_effort(da)
+    for dim in non_uniform:
+        show_warning(
+            f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
+            "(positions along this axis may be approximate)."
+        )
+    origin = da.fusi.origin
+
+    scale: list[float] = [spacing[str(d)] for d in all_dims]
+    translate: list[float] = [origin[d] for d in all_dims]
+    all_units: list[str | None] = [
+        da.coords[d].attrs.get("units") if d in da.coords else None for d in all_dims
+    ]
+
+    kwargs: dict[str, Any] = {
+        "name": name,
+        "scale": scale,
+        "translate": translate,
+        "axis_labels": all_dims,
+        "metadata": {"xarray": da},
+    }
+    if any(u is not None for u in all_units):
+        kwargs["units"] = all_units
+
+    layer_type = infer_layer_type(da.dtype)
+    if layer_type == "labels":
+        colormap = build_direct_label_colormap(da)
+        if colormap is not None:
+            kwargs["colormap"] = colormap
+        if (roi_labels := da.attrs.get("roi_labels")) is not None:
+            kwargs["features"] = build_roi_labels_features(roi_labels)
+    else:
+        colormap = da.attrs.get("cmap", "gray")
+        try:
+            ensure_colormap(colormap)
+        except (KeyError, TypeError):
+            show_warning(
+                f"{colormap!r} is not a valid napari colormap; falling back to 'gray'."
+            )
+            colormap = "gray"
+        kwargs["colormap"] = colormap
+        kwargs["blending"] = "additive"
+        kwargs["contrast_limits"] = calc_data_range(da.data)
+
+    return da.data, kwargs, layer_type
 
 
 def build_roi_labels_features(roi_labels: dict[int, str]) -> pd.DataFrame:

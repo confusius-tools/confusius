@@ -6,7 +6,7 @@ icon: lucide/history
 
 # Changelog
 
-## 0.5.1.dev0
+## 0.6.0.dev0
 
 Current development version for the next ConfUSIus release.
 
@@ -20,7 +20,7 @@ Current development version for the next ConfUSIus release.
   Name-based loading moved to `confusius.datasets`;
   [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] now builds only from an
   already-loaded BrainGlobe atlas
-  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 
 ### :sparkles: Enhancements
 
@@ -28,16 +28,33 @@ Current development version for the next ConfUSIus release.
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are
   bundled into the Zarr store, so a reloaded atlas renders meshes without the BrainGlobe
-  cache ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  cache ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
-  Dataset is a well-formed atlas, alongside `validate_fusi_dataarray` and
-  `validate_iq_dataarray`
-  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
-- `ds.atlas.resample_like` now accepts B-spline and displacement-field transforms in
-  addition to affines, warping region meshes (returned by `ds.atlas.get_mesh`) through the
-  same nonlinear transform and dropping vertices that fall outside the target grid. A new
-  `ds.atlas.resample` resamples onto an explicit grid specification
-  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  Dataset is a well-formed atlas
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+
+## 0.5.2
+
+Released 2026-07-10.
+
+### :wrench: Maintenance
+
+- Python 3.14 now keeps `xarray[accel]` everywhere except macOS Intel, where ConfUSIus
+  falls back to plain `xarray` to avoid a `numba` / `llvmlite` build failure caused by
+  napari's macOS Intel `numba<=0.62.1` cap.
+
+## 0.5.1
+
+Released 2026-07-10.
+
+### :sparkles: Enhancements
+
+- **[Napari plugin]** Added a `File > Open Sample` entries for a [Nunez-Elizalde
+  2022](citing.md#nunez-elizalde-et-al-2022) mouse recording and for a pair of [Cybis
+  Pereira 2026](citing.md#cybis-pereira-et-al-2026) rat recordings. Samples are fetched on
+  demand, shows download progress with an abort button, and only downloads the matching
+  raw fUSI files instead of the full dataset
+  ([#273](https://github.com/confusius-tools/confusius/pull/273)).
 - Dataset fetchers now print the citation to use for the fetched data and accept a
   `print_citation` argument to silence it. The template fetchers
   [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
