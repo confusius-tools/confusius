@@ -17,6 +17,13 @@ Current development version for the next ConfUSIus release.
   instead of `default_value` for out-of-field-of-view resampling, matching
   [`register_volume`][confusius.registration.register_volume] and the progress-plot
   resampling API.
+
+### :sparkles: Enhancements
+
+- **[Napari plugin]** Added an interactive registration panel for volume alignment in
+  napari, including linear and non-linear transforms, progress preview, manual and
+  automatic initialization, saving/loading transforms, and forward/inverse transform
+  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
   
 ### :bug: Fixes
 
@@ -73,10 +80,6 @@ Released 2026-07-10.
   fields directly, so a saved B-spline transform's inverse can be applied without a
   closed-form inverse
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
-- **[Napari plugin]** Added an interactive registration panel for volume alignment in
-  napari, including linear and non-linear transforms, progress preview, manual and
-  automatic initialization, saving/loading transforms, and forward/inverse transform
-  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
 
 ### :bug: Fixes
 
