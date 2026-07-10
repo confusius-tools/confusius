@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
@@ -236,9 +237,63 @@ class SignalStore(QObject):
 
     def _read_signals_table(self, path: Path) -> pd.DataFrame:
         """Read one CSV or TSV signals table from disk."""
+        bids_frame = self._read_bids_physio_table(path)
+        if bids_frame is not None:
+            return bids_frame
+
         _SEP: dict[str, str] = {".csv": ",", ".tsv": "\t"}
-        sep = _SEP.get(path.suffix.lower())
+        sep = _SEP.get(self._table_suffix(path))
         return pd.read_csv(path, sep=sep, engine="python" if sep is None else "c")
+
+    def _read_bids_physio_table(self, path: Path) -> pd.DataFrame | None:
+        """Read a BIDS physio table with sidecar-defined columns, if present."""
+        sidecar_path = self._sidecar_path(path)
+        if sidecar_path is None or not sidecar_path.exists():
+            return None
+
+        try:
+            metadata = json.loads(sidecar_path.read_text())
+        except json.JSONDecodeError:
+            return None
+        columns = metadata.get("Columns")
+        sampling_frequency = metadata.get("SamplingFrequency")
+        if not isinstance(columns, list) or not columns:
+            return None
+        if not isinstance(sampling_frequency, int | float) or sampling_frequency <= 0:
+            return None
+
+        start_time = metadata.get("StartTime", 0.0)
+        if not isinstance(start_time, int | float):
+            return None
+
+        frame = pd.read_csv(path, sep="\t", header=None)
+        if frame.shape[1] != len(columns):
+            raise ValueError(
+                "BIDS physio sidecar 'Columns' length does not match TSV width."
+            )
+
+        frame.columns = [str(column) for column in columns]
+        frame.insert(
+            0,
+            "time",
+            start_time + np.arange(len(frame), dtype=float) / float(sampling_frequency),
+        )
+        return frame
+
+    def _sidecar_path(self, path: Path) -> Path | None:
+        """Return the matching JSON sidecar path for a compressed or plain table."""
+        suffix = self._table_suffix(path)
+        if suffix not in {".tsv", ".csv"}:
+            return None
+        if path.suffix.lower() == ".gz":
+            return path.with_suffix("").with_suffix(".json")
+        return path.with_suffix(".json")
+
+    def _table_suffix(self, path: Path) -> str:
+        """Return the logical table suffix, ignoring a trailing `.gz`."""
+        if path.suffix.lower() == ".gz" and len(path.suffixes) >= 2:
+            return path.suffixes[-2].lower()
+        return path.suffix.lower()
 
     def _signal_from_frame(
         self, frame: pd.DataFrame, path: Path

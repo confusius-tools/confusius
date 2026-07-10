@@ -6,6 +6,12 @@ icon: lucide/history
 
 # Changelog
 
+## 0.5.3.dev0
+
+### :bug: Fixes
+
+- **[Napari plugin]** Imported signal tables now accept BIDS physio `*.tsv.gz` files with column names and timing read from the JSON sidecar.
+
 ## 0.5.2
 
 Released 2026-07-10.

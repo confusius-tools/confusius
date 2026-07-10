@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import gzip
+import json
+
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -21,6 +24,45 @@ def test_import_tsv_preserves_duplicate_time_values(signals_store, signals_tsv):
 
     npt.assert_array_equal(imported[0].x, np.array([0, 0, 1]))
     npt.assert_array_equal(imported[0].y, np.array([1.0, 2.0, 3.0]))
+
+
+def test_import_bids_physio_tsv_gz_uses_sidecar_columns_and_time(
+    signals_store, tmp_path
+):
+    path = tmp_path / "sub-01_task-rest_recording-cardiac_physio.tsv.gz"
+    with gzip.open(path, "wt") as f:
+        f.write("1\t10\n2\t11\n3\t12\n")
+
+    sidecar = path.with_suffix("").with_suffix(".json")
+    sidecar.write_text(
+        json.dumps(
+            {
+                "Columns": ["pulse", "resp"],
+                "SamplingFrequency": 2.0,
+                "StartTime": -0.5,
+            }
+        )
+    )
+
+    imported = signals_store.import_file(path)
+
+    assert [signal.name for signal in imported] == ["pulse", "resp"]
+    npt.assert_allclose(imported[0].x, np.array([-0.5, 0.0, 0.5]))
+    npt.assert_array_equal(imported[0].y, np.array([1.0, 2.0, 3.0]))
+    npt.assert_array_equal(imported[1].y, np.array([10.0, 11.0, 12.0]))
+
+
+def test_import_bids_physio_rejects_column_count_mismatch(signals_store, tmp_path):
+    path = tmp_path / "sub-01_task-rest_recording-cardiac_physio.tsv.gz"
+    with gzip.open(path, "wt") as f:
+        f.write("1\t10\n2\t11\n")
+
+    path.with_suffix("").with_suffix(".json").write_text(
+        json.dumps({"Columns": ["pulse"], "SamplingFrequency": 10.0})
+    )
+
+    with pytest.raises(ValueError, match="Columns' length does not match TSV width"):
+        signals_store.import_file(path)
 
 
 def test_import_rejects_missing_time_column(signals_store, tmp_path):
