@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
+import confusius as cf
 from confusius.atlas import atlas_from_brainglobe, atlas_from_zarr, atlas_to_zarr
 from confusius.atlas._structures import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas_dataset
@@ -682,3 +683,33 @@ class TestGroupbyIntegration:
             np.testing.assert_allclose(
                 grouped.sel(annotation=label).item(), expected, rtol=1e-6
             )
+
+
+class TestStandaloneOperations:
+    """The module-level get_mesh/get_masks/search take a Dataset and validate it."""
+
+    def test_search_returns_expected_region(self, atlas_ds: xr.Dataset) -> None:
+        assert cf.atlas.search(atlas_ds, "gc", field="acronym").index.tolist() == [20]
+
+    def test_get_masks_matches_accessor(self, atlas_ds: xr.Dataset) -> None:
+        np.testing.assert_array_equal(
+            cf.atlas.get_masks(atlas_ds, 10).values,
+            atlas_ds.atlas.get_masks(10).values,
+        )
+
+    def test_get_mesh_matches_accessor(self, atlas_ds: xr.Dataset) -> None:
+        vertices, faces = cf.atlas.get_mesh(atlas_ds, 997)
+        acc_vertices, acc_faces = atlas_ds.atlas.get_mesh(997)
+        np.testing.assert_array_equal(vertices, acc_vertices)
+        np.testing.assert_array_equal(faces, acc_faces)
+        assert len(faces) == 2  # the fixture mesh has two triangles.
+
+    def test_functions_validate_input(self, atlas_ds: xr.Dataset) -> None:
+        """A Dataset missing a required variable is rejected before any work."""
+        not_atlas = atlas_ds.drop_vars("hemispheres")
+        with pytest.raises(ValueError, match="hemispheres"):
+            cf.atlas.get_mesh(not_atlas, 997)
+        with pytest.raises(ValueError, match="hemispheres"):
+            cf.atlas.get_masks(not_atlas, 10)
+        with pytest.raises(ValueError, match="hemispheres"):
+            cf.atlas.search(not_atlas, "gc")

@@ -22,6 +22,7 @@ from confusius.atlas._structures import (
     _resolve_region_id,
 )
 from confusius.registration.resampling import resample_like as resample_like_da
+from confusius.validation.atlas import validate_atlas_dataset
 
 if TYPE_CHECKING:
     import treelib
@@ -209,16 +210,7 @@ class AtlasAccessor:
         >>> ds.atlas.search("visual cortex")
         >>> ds.atlas.search("VISp", field="acronym")
         """
-        df = self.lookup
-        if field == "acronym":
-            mask = df["acronym"].str.fullmatch(pattern)
-        elif field == "name":
-            mask = df["name"].str.fullmatch(pattern, case=False)
-        else:
-            mask = df["acronym"].str.contains(pattern, case=False, na=False) | df[
-                "name"
-            ].str.contains(pattern, case=False, na=False)
-        return df[mask]
+        return search(self._ds, pattern, field)
 
     # ── Masks ─────────────────────────────────────────────────────────────────────────
 
@@ -269,62 +261,7 @@ class AtlasAccessor:
         >>> ds.atlas.get_masks(["VISp", "VISp"], sides=["left", "right"]).coords["mask"].values
         array(['VISp_L', 'VISp_R'], dtype=object)
         """
-        region_list: list[int | str] = (
-            [regions] if isinstance(regions, (int, str)) else list(regions)
-        )
-
-        if isinstance(sides, str):
-            side_list = [sides] * len(region_list)
-        else:
-            side_list = list(sides)
-            if len(side_list) != len(region_list):
-                raise ValueError(
-                    f"'sides' has {len(side_list)} elements but 'regions' has "
-                    f"{len(region_list)} elements; they must have the same length."
-                )
-
-        _valid_sides = {"left", "right", "both"}
-        invalid = [s for s in side_list if s not in _valid_sides]
-        if invalid:
-            raise ValueError(
-                f"Invalid side value(s): {invalid!r}. "
-                f"Each element must be one of {sorted(_valid_sides)}."
-            )
-
-        annotation_np = self.annotation.values
-        hemispheres_np = self.hemispheres.values
-
-        layers = []
-        acronyms = []
-        for reg, s in zip(region_list, side_list):
-            rid = _resolve_region_id(self.structures, reg)
-            descendant_ids = _get_descendant_ids(self.structures, rid)
-
-            layer = np.zeros_like(annotation_np, dtype=np.int32)
-            # Using kind="table" here will use a lookup table approach that is much
-            # faster at the cost of higher memory usage.
-            layer[np.isin(annotation_np, descendant_ids, kind="table")] = rid
-
-            acronym = self.structures[rid]["acronym"]
-            if s == "left":
-                layer[hemispheres_np != 1] = 0
-                acronym = f"{acronym}_L"
-            elif s == "right":
-                layer[hemispheres_np != 2] = 0
-                acronym = f"{acronym}_R"
-
-            layers.append(layer)
-            acronyms.append(acronym)
-
-        stacked = np.stack(layers, axis=0)
-
-        spatial_coords = {d: self.annotation.coords[d] for d in ["z", "y", "x"]}
-        return xr.DataArray(
-            stacked,
-            dims=["mask", "z", "y", "x"],
-            coords={"mask": acronyms, **spatial_coords},
-            attrs=self.annotation.attrs.copy(),
-        )
+        return get_masks(self._ds, regions, sides)
 
     # ── Meshes ────────────────────────────────────────────────────────────────────────
 
@@ -376,60 +313,7 @@ class AtlasAccessor:
         ValueError
             If the region has no mesh file, or the mesh file cannot be located.
         """
-        rid = _resolve_region_id(self.structures, region)
-        info = self.structures[rid]
-
-        mesh_filename = info.get("mesh_filename")
-        if mesh_filename is None:
-            raise ValueError(
-                f"No mesh file available for region '{region}' (id {rid}). "
-                "Not all BrainGlobe atlases include mesh files."
-            )
-
-        mesh_path = Path(mesh_filename)
-        if not mesh_path.is_file():
-            raise ValueError(
-                f"Mesh file for region '{region}' (id {rid}) not found at {mesh_path}. "
-                "A freshly fetched atlas reads meshes from the BrainGlobe cache; a loaded "
-                "atlas reads them from the meshes bundled in its Zarr store."
-            )
-
-        # defer loading mesh to BrainGlobe's structured dict
-        mesh = self.structures[rid]["mesh"]
-        vertices_um = mesh.points  # (N, 3) in microns
-        faces = mesh.get_cells_type("triangle")
-
-        vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
-
-        physical_to_base = self._physical_to_base_transform
-        vertices_m = _apply_physical_to_base_transform(
-            physical_to_base, vertices_mm, self.reference
-        )
-
-        if clip:
-            vertices_m, faces = _drop_vertices_outside_grid(
-                vertices_m, faces, self.reference
-            )
-
-        if side != "both":
-            sel = {
-                d: xr.DataArray(vertices_m[:, i], dims="point")
-                for i, d in enumerate("zyx")
-            }
-            side_value = self.hemispheres.attrs[side]
-            hem_points = self.hemispheres.sel(sel, method="nearest").compute()
-
-            keep_idx = np.where(hem_points == side_value)[0]
-            old_to_new = np.full(len(vertices_m), -1, dtype=np.int64)
-            old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
-
-            new_face_idx = old_to_new[faces]  # (M, 3); -1 for dropped vertices.
-            valid = np.all(new_face_idx >= 0, axis=1)
-
-            vertices_m = vertices_m[keep_idx]
-            faces = new_face_idx[valid].astype(np.int32)
-
-        return vertices_m, faces
+        return get_mesh(self._ds, region, side, clip=clip)
 
     # ── Resampling ────────────────────────────────────────────────────────────────────
 
@@ -651,3 +535,280 @@ class AtlasAccessor:
         """
         kwargs.setdefault("stdout", False)
         print(self.structures.tree.show(**kwargs))  # ty: ignore[invalid-argument-type]
+
+
+# ── Standalone atlas operations ─────────────────────────────────────────────────────────
+#
+# These free functions are the implementation behind the matching `AtlasAccessor` methods:
+# each validates `ds` as an atlas, then operates on it, and the accessor method is a thin
+# wrapper (`ds.atlas.get_mesh(...)` calls `get_mesh(ds, ...)`). Import them as
+# `confusius.atlas.get_mesh` / `search` / `get_masks` to operate on a Dataset directly.
+
+
+def search(
+    ds: xr.Dataset,
+    pattern: str,
+    field: Literal["all", "acronym", "name"] = "all",
+) -> pd.DataFrame:
+    """Search an atlas Dataset's structures by name or acronym.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Atlas Dataset to search; validated as an atlas before use.
+    pattern : str
+        Substring or regex pattern.
+    field : {"all", "acronym", "name"}, default: "all"
+        Which column to search.
+
+        - `"all"`: case-insensitive substring match on both `acronym` and `name`.
+        - `"acronym"` / `"name"`: full regex match on that column only.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Filtered view of the atlas structure lookup table matching the search criteria.
+
+    Raises
+    ------
+    TypeError
+        If `ds` is not a well-formed atlas Dataset.
+    ValueError
+        If `ds` is not a well-formed atlas Dataset.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> cf.atlas.search(ds, "visual cortex")
+    >>> cf.atlas.search(ds, "VISp", field="acronym")
+    """
+    validate_atlas_dataset(ds)
+    df = AtlasAccessor(ds).lookup
+    if field == "acronym":
+        mask = df["acronym"].str.fullmatch(pattern)
+    elif field == "name":
+        mask = df["name"].str.fullmatch(pattern, case=False)
+    else:
+        mask = df["acronym"].str.contains(pattern, case=False, na=False) | df[
+            "name"
+        ].str.contains(pattern, case=False, na=False)
+    return df[mask]
+
+
+def get_masks(
+    ds: xr.Dataset,
+    regions: int | str | Sequence[int | str],
+    sides: (
+        Literal["left", "right", "both"] | Sequence[Literal["left", "right", "both"]]
+    ) = "both",
+) -> xr.DataArray:
+    """Return integer region masks stacked along a `mask` dimension.
+
+    Each layer along `mask` has values in `{0, region_id}`; voxels belonging to the
+    requested region (including all descendants in the hierarchy) carry the region's index,
+    all others are zero.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Atlas Dataset; validated as an atlas before use.
+    regions : int or str or sequence of int or str
+        One or more regions, each given as a structure index or acronym.
+    sides : {"left", "right", "both"} or sequence thereof, default: "both"
+        Hemisphere filter. Pass a scalar to apply the same side to all regions, or a
+        sequence of the same length as `regions` for per-region control.
+
+    Returns
+    -------
+    xarray.DataArray
+        Integer DataArray with dims `["mask", "z", "y", "x"]`. The `mask` coordinate holds
+        the region acronym for each layer, suffixed with `_L`/`_R` when the corresponding
+        `side` is `"left"`/`"right"` (left/right requests for the same region would
+        otherwise share an acronym).
+
+    Raises
+    ------
+    KeyError
+        If any requested region acronym or index is not found in the atlas.
+    ValueError
+        If `ds` is not a well-formed atlas, if `sides` is a sequence whose length does not
+        match `regions`, or if any element of `sides` is not `"left"`, `"right"`, or
+        `"both"`.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> cf.atlas.get_masks(ds, "VISp")
+    >>> cf.atlas.get_masks(ds, ["VISp", "AUDp"], sides=["left", "both"])
+    """
+    validate_atlas_dataset(ds)
+    acc = AtlasAccessor(ds)
+
+    region_list: list[int | str] = (
+        [regions] if isinstance(regions, (int, str)) else list(regions)
+    )
+
+    if isinstance(sides, str):
+        side_list = [sides] * len(region_list)
+    else:
+        side_list = list(sides)
+        if len(side_list) != len(region_list):
+            raise ValueError(
+                f"'sides' has {len(side_list)} elements but 'regions' has "
+                f"{len(region_list)} elements; they must have the same length."
+            )
+
+    _valid_sides = {"left", "right", "both"}
+    invalid = [s for s in side_list if s not in _valid_sides]
+    if invalid:
+        raise ValueError(
+            f"Invalid side value(s): {invalid!r}. "
+            f"Each element must be one of {sorted(_valid_sides)}."
+        )
+
+    annotation_np = acc.annotation.values
+    hemispheres_np = acc.hemispheres.values
+
+    layers = []
+    acronyms = []
+    for reg, s in zip(region_list, side_list):
+        rid = _resolve_region_id(acc.structures, reg)
+        descendant_ids = _get_descendant_ids(acc.structures, rid)
+
+        layer = np.zeros_like(annotation_np, dtype=np.int32)
+        # Using kind="table" here will use a lookup table approach that is much
+        # faster at the cost of higher memory usage.
+        layer[np.isin(annotation_np, descendant_ids, kind="table")] = rid
+
+        acronym = acc.structures[rid]["acronym"]
+        if s == "left":
+            layer[hemispheres_np != 1] = 0
+            acronym = f"{acronym}_L"
+        elif s == "right":
+            layer[hemispheres_np != 2] = 0
+            acronym = f"{acronym}_R"
+
+        layers.append(layer)
+        acronyms.append(acronym)
+
+    stacked = np.stack(layers, axis=0)
+
+    spatial_coords = {d: acc.annotation.coords[d] for d in ["z", "y", "x"]}
+    return xr.DataArray(
+        stacked,
+        dims=["mask", "z", "y", "x"],
+        coords={"mask": acronyms, **spatial_coords},
+        attrs=acc.annotation.attrs.copy(),
+    )
+
+
+def get_mesh(
+    ds: xr.Dataset,
+    region: int | str,
+    side: Literal["left", "right", "both"] = "both",
+    *,
+    clip: bool = True,
+) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
+    """Return vertex coordinates and face indices for a region's mesh.
+
+    Reads the region's OBJ mesh, transforms its vertices from micron space to the atlas's
+    physical space (millimetres), then optionally drops out-of-grid vertices and clips to
+    one hemisphere. The mesh comes from the structure's `mesh_filename`: for a freshly
+    fetched atlas this points into the BrainGlobe cache; for an atlas loaded with
+    [`atlas_from_zarr`][confusius.atlas.atlas_from_zarr] it points at the mesh bundled
+    inside the store.
+
+    Parameters
+    ----------
+    ds : xarray.Dataset
+        Atlas Dataset; validated as an atlas before use.
+    region : int or str
+        Structure index or acronym.
+    side : {"left", "right", "both"}, default: "both"
+        Hemisphere to include. `"both"` keeps the full mesh. `"left"` and `"right"` keep
+        only vertices whose nearest `hemispheres` voxel carries that side's label
+        (`hemispheres.attrs["left"]` / `["right"]`), sampled in the atlas's physical space.
+        Faces are kept only when all three of their vertices survive, so the cut face is
+        not closed. Sampling the hemisphere map makes this orientation-agnostic and correct
+        after an arbitrary resample.
+    clip : bool, default: True
+        Whether to clip the final mesh to the reference grid. If `False`, the mesh is still
+        transformed to the atlas's physical space, but the bounding box is not respected.
+
+    Returns
+    -------
+    vertices : numpy.ndarray, shape (N, 3)
+        Vertex coordinates in the atlas's physical space (millimetres). After a nonlinear
+        resample, vertices warped outside the reference grid are dropped.
+    faces : numpy.ndarray, shape (M, 3)
+        Zero-indexed triangle face indices (int32).
+
+    Raises
+    ------
+    KeyError
+        If the requested region is not found in the atlas.
+    ValueError
+        If `ds` is not a well-formed atlas, if the region has no mesh file, or if the mesh
+        file cannot be located.
+
+    Examples
+    --------
+    >>> import confusius as cf
+    >>> vertices, faces = cf.atlas.get_mesh(ds, "root")
+    """
+    validate_atlas_dataset(ds)
+    acc = AtlasAccessor(ds)
+
+    rid = _resolve_region_id(acc.structures, region)
+    info = acc.structures[rid]
+
+    mesh_filename = info.get("mesh_filename")
+    if mesh_filename is None:
+        raise ValueError(
+            f"No mesh file available for region '{region}' (id {rid}). "
+            "Not all BrainGlobe atlases include mesh files."
+        )
+
+    mesh_path = Path(mesh_filename)
+    if not mesh_path.is_file():
+        raise ValueError(
+            f"Mesh file for region '{region}' (id {rid}) not found at {mesh_path}. "
+            "A freshly fetched atlas reads meshes from the BrainGlobe cache; a loaded "
+            "atlas reads them from the meshes bundled in its Zarr store."
+        )
+
+    # defer loading mesh to BrainGlobe's structured dict
+    mesh = acc.structures[rid]["mesh"]
+    vertices_um = mesh.points  # (N, 3) in microns
+    faces = mesh.get_cells_type("triangle")
+
+    vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
+
+    physical_to_base = acc._physical_to_base_transform
+    vertices_m = _apply_physical_to_base_transform(
+        physical_to_base, vertices_mm, acc.reference
+    )
+
+    if clip:
+        vertices_m, faces = _drop_vertices_outside_grid(
+            vertices_m, faces, acc.reference
+        )
+
+    if side != "both":
+        sel = {
+            d: xr.DataArray(vertices_m[:, i], dims="point") for i, d in enumerate("zyx")
+        }
+        side_value = acc.hemispheres.attrs[side]
+        hem_points = acc.hemispheres.sel(sel, method="nearest").compute()
+
+        keep_idx = np.where(hem_points == side_value)[0]
+        old_to_new = np.full(len(vertices_m), -1, dtype=np.int64)
+        old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
+
+        new_face_idx = old_to_new[faces]  # (M, 3); -1 for dropped vertices.
+        valid = np.all(new_face_idx >= 0, axis=1)
+
+        vertices_m = vertices_m[keep_idx]
+        faces = new_face_idx[valid].astype(np.int32)
+
+    return vertices_m, faces
