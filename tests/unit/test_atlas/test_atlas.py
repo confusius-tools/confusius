@@ -413,9 +413,7 @@ class TestAncestors:
 class TestIO:
     """Zarr save/load round-trip (W3)."""
 
-    def test_save_rejects_non_zarr_suffix(
-        self, atlas_ds: xr.Dataset, tmp_path
-    ) -> None:
+    def test_save_rejects_non_zarr_suffix(self, atlas_ds: xr.Dataset, tmp_path) -> None:
         with pytest.raises(ValueError, match=".zarr"):
             save_atlas(atlas_ds, tmp_path / "atlas.zip")
 
@@ -665,6 +663,91 @@ class TestNonlinearMesh:
         )
         for var in ["reference", "annotation", "hemispheres"]:
             np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
+
+
+class TestTransformComposition:
+    """Composing physical_to_base pull transforms across successive resamples.
+
+    resample_like composes the atlas's stored pull transform with the new one, so a chain
+    of resamples must agree with a single resample by the composed transform. These cover
+    the affine·affine, identity, and affine·nonlinear composition paths, plus the
+    initialization-seeded field inversion get_mesh uses.
+    """
+
+    def test_composed_affine_resamples_match_single_step(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """Two affine resamples compose to the matrix product and the same mesh."""
+        reference = atlas_ds.atlas.reference
+        a = np.eye(4)
+        a[2, 3] = 0.02
+        b = np.eye(4)
+        b[2, 3] = 0.03
+        two_step = atlas_ds.atlas.resample_like(reference, a).atlas.resample_like(
+            reference, b
+        )
+        one_step = atlas_ds.atlas.resample_like(reference, a @ b)
+
+        np.testing.assert_allclose(two_step.attrs["physical_to_base"], a @ b)
+        np.testing.assert_allclose(
+            two_step.atlas.get_mesh(997)[0],
+            one_step.atlas.get_mesh(997)[0],
+            atol=1e-6,
+        )
+
+    def test_identity_resample_preserves_existing_transform(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """Resampling an already-transformed atlas by identity leaves the transform intact."""
+        reference = atlas_ds.atlas.reference
+        a = np.eye(4)
+        a[2, 3] = 0.02
+        once = atlas_ds.atlas.resample_like(reference, a)
+        twice = once.atlas.resample_like(reference, np.eye(4))
+
+        np.testing.assert_allclose(twice.attrs["physical_to_base"], a)
+
+    def test_affine_then_zero_field_matches_the_affine_mesh(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """An affine followed by a zero field composes to a field giving the affine's mesh."""
+        reference = atlas_ds.atlas.reference
+        a = np.eye(4)
+        a[2, 3] = 0.02
+        zero_field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
+
+        composed = atlas_ds.atlas.resample_like(reference, a).atlas.resample_like(
+            reference, zero_field
+        )
+        affine_only = atlas_ds.atlas.resample_like(reference, a)
+
+        # A zero field is the identity, so the affine·field composition is stored as a
+        # dense displacement field but must warp the mesh exactly like the affine alone.
+        assert isinstance(composed.attrs["physical_to_base"], xr.DataArray)
+        np.testing.assert_allclose(
+            composed.atlas.get_mesh(997)[0],
+            affine_only.atlas.get_mesh(997)[0],
+            atol=1e-5,
+        )
+
+    def test_get_mesh_seeds_field_inversion_with_bspline_initialization(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """A bspline_initialization affine seeds the field inversion get_mesh runs."""
+        reference = atlas_ds.atlas.reference
+        data = np.zeros((3, *reference.shape))
+        data[2] = 0.01
+        field = _field_on_grid(reference, data)
+        init = np.eye(4)
+        init[2, 3] = 0.01  # its inverse seeds the iteration near the true pre-image
+        field.attrs["affines"] = {"bspline_initialization": init}
+        ds = _with_physical_to_base_transform(atlas_ds, field)
+
+        warped, _ = ds.atlas.get_mesh(997)
+        base, _ = atlas_ds.atlas.get_mesh(997)
+        expected = base.copy()
+        expected[:, 2] -= 0.01
+        np.testing.assert_allclose(warped, expected, atol=1e-6)
 
 
 class TestGroupbyIntegration:
