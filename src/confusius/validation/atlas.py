@@ -1,25 +1,26 @@
 """Atlas Dataset validation utilities."""
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import numpy as np
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS
 
+if TYPE_CHECKING:
+    from brainglobe_atlasapi.structure_class import StructuresDict
+
 _REQUIRED_ATLAS_DATA_VARS = ("reference", "annotation", "hemispheres")
 """Data variables every atlas Dataset must carry."""
 
-_REQUIRED_ATLAS_ATTRS = (
-    "name",
-    "citation",
-    "species",
-    "orientation",
-    "structures",
-    "physical_to_base",
-)
-"""Attributes every atlas Dataset must carry (the self-describing metadata).
+_REQUIRED_ATLAS_ATTRS = ("structures",)
+"""Attributes every atlas Dataset must carry.
 
-`physical_to_base` is the pull mesh transform: a single attr holding either a numpy affine
-or a displacement-field DataArray.
+Only `structures` is unconditionally required. The `physical_to_base` transform and usable
+region meshes are required only when validating for mesh operations
+(`require_mesh_use=True`); the descriptive metadata the builder adds (`name`, `citation`,
+`species`, `orientation`) is optional.
 """
 
 
@@ -62,7 +63,36 @@ def _validate_variable_affines(ds: xr.Dataset) -> None:
                 )
 
 
-def validate_atlas_dataset(ds: xr.Dataset) -> None:
+def _validate_meshes_available(structures: "StructuresDict") -> None:
+    """Raise ValueError unless some structure references an existing mesh file.
+
+    A structure's `mesh_filename` is either `None` (no mesh) or a path; `get_mesh` needs at
+    least one that resolves to a file on disk. The scan short-circuits at the first existing
+    mesh, so it does not stat every structure.
+
+    Parameters
+    ----------
+    structures : brainglobe_atlasapi.structure_class.StructuresDict
+        The atlas structure dictionary whose `mesh_filename` entries are checked.
+
+    Raises
+    ------
+    ValueError
+        If no structure references a mesh file that exists on disk.
+    """
+    has_mesh = any(
+        structure["mesh_filename"] is not None
+        and Path(structure["mesh_filename"]).is_file()
+        for structure in structures.values()
+    )
+    if not has_mesh:
+        raise ValueError(
+            "Atlas has no usable region meshes: no structure references an existing mesh "
+            "file, so get_mesh cannot run (require_mesh_use=True)."
+        )
+
+
+def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     """Validate that a Dataset is a well-formed atlas.
 
     Companion to [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray]
@@ -78,18 +108,23 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
        subset of `(z, y, x)` (2D or 3D, so a resampled single slice is accepted).
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
-    5. **Attributes**: the self-describing metadata `name`, `citation`, `species`,
-       `orientation`, and `structures` are present, plus `physical_to_base` — the pull mesh
-       transform, a numpy affine or displacement-field DataArray.
+    5. **Attributes**: `attrs["structures"]` is present and is a brainglobe
+       `StructuresDict`. The descriptive metadata the builder adds (`name`, `citation`,
+       `species`, `orientation`) is not required.
     6. **Affines**: where two data variables both define an affine of the same name (in
        `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
        are not on a common physical frame.
-    7. **Structures**: `attrs["structures"]` is a brainglobe `StructuresDict`.
+    7. **Mesh use** (only when `require_mesh_use` is set): `attrs["physical_to_base"]` — the
+       pull mesh transform get_mesh needs — is present, and at least one structure
+       references a mesh file that exists on disk.
 
     Parameters
     ----------
     ds : xarray.Dataset
         Dataset to validate as an atlas.
+    require_mesh_use : bool, default: False
+        Whether to also require the machinery `get_mesh` needs: the `physical_to_base`
+        transform attribute and at least one existing region mesh file.
 
     Raises
     ------
@@ -98,8 +133,9 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
         `annotation`/`hemispheres` are not integer-valued.
     ValueError
         If any required data variable or attribute is missing, if the variables do not
-        share dimensions that are a subset of `(z, y, x)`, or if `attrs["structures"]`
-        is not a brainglobe `StructuresDict`.
+        share dimensions that are a subset of `(z, y, x)`, if `attrs["structures"]` is not a
+        brainglobe `StructuresDict`, or if `require_mesh_use` is set and `physical_to_base`
+        or usable region meshes are absent.
 
     Examples
     --------
@@ -160,3 +196,12 @@ def validate_atlas_dataset(ds: xr.Dataset) -> None:
             "by atlas_from_brainglobe or atlas_from_zarr), got "
             f"{type(ds.attrs['structures']).__name__}."
         )
+
+    if require_mesh_use:
+        if "physical_to_base" not in ds.attrs:
+            raise ValueError(
+                "Atlas Dataset is missing 'physical_to_base', required for mesh operations "
+                "(require_mesh_use=True): it is the transform get_mesh uses to place mesh "
+                "vertices in the atlas's physical space."
+            )
+        _validate_meshes_available(ds.attrs["structures"])

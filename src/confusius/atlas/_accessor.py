@@ -735,7 +735,7 @@ def get_mesh(
     >>> import confusius as cf
     >>> vertices, faces = cf.atlas.get_mesh(ds, "root")
     """
-    validate_atlas_dataset(ds)
+    validate_atlas_dataset(ds, require_mesh_use=True)
     acc = AtlasAccessor(ds)
 
     rid = _resolve_region_id(acc.structures, region)
