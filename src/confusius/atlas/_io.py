@@ -188,6 +188,13 @@ def atlas_from_zarr(path: str | Path, **kwargs: Any) -> xr.Dataset:
         restore_affines(ds[name].attrs)
     restore_affines(ds.attrs)
 
+    # An affine mesh vertex transform is a 4x4 stored as a JSON list; restore it to a
+    # numpy array (a nonlinear transform rides as a data variable and needs no restoring).
+    if "mesh_vertex_transform" in ds.attrs:
+        ds.attrs["mesh_vertex_transform"] = np.asarray(
+            ds.attrs["mesh_vertex_transform"], dtype=np.float64
+        )
+
     annotation = ds["annotation"]
     if "rgb_lookup" in annotation.attrs and not all(
         k in annotation.attrs for k in _NONSERIALIZABLE_ANNOTATION_ATTRS

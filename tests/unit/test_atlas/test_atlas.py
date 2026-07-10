@@ -447,6 +447,17 @@ class TestIO:
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
 
+    def test_mesh_vertex_transform_restored_as_array(
+        self, atlas_ds: xr.Dataset, tmp_path
+    ) -> None:
+        """The affine mesh_vertex_transform reloads as a numpy array, not a JSON list."""
+        path = tmp_path / "atlas.zarr"
+        atlas_to_zarr(atlas_ds, path)
+        loaded = atlas_from_zarr(path)
+        transform = loaded.attrs["mesh_vertex_transform"]
+        assert isinstance(transform, np.ndarray)
+        np.testing.assert_allclose(transform, np.eye(4))
+
     def test_resampled_atlas_with_affines_roundtrips(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:

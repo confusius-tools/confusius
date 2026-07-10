@@ -1,11 +1,8 @@
 """Helpers for BrainGlobe structure trees and colormap construction."""
 
 import json
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -174,42 +171,3 @@ def _get_descendant_ids(structures: "StructuresDict", region_id: int) -> list[in
     """
     subtree = structures.tree.subtree(region_id)  # type: ignore
     return list(subtree.nodes.keys())
-
-
-def _load_obj(
-    path: Path,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
-    """Parse an OBJ file and return vertices and triangular faces.
-
-    Only triangular faces are supported; polygons with more than three vertices are
-    skipped silently. Vertex/texture/normal notation (`v/t/n`) is handled by taking only
-    the vertex index.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to the `.obj` file.
-
-    Returns
-    -------
-    vertices : numpy.ndarray, shape (N, 3)
-        Vertex coordinates as float64.
-    faces : numpy.ndarray, shape (M, 3)
-        Zero-indexed triangle face indices as int32.
-    """
-    vertices = []
-    faces = []
-    with open(path) as fh:
-        for line in fh:
-            if line.startswith("v "):
-                parts = line.split()
-                vertices.append((float(parts[1]), float(parts[2]), float(parts[3])))
-            elif line.startswith("f "):
-                parts = line.split()[1:]
-                if len(parts) != 3:
-                    # Skip non-triangular faces.
-                    continue
-                # OBJ uses 1-indexed vertices; split on "/" to handle v/t/n notation.
-                idx = [int(p.split("/")[0]) - 1 for p in parts]
-                faces.append(idx)
-    return np.array(vertices, dtype=np.float64), np.array(faces, dtype=np.int32)

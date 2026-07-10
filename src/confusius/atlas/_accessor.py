@@ -19,7 +19,6 @@ from confusius.atlas._mesh_transform import (
 from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
-    _load_obj,
     _resolve_region_id,
     structures_from_json,
 )
@@ -331,6 +330,8 @@ class AtlasAccessor:
         self,
         region: int | str,
         side: Literal["left", "right", "both"] = "both",
+        *,
+        clip: bool = True,
     ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
         """Return vertex coordinates and face indices for a region's mesh.
 
@@ -354,6 +355,10 @@ class AtlasAccessor:
             !!! note
                Generalising axis detection from the orientation attribute for non-`asr`
                atlases is not yet implemented.
+        clip : bool, default: True
+            Whether to clip the final mesh to the current reference grid. If `False`,
+            the mesh will still be transformed to the current physical space, but the
+            bounding box will not be respected.
 
         Returns
         -------
@@ -388,7 +393,11 @@ class AtlasAccessor:
                 "atlas reads them from the meshes bundled in its Zarr store."
             )
 
-        vertices_um, faces = _load_obj(mesh_path)
+        # defer loading mesh to BrainGlobe's structured dict
+        mesh = self.structures[rid]["mesh"]
+        vertices_um = mesh.points  # (N, 3) in microns
+        faces = mesh.get_cells_type("triangle")
+
         vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
         if side != "both":
@@ -397,7 +406,7 @@ class AtlasAccessor:
             # For asr, axis 2 increases from right (0) to left (max), so:
             #   right hemisphere → RL < midline
             #   left  hemisphere → RL >= midline
-            # TODO: generalize axis detection for non-asr atlases.
+            # TODO: generalize midline detection directly from hemispheres.
             rl_midline = self._ds.attrs["rl_midline"]
             if side == "right":
                 keep = vertices_mm[:, 2] < rl_midline
@@ -419,10 +428,7 @@ class AtlasAccessor:
             mesh_transform, vertices_mm, self.reference
         )
 
-        if isinstance(mesh_transform, xr.DataArray):
-            # A nonlinear warp can move vertices outside the grid, and vertices too far
-            # outside it to interpolate come back as NaN; drop both, and any face that
-            # references them.
+        if clip:
             vertices_m, faces = _drop_vertices_outside_grid(
                 vertices_m, faces, self.reference
             )
