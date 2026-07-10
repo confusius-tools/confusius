@@ -15,6 +15,7 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -129,6 +130,37 @@ class TestReadZarrGating:
 # ---------------------------------------------------------------------------
 
 
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small oblique CTI volume for reader tests."""
+    data = xr.DataArray(
+        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 1.0, 2.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        data,
+        np.array(
+            [
+                [0.4, 0.0, 0.1, 10.0],
+                [0.1, 0.3, 0.0, 20.0],
+                [0.0, 0.05, 0.25, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
 class TestReaderLayerData:
     """The ReaderFunction returns physically correct napari LayerData."""
 
@@ -197,6 +229,49 @@ class TestReaderLayerData:
         _, kwargs, _ = reader(str(zarr_3d_path))[0]
 
         assert kwargs["units"] == ["mm", "mm", "mm"]
+
+    def test_voxel_affine_is_resampled_to_physical_grid(self, tmp_path: Path) -> None:
+        """Oblique CTI reader output uses an axis-aligned physical grid for napari."""
+        path = tmp_path / "cti.zarr"
+        xr.Dataset({"data": _make_voxel_affine_volume()}).to_zarr(path, zarr_format=2)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["axis_labels"] == ["z", "y", "x"]
+        assert kwargs["metadata"]["xarray"].dims == ("z", "y", "x")
+        assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
+        npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
+
+    def test_axis_aligned_voxel_affine_skips_resampling(self, tmp_path: Path) -> None:
+        """Axis-aligned CTI reader output stays on the native k/j/i grid."""
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([0.4, 0.3, 0.25, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={"z": {"units": "mm"}, "y": {"units": "mm"}, "x": {"units": "mm"}},
+        )
+        path = tmp_path / "axis_aligned_cti.zarr"
+        xr.Dataset({"data": data}).to_zarr(path, zarr_format=2)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["axis_labels"] == ["k", "j", "i"]
+        npt.assert_allclose(kwargs["scale"], [0.4, 0.3, 0.25], rtol=1e-5)
+        npt.assert_allclose(kwargs["translate"], [0.0, 0.0, 0.0], rtol=1e-5)
+        assert kwargs["metadata"]["xarray"].dims == ("k", "j", "i")
+        assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
 
     def test_default_colormap_is_gray(self, zarr_3d_path: Path) -> None:
         """Colormap defaults to gray when da.attrs has no 'cmap' key."""

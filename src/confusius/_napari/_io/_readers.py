@@ -13,21 +13,83 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+import numpy as np
 from napari.layers.utils.layer_utils import calc_data_range
 from napari.utils.colormaps import ensure_colormap
 from napari.utils.notifications import show_warning
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+    has_axis_aligned_voxel_affine_geometry,
+)
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
     infer_layer_type,
 )
 from confusius.io import load
+from confusius.plotting._utils import resample_voxel_affine_to_physical_grid
 
 if TYPE_CHECKING:
     import xarray as xr
     from napari.types import FullLayerData, PathOrPaths
+
+
+def _get_napari_scale_translate_units(
+    data: xr.DataArray,
+) -> tuple[list[float], list[float], list[str | None], list[str], dict[str, float]]:
+    """Return napari layer geometry metadata for `data`."""
+    all_dims = list(data.dims)
+
+    if has_axis_aligned_voxel_affine_geometry(data):
+        voxel_dims = get_voxel_affine_spatial_dims(data)
+        physical_dims = get_voxel_affine_physical_coord_names(data)
+        physical_view = data.swap_dims(
+            dict(zip(voxel_dims, physical_dims, strict=True))
+        ).drop_vars(list(voxel_dims))
+        spacing, non_uniform = get_coordinate_spacings_best_effort(physical_view)
+        origin = physical_view.fusi.origin
+        units_by_dim = {
+            dim: physical_view.coords[dim].attrs.get("units") for dim in physical_dims
+        }
+        dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+        scale = [
+            spacing[dim_map[str(dim)]] if str(dim) in dim_map else spacing[str(dim)]
+            for dim in all_dims
+        ]
+        translate = [
+            origin[dim_map[str(dim)]] if str(dim) in dim_map else origin[str(dim)]
+            for dim in all_dims
+        ]
+        units = [
+            units_by_dim[dim_map[str(dim)]] if str(dim) in dim_map else None
+            for dim in all_dims
+        ]
+        warned_dims = [
+            dim_map[dim] for dim in voxel_dims if dim_map[dim] in non_uniform
+        ]
+        return scale, translate, units, warned_dims, spacing
+
+    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    origin = data.fusi.origin
+    scale = [spacing[str(d)] for d in all_dims]
+    translate = [
+        origin[d]
+        if d in origin
+        else (
+            float(np.asarray(data.coords[d].values, dtype=float)[0])
+            if d in data.coords
+            else 0.0
+        )
+        for d in all_dims
+    ]
+    units = [
+        data.coords[d].attrs.get("units") if d in data.coords else None
+        for d in all_dims
+    ]
+    return scale, translate, units, non_uniform, spacing
 
 
 def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerData:
@@ -51,28 +113,26 @@ def _convert_dataarray_to_layer_data(da: xr.DataArray, name: str) -> FullLayerDa
       (with a napari warning) when the stored value is not a valid napari colormap.
     """
 
+    source_da = da
+    da = resample_voxel_affine_to_physical_grid(da)
+
     all_dims = list(da.dims)
 
-    spacing, non_uniform = get_coordinate_spacings_best_effort(da)
+    scale, translate, all_units, non_uniform, spacing = (
+        _get_napari_scale_translate_units(da)
+    )
     for dim in non_uniform:
         show_warning(
             f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
             "(positions along this axis may be approximate)."
         )
-    origin = da.fusi.origin
-
-    scale: list[float] = [spacing[str(d)] for d in all_dims]
-    translate: list[float] = [origin[d] for d in all_dims]
-    all_units: list[str | None] = [
-        da.coords[d].attrs.get("units") if d in da.coords else None for d in all_dims
-    ]
 
     kwargs: dict[str, Any] = {
         "name": name,
         "scale": scale,
         "translate": translate,
         "axis_labels": all_dims,
-        "metadata": {"xarray": da},
+        "metadata": {"xarray": da, "source_xarray": source_da},
     }
     if any(u is not None for u in all_units):
         kwargs["units"] = all_units

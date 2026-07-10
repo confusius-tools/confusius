@@ -1,19 +1,67 @@
 # %%
-"""Minimal iPython-friendly CTI slicing demo on real Nunez-Elizalde data."""
+"""iPython-friendly CTI geometry demo on real Nunez-Elizalde data."""
 
 from pathlib import Path
 
 import numpy as np
+import xarray as xr
 
 import confusius as cf
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
+    has_axis_aligned_voxel_affine_geometry,
+)
 from confusius.plotting import plot_volume
+from confusius.plotting._utils import resample_voxel_affine_to_physical_grid
 from confusius.validation import validate_fusi_dataarray
 
 
 # %%
+def _make_center_preserving_transformed_copy(
+    native: cf.DataArray,
+    transform: np.ndarray,
+    *,
+    name: str,
+) -> cf.DataArray:
+    """Return `native` with the same voxel grid but a transformed affine."""
+    native_affine = np.asarray(native.attrs["voxel_to_physical"], dtype=np.float64)
+    linear = native_affine[:3, :3]
+    translation = native_affine[:3, 3]
+
+    voxel_center = 0.5 * np.array(
+        [native.sizes["k"] - 1, native.sizes["j"] - 1, native.sizes["i"] - 1],
+        dtype=np.float64,
+    )
+    physical_center = linear @ voxel_center + translation
+
+    transformed_affine = np.eye(4, dtype=np.float64)
+    transformed_affine[:3, :3] = transform @ linear
+    transformed_affine[:3, 3] = (
+        physical_center - transformed_affine[:3, :3] @ voxel_center
+    )
+
+    voxel_grid = native.drop_vars(
+        [coord_name for coord_name in ("z", "y", "x") if coord_name in native.coords]
+    )
+    transformed = add_physical_coords_from_voxel_affine(
+        voxel_grid,
+        transformed_affine,
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": dict(native.coords["z"].attrs),
+            "y": dict(native.coords["y"].attrs),
+            "x": dict(native.coords["x"].attrs),
+        },
+    )
+    transformed.name = name
+    transformed.attrs.update(native.attrs)
+    transformed.attrs["voxel_to_physical"] = transformed_affine
+    return transformed
+
+
 def _make_center_preserving_oblique_copy(native: cf.DataArray) -> cf.DataArray:
-    """Return `native` with the same voxel grid but an oblique voxel-to-physical affine."""
+    """Return `native` with an oblique voxel-to-physical affine."""
     rz = np.deg2rad(18.0)
     rx = np.deg2rad(-12.0)
     rot_z = np.array(
@@ -30,40 +78,48 @@ def _make_center_preserving_oblique_copy(native: cf.DataArray) -> cf.DataArray:
             [0.0, np.sin(rx), np.cos(rx)],
         ]
     )
-    rotation = rot_z @ rot_x
-
-    native_affine = np.asarray(native.attrs["voxel_to_physical"], dtype=np.float64)
-    linear = native_affine[:3, :3]
-    translation = native_affine[:3, 3]
-
-    voxel_center = 0.5 * np.array(
-        [native.sizes["k"] - 1, native.sizes["j"] - 1, native.sizes["i"] - 1],
-        dtype=np.float64,
+    return _make_center_preserving_transformed_copy(
+        native,
+        rot_z @ rot_x,
+        name="oblique CTI",
     )
-    physical_center = linear @ voxel_center + translation
 
-    oblique_affine = np.eye(4, dtype=np.float64)
-    oblique_affine[:3, :3] = rotation @ linear
-    oblique_affine[:3, 3] = physical_center - oblique_affine[:3, :3] @ voxel_center
 
-    voxel_grid = native.drop_vars(
-        [name for name in ("z", "y", "x") if name in native.coords]
+def _make_center_preserving_sheared_copy(native: cf.DataArray) -> cf.DataArray:
+    """Return `native` with a sheared voxel-to-physical affine."""
+    shear = np.array(
+        [
+            [1.0, 0.18, 0.0],
+            [0.0, 1.0, -0.12],
+            [0.0, 0.0, 1.0],
+        ]
     )
-    oblique = add_physical_coords_from_voxel_affine(
-        voxel_grid,
-        oblique_affine,
-        voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
-            "z": dict(native.coords["z"].attrs),
-            "y": dict(native.coords["y"].attrs),
-            "x": dict(native.coords["x"].attrs),
+    return _make_center_preserving_transformed_copy(
+        native,
+        shear,
+        name="sheared CTI",
+    )
+
+
+
+def _as_axis_aligned_physical_grid(data: cf.DataArray) -> cf.DataArray:
+    """Expose axis-aligned CTI as a plain z/y/x grid for physical-slice demos."""
+    result = xr.DataArray(
+        data.data,
+        dims=("z", "y", "x"),
+        coords={
+            "z": data.coords["z"].values,
+            "y": data.coords["y"].values,
+            "x": data.coords["x"].values,
         },
+        name=data.name,
+        attrs=data.attrs.copy(),
     )
-    oblique.name = native.name
-    oblique.attrs.update(native.attrs)
-    oblique.attrs["voxel_to_physical"] = oblique_affine
-    return oblique
+    result.coords["z"].attrs = dict(data.coords["z"].attrs)
+    result.coords["y"].attrs = dict(data.coords["y"].attrs)
+    result.coords["x"].attrs = dict(data.coords["x"].attrs)
+    result.attrs.pop("voxel_to_physical", None)
+    return result
 
 
 # %%
@@ -83,38 +139,48 @@ angio_path = (
     / "sub-CR022_ses-20201011_pwd.nii.gz"
 )
 
-native = cf.load(angio_path).compute()
+native = cf.load(angio_path).compute().rename("axis-aligned CTI")
 oblique = _make_center_preserving_oblique_copy(native)
+sheared = _make_center_preserving_sheared_copy(native)
 
 native
 
 # %%
-print("native dims:", native.dims)
-print("native coord names:", list(native.coords))
-print("native voxel_to_physical:\n", np.asarray(native.attrs["voxel_to_physical"]))
-print("oblique voxel_to_physical:\n", np.asarray(oblique.attrs["voxel_to_physical"]))
-print("native origin:", native.fusi.origin)
-print("oblique origin:", oblique.fusi.origin)
-print("native spacing:", native.fusi.spacing)
-print("oblique spacing:", oblique.fusi.spacing)
-print("native direction:\n", native.fusi.direction)
-print("oblique direction:\n", oblique.fusi.direction)
+for label, volume in {
+    "native": native,
+    "oblique": oblique,
+    "sheared": sheared,
+}.items():
+    print(f"\n--- {label} ---")
+    print("dims:", volume.dims)
+    print("coord names:", list(volume.coords))
+    print("axis-aligned CTI:", has_axis_aligned_voxel_affine_geometry(volume))
+    print("voxel_to_physical:\n", np.asarray(volume.attrs["voxel_to_physical"]))
+    print("origin:", volume.fusi.origin)
+    print("spacing:", volume.fusi.spacing)
+    print("direction:\n", volume.fusi.direction)
+    validate_fusi_dataarray(
+        volume, require_regular_spacing=True, regular_spacing_dims="space"
+    )
 
-validate_fusi_dataarray(
-    native, require_regular_spacing=True, regular_spacing_dims="space"
-)
-validate_fusi_dataarray(
-    oblique, require_regular_spacing=True, regular_spacing_dims="space"
-)
-print("validate_fusi_dataarray(...): ok")
+print("\nvalidate_fusi_dataarray(...): ok for native, oblique, sheared")
+
+native_display = resample_voxel_affine_to_physical_grid(native)
+oblique_display = resample_voxel_affine_to_physical_grid(oblique)
+sheared_display = resample_voxel_affine_to_physical_grid(sheared)
+native_physical_grid = _as_axis_aligned_physical_grid(native)
+print("\nDisplay-grid dims after napari/matplotlib fallback:")
+print("native:", native_display.dims)
+print("oblique:", oblique_display.dims)
+print("sheared:", sheared_display.dims)
+print("native physical-view dims:", native_physical_grid.dims)
 
 # %%
 # Native voxel-plane comparison.
 #
 # Here `slice_mode="k"` means "take constant-k acquisition planes" for each
-# volume. The axes are still labeled in mm because the plotted mesh is drawn in
-# projected physical coordinates, even though the slice selection itself is in
-# voxel index space.
+# volume. All three CTI variants share the same voxel grid, so this shows the
+# axis-aligned, oblique, and sheared cases on matching acquisition planes.
 k_values = np.asarray(native.coords["k"].values, dtype=float)
 k_margin = max(1, int(round(0.1 * (k_values.size - 1))))
 k_slice_coords = np.linspace(k_values[k_margin], k_values[-k_margin - 1], 10).tolist()
@@ -134,28 +200,96 @@ plotter.add_volume(
     alpha=0.45,
     show_colorbar=False,
 )
+plotter.add_volume(
+    sheared,
+    slice_coords=k_slice_coords,
+    cmap="winter",
+    alpha=0.3,
+    show_colorbar=False,
+)
 plotter.show()
 
 # %%
-# Physical-plane comparison.
+# Physical-plane comparisons.
 #
-# Here `slice_mode="z"` means "show the same physical z-planes" in both volumes.
-# For the oblique CTI volume this now triggers resampling to an axis-aligned
-# physical grid before plotting.
-z_min = max(
-    float(np.asarray(native.coords["z"].values, dtype=float).min()),
-    float(np.asarray(oblique.coords["z"].values, dtype=float).min()),
-)
-z_max = min(
-    float(np.asarray(native.coords["z"].values, dtype=float).max()),
-    float(np.asarray(oblique.coords["z"].values, dtype=float).max()),
-)
-z_slice_coords = np.linspace(z_min, z_max, 10).tolist()
-cf.plotting.plot_composite(
+# Here `slice_mode in {"z", "y", "x"}` means "show the same physical planes"
+# in all volumes. Axis-aligned CTI stays native; oblique and sheared CTI are
+# resampled onto the display grid first.
+def _shared_range(dim: str) -> tuple[float, float]:
+    return (
+        max(
+            float(np.asarray(native.coords[dim].values, dtype=float).min()),
+            float(np.asarray(oblique.coords[dim].values, dtype=float).min()),
+            float(np.asarray(sheared.coords[dim].values, dtype=float).min()),
+        ),
+        min(
+            float(np.asarray(native.coords[dim].values, dtype=float).max()),
+            float(np.asarray(oblique.coords[dim].values, dtype=float).max()),
+            float(np.asarray(sheared.coords[dim].values, dtype=float).max()),
+        ),
+    )
+
+for slice_mode in ("z", "y", "x"):
+    lower, upper = _shared_range(slice_mode)
+    slice_coords = np.linspace(lower, upper, 10).tolist()
+    plotter = plot_volume(
+        native_physical_grid,
+        slice_mode=slice_mode,
+        slice_coords=slice_coords,
+        nrows=2,
+        ncols=5,
+        cmap="gray",
+        show_colorbar=False,
+    )
+    plotter.add_volume(
+        oblique,
+        slice_coords=slice_coords,
+        cmap="autumn",
+        alpha=0.45,
+        show_colorbar=False,
+    )
+    plotter.add_volume(
+        sheared,
+        slice_coords=slice_coords,
+        cmap="winter",
+        alpha=0.3,
+        show_colorbar=False,
+    )
+    plotter.show()
+
+# %%
+# Napari comparison.
+#
+# Axis-aligned CTI stays native on `k/j/i`. Oblique and sheared CTI are the
+# cases that napari now resamples to an axis-aligned physical `z/y/x` grid. The
+# original source DataArray is preserved in `layer.metadata["source_xarray"]`.
+viewer, native_layer = cf.plotting.plot_napari(
     native,
+    show_colorbar=False,
+    show_scale_bar=True,
+)
+_, oblique_layer = cf.plotting.plot_napari(
     oblique,
-    slice_mode="z",
-    slice_coords=z_slice_coords,
-    nrows=2,
-    ncols=5,
-).show()
+    viewer=viewer,
+    show_colorbar=False,
+    show_scale_bar=True,
+    colormap="magenta",
+    opacity=0.5,
+)
+_, sheared_layer = cf.plotting.plot_napari(
+    sheared,
+    viewer=viewer,
+    show_colorbar=False,
+    show_scale_bar=True,
+    colormap="cyan",
+    opacity=0.35,
+)
+for label, layer in {
+    "native": native_layer,
+    "oblique": oblique_layer,
+    "sheared": sheared_layer,
+}.items():
+    print(f"{label} napari dims:", layer.metadata["xarray"].dims)
+    print(f"{label} napari source dims:", layer.metadata["source_xarray"].dims)
+
+viewer

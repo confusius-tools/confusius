@@ -24,6 +24,7 @@ from confusius.plotting._utils import (
     _resolve_font_sizes,
     _style_colorbar,
     coerce_complex_to_magnitude,
+    resample_voxel_affine_to_physical_grid as _shared_resample_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
 )
 from confusius.signal import clean
@@ -223,69 +224,15 @@ def _resample_voxel_affine_to_physical_grid(
     slice_mode: str,
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    """Resample voxel-affine data onto an axis-aligned physical grid for plotting.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Three-dimensional voxel-affine DataArray.
-    slice_mode : str
-        Requested plotting slice dimension.
-    reference : xarray.DataArray, optional
-        Axis-aligned physical-grid DataArray to reuse as the resampling target.
-        If not provided, a new plotting grid is synthesized from `data`'s physical
-        bounds and per-axis physical spacing.
-
-    Returns
-    -------
-    xarray.DataArray
-        Axis-aligned physical-grid DataArray when `slice_mode` is a physical
-        `z`/`y`/`x` axis, otherwise the original input.
-    """
+    """Resample voxel-affine data onto an axis-aligned physical grid for plotting."""
     if not _has_voxel_affine_geometry(data) or slice_mode not in {"z", "y", "x"}:
         return data
-
-    from confusius.registration import resample_like, resample_volume
 
     physical_dims = get_voxel_affine_physical_coord_names(data)
     if slice_mode not in physical_dims:
         return data
 
-    if reference is not None:
-        result = resample_like(
-            data,
-            reference,
-            np.eye(len(physical_dims) + 1, dtype=np.float64),
-        )
-    else:
-        spacing: list[float] = []
-        origin: list[float] = []
-        shape: list[int] = []
-        for dim in physical_dims:
-            values = np.asarray(data.coords[dim].values, dtype=np.float64)
-            lower = float(np.min(values))
-            upper = float(np.max(values))
-            dim_spacing = data.coords[dim].attrs.get("voxdim")
-            if dim_spacing is None:
-                dim_spacing = float(np.median(np.abs(np.diff(values))))
-            dim_spacing = float(dim_spacing)
-            origin.append(lower)
-            spacing.append(dim_spacing)
-            shape.append(int(np.ceil((upper - lower) / dim_spacing)) + 1)
-
-        result = resample_volume(
-            data,
-            np.eye(len(physical_dims) + 1, dtype=np.float64),
-            shape=shape,
-            spacing=spacing,
-            origin=origin,
-            dims=physical_dims,
-            direction=np.eye(len(physical_dims), dtype=np.float64),
-        )
-    result.attrs.pop("voxel_to_physical", None)
-    for dim in physical_dims:
-        result.coords[dim].attrs = data.coords[dim].attrs.copy()
-    return result
+    return _shared_resample_voxel_affine_to_physical_grid(data, reference=reference)
 
 
 def _slice_edges_and_centers(

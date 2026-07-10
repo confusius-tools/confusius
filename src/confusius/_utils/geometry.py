@@ -389,6 +389,25 @@ def restore_physical_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArra
     )
 
 
+def has_axis_aligned_voxel_affine_geometry(data: xr.DataArray) -> bool:
+    """Return whether `data` has voxel-affine geometry with no cross-axis mixing.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    bool
+        Whether `data` carries voxel-affine geometry and its `voxel_to_physical`
+        affine is axis-aligned.
+    """
+    if not has_voxel_affine_geometry(data):
+        return False
+    return _is_axis_aligned_affine(data.attrs["voxel_to_physical"])
+
+
 def has_voxel_affine_geometry(data: xr.DataArray) -> bool:
     """Return whether a DataArray carries canonical voxel-affine metadata.
 

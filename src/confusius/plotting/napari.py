@@ -8,6 +8,11 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+    has_axis_aligned_voxel_affine_geometry,
+)
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
@@ -15,12 +20,68 @@ from confusius._utils.napari import (
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
+    resample_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
 )
 
 if TYPE_CHECKING:
     from napari import Viewer
     from napari.layers import Image, Labels
+
+
+def _get_napari_scale_translate_units(
+    data: xr.DataArray,
+) -> tuple[list[float], list[float], list[str | None], list[str], dict[str, float]]:
+    """Return napari layer geometry metadata for `data`."""
+    all_dims = list(data.dims)
+
+    if has_axis_aligned_voxel_affine_geometry(data):
+        voxel_dims = get_voxel_affine_spatial_dims(data)
+        physical_dims = get_voxel_affine_physical_coord_names(data)
+        physical_view = data.swap_dims(
+            dict(zip(voxel_dims, physical_dims, strict=True))
+        ).drop_vars(list(voxel_dims))
+        spacing, non_uniform = get_coordinate_spacings_best_effort(physical_view)
+        origin = physical_view.fusi.origin
+        units_by_dim = {
+            dim: physical_view.coords[dim].attrs.get("units") for dim in physical_dims
+        }
+        dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+        scale = [
+            spacing[dim_map[str(dim)]] if str(dim) in dim_map else spacing[str(dim)]
+            for dim in all_dims
+        ]
+        translate = [
+            origin[dim_map[str(dim)]] if str(dim) in dim_map else origin[str(dim)]
+            for dim in all_dims
+        ]
+        units = [
+            units_by_dim[dim_map[str(dim)]] if str(dim) in dim_map else None
+            for dim in all_dims
+        ]
+        warned_dims = [
+            dim_map[dim] for dim in voxel_dims if dim_map[dim] in non_uniform
+        ]
+        return scale, translate, units, warned_dims, spacing
+
+    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    origin = data.fusi.origin
+    scale = [spacing[str(dim)] for dim in all_dims]
+    translate = [
+        origin[dim]
+        if dim in origin
+        else (
+            float(np.asarray(data.coords[dim].values, dtype=float)[0])
+            if dim in data.coords
+            else 0.0
+        )
+        for dim in all_dims
+    ]
+    units = [
+        data.coords[dim].attrs.get("units") if dim in data.coords else None
+        for dim in all_dims
+    ]
+    return scale, translate, units, non_uniform, spacing
 
 
 def plot_napari(
@@ -126,6 +187,9 @@ def plot_napari(
             f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
         )
 
+    source_data = data
+    data = resample_voxel_affine_to_physical_grid(data)
+
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
@@ -138,26 +202,15 @@ def plot_napari(
             "Ensure 'dim_order' contains all spatial dimension names."
         )
 
-    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    scale, coord_translates, all_units, non_uniform, spacing = (
+        _get_napari_scale_translate_units(data)
+    )
     for dim in non_uniform:
         warnings.warn(
             f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
             "(positions along this axis may be approximate).",
             stacklevel=find_stack_level(),
         )
-    scale = [spacing[str(dim)] for dim in all_dims]
-
-    # .origin falls back to 0.0 for dimensions without coordinates.
-    origin = data.fusi.origin
-    coord_translates = [origin[dim] for dim in all_dims]
-
-    # napari requires units to cover ALL dims. Build in all_dims order so each
-    # unit aligns with the correct dimension; passing None is accepted for
-    # unlabelled axes.
-    all_units: list[str | None] = [
-        data.coords[dim].attrs.get("units") if dim in data.coords else None
-        for dim in all_dims
-    ]
 
     layer_kwargs.setdefault("name", data.name)
     if any(u is not None for u in all_units):
@@ -193,6 +246,7 @@ def plot_napari(
         # rendering loop adds overhead on every frame when given an xarray DataArray,
         # making time scrubbing noticeably slow for lazy (Dask-backed) data.
         layer_kwargs.setdefault("metadata", {})["xarray"] = data
+        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
         viewer, layer = napari.imshow(
             plot_data.data,
             scale=scale,
@@ -220,6 +274,7 @@ def plot_napari(
     elif layer_type == "labels":
         layer_kwargs.setdefault("translate", coord_translates)
         layer_kwargs.setdefault("metadata", {})["xarray"] = data
+        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
         if viewer is None:
             viewer = napari.Viewer()
         values = data.values
