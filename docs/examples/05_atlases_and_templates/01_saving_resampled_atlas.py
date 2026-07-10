@@ -1,11 +1,11 @@
 # %% [markdown]
 # # Save and reload a resampled atlas
 #
-# Aligning a brain atlas to a fUSI recording means registering the recording to a template
-# and resampling the atlas — its reference volume, region annotations, and hemisphere map —
-# onto the recording's native grid. That alignment is reused across many analyses of the
-# same recording, and both the registration and the resampling can be costly, so it is
-# worth computing it once and caching the result to disk.
+# Aligning a brain atlas to a fUSI recording means registering the recording to a
+# template and resampling the atlas—its reference volume, region annotations, and
+# hemisphere map—onto the recording's native grid. That alignment is reused across many
+# analyses of the same recording, and both the registration and the resampling can be
+# costly, so it is worth computing it once and caching the result to disk.
 #
 # This example resamples the [Allen Mouse Brain Atlas][confusius.atlas] onto a recording's
 # grid, writes it to a Zarr store with [`save_atlas`][confusius.io.save_atlas], and reads
@@ -25,7 +25,8 @@
 # [Pepe, Mariani 2026 template][confusius.datasets.fetch_template_pepe_mariani_2026], which
 # carries the affine into Allen Common Coordinate Framework (CCF) space.
 
-# %%
+# %% tags=["collapse: Fetch the data and register to the template"]
+import warnings
 from pathlib import Path
 
 import matplotlib as mpl
@@ -47,6 +48,7 @@ bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     sessions="20201007",
     tasks="spontaneous",
     acqs="slice02",
+    print_citation=False,
 )
 
 data_path = (
@@ -58,13 +60,18 @@ data_path = (
 )
 # The recording's timepoints are not perfectly uniformly spaced, so we resample to a
 # uniform grid before taking the temporal mean used for registration.
-data = cf.timing.resample_to_uniform_time(cf.load(data_path))
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message=".*non-uniform*",
+        category=UserWarning,
+    )
+    data = cf.timing.resample_to_uniform_time(cf.load(data_path))
+
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
-# %%
-template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
+template = cf.datasets.fetch_template_pepe_mariani_2026(print_citation=False).compute()
 
-# %%
 napari_affine = np.array(
     [
         [1.0, 0.0, 0.0, 5.594638656430411],
@@ -116,7 +123,7 @@ del resampled_atlas
 # %% [markdown]
 # ## Reload the resampled atlas
 #
-# Later — in a new session, or a downstream analysis — the aligned atlas is one
+# Later, in a new session, or a downstream analysis, the aligned atlas is one
 # [`load_atlas`][confusius.io.load_atlas] call away, with no registration or resampling to
 # redo. Overlaying its region annotations on the recording confirms the reloaded atlas is
 # correctly aligned.
