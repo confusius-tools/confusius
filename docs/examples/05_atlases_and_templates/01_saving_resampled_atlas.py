@@ -7,25 +7,27 @@
 # analyses of the same recording, and both the registration and the resampling can be
 # costly, so it is worth computing it once and caching the result to disk.
 #
-# This example resamples the [Allen Mouse Brain Atlas][confusius.atlas] onto a recording's
-# grid, writes it to a Zarr store with [`save_atlas`][confusius.io.save_atlas], and reads
-# it back with [`load_atlas`][confusius.io.load_atlas]. The store bundles the structure
-# hierarchy and the region meshes alongside the arrays, so a reloaded atlas is immediately
-# usable — for masks, meshes, and plotting — without redoing the alignment or re-fetching
-# from BrainGlobe.
+# This example resamples the [Allen Mouse Brain Atlas][confusius.atlas] onto a
+# recording's grid, saves it as Zarr with [`save_atlas`][confusius.io.save_atlas], and
+# reads it back with [`load_atlas`][confusius.io.load_atlas]. The Zarr file bundles the
+# structure hierarchy and the region meshes alongside the arrays, so a reloaded atlas is
+# immediately usable (for masks, meshes, and plotting) without redoing the alignment or
+# re-fetching from BrainGlobe.
 
 # %% [markdown]
 # ## Register the recording to the template
 #
 # We reuse the recording, template, and affine registration from the
 # [Atlas-based region correlation matrix](../connectivity/atlas_correlation_matrix.md)
-# example — see it for a full walkthrough. Briefly: we take the temporal mean of a
+# example—see it for a full walkthrough. Briefly: we take the temporal mean of a
 # single-slice [Nunez-Elizalde 2022][confusius.datasets.fetch_nunez_elizalde_2022]
 # recording and register it to the
-# [Pepe, Mariani 2026 template][confusius.datasets.fetch_template_pepe_mariani_2026], which
-# carries the affine into Allen Common Coordinate Framework (CCF) space.
+# [Pepe, Mariani 2026 template][confusius.datasets.fetch_template_pepe_mariani_2026],
+# which carries the affine into Allen Common Coordinate Framework (CCF) space. Code is
+# initially hidden under a collapsable callout to keep the example focused on the atlas
+# resampling and saving.
 
-# %% tags=["collapse: Fetch the data and register to the template"]
+# %% tags=["collapse: Code for data fetching and registration"]
 import warnings
 from pathlib import Path
 
@@ -103,9 +105,9 @@ registered, affine, diagnostics = cf.registration.register_volume(
 # registration affine gives a single transform from the recording's native coordinates to
 # Allen atlas coordinates.
 # [`resample_like`][confusius.atlas.AtlasAccessor.resample_like] then brings the atlas'
-# reference, annotations, and hemisphere map onto the recording's grid in one call. This is
-# the expensive step we want to avoid repeating, so we write the result to a Zarr store
-# right away and drop it from memory.
+# reference, annotations, and hemisphere map onto the recording's grid in one call. This
+# is the expensive step we want to avoid repeating, so we write the result to a Zarr
+# file right away and drop it from memory.
 
 # %%
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
