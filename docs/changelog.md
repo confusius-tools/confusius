@@ -38,6 +38,12 @@ Current development version for the next ConfUSIus release.
   same nonlinear transform and dropping vertices that fall outside the target grid. A new
   `ds.atlas.resample` resamples onto an explicit grid specification
   ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+- Dataset fetchers now print the citation to use for the fetched data and accept a
+  `print_citation` argument to silence it. The template fetchers
+  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
+  also expose the citation on the returned DataArray as `da.attrs["citation"]`
+  ([#279](https://github.com/confusius-tools/confusius/pull/279)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
@@ -62,6 +68,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Saving to Zarr (via [`save`][confusius.io.save] or `DataArray.fusi.save`) now works
+  for data carrying affines or other numpy-valued attributes: nested numpy arrays are
+  stored as lists and non-serializable attrs (e.g. matplotlib colormaps) are dropped
+  with a warning, matching the NIfTI sidecar behaviour
+  ([#284](https://github.com/confusius-tools/confusius/pull/284)).
 - B-spline control-point DataArrays returned by
   [`register_volume`][confusius.registration.register_volume] no longer have their
   per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
@@ -98,11 +109,19 @@ Current development version for the next ConfUSIus release.
   the rigid registration step with a B-spline refinement, showing the extra local
   correction it adds and how its parameters differ from the rigid step's
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+- Long output in gallery examples—warnings, text reprs, tracebacks, and rich-rendered
+  text such as the dataset citation banner—now wraps instead of showing a horizontal
+  scrollbar ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ### :wrench: Maintenance
 
 - Raised the minimum supported versions to **napari 0.7.1** and
   **matplotlib 3.11**.
+- The example-gallery build tool now accepts specific example scripts as arguments
+  (`uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py`),
+  running only those; the rest of the gallery is still rendered, taken from cache if
+  present or built without outputs
+  ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ## 0.5.0
 
@@ -173,7 +192,7 @@ Released 2026-07-07.
 - [`plot_volume`][confusius.plotting.plot_volume] and
   [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
   accessors) now accept `cbar_kwargs`, forwarded to
-  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]—useful to
   shrink a shared colorbar down to size on a multi-panel grid
   ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 - [`apply_affine`][confusius.xarray.affine.apply_affine] and the
