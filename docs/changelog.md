@@ -12,8 +12,9 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- **[Napari plugin]** Imported signal tables now accept BIDS physio `*.tsv.gz` files with 
-  column names and timing read from the JSON sidecar.
+- Added [`read_physio`][confusius.bids.read_physio] to load BIDS physio TSV files with
+  column names and metadata from the JSON sidecar, synthesizing a `time` column when
+  needed; the napari plugin now uses it for imported signal tables.
 
 ### :bug: Fixes
 

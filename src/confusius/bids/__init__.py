@@ -34,6 +34,7 @@ from confusius.bids.coordinates import (
 )
 from confusius.bids.events import DEFAULT_TRIAL_TYPE, read_events, write_events
 from confusius.bids.mapping import EXPLICIT_BIDS_FIELD_MAPPINGS, from_bids, to_bids
+from confusius.bids.physio import read_physio
 from confusius.bids.validation import (
     FUSI_BIDS_FIELDS,
     FUSIBIDSMetadata,
@@ -58,4 +59,6 @@ __all__ = [
     "DEFAULT_TRIAL_TYPE",
     "read_events",
     "write_events",
+    # Physio
+    "read_physio",
 ]

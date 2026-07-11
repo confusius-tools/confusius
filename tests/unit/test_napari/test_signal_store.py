@@ -65,6 +65,20 @@ def test_import_bids_physio_rejects_column_count_mismatch(signals_store, tmp_pat
         signals_store.import_file(path)
 
 
+def test_import_csv_ignores_unrelated_json_sidecar(signals_store, tmp_path):
+    path = tmp_path / "signals.csv"
+    path.write_text("time,a\n0,1\n1,2\n")
+    path.with_suffix(".json").write_text(
+        json.dumps({"Columns": ["pulse"], "SamplingFrequency": 10.0})
+    )
+
+    imported = signals_store.import_file(path)
+
+    assert [signal.name for signal in imported] == ["a"]
+    npt.assert_array_equal(imported[0].x, np.array([0, 1]))
+    npt.assert_array_equal(imported[0].y, np.array([1, 2]))
+
+
 def test_import_rejects_missing_time_column(signals_store, tmp_path):
     path = tmp_path / "broken.csv"
     path.write_text("frame,a\n0,1\n1,2\n")
