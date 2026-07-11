@@ -12,7 +12,14 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
-- **[Napari plugin]** Imported signal tables now accept BIDS physio `*.tsv.gz` files with column names and timing read from the JSON sidecar.
+- **[Napari plugin]** Imported signal tables now accept BIDS physio `*.tsv.gz` files with 
+  column names and timing read from the JSON sidecar.
+
+### :bug: Fixes
+
+- Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
+  single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
+  `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
 
 ## 0.5.2
 
