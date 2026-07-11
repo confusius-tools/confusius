@@ -79,3 +79,46 @@ class TestReadPhysio:
 
         with pytest.raises(ValueError, match="SamplingFrequency"):
             load_physio(path)
+
+    def test_rejects_missing_sidecar(self, tmp_path):
+        """A BIDS physio table without its JSON sidecar is rejected."""
+        path = tmp_path / "sub-01_task-rest_recording-cardiac_physio.tsv"
+        path.write_text("1\n2\n")
+
+        with pytest.raises(FileNotFoundError, match="sidecar"):
+            load_physio(path)
+
+    def test_rejects_invalid_sidecar_json(self, tmp_path):
+        """A malformed sidecar JSON file is rejected."""
+        path = tmp_path / "sub-01_task-rest_recording-cardiac_physio.tsv"
+        path.write_text("1\n2\n")
+        path.with_suffix(".json").write_text("{not json")
+
+        with pytest.raises(ValueError, match="Invalid BIDS physio sidecar JSON"):
+            load_physio(path)
+
+    def test_rejects_missing_columns_definition(self, tmp_path):
+        """A sidecar must define a non-empty Columns list."""
+        path = tmp_path / "sub-01_task-rest_recording-cardiac_physio.tsv"
+        path.write_text("1\n2\n")
+        path.with_suffix(".json").write_text(json.dumps({"Columns": []}))
+
+        with pytest.raises(ValueError, match="non-empty 'Columns' list"):
+            load_physio(path)
+
+    def test_rejects_non_numeric_start_time_when_time_absent(self, tmp_path):
+        """Synthesizing time requires a numeric start time."""
+        path = tmp_path / "sub-01_task-rest_recording-cardiac_physio.tsv"
+        path.write_text("1\n2\n")
+        path.with_suffix(".json").write_text(
+            json.dumps(
+                {
+                    "Columns": ["pulse"],
+                    "SamplingFrequency": 10.0,
+                    "StartTime": "early",
+                }
+            )
+        )
+
+        with pytest.raises(ValueError, match="StartTime"):
+            load_physio(path)
