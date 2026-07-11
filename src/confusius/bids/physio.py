@@ -17,11 +17,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-__all__ = ["read_physio"]
+__all__ = ["load_physio"]
 
 
-def read_physio(path: str | Path) -> pd.DataFrame:
-    """Read a BIDS physio table into a DataFrame.
+def load_physio(path: str | Path) -> pd.DataFrame:
+    """Load a BIDS physio table into a DataFrame.
 
     Parameters
     ----------

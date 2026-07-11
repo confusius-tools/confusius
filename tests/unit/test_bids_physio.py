@@ -10,7 +10,7 @@ import numpy.testing as npt
 import pytest
 from pandas.testing import assert_frame_equal
 
-from confusius.bids import read_physio
+from confusius.bids import load_physio
 
 
 class TestReadPhysio:
@@ -33,7 +33,7 @@ class TestReadPhysio:
             )
         )
 
-        frame = read_physio(path)
+        frame = load_physio(path)
 
         expected = {
             "time": np.array([-0.5, 0.0, 0.5]),
@@ -52,7 +52,7 @@ class TestReadPhysio:
         path.write_text("0.1\t1\n0.2\t2\n")
         path.with_suffix(".json").write_text(json.dumps({"Columns": ["time", "pulse"]}))
 
-        frame = read_physio(path)
+        frame = load_physio(path)
 
         assert list(frame.columns) == ["time", "pulse"]
         npt.assert_allclose(frame["time"], np.array([0.1, 0.2]))
@@ -69,7 +69,7 @@ class TestReadPhysio:
         with pytest.raises(
             ValueError, match="Columns' length does not match TSV width"
         ):
-            read_physio(path)
+            load_physio(path)
 
     def test_rejects_missing_sampling_frequency_when_time_absent(self, tmp_path):
         """Synthesizing time requires a positive numeric sampling frequency."""
@@ -78,4 +78,4 @@ class TestReadPhysio:
         path.with_suffix(".json").write_text(json.dumps({"Columns": ["pulse"]}))
 
         with pytest.raises(ValueError, match="SamplingFrequency"):
-            read_physio(path)
+            load_physio(path)

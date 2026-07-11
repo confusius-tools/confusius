@@ -221,15 +221,15 @@ out as a BIDS events `.tsv`.
 
 !!! tip "Straight into analysis"
     An events `.tsv` saved here is a standard BIDS events table, so it can be read back
-    with [read_events][confusius.bids.read_events] and fed directly to either
+    with [load_events][confusius.bids.load_events] and fed directly to either
     [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix] or
     the `fit` method of a [FirstLevelModel][confusius.glm.first_level.FirstLevelModel]:
 
     ```python
-    from confusius.bids import read_events
+    from confusius.bids import load_events
     from confusius.glm import FirstLevelModel
 
-    events = read_events("sub-01_task-rest_events.tsv")
+    events = load_events("sub-01_task-rest_events.tsv")
     model = FirstLevelModel(hrf_model="glover").fit(fusi_scan, events=events)
     ```
 

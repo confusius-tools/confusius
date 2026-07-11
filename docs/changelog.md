@@ -10,9 +10,16 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
+  [`read_events`][confusius.bids.load_events] → [`load_events`][confusius.bids.load_events],
+  [`write_events`][confusius.bids.save_events] → [`save_events`][confusius.bids.save_events],
+  and [`read_physio`][confusius.bids.load_physio] → [`load_physio`][confusius.bids.load_physio].
+
 ### :sparkles: Enhancements
 
-- Added [`read_physio`][confusius.bids.read_physio] to load BIDS physio TSV files with
+- Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
   column names and metadata from the JSON sidecar, synthesizing a `time` column when
   needed; the napari plugin now uses it for imported signal tables.
 
@@ -162,8 +169,8 @@ Released 2026-07-07.
   from / save to a BIDS `.tsv`
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - [`confusius.bids`][confusius.bids] module is now public with new
-  [`read_events`][confusius.bids.read_events] and
-  [`write_events`][confusius.bids.write_events]
+  [`load_events`][confusius.bids.load_events] and
+  [`save_events`][confusius.bids.save_events]
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - Added a `datasets` CLI namespace, listed in `confusius --help`:
   `confusius datasets --list` prints the table of available datasets, their sizes,

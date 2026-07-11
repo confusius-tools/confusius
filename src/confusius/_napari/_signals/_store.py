@@ -12,7 +12,7 @@ import pandas as pd
 from qtpy.QtCore import QObject, Signal
 
 from confusius._napari._utils import CATEGORICAL_COLORS
-from confusius.bids import read_physio
+from confusius.bids import load_physio
 
 _IMPORTED_SIGNAL_COLORS = CATEGORICAL_COLORS
 """Palette cycled across imported signal columns."""
@@ -238,7 +238,7 @@ class SignalStore(QObject):
     def _read_signals_table(self, path: Path) -> pd.DataFrame:
         """Read one CSV or TSV signals table from disk."""
         if self._is_bids_physio_path(path):
-            return read_physio(path)
+            return load_physio(path)
 
         _SEP: dict[str, str] = {".csv": ",", ".tsv": "\t"}
         sep = _SEP.get(self._table_suffix(path))
