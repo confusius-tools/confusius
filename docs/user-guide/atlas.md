@@ -4,16 +4,15 @@ icon: lucide/brain
 
 # Atlases
 
-A brain atlas ties every voxel of a reference volume to a named anatomical region. In
-ConfUSIus an atlas is a plain [`xarray.Dataset`][xarray.Dataset] with three data
-variables on a common `(z, y, x)` grid
-([`reference`][confusius.atlas.AtlasAccessor.reference], the template volume;
-[`annotation`][confusius.atlas.AtlasAccessor.annotation], integer region labels; and
-[`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left, 2 = right), plus a
-registered `.atlas` accessor ([`AtlasAccessor`][confusius.atlas.AtlasAccessor]) that
-carries all atlas-aware operations. The structure hierarchy rides along in
-`Dataset.attrs["structures"]`, so a single object fully describes the atlas and its
-region tree.
+A brain atlas ties every voxel of a reference volume to a named region. In ConfUSIus an
+atlas is a plain [`xarray.Dataset`][xarray.Dataset] with three data variables on a
+common `(z, y, x)` grid ([`reference`][confusius.atlas.AtlasAccessor.reference], the
+template volume; [`annotation`][confusius.atlas.AtlasAccessor.annotation], integer
+region labels; and [`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left,
+2 = right), plus a registered `.atlas` accessor
+([`AtlasAccessor`][confusius.atlas.AtlasAccessor]) that carries all atlas-aware
+operations. The structure hierarchy rides along in `Dataset.attrs["structures"]`, so a
+single object fully describes the atlas and its region tree.
 
 ## BrainGlobe Atlases
 
