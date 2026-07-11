@@ -25,6 +25,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
+  clear error that points users to newer SCAN v2 files and to converting them to NIfTI
+  with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
 - Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
