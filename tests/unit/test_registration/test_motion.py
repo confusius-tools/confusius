@@ -217,56 +217,53 @@ class TestCreateMotionDataframe:
         assert list(df.columns) == expected_cols
         assert len(df) == 2
 
-    def test_singleton_z_dataframe_uses_effective_2d_columns(
+    def test_singleton_z_dataframe_keeps_all_3d_motion_columns(
         self, sample_3d_dataarray_spatial
     ):
-        """A singleton z axis collapses to effective 2D motion columns."""
+        """A singleton z axis still reports the full 3D motion summary."""
         ref = _with_singleton_dim(sample_3d_dataarray_spatial, "z")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
 
         assert list(df.columns) == [
-            "rotation",
+            "rot_x",
+            "rot_y",
+            "rot_z",
             "trans_x",
-            "trans_y",
-            "mean_fd",
-            "max_fd",
-            "rms_fd",
-        ]
-        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
-
-    def test_singleton_x_dataframe_uses_effective_2d_columns(
-        self, sample_3d_dataarray_spatial
-    ):
-        """Any singleton spatial axis collapses to effective 2D motion columns."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "x")
-        df = create_motion_dataframe(
-            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
-        )
-
-        assert list(df.columns) == [
-            "rotation",
             "trans_y",
             "trans_z",
             "mean_fd",
             "max_fd",
             "rms_fd",
         ]
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
-    def test_too_many_singleton_axes_raise_error(self, sample_3d_dataarray_spatial):
-        """Effective motion summaries need at least two non-singleton spatial axes."""
-        import pytest
-
-        ref = _with_singleton_dim(
-            _with_singleton_dim(sample_3d_dataarray_spatial, "z"), "y"
+    def test_singleton_x_dataframe_keeps_all_3d_motion_columns(
+        self, sample_3d_dataarray_spatial
+    ):
+        """Any singleton spatial axis still reports the full 3D motion summary."""
+        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "x")
+        df = create_motion_dataframe(
+            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
 
-        with pytest.raises(ValueError, match="at least two non-singleton"):
-            create_motion_dataframe([np.eye(4)], ref)
+        assert list(df.columns) == [
+            "rot_x",
+            "rot_y",
+            "rot_z",
+            "trans_x",
+            "trans_y",
+            "trans_z",
+            "mean_fd",
+            "max_fd",
+            "rms_fd",
+        ]
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
     def test_3d_dataframe_columns(self, sample_3d_dataarray_spatial):
         """3D affines produce DataFrame with correct columns."""

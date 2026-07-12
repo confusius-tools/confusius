@@ -82,11 +82,11 @@ motion_df.head()
 
 # %% [markdown]
 # `motion_df` is the output of
-# [`create_motion_dataframe`][confusius.registration.create_motion_dataframe]. Because
-# this recording has a singleton `z` axis, it is summarized as effective 2D motion:
-# one in-plane `rotation`, in-plane translations (`trans_x`, `trans_y`), the
-# framewise displacement summaries (`mean_fd`, `max_fd`, `rms_fd`), and the optimizer
-# summaries (`final_metric_value`, `n_iterations`) added by
+# [`create_motion_dataframe`][confusius.registration.create_motion_dataframe]. Even
+# though this recording has a singleton `z` axis, the table keeps the full 3D motion
+# summary: rotations (`rot_x`, `rot_y`, `rot_z`), translations (`trans_x`, `trans_y`,
+# `trans_z`), the framewise displacement summaries (`mean_fd`, `max_fd`, `rms_fd`),
+# and the optimizer summaries (`final_metric_value`, `n_iterations`) added by
 # [`register_volumewise`][confusius.registration.register_volumewise].
 
 # %% [markdown]

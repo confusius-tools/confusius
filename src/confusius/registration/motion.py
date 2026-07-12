@@ -185,8 +185,7 @@ def _get_motion_parameter_columns(
     Raises
     ------
     ValueError
-        If `params` does not have 3 or 6 columns, or if `reference` collapses to fewer
-        than two effective spatial axes.
+        If `params` does not have 3 or 6 columns.
     """
     spatial_dims = tuple(str(dim) for dim in reference.dims)
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
@@ -202,21 +201,6 @@ def _get_motion_parameter_columns(
         raise ValueError(
             f"Expected motion parameters with 3 or 6 columns, got {params.shape[1]}."
         )
-
-    non_singleton_dims = [dim for dim in spatial_dims if reference.sizes[dim] > 1]
-    singleton_dims = [dim for dim in spatial_dims if reference.sizes[dim] == 1]
-
-    if singleton_dims:
-        if len(non_singleton_dims) < 2:
-            raise ValueError(
-                "Motion diagnostics require at least two non-singleton spatial axes."
-            )
-        collapsed_dim = singleton_dims[0]
-        columns: list[tuple[str, int]] = [("rotation", axis_index[collapsed_dim])]
-        for dim in ("x", "y", "z"):
-            if dim in non_singleton_dims:
-                columns.append((f"trans_{dim}", 3 + axis_index[dim]))
-        return columns
 
     columns = []
     for dim in ("x", "y", "z"):
@@ -334,20 +318,20 @@ def create_motion_dataframe(
     Returns
     -------
     pandas.DataFrame
-        DataFrame with columns:
+        DataFrame with columns determined by the affine dimensionality.
 
-        Effective 2D (a true 2D image, or a 3D image with any singleton spatial axis):
+        2D affines:
 
         - `rotation`: In-plane rotation angle in radians.
-        - `trans_<dim>`: Translation along each non-singleton in-plane spatial axis
-          (mm), for example `trans_x` and `trans_y` for `(z=1, y, x)` data.
+        - `trans_x, trans_y`: Translations along the DataArray's `x` and `y` axes
+          (mm).
 
-        True 3D:
+        3D affines:
 
         - `rot_x, rot_y, rot_z`: Rotation angles around the DataArray's
           `x`, `y`, and `z` axes, in radians.
         - `trans_x, trans_y, trans_z`: Translations along the DataArray's
-          `x`, `y`, and `z` axes (mm).
+          `x`, `y`, and `z` axes (mm), even when one spatial axis is singleton.
 
         Both:
         - `mean_fd`: Mean framewise displacement (mm).
