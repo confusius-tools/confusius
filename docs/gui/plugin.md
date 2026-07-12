@@ -182,10 +182,13 @@ signals (from the current source mode) and imported signals:
 ### Importing and exporting signals
 
 **Import**
-: In the Manage Signals dialog, click **Import** to load signals from a CSV or TSV
-  file. The file must contain a column whose header matches the current *x*-axis
-  dimension name (e.g. `time`) plus one or more numeric value columns. Each value
-  column becomes a separate signal overlaid on the plot.
+: In the Manage Signals dialog, click **Import** to load one or more signal files at
+  once. Standard CSV / TSV files must contain a column whose header matches the
+  current *x*-axis dimension name (e.g. `time`) plus one or more numeric value
+  columns. BIDS physio files ending in `_physio.tsv.gz` are also supported: ConfUSIus
+  reads their JSON sidecar, uses the declared column names, and synthesizes `time`
+  from `SamplingFrequency` and `StartTime` when needed. Each value column becomes a
+  separate signal overlaid on the plot.
 
 **Export**
 : Click the **Export** button in the plot toolbar to export all currently plotted
