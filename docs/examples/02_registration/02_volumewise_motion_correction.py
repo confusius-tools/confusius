@@ -32,7 +32,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 from IPython.display import HTML
-from PIL import Image, ImageDraw
+from matplotlib import font_manager
+from PIL import Image, ImageDraw, ImageFont
 
 import confusius as cf
 
@@ -52,6 +53,7 @@ bids_root = cf.datasets.fetch_cybis_pereira_2026(
     acqs=acq,
 )
 
+# %%
 pwd_path = (
     Path(bids_root)
     / f"sub-{subject}"
@@ -98,7 +100,7 @@ motion_df.head()
 # panel is a useful sanity check: frames that systematically hit the maximum iteration
 # count or converge to a much worse similarity metric deserve a closer look.
 
-# %%
+# %% tags=["thumbnail"]
 fig, axes = plt.subplots(4, 1, figsize=(9, 9), sharex=True, constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 
@@ -147,7 +149,7 @@ ax_iterations.spines["right"].set_color(iteration_color)
 # deviation in the unregistered excerpt. In practice that usually lands on a large
 # vessel, where motion-induced intensity changes are most visible.
 
-# %% tags=["thumbnail"]
+# %%
 std_map = data.squeeze("z", drop=True).std("time")
 voxel_y, voxel_x = np.unravel_index(np.nanargmax(std_map.values), std_map.shape)
 
@@ -163,10 +165,6 @@ ax.set_ylabel("Power Doppler intensity")
 ax.set_title(f"Voxel at y={voxel_y}, x={voxel_x}")
 _ = ax.legend(frameon=False)
 
-# %%
-data_db = data.fusi.scale.db()
-registered_db = registered.fusi.scale.db()
-
 # %% [markdown]
 # ## Build a before/after GIF
 #
@@ -175,31 +173,7 @@ registered_db = registered.fusi.scale.db()
 
 
 # %%
-def _to_uint8_frame(values: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
-    """Convert one 2D image to a clipped 8-bit grayscale frame.
-
-    Parameters
-    ----------
-    values : numpy.ndarray
-        Two-dimensional image data.
-    vmin : float
-        Lower display bound.
-    vmax : float
-        Upper display bound.
-
-    Returns
-    -------
-    numpy.ndarray
-        Unsigned 8-bit image with shape `(y, x)`.
-    """
-    if vmax <= vmin:
-        vmax = vmin + 1.0
-    clipped = np.clip((values - vmin) / (vmax - vmin), 0, 1)
-    return (255 * clipped).astype(np.uint8)
-
-
-# %%
-def _movie_html(before: xr.DataArray, after: xr.DataArray) -> HTML:
+def _gif_html(before: xr.DataArray, after: xr.DataArray) -> HTML:
     """Return an inline HTML `<img>` tag for a side-by-side animated GIF.
 
     Parameters
@@ -214,28 +188,48 @@ def _movie_html(before: xr.DataArray, after: xr.DataArray) -> HTML:
     IPython.display.HTML
         HTML object embedding the GIF as a data URI.
     """
-    font = ImageDraw.Draw(Image.new("RGB", (1, 1))).getfont()
     vmin = float(np.nanpercentile(before, 2))
     vmax = float(np.nanpercentile(before, 99.8))
-    pad = 8
+    if vmax <= vmin:
+        vmax = vmin + 1.0
+
+    pad = 12
+    panel_size = (480, 390)
+    header_height = 56
+    try:
+        font = ImageFont.truetype(font_manager.findfont("DejaVu Sans"), 24)
+    except (OSError, ValueError):
+        font = ImageFont.load_default()
+
     frames: list[Image.Image] = []
 
     for i, t in enumerate(before["time"].values):
-        left = Image.fromarray(_to_uint8_frame(before.isel(time=i).values, vmin, vmax))
-        right = Image.fromarray(_to_uint8_frame(after.isel(time=i).values, vmin, vmax))
-        left = left.convert("RGB").resize((320, 260))
-        right = right.convert("RGB").resize((320, 260))
+        left = np.clip((before.isel(time=i).values - vmin) / (vmax - vmin), 0, 1)
+        right = np.clip((after.isel(time=i).values - vmin) / (vmax - vmin), 0, 1)
+        left = Image.fromarray((255 * left).astype(np.uint8)).convert("RGB")
+        right = Image.fromarray((255 * right).astype(np.uint8)).convert("RGB")
+        left = left.resize(panel_size, Image.Resampling.LANCZOS)
+        right = right.resize(panel_size, Image.Resampling.LANCZOS)
 
         canvas = Image.new(
-            "RGB", (left.width + right.width + 3 * pad, left.height + 40), "black"
+            "RGB",
+            (left.width + right.width + 3 * pad, left.height + header_height),
+            "black",
         )
-        canvas.paste(left, (pad, 28))
-        canvas.paste(right, (left.width + 2 * pad, 28))
+        canvas.paste(left, (pad, header_height))
+        canvas.paste(right, (left.width + 2 * pad, header_height))
 
         draw = ImageDraw.Draw(canvas)
-        draw.text((pad, 6), "Before", fill="white", font=font)
-        draw.text((left.width + 2 * pad, 6), "After", fill="white", font=font)
-        draw.text((canvas.width - 70, 6), f"{float(t):.1f}s", fill="white", font=font)
+        draw.text((pad, 14), "Before", fill="white", font=font)
+        draw.text((left.width + 2 * pad, 14), "After", fill="white", font=font)
+        timestamp = f"{float(t):.1f}s"
+        timestamp_width = draw.textlength(timestamp, font=font)
+        draw.text(
+            (canvas.width - pad - timestamp_width, 14),
+            timestamp,
+            fill="white",
+            font=font,
+        )
         frames.append(canvas)
 
     buffer = BytesIO()
@@ -253,12 +247,11 @@ def _movie_html(before: xr.DataArray, after: xr.DataArray) -> HTML:
     )
 
 
-movie_before = data_db.squeeze("z", drop=True)
-movie_after = registered_db.squeeze("z", drop=True)
-_movie_html(movie_before, movie_after)
+movie_before = data.fusi.scale.db().squeeze("z", drop=True)
+movie_after = registered.fusi.scale.db().squeeze("z", drop=True)
+_gif_html(movie_before, movie_after)
 
 # %% [markdown]
-# Even on this short excerpt, the registered movie is visibly more stable and the mean
-# image is slightly sharper. For a full preprocessing workflow, you would usually run
-# the same correction on the complete recording before downstream QC, decomposition, or
-# connectivity analysis.
+# Even on this short excerpt, the registered movie is visibly more stable. For a full
+# preprocessing workflow, you would usually run the same correction on the complete
+# recording before downstream QC, decomposition, or connectivity analysis.
