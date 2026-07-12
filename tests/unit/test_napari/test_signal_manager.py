@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QColor
 
@@ -91,3 +93,24 @@ def test_manager_handles_multiple_selection(qtbot, signals_store, signals_csv):
     dialog._remove_selected()
 
     assert signals_store.imported_signals() == []
+
+
+def test_manager_import_dialog_filters_supported_formats(
+    qtbot, signals_store, monkeypatch
+):
+    dialog = SignalsManagerDialog(signals_store)
+    qtbot.addWidget(dialog)
+
+    def _fake_get_open_file_name(parent, caption, directory, file_filter):
+        assert "*.tsv" in file_filter
+        assert "*.tsv.gz" in file_filter
+        assert "*.csv" in file_filter
+        return str(Path("/tmp/does-not-matter.tsv.gz")), ""
+
+    monkeypatch.setattr(
+        "confusius._napari._signals._manager.QFileDialog.getOpenFileName",
+        _fake_get_open_file_name,
+    )
+    monkeypatch.setattr(signals_store, "import_file", lambda path: [])
+
+    dialog._import_file()

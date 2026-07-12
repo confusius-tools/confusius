@@ -1483,7 +1483,6 @@ class SignalPlotter(QWidget):
             "Z-score" if self._zscore else "Value",
             "Imported Signals",
             with_legend=len(imported_signals) > 1,
-            show_cursor=False,
         )
         self._restore_view(saved_xlim, saved_ylim)
         self._has_plot = True

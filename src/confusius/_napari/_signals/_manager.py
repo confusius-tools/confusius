@@ -312,7 +312,7 @@ class SignalsManagerDialog(QDialog):
             self,
             "Import Signal",
             "",
-            "Delimited text (*.tsv *.csv);;TSV (*.tsv);;CSV (*.csv);;All files (*)",
+            "Delimited text (*.tsv *.tsv.gz *.csv);;TSV (*.tsv *.tsv.gz);;CSV (*.csv);;All files (*)",
         )
         if not path_str:
             return
