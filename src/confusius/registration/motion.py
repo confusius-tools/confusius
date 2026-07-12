@@ -39,7 +39,7 @@ def _validate_affines(
     TypeError
         If any entry is not a `numpy.ndarray`.
     """
-    if not affines:
+    if len(affines) == 0:
         raise ValueError("affines must contain at least one affine matrix.")
 
     validated: list[NDArray[np.floating]] = []
@@ -191,11 +191,11 @@ def _get_motion_parameter_columns(
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
 
     if params.shape[1] == 3:
-        return [
-            ("rotation", 0),
-            ("trans_x", 1 + axis_index["x"]),
-            ("trans_y", 1 + axis_index["y"]),
-        ]
+        columns: list[tuple[str, int]] = [("rotation", 0)]
+        for dim in ("x", "y", "z"):
+            if dim in axis_index:
+                columns.append((f"trans_{dim}", 1 + axis_index[dim]))
+        return columns
 
     if params.shape[1] != 6:
         raise ValueError(
@@ -256,7 +256,12 @@ def compute_framewise_displacement(
 
     affines_validated = _validate_affines(affines)
     n_frames = len(affines_validated)
-    ndim = reference.ndim
+    ndim = affines_validated[0].shape[0] - 1
+    if reference.ndim != ndim:
+        raise ValueError(
+            "reference dimensionality must match affine dimensionality, got "
+            f"reference.ndim={reference.ndim} and affine ndim={ndim}."
+        )
 
     coords_1d = [
         np.asarray(reference.coords[str(dim)].values, dtype=float)
@@ -323,8 +328,8 @@ def create_motion_dataframe(
         2D affines:
 
         - `rotation`: In-plane rotation angle in radians.
-        - `trans_x, trans_y`: Translations along the DataArray's `x` and `y` axes
-          (mm).
+        - `trans_<dim>`: Translations along the DataArray's two named spatial axes
+          (mm), reported in named-axis order.
 
         3D affines:
 

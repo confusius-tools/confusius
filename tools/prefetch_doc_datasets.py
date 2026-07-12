@@ -113,6 +113,7 @@ def _prefetch_cybis_pereira() -> None:
         datasets="rawdata",
         subjects="rat75",
         sessions="20220523",
+        datatypes="fusi",
         acqs="slice32",
     )
 

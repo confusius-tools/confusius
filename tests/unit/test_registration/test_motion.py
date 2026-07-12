@@ -67,6 +67,13 @@ class TestValidateAffines:
         with pytest.raises(ValueError, match="at least one"):
             _validate_affines([])
 
+    def test_rejects_empty_affine_ndarray(self):
+        """An empty ndarray of affines is rejected cleanly."""
+        import pytest
+
+        with pytest.raises(ValueError, match="at least one"):
+            _validate_affines(cast(Any, np.empty((0, 3, 3))))
+
     def test_rejects_non_numpy_affine(self):
         """Affine entries must already be numpy arrays."""
         import pytest
@@ -197,6 +204,15 @@ class TestComputeFramewiseDisplacement:
 
         assert_allclose(fd["mean_fd"][0], 5.0, atol=1e-6)
 
+    def test_rejects_reference_affine_dimensionality_mismatch(
+        self, sample_2d_dataarray_spatial
+    ):
+        """Reference dimensionality must match affine dimensionality."""
+        import pytest
+
+        with pytest.raises(ValueError, match="dimensionality must match"):
+            compute_framewise_displacement([np.eye(4)], sample_2d_dataarray_spatial)
+
 
 class TestCreateMotionDataframe:
     """Tests for create_motion_dataframe function."""
@@ -294,6 +310,22 @@ class TestCreateMotionDataframe:
 
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+
+    def test_2d_dataframe_uses_present_named_axes(self, sample_2d_dataarray_spatial):
+        """2D tables use the spatial axes actually present in the reference."""
+        ref = _with_spatial_dims(sample_2d_dataarray_spatial, ("z", "x"))
+        df = create_motion_dataframe([np.eye(3), _translation_affine_2d(2.0, 3.0)], ref)
+
+        assert list(df.columns) == [
+            "rotation",
+            "trans_x",
+            "trans_z",
+            "mean_fd",
+            "max_fd",
+            "rms_fd",
+        ]
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_z"], 2.0, atol=1e-6)
 
     def test_3d_dataframe_reorders_translations_to_named_axes(
         self, sample_3d_dataarray_spatial
