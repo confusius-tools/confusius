@@ -307,25 +307,32 @@ class SignalsManagerDialog(QDialog):
         self._store.remove_signals(signal_ids)
 
     def _import_file(self) -> None:
-        """Import one CSV or TSV file into the shared store."""
-        path_str, _ = QFileDialog.getOpenFileName(
+        """Import one or more CSV or TSV files into the shared store."""
+        path_strs, _ = QFileDialog.getOpenFileNames(
             self,
             "Import Signal",
             "",
-            "Delimited text (*.tsv *.csv);;TSV (*.tsv);;CSV (*.csv);;All files (*)",
+            "Delimited text (*.tsv *.tsv.gz *.csv);;TSV (*.tsv *.tsv.gz);;CSV (*.csv);;All files (*)",
         )
-        if not path_str:
+        if not path_strs:
             return
 
-        try:
-            imported = self._store.import_file(Path(path_str))
-        except Exception as exc:  # noqa: BLE001
-            show_error(str(exc))
-            return
+        imported_count = 0
+        file_count = 0
+        for path_str in path_strs:
+            try:
+                imported = self._store.import_file(Path(path_str))
+            except Exception as exc:  # noqa: BLE001
+                show_error(str(exc))
+                return
+            imported_count += len(imported)
+            file_count += 1
 
-        count = len(imported)
-        noun = "signal" if count != 1 else "signals"
-        show_info(f"Imported {count} {noun} from {Path(path_str).name}")
+        signal_noun = "signal" if imported_count == 1 else "signals"
+        file_noun = "file" if file_count == 1 else "files"
+        show_info(
+            f"Imported {imported_count} {signal_noun} from {file_count} {file_noun}."
+        )
 
     def apply_theme(self, theme_name: str) -> None:
         """Apply napari theme to the table for proper alternating row colors.

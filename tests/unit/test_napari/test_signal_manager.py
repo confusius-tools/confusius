@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from qtpy.QtCore import Qt
 from qtpy.QtGui import QColor
 
@@ -91,3 +93,43 @@ def test_manager_handles_multiple_selection(qtbot, signals_store, signals_csv):
     dialog._remove_selected()
 
     assert signals_store.imported_signals() == []
+
+
+def test_manager_imports_multiple_files(qtbot, signals_store, monkeypatch, tmp_path):
+    dialog = SignalsManagerDialog(signals_store)
+    qtbot.addWidget(dialog)
+
+    path1 = tmp_path / "a.csv"
+    path1.write_text("time,a\n0,1\n1,2\n")
+    path2 = tmp_path / "b.csv"
+    path2.write_text("time,b\n0,3\n1,4\n")
+
+    monkeypatch.setattr(
+        "confusius._napari._signals._manager.QFileDialog.getOpenFileNames",
+        lambda *args, **kwargs: ([str(path1), str(path2)], ""),
+    )
+
+    dialog._import_file()
+
+    assert [signal.name for signal in signals_store.imported_signals()] == ["a", "b"]
+
+
+def test_manager_import_dialog_filters_supported_formats(
+    qtbot, signals_store, monkeypatch
+):
+    dialog = SignalsManagerDialog(signals_store)
+    qtbot.addWidget(dialog)
+
+    def _fake_get_open_file_names(parent, caption, directory, file_filter):
+        assert "*.tsv" in file_filter
+        assert "*.tsv.gz" in file_filter
+        assert "*.csv" in file_filter
+        return [str(Path("/tmp/does-not-matter.tsv.gz"))], ""
+
+    monkeypatch.setattr(
+        "confusius._napari._signals._manager.QFileDialog.getOpenFileNames",
+        _fake_get_open_file_names,
+    )
+    monkeypatch.setattr(signals_store, "import_file", lambda path: [])
+
+    dialog._import_file()
