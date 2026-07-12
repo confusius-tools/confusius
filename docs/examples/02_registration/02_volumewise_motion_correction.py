@@ -10,8 +10,8 @@
 #
 # - the motion diagnostics returned by
 #   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe];
-# - a before/after GIF of the registered movie;
-# - the time series of one representative voxel before and after registration.
+# - a representative voxel trace before and after registration;
+# - a compact raster view showing how one image column stabilizes over time.
 #
 # As in the GUI GIF, we register a 120-frame excerpt rather than the full recording.
 
@@ -82,10 +82,11 @@ motion_df.head()
 
 # %% [markdown]
 # `motion_df` is the output of
-# [`create_motion_dataframe`][confusius.registration.create_motion_dataframe]. For this
-# 2D+t example we focus on the in-plane rotation (`rot_z`), the in-plane translations,
-# the framewise displacement summaries (`mean_fd`, `max_fd`, `rms_fd`), and the
-# optimizer summaries (`final_metric_value`, `n_iterations`) added by
+# [`create_motion_dataframe`][confusius.registration.create_motion_dataframe]. Because
+# this recording has a singleton `z` axis, it is summarized as effective 2D motion:
+# one in-plane `rotation`, in-plane translations (`trans_x`, `trans_y`), the
+# framewise displacement summaries (`mean_fd`, `max_fd`, `rms_fd`), and the optimizer
+# summaries (`final_metric_value`, `n_iterations`) added by
 # [`register_volumewise`][confusius.registration.register_volumewise].
 
 # %% [markdown]
@@ -96,46 +97,8 @@ motion_df.head()
 # count or converge to a much worse similarity metric deserve a closer look.
 
 # %% tags=["thumbnail"]
-fig, axes = plt.subplots(4, 1, figsize=(9, 9), sharex=True, constrained_layout=True)
+fig, axes = cf.plotting.plot_motion_diagnostics(motion_df)
 fig.patch.set_facecolor(bg_color)
-
-time = motion_df.index.to_numpy(dtype=float)
-
-axes[0].plot(time, np.rad2deg(motion_df["rot_z"]), color="#4c78a8", lw=1.6)
-axes[0].set_ylabel("Rotation (deg)")
-axes[0].set_title("In-plane motion estimates")
-
-axes[1].plot(time, motion_df["trans_x"], label="x", lw=1.6)
-axes[1].plot(time, motion_df["trans_y"], label="y", lw=1.6)
-axes[1].set_ylabel("Translation (mm)")
-axes[1].legend(frameon=False, ncol=2)
-
-axes[2].plot(time, motion_df["mean_fd"], label="Mean FD", lw=1.8)
-axes[2].plot(time, motion_df["max_fd"], label="Max FD", lw=1.2, alpha=0.8)
-axes[2].set_ylabel("Displacement (mm)")
-axes[2].legend(frameon=False, ncol=2)
-
-metric_color = "#d93a54"
-iteration_color = "#3ad9a4"
-ax_metric = axes[3]
-ax_metric.plot(time, motion_df["final_metric_value"], color=metric_color, lw=1.8)
-ax_metric.set_ylabel("Final metric", color=metric_color)
-ax_metric.tick_params(axis="y", colors=metric_color)
-ax_metric.spines["left"].set_color(metric_color)
-ax_metric.set_xlabel("Time (s)")
-ax_metric.set_title("Optimizer summary")
-
-ax_iterations = ax_metric.twinx()
-ax_iterations.plot(
-    time,
-    motion_df["n_iterations"],
-    color=iteration_color,
-    lw=1.2,
-    alpha=0.9,
-)
-ax_iterations.set_ylabel("Iterations", color=iteration_color)
-ax_iterations.tick_params(axis="y", colors=iteration_color)
-ax_iterations.spines["right"].set_color(iteration_color)
 
 # %% [markdown]
 # ## Compare a representative voxel before and after registration

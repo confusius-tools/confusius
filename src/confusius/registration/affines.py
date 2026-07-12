@@ -125,6 +125,46 @@ def compose_affine(
     return A
 
 
+def get_euler_xyz_from_rotation_matrix(
+    R: npt.NDArray[np.floating],
+) -> tuple[float, float, float]:
+    """Get XYZ Euler angles from a 3D rotation matrix.
+
+    Parameters
+    ----------
+    R : (3, 3) numpy.ndarray
+        Rotation matrix.
+
+    Returns
+    -------
+    rot_x : float
+        Rotation angle around the x axis in radians.
+    rot_y : float
+        Rotation angle around the y axis in radians.
+    rot_z : float
+        Rotation angle around the z axis in radians.
+    """
+    if R.shape != (3, 3):
+        raise ValueError(f"Expected a (3, 3) rotation matrix, got {R.shape}.")
+
+    # XYZ convention: R = Rz @ Ry @ Rx
+    # R[2,0] = -sin(rot_y)
+    sy = -R[2, 0]
+    sy = max(-1.0, min(1.0, sy))
+    rot_y = math.asin(sy)
+
+    cos_y = math.cos(rot_y)
+    if abs(cos_y) > 1e-6:
+        rot_x = math.atan2(R[2, 1], R[2, 2])
+        rot_z = math.atan2(R[1, 0], R[0, 0])
+    else:
+        # Gimbal lock: set rot_x = 0 and compute rot_z.
+        rot_x = 0.0
+        rot_z = math.atan2(-R[0, 1], R[1, 1])
+
+    return rot_x, rot_y, rot_z
+
+
 def decompose_affine(
     A44: npt.NDArray[np.floating],
 ) -> tuple[

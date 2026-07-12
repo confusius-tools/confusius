@@ -189,7 +189,7 @@ def register_volumewise(
 
     with progress_context:
         results = cast(
-            "list[tuple[xr.DataArray, npt.NDArray[np.floating] | None, RegistrationDiagnostics]]",  # noqa: E501
+            "list[tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]]",  # noqa: E501
             Parallel(n_jobs=n_jobs)(
                 delayed(register_volume)(
                     volume,
@@ -219,7 +219,7 @@ def register_volumewise(
 
     arr = data_moved.values
     output = np.zeros_like(arr)
-    affines: list[npt.NDArray[np.floating] | None] = []
+    affines: list[npt.NDArray[np.floating]] = []
     final_metric_values: list[float] = []
     n_iterations_per_frame: list[int] = []
     diagnostics: list[RegistrationDiagnostics] = []

@@ -7,7 +7,11 @@ import pytest
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 from scipy.spatial.transform import Rotation
 
-from confusius.registration.affines import compose_affine, decompose_affine
+from confusius.registration.affines import (
+    compose_affine,
+    decompose_affine,
+    get_euler_xyz_from_rotation_matrix,
+)
 
 
 class TestCompose:
@@ -20,6 +24,24 @@ class TestCompose:
         Z = np.ones(3)
         with pytest.raises(ValueError, match="Expected shape"):
             compose_affine(T, R, Z)
+
+
+class TestGetEulerXYZFromRotationMatrix:
+    """Tests for `get_euler_xyz_from_rotation_matrix`."""
+
+    def test_matches_scipy_for_random_rotations(self):
+        """Extracted XYZ angles match SciPy away from singularities."""
+        rng = np.random.default_rng(42)
+        for _ in range(50):
+            angles = rng.uniform(-1.2, 1.2, size=3)
+            matrix = Rotation.from_euler("xyz", angles).as_matrix()
+            recovered = get_euler_xyz_from_rotation_matrix(matrix)
+            assert_array_almost_equal(recovered, angles)
+
+    def test_rejects_wrong_shape(self):
+        """Only 3x3 rotation matrices are accepted."""
+        with pytest.raises(ValueError, match=r"\(3, 3\)"):
+            get_euler_xyz_from_rotation_matrix(np.eye(4))
 
 
 class TestDecompose44:
