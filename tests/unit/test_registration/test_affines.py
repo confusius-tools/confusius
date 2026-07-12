@@ -1,6 +1,7 @@
 """Unit tests for affine matrix decomposition utilities."""
 
 from itertools import permutations
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -11,6 +12,7 @@ from confusius.registration.affines import (
     compose_affine,
     decompose_affine,
     get_euler_xyz_from_rotation_matrix,
+    sitk_linear_transform_to_affine,
 )
 
 
@@ -42,6 +44,37 @@ class TestGetEulerXYZFromRotationMatrix:
         """Only 3x3 rotation matrices are accepted."""
         with pytest.raises(ValueError, match=r"\(3, 3\)"):
             get_euler_xyz_from_rotation_matrix(np.eye(4))
+
+
+class TestSitkLinearTransformToAffine:
+    """Tests for `sitk_linear_transform_to_affine`."""
+
+    def test_identity_transform_returns_identity_affine(self):
+        """Identity-like transforms convert to identity matrices."""
+
+        class IdentityTransformStub:
+            def GetDimension(self):
+                return 3
+
+            def GetName(self):
+                return "IdentityTransform"
+
+        affine = sitk_linear_transform_to_affine(cast(Any, IdentityTransformStub()))
+
+        assert_array_equal(affine, np.eye(4))
+
+    def test_unsupported_transform_type_raises(self):
+        """Unexpected transform types raise a clear error."""
+
+        class UnsupportedTransformStub:
+            def GetDimension(self):
+                return 3
+
+            def GetName(self):
+                return "ScaleTransform"
+
+        with pytest.raises(ValueError, match="unsupported transform type"):
+            sitk_linear_transform_to_affine(cast(Any, UnsupportedTransformStub()))
 
 
 class TestDecompose44:
