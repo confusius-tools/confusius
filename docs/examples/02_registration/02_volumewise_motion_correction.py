@@ -23,17 +23,12 @@
 
 
 # %%
-from base64 import b64encode
-from io import BytesIO
 from pathlib import Path
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
-from IPython.display import HTML
-from matplotlib import font_manager
-from PIL import Image, ImageDraw, ImageFont
 
 import confusius as cf
 
@@ -166,92 +161,50 @@ ax.set_title(f"Voxel at y={voxel_y}, x={voxel_x}")
 _ = ax.legend(frameon=False)
 
 # %% [markdown]
-# ## Build a before/after GIF
+# ## Check the alignment over time
 #
-# A side-by-side movie is often the fastest qualitative check. We render the raw and
-# registered slices with a shared contrast scale so the residual jitter is easy to spot.
-
+# A compact way to inspect the correction inside the notebook is to follow one image
+# column across time. Motion appears as slanted or wobbling vessel traces in this
+# `y × time` raster, while a good correction makes those traces more horizontal and
+# stable.
 
 # %%
-def _gif_html(before: xr.DataArray, after: xr.DataArray) -> HTML:
-    """Return an inline HTML `<img>` tag for a side-by-side animated GIF.
+raster_before = data.fusi.scale.db().isel(z=0, x=voxel_x)
+raster_after = registered.fusi.scale.db().isel(z=0, x=voxel_x)
 
-    Parameters
-    ----------
-    before : xarray.DataArray
-        Unregistered movie with dims `(time, y, x)`.
-    after : xarray.DataArray
-        Registered movie with the same dims and coordinates as `before`.
+fig, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True, sharey=True)
+fig.patch.set_facecolor(bg_color)
 
-    Returns
-    -------
-    IPython.display.HTML
-        HTML object embedding the GIF as a data URI.
-    """
-    vmin = float(np.nanpercentile(before, 2))
-    vmax = float(np.nanpercentile(before, 99.8))
-    if vmax <= vmin:
-        vmax = vmin + 1.0
+vmin = float(np.nanpercentile(raster_before, 2))
+vmax = float(np.nanpercentile(raster_before, 99.8))
 
-    pad = 12
-    panel_size = (480, 390)
-    header_height = 56
-    try:
-        font = ImageFont.truetype(font_manager.findfont("DejaVu Sans"), 24)
-    except (OSError, ValueError):
-        font = ImageFont.load_default()
-
-    frames: list[Image.Image] = []
-
-    for i, t in enumerate(before["time"].values):
-        left = np.clip((before.isel(time=i).values - vmin) / (vmax - vmin), 0, 1)
-        right = np.clip((after.isel(time=i).values - vmin) / (vmax - vmin), 0, 1)
-        left = Image.fromarray((255 * left).astype(np.uint8)).convert("RGB")
-        right = Image.fromarray((255 * right).astype(np.uint8)).convert("RGB")
-        left = left.resize(panel_size, Image.Resampling.LANCZOS)
-        right = right.resize(panel_size, Image.Resampling.LANCZOS)
-
-        canvas = Image.new(
-            "RGB",
-            (left.width + right.width + 3 * pad, left.height + header_height),
-            "black",
-        )
-        canvas.paste(left, (pad, header_height))
-        canvas.paste(right, (left.width + 2 * pad, header_height))
-
-        draw = ImageDraw.Draw(canvas)
-        draw.text((pad, 14), "Before", fill="white", font=font)
-        draw.text((left.width + 2 * pad, 14), "After", fill="white", font=font)
-        timestamp = f"{float(t):.1f}s"
-        timestamp_width = draw.textlength(timestamp, font=font)
-        draw.text(
-            (canvas.width - pad - timestamp_width, 14),
-            timestamp,
-            fill="white",
-            font=font,
-        )
-        frames.append(canvas)
-
-    buffer = BytesIO()
-    frames[0].save(
-        buffer,
-        format="GIF",
-        save_all=True,
-        append_images=frames[1:],
-        duration=100,
-        loop=0,
+for ax, raster, title in [
+    (axes[0], raster_before, "Before"),
+    (axes[1], raster_after, "After"),
+]:
+    ax.imshow(
+        raster.T,
+        aspect="auto",
+        origin="lower",
+        cmap="gray",
+        vmin=vmin,
+        vmax=vmax,
+        extent=[
+            float(raster["time"].values[0]),
+            float(raster["time"].values[-1]),
+            float(raster["y"].values[0]),
+            float(raster["y"].values[-1]),
+        ],
     )
-    gif_base64 = b64encode(buffer.getvalue()).decode("ascii")
-    return HTML(
-        f'<img src="data:image/gif;base64,{gif_base64}" alt="Before/after volumewise registration GIF" />'
-    )
+    ax.set_title(title)
+    ax.set_xlabel("Time (s)")
 
-
-movie_before = data.fusi.scale.db().squeeze("z", drop=True)
-movie_after = registered.fusi.scale.db().squeeze("z", drop=True)
-_gif_html(movie_before, movie_after)
+_ = axes[0].set_ylabel("y (mm)")
 
 # %% [markdown]
-# Even on this short excerpt, the registered movie is visibly more stable. For a full
+# For a full visual check of the corrected movie, open the result in napari with
+# [`plot_napari`][confusius.plotting.plot_napari] or inspect it in the ConfUSIus
+# plugin. We intentionally do not embed a full before/after GIF here because it would
+# make the rendered notebook unnecessarily heavy for the docs site. For a full
 # preprocessing workflow, you would usually run the same correction on the complete
 # recording before downstream QC, decomposition, or connectivity analysis.
