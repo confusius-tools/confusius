@@ -108,6 +108,14 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
+    # docs/examples/registration/volumewise_motion_correction.py
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220523",
+        acqs="slice32",
+    )
+
 
 def main() -> None:
     _prefetch_nunez_elizalde()
