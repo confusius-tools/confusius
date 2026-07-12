@@ -12,6 +12,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
+  the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
+  `pixdim[4]` when available, and otherwise warns before using frame indices.
+  ([#PR](https://github.com/confusius-tools/confusius/pull/PR)).
 - Motion parameter tables from
   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
   rotations and translations by the coordinate names `x`/`y`/`z` instead of by raw
