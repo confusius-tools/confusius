@@ -26,7 +26,6 @@ Current development version for the next ConfUSIus release.
   needed; the napari plugin now uses it for imported signal tables
   ([#294](https://github.com/confusius-tools/confusius/pull/294)).
 
-
 ### :bug: Fixes
 
 - Motion parameter tables from
@@ -35,6 +34,9 @@ Current development version for the next ConfUSIus release.
   transform-component order, so canonical ConfUSIus arrays stored as `(z, y, x)` no
   longer mislabel in-plane motion
   ([#301](https://github.com/confusius-tools/confusius/pull/301)).
+- **[Napari plugin]** The signal import dialog now finds BIDS physio files ending in
+  `.tsv.gz`, keeps the x-axis cursor visible for imported-only plots when enabled, and
+  lets you import multiple signal files in one go ([#294](https://github.com/confusius-tools/confusius/pull/294)).
 - Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
   clear error that points users to newer SCAN v2 files and to converting them to NIfTI
   with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
