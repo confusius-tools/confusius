@@ -142,13 +142,13 @@ vmin = float(np.nanpercentile(raster_before, 2))
 vmax = float(np.nanpercentile(raster_before, 99.8))
 
 for ax, raster, title in [
-    (axes[0], raster_before, "Before"),
-    (axes[1], raster_after, "After"),
+    (axes[0], raster_before, "Before motion correction"),
+    (axes[1], raster_after, "After motion correction"),
 ]:
     ax.imshow(
         raster.T,
         aspect="auto",
-        origin="lower",
+        origin="upper",
         cmap="gray",
         vmin=vmin,
         vmax=vmax,

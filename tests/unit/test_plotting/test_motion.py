@@ -2,12 +2,34 @@
 
 import matplotlib.pyplot as plt
 import pandas as pd
+import pytest
 
 from confusius.plotting import plot_motion_diagnostics
 
 
 class TestPlotMotionDiagnostics:
     """Tests for `plot_motion_diagnostics`."""
+
+    def test_rejects_dataframe_without_supported_columns(self):
+        """A motion table needs at least one supported diagnostics column."""
+        motion_df = pd.DataFrame(index=pd.Index([0, 1], name="frame"))
+
+        with pytest.raises(ValueError, match="supported diagnostics columns"):
+            plot_motion_diagnostics(motion_df)
+
+    def test_optimizer_iterations_only_uses_single_axis(self):
+        """Optimizer-only tables still produce a single panel without twinned axes."""
+        motion_df = pd.DataFrame(
+            {"n_iterations": [10, 12]},
+            index=pd.Index([0, 1], name="frame"),
+        )
+
+        fig, axes = plot_motion_diagnostics(motion_df)
+
+        assert len(axes) == 1
+        assert axes[0].get_ylabel() == "Iterations"
+        assert len(fig.axes) == 1
+        plt.close(fig)
 
     def test_effective_2d_motion_dataframe(self):
         """Effective 2D motion tables plot rotation, translation, and optimizer panels."""

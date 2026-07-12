@@ -15,7 +15,9 @@ from confusius.registration.motion import (
 
 def _with_spatial_dims(reference, dims):
     """Return `reference` with reordered spatial dim names and matching coords."""
-    return reference.rename(dict(zip(reference.dims, dims, strict=True))).transpose(*dims)
+    return reference.rename(dict(zip(reference.dims, dims, strict=True))).transpose(
+        *dims
+    )
 
 
 def _translation_affine_2d(tx, ty):
@@ -72,6 +74,13 @@ class TestValidateAffines:
         with pytest.raises(TypeError, match="numpy.ndarray"):
             _validate_affines(cast(Any, [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]]))
 
+    def test_rejects_non_square_affine_array(self):
+        """Affine matrices must be square 2D arrays."""
+        import pytest
+
+        with pytest.raises(ValueError, match="square 2D array"):
+            _validate_affines([np.zeros((3, 4))])
+
     def test_rejects_wrong_affine_shape(self):
         """Only homogeneous 2D and 3D affine shapes are accepted."""
         import pytest
@@ -105,6 +114,17 @@ class TestExtractMotionParameters:
         params = extract_motion_parameters([np.eye(3)])
         assert params.shape == (1, 3)
         assert_allclose(params[0], [0.0, 0.0, 0.0], atol=1e-6)
+
+    def test_2d_reflection_affine_keeps_valid_rotation_and_translation(self):
+        """2D reflection-like affines still return stable motion parameters."""
+        affine = np.eye(3)
+        affine[0, 0] = -1.0
+        affine[0, 2] = 1.0
+        affine[1, 2] = 2.0
+
+        params = extract_motion_parameters([affine])
+
+        assert_allclose(params[0], [0.0, 1.0, 2.0], atol=1e-6)
 
     def test_3d_translation_only(self):
         """3D pure translation extracts [0, 0, 0, tx, ty, tz]."""
@@ -237,6 +257,17 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
+    def test_too_many_singleton_axes_raise_error(self, sample_3d_dataarray_spatial):
+        """Effective motion summaries need at least two non-singleton spatial axes."""
+        import pytest
+
+        ref = _with_singleton_dim(
+            _with_singleton_dim(sample_3d_dataarray_spatial, "z"), "y"
+        )
+
+        with pytest.raises(ValueError, match="at least two non-singleton"):
+            create_motion_dataframe([np.eye(4)], ref)
+
     def test_3d_dataframe_columns(self, sample_3d_dataarray_spatial):
         """3D affines produce DataFrame with correct columns."""
         t1 = np.eye(4)
@@ -293,6 +324,28 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["rot_y"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
+
+    def test_rejects_unexpected_parameter_count(
+        self, monkeypatch, sample_2d_dataarray_spatial
+    ):
+        """Unexpected motion-parameter widths are rejected."""
+        import pytest
+
+        monkeypatch.setattr(
+            "confusius.registration.motion.extract_motion_parameters",
+            lambda affines: np.zeros((1, 4)),
+        )
+        monkeypatch.setattr(
+            "confusius.registration.motion.compute_framewise_displacement",
+            lambda affines, reference, mask=None: {
+                "mean_fd": np.zeros(1),
+                "max_fd": np.zeros(1),
+                "rms_fd": np.zeros(1),
+            },
+        )
+
+        with pytest.raises(ValueError, match="3 or 6 columns"):
+            create_motion_dataframe([np.eye(3)], sample_2d_dataarray_spatial)
 
     def test_time_coords_as_index(self, sample_2d_dataarray_spatial):
         """Time coordinates are used as DataFrame index."""
