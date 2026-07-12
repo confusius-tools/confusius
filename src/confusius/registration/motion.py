@@ -97,11 +97,6 @@ def extract_motion_parameters(
 
         - For 2D: `n_params = 3 (rotation, t0, t1)`.
         - For 3D: `n_params = 6 (r0, r1, r2, t0, t1, t2)`.
-
-    Raises
-    ------
-    ValueError
-        If any affine does not have shape `(3, 3)` (2D) or `(4, 4)` (3D).
     """
     import math
 
@@ -116,11 +111,9 @@ def extract_motion_parameters(
         )
 
         if ndim == 2:
-            # Rotation angle from the 2D rotation matrix.
             rotation = math.atan2(R[1, 0], R[0, 0])
             params_list.append([rotation, float(T[0]), float(T[1])])
         else:
-            # Decompose the 3D rotation matrix into Euler angles (XYZ convention).
             rot_x, rot_y, rot_z = get_euler_xyz_from_rotation_matrix(R)
             params_list.append(
                 [rot_x, rot_y, rot_z, float(T[0]), float(T[1]), float(T[2])]
@@ -287,15 +280,13 @@ def compute_framewise_displacement(
     ]
 
     grids = np.meshgrid(*coords_1d, indexing="ij")
-    points = np.stack([g.ravel() for g in grids], axis=1)  # (n_voxels, ndim)
+    points = np.stack([g.ravel() for g in grids], axis=1)
 
     if mask is not None:
-        mask_flat = mask.ravel()
-        points = points[mask_flat]
+        points = points[mask.ravel()]
 
     transformed = []
     for affine in affines_validated:
-        # Apply affine: p_out = A[:ndim, :ndim] @ p.T + A[:ndim, ndim]
         pts_out = (affine[:ndim, :ndim] @ points.T).T + affine[:ndim, ndim]
         transformed.append(pts_out)
 
@@ -309,7 +300,6 @@ def compute_framewise_displacement(
         max_fd[t] = np.max(displacements)
         rms_fd[t] = np.sqrt(np.mean(displacements**2))
 
-    # Last frame has no next frame, so FD is 0.
     mean_fd[-1] = 0.0
     max_fd[-1] = 0.0
     rms_fd[-1] = 0.0

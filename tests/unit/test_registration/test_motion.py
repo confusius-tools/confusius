@@ -15,9 +15,7 @@ from confusius.registration.motion import (
 
 def _with_spatial_dims(reference, dims):
     """Return `reference` with reordered spatial dim names and matching coords."""
-    return reference.rename(dict(zip(reference.dims, dims, strict=True))).transpose(
-        *dims
-    )
+    return reference.rename(dict(zip(reference.dims, dims, strict=True))).transpose(*dims)
 
 
 def _translation_affine_2d(tx, ty):
@@ -98,7 +96,7 @@ class TestExtractMotionParameters:
         params = extract_motion_parameters([affine])
 
         assert params.shape == (1, 3)
-        assert_allclose(params[0, 0], 0.0, atol=1e-6)  # no rotation
+        assert_allclose(params[0, 0], 0.0, atol=1e-6)
         assert_allclose(params[0, 1], 2.0, atol=1e-6)
         assert_allclose(params[0, 2], 3.0, atol=1e-6)
 
@@ -149,10 +147,9 @@ class TestComputeFramewiseDisplacement:
     def test_known_translation_displacement_2d(self, sample_2d_dataarray_spatial):
         """Known 2D translation produces correct FD (Euclidean distance)."""
         t1 = np.eye(3)
-        t2 = _translation_affine_2d(3.0, 4.0)  # distance = 5.0
+        t2 = _translation_affine_2d(3.0, 4.0)
         fd = compute_framewise_displacement([t1, t2], sample_2d_dataarray_spatial)
 
-        # Pure translation: all voxels displace equally.
         assert_allclose(fd["mean_fd"][0], 5.0, atol=1e-6)
         assert_allclose(fd["max_fd"][0], 5.0, atol=1e-6)
         assert_allclose(fd["rms_fd"][0], 5.0, atol=1e-6)
@@ -162,7 +159,7 @@ class TestComputeFramewiseDisplacement:
         """Known 3D translation produces correct FD."""
         t1 = np.eye(4)
         t2 = np.eye(4)
-        t2[:3, 3] = [1.0, 2.0, 2.0]  # distance = 3.0
+        t2[:3, 3] = [1.0, 2.0, 2.0]
         fd = compute_framewise_displacement([t1, t2], sample_3d_dataarray_spatial)
 
         assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
@@ -171,14 +168,13 @@ class TestComputeFramewiseDisplacement:
     def test_with_mask(self, sample_2d_dataarray_spatial):
         """Mask restricts FD computation to masked voxels."""
         t1 = np.eye(3)
-        t2 = _translation_affine_2d(3.0, 4.0)  # distance = 5.0
+        t2 = _translation_affine_2d(3.0, 4.0)
         mask = np.zeros(sample_2d_dataarray_spatial.shape, dtype=bool)
         mask[2:8, 2:8] = True
         fd = compute_framewise_displacement(
             [t1, t2], sample_2d_dataarray_spatial, mask=mask
         )
 
-        # Pure translation: same displacement regardless of mask.
         assert_allclose(fd["mean_fd"][0], 5.0, atol=1e-6)
 
 

@@ -10,9 +10,14 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- Motion diagnostics helpers now require actual affine matrices: [`extract_motion_parameters`][confusius.registration.extract_motion_parameters], [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement], and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no longer accept `None` placeholders in their affine lists ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+
 ### :sparkles: Enhancements
 
 - Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now treats any singleton spatial axis as effective 2D motion and returns only the relevant in-plane rotation / translation columns ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 
 ### :bug: Fixes
 
