@@ -9,6 +9,7 @@ from numpy.testing import assert_array_almost_equal, assert_array_equal
 from scipy.spatial.transform import Rotation
 
 from confusius.registration.affines import (
+    affine_to_sitk_linear_transform,
     compose_affine,
     decompose_affine,
     get_euler_xyz_from_rotation_matrix,
@@ -26,6 +27,26 @@ class TestCompose:
         Z = np.ones(3)
         with pytest.raises(ValueError, match="Expected shape"):
             compose_affine(T, R, Z)
+
+    def test_without_shear_uses_plain_rotation_and_zoom(self):
+        """Omitting shear keeps the affine equal to `R @ diag(Z)` plus translation."""
+        T = np.array([1.0, 2.0, 3.0])
+        R = Rotation.from_euler("xyz", [0.1, 0.2, 0.3]).as_matrix()
+        Z = np.array([2.0, 3.0, 4.0])
+
+        affine = compose_affine(T, R, Z)
+
+        assert_array_almost_equal(affine[:3, :3], R @ np.diag(Z))
+        assert_array_equal(affine[:3, 3], T)
+
+    def test_invalid_shear_length_raises(self):
+        """Shear vectors must have a triangular-number length."""
+        T = np.zeros(3)
+        R = np.eye(3)
+        Z = np.ones(3)
+
+        with pytest.raises(ValueError, match="strange number of shear elements"):
+            compose_affine(T, R, Z, np.array([0.1, 0.2]))
 
 
 class TestGetEulerXYZFromRotationMatrix:
@@ -45,9 +66,55 @@ class TestGetEulerXYZFromRotationMatrix:
         with pytest.raises(ValueError, match=r"\(3, 3\)"):
             get_euler_xyz_from_rotation_matrix(np.eye(4))
 
+    def test_handles_gimbal_lock(self):
+        """The gimbal-lock branch still returns stable XYZ angles."""
+        angles = (0.4, np.pi / 2, -0.2)
+        matrix = Rotation.from_euler("xyz", angles).as_matrix()
+
+        rot_x, rot_y, rot_z = get_euler_xyz_from_rotation_matrix(matrix)
+
+        assert rot_x == 0.0
+        assert_array_almost_equal((rot_y, rot_z), (np.pi / 2, -0.6))
+
 
 class TestSitkLinearTransformToAffine:
     """Tests for `sitk_linear_transform_to_affine`."""
+
+    def test_affine_to_sitk_linear_transform_round_trips(self):
+        """Affine matrices round-trip through SimpleITK affine transforms."""
+        affine = np.array(
+            [
+                [1.0, 0.1, 0.0, 2.0],
+                [0.0, 1.5, 0.2, 3.0],
+                [0.0, 0.0, 2.0, 4.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+
+        sitk_transform = affine_to_sitk_linear_transform(affine)
+
+        assert_array_almost_equal(sitk_linear_transform_to_affine(sitk_transform), affine)
+
+    def test_composite_transform_multiplies_child_affines_in_order(self):
+        """Composite transforms compose child affines in SimpleITK's application order."""
+        import SimpleITK as sitk
+
+        outer = sitk.TranslationTransform(3)
+        outer.SetOffset((1.0, 2.0, 3.0))
+        inner = sitk.Euler3DTransform()
+        inner.SetRotation(0.05, 0.0, 0.0)
+        inner.SetTranslation((0.5, 0.0, 0.0))
+
+        composite = sitk.CompositeTransform(3)
+        composite.AddTransform(outer)
+        composite.AddTransform(inner)
+
+        expected = (
+            sitk_linear_transform_to_affine(outer)
+            @ sitk_linear_transform_to_affine(inner)
+        )
+
+        assert_array_almost_equal(sitk_linear_transform_to_affine(composite), expected)
 
     def test_identity_transform_returns_identity_affine(self):
         """Identity-like transforms convert to identity matrices."""
@@ -109,3 +176,12 @@ class TestDecompose44:
             M[-1] = [0, 0, 0, 1]
             T, R, Z, S = decompose_affine(M)
             assert_array_almost_equal(compose_affine(T, R, Z, S), M)
+
+    def test_negative_determinant_flips_first_zoom_not_rotation(self):
+        """Reflections are represented with a negative zoom and a proper rotation."""
+        affine = np.diag([-2.0, 3.0, 4.0, 1.0])
+
+        _T, R, Z, _S = decompose_affine(affine)
+
+        assert np.linalg.det(R) > 0
+        assert Z[0] < 0
