@@ -12,6 +12,7 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Motion parameter tables from [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label rotations and translations by the DataArray's named `x`/`y`/`z` axes even when the underlying spatial dims are stored in a different order such as `(z, y, x)` ([#301](https://github.com/confusius-tools/confusius/pull/301)).
 - Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
   clear error that points users to newer SCAN v2 files and to converting them to NIfTI
   with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).

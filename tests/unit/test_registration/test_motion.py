@@ -10,28 +10,20 @@ from confusius.registration.motion import (
 )
 
 
-def _make_ref_da(size, spacing=1.0, ndim=2):
+def _make_ref_da(size, spacing=1.0, ndim=2, dims=None):
     """Create a spatial DataArray for FD reference."""
     import xarray as xr
 
     if ndim == 2:
-        return xr.DataArray(
-            np.zeros(size),
-            dims=("y", "x"),
-            coords={
-                "y": np.arange(size[0]) * spacing,
-                "x": np.arange(size[1]) * spacing,
-            },
-        )
-    return xr.DataArray(
-        np.zeros(size),
-        dims=("z", "y", "x"),
-        coords={
-            "z": np.arange(size[0]) * spacing,
-            "y": np.arange(size[1]) * spacing,
-            "x": np.arange(size[2]) * spacing,
-        },
-    )
+        if dims is None:
+            dims = ("y", "x")
+        coords = {dim: np.arange(size[i]) * spacing for i, dim in enumerate(dims)}
+        return xr.DataArray(np.zeros(size), dims=dims, coords=coords)
+
+    if dims is None:
+        dims = ("z", "y", "x")
+    coords = {dim: np.arange(size[i]) * spacing for i, dim in enumerate(dims)}
+    return xr.DataArray(np.zeros(size), dims=dims, coords=coords)
 
 
 def _translation_affine_2d(tx, ty):
@@ -45,9 +37,22 @@ def _translation_affine_2d(tx, ty):
 def _translation_affine_3d(tx, ty, tz):
     """Return a (4, 4) 3D translation affine."""
     A = np.eye(4)
-    A[0, 2] = tx
-    A[1, 2] = ty
-    A[2, 2] = tz
+    A[:3, 3] = [tx, ty, tz]
+    return A
+
+
+def _rotation_affine_3d_first_axis(angle):
+    """Return a (4, 4) 3D rotation affine around the first axis."""
+    A = np.eye(4)
+    c = np.cos(angle)
+    s = np.sin(angle)
+    A[:3, :3] = np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, c, -s],
+            [0.0, s, c],
+        ]
+    )
     return A
 
 
@@ -202,6 +207,37 @@ class TestCreateMotionDataframe:
         ]
         assert list(df.columns) == expected_cols
 
+    def test_2d_dataframe_reorders_translations_to_named_axes(self):
+        """2D translations follow x/y names, not raw axis order."""
+        ref = _make_ref_da((10, 10), spacing=1.0, dims=("y", "x"))
+        df = create_motion_dataframe([np.eye(3), _translation_affine_2d(2.0, 3.0)], ref)
+
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+
+    def test_3d_dataframe_reorders_translations_to_named_axes(self):
+        """3D translations follow x/y/z names, not raw axis order."""
+        ref = _make_ref_da((8, 8, 8), spacing=1.0, ndim=3, dims=("z", "y", "x"))
+        df = create_motion_dataframe(
+            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
+        )
+
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
+
+    def test_3d_dataframe_reorders_rotations_to_named_axes(self):
+        """3D rotations follow x/y/z names, not raw axis order."""
+        ref = _make_ref_da((8, 8, 8), spacing=1.0, ndim=3, dims=("z", "y", "x"))
+        angle = 0.1
+        df = create_motion_dataframe(
+            [np.eye(4), _rotation_affine_3d_first_axis(angle)], ref
+        )
+
+        assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["rot_y"], 0.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
+
     def test_time_coords_as_index(self):
         """Time coordinates are used as DataFrame index."""
         ref = _make_ref_da((10, 10), spacing=1.0)
@@ -220,7 +256,7 @@ class TestCreateMotionDataframe:
 
     def test_motion_values_correct(self):
         """Motion parameter values are correctly populated."""
-        ref = _make_ref_da((10, 10), spacing=1.0)
+        ref = _make_ref_da((10, 10), spacing=1.0, dims=("x", "y"))
         affines = [np.eye(3), _translation_affine_2d(2.0, 3.0)]
         df = create_motion_dataframe(affines, ref)
 

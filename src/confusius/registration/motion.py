@@ -294,18 +294,24 @@ def create_motion_dataframe(
         For 2D:
 
         - `rotation`: Rotation angle in radians.
-        - `trans_x`: Translation in x (mm).
-        - `trans_y`: Translation in y (mm).
+        - `trans_x`: Translation along the DataArray's `x` axis (mm).
+        - `trans_y`: Translation along the DataArray's `y` axis (mm).
 
         For 3D:
 
-        - `rot_x, rot_y, rot_z`: Rotation angles in radians.
-        - `trans_x, trans_y, trans_z`: Translations (mm).
+        - `rot_x, rot_y, rot_z`: Rotation angles around the DataArray's
+          `x`, `y`, and `z` axes, in radians.
+        - `trans_x, trans_y, trans_z`: Translations along the DataArray's
+          `x`, `y`, and `z` axes (mm).
 
         Both:
         - `mean_fd`: Mean framewise displacement (mm).
         - `max_fd`: Maximum framewise displacement (mm).
         - `rms_fd`: RMS framewise displacement (mm).
+
+        Motion columns are reported in named-axis order (`x`, `y`, `z`), even when
+        the input DataArray stores its spatial dimensions in a different order such as
+        `(z, y, x)`.
     """
     import pandas as pd
 
@@ -313,26 +319,30 @@ def create_motion_dataframe(
 
     fd_dict = compute_framewise_displacement(affines, reference, mask)
 
+    spatial_dims = tuple(str(dim) for dim in reference.dims)
+
     if params.shape[1] == 3:
+        axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
         df = pd.DataFrame(
             {
                 "rotation": params[:, 0],
-                "trans_x": params[:, 1],
-                "trans_y": params[:, 2],
+                "trans_x": params[:, 1 + axis_index["x"]],
+                "trans_y": params[:, 1 + axis_index["y"]],
                 "mean_fd": fd_dict["mean_fd"],
                 "max_fd": fd_dict["max_fd"],
                 "rms_fd": fd_dict["rms_fd"],
             }
         )
     else:
+        axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
         df = pd.DataFrame(
             {
-                "rot_x": params[:, 0],
-                "rot_y": params[:, 1],
-                "rot_z": params[:, 2],
-                "trans_x": params[:, 3],
-                "trans_y": params[:, 4],
-                "trans_z": params[:, 5],
+                "rot_x": params[:, axis_index["x"]],
+                "rot_y": params[:, axis_index["y"]],
+                "rot_z": params[:, axis_index["z"]],
+                "trans_x": params[:, 3 + axis_index["x"]],
+                "trans_y": params[:, 3 + axis_index["y"]],
+                "trans_z": params[:, 3 + axis_index["z"]],
                 "mean_fd": fd_dict["mean_fd"],
                 "max_fd": fd_dict["max_fd"],
                 "rms_fd": fd_dict["rms_fd"],
