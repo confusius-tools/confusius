@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Volumewise motion correction
+# # Motion correction of a single recording
 #
 # This example shows how to correct frame-to-frame brain motion in one fUSI recording
 # with [`register_volumewise`][confusius.registration.register_volumewise]. We reuse
@@ -71,14 +71,11 @@ data
 # rigid transform, correlation metric, and a fixed `learning_rate=1.0`.
 
 # %%
-reference_time = data.sizes["time"] // 2
 registered = cf.registration.register_volumewise(
     data,
-    reference_time=reference_time,
     transform="rigid",
     metric="correlation",
     learning_rate=1.0,
-    n_jobs=-1,
     resample_interpolation="bspline",
     show_progress=False,
 )
@@ -164,7 +161,7 @@ ax.plot(voxel_after["time"], voxel_after, label="After", lw=1.6)
 ax.set_xlabel("Time (s)")
 ax.set_ylabel("Power Doppler intensity")
 ax.set_title(f"Voxel at y={voxel_y}, x={voxel_x}")
-ax.legend(frameon=False)
+_ = ax.legend(frameon=False)
 
 # %%
 data_db = data.fusi.scale.db()
