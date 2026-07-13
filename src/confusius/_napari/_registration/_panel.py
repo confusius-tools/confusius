@@ -90,7 +90,10 @@ from confusius._napari._registration._progress import (
     NapariRegistrationProgressPlotterBridge,
     NapariRegistrationProgressReporterBridge,
 )
-from confusius._napari._registration._transform_payloads import TransformPayload
+from confusius._napari._registration._transform_payloads import (
+    OutputGridPayload,
+    TransformPayload,
+)
 from confusius.registration import register_volume, register_volumewise
 
 if TYPE_CHECKING:
@@ -213,6 +216,7 @@ class ApplyTransformPayload(TypedDict):
     target_layer_name: str
     transform_source: str
     direction: Literal["forward", "inverse"]
+    output_grid: OutputGridPayload
 
 
 def _get_optimizer_weight_labels(

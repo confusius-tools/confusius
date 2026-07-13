@@ -808,6 +808,7 @@ def apply_selected_transform(panel: "RegistrationPanel") -> None:
         "target_layer_name": payload["target_layer_name"],
         "transform_source": payload["name"],
         "direction": "forward",
+        "output_grid": output_grid,
     }
     panel._worker = worker
     panel._begin_work()
@@ -871,6 +872,7 @@ def apply_selected_inverse_transform(panel: "RegistrationPanel") -> None:
         "target_layer_name": payload["source_layer_name"],
         "transform_source": payload["name"],
         "direction": "inverse",
+        "output_grid": output_grid,
     }
     panel._worker = worker
     panel._begin_work()
@@ -906,6 +908,21 @@ def on_apply_transform_finished(
         else "apply_transform"
     )
 
+    # resample_volume rebuilds output coordinates as bare arrays; re-attach the
+    # voxdim/units metadata recorded in the grid payload so downstream consumers
+    # (e.g. plot_napari layer scale and units) see the same coordinate metadata
+    # as a register_volume result, including the spacing of singleton dims.
+    grid = payload["output_grid"]
+    for dim, spacing, units in zip(
+        grid["dims"], grid["spacing"], grid["units"], strict=True
+    ):
+        if dim not in registered.coords:
+            continue
+        coord_attrs = registered.coords[dim].attrs
+        coord_attrs["voxdim"] = abs(spacing)
+        if units is not None:
+            coord_attrs["units"] = units
+
     name = panel._make_unique_layer_name(
         f"{payload['moving_layer_name']} → {payload['target_layer_name']}"
     )
@@ -915,6 +932,7 @@ def on_apply_transform_finished(
         if source_layer is not None
         else {}
     )
+    display_kwargs["blending"] = "additive"
     contrast_limits = tuple(calc_data_range(registered.data))
     _, layer = plot_napari(
         registered,

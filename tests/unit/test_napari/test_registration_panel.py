@@ -1064,6 +1064,61 @@ class TestTransforms:
         assert layer.metadata["transform_source"] == "moving → fixed (bspline)"
         assert layer.metadata["registration_operation"] == "apply_transform"
 
+    def test_apply_transform_layers_keep_grid_units_and_singleton_spacing(
+        self, viewer, registration_panel, monkeypatch
+    ):
+        def _mm_coord(values, dim, voxdim=None):
+            attrs = {"units": "mm"}
+            if voxdim is not None:
+                attrs["voxdim"] = voxdim
+            return xr.DataArray(values, dims=[dim], attrs=attrs)
+
+        target = xr.DataArray(
+            np.zeros((1, 5, 7), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": _mm_coord([0.0], "z", voxdim=0.4),
+                "y": _mm_coord(np.arange(5) * 0.3, "y"),
+                "x": _mm_coord(np.arange(7) * 0.3, "x"),
+            },
+        )
+        moving = target.copy()
+        payload = make_affine_transform_payload(
+            np.eye(4),
+            reference=target,
+            source=moving,
+            source_layer_name="moving",
+            target_layer_name="target",
+            operation="register_volume",
+            transform_model="affine",
+            metric="correlation",
+            diagnostics=_FakeDiagnostics(),
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        viewer.add_image(
+            target.values,
+            name="Registered",
+            metadata={"xarray": target, "confusius_transform": payload},
+        )
+        refresh_transform_controls(registration_panel)
+        registration_panel._transform_source_combo.setCurrentText(
+            "moving → target (affine)"
+        )
+        registration_panel._transform_target_combo.setCurrentText("moving")
+        _install_immediate_thread_worker(monkeypatch)
+
+        apply_selected_transform(registration_panel)
+        apply_selected_inverse_transform(registration_panel)
+
+        for layer_name in ("moving → target", "moving → moving"):
+            layer = viewer.layers[layer_name]
+            assert layer.blending == "additive"
+            np.testing.assert_allclose(layer.scale, (0.4, 0.3, 0.3))
+            assert tuple(str(u) for u in layer.units) == ("millimeter",) * 3
+            result = layer.metadata["xarray"]
+            assert result.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
+            assert result.coords["y"].attrs["units"] == "mm"
+
     def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
