@@ -429,7 +429,7 @@ def _create_spatial_coords_from_nifti(
 
 def _validate_volume_timing_length(
     volume_timing: npt.NDArray[np.floating], *, n_time: int
-) -> npt.NDArray[np.floating] | None:
+) -> tuple[npt.NDArray[np.floating] | None, bool]:
     """Validate sidecar `VolumeTiming` against the NIfTI time-axis length.
 
     Parameters
@@ -441,26 +441,28 @@ def _validate_volume_timing_length(
 
     Returns
     -------
-    numpy.ndarray or None
+    volume_timing : numpy.ndarray or None
         `volume_timing` unchanged when its shape and length are valid, or `None` when
         the sidecar values cannot be used safely.
+    length_mismatch : bool
+        Whether the sidecar had a valid 1D shape but the wrong length.
     """
     if volume_timing.ndim != 1 or volume_timing.size == 0:
         warnings.warn(
             "`VolumeTiming` metadata is not a non-empty 1D array. Ignoring it.",
             stacklevel=find_stack_level(),
         )
-        return None
+        return None, False
 
     if volume_timing.size == n_time:
-        return volume_timing
+        return volume_timing, False
 
     warnings.warn(
         f"`VolumeTiming` length ({volume_timing.size}) does not match the data time "
         f"dimension ({n_time}). Ignoring it.",
         stacklevel=find_stack_level(),
     )
-    return None
+    return None, True
 
 
 def _create_temporal_coords_from_nifti(
@@ -530,12 +532,10 @@ def _create_temporal_coords_from_nifti(
     volume_timing_length_mismatch = False
     if "volume_timing" in attrs:
         raw_volume_timing = np.asarray(attrs.pop("volume_timing"), dtype=np.float64)
-        volume_timing_length_mismatch = (
-            raw_volume_timing.ndim == 1
-            and raw_volume_timing.size > 0
-            and raw_volume_timing.size != n_time
+        volume_timing, volume_timing_length_mismatch = _validate_volume_timing_length(
+            raw_volume_timing,
+            n_time=n_time,
         )
-        volume_timing = _validate_volume_timing_length(raw_volume_timing, n_time=n_time)
         if volume_timing is not None:
             time_values = volume_timing
             if time_unit is not None:
@@ -602,16 +602,16 @@ def _create_temporal_coords_from_nifti(
     elif time_values is None and sampling_period_nifti is not None:
         if volume_timing_length_mismatch:
             warnings.warn(
-                f"Ignoring mismatched `VolumeTiming` and using NIfTI header "
-                f"`pixdim[4]` ({sampling_period_nifti}) for timing.",
+                f"Ignoring mismatched `VolumeTiming`; using NIfTI header `pixdim[4]` "
+                f"({sampling_period_nifti}) for timing.",
                 stacklevel=find_stack_level(),
             )
         time_values = sampling_period_nifti * np.arange(n_time)
     elif time_values is None:
         if volume_timing_length_mismatch:
             warnings.warn(
-                "Ignoring mismatched `VolumeTiming`, and NIfTI header `pixdim[4]` is "
-                "not positive. Falling back to frame indices.",
+                "Ignoring mismatched `VolumeTiming`; NIfTI header `pixdim[4]` is not "
+                "positive. Falling back to frame indices.",
                 stacklevel=find_stack_level(),
             )
         time_values = np.arange(n_time, dtype=np.float64)
