@@ -97,7 +97,7 @@ motion_df.head()
 # ## Plot the motion diagnostics
 #
 # ConfUSIus provides the function
-# [`plot_motion_diagnostics`][confusius.registration.plot_motion_diagnostics] to plot
+# [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to plot
 # `motion_params` using four panels:
 #
 # - The first two panels show the rotations and translations found at each frame.
@@ -106,10 +106,11 @@ motion_df.head()
 #   summing the absolute temporal derivatives of the realignment parameters
 #   (translations and rotations)[^1].
 # - The fourth panel shows the final registration metric and iteration count for each
-#   volume. Volumes showing outlier metric values or eaching the maximum number of
-#   iteration configured in `register_volumewise` are likely to not be registered
-#   correctly. In that case, you might want to tweak the registration parameters, or
-#   remove the corresponding volumes from further analysis.
+#   volume. Volumes showing outlier metric values or reaching the maximum number of
+#   iteration configured in
+#   [`register_volumewise`][confusius.registration.register_volumewise] are likely to
+#   not be registered correctly. In that case, you might want to tweak the registration
+#   parameters, or remove the corresponding volumes from further analysis.
 
 # %% tags=["thumbnail"]
 fig, axes = cf.plotting.plot_motion_diagnostics(motion_df)
@@ -120,35 +121,51 @@ fig.patch.set_facecolor(bg_color)
 #
 # To highlight the effect of the volumewise registration, we pick the voxel with the
 # largest temporal standard deviation in the unregistered recording. In practice that
-# usually lands on a large vessel, where motion-induced intensity changes are most
-# visible.
+# usually lands on a large vessel or near the borders of the brain, where brain motion
+# can induce high intensity changes.
 
 # %%
-std_map = data.squeeze("z", drop=True).std("time")
-voxel_y, voxel_x = np.unravel_index(np.nanargmax(std_map.values), std_map.shape)
+std_map = data.std("time")
+highest_std_voxel = std_map.isel(std_map.argmax(dim=["x", "y", "z"]))
 
-voxel_before = data.isel(z=0, y=voxel_y, x=voxel_x)
-voxel_after = registered.isel(z=0, y=voxel_y, x=voxel_x)
+voxel_before = data.sel(highest_std_voxel.coords)
+voxel_after = registered.sel(highest_std_voxel.coords)
 
-fig, ax = plt.subplots(figsize=(9, 3.5), constrained_layout=True)
+x_value = highest_std_voxel.x.values
+y_value = highest_std_voxel.y.values
+units = highest_std_voxel.x.units
+xy_position = f"(x, y) = ({x_value:.2f}, {y_value:.2f}) {units}"
+
+fig, axs = plt.subplots(1, 2, figsize=(9, 3.5), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
-ax.plot(voxel_before["time"], voxel_before, label="Before", lw=1.6, alpha=0.8)
-ax.plot(voxel_after["time"], voxel_after, label="After", lw=1.6)
-ax.set_xlabel("Time (s)")
-ax.set_ylabel("Power Doppler intensity")
-ax.set_title(f"Voxel at y={voxel_y}, x={voxel_x}")
-_ = ax.legend(frameon=False)
+
+plotter = (
+    data.mean("time")
+    .fusi.scale.db()
+    .fusi.plot.volume(axes=axs[0], bg_color=bg_color, show_colorbar=False)
+)
+
+# explicitly show the high std voxel on the brain plot
+axs[0].scatter(highest_std_voxel.x, highest_std_voxel.y, color="r")
+
+axs[1].plot(voxel_before["time"], voxel_before, label="Before", lw=1.6, alpha=0.8)
+axs[1].plot(voxel_after["time"], voxel_after, label="After", lw=1.6)
+axs[1].set_xlabel("Time (s)")
+axs[1].set_ylabel("Power Doppler intensity")
+axs[1].set_title(f"Voxel at {xy_position}")
+_ = axs[1].legend(frameon=False, ncols=2)
 
 # %% [markdown]
 # ## Check the alignment over time
 #
 # A compact way to inspect the correction inside the notebook is to follow one column
 # across time. Motion appears as slanted or wobbling vessel traces in this `y × time`
-# raster, while a good correction makes those traces more horizontal and stable.
+# raster, while a good correction makes those traces more horizontal and stable (note
+# that this will only clearly capture translation mation in the y axis).
 
 # %%
-raster_before = data.fusi.scale.db().isel(z=0, x=voxel_x)
-raster_after = registered.fusi.scale.db().isel(z=0, x=voxel_x)
+raster_before = data.fusi.scale.db().sel(z=0, x=x_value)
+raster_after = registered.fusi.scale.db().sel(z=0, x=x_value)
 
 fig, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True, sharey=True)
 fig.patch.set_facecolor(bg_color)
