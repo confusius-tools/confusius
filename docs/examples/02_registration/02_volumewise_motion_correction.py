@@ -3,7 +3,7 @@
 #
 # This example shows how to correct volume-to-volume brain motion in one fUSI recording
 # with [`register_volumewise`][confusius.registration.register_volumewise]. For this
-# example, we use a short subset of an open-feild 2D+t recording from the [Cybis Pereira
+# example, we use a short subset of an open-field 2D+t recording from the [Cybis Pereira
 # 2026
 # dataset](https://doi.org/10.1016/j.celrep.2025.116791). After volumewise registration,
 # we inspect three things that are useful in practice:
@@ -107,7 +107,7 @@ motion_df.head()
 #   (translations and rotations)[^1].
 # - The fourth panel shows the final registration metric and iteration count for each
 #   volume. Volumes showing outlier metric values or reaching the maximum number of
-#   iteration configured in
+#   iterations configured in
 #   [`register_volumewise`][confusius.registration.register_volumewise] are likely to
 #   not be registered correctly. In that case, you might want to tweak the registration
 #   parameters, or remove the corresponding volumes from further analysis.
@@ -145,7 +145,7 @@ plotter = (
     .fusi.plot.volume(axes=axs[0], bg_color=bg_color, show_colorbar=False)
 )
 
-# explicitly show the high std voxel on the brain plot
+# Explicitly show the high std voxel on the brain plot.
 axs[0].scatter(highest_std_voxel.x, highest_std_voxel.y, color="r")
 
 axs[1].plot(voxel_before["time"], voxel_before, label="Before", lw=1.6, alpha=0.8)
@@ -161,7 +161,7 @@ _ = axs[1].legend(frameon=False, ncols=2)
 # A compact way to inspect the correction inside the notebook is to follow one column
 # across time. Motion appears as slanted or wobbling vessel traces in this `y × time`
 # raster, while a good correction makes those traces more horizontal and stable (note
-# that this will only clearly capture translation mation in the y axis).
+# that this will only clearly capture translation motion in the y axis).
 
 # %%
 raster_before = data.fusi.scale.db().sel(z=0, x=x_value)
