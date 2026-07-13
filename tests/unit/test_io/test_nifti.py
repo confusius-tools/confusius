@@ -734,6 +734,26 @@ class TestLoadNifti:
         assert any("Falling back to frame indices" in str(w.message) for w in caught)
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 1, 2, 3, 4])
 
+    def test_load_nifti_invalid_volume_timing_uses_header_timing(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid 4D `VolumeTiming` metadata is ignored after warning."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "invalid_volume_timing_4d.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "invalid_volume_timing_4d.json", "w") as f:
+            json.dump({"VolumeTiming": [[0.0, 1.0]]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("not a non-empty 1D array" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
     def test_load_nifti_validation_runtime_error_warns(self, tmp_path: Path) -> None:
         """Unexpected sidecar validation failures degrade to a warning when loading."""
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
