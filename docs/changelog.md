@@ -31,6 +31,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
+  the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
+  `pixdim[4]` when available, and otherwise warns before using frame indices.
+  ([#304](https://github.com/confusius-tools/confusius/pull/304)).
 - Motion parameter tables from
   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
   rotations and translations by the coordinate names `x`/`y`/`z` instead of by raw
@@ -46,6 +50,12 @@ Current development version for the next ConfUSIus release.
 - Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
+
+### :wrench: Maintenance
+
+- pandas DataFrame outputs in the example gallery now render with clean, theme-aware
+  notebook styling instead of a fully-bordered table
+  ([#307](https://github.com/confusius-tools/confusius/pull/307)).
 
 ## 0.5.2
 
