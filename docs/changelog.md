@@ -21,17 +21,83 @@ Current development version for the next ConfUSIus release.
   [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] now builds only from an
   already-loaded BrainGlobe atlas
   ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now use `fill_value`
+  instead of `default_value` for out-of-field-of-view resampling, matching
+  [`register_volume`][confusius.registration.register_volume] and the progress-plot
+  resampling API.
+- Motion diagnostics helpers now require actual affine matrices:
+  [`extract_motion_parameters`][confusius.registration.extract_motion_parameters],
+  [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement],
+  and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no
+  longer accept `None` placeholders in their affine lists
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
+  [`read_events`][confusius.bids.load_events] →
+  [`load_events`][confusius.bids.load_events], and
+  [`write_events`][confusius.bids.save_events] →
+  [`save_events`][confusius.bids.save_events]
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
 
 ### :sparkles: Enhancements
 
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
-  [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are
-  bundled into the Zarr store, so a reloaded atlas renders meshes without the BrainGlobe
-  cache ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+  [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
+  Zarr store, so a reloaded atlas renders meshes without the BrainGlobe cache
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
   Dataset is a well-formed atlas
   ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- **[Napari plugin]** Added an interactive registration panel for volume alignment in
+  napari, including linear and non-linear transforms, progress preview, manual and
+  automatic initialization, saving/loading transforms, and forward/inverse transform
+  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
+- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to
+  visualize motion-correction summaries from `motion_params` tables returned by
+  [`register_volumewise`][confusius.registration.register_volumewise]
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always
+  reports all named rotation / translation axes exposed by the affine dimensionality,
+  even when one spatial axis is singleton
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
+  column names and metadata from the JSON sidecar, synthesizing a `time` column when
+  needed; the napari plugin now uses it for imported signal tables
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+
+### :bug: Fixes
+
+- NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
+  the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
+  `pixdim[4]` when available, and otherwise warns before using frame indices
+  ([#304](https://github.com/confusius-tools/confusius/pull/304)).
+- Motion parameter tables from
+  [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
+  rotations and translations by the coordinate names `x`/`y`/`z` instead of by raw
+  transform-component order, so canonical ConfUSIus arrays stored as `(z, y, x)` no
+  longer mislabel in-plane motion
+  ([#301](https://github.com/confusius-tools/confusius/pull/301)).
+- **[Napari plugin]** The signal import dialog now finds BIDS physio files ending in
+  `.tsv.gz`, keeps the x-axis cursor visible for imported-only plots when enabled, and
+  lets you import multiple signal files in one go
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
+  clear error that points users to newer SCAN v2 files and to converting them to NIfTI
+  with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
+- Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
+  single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
+  `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
+
+### :wrench: Maintenance
+
+- [Example Gallery]: pandas DataFrame outputs in the example gallery now render with
+  clean, theme-aware notebook styling instead of a fully-bordered table
+  ([#307](https://github.com/confusius-tools/confusius/pull/307)).
+- [Example Gallery]: Cells can now hide their code behind a collapsed callout with a
+  `collapse` cell tag, with optional custom title and type (`collapse[<type>]:
+  <title>`), i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
+  ([#309](https://github.com/confusius-tools/confusius/pull/309)).
 
 ## 0.5.2
 
@@ -105,11 +171,6 @@ Released 2026-07-10.
   matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
   now requires strictly monotonic `(value, color)` pairs, and the threshold gray
   band could collide with neighbouring cmap entries at the boundary values.
-- [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm]
-  no longer calls the matplotlib-3.11-deprecated `set_under`/`set_over`/`set_bad`
-  colormap methods, and no longer passes the deprecated `N=` argument to
-  `ListedColormap`. The under colour is now passed as a constructor kwarg, the
-  matplotlib-3.11-recommended way to set it.
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and
@@ -173,8 +234,8 @@ Released 2026-07-07.
   from / save to a BIDS `.tsv`
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - [`confusius.bids`][confusius.bids] module is now public with new
-  [`read_events`][confusius.bids.read_events] and
-  [`write_events`][confusius.bids.write_events]
+  [`load_events`][confusius.bids.load_events] and
+  [`save_events`][confusius.bids.save_events]
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - Added a `datasets` CLI namespace, listed in `confusius --help`:
   `confusius datasets --list` prints the table of available datasets, their sizes,

@@ -244,7 +244,7 @@ def _validate_index(index: object, data_dir: Path) -> None:
         f"The dataset index in {data_dir} has an outdated or unrecognised structure "
         f"(every entry must define {sorted(_INDEX_ENTRY_KEYS)}). This local dataset was "
         f"likely downloaded with an older version of confusius. Delete the dataset "
-        f"directory and fetch it again to update it:\n\n    {data_dir}\n"
+        f"directory and fetch it again to update it."
     )
 
 

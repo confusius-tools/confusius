@@ -140,6 +140,23 @@ def test_render_collapse_tag_without_title_uses_default(tmp_path: Path) -> None:
     assert "    ```python\n    x = 1\n    ```" in md
 
 
+def test_render_collapse_tag_with_admonition_type(tmp_path: Path) -> None:
+    """`collapse[<type>]` picks the admonition type, with or without a title."""
+    nb = nbformat.v4.new_notebook()
+    titled = nbformat.v4.new_code_cell("x = 1")
+    titled.metadata["tags"] = ["collapse[warning]: Advanced setup"]
+    nb.cells.append(titled)
+    untitled = nbformat.v4.new_code_cell("y = 2")
+    untitled.metadata["tags"] = ["collapse[tip]"]
+    nb.cells.append(untitled)
+
+    md_path, _ = render_notebook(
+        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+    )
+    md = md_path.read_text()
+    assert '??? warning "Advanced setup"' in md
+    assert '??? tip "Show code"' in md
+
 def test_render_handles_notebook_without_images(tmp_path: Path) -> None:
     nb = nbformat.v4.new_notebook()
     nb.cells.append(nbformat.v4.new_code_cell("x = 1"))
