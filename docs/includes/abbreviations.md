@@ -27,4 +27,5 @@
 *[QC]: Quality Control
 *[tSNR]: Temporal Signal-to-Noise Ratio
 *[CV]: Coefficient of Variation
+*[FD]: Framewise Displacement
 
