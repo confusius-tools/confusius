@@ -143,6 +143,11 @@ def get_euler_xyz_from_rotation_matrix(
         Rotation angle around the y axis in radians.
     rot_z : float
         Rotation angle around the z axis in radians.
+
+    Raises
+    ------
+    ValueError
+        If `R` is not a `(3, 3)` array.
     """
     if R.shape != (3, 3):
         raise ValueError(f"Expected a (3, 3) rotation matrix, got {R.shape}.")

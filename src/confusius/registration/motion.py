@@ -97,6 +97,14 @@ def extract_motion_parameters(
 
         - For 2D: `n_params = 3 (rotation, t0, t1)`.
         - For 3D: `n_params = 6 (r0, r1, r2, t0, t1, t2)`.
+
+    Raises
+    ------
+    ValueError
+        If `affines` is empty, contains a non-square array, an affine that is not
+        `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines.
+    TypeError
+        If any affine entry is not a `numpy.ndarray`.
     """
     import math
 
@@ -242,6 +250,15 @@ def compute_framewise_displacement(
         - `"max_fd"`: Maximum framewise displacement per frame.
         - `"rms_fd"`: RMS framewise displacement per frame.
 
+    Raises
+    ------
+    ValueError
+        If `reference` fails fUSI validation, if `affines` is empty, contains an
+        affine that is not `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines, or if
+        `reference`'s dimensionality does not match the affine dimensionality.
+    TypeError
+        If any affine entry is not a `numpy.ndarray`.
+
     References
     ----------
     [^1]:
@@ -355,6 +372,15 @@ def create_motion_dataframe(
         Motion columns are reported in named-axis order (`x`, `y`, `z`), even when
         the input DataArray stores its spatial dimensions in a different order such as
         `(z, y, x)`.
+
+    Raises
+    ------
+    ValueError
+        If `reference` fails fUSI validation, if `affines` is empty, contains an
+        affine that is not `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines, or if
+        `reference`'s dimensionality does not match the affine dimensionality.
+    TypeError
+        If any affine entry is not a `numpy.ndarray`.
     """
     import pandas as pd
 
