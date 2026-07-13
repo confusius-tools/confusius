@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -327,8 +327,6 @@ def register_volumewise(
     if keep_diagnostics:
         # The full diagnostics list carries every frame's optimizer metric
         # trace, which adds up over long recordings — gated behind the flag.
-        result.attrs["registration_diagnostics"] = [
-            cast("RegistrationDiagnostics", d) for d in diagnostics
-        ]
+        result.attrs["registration_diagnostics"] = list(diagnostics)
 
     return result.transpose(*data.dims)
