@@ -1,11 +1,7 @@
 """Registration module for fUSI data."""
 
 from confusius.registration._progress import RegistrationProgressPlotter
-from confusius.registration.affines import (
-    compose_affine,
-    decompose_affine,
-    get_euler_xyz_from_rotation_matrix,
-)
+from confusius.registration.affines import compose_affine, decompose_affine
 from confusius.registration.bspline import (
     invert_displacement_field,
     sample_displacement_field,
@@ -31,7 +27,6 @@ __all__ = [
     "sample_displacement_field_like",
     "compose_affine",
     "decompose_affine",
-    "get_euler_xyz_from_rotation_matrix",
     "invert_displacement_field",
     "register_volume",
     "resample_volume",

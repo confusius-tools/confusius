@@ -12,7 +12,6 @@ from confusius.registration.affines import (
     affine_to_sitk_linear_transform,
     compose_affine,
     decompose_affine,
-    get_euler_xyz_from_rotation_matrix,
     sitk_linear_transform_to_affine,
 )
 
@@ -47,34 +46,6 @@ class TestCompose:
 
         with pytest.raises(ValueError, match="strange number of shear elements"):
             compose_affine(T, R, Z, np.array([0.1, 0.2]))
-
-
-class TestGetEulerXYZFromRotationMatrix:
-    """Tests for `get_euler_xyz_from_rotation_matrix`."""
-
-    def test_matches_scipy_for_random_rotations(self):
-        """Extracted XYZ angles match SciPy away from singularities."""
-        rng = np.random.default_rng(42)
-        for _ in range(50):
-            angles = rng.uniform(-1.2, 1.2, size=3)
-            matrix = Rotation.from_euler("xyz", angles).as_matrix()
-            recovered = get_euler_xyz_from_rotation_matrix(matrix)
-            assert_array_almost_equal(recovered, angles)
-
-    def test_rejects_wrong_shape(self):
-        """Only 3x3 rotation matrices are accepted."""
-        with pytest.raises(ValueError, match=r"\(3, 3\)"):
-            get_euler_xyz_from_rotation_matrix(np.eye(4))
-
-    def test_handles_gimbal_lock(self):
-        """The gimbal-lock branch still returns stable XYZ angles."""
-        angles = (0.4, np.pi / 2, -0.2)
-        matrix = Rotation.from_euler("xyz", angles).as_matrix()
-
-        rot_x, rot_y, rot_z = get_euler_xyz_from_rotation_matrix(matrix)
-
-        assert rot_x == 0.0
-        assert_array_almost_equal((rot_y, rot_z), (np.pi / 2, -0.6))
 
 
 class TestSitkLinearTransformToAffine:

@@ -6,10 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from numpy.typing import NDArray
 
-from confusius.registration.affines import (
-    decompose_affine,
-    get_euler_xyz_from_rotation_matrix,
-)
+from confusius.registration.affines import decompose_affine
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -122,12 +119,58 @@ def extract_motion_parameters(
             rotation = math.atan2(R[1, 0], R[0, 0])
             params_list.append([rotation, float(T[0]), float(T[1])])
         else:
-            rot_x, rot_y, rot_z = get_euler_xyz_from_rotation_matrix(R)
+            rot_0, rot_1, rot_2 = _get_euler_xyz_from_rotation_matrix(R)
             params_list.append(
-                [rot_x, rot_y, rot_z, float(T[0]), float(T[1]), float(T[2])]
+                [rot_0, rot_1, rot_2, float(T[0]), float(T[1]), float(T[2])]
             )
 
     return np.array(params_list)
+
+
+def _get_euler_xyz_from_rotation_matrix(
+    R: NDArray[np.floating],
+) -> tuple[float, float, float]:
+    """Get XYZ Euler angles from a 3D rotation matrix.
+
+    Parameters
+    ----------
+    R : (3, 3) numpy.ndarray
+        Rotation matrix.
+
+    Returns
+    -------
+    rot_0 : float
+        First XYZ Euler angle in radians.
+    rot_1 : float
+        Second XYZ Euler angle in radians.
+    rot_2 : float
+        Third XYZ Euler angle in radians.
+
+    Raises
+    ------
+    ValueError
+        If `R` is not a `(3, 3)` array.
+    """
+    import math
+
+    if R.shape != (3, 3):
+        raise ValueError(f"Expected a (3, 3) rotation matrix, got {R.shape}.")
+
+    # XYZ convention: R = Rz @ Ry @ Rx.
+    sy = -R[2, 0]
+    sy = max(-1.0, min(1.0, sy))
+    rot_1 = math.asin(sy)
+
+    cos_y = math.cos(rot_1)
+    if abs(cos_y) > 1e-6:
+        rot_0 = math.atan2(R[2, 1], R[2, 2])
+        rot_2 = math.atan2(R[1, 0], R[0, 0])
+    else:
+        # Gimbal lock: set the first angle to zero and recover the third.
+        rot_0 = 0.0
+        rot_2 = math.atan2(-R[0, 1], R[1, 1])
+
+    return rot_0, rot_1, rot_2
 
 
 # TODO: Temporary, to be removed once we enforce minimum dimensionality of 3D for all

@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
+from scipy.spatial.transform import Rotation
 
 from confusius.registration.motion import (
     _validate_affines,
@@ -157,6 +158,25 @@ class TestExtractMotionParameters:
         assert params.shape == (2, 3)
         assert_allclose(params[0], [0.0, 0.0, 0.0], atol=1e-6)
         assert_allclose(params[1, 1:], [2.0, 3.0], atol=1e-6)
+
+    def test_3d_rotation_matches_xyz_component_order(self):
+        """3D rotations stay in raw XYZ component order."""
+        angles = np.array([0.2, -0.3, 0.4])
+        affine = np.eye(4)
+        affine[:3, :3] = Rotation.from_euler("xyz", angles).as_matrix()
+
+        params = extract_motion_parameters([affine])
+
+        assert_allclose(params[0, :3], angles, atol=1e-6)
+
+    def test_3d_gimbal_lock_keeps_stable_angles(self):
+        """The gimbal-lock branch still returns stable XYZ angles."""
+        affine = np.eye(4)
+        affine[:3, :3] = Rotation.from_euler("xyz", [0.4, np.pi / 2, -0.2]).as_matrix()
+
+        params = extract_motion_parameters([affine])
+
+        assert_allclose(params[0, :3], [0.0, np.pi / 2, -0.6], atol=1e-6)
 
 
 class TestComputeFramewiseDisplacement:
