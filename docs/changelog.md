@@ -10,8 +10,37 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
+  [`read_events`][confusius.bids.load_events] →
+  [`load_events`][confusius.bids.load_events], and
+  [`write_events`][confusius.bids.save_events] →
+  [`save_events`][confusius.bids.save_events]
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+
+### :sparkles: Enhancements
+
+- Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
+  column names and metadata from the JSON sidecar, synthesizing a `time` column when
+  needed; the napari plugin now uses it for imported signal tables
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+
 ### :bug: Fixes
 
+- NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
+  the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
+  `pixdim[4]` when available, and otherwise warns before using frame indices.
+  ([#304](https://github.com/confusius-tools/confusius/pull/304)).
+- Motion parameter tables from
+  [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
+  rotations and translations by the coordinate names `x`/`y`/`z` instead of by raw
+  transform-component order, so canonical ConfUSIus arrays stored as `(z, y, x)` no
+  longer mislabel in-plane motion
+  ([#301](https://github.com/confusius-tools/confusius/pull/301)).
+- **[Napari plugin]** The signal import dialog now finds BIDS physio files ending in
+  `.tsv.gz`, keeps the x-axis cursor visible for imported-only plots when enabled, and
+  lets you import multiple signal files in one go ([#294](https://github.com/confusius-tools/confusius/pull/294)).
 - Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
   clear error that points users to newer SCAN v2 files and to converting them to NIfTI
   with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
@@ -165,8 +194,8 @@ Released 2026-07-07.
   from / save to a BIDS `.tsv`
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - [`confusius.bids`][confusius.bids] module is now public with new
-  [`read_events`][confusius.bids.read_events] and
-  [`write_events`][confusius.bids.write_events]
+  [`load_events`][confusius.bids.load_events] and
+  [`save_events`][confusius.bids.save_events]
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - Added a `datasets` CLI namespace, listed in `confusius --help`:
   `confusius datasets --list` prints the table of available datasets, their sizes,
