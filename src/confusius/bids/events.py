@@ -29,8 +29,8 @@ __all__ = [
     "ONSET_COLUMN",
     "DURATION_COLUMN",
     "TRIAL_TYPE_COLUMN",
-    "read_events",
-    "write_events",
+    "load_events",
+    "save_events",
 ]
 
 ONSET_COLUMN = "onset"
@@ -46,8 +46,8 @@ _REQUIRED_COLUMNS = (ONSET_COLUMN, DURATION_COLUMN)
 """BIDS columns that every events file must contain."""
 
 
-def read_events(path: str | Path) -> pd.DataFrame:
-    """Read a BIDS events file into an events table.
+def load_events(path: str | Path) -> pd.DataFrame:
+    """Load a BIDS events file into an events table.
 
     Parameters
     ----------
@@ -102,8 +102,8 @@ def read_events(path: str | Path) -> pd.DataFrame:
     return frame[ordered]
 
 
-def write_events(path: str | Path, events: pd.DataFrame) -> None:
-    """Write an events table to a BIDS events file.
+def save_events(path: str | Path, events: pd.DataFrame) -> None:
+    """Save an events table to a BIDS events file.
 
     Rows are sorted by onset, as recommended by BIDS, and columns are ordered
     `onset`, `duration`, `trial_type` (when present), then any extra columns.

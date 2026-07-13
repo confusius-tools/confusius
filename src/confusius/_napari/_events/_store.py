@@ -13,8 +13,8 @@ from confusius.bids.events import (
     DURATION_COLUMN,
     ONSET_COLUMN,
     TRIAL_TYPE_COLUMN,
-    read_events,
-    write_events,
+    load_events,
+    save_events,
 )
 
 
@@ -314,9 +314,9 @@ class EventStore(QObject):
         ------
         ValueError
             If the file is not a valid BIDS events file (propagated from
-            `confusius.bids.events.read_events`).
+            `confusius.bids.events.load_events`).
         """
-        loaded = read_events(path)
+        loaded = load_events(path)
         for trial_type in loaded[TRIAL_TYPE_COLUMN]:
             self.color_for(trial_type)
         self._events = self._concat(loaded)
@@ -331,7 +331,7 @@ class EventStore(QObject):
         path : str or pathlib.Path
             Output path for the tab-separated events file.
         """
-        write_events(path, self._events)
+        save_events(path, self._events)
 
     def _concat(self, rows: pd.DataFrame) -> pd.DataFrame:
         """Append rows to the events table, keeping it sorted by onset.
