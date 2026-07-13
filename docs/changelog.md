@@ -50,12 +50,12 @@ Current development version for the next ConfUSIus release.
 - Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
-  
+
 ### :books: Documentation
 
 - Example gallery cells can now hide their code behind a collapsed callout with a
   `collapse` cell tag, with optional custom title and type (`collapse[<type>]: <title>`),
-  i.e. `# %% ["collapse[warning]: Collapsed warning"]`)
+  i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
   ([#309](https://github.com/confusius-tools/confusius/pull/309)).
 
 ### :wrench: Maintenance
