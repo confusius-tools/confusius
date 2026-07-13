@@ -13,17 +13,17 @@ Current development version for the next ConfUSIus release.
 ### :boom: Breaking changes
 
 - Motion diagnostics helpers now require actual affine matrices: [`extract_motion_parameters`][confusius.registration.extract_motion_parameters], [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement], and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no longer accept `None` placeholders in their affine lists ([#302](https://github.com/confusius-tools/confusius/pull/302)).
-
-### :sparkles: Enhancements
-
-- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
-- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always reports all named rotation / translation axes exposed by the affine dimensionality, even when one spatial axis is singleton ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
   [`read_events`][confusius.bids.load_events] →
   [`load_events`][confusius.bids.load_events], and
   [`write_events`][confusius.bids.save_events] →
   [`save_events`][confusius.bids.save_events]
   ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+
+### :sparkles: Enhancements
+
+- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always reports all named rotation / translation axes exposed by the affine dimensionality, even when one spatial axis is singleton ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
   column names and metadata from the JSON sidecar, synthesizing a `time` column when
   needed; the napari plugin now uses it for imported signal tables
