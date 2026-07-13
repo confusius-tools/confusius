@@ -62,9 +62,13 @@ Current development version for the next ConfUSIus release.
 
 ### :wrench: Maintenance
 
-- pandas DataFrame outputs in the example gallery now render with clean, theme-aware
-  notebook styling instead of a fully-bordered table
+- [Example Gallery]: pandas DataFrame outputs in the example gallery now render with
+  clean, theme-aware notebook styling instead of a fully-bordered table
   ([#307](https://github.com/confusius-tools/confusius/pull/307)).
+- [Example Gallery]: Cells can now hide their code behind a collapsed callout with a
+  `collapse` cell tag, with optional custom title and type (`collapse[<type>]:
+  <title>`), i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
+  ([#309](https://github.com/confusius-tools/confusius/pull/309)).
 
 ## 0.5.2
 
