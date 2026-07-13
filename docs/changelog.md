@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now use `fill_value`
+  instead of `default_value` for out-of-field-of-view resampling, matching
+  [`register_volume`][confusius.registration.register_volume] and the progress-plot
+  resampling API.
 - Motion diagnostics helpers now require actual affine matrices: [`extract_motion_parameters`][confusius.registration.extract_motion_parameters], [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement], and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no longer accept `None` placeholders in their affine lists ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
   [`read_events`][confusius.bids.load_events] →
@@ -22,6 +27,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- **[Napari plugin]** Added an interactive registration panel for volume alignment in
+  napari, including linear and non-linear transforms, progress preview, manual and
+  automatic initialization, saving/loading transforms, and forward/inverse transform
+  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
 - Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always reports all named rotation / translation axes exposed by the affine dimensionality, even when one spatial axis is singleton ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
@@ -133,11 +142,6 @@ Released 2026-07-10.
   matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
   now requires strictly monotonic `(value, color)` pairs, and the threshold gray
   band could collide with neighbouring cmap entries at the boundary values.
-- [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm]
-  no longer calls the matplotlib-3.11-deprecated `set_under`/`set_over`/`set_bad`
-  colormap methods, and no longer passes the deprecated `N=` argument to
-  `ListedColormap`. The under colour is now passed as a constructor kwarg, the
-  matplotlib-3.11-recommended way to set it.
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and

@@ -1226,6 +1226,29 @@ class TestSaveNifti:
         )
         np.testing.assert_array_equal(roundtripped.squeeze("y", drop=True).values, data)
 
+    def test_save_string_extra_coord_roundtrips_through_sidecar(self, tmp_path) -> None:
+        """String-valued extra-dim coordinates roundtrip through the JSON sidecar."""
+        data = np.zeros((3, 4, 6, 8), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": ["z", "y", "x"],
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(6, dtype=np.float64),
+                "x": np.arange(8, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "component_strings.nii.gz"
+        save_nifti(da, output_path)
+
+        roundtripped = load_nifti(output_path)
+        np.testing.assert_array_equal(
+            roundtripped.coords["component"].values, ["z", "y", "x"]
+        )
+        np.testing.assert_array_equal(roundtripped.values, data)
+
     def test_save_irregular_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""
         data = np.zeros((2, 4, 8, 10), dtype=np.float32)

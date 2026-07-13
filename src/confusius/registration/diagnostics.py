@@ -36,8 +36,13 @@ class RegistrationDiagnostics:
         smaller than `register_volume`'s `number_of_iterations` if the
         optimizer converged early.
     stop_condition : str
-        Human-readable description of the optimizer stop condition, as
-        returned by SimpleITK's `GetOptimizerStopConditionDescription`.
+        Human-readable description of the optimizer stop condition. When the
+        registration completes normally, this is SimpleITK's
+        `GetOptimizerStopConditionDescription`. When the registration is
+        aborted cooperatively, this is a short abort message.
+    status : {"completed", "aborted"}
+        Whether the registration ran to completion or returned an intermediate
+        result after cooperative cancellation.
     """
 
     metric: Literal["correlation", "mattes_mi"]
@@ -45,3 +50,4 @@ class RegistrationDiagnostics:
     final_metric_value: float
     n_iterations: int
     stop_condition: str
+    status: Literal["completed", "aborted"]

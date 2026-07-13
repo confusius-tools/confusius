@@ -28,12 +28,12 @@ There are two ways to start the plugin:
 
 === "From inside napari"
 
-    Open napari, then go to **Plugins > ConfUSIus**. The widget docks on the right side
-    of the viewer automatically.
+    Open napari, then go to **Plugins > ConfUSIus**. The ConfUSIus sidebar docks on the
+    right side of the viewer automatically.
 
 === "From the terminal"
 
-    Run the `confusius` command. This opens napari with the ConfUSIus widget ready to
+    Run the `confusius` command. This opens napari with the ConfUSIus sidebar ready to
     use:
 
     ```bash
@@ -46,10 +46,12 @@ There are two ways to start the plugin:
     uvx -p 3.13 confusius
     ```
 
-The widget contains three collapsible panels—[Data I/O](plugin.md#data-io-panel),
-[Signals](plugin.md#signals-panel), and [QC](plugin.md#qc-panel)—that can each be
-expanded or collapsed independently. If you want a quick walkthrough inside napari
-itself, click **Take a Tour** in the upper-right corner of the sidebar header.
+The ConfUSIus sidebar contains six collapsible panels—[Data I/O](plugin.md#data-io-panel),
+[Video](plugin.md#video-panel), [Signals](plugin.md#signals-panel),
+[Events](plugin.md#events-panel), [QC](plugin.md#qc-panel), and
+[Registration](plugin.md#registration-panel)—that can each be expanded or collapsed
+independently. If you want a quick walkthrough inside napari itself, click
+**Take a Tour** in the upper-right corner of the sidebar header.
 
 !!! tip "Running napari programmatically"
     If you prefer to open napari from a Python script or Jupyter notebook, see the
