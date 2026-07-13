@@ -136,7 +136,7 @@ def plot_motion_diagnostics(
             )
             iter_ax.set_ylabel("Iterations", color=iteration_color)
             iter_ax.tick_params(axis="y", colors=iteration_color)
-            iter_ax.spines["right"].set_color(iteration_color)
+            iter_ax.spines["right" if has_metric else "left"].set_color(iteration_color)
 
     axes[-1].set_xlabel("Time (s)" if motion_df.index.name == "time" else "Frame")
     return fig, axes
