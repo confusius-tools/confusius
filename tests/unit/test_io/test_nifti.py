@@ -665,6 +665,94 @@ class TestLoadNifti:
             [0.0, 1500.0, 2800.0, 4600.0, 6000.0],
         )
 
+    def test_load_nifti_volume_timing_length_mismatch_falls_back_to_header(
+        self, tmp_path: Path
+    ) -> None:
+        """Unrepairable `VolumeTiming` length mismatches are ignored after warning."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "volume_timing_bad_length.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "volume_timing_bad_length.json", "w") as f:
+            json.dump({"VolumeTiming": [0.0, 1.0, 2.0]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("using NIfTI header `pixdim[4]`" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
+    def test_load_nifti_volume_timing_plus_one_entry_falls_back_to_header(
+        self, tmp_path: Path
+    ) -> None:
+        """An off-by-one `VolumeTiming` sidecar is ignored like any other mismatch."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "volume_timing_plus_one.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "volume_timing_plus_one.json", "w") as f:
+            json.dump(
+                {"FrameAcquisitionDuration": 0.25, "VolumeTiming": [0, 1, 2, 3, 4, 5]},
+                f,
+            )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("using NIfTI header `pixdim[4]`" in str(w.message) for w in caught)
+
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
+    def test_load_nifti_volume_timing_length_mismatch_without_header_tr_uses_indices(
+        self, tmp_path: Path
+    ) -> None:
+        """Mismatched `VolumeTiming` falls back to frame indices when `pixdim[4]` is invalid."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "volume_timing_bad_length_no_header_tr.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 0.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "volume_timing_bad_length_no_header_tr.json", "w") as f:
+            json.dump({"VolumeTiming": [0.0, 1.0, 2.0]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("Falling back to frame indices" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 1, 2, 3, 4])
+
+    def test_load_nifti_invalid_volume_timing_uses_header_timing(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid 4D `VolumeTiming` metadata is ignored after warning."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "invalid_volume_timing_4d.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "invalid_volume_timing_4d.json", "w") as f:
+            json.dump({"VolumeTiming": [[0.0, 1.0]]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("VolumeTiming" in str(w.message) for w in caught)
+        assert any("not a non-empty 1D array" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
     def test_load_nifti_validation_runtime_error_warns(self, tmp_path: Path) -> None:
         """Unexpected sidecar validation failures degrade to a warning when loading."""
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
