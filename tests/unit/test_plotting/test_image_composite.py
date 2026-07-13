@@ -178,12 +178,12 @@ class TestAddCompositeResampleKwargs:
         npt.assert_allclose(rgb0[..., 1], 1.0, atol=1e-5)
 
     def test_explicit_fill_value_overrides_default(self, narrow_data2, matplotlib_pyplot):
-        """Explicit default_value in resample_kwargs is respected."""
+        """Explicit fill_value in resample_kwargs is respected."""
         data1, data2 = narrow_data2
-        # Passing default_value=0.0 explicitly should fill out-of-FOV with 0.0.
+        # Passing fill_value=0.0 explicitly should fill out-of-FOV with 0.0.
         plotter = VolumePlotter(slice_mode="z").add_composite(
             data1, data2, resample=True, normalize_strategy="shared",
-            resample_kwargs={"default_value": 0.0},
+            resample_kwargs={"fill_value": 0.0},
         )
         rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
         # range is [min(data1), 5.0]. fill=0.0 normalises to something < in-FOV.

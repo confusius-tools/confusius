@@ -917,7 +917,7 @@ class Atlas:
             reference,
             transform,
             interpolation=reference_interpolation,
-            default_value=0.0,
+            fill_value=0.0,
             sitk_threads=sitk_threads,
         )
         resampled_ann = resample_like_da(
@@ -925,7 +925,7 @@ class Atlas:
             reference,
             transform,
             interpolation="nearest",
-            default_value=0,
+            fill_value=0,
             sitk_threads=sitk_threads,
         )
         resampled_ann.attrs = self.annotation.attrs.copy()
@@ -935,7 +935,7 @@ class Atlas:
             reference,
             transform,
             interpolation="nearest",
-            default_value=0,
+            fill_value=0,
             sitk_threads=sitk_threads,
         )
 

@@ -110,8 +110,8 @@ class SavePanel(QWidget):
             "via the ConfUSIus reader."
         )
 
-        layer_form.addRow("Save layer:", self._layer_combo)
-        layer_form.addRow("Coordinates from:", self._template_combo)
+        layer_form.addRow("Save layer", self._layer_combo)
+        layer_form.addRow("Coordinates from", self._template_combo)
         save_layout.addLayout(layer_form)
 
         self._path_edit = QLineEdit()

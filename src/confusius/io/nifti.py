@@ -808,7 +808,7 @@ def _resolve_nifti_extra_dims(
     nifti_dims: tuple[str, ...], attrs: dict[str, Any]
 ) -> tuple[
     tuple[str, ...],
-    dict[str, npt.NDArray[np.floating]],
+    dict[str, npt.NDArray[np.generic]],
     dict[str, dict[str, Any]],
 ]:
     """Apply sidecar dim-name overrides to the NIfTI axis order.
@@ -836,7 +836,7 @@ def _resolve_nifti_extra_dims(
         from `dim{N}_attrs` in the sidecar.
     """
     resolved: list[str] = []
-    extra_coord_values: dict[str, npt.NDArray[np.floating]] = {}
+    extra_coord_values: dict[str, npt.NDArray[np.generic]] = {}
     extra_coord_attrs: dict[str, dict[str, Any]] = {}
 
     for nifti_axis, dim_name in enumerate(nifti_dims):
@@ -846,8 +846,11 @@ def _resolve_nifti_extra_dims(
                 resolved.append(str(sidecar_name))
                 sidecar_coords = attrs.get(f"dim{nifti_axis}_coordinates")
                 if sidecar_coords is not None:
-                    extra_coord_values[str(sidecar_name)] = np.asarray(
-                        sidecar_coords, dtype=np.float64
+                    sidecar_coords_array = np.asarray(sidecar_coords)
+                    extra_coord_values[str(sidecar_name)] = (
+                        sidecar_coords_array.astype(np.float64)
+                        if np.issubdtype(sidecar_coords_array.dtype, np.number)
+                        else sidecar_coords_array.astype(np.str_)
                     )
                 sidecar_attrs = attrs.get(f"dim{nifti_axis}_attrs")
                 if isinstance(sidecar_attrs, dict):
@@ -860,7 +863,7 @@ def _resolve_nifti_extra_dims(
 
 def _build_extra_dim_coords(
     nifti_dims: tuple[str, ...],
-    extra_coord_values: dict[str, npt.NDArray[np.floating]],
+    extra_coord_values: dict[str, npt.NDArray[np.generic]],
     extra_coord_attrs: dict[str, dict[str, Any]],
     nifti_pixdim: npt.NDArray[np.floating],
     nifti_axis_sizes: tuple[int, ...],
@@ -1471,7 +1474,7 @@ def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any
 
 
 def _coord_starts_at_zero_with_regular_spacing(
-    coord_values: npt.NDArray[np.floating],
+    coord_values: npt.NDArray[np.generic],
 ) -> bool:
     """Whether a coord is `[0, step, 2*step, ...]` (recoverable from `pixdim`).
 
@@ -1491,15 +1494,18 @@ def _coord_starts_at_zero_with_regular_spacing(
     """
     if len(coord_values) == 0:
         return True
+    if not np.issubdtype(coord_values.dtype, np.number):
+        return False
     if not np.isclose(coord_values[0], 0.0):
         return False
     if len(coord_values) < 2:
         return True
-    step, _ = get_representative_step(coord_values)
+    numeric_coord_values = coord_values.astype(np.float64)
+    step, _ = get_representative_step(numeric_coord_values)
     if step is None or np.isclose(step, 0.0):
         return False
     expected = step * np.arange(len(coord_values))
-    return bool(np.allclose(coord_values, expected, rtol=1e-5, atol=0.0))
+    return bool(np.allclose(numeric_coord_values, expected, rtol=1e-5, atol=0.0))
 
 
 def _split_nifti_dims(current_dims: tuple[str, ...]) -> tuple[list[str], list[str]]:
