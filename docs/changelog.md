@@ -23,7 +23,7 @@ Current development version for the next ConfUSIus release.
 
 - pandas DataFrame outputs in the example gallery now render with clean, theme-aware
   notebook styling instead of a fully-bordered table
-  ([#306](https://github.com/confusius-tools/confusius/issues/306)).
+  ([#307](https://github.com/confusius-tools/confusius/pull/307)).
 
 ## 0.5.2
 
