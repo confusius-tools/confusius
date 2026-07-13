@@ -427,6 +427,44 @@ def _create_spatial_coords_from_nifti(
     return coords, extra_attrs
 
 
+def _validate_volume_timing_length(
+    volume_timing: npt.NDArray[np.floating], *, n_time: int
+) -> tuple[npt.NDArray[np.floating] | None, bool]:
+    """Validate sidecar `VolumeTiming` against the NIfTI time-axis length.
+
+    Parameters
+    ----------
+    volume_timing : numpy.ndarray
+        1D `VolumeTiming` values from the sidecar.
+    n_time : int
+        Length of the NIfTI time dimension.
+
+    Returns
+    -------
+    volume_timing : numpy.ndarray or None
+        `volume_timing` unchanged when its shape and length are valid, or `None` when
+        the sidecar values cannot be used safely.
+    length_mismatch : bool
+        Whether the sidecar had a valid 1D shape but the wrong length.
+    """
+    if volume_timing.ndim != 1 or volume_timing.size == 0:
+        warnings.warn(
+            "`VolumeTiming` metadata is not a non-empty 1D array. Ignoring it.",
+            stacklevel=find_stack_level(),
+        )
+        return None, False
+
+    if volume_timing.size == n_time:
+        return volume_timing, False
+
+    warnings.warn(
+        f"`VolumeTiming` length ({volume_timing.size}) does not match the data time "
+        f"dimension ({n_time}). Ignoring it.",
+        stacklevel=find_stack_level(),
+    )
+    return None, True
+
+
 def _create_temporal_coords_from_nifti(
     img: "nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image",
     extractor: "_NiftiHeaderExtractor",
@@ -490,16 +528,25 @@ def _create_temporal_coords_from_nifti(
             )
         time_attrs["volume_acquisition_duration"] = volume_duration
 
+    time_values: npt.NDArray[np.floating] | None = None
+    volume_timing_length_mismatch = False
     if "volume_timing" in attrs:
-        time_values = np.asarray(attrs.pop("volume_timing"))
-        if time_unit is not None:
-            time_values = convert_time_units(
-                time_values,
-                from_unit="s",
-                to_unit=time_unit,
-                raise_on_unknown=True,
-            )
-    elif "repetition_time" in attrs:
+        raw_volume_timing = np.asarray(attrs.pop("volume_timing"), dtype=np.float64)
+        volume_timing, volume_timing_length_mismatch = _validate_volume_timing_length(
+            raw_volume_timing,
+            n_time=n_time,
+        )
+        if volume_timing is not None:
+            time_values = volume_timing
+            if time_unit is not None:
+                time_values = convert_time_units(
+                    time_values,
+                    from_unit="s",
+                    to_unit=time_unit,
+                    raise_on_unknown=True,
+                )
+
+    if time_values is None and "repetition_time" in attrs:
         sampling_period_sidecar = float(attrs.pop("repetition_time"))
         delay = float(attrs.pop("delay_after_trigger", 0.0))
         delay_time = float(attrs.pop("delay_time", 0.0))
@@ -552,9 +599,21 @@ def _create_temporal_coords_from_nifti(
                     stacklevel=find_stack_level(),
                 )
         time_values = delay + sampling_period_sidecar * np.arange(n_time)
-    elif sampling_period_nifti is not None:
+    elif time_values is None and sampling_period_nifti is not None:
+        if volume_timing_length_mismatch:
+            warnings.warn(
+                f"Ignoring mismatched `VolumeTiming`; using NIfTI header `pixdim[4]` "
+                f"({sampling_period_nifti}) for timing.",
+                stacklevel=find_stack_level(),
+            )
         time_values = sampling_period_nifti * np.arange(n_time)
-    else:
+    elif time_values is None:
+        if volume_timing_length_mismatch:
+            warnings.warn(
+                "Ignoring mismatched `VolumeTiming`; NIfTI header `pixdim[4]` is not "
+                "positive. Falling back to frame indices.",
+                stacklevel=find_stack_level(),
+            )
         time_values = np.arange(n_time, dtype=np.float64)
 
     coords: dict[str, xr.DataArray] = {
@@ -1977,7 +2036,40 @@ def _build_nifti_sidecar_metadata(
 
     sidecar_attrs.update(_build_extra_dim_sidecar_metadata(data_array))
     sidecar_attrs.update(timing_metadata)
-    return sidecar_attrs
+    return _drop_non_json_serializable_attrs(sidecar_attrs)
+
+
+def _drop_non_json_serializable_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Drop attrs whose values cannot be serialized to JSON as-is.
+
+    Parameters
+    ----------
+    attrs : dict[str, Any]
+        Attributes to filter.
+
+    Returns
+    -------
+    dict[str, Any]
+        Copy of `attrs` containing only entries whose value round-trips through
+        `json.dumps` without coercion.
+    """
+    serializable_attrs = {}
+    dropped_keys = []
+    for key, value in attrs.items():
+        try:
+            json.dumps(value)
+        except TypeError:
+            dropped_keys.append(key)
+        else:
+            serializable_attrs[key] = value
+
+    if dropped_keys:
+        warnings.warn(
+            f"Dropping non-JSON-serializable attrs from NIfTI sidecar: {dropped_keys}.",
+            stacklevel=find_stack_level(),
+        )
+
+    return serializable_attrs
 
 
 def _create_nifti_image(
@@ -2002,9 +2094,8 @@ def _create_nifti_image(
     nifti_version : {1, 2}
         NIfTI image version to instantiate.
     spacings : list[float]
-        Full NIfTI spacing vector, including temporal and extra-dimension entries when
-        present. Signed values are preserved in `pixdim` after calling nibabel's
-        `set_zooms` with their absolute values.
+        Full NIfTI signed spacing vector, including temporal and extra-dimension entries when
+        present.
     qform_affine : (4, 4) numpy.ndarray
         Resolved qform affine in NIfTI axis order.
     sform_affine : (4, 4) numpy.ndarray or None
@@ -2025,12 +2116,15 @@ def _create_nifti_image(
     constructor_affine = sform_affine if sform_affine is not None else qform_affine
     nifti_img = img_class(data, constructor_affine)
 
-    header_zooms = [abs(spacing) for spacing in spacings]
-    nifti_img.header.set_zooms(header_zooms)
-    for axis_index, spacing in enumerate(spacings, start=1):
-        if not np.isclose(spacing, header_zooms[axis_index - 1]):
-            nifti_img.header.structarr["pixdim"][axis_index] = np.float32(spacing)
+    # pixdim[4:] for temporal and extra dimensions are set independently of the qform.
+    for axis_index, spacing in enumerate(spacings[3:], start=4):
+        nifti_img.header.structarr["pixdim"][axis_index] = np.float32(spacing)
 
+    # Setting the qform also sets several parameters in the NIfTI header:
+    # the pixdim[1:4] (from zooms), qoffset_xyz (from translation), qfac (from
+    # determinant of the rotation block) and quatern_bcd (from the quaternion
+    # representation).
+    # obs.: qform is always valid at this point.
     nifti_img.header.set_qform(qform_affine, code=resolved_qform_code)
 
     if sform_affine is not None:
@@ -2203,4 +2297,4 @@ def save_nifti(
             )
 
     with open(sidecar_path, "w") as f:
-        json.dump(bids_attrs, f, indent=2, default=str)
+        json.dump(bids_attrs, f, indent=2)

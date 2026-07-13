@@ -11,6 +11,7 @@ import pytest
 import xarray as xr
 
 from confusius.io.nifti import load_nifti, save_nifti
+from confusius.xarray.affine import apply_affine
 
 
 @pytest.fixture
@@ -249,7 +250,7 @@ class TestLoadNifti:
 
         # Patch the saved header directly to set pixdim[5] (the 5th NIfTI axis)
         # to -2.0 (bypasses nibabel's `set_zooms` positivity check).
-        loaded = nib.load(nifti_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(nifti_path)
         loaded.header.structarr["pixdim"][5] = np.float32(-2.0)
         loaded.to_filename(nifti_path)
 
@@ -664,6 +665,94 @@ class TestLoadNifti:
             [0.0, 1500.0, 2800.0, 4600.0, 6000.0],
         )
 
+    def test_load_nifti_volume_timing_length_mismatch_falls_back_to_header(
+        self, tmp_path: Path
+    ) -> None:
+        """Unrepairable `VolumeTiming` length mismatches are ignored after warning."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "volume_timing_bad_length.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "volume_timing_bad_length.json", "w") as f:
+            json.dump({"VolumeTiming": [0.0, 1.0, 2.0]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("using NIfTI header `pixdim[4]`" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
+    def test_load_nifti_volume_timing_plus_one_entry_falls_back_to_header(
+        self, tmp_path: Path
+    ) -> None:
+        """An off-by-one `VolumeTiming` sidecar is ignored like any other mismatch."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "volume_timing_plus_one.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "volume_timing_plus_one.json", "w") as f:
+            json.dump(
+                {"FrameAcquisitionDuration": 0.25, "VolumeTiming": [0, 1, 2, 3, 4, 5]},
+                f,
+            )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("using NIfTI header `pixdim[4]`" in str(w.message) for w in caught)
+
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
+    def test_load_nifti_volume_timing_length_mismatch_without_header_tr_uses_indices(
+        self, tmp_path: Path
+    ) -> None:
+        """Mismatched `VolumeTiming` falls back to frame indices when `pixdim[4]` is invalid."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "volume_timing_bad_length_no_header_tr.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 0.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "volume_timing_bad_length_no_header_tr.json", "w") as f:
+            json.dump({"VolumeTiming": [0.0, 1.0, 2.0]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("Falling back to frame indices" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 1, 2, 3, 4])
+
+    def test_load_nifti_invalid_volume_timing_uses_header_timing(
+        self, tmp_path: Path
+    ) -> None:
+        """Invalid 4D `VolumeTiming` metadata is ignored after warning."""
+        data = np.random.default_rng(0).random((2, 3, 4, 5)).astype(np.float32)
+        path = tmp_path / "invalid_volume_timing_4d.nii.gz"
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_zooms((1.0, 1.0, 1.0, 2.0))
+        img.to_filename(path)
+
+        with open(tmp_path / "invalid_volume_timing_4d.json", "w") as f:
+            json.dump({"VolumeTiming": [[0.0, 1.0]]}, f)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            loaded = load_nifti(path)
+
+        assert any("VolumeTiming" in str(w.message) for w in caught)
+        assert any("not a non-empty 1D array" in str(w.message) for w in caught)
+        np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
+
     def test_load_nifti_validation_runtime_error_warns(self, tmp_path: Path) -> None:
         """Unexpected sidecar validation failures degrade to a warning when loading."""
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
@@ -1015,7 +1104,7 @@ class TestSaveNifti:
         with pytest.warns(UserWarning, match="spacing is undefined"):
             save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         # NIfTI order: (x, y, z) — only the missing z slot is inserted.
         assert loaded.shape == (8, 6, 1)
         np.testing.assert_array_almost_equal(
@@ -1065,7 +1154,7 @@ class TestSaveNifti:
         with pytest.warns(UserWarning, match="spacing is undefined"):
             save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.shape == (6, 5, 3, 4, 2)
         np.testing.assert_array_equal(
             np.asarray(loaded.dataobj), data.transpose(4, 3, 2, 1, 0)
@@ -1092,7 +1181,7 @@ class TestSaveNifti:
         output_path = tmp_path / "bspl.nii.gz"
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         # NIfTI shape: (x, y, z, time=1, component=3)
         assert loaded.shape == (6, 5, 4, 1, 3)
         # The synthetic time slot does not encode a real TR.
@@ -1177,7 +1266,7 @@ class TestSaveNifti:
         output_path = tmp_path / "constant.nii.gz"
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.structarr["pixdim"][5] == pytest.approx(0.0)
 
         sidecar_path = output_path.with_suffix("").with_suffix(".json")
@@ -1211,9 +1300,7 @@ class TestSaveNifti:
         roundtripped = load_nifti(output_path)
         assert roundtripped.dims == ("component", "z", "y", "x")
         assert roundtripped.sizes["component"] == 1
-        np.testing.assert_array_equal(
-            roundtripped.coords["component"].values, [0.0]
-        )
+        np.testing.assert_array_equal(roundtripped.coords["component"].values, [0.0])
 
     def test_save_empty_extra_coord_roundtrips(self, tmp_path) -> None:
         """An empty extra-dim coord is vacuously regular; the save writes an empty-axis NIfTI.
@@ -1237,7 +1324,13 @@ class TestSaveNifti:
         save_nifti(da, output_path)
 
         # NIfTI shape: (x=8, y=6, z=4, time=1, component=0).
-        assert nib.load(output_path).shape == (8, 6, 4, 1, 0)
+        assert nib.nifti1.Nifti1Image.from_filename(output_path).shape == (
+            8,
+            6,
+            4,
+            1,
+            0,
+        )
 
     def test_save_extra_dim_coord_attrs_roundtrip_through_sidecar(
         self, tmp_path
@@ -1316,7 +1409,7 @@ class TestSaveNifti:
         output_path = tmp_path / "negative_channel_spacing.nii.gz"
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.structarr["pixdim"][5] == pytest.approx(-2.0)
 
         with open(tmp_path / "negative_channel_spacing.json") as f:
@@ -1434,7 +1527,7 @@ class TestSaveNifti:
         with pytest.warns(UserWarning, match="using the median step"):
             save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_zooms()[:3] == pytest.approx((1.0, 1.0, 2.0))
 
     def test_save_creates_sidecar(self, tmp_path, sample_3d_volume):
@@ -1452,6 +1545,29 @@ class TestSaveNifti:
         assert sidecar["TaskName"] == "test"
         assert sidecar["custom"] == "value"
         assert "RepetitionTime" not in sidecar
+
+    def test_save_drops_non_json_serializable_attrs(
+        self, tmp_path, sample_3d_volume
+    ) -> None:
+        """Non-JSON-serializable attrs (e.g. matplotlib colormaps) are dropped, not
+        stringified, and do not prevent the sidecar from being written."""
+        from matplotlib.colors import ListedColormap
+
+        da = sample_3d_volume.drop_vars("time").copy()
+        da.attrs["cmap"] = ListedColormap(["red", "blue"])
+        da.attrs["task_name"] = "test"
+
+        output_path = tmp_path / "non_serializable.nii.gz"
+        with pytest.warns(UserWarning, match="non-JSON-serializable"):
+            save_nifti(da, output_path)
+
+        sidecar_path = tmp_path / "non_serializable.json"
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+
+        assert "ConfUSIusCmap" not in sidecar
+        assert "cmap" not in sidecar
+        assert sidecar["TaskName"] == "test"
 
     def test_save_maps_processing_metadata_to_sidecar_fields(
         self, tmp_path, sample_3dt_volume
@@ -1734,7 +1850,7 @@ class TestSaveNifti:
 
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.get_data_dtype() == np.dtype(np.uint8)
         np.testing.assert_array_equal(
             np.asarray(loaded.dataobj),
@@ -1748,7 +1864,7 @@ class TestSaveNifti:
         output_path = tmp_path / "output_nifti2.nii"
         save_nifti(da, output_path, nifti_version=2)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti2.Nifti2Image.from_filename(output_path)
         assert isinstance(loaded, nib.nifti2.Nifti2Image)
 
     def test_save_valid_derived_metadata_emits_no_validation_warning(
@@ -2261,7 +2377,7 @@ class TestSaveNifti:
         output_path = tmp_path / "selected_qform.nii.gz"
         save_nifti(da, output_path, qform="physical_to_template")
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         q = loaded.header.get_qform()
         np.testing.assert_allclose(q[:3, :3], np.eye(3), atol=1e-6)
 
@@ -2282,7 +2398,7 @@ class TestSaveNifti:
         output_path = tmp_path / "default_qform_key.nii.gz"
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         np.testing.assert_allclose(
             loaded.header.get_qform()[:3, :3], np.diag([3.0, 3.0, 3.0]), atol=1e-6
         )
@@ -2304,7 +2420,7 @@ class TestSaveNifti:
         output_path = tmp_path / "named_sform.nii.gz"
         save_nifti(da, output_path, sform="physical_to_template")
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_sform(coded=True)[1] == 1
 
     def test_named_sform_code_kwarg_overrides_attrs(self, tmp_path):
@@ -2327,7 +2443,7 @@ class TestSaveNifti:
         output_path = tmp_path / "sform_code_override.nii.gz"
         save_nifti(da, output_path, sform="physical_to_sform", sform_code=2)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_sform(coded=True)[1] == 2
 
     def test_explicit_qform_code_kwarg_overrides_attrs(self, tmp_path):
@@ -2346,7 +2462,7 @@ class TestSaveNifti:
         output_path = tmp_path / "qform_code_override.nii.gz"
         save_nifti(da, output_path, qform_code=2)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_qform(coded=True)[1] == 2
 
     def test_form_codes_from_attrs_used_when_no_kwarg(self, tmp_path):
@@ -2370,7 +2486,7 @@ class TestSaveNifti:
         output_path = tmp_path / "codes_from_attrs.nii.gz"
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_qform(coded=True)[1] == 2
         assert loaded.header.get_sform(coded=True)[1] == 2
 
@@ -2411,7 +2527,7 @@ class TestSaveNifti:
         output_path = tmp_path / "no_sform.nii.gz"
         save_nifti(da, output_path)
 
-        loaded = nib.load(output_path)
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_sform(coded=True)[1] == 0
 
 
@@ -2446,7 +2562,7 @@ class TestRoundtrip:
 
         out_path = tmp_path / "out.nii.gz"
         save_nifti(load_nifti(in_path), out_path)
-        reloaded = nib.load(out_path)
+        reloaded = nib.nifti1.Nifti1Image.from_filename(out_path)
 
         # sform survives (primary frame); qform must survive too.
         np.testing.assert_allclose(
@@ -2454,6 +2570,39 @@ class TestRoundtrip:
         )
         np.testing.assert_allclose(
             reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
+        )
+
+    def test_roundtrip_qform_after_apply_affine_with_singleton_dim(self, tmp_path):
+        """Applying `physical_to_qform` before saving still round-trips the qform.
+
+        Regression (#244): the scan has a singleton spatial axis, whose saved
+        spacing cannot come from coordinate steps and falls back to the
+        `voxdim` coordinate attribute. `apply_affine` must rescale `voxdim`
+        along with the coordinates, otherwise the saved qform carries the
+        stale voxel size on that axis.
+        """
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        sform[:3, 3] = [10.0, -5.0, 2.0]
+        qform = np.diag([0.5, 1.5, 2.5, 1.0])
+        qform[:3, 3] = [5.0, 6.0, 7.0]
+        # NIfTI shape (x, y, z): z is the singleton axis.
+        img = nib.Nifti1Image(np.zeros((4, 3, 1), dtype=np.float32), sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(qform, code=1)
+        in_path = tmp_path / "in.nii.gz"
+        img.to_filename(in_path)
+
+        da = load_nifti(in_path)
+        da, _ = apply_affine(da, da.attrs["affines"]["physical_to_qform"])
+        out_path = tmp_path / "out.nii.gz"
+        save_nifti(da, out_path)
+        reloaded = nib.nifti1.Nifti1Image.from_filename(out_path)
+
+        np.testing.assert_allclose(
+            reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
+        )
+        np.testing.assert_allclose(
+            reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
         )
 
     def test_roundtrip_3d(self, tmp_path, sample_3d_volume):
@@ -2666,7 +2815,9 @@ class TestRoundtrip:
         assert sidecar["VolumeTiming"] == pytest.approx(time_values.tolist())
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(4.6)
         assert "RepetitionTime" not in sidecar
-        assert nib.load(nifti_path).header.get_zooms()[3] == pytest.approx(0.0)
+        assert nib.nifti1.Nifti1Image.from_filename(nifti_path).header.get_zooms()[
+            3
+        ] == pytest.approx(0.0)
 
         loaded = load_nifti(nifti_path)
         np.testing.assert_allclose(loaded.coords["time"].values, time_values)

@@ -1,16 +1,17 @@
 """Napari-based visualization utilities for fUSI data."""
 
 import warnings
-from collections import defaultdict
 from typing import TYPE_CHECKING, Literal, cast
 
 import napari
 import numpy as np
 import xarray as xr
-from napari.utils.colormaps import DirectLabelColormap
 
-from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.napari import (
+    build_direct_label_colormap,
+    build_roi_labels_features,
+)
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
@@ -78,10 +79,10 @@ def plot_napari(
     missing coordinates, no scaling is applied. The spacing is computed as the median
     difference between consecutive coordinate values.
 
-    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list
-    is forwarded to napari as the `units` layer parameter, which populates the status
-    bar with physical coordinates. The scale bar is also updated to reflect the first
-    found unit; it falls back to `"mm"` when no units are present on the coordinates.
+    When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list is
+    forwarded to napari as the `units` layer parameter, which populates the status bar
+    with physical coordinates and sets the scale bar unit if units are consistent across
+    displayed axes.
 
     For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
     spacing cannot be inferred from coordinates. In that case, the function looks for a
@@ -120,6 +121,11 @@ def plot_napari(
     >>> viewer, layer = plot_napari(data)
     >>> viewer, layer = plot_napari(roi_mask, viewer=viewer, layer_type="labels")
     """
+    if layer_type not in ("image", "labels"):
+        raise ValueError(
+            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
+        )
+
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
@@ -197,14 +203,13 @@ def plot_napari(
         # directly: cast to silence the type checker.
         layer = cast("Image", layer)
 
-        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray /
-        # Dask) defers contrast-limit computation to the async slice worker.
-        # The worker fires AFTER _should_calc_clims is set, but in napari
-        # 0.6.6 the initial viewer refresh triggered by the `inserted` event
-        # completes before that flag is raised, so contrast limits stay at
-        # (0, 1) for float data until the user manually clicks "once".
-        # Explicitly computing them here is robust across napari versions.
-        # See https://github.com/napari/napari/pull/8756.
+        # Workaround for napari 0.6.6+: non-numpy data (xarray DataArray / Dask) defers
+        # contrast-limit computation to the async slice worker. The worker fires AFTER
+        # _should_calc_clims is set, but in napari 0.6.6 the initial viewer refresh
+        # triggered by the `inserted` event completes before that flag is raised, so
+        # contrast limits stay at (0, 1) for float data until the user manually clicks
+        # "once". Explicitly computing them here is robust across napari versions. See
+        # https://github.com/napari/napari/pull/8756.
         if "contrast_limits" not in layer_kwargs:
             layer.reset_contrast_limits_range()
             layer.reset_contrast_limits("data")
@@ -222,85 +227,26 @@ def plot_napari(
             values = values.astype(np.int32)
 
         # Build a DirectLabelColormap from attrs when the caller has not already
-        # supplied one.  This lets atlas annotations and masks carry their colormap
-        # automatically into the viewer.  cmap/norm are not serializable, so they
-        # may be absent after a Zarr round-trip; fall back to reconstructing them
-        # from rgb_lookup when that is present.
-        cmap_attr = data.attrs.get("cmap")
-        norm_attr = data.attrs.get("norm")
-        if (cmap_attr is None or norm_attr is None) and "rgb_lookup" in data.attrs:
-            cmap_attr, norm_attr = build_atlas_cmap_and_norm(data.attrs["rgb_lookup"])
-        if (
-            cmap_attr is not None
-            and norm_attr is not None
-            and "colormap" not in layer_kwargs
-        ):
-            color_dict: defaultdict[int | None, np.ndarray] = defaultdict(
-                lambda: np.zeros(4, dtype=np.float32)  # unknown labels → transparent.
-            )
-            for label in np.unique(values):
-                if label == 0:
-                    continue  # background_value=0 is always transparent.
-                color_dict[int(label)] = np.array(
-                    cmap_attr(norm_attr(int(label))), dtype=np.float32
-                )
-            layer_kwargs["colormap"] = DirectLabelColormap(
-                color_dict=color_dict, background_value=0
-            )
+        # supplied one. This lets atlas annotations and masks carry their colormap
+        # automatically into the viewer.
+        if "colormap" not in layer_kwargs:
+            colormap = build_direct_label_colormap(data)
+            if colormap is not None:
+                layer_kwargs["colormap"] = colormap
 
-        layer = viewer.add_labels(
+        layer = viewer.add_labels(  # type: ignore
             values,
             scale=scale,
             **layer_kwargs,
         )
 
         if (roi_labels := data.attrs.get("roi_labels")) is not None:
-            _attach_roi_labels_to_napari(layer, roi_labels)
+            layer.features = build_roi_labels_features(roi_labels)
 
-    else:
-        raise ValueError(
-            f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
-        )
-
-    if show_scale_bar:
-        viewer.scale_bar.visible = True
-        scale_bar_unit = next(
-            (u for d, u in zip(all_dims, all_units) if d != time_dim and u is not None),
-            "mm",
-        )
-        viewer.scale_bar.unit = scale_bar_unit
+    assert viewer is not None
+    viewer.scale_bar.visible = show_scale_bar
 
     return viewer, layer
-
-
-def _attach_roi_labels_to_napari(layer: "Labels", roi_labels: dict[int, str]) -> None:
-    """Make a napari Labels layer report the ROI name in the status bar.
-
-    Sets `layer.features` so that napari's built-in
-    `napari.layers.Labels.get_status` appends `name: <roi name>` to the status
-    bar (and the cursor tooltip when `viewer.tooltip.visible` is `True`)
-    whenever the cursor is over a labelled voxel.
-
-    A row for label `0` is included with a NaN name so background hovers do not
-    show napari's default `[No Properties]` placeholder.
-
-    Parameters
-    ----------
-    layer : napari.layers.Labels
-        Layer whose `features` table will be replaced.
-    roi_labels : dict[int, str]
-        Mapping from integer ROI id to display name.
-    """
-    import pandas as pd
-
-    ids: list[int] = [0]
-    names: list[float | str] = [float("nan")]
-    for sid, name in roi_labels.items():
-        sid_int = int(sid)
-        if sid_int != 0:
-            ids.append(sid_int)
-            names.append(str(name))
-    layer.features = pd.DataFrame({"index": ids, "name": names})
 
 
 def draw_napari_labels(
@@ -378,7 +324,7 @@ def draw_napari_labels(
     spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
 
     labels_array = np.zeros(spatial_shape, dtype=np.int32)
-    labels_layer = viewer.add_labels(
+    labels_layer = viewer.add_labels(  # type: ignore
         labels_array,
         scale=spatial_scale,
         translate=spatial_translate,

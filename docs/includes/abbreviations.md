@@ -20,6 +20,7 @@
 *[ROIs]: Regions of Interest
 *[HRF]: Hemodynamic Response Function
 *[FIR]: Finite Impulse Response
+*[FC]: Functional Connectivity
 *[FDR]: False Discovery Rate
 *[FWER]: Family-Wise Error Rate
 *[SNR]: Signal-to-Noise Ratio
@@ -29,4 +30,5 @@
 *[QC]: Quality Control
 *[tSNR]: Temporal Signal-to-Noise Ratio
 *[CV]: Coefficient of Variation
+*[FD]: Framewise Displacement
 

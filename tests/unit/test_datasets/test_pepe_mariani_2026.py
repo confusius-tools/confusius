@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
 from confusius.datasets import fetch_template_pepe_mariani_2026
 from confusius.datasets._pepe_mariani_2026 import (
+    _CITATION,
     _FILENAME,
     _OSF_PROJECT_ID,
     _TEMPLATE_ROOT,
     resolve_template_url,
 )
+from confusius.datasets._utils import plain_citation
 
 
 class _Response:
@@ -80,8 +83,12 @@ def mock_retrieve(tmp_path: Path):
 
 @pytest.fixture
 def mock_load():
-    sentinel = object()
-    with patch("confusius.datasets._pepe_mariani_2026.load", return_value=sentinel) as mock:
+    # Stand-in for the loaded DataArray; needs a mutable `attrs` so the fetcher
+    # can stamp the citation onto it.
+    sentinel = SimpleNamespace(attrs={})
+    with patch(
+        "confusius.datasets._pepe_mariani_2026.load", return_value=sentinel
+    ) as mock:
         yield sentinel, mock
 
 
@@ -130,3 +137,21 @@ def test_fetch_refresh_redownloads_cached_template(
     mock_retrieve.assert_called_once()
     mock_load_fn.assert_called_once_with(dest)
     assert dest.exists()
+
+
+def test_fetch_sets_citation(tmp_path, mock_resolve, mock_retrieve, mock_load, capsys):
+    result = fetch_template_pepe_mariani_2026(data_dir=tmp_path)
+
+    # The attribute holds the plain citation, with rich markup stripped.
+    assert result.attrs["citation"] == plain_citation(_CITATION)
+    assert "[italic]" not in result.attrs["citation"]
+
+    out = capsys.readouterr().out
+    assert out.startswith(
+        "If you use this template in your work, please cite the following source:"
+    )
+    # Rich word-wraps the printed citation, so compare on whitespace-normalized text.
+    assert plain_citation(_CITATION) in " ".join(out.split())
+
+    fetch_template_pepe_mariani_2026(data_dir=tmp_path, print_citation=False)
+    assert capsys.readouterr().out == ""

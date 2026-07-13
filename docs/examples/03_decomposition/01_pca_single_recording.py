@@ -53,6 +53,7 @@ bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     acqs="slice03",
 )
 
+# %%
 pwd_path = (
     Path(bids_root)
     / "sub-CR022"
@@ -170,14 +171,10 @@ for i, comp in enumerate(range(n_show)):
     var = float(pca_t.explained_variance_ratio_.sel(component=comp)) * 100
 
     component_map = pca_t.maps_.isel(component=[comp])
-    vmax = float(np.abs(component_map).max())
-    cf.plotting.plot_volume(
+    cf.plotting.plot_stat_map(
         component_map,
         axes=fig.add_subplot(gs[i, 0]),
         slice_mode="component",
-        cmap="coolwarm",
-        vmin=-vmax,
-        vmax=vmax,
         show_axes=False,
         show_colorbar=False,
         show_titles=False,
@@ -224,12 +221,11 @@ for i, comp in enumerate(range(n_show)):
 
     component_map = pca_s.maps_.isel(component=[comp])
     vmax = float(np.abs(component_map).max())
-    cf.plotting.plot_volume(
+    cf.plotting.plot_stat_map(
         component_map,
         axes=fig.add_subplot(gs[i, 0]),
         slice_mode="component",
         cmap="coolwarm",
-        vmin=-vmax,
         vmax=vmax,
         show_axes=False,
         show_colorbar=False,

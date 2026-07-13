@@ -20,6 +20,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from confusius._utils.colors import RED, RED_DARK
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
 
@@ -76,7 +78,8 @@ _TOOLTIP_WIDTH = 300
 _SPOTLIGHT_PADDING = 6
 _SPOTLIGHT_RADIUS = 8
 _SPOTLIGHT_BORDER_WIDTH = 2
-_SPOTLIGHT_BORDER_COLOR = QColor(233, 75, 95, 230)  # #e94b5f, logo red
+_SPOTLIGHT_BORDER_COLOR = QColor(RED)
+_SPOTLIGHT_BORDER_COLOR.setAlpha(230)
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +152,7 @@ class _TourTooltip(QWidget):
 
     def apply_theme(self, *, is_dark: bool) -> None:
         """Apply theme colours."""
-        accent = "#e94b5f" if is_dark else "#d93a54"
+        accent = RED if is_dark else RED_DARK
         accent_fg = "#ffffff"
         bg = "#2d2d3a" if is_dark else "#ffffff"
         fg = "#c8c8d4" if is_dark else "#2c2c3a"
@@ -397,7 +400,7 @@ class GuidedTour(QObject):
 
     # -- Event handling ------------------------------------------------------
 
-    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore[invalid-method-override]  # noqa: N802
+    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore  # noqa: N802
         """Reposition the overlay when the watched window is resized.
 
         Parameters

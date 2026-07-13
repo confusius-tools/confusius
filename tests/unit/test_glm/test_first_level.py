@@ -246,7 +246,7 @@ class TestFirstLevelModelContrast:
 
     def test_invalid_output_type_raises(self):
         with pytest.raises(ValueError, match="output_type"):
-            self.model.compute_contrast("A", output_type="invalid")
+            self.model.compute_contrast("A", output_type="invalid")  # ty: ignore[invalid-argument-type]
 
 
 class TestFirstLevelModelContrastMultiRun:

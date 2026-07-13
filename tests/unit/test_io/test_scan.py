@@ -522,6 +522,17 @@ class TestLoadScanErrors:
         with pytest.raises(ValueError, match="Unknown acquisitionMode"):
             load_scan(path)
 
+    def test_non_hdf5_scan_raises_useful_error(self, tmp_path: Path) -> None:
+        """load_scan points users to SCAN v2 conversion for non-HDF5 `.scan` files."""
+        path = tmp_path / "scan_v2.scan"
+        path.write_bytes(b"not an hdf5 file")
+
+        with pytest.raises(
+            ValueError,
+            match="HDF5-based SCAN file supported by ConfUSIus|SCAN v2|NIfTI",
+        ):
+            load_scan(path)
+
 
 # ---------------------------------------------------------------------------
 # Tests: physical_to_lab correctness

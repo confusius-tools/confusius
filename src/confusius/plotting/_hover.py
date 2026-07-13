@@ -91,7 +91,7 @@ class _HoverManager:
         ):  # pragma: no cover
             # Avoid the duplicated "x=..., y=..., [value]" toolbar message
             # so our format_coord output is shown verbatim.
-            toolbar._mouse_event_to_message = (  # type: ignore[method-assign]
+            toolbar._mouse_event_to_message = (  # type: ignore
                 _custom_mouse_event_to_message
             )
 
@@ -165,7 +165,7 @@ class _HoverManager:
                 parts.append(segment)
 
         info = "; ".join(parts)
-        ax.format_coord = lambda x, y, _info=info: _info  # type: ignore[method-assign]
+        ax.format_coord = lambda x, y, _info=info: _info  # type: ignore
 
     def _format_layer(self, layer: _SliceLayer, x: float, y: float) -> str | None:
         """Build the hover segment for one registered slice, or `None` to skip it."""

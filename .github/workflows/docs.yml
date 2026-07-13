@@ -62,6 +62,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cybis-pereira-2026-bids-
 
+      - name: Cache Pepe-Mariani template
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/confusius/pepe-mariani-2026-template
+          key: ${{ runner.os }}-pepe-mariani-2026-template-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
+          restore-keys: |
+            ${{ runner.os }}-pepe-mariani-2026-template-
+
+      - name: Cache BrainGlobe atlases
+        uses: actions/cache@v6
+        with:
+          path: ~/.brainglobe
+          key: ${{ runner.os }}-brainglobe-atlases-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
+          restore-keys: |
+            ${{ runner.os }}-brainglobe-atlases-
+
       - name: Pre-fetch docs datasets
         # Single source of truth for every dataset the docs pipeline loads
         # (userguide image generators and gallery examples). Running it before

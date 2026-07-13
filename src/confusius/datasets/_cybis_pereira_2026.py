@@ -5,12 +5,25 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from ._osf import OsfFileInfo, download_missing_osf_files, get_index
-from ._utils import get_datasets_dir
+from ._osf import (
+    OsfFileInfo,
+    download_osf_files,
+    get_index,
+    read_cached_index,
+    update_cached_index,
+)
+from ._utils import get_datasets_dir, print_citation_message
 
 _OSF_PROJECT_ID = "2v6f7"
 _BIDS_ROOT = "cybis-pereira-2026-bids"
 _TOTAL_SIZE_BYTES = 12_883_924_421
+_CITATION = (
+    "Cybis Pereira, F., Castedo, S. H., Meur-Diebolt, S. L., Ialy-Radio, N., "
+    "Bhattacharya, S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R., "
+    "Pezet, S., & Tanter, M. (2026). [citation.title]A vascular code for speed in the "
+    "spatial navigation system.[/citation.title] [italic]Cell Reports[/italic], 45(1). "
+    "[citation.doi]https://doi.org/10.1016/j.celrep.2025.116791[/citation.doi]"
+)
 
 
 _VALID_DATASETS = frozenset(
@@ -186,6 +199,7 @@ def fetch_cybis_pereira_2026(
     acqs: str | list[str] | None = None,
     datatypes: str | list[str] | None = None,
     refresh: bool = False,
+    print_citation: bool = True,
 ) -> Path:
     """Fetch the Cybis Pereira 2026 fUSI-BIDS dataset.
 
@@ -231,10 +245,13 @@ def fetch_cybis_pereira_2026(
         (e.g. session-level `scans.tsv`, subject-level derivative
         aggregates) are always included.
     refresh : bool, default: False
-        Whether to re-fetch the dataset index from OSF and download any files
-        that are missing locally. If `False` and all requested files are
-        already cached, the function returns immediately without any network
-        access.
+        Whether to re-fetch the dataset index from OSF and reconcile local
+        files against it: missing files are downloaded, and cached files whose
+        MD5 changed upstream (comparing the cached index against the refreshed
+        one) are re-downloaded. If `False` and all requested files are already
+        cached, the function returns immediately without any network access.
+    print_citation : bool, default: True
+        Whether to print the citation for the dataset.
 
     Returns
     -------
@@ -292,9 +309,14 @@ def fetch_cybis_pereira_2026(
                 f"Valid options: {sorted(_VALID_DATATYPES)}"
             )
 
+    previous_index = read_cached_index(bids_dir) if refresh else None
     index = get_index(bids_dir, _OSF_PROJECT_ID, _BIDS_ROOT, refresh=refresh)
     files = _filter_files(index, datasets, subjects, sessions, acqs, datatypes)
 
-    download_missing_osf_files(bids_dir, files)
+    download_osf_files(bids_dir, files, previous_index, refresh=refresh)
+    if refresh:
+        update_cached_index(bids_dir, index, previous_index or {}, files)
 
+    if print_citation:
+        print_citation_message(_CITATION, "dataset")
     return bids_dir

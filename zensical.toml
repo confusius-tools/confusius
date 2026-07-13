@@ -72,11 +72,16 @@ nav = [
         ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
+            { "Motion correction of a single recording" = "examples/_built/registration/volumewise_motion_correction.md" },
         ]},
         { "Decomposition" = [
             { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },
             { "FastICA on a single fUSI recording" = "examples/_built/decomposition/fastica_single_recording.md" },
             { "NMF on a single fUSI recording" = "examples/_built/decomposition/nmf_single_recording.md" },
+        ]},
+        { "Connectivity" = [
+            { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
+            { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },

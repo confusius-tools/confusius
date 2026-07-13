@@ -32,6 +32,7 @@ from qtpy.QtWidgets import (
 from confusius._napari._events._store import EventStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
+from confusius._utils.colors import RED, RED_DARK
 
 if TYPE_CHECKING:
     import napari
@@ -49,8 +50,8 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
     group_title_bg = napari_bg or ("#1c1c27" if is_dark else "#f0f0e8")
     if is_dark:
         header_bg = napari_bg or "#1c1c27"
-        header_border = "#e94b5f"
-        accent = "#e94b5f"
+        header_border = RED
+        accent = RED
         accent_hover = "#f5728a"
         accent_fg = "#ffffff"
         tab_bg = "#2d2d3a"
@@ -69,8 +70,8 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
         status_err = "#e05555"
     else:
         header_bg = napari_bg or "#f0f0e8"
-        header_border = "#d93a54"
-        accent = "#d93a54"
+        header_border = RED_DARK
+        accent = RED_DARK
         accent_hover = "#c02845"
         accent_fg = "#ffffff"
         tab_bg = "#e0e0e8"
@@ -320,7 +321,7 @@ class ConfUSIusWidget(QWidget):
 
     def _on_theme_changed(self) -> None:
         self._apply_theme()
-        accent = "#e94b5f" if self._is_dark() else "#d93a54"
+        accent = RED if self._is_dark() else RED_DARK
         for btn, icon_name in getattr(self, "_accordion_btns", []):
             btn.setIcon(make_lucide_icon(icon_name, accent))
 
@@ -471,7 +472,7 @@ class ConfUSIusWidget(QWidget):
         aspect = vb.width() / vb.height() if vb.height() > 0 else 1.0
         target_width = round(target_height * aspect)
 
-        dpr = QApplication.instance().devicePixelRatio()  # type: ignore[union-attr]
+        dpr = QApplication.instance().devicePixelRatio()  # type: ignore
         px_w, px_h = round(target_width * dpr), round(target_height * dpr)
 
         image = QImage(px_w, px_h, QImage.Format.Format_ARGB32_Premultiplied)
@@ -516,7 +517,7 @@ class ConfUSIusWidget(QWidget):
         # Video panel (own section).
         video_panel = VideoPanel(self.viewer)
 
-        accent = "#e94b5f" if self._is_dark() else "#d93a54"
+        accent = RED if self._is_dark() else RED_DARK
         tab_entries = [
             ("Data I/O", "file-input"),
             ("Video", "video"),

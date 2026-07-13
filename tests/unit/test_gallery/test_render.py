@@ -56,8 +56,10 @@ def test_render_writes_markdown_with_code_and_output(tmp_path: Path) -> None:
 
     md = md_path.read_text()
     assert md.startswith("# Hello")
+    # Input code stays a bare highlighted block; output is wrapped so docs CSS can
+    # wrap long lines instead of scrolling.
     assert "```python\nprint('hi')\n```" in md
-    assert "```\nhi\n```" in md
+    assert '<div class="gallery-output" markdown>\n\n```\nhi\n```\n\n</div>' in md
     assert "ex_output_light/cell_03_0_light.png#only-light" in md
     assert "ex_output_dark/cell_03_0_dark.png#only-dark" in md
     assert "**Total running time:** 4.3 s" in md

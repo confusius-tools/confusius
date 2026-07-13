@@ -53,7 +53,7 @@ class TestContrastFromEstimate:
         variance = np.ones(5)
 
         with pytest.raises(ValueError, match="'t' or 'F'"):
-            Contrast.from_estimate(effect, variance, stat_type="chi2")
+            Contrast.from_estimate(effect, variance, stat_type="chi2")  # ty: ignore[invalid-argument-type]
 
 
 # -----------------------------------------------------------------------------
