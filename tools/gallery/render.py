@@ -51,7 +51,9 @@ def _collapse_spec(tags: set[str]) -> tuple[str, str] | None:
     title : str
         The callout title, defaulting to `Show code`.
     """
-    for tag in tags:
+    # Sorted so that a cell mistakenly carrying several collapse tags picks the same
+    # one on every build instead of following set iteration order.
+    for tag in sorted(tags):
         match = _COLLAPSE_TAG.match(tag)
         if match:
             kind = (match["kind"] or "").strip() or "example"
