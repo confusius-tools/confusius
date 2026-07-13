@@ -1,12 +1,9 @@
 """Registration module for fUSI data."""
 
+from confusius.registration.affines import compose_affine, decompose_affine
 from confusius.registration.progress import (
-    RegistrationProgress,
     MatplotlibRegistrationProgressPlotter,
-)
-from confusius.registration.affines import (
-    compose_affine,
-    decompose_affine,
+    RegistrationProgress,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,

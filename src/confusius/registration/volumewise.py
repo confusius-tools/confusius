@@ -213,12 +213,20 @@ def register_volumewise(
         # every worker sees the shared reporter / event instance.
         parallel_kwargs["prefer"] = "threads"
 
+    aborted_affine = np.eye(ref_da.ndim + 1, dtype=float)
+    aborted_diagnostics = RegistrationDiagnostics(
+        metric=metric,
+        metric_values=np.empty(0, dtype=float),
+        final_metric_value=float("nan"),
+        n_iterations=0,
+        stop_condition="Registration aborted before frame started.",
+        status="aborted",
+    )
+
     def _register_one(
         frame_index: int,
         volume: xr.DataArray,
-    ) -> tuple[
-        int, xr.DataArray, npt.NDArray[np.floating] | None, RegistrationDiagnostics
-    ]:
+    ) -> tuple[int, xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]:
         # Once aborted, skip cheaply: building SimpleITK images and resampling is
         # pure-Python/GIL-bound work that, multiplied across joblib threads, starves the
         # GUI thread. Return the original frame with a zero-iteration "aborted"
@@ -227,16 +235,10 @@ def register_volumewise(
             return (
                 frame_index,
                 volume,
-                None,
-                RegistrationDiagnostics(
-                    metric=metric,
-                    metric_values=np.empty(0, dtype=float),
-                    final_metric_value=float("nan"),
-                    n_iterations=0,
-                    stop_condition="Registration aborted before frame started.",
-                    status="aborted",
-                ),
+                aborted_affine.copy(),
+                aborted_diagnostics,
             )
+
         registered_da, frame_affine, frame_diag = register_volume(
             volume,
             ref_da,
@@ -268,11 +270,13 @@ def register_volumewise(
     # i.e. background) rather than copying the unregistered input, so the partial
     # result visibly shows which frames were skipped.
     output = np.full_like(arr, arr.min())
-    affines: list[npt.NDArray[np.floating] | None] = [None] * n_frames
+    affines: list[npt.NDArray[np.floating]] = [
+        aborted_affine.copy() for _ in range(n_frames)
+    ]
     final_metric_values = [float("nan")] * n_frames
     n_iterations_per_frame = [0] * n_frames
     statuses = ["aborted"] * n_frames
-    diagnostics: list[RegistrationDiagnostics | None] = [None] * n_frames
+    diagnostics = [aborted_diagnostics] * n_frames
 
     try:
         with progress_context:
@@ -287,7 +291,7 @@ def register_volumewise(
                 )
                 if not skipped:
                     output[t] = registered_da.values
-                affines[t] = None if skipped else frame_affine
+                affines[t] = frame_affine
                 final_metric_values[t] = frame_diag.final_metric_value
                 n_iterations_per_frame[t] = frame_diag.n_iterations
                 statuses[t] = frame_diag.status
