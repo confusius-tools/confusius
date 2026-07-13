@@ -27,6 +27,52 @@ def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
     return set(cell.metadata.get("tags", []))
 
 
+def _collapse_title(tags: set[str]) -> str | None:
+    """Return the collapsible-callout title for a code cell, or `None`.
+
+    A cell tagged `collapse` (or `collapse: <title>`) has its code hidden behind a
+    collapsed admonition — useful for tucking away setup/boilerplate. The text after the
+    colon, if any, is the callout title; otherwise a generic default is used.
+
+    Parameters
+    ----------
+    tags : set[str]
+        The cell's tags.
+
+    Returns
+    -------
+    str or None
+        The callout title if the cell requests collapsing, otherwise `None`.
+    """
+    for tag in tags:
+        if tag == "collapse":
+            return "Show code"
+        if tag.startswith("collapse:"):
+            return tag.split(":", 1)[1].strip() or "Show code"
+    return None
+
+
+def _collapsible_code(title: str, code_block: str) -> str:
+    """Wrap a fenced code block in a collapsed `??? example` admonition.
+
+    Parameters
+    ----------
+    title : str
+        The admonition title shown on the collapsed callout.
+    code_block : str
+        The fenced code block Markdown to hide.
+
+    Returns
+    -------
+    str
+        The Markdown for the collapsed callout, with `code_block` indented as its content.
+    """
+    indented = "\n".join(
+        ("    " + line) if line.strip() else "" for line in code_block.splitlines()
+    )
+    return f'??? example "{title}"\n\n{indented}\n'
+
+
 def _png_data(output: dict[str, object]) -> str | None:
     """Return the base64 PNG payload from an output if present."""
     data = output.get("data")
@@ -304,7 +350,12 @@ def render_notebook(
         if cell.cell_type != "code":
             continue
 
-        parts.append("```python\n" + cell.source.rstrip() + "\n```\n")
+        code_block = "```python\n" + cell.source.rstrip() + "\n```\n"
+        collapse_title = _collapse_title(_cell_tags(cell))
+        if collapse_title is not None:
+            parts.append(_collapsible_code(collapse_title, code_block))
+        else:
+            parts.append(code_block)
 
         # Light and dark outputs are paired by index. They must have the
         # same length: a mismatch means non-deterministic output snuck in
