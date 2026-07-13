@@ -170,8 +170,8 @@ for ax, raster, title in [
         extent=[
             float(raster["time"].values[0]),
             float(raster["time"].values[-1]),
-            float(raster["y"].values[0]),
             float(raster["y"].values[-1]),
+            float(raster["y"].values[0]),
         ],
     )
     ax.set_title(title)
