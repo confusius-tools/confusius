@@ -19,6 +19,12 @@ Current development version for the next ConfUSIus release.
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
 
+### :wrench: Maintenance
+
+- pandas DataFrame outputs in the example gallery now render with clean, theme-aware
+  notebook styling instead of a fully-bordered table
+  ([#306](https://github.com/confusius-tools/confusius/issues/306)).
+
 ## 0.5.2
 
 Released 2026-07-10.
