@@ -288,8 +288,9 @@ def load_scan(
     Raises
     ------
     ValueError
-        If `path` does not exist or is not a file, or if the `acquisitionMode` stored in
-        the file is not one of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
+        If `path` does not exist or is not a file, if the file is not an HDF5-based
+        SCAN file supported by ConfUSIus, or if the `acquisitionMode` stored in the
+        file is not one of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
 
     Notes
     -----
@@ -310,6 +311,13 @@ def load_scan(
     `iconeus_project`, `iconeus_date`).
     """
     path = check_path(path, type="file")
+
+    if not h5py.is_hdf5(path):
+        raise ValueError(
+            f"{path.name!r} is not an HDF5-based SCAN file supported by ConfUSIus. "
+            "It may be an Iconeus SCAN v2 file; convert it to NIfTI with Iconeus "
+            "tools first."
+        )
 
     h5 = h5py.File(path, "r")
 

@@ -184,10 +184,13 @@ signals (from the current source mode) and imported signals:
 ### Importing and exporting signals
 
 **Import**
-: In the Manage Signals dialog, click **Import** to load signals from a CSV or TSV
-  file. The file must contain a column whose header matches the current *x*-axis
-  dimension name (e.g. `time`) plus one or more numeric value columns. Each value
-  column becomes a separate signal overlaid on the plot.
+: In the Manage Signals dialog, click **Import** to load one or more signal files at
+  once. Standard CSV / TSV files must contain a column whose header matches the
+  current *x*-axis dimension name (e.g. `time`) plus one or more numeric value
+  columns. BIDS physio files ending in `_physio.tsv.gz` are also supported: ConfUSIus
+  reads their JSON sidecar, uses the declared column names, and synthesizes `time`
+  from `SamplingFrequency` and `StartTime` when needed. Each value column becomes a
+  separate signal overlaid on the plot.
 
 **Export**
 : Click the **Export** button in the plot toolbar to export all currently plotted
@@ -224,15 +227,15 @@ out as a BIDS events `.tsv`.
 
 !!! tip "Straight into analysis"
     An events `.tsv` saved here is a standard BIDS events table, so it can be read back
-    with [read_events][confusius.bids.read_events] and fed directly to either
+    with [load_events][confusius.bids.load_events] and fed directly to either
     [make_first_level_design_matrix][confusius.glm.make_first_level_design_matrix] or
     the `fit` method of a [FirstLevelModel][confusius.glm.first_level.FirstLevelModel]:
 
     ```python
-    from confusius.bids import read_events
+    from confusius.bids import load_events
     from confusius.glm import FirstLevelModel
 
-    events = read_events("sub-01_task-rest_events.tsv")
+    events = load_events("sub-01_task-rest_events.tsv")
     model = FirstLevelModel(hrf_model="glover").fit(fusi_scan, events=events)
     ```
 
