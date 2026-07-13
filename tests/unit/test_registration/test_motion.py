@@ -178,6 +178,23 @@ class TestExtractMotionParameters:
 
         assert_allclose(params[0, :3], [0.0, np.pi / 2, -0.6], atol=1e-6)
 
+    def test_3d_rejects_non_3x3_rotation_from_decomposition(self, monkeypatch):
+        """Malformed decompositions are rejected when extracting 3D rotations."""
+        import pytest
+
+        monkeypatch.setattr(
+            "confusius.registration.motion.decompose_affine",
+            lambda affine: (
+                np.zeros(3),
+                np.eye(2),
+                np.ones(3),
+                np.zeros(3),
+            ),
+        )
+
+        with pytest.raises(ValueError, match=r"\(3, 3\)"):
+            extract_motion_parameters([np.eye(4)])
+
 
 class TestComputeFramewiseDisplacement:
     """Tests for compute_framewise_displacement function."""
