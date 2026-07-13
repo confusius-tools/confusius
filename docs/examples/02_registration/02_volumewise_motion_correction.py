@@ -1,25 +1,23 @@
 # %% [markdown]
 # # Motion correction of a single recording
 #
-# This example shows how to correct frame-to-frame brain motion in one fUSI recording
-# with [`register_volumewise`][confusius.registration.register_volumewise]. We reuse
-# the exact acquisition and rigid-registration settings from the
-# volumewise-registration GIF in the GUI guide: a short open-field excerpt from the
-# [Cybis Pereira 2026 dataset](https://doi.org/10.1016/j.celrep.2025.116791). We then
-# inspect three things that are useful in practice:
+# This example shows how to correct volume-to-volume brain motion in one fUSI recording
+# with [`register_volumewise`][confusius.registration.register_volumewise]. For this
+# example, we use a short subset of an open-feild 2D+t recording from the [Cybis Pereira
+# 2026
+# dataset](https://doi.org/10.1016/j.celrep.2025.116791). After volumewise registration,
+# we inspect three things that are useful in practice:
 #
 # - the motion diagnostics returned by
 #   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe];
 # - a representative voxel trace before and after registration;
-# - a compact raster view showing how one image column stabilizes over time.
-#
-# As in the GUI GIF, we register a 120-frame excerpt rather than the full recording.
+# - a compact raster view showing how volumewise registration stabilized the recording.
 
 # %% [markdown]
 # ## Fetch and load a short motion-corrupted window
 #
-# This is the same open-field recording used by the GUI registration demo. The selected
-# acquisition is a single 2D slice, so the data shape is `(time, z=1, y, x)`.
+# The selected acquisition is a recording from a single 2D slice, so the data shape is
+# `(time, z=1, y, x)`.
 
 
 # %%
@@ -61,11 +59,14 @@ data = cf.load(pwd_path).isel(time=slice(start_frame, start_frame + n_frames)).c
 data
 
 # %% [markdown]
-# ## Register every frame to the middle frame
+# ## Register every frame to the first frame
 #
-# Registering to a central reference frame is a simple way to avoid anchoring the whole
-# excerpt to one edge of the motion trajectory. Here we match the GUI demo settings:
-# rigid transform, correlation metric, and a fixed `learning_rate=1.0`.
+# Volumewise registration can be applied using
+# [`register_volumewise`][confusius.registration.register_volumewise]. By default, each
+# volume (or frame in this case) is registered to the first acquired volume. You may
+# choose any other reference timepoint using the `reference_time`. Here, we're trying to
+# correct for rigid motion—that is, translation and rotations. A learning rate of 1.0
+# leads to good convergence across frames.
 
 # %%
 registered = cf.registration.register_volumewise(
@@ -73,39 +74,54 @@ registered = cf.registration.register_volumewise(
     transform="rigid",
     metric="correlation",
     learning_rate=1.0,
-    resample_interpolation="bspline",
-    show_progress=False,
 )
 
+# %% [markdown]
+# [`register_volumewise`][confusius.registration.register_volumewise] adds a
+# `motion_params` attribute to the motion-corrected DataArray. `motion_params` is a
+# DataFrame created using
+# [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] and
+# containing the motion parameters and registration diagnostics: rotations (`rot_x`,
+# `rot_y`, `rot_z`), translations (`trans_x`, `trans_y`, `trans_z`), the framewise
+# displacement (FD)[^1] summaries (`mean_fd`, `max_fd`, `rms_fd`), and the optimizer
+# summaries (`final_metric_value`, `n_iterations`) added by
+# [`register_volumewise`][confusius.registration.register_volumewise]. Since we
+# registered a 2D+t recording, only the rotation along the z-axis and the translations
+# along the x- and y-axes are non-zero.
+
+# %%
 motion_df = registered.attrs["motion_params"]
 motion_df.head()
 
 # %% [markdown]
-# `motion_df` is the output of
-# [`create_motion_dataframe`][confusius.registration.create_motion_dataframe]. Even
-# though this recording has a singleton `z` axis, the table keeps the full 3D motion
-# summary: rotations (`rot_x`, `rot_y`, `rot_z`), translations (`trans_x`, `trans_y`,
-# `trans_z`), the framewise displacement summaries (`mean_fd`, `max_fd`, `rms_fd`),
-# and the optimizer summaries (`final_metric_value`, `n_iterations`) added by
-# [`register_volumewise`][confusius.registration.register_volumewise].
-
-# %% [markdown]
 # ## Plot the motion diagnostics
 #
-# The framewise displacement peak marks where the excerpt moves most strongly. The last
-# panel is a useful sanity check: frames that systematically hit the maximum iteration
-# count or converge to a much worse similarity metric deserve a closer look.
+# ConfUSIus provides the function
+# [`plot_motion_diagnostics`][confusius.registration.plot_motion_diagnostics] to plot
+# `motion_params` using four panels:
+#
+# - The first two panels show the rotations and translations found at each frame.
+# - The third panel shows the mean, maximum, and RMS of the framewise displacement (FD).
+#   The FD is a metric used to quantify brain motion between consecutive volumes by
+#   summing the absolute temporal derivatives of the realignment parameters
+#   (translations and rotations)[^1].
+# - The fourth panel shows the final registration metric and iteration count for each
+#   volume. Volumes showing outlier metric values or eaching the maximum number of
+#   iteration configured in `register_volumewise` are likely to not be registered
+#   correctly. In that case, you might want to tweak the registration parameters, or
+#   remove the corresponding volumes from further analysis.
 
 # %% tags=["thumbnail"]
 fig, axes = cf.plotting.plot_motion_diagnostics(motion_df)
 fig.patch.set_facecolor(bg_color)
 
 # %% [markdown]
-# ## Compare a representative voxel before and after registration
+# ## Compare a representative time series before and after registration
 #
-# To make the effect easy to see, we pick the voxel with the largest temporal standard
-# deviation in the unregistered excerpt. In practice that usually lands on a large
-# vessel, where motion-induced intensity changes are most visible.
+# To highlight the effect of the volumewise registration, we pick the voxel with the
+# largest temporal standard deviation in the unregistered recording. In practice that
+# usually lands on a large vessel, where motion-induced intensity changes are most
+# visible.
 
 # %%
 std_map = data.squeeze("z", drop=True).std("time")
@@ -126,10 +142,9 @@ _ = ax.legend(frameon=False)
 # %% [markdown]
 # ## Check the alignment over time
 #
-# A compact way to inspect the correction inside the notebook is to follow one image
-# column across time. Motion appears as slanted or wobbling vessel traces in this
-# `y × time` raster, while a good correction makes those traces more horizontal and
-# stable.
+# A compact way to inspect the correction inside the notebook is to follow one column
+# across time. Motion appears as slanted or wobbling vessel traces in this `y × time`
+# raster, while a good correction makes those traces more horizontal and stable.
 
 # %%
 raster_before = data.fusi.scale.db().isel(z=0, x=voxel_x)
@@ -166,8 +181,13 @@ _ = axes[0].set_ylabel("y (mm)")
 
 # %% [markdown]
 # For a full visual check of the corrected movie, open the result in napari with
-# [`plot_napari`][confusius.plotting.plot_napari] or inspect it in the ConfUSIus
-# plugin. We intentionally do not embed a full before/after GIF here because it would
-# make the rendered notebook unnecessarily heavy for the docs site. For a full
-# preprocessing workflow, you would usually run the same correction on the complete
-# recording before downstream QC, decomposition, or connectivity analysis.
+# [`plot_napari`][confusius.plotting.plot_napari] or inspect it in the ConfUSIus plugin.
+# We intentionally do not embed a full before/after GIF here because it would make the
+# rendered notebook unnecessarily heavy. For a full preprocessing workflow, you would
+# usually run the same correction on the complete recording before downstream QC,
+# decomposition, or connectivity analysis.
+#
+# [^1]:
+#     Power, J. D., Barnes, K. A., Snyder, A. Z., Schlaggar, B. L. & Petersen, S. E.
+#     Spurious but systematic correlations in functional connectivity MRI networks arise
+#     from subject motion. Neuroimage 59, 2142-2154

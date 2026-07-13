@@ -241,6 +241,13 @@ def compute_framewise_displacement(
         - `"mean_fd"`: Mean framewise displacement per frame.
         - `"max_fd"`: Maximum framewise displacement per frame.
         - `"rms_fd"`: RMS framewise displacement per frame.
+
+    References
+    ----------
+    [^1]:
+        Power, J. D., Barnes, K. A., Snyder, A. Z., Schlaggar, B. L. & Petersen, S. E.
+        Spurious but systematic correlations in functional connectivity MRI networks
+        arise from subject motion. Neuroimage 59, 2142-2154
     """
     from confusius.validation import validate_fusi_dataarray
 
