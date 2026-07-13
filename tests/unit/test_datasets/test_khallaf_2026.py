@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 from unittest.mock import ANY, patch
 
@@ -13,8 +14,9 @@ import urllib3.exceptions
 from confusius.datasets import fetch_khallaf_2026
 from confusius.datasets._dataverse import (
     access_url,
-    download_missing_zip_members,
+    download_zip_members,
     get_zip_index,
+    update_cached_zip_index,
 )
 from confusius.datasets._khallaf_2026 import _BIDS_ROOT, _DATAFILE_ID, _ZIP_ROOT
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
@@ -356,9 +358,10 @@ def test_fetch_coerces_int_filters(tmp_path, mock_get_zip_index, opened_members)
 class _FakeZipInfo:
     """Minimal stand-in for zipfile.ZipInfo used by get_zip_index."""
 
-    def __init__(self, filename, file_size):
+    def __init__(self, filename, file_size, crc=0):
         self.filename = filename
         self.file_size = file_size
+        self.CRC = crc
 
     def is_dir(self):
         return self.filename.endswith("/")
@@ -387,7 +390,7 @@ def test_get_zip_index_builds_strips_prefix_and_caches(tmp_path):
     infos = [
         _FakeZipInfo(_ZIP_ROOT, 0),  # directory entry, skipped
         _FakeZipInfo(_ZIP_ROOT + "sub-5622/ses-IPM/", 0),  # directory, skipped
-        _FakeZipInfo(_ZIP_ROOT + "sub-5622/ses-IPM/x_pwd.nii", 100),
+        _FakeZipInfo(_ZIP_ROOT + "sub-5622/ses-IPM/x_pwd.nii", 100, crc=42),
         _FakeZipInfo("outside_root/other.txt", 50),  # not under prefix, skipped
     ]
     with patch(
@@ -395,7 +398,7 @@ def test_get_zip_index_builds_strips_prefix_and_caches(tmp_path):
     ):
         index = get_zip_index(tmp_path, "url", _ZIP_ROOT)
 
-    assert index == {"sub-5622/ses-IPM/x_pwd.nii": {"size": 100}}
+    assert index == {"sub-5622/ses-IPM/x_pwd.nii": {"size": 100, "crc": 42}}
     assert (tmp_path / "dataverse_zip_index.json").exists()
 
     # Second call (no refresh) reads the cache without touching the network.
@@ -436,8 +439,113 @@ def test_download_rejects_zip_slip(tmp_path):
 
     with patch("confusius.datasets._dataverse.RemoteZip", _Fake):
         with pytest.raises(ValueError, match="outside the cache"):
-            download_missing_zip_members(bids_dir, "url", members, _ZIP_ROOT)
+            download_zip_members(bids_dir, "url", members, _ZIP_ROOT)
     assert not (tmp_path / "escape.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# refresh — CRC-based re-download and index merge
+# ---------------------------------------------------------------------------
+
+
+def _recording_remotezip(opened):
+    """Return a fake RemoteZip class that records opened members."""
+
+    class _Fake:
+        def __init__(self, url, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def open(self, member):
+            opened.append(member)
+            return io.BytesIO(b"new-bytes")
+
+    return _Fake
+
+
+def test_download_zip_members_refresh_redownloads_changed_crc(tmp_path):
+    bids_dir = tmp_path / _BIDS_ROOT
+    bids_dir.mkdir(parents=True)
+    (bids_dir / "unchanged.nii").write_bytes(b"old")
+    (bids_dir / "changed.nii").write_bytes(b"old")
+    # "missing.nii" is absent from disk.
+
+    members = {
+        "unchanged.nii": {"size": 3, "crc": 111},
+        "changed.nii": {"size": 3, "crc": 222},  # remote crc bumped
+        "missing.nii": {"size": 3, "crc": 333},
+    }
+    previous_index = {
+        "unchanged.nii": {"size": 3, "crc": 111},
+        "changed.nii": {"size": 3, "crc": 111},  # cached crc is stale
+        "missing.nii": {"size": 3, "crc": 333},
+    }
+
+    opened = []
+    with patch("confusius.datasets._dataverse.RemoteZip", _recording_remotezip(opened)):
+        download_zip_members(
+            bids_dir, "url", members, _ZIP_ROOT, previous_index, refresh=True
+        )
+
+    assert _selected(opened) == {"changed.nii", "missing.nii"}
+
+
+def test_download_zip_members_no_refresh_ignores_crc(tmp_path):
+    bids_dir = tmp_path / _BIDS_ROOT
+    bids_dir.mkdir(parents=True)
+    (bids_dir / "present.nii").write_bytes(b"old")
+
+    members = {
+        "present.nii": {"size": 3, "crc": 999},  # crc differs, but no refresh
+        "missing.nii": {"size": 3, "crc": 111},
+    }
+    previous_index = {"present.nii": {"size": 3, "crc": 111}}
+
+    opened = []
+    with patch("confusius.datasets._dataverse.RemoteZip", _recording_remotezip(opened)):
+        download_zip_members(
+            bids_dir, "url", members, _ZIP_ROOT, previous_index, refresh=False
+        )
+
+    assert _selected(opened) == {"missing.nii"}
+
+
+def test_update_cached_zip_index_preserves_unrequested_baseline(tmp_path):
+    remote = {"a.nii": {"size": 1, "crc": 2}, "b.nii": {"size": 1, "crc": 9}}
+    previous = {"a.nii": {"size": 1, "crc": 1}, "b.nii": {"size": 1, "crc": 1}}
+    members = {"a.nii": {"size": 1, "crc": 2}}  # only "a" was reconciled
+
+    update_cached_zip_index(tmp_path, remote, previous, members)
+
+    written = json.loads((tmp_path / "dataverse_zip_index.json").read_text())
+    # Reconciled member advances to the remote crc; the unrequested member keeps
+    # its cached baseline so a later refresh still detects it as changed.
+    assert written["a.nii"]["crc"] == 2
+    assert written["b.nii"]["crc"] == 1
+
+
+def test_get_zip_index_refresh_reads_fresh_without_overwriting_cache(tmp_path):
+    (tmp_path / "dataverse_zip_index.json").write_text(
+        json.dumps({"a.nii": {"size": 1, "crc": 111}})
+    )
+    infos = [_FakeZipInfo(_ZIP_ROOT + "a.nii", 100, crc=999)]
+
+    with patch(
+        "confusius.datasets._dataverse.RemoteZip", _fake_remotezip_from_infos(infos)
+    ):
+        index = get_zip_index(tmp_path, "url", _ZIP_ROOT, refresh=True)
+
+    # The fresh central directory is returned to the caller...
+    assert index == {"a.nii": {"size": 100, "crc": 999}}
+    # ...but the on-disk cache is left for the caller to merge, so the stale crc
+    # is still available as the refresh baseline.
+    cached = json.loads((tmp_path / "dataverse_zip_index.json").read_text())
+    assert cached["a.nii"]["crc"] == 111
 
 
 # ---------------------------------------------------------------------------

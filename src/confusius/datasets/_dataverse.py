@@ -61,9 +61,16 @@ mid-member surfaces as a `urllib3.exceptions.HTTPError` subclass
 
 
 class ZipMemberInfo(TypedDict):
-    """Per-member metadata entry in a Dataverse stored-zip index."""
+    """Per-member metadata entry in a Dataverse stored-zip index.
+
+    `crc` is the member's CRC-32 as recorded in the zip central directory. It
+    changes whenever the member's content is re-uploaded, so it is the
+    change-detection token used on refresh — the Dataverse analog of the md5 an
+    OSF-backed index carries.
+    """
 
     size: int
+    crc: int
 
 
 def access_url(datafile_id: int) -> str:
@@ -94,7 +101,13 @@ def get_zip_index(
     When `refresh` is `False` and a cached index exists in `data_dir`, it is
     decoded and returned directly (offline-friendly). Otherwise the archive's
     central directory is read over the network with a single range-backed
-    [`remotezip.RemoteZip`][remotezip.RemoteZip] session and persisted to disk.
+    [`remotezip.RemoteZip`][remotezip.RemoteZip] session.
+
+    The freshly read index is only persisted here on the very first fetch (when
+    no cache exists yet). On a refresh of an existing cache it is returned but
+    not written: the caller merges it via
+    [`update_cached_zip_index`][confusius.datasets._dataverse.update_cached_zip_index]
+    so members it did not reconcile keep the crc they were downloaded with.
 
     Only members whose names start with `root_prefix` are indexed; directory
     entries are skipped. Index keys are the member paths with `root_prefix`
@@ -131,14 +144,18 @@ def get_zip_index(
         empty index and turn every fetch into a silent no-op.
     """
     index_path = data_dir / _INDEX_FILENAME
-    if not refresh and index_path.exists():
-        return json.loads(index_path.read_text(encoding="utf-8"))
+    cache_exists = index_path.exists()
+    if not refresh and cache_exists:
+        return read_cached_zip_index(data_dir)
 
     def _filter_index(info: zipfile.ZipInfo) -> bool:
         return not info.is_dir() and info.filename.startswith(root_prefix)
 
     def _map_index(info: zipfile.ZipInfo) -> tuple[str, ZipMemberInfo]:
-        return info.filename[len(root_prefix) :], {"size": info.file_size}
+        return info.filename[len(root_prefix) :], {
+            "size": info.file_size,
+            "crc": info.CRC,
+        }
 
     index = dict(
         map(
@@ -153,26 +170,154 @@ def get_zip_index(
             "The archive layout may have changed."
         )
 
-    index_path.write_text(
-        json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    # First fetch: no cached crcs to preserve, so persist the full index as the
+    # baseline. On a refresh of an existing cache the caller merges instead (see
+    # update_cached_zip_index), so leave the cache untouched here.
+    if not cache_exists:
+        _write_zip_index(index_path, index)
     return index
 
 
-def download_missing_zip_members(
+def _write_zip_index(index_path: Path, index: dict[str, ZipMemberInfo]) -> None:
+    """Write a stored-zip member index to disk as sorted, indented JSON.
+
+    Parameters
+    ----------
+    index_path : pathlib.Path
+        Destination path for the cached index.
+    index : dict[str, ZipMemberInfo]
+        Index mapping to serialise.
+    """
+    index_path.write_text(
+        json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def read_cached_zip_index(data_dir: Path) -> dict[str, ZipMemberInfo]:
+    """Return the locally cached stored-zip index, or `{}` if none exists.
+
+    Unlike [`get_zip_index`][confusius.datasets._dataverse.get_zip_index] this
+    never touches the network: it only decodes the on-disk index. Callers read
+    it before a refresh to capture the crcs the cached members were downloaded
+    with, then compare those against the freshly read central directory to
+    decide which members changed upstream.
+
+    Parameters
+    ----------
+    data_dir : pathlib.Path
+        Directory holding the cached index.
+
+    Returns
+    -------
+    dict[str, ZipMemberInfo]
+        Cached index mapping, or an empty mapping when no cache exists.
+    """
+    index_path = data_dir / _INDEX_FILENAME
+    if not index_path.exists():
+        return {}
+    return json.loads(index_path.read_text(encoding="utf-8"))
+
+
+def update_cached_zip_index(
+    data_dir: Path,
+    remote_index: dict[str, ZipMemberInfo],
+    previous_index: dict[str, ZipMemberInfo],
+    members: dict[str, ZipMemberInfo],
+) -> None:
+    """Persist a refreshed index by merging, not replacing, the cached one.
+
+    The cached index is the record of what is on disk, so it is not overwritten
+    with the freshly read central directory. Instead the persisted index is:
+
+    - the remote entry for every reconciled member (those in `members`), whose
+      crc baseline is advanced to the current upstream value;
+    - the cached entry for any member the call did not reconcile, so that a
+      later refresh can still detect its crc changing upstream;
+    - the remote entry for members present neither in the cache nor in the
+      request (newly added upstream), so they are catalogued for next time.
+
+    Parameters
+    ----------
+    data_dir : pathlib.Path
+        Directory holding the cached index.
+    remote_index : dict[str, ZipMemberInfo]
+        Full index freshly read from the archive central directory.
+    previous_index : dict[str, ZipMemberInfo]
+        Index cached before the refresh.
+    members : dict[str, ZipMemberInfo]
+        Requested subset of `remote_index` that was reconciled with disk.
+    """
+    merged: dict[str, ZipMemberInfo] = {**remote_index, **previous_index, **members}
+    _write_zip_index(data_dir / _INDEX_FILENAME, merged)
+
+
+def _select_zip_downloads(
+    bids_dir: Path,
+    members: dict[str, ZipMemberInfo],
+    previous_index: dict[str, ZipMemberInfo],
+    refresh: bool,
+) -> dict[str, ZipMemberInfo]:
+    """Return the subset of `members` that must be (re)downloaded.
+
+    A member is selected when it is absent from `bids_dir`. When `refresh` is
+    `True`, a cached member is also selected when its crc in `previous_index`
+    (the index it was last downloaded with) differs from its crc in `members`
+    (the freshly read central directory). The cached index is trusted as the
+    record of what is on disk, so members are never re-hashed; a member whose
+    cached entry has no crc (a path not previously catalogued) cannot be
+    vouched for, so it is re-downloaded rather than left in an unverifiable
+    state.
+
+    Parameters
+    ----------
+    bids_dir : pathlib.Path
+        Local cache root where members are written.
+    members : dict[str, ZipMemberInfo]
+        Requested subset of the remote index.
+    previous_index : dict[str, ZipMemberInfo]
+        Index cached before the refresh, used as the local crc baseline.
+    refresh : bool
+        Whether to re-download cached members whose remote crc differs from the
+        cached crc.
+
+    Returns
+    -------
+    dict[str, ZipMemberInfo]
+        Subset of `members` to download, preserving the input order.
+    """
+    selected: dict[str, ZipMemberInfo] = {}
+
+    for rel, info in members.items():
+        if not (bids_dir / rel).exists():
+            selected[rel] = info
+            continue
+        if not refresh:
+            continue
+        if previous_index.get(rel, {}).get("crc") != info["crc"]:
+            selected[rel] = info
+
+    return selected
+
+
+def download_zip_members(
     bids_dir: Path,
     url: str,
     members: dict[str, ZipMemberInfo],
     root_prefix: str,
+    previous_index: dict[str, ZipMemberInfo] | None = None,
+    refresh: bool = False,
     session: requests.Session | None = None,
 ) -> None:
-    """Extract missing stored-zip members described by an index mapping.
+    """Extract stored-zip members that are missing or changed upstream.
 
-    Members already present in `bids_dir` are skipped. The rest are streamed
-    out of the remote archive by range request through a single
-    [`remotezip.RemoteZip`][remotezip.RemoteZip] session, with a shared
-    progress bar tracking cumulative (uncompressed) bytes. Each member is
-    written to a `.part` file and atomically renamed on success.
+    Members absent from `bids_dir` are always downloaded. When `refresh` is
+    `True`, cached members whose remote crc differs from the crc recorded in
+    `previous_index` are re-downloaded as well; see
+    [`_select_zip_downloads`][confusius.datasets._dataverse._select_zip_downloads].
+    Selected members are streamed out of the remote archive by range request
+    through a single [`remotezip.RemoteZip`][remotezip.RemoteZip] session, with
+    a shared progress bar tracking cumulative (uncompressed) bytes. Each member
+    is written to a `.part` file and atomically renamed on success.
 
     Parameters
     ----------
@@ -188,6 +333,13 @@ def download_missing_zip_members(
     root_prefix : str
         Common in-zip path prefix to prepend when reading a member by its
         stripped key.
+    previous_index : dict[str, ZipMemberInfo], optional
+        Index cached before the refresh, used as the local crc baseline. Only
+        consulted when `refresh` is `True`; if not provided, an empty baseline
+        is used and refresh reduces to downloading missing members.
+    refresh : bool, default: False
+        Whether to re-download cached members whose remote crc differs from the
+        cached crc.
     session : requests.Session, optional
         Session reused for every member's range requests so the hundreds of
         per-member reads share pooled keep-alive connections instead of
@@ -200,14 +352,14 @@ def download_missing_zip_members(
         If a member's relative path escapes `bids_dir` (zip-slip), e.g. a
         member name containing `..`.
     """
-    missing = {
-        rel: info for rel, info in members.items() if not (bids_dir / rel).exists()
-    }
-    if not missing:
+    to_download = _select_zip_downloads(
+        bids_dir, members, previous_index or {}, refresh
+    )
+    if not to_download:
         return
 
     bids_root = bids_dir.resolve()
-    total_bytes = sum(info["size"] for info in missing.values())
+    total_bytes = sum(info["size"] for info in to_download.values())
 
     with quiet_pooch_logger():
         logger = pooch.get_logger()
@@ -224,7 +376,7 @@ def download_missing_zip_members(
             RemoteZip(url, session=session) as archive,
         ):
             task = progress.add_task("Downloading dataset...", total=total_bytes)
-            for rel in missing:
+            for rel in to_download:
                 dest = bids_dir / rel
                 # Guard against zip-slip: a member path with `..` could resolve
                 # outside the cache root. `RemoteZip.open` is the unsanitised

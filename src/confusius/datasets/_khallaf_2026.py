@@ -11,8 +11,10 @@ import requests
 from ._dataverse import (
     ZipMemberInfo,
     access_url,
-    download_missing_zip_members,
+    download_zip_members,
     get_zip_index,
+    read_cached_zip_index,
+    update_cached_zip_index,
 )
 from ._utils import get_datasets_dir
 
@@ -317,9 +319,12 @@ def fetch_khallaf_2026(
         `sourcedata/`. When `True`, the entire `sourcedata/` directory
         (~7.8 GB) is downloaded with no subject/session filtering applied.
     refresh : bool, default: False
-        Whether to re-read the archive index from Edmond and download any files
-        that are missing locally. If `False` and all requested files are already
-        cached, the function returns immediately without any network access.
+        Whether to re-read the archive index from Edmond and reconcile local
+        files against it: missing files are downloaded, and cached files whose
+        CRC-32 changed upstream (comparing the cached index against the
+        re-read one) are re-downloaded. If `False` and all requested files are
+        already cached, the function returns immediately without any network
+        access.
 
     Returns
     -------
@@ -336,8 +341,8 @@ def fetch_khallaf_2026(
     ----------
     [^1]:
         Khallaf, M. A. et al. (2026). A queen odour mediates reproductive
-        suppression in a eusocial mammal.
-        <!-- TODO: add the paper DOI and full citation once published. -->
+        suppression in a eusocial mammal. *Nature*.
+        [https://doi.org/10.1038/s41586-026-10772-5](https://doi.org/10.1038/s41586-026-10772-5)
 
     [^2]:
         fUSI dataset on Edmond (Max Planck Society):
@@ -374,6 +379,9 @@ def fetch_khallaf_2026(
         )
 
     url = access_url(_DATAFILE_ID)
+    # Capture the crcs the cached members were downloaded with before the
+    # refresh re-reads the central directory, so changed members can be detected.
+    previous_index = read_cached_zip_index(bids_dir) if refresh else None
     # One session pools keep-alive connections across the central-directory read
     # and every per-member range request.
     with requests.Session() as session:
@@ -383,6 +391,16 @@ def fetch_khallaf_2026(
         members = _filter_members(
             index, datasets, subjects, sessions, runs, reconstruction, sourcedata
         )
-        download_missing_zip_members(bids_dir, url, members, _ZIP_ROOT, session=session)
+        download_zip_members(
+            bids_dir,
+            url,
+            members,
+            _ZIP_ROOT,
+            previous_index,
+            refresh=refresh,
+            session=session,
+        )
+        if refresh:
+            update_cached_zip_index(bids_dir, index, previous_index or {}, members)
 
     return bids_dir
