@@ -457,8 +457,7 @@ def _validate_volume_timing_length(
 
     warnings.warn(
         f"`VolumeTiming` length ({volume_timing.size}) does not match the data time "
-        f"dimension ({n_time}). Ignoring it and falling back to RepetitionTime, "
-        "NIfTI header timing, or frame indices.",
+        f"dimension ({n_time}). Ignoring it.",
         stacklevel=find_stack_level(),
     )
     return None
@@ -601,11 +600,17 @@ def _create_temporal_coords_from_nifti(
                 )
         time_values = delay + sampling_period_sidecar * np.arange(n_time)
     elif time_values is None and sampling_period_nifti is not None:
+        if volume_timing_length_mismatch:
+            warnings.warn(
+                f"Ignoring mismatched `VolumeTiming` and using NIfTI header "
+                f"`pixdim[4]` ({sampling_period_nifti}) for timing.",
+                stacklevel=find_stack_level(),
+            )
         time_values = sampling_period_nifti * np.arange(n_time)
     elif time_values is None:
         if volume_timing_length_mismatch:
             warnings.warn(
-                "`VolumeTiming` could not be used, and NIfTI header `pixdim[4]` is "
+                "Ignoring mismatched `VolumeTiming`, and NIfTI header `pixdim[4]` is "
                 "not positive. Falling back to frame indices.",
                 stacklevel=find_stack_level(),
             )

@@ -682,12 +682,8 @@ class TestLoadNifti:
             warnings.simplefilter("always")
             loaded = load_nifti(path)
 
-        assert any(
-            "`VolumeTiming` length" in str(w.message)
-            and "falling back to RepetitionTime, NIfTI header timing, or frame indices"
-            in str(w.message)
-            for w in caught
-        )
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("using NIfTI header `pixdim[4]`" in str(w.message) for w in caught)
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
 
     def test_load_nifti_volume_timing_plus_one_entry_falls_back_to_header(
@@ -706,8 +702,12 @@ class TestLoadNifti:
                 f,
             )
 
-        with pytest.warns(UserWarning, match="falling back to RepetitionTime"):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             loaded = load_nifti(path)
+
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
+        assert any("using NIfTI header `pixdim[4]`" in str(w.message) for w in caught)
 
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
 
