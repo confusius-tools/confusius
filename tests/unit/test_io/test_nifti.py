@@ -683,10 +683,10 @@ class TestLoadNifti:
             loaded = load_nifti(path)
 
         assert any(
-            "does not match the data time dimension" in str(w.message) for w in caught
-        )
-        assert any(
-            "Falling back to NIfTI header timing" in str(w.message) for w in caught
+            "`VolumeTiming` length" in str(w.message)
+            and "falling back to RepetitionTime, NIfTI header timing, or frame indices"
+            in str(w.message)
+            for w in caught
         )
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
 
@@ -706,7 +706,7 @@ class TestLoadNifti:
                 f,
             )
 
-        with pytest.warns(UserWarning, match="Falling back to NIfTI header timing"):
+        with pytest.warns(UserWarning, match="falling back to RepetitionTime"):
             loaded = load_nifti(path)
 
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
@@ -728,9 +728,7 @@ class TestLoadNifti:
             warnings.simplefilter("always")
             loaded = load_nifti(path)
 
-        assert any(
-            "does not match the data time dimension" in str(w.message) for w in caught
-        )
+        assert any("`VolumeTiming` length" in str(w.message) for w in caught)
         assert any("Falling back to frame indices" in str(w.message) for w in caught)
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 1, 2, 3, 4])
 
@@ -751,6 +749,7 @@ class TestLoadNifti:
             warnings.simplefilter("always")
             loaded = load_nifti(path)
 
+        assert any("VolumeTiming" in str(w.message) for w in caught)
         assert any("not a non-empty 1D array" in str(w.message) for w in caught)
         np.testing.assert_allclose(loaded.coords["time"].values, [0, 2, 4, 6, 8])
 
