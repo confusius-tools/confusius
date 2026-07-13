@@ -27,12 +27,17 @@ def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
     return set(cell.metadata.get("tags", []))
 
 
-def _collapse_title(tags: set[str]) -> str | None:
-    """Return the collapsible-callout title for a code cell, or `None`.
+_COLLAPSE_TAG = re.compile(r"collapse(?:\[(?P<kind>[^\]]+)\])?(?::(?P<title>.*))?\Z")
 
-    A cell tagged `collapse` (or `collapse: <title>`) has its code hidden behind a
-    collapsed admonition — useful for tucking away setup/boilerplate. The text after the
-    colon, if any, is the callout title; otherwise a generic default is used.
+
+def _collapse_spec(tags: set[str]) -> tuple[str, str] | None:
+    """Return the (admonition type, title) for a collapsed code cell, or `None`.
+
+    A cell tagged `collapse` has its code hidden behind a collapsed admonition —
+    useful for tucking away setup/boilerplate. The tag accepts an optional admonition
+    type in brackets and an optional title after a colon: `collapse`,
+    `collapse: <title>`, `collapse[<type>]`, or `collapse[<type>]: <title>`. The type
+    is any admonition name Zensical understands (`example`, `warning`, `tip`, ...).
 
     Parameters
     ----------
@@ -41,22 +46,27 @@ def _collapse_title(tags: set[str]) -> str | None:
 
     Returns
     -------
-    str or None
-        The callout title if the cell requests collapsing, otherwise `None`.
+    kind : str
+        The admonition type, defaulting to `example`.
+    title : str
+        The callout title, defaulting to `Show code`.
     """
     for tag in tags:
-        if tag == "collapse":
-            return "Show code"
-        if tag.startswith("collapse:"):
-            return tag.split(":", 1)[1].strip() or "Show code"
+        match = _COLLAPSE_TAG.match(tag)
+        if match:
+            kind = (match["kind"] or "").strip() or "example"
+            title = (match["title"] or "").strip() or "Show code"
+            return kind, title
     return None
 
 
-def _collapsible_code(title: str, code_block: str) -> str:
-    """Wrap a fenced code block in a collapsed `??? example` admonition.
+def _collapsible_code(kind: str, title: str, code_block: str) -> str:
+    """Wrap a fenced code block in a collapsed `??? <kind>` admonition.
 
     Parameters
     ----------
+    kind : str
+        The admonition type (e.g. `example`, `warning`).
     title : str
         The admonition title shown on the collapsed callout.
     code_block : str
@@ -70,7 +80,7 @@ def _collapsible_code(title: str, code_block: str) -> str:
     indented = "\n".join(
         ("    " + line) if line.strip() else "" for line in code_block.splitlines()
     )
-    return f'??? example "{title}"\n\n{indented}\n'
+    return f'??? {kind} "{title}"\n\n{indented}\n'
 
 
 def _png_data(output: dict[str, object]) -> str | None:
@@ -351,9 +361,9 @@ def render_notebook(
             continue
 
         code_block = "```python\n" + cell.source.rstrip() + "\n```\n"
-        collapse_title = _collapse_title(_cell_tags(cell))
-        if collapse_title is not None:
-            parts.append(_collapsible_code(collapse_title, code_block))
+        collapse = _collapse_spec(_cell_tags(cell))
+        if collapse is not None:
+            parts.append(_collapsible_code(*collapse, code_block))
         else:
             parts.append(code_block)
 
