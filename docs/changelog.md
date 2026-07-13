@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :books: Documentation
+
+- Example gallery cells can now hide their code behind a collapsed callout with a
+  `collapse` cell tag, with optional custom title (`collapse: <title>`) and admonition
+  type (`collapse[<type>]`)
+  ([#309](https://github.com/confusius-tools/confusius/pull/309)).
+
 ### :bug: Fixes
 
 - Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
