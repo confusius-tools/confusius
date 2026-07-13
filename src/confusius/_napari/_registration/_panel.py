@@ -32,6 +32,10 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
+from confusius._utils.coordinates import (
+    get_coordinate_origins,
+    get_coordinate_spacings_best_effort,
+)
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -480,10 +484,12 @@ class RegistrationPanel(QWidget):
         self._new_moving_mask_btn = QPushButton("+")
         self._new_moving_mask_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
         self._new_moving_mask_btn.setToolTip(
-            "Create a new 3D Labels layer (no time axis) aligned to the current image."
+            "Create a new Labels layer (no time axis) aligned to the moving layer."
         )
         self._new_moving_mask_btn.clicked.connect(
-            lambda: self._create_labels_layer(name="Moving mask")
+            lambda: self._create_labels_layer(
+                name="Moving mask", reference_combo=self._moving_combo
+            )
         )
         moving_mask_row = QHBoxLayout()
         moving_mask_row.setContentsMargins(0, 0, 0, 0)
@@ -525,10 +531,12 @@ class RegistrationPanel(QWidget):
         self._new_fixed_mask_btn = QPushButton("+")
         self._new_fixed_mask_btn.setStyleSheet("font-weight: bold; font-size: 14px;")
         self._new_fixed_mask_btn.setToolTip(
-            "Create a new 3D Labels layer (no time axis) aligned to the current image."
+            "Create a new Labels layer aligned to the fixed layer."
         )
         self._new_fixed_mask_btn.clicked.connect(
-            lambda: self._create_labels_layer(name="Fixed mask")
+            lambda: self._create_labels_layer(
+                name="Fixed mask", reference_combo=self._fixed_combo
+            )
         )
         fixed_mask_row = QHBoxLayout()
         fixed_mask_row.setContentsMargins(0, 0, 0, 0)
@@ -1388,50 +1396,51 @@ class RegistrationPanel(QWidget):
                 _make_weight_cell(label, value), 0, index
             )
 
-    def _spatial_info(
-        self,
-    ) -> tuple[
-        tuple[int, ...] | None, tuple[float, ...] | None, tuple[float, ...] | None
-    ]:
-        """Return shape, scale, and translation for the first spatial image layer."""
-        for layer in self.viewer.layers:
-            if layer._type_string != "image":
-                continue
-            da = layer.metadata.get("xarray")
-            if da is not None:
-                spatial_indices = [
-                    i for i, dim in enumerate(da.dims) if dim in SPATIAL_DIMS_WITH_POSE
-                ]
-                if not spatial_indices:
-                    continue
-                shape = tuple(da.shape[i] for i in spatial_indices)
-                scale = tuple(float(layer.scale[i]) for i in spatial_indices)
-                translate = tuple(float(layer.translate[i]) for i in spatial_indices)
-                return shape, scale, translate
-            if layer.data.ndim >= 4:
-                return (
-                    layer.data.shape[1:],
-                    tuple(float(s) for s in layer.scale[1:]),
-                    tuple(float(t) for t in layer.translate[1:]),
-                )
-        return None, None, None
+    def _create_labels_layer(self, *, name: str, reference_combo: QComboBox) -> None:
+        """Add a mask Labels layer aligned to the selected reference layer's grid.
 
-    def _create_labels_layer(self, *, name: str = "Labels (3D)") -> None:
-        """Add a new Labels layer aligned to the current spatial image grid."""
-        import numpy as np
+        The grid (spatial dims, shape, scale, and translate) is taken from the
+        source DataArray of the layer selected in `reference_combo`, so the mask
+        passes coordinate validation against that layer during registration.
 
-        shape, scale, translate = self._spatial_info()
-        shape = shape or (64, 64, 64)
-        kwargs: dict[str, object] = {}
-        if scale is not None:
-            kwargs["scale"] = scale
-        if translate is not None:
-            kwargs["translate"] = translate
+        Parameters
+        ----------
+        name : str
+            Name of the new Labels layer.
+        reference_combo : QComboBox
+            Moving- or fixed-layer selector whose current layer defines the grid.
+        """
+        layer = self._selected_layer(reference_combo)
+        if layer is None:
+            self._set_error(f"Select a layer before creating the {name.lower()}.")
+            return
+        try:
+            source = _get_source_dataarray(layer)
+        except Exception as exc:  # noqa: BLE001
+            self._set_error(str(exc))
+            return
+
+        dims = tuple(str(d) for d in source.dims if d in SPATIAL_DIMS_WITH_POSE)
+        if not dims:
+            self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")
+            return
+        spacings, _ = get_coordinate_spacings_best_effort(source)
+        origins = get_coordinate_origins(source)
+        units = tuple(
+            source.coords[d].attrs.get("units") if d in source.coords else None
+            for d in dims
+        )
+        kwargs: dict[str, Any] = {}
+        if any(u is not None for u in units):
+            kwargs["units"] = units
         # `add_labels` exists at runtime, but napari injects it dynamically onto
         # `ViewerModel`, so ty does not see it on `napari.Viewer`.
         self.viewer.add_labels(  # ty: ignore[unresolved-attribute]
-            np.zeros(shape, dtype=np.int32),
+            np.zeros(tuple(source.sizes[d] for d in dims), dtype=np.int32),
             name=name,
+            scale=tuple(spacings[d] for d in dims),
+            translate=tuple(origins[d] for d in dims),
+            axis_labels=dims,
             **kwargs,
         )
 

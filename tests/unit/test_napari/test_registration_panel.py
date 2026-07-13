@@ -440,22 +440,38 @@ class TestOperationMode:
 
 
 class TestRunRegistration:
-    def test_mask_buttons_create_named_layers(self, viewer, registration_panel):
+    def test_mask_buttons_create_layers_matching_reference_grid(
+        self, viewer, registration_panel
+    ):
         moving = xr.DataArray(
             np.zeros((2, 4, 6, 8), dtype=np.float32),
             dims=["time", "z", "y", "x"],
             coords={
                 "time": xr.DataArray(np.arange(2), dims=["time"]),
-                "z": xr.DataArray(np.arange(4) * 0.3, dims=["z"]),
-                "y": xr.DataArray(np.arange(6) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(8) * 0.1, dims=["x"]),
+                "z": xr.DataArray(
+                    1.0 + np.arange(4) * 0.3, dims=["z"], attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    2.0 + np.arange(6) * 0.2, dims=["y"], attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    3.0 + np.arange(8) * 0.1, dims=["x"], attrs={"units": "mm"}
+                ),
             },
         )
-        layer = viewer.add_image(
-            moving.values, name="moving", metadata={"xarray": moving}
+        fixed = xr.DataArray(
+            np.zeros((3, 5, 7), dtype=np.float32),
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.DataArray(10.0 + np.arange(3) * 0.5, dims=["z"]),
+                "y": xr.DataArray(20.0 + np.arange(5) * 0.4, dims=["y"]),
+                "x": xr.DataArray(30.0 + np.arange(7) * 0.25, dims=["x"]),
+            },
         )
-        layer.scale = (1.0, 0.3, 0.2, 0.1)
-        layer.translate = (0.0, 1.0, 2.0, 3.0)
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        viewer.add_image(fixed.values, name="fixed", metadata={"xarray": fixed})
+        registration_panel._moving_combo.setCurrentText("moving")
+        registration_panel._fixed_combo.setCurrentText("fixed")
 
         registration_panel._new_moving_mask_btn.click()
         registration_panel._new_fixed_mask_btn.click()
@@ -463,9 +479,27 @@ class TestRunRegistration:
         moving_mask = viewer.layers["Moving mask"]
         fixed_mask = viewer.layers["Fixed mask"]
         assert np.asarray(moving_mask.data).shape == (4, 6, 8)
-        assert tuple(moving_mask.scale) == (0.3, 0.2, 0.1)
-        assert tuple(moving_mask.translate) == (1.0, 2.0, 3.0)
-        assert np.asarray(fixed_mask.data).shape == (4, 6, 8)
+        assert tuple(moving_mask.axis_labels) == ("z", "y", "x")
+        np.testing.assert_allclose(moving_mask.scale, (0.3, 0.2, 0.1))
+        np.testing.assert_allclose(moving_mask.translate, (1.0, 2.0, 3.0))
+        assert tuple(str(u) for u in moving_mask.units) == ("millimeter",) * 3
+        assert np.asarray(fixed_mask.data).shape == (3, 5, 7)
+        assert tuple(fixed_mask.axis_labels) == ("z", "y", "x")
+        np.testing.assert_allclose(fixed_mask.scale, (0.5, 0.4, 0.25))
+        np.testing.assert_allclose(fixed_mask.translate, (10.0, 20.0, 30.0))
+        # Fixed fixture coords carry no units attr: napari defaults to pixel.
+        assert tuple(str(u) for u in fixed_mask.units) == ("pixel",) * 3
+
+    def test_mask_buttons_require_selected_reference_layer(
+        self, viewer, registration_panel
+    ):
+        assert not registration_panel._new_moving_mask_btn.isEnabled()
+        assert not registration_panel._new_fixed_mask_btn.isEnabled()
+
+        registration_panel._new_moving_mask_btn.click()
+        registration_panel._new_fixed_mask_btn.click()
+
+        assert len(viewer.layers) == 0
 
     def test_between_scan_run_uses_selected_initial_transform(
         self, viewer, registration_panel, monkeypatch

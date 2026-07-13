@@ -357,6 +357,9 @@ def validate_registration_selection(panel: "RegistrationPanel") -> bool:
     fixed_layer = selected_layer(panel, panel._fixed_combo)
     operation = panel._operation()
 
+    panel._new_moving_mask_btn.setEnabled(moving_layer is not None)
+    panel._new_fixed_mask_btn.setEnabled(fixed_layer is not None)
+
     if moving_layer is None:
         set_layer_validation_style(panel)
         set_run_btn_enabled(panel, False)
