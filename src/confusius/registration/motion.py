@@ -281,20 +281,22 @@ def compute_framewise_displacement(
     if mask is not None:
         points = points[mask.ravel()]
 
-    transformed = []
-    for affine in affines_validated:
-        pts_out = (affine[:ndim, :ndim] @ points.T).T + affine[:ndim, ndim]
-        transformed.append(pts_out)
-
     mean_fd = np.zeros(n_frames)
     max_fd = np.zeros(n_frames)
     rms_fd = np.zeros(n_frames)
 
+    # Framewise displacement is strictly pairwise, so transform one frame at a time and
+    # retain only the previous frame's points instead of every frame's transformed grid.
+    first = affines_validated[0]
+    prev_pts = (first[:ndim, :ndim] @ points.T).T + first[:ndim, ndim]
     for t in range(n_frames - 1):
-        displacements = np.linalg.norm(transformed[t + 1] - transformed[t], axis=1)
+        nxt = affines_validated[t + 1]
+        next_pts = (nxt[:ndim, :ndim] @ points.T).T + nxt[:ndim, ndim]
+        displacements = np.linalg.norm(next_pts - prev_pts, axis=1)
         mean_fd[t] = np.mean(displacements)
         max_fd[t] = np.max(displacements)
         rms_fd[t] = np.sqrt(np.mean(displacements**2))
+        prev_pts = next_pts
 
     mean_fd[-1] = 0.0
     max_fd[-1] = 0.0
