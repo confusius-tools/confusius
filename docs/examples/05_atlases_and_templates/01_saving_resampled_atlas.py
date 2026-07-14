@@ -8,26 +8,25 @@
 # costly, so it is worth computing it once and caching the result to disk.
 #
 # This example resamples the [Allen Mouse Brain Atlas][confusius.atlas] onto a
-# recording's grid, saves it as Zarr with [`save_atlas`][confusius.io.save_atlas], and
-# reads it back with [`load_atlas`][confusius.io.load_atlas]. The Zarr file bundles the
-# structure hierarchy and the region meshes alongside the arrays, so a reloaded atlas is
-# immediately usable (for masks, meshes, and plotting) without redoing the alignment or
-# re-fetching from BrainGlobe.
+# recording's grid, saves it to Zarr format with
+# [`save_atlas`][confusius.io.save_atlas], and reads it back with
+# [`load_atlas`][confusius.io.load_atlas]. The Zarr dataset bundles the structure
+# hierarchy and the region meshes alongside the arrays, so the reloaded atlas is
+# immediately usable for masks, meshes, and plotting.
 
 # %% [markdown]
 # ## Register the recording to the template
 #
-# We reuse the recording, template, and affine registration from the
-# [Atlas-based region correlation matrix](../connectivity/atlas_correlation_matrix.md)
-# example—see it for a full walkthrough. Briefly: we take the temporal mean of a
-# single-slice [Nunez-Elizalde 2022][confusius.datasets.fetch_nunez_elizalde_2022]
-# recording and register it to the
-# [Pepe, Mariani 2026 template][confusius.datasets.fetch_template_pepe_mariani_2026],
-# which carries the affine into Allen Common Coordinate Framework (CCF) space. Code is
-# initially hidden under a collapsable callout to keep the example focused on the atlas
-# resampling and saving.
+# We reuse the recording, template, and affine registration from the [Atlas-based region
+# correlation matrix](../connectivity/atlas_correlation_matrix.md) example—see it for a
+# full walkthrough. Briefly: we take the temporal mean of a 2D+t recording from the
+# [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022] and
+# register it to the [Pepe, Mariani 2026
+# template][confusius.datasets.fetch_template_pepe_mariani_2026]. The latter carries an
+# affine transform to the Allen Common Coordinate Framework (CCF) space. Code for data
+# fetching and registration is available in the folded cell below.
 
-# %% tags=["collapse: Code for data fetching and registration"]
+# %% tags=["collapse: Data fetching and registration"]
 import warnings
 from pathlib import Path
 
@@ -60,17 +59,7 @@ data_path = (
     / "fusi"
     / "sub-CR022_ses-20201007_task-spontaneous_acq-slice02_pwd.nii.gz"
 )
-# The recording's timepoints are not perfectly uniformly spaced, so we resample to a
-# uniform grid before taking the temporal mean used for registration.
-with warnings.catch_warnings():
-    warnings.filterwarnings(
-        "ignore",
-        message=".*non-uniform*",
-        category=UserWarning,
-    )
-    data = cf.timing.resample_to_uniform_time(cf.load(data_path))
-
-moving = data.mean(dim="time").fusi.scale.db().compute()
+moving = cf.load(data_path).mean(dim="time").fusi.scale.db().compute()
 
 template = cf.datasets.fetch_template_pepe_mariani_2026(print_citation=False).compute()
 
@@ -102,12 +91,12 @@ registered, affine, diagnostics = cf.registration.register_volume(
 # ## Resample the atlas and save it
 #
 # Composing the template's `physical_to_sform` affine with the inverse of the estimated
-# registration affine gives a single transform from the recording's native coordinates to
-# Allen atlas coordinates.
+# registration affine gives a single transform from the recording's native coordinates
+# to Allen atlas coordinates.
 # [`resample_like`][confusius.atlas.AtlasAccessor.resample_like] then brings the atlas'
-# reference, annotations, and hemisphere map onto the recording's grid in one call. This
-# is the expensive step we want to avoid repeating, so we write the result to a Zarr
-# file right away and drop it from memory.
+# reference, annotations, and hemisphere maps onto the recording's grid in one call.
+# This is the expensive step we want to avoid repeating, so we write the result to a
+# Zarr dataset right away and drop it from memory.
 
 # %%
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
@@ -126,12 +115,12 @@ del resampled_atlas
 # ## Reload the resampled atlas
 #
 # Later, in a new session, or a downstream analysis, the aligned atlas is one
-# [`load_atlas`][confusius.io.load_atlas] call away, with no registration or resampling to
-# redo. Overlaying its region annotations on the recording confirms the reloaded atlas is
-# correctly aligned.
+# [`load_atlas`][confusius.io.load_atlas] call away, with no registration or resampling
+# to redo. Overlaying its region annotations on the recording confirms the reloaded
+# atlas is correctly aligned.
 
 # %% tags=["thumbnail"]
 resampled_atlas = cf.io.load_atlas(store_path)
 
 plotter = cf.plotting.plot_volume(moving, bg_color=bg_color)
-plotter.add_contours(resampled_atlas.annotation, alpha=0.5)
+_ = plotter.add_contours(resampled_atlas.annotation)
