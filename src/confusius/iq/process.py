@@ -66,6 +66,52 @@ def _format_clutter_filter_spec(
     return f"{label} [{low}, {high}{closing}"
 
 
+def _normalize_spatial_kernel(
+    spatial_kernel: int | tuple[int, int, int] | list[int],
+    spatial_shape: tuple[int, int, int] | None = None,
+) -> tuple[int, int, int]:
+    """Return a validated `(z, y, x)` median-filter kernel.
+
+    Parameters
+    ----------
+    spatial_kernel : int or tuple[int, int, int] or list[int]
+        Median-filter kernel size as a scalar or explicit `(z, y, x)` sizes.
+    spatial_shape : tuple[int, int, int], optional
+        Spatial data shape used to clip each kernel axis to the available size.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        Validated odd kernel sizes for `(z, y, x)`.
+
+    Raises
+    ------
+    ValueError
+        If `spatial_kernel` is not a positive int or a length-3 sequence of positive
+        ints.
+    """
+    if isinstance(spatial_kernel, int):
+        kernel = (spatial_kernel, spatial_kernel, spatial_kernel)
+    elif len(spatial_kernel) == 3 and all(
+        isinstance(size, int) for size in spatial_kernel
+    ):
+        kernel = tuple(spatial_kernel)
+    else:
+        raise ValueError(
+            "`spatial_kernel` must be a positive int or a length-3 sequence of positive ints."
+        )
+
+    if any(size < 1 for size in kernel):
+        raise ValueError("`spatial_kernel` values must be positive.")
+
+    if spatial_shape is not None:
+        kernel = tuple(
+            min(size, dim) for size, dim in zip(kernel, spatial_shape, strict=True)
+        )
+
+    return tuple(size + 1 if size % 2 == 0 else size for size in kernel)
+
+
 def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
     """Return the input IQ volume acquisition duration in coordinate units.
 
@@ -799,7 +845,7 @@ def compute_axial_velocity_volume(
     velocity_window_stride: int | None = None,
     lag: int = 1,
     absolute_velocity: bool = False,
-    spatial_kernel: int = 1,
+    spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
 ) -> npt.NDArray:
@@ -850,9 +896,12 @@ def compute_axial_velocity_volume(
     absolute_velocity : bool, default: False
         If `True`, compute absolute velocity values. If `False`, preserve sign
         information.
-    spatial_kernel : int, default: 1
-        Size of the median filter kernel applied spatially to denoise. Must be
-        positive and odd. If `1`, no spatial filtering is applied.
+    spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
+        Size of the median filter kernel applied spatially to denoise. A scalar uses
+        the same kernel size on all spatial axes; a length-3 sequence specifies
+        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
+        applied.
     transmit_frequency : float, default: 15.625e6
         Ultrasound transmit frequency in hertz.
     beamforming_sound_velocity : float, default: 1540
@@ -873,7 +922,7 @@ def compute_axial_velocity_volume(
 
     def process_block_func(
         block: npt.NDArray,
-        spatial_kernel: int,
+        spatial_kernel: int | tuple[int, int, int] | list[int],
         lag: int,
         absolute_velocity: bool,
         fs: float,
@@ -887,9 +936,10 @@ def compute_axial_velocity_volume(
         ----------
         block : (time, z, y, x) numpy.ndarray
             Complex IQ data.
-        spatial_kernel : int
-            Size of the median filter kernel applied spatially to denoise. Must be
-            positive and odd.
+        spatial_kernel : int or tuple[int, int, int] or list[int]
+            Size of the median filter kernel applied spatially to denoise. A scalar
+            uses the same size on all spatial axes; a length-3 sequence specifies
+            `(z, y, x)` sizes directly.
         lag : int
             Temporal lag in volumes for autocorrelation computation.
         absolute_velocity : bool
@@ -917,12 +967,10 @@ def compute_axial_velocity_volume(
         if absolute_velocity:
             average_autocorrelation_phase = np.abs(average_autocorrelation_phase)
 
-        if spatial_kernel > 1:
+        kernel_size = _normalize_spatial_kernel(spatial_kernel, block.shape[1:])
+        if any(size > 1 for size in kernel_size):
             import scipy.signal as sp_signal
 
-            kernel_size = [min(spatial_kernel, s) for s in block.shape[1:]]
-            # Median filter requires odd kernel sizes.
-            kernel_size = [s + 1 if s % 2 == 0 else s for s in kernel_size]
             average_autocorrelation_phase = sp_signal.medfilt(
                 average_autocorrelation_phase, kernel_size
             )
@@ -1474,7 +1522,7 @@ def process_iq_to_axial_velocity(
     velocity_window_stride: int | None = None,
     lag: int = 1,
     absolute_velocity: bool = False,
-    spatial_kernel: int = 1,
+    spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into axial velocity volumes using sliding windows.
 
@@ -1535,9 +1583,12 @@ def process_iq_to_axial_velocity(
     absolute_velocity : bool, default: False
         If `True`, compute absolute velocity values. If `False`, preserve sign
         information.
-    spatial_kernel : int, default: 1
-        Size of the median filter kernel applied spatially to denoise. Must be
-        positive and odd. If `1`, no spatial filtering is applied.
+    spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
+        Size of the median filter kernel applied spatially to denoise. A scalar uses
+        the same kernel size on all spatial axes; a length-3 sequence specifies
+        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
+        applied.
 
     Returns
     -------

@@ -365,9 +365,49 @@ class TestComputeAxialVelocityVolume:
             transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
+            spatial_kernel=1,
         )
 
         assert_allclose(result[0], expected, rtol=1e-5)
+
+    def test_spatial_kernel_accepts_per_axis_sizes(
+        self, monkeypatch, sample_iq_block_4d
+    ):
+        """Per-axis spatial kernels are passed to the median filter."""
+        import scipy.signal as sp_signal
+
+        kernel_sizes: list[tuple[int, ...]] = []
+        real_medfilt = sp_signal.medfilt
+
+        def wrapped_medfilt(volume, kernel_size):
+            kernel_sizes.append(tuple(kernel_size))
+            return real_medfilt(volume, kernel_size)
+
+        monkeypatch.setattr(sp_signal, "medfilt", wrapped_medfilt)
+
+        compute_axial_velocity_volume(
+            sample_iq_block_4d,
+            fs=100.0,
+            spatial_kernel=(1, 3, 5),
+        )
+
+        assert kernel_sizes == [(1, 3, 5)]
+
+    def test_spatial_kernel_rejects_invalid_sequences(self, sample_iq_block_4d):
+        """Spatial kernels must be positive length-3 integer sizes."""
+        with pytest.raises(ValueError, match="length-3 sequence"):
+            compute_axial_velocity_volume(
+                sample_iq_block_4d,
+                fs=100.0,
+                spatial_kernel=(3, 3),  # type: ignore[arg-type]
+            )
+
+        with pytest.raises(ValueError, match="must be positive"):
+            compute_axial_velocity_volume(
+                sample_iq_block_4d,
+                fs=100.0,
+                spatial_kernel=(1, 0, 3),
+            )
 
 
 class TestProcessIqBlocks:
@@ -1017,7 +1057,6 @@ class TestProcessIqToAxialVelocity:
             sample_iq_dataarray,
             lag=2,
             absolute_velocity=True,
-            spatial_kernel=3,
         )
 
         assert result.attrs["axial_velocity_lag"] == 2
@@ -1028,6 +1067,15 @@ class TestProcessIqToAxialVelocity:
         assert "absolute_velocity" not in result.attrs
         assert "spatial_kernel" not in result.attrs
         assert "estimation_method" not in result.attrs
+
+    def test_axial_velocity_accepts_per_axis_spatial_kernel(self, sample_iq_dataarray):
+        """Axial velocity metadata preserves explicit per-axis kernel sizes."""
+        result = process_iq_to_axial_velocity(
+            sample_iq_dataarray,
+            spatial_kernel=(1, 3, 5),
+        )
+
+        assert result.attrs["axial_velocity_spatial_kernel"] == (1, 3, 5)
 
 
 class TestDataArrayClutterMask:
