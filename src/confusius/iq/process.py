@@ -109,7 +109,11 @@ def _normalize_spatial_kernel(
             min(size, dim) for size, dim in zip(kernel, spatial_shape, strict=True)
         )
 
-    return tuple(size + 1 if size % 2 == 0 else size for size in kernel)
+    return (
+        kernel[0] + 1 if kernel[0] % 2 == 0 else kernel[0],
+        kernel[1] + 1 if kernel[1] % 2 == 0 else kernel[1],
+        kernel[2] + 1 if kernel[2] % 2 == 0 else kernel[2],
+    )
 
 
 def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
@@ -844,7 +848,6 @@ def compute_axial_velocity_volume(
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
     lag: int = 1,
-    absolute_velocity: bool = False,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
@@ -893,9 +896,6 @@ def compute_axial_velocity_volume(
         `velocity_window_width`.
     lag : int, default: 1
         Temporal lag in volumes for autocorrelation computation. Must be positive.
-    absolute_velocity : bool, default: False
-        If `True`, compute absolute velocity values. If `False`, preserve sign
-        information.
     spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
         Size of the median filter kernel applied spatially to denoise. A scalar uses
         the same kernel size on all spatial axes; a length-3 sequence specifies
@@ -924,7 +924,6 @@ def compute_axial_velocity_volume(
         block: npt.NDArray,
         spatial_kernel: int | tuple[int, int, int] | list[int],
         lag: int,
-        absolute_velocity: bool,
         fs: float,
         transmit_frequency: float,
         beamforming_sound_velocity: float,
@@ -942,9 +941,6 @@ def compute_axial_velocity_volume(
             `(z, y, x)` sizes directly.
         lag : int
             Temporal lag in volumes for autocorrelation computation.
-        absolute_velocity : bool
-            If `True`, compute absolute velocity values. If `False`, preserve sign
-            information.
         fs : float
             Volume sampling frequency in hertz.
         transmit_frequency : float
@@ -964,8 +960,6 @@ def compute_axial_velocity_volume(
         autocorrelation = cast("npt.NDArray", block * block_rolled_conjugate)[lag:]
 
         average_autocorrelation_phase = np.angle(autocorrelation.mean(0))
-        if absolute_velocity:
-            average_autocorrelation_phase = np.abs(average_autocorrelation_phase)
 
         kernel_size = _normalize_spatial_kernel(spatial_kernel, block.shape[1:])
         if any(size > 1 for size in kernel_size):
@@ -996,7 +990,6 @@ def compute_axial_velocity_volume(
         transmit_frequency=transmit_frequency,
         spatial_kernel=spatial_kernel,
         lag=lag,
-        absolute_velocity=absolute_velocity,
         beamforming_sound_velocity=beamforming_sound_velocity,
     )
 
@@ -1521,7 +1514,6 @@ def process_iq_to_axial_velocity(
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
     lag: int = 1,
-    absolute_velocity: bool = False,
     spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into axial velocity volumes using sliding windows.
@@ -1580,9 +1572,6 @@ def process_iq_to_axial_velocity(
         If not provided, equals `velocity_window_width`.
     lag : int, default: 1
         Temporal lag in volumes for autocorrelation computation. Must be positive.
-    absolute_velocity : bool, default: False
-        If `True`, compute absolute velocity values. If `False`, preserve sign
-        information.
     spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
         Size of the median filter kernel applied spatially to denoise. A scalar uses
         the same kernel size on all spatial axes; a length-3 sequence specifies
@@ -1681,7 +1670,6 @@ def process_iq_to_axial_velocity(
         velocity_window_width=velocity_window_width,
         velocity_window_stride=velocity_window_stride,
         lag=lag,
-        absolute_velocity=absolute_velocity,
         spatial_kernel=spatial_kernel,
         transmit_frequency=transmit_frequency,
         beamforming_sound_velocity=beamforming_sound_velocity,
@@ -1729,18 +1717,16 @@ def process_iq_to_axial_velocity(
         },
     )
 
-    velocity_cmap = "viridis" if absolute_velocity else "coolwarm"
     output_attrs = {
         "units": "m/s",
         "long_name": "Axial velocity",
-        "cmap": velocity_cmap,
+        "cmap": "coolwarm",
         "clutter_filters": _format_clutter_filter_spec(
             filter_method, low_cutoff, high_cutoff
         ),
         "clutter_filter_window_duration": clutter_window_duration,
         "clutter_filter_window_stride": clutter_window_stride_duration,
         "axial_velocity_lag": lag,
-        "axial_velocity_absolute": absolute_velocity,
         "axial_velocity_spatial_kernel": spatial_kernel,
         "transmit_frequency": transmit_frequency,
         "beamforming_sound_velocity": beamforming_sound_velocity,

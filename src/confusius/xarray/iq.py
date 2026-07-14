@@ -139,7 +139,6 @@ class FUSIIQAccessor:
         velocity_window_width: int | None = None,
         velocity_window_stride: int | None = None,
         lag: int = 1,
-        absolute_velocity: bool = False,
         spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
     ) -> xr.DataArray:
         """Process beamformed IQ into axial velocity volumes.
@@ -188,9 +187,6 @@ class FUSIIQAccessor:
             If not provided, equals `velocity_window_width`.
         lag : int, default: 1
             Temporal lag in volumes for autocorrelation computation. Must be positive.
-        absolute_velocity : bool, default: False
-            If `True`, compute absolute velocity values. If `False`, preserve sign
-            information.
         spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
             Size of the median filter kernel applied spatially to denoise. A scalar
             uses the same kernel size on all spatial axes; a length-3 sequence
@@ -228,7 +224,6 @@ class FUSIIQAccessor:
             velocity_window_width=velocity_window_width,
             velocity_window_stride=velocity_window_stride,
             lag=lag,
-            absolute_velocity=absolute_velocity,
             spatial_kernel=spatial_kernel,
         )
 

@@ -1,6 +1,6 @@
 """Unit tests for IQ processing functions."""
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 import dask.array as da
 import numpy as np
@@ -399,7 +399,7 @@ class TestComputeAxialVelocityVolume:
             compute_axial_velocity_volume(
                 sample_iq_block_4d,
                 fs=100.0,
-                spatial_kernel=(3, 3),  # type: ignore[arg-type]
+                spatial_kernel=cast("Any", (3, 3)),
             )
 
         with pytest.raises(ValueError, match="must be positive"):
@@ -920,7 +920,6 @@ class TestProcessIqToAxialVelocity:
             velocity_window_width=3,
             velocity_window_stride=1,
             lag=2,
-            absolute_velocity=True,
         )
 
         assert result.name == "axial_velocity"
@@ -935,7 +934,6 @@ class TestProcessIqToAxialVelocity:
         assert result.attrs["axial_velocity_integration_stride"] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
         assert result.attrs["axial_velocity_lag"] == 2
-        assert result.attrs["axial_velocity_absolute"] is True
 
     def test_uses_attrs_for_parameters(self, sample_iq_dataarray):
         """Uses DataArray attributes for transmit frequency and sound velocity."""
@@ -1029,7 +1027,6 @@ class TestProcessIqToAxialVelocity:
                 velocity_window_width=10,
                 velocity_window_stride=5,
                 lag=2,
-                absolute_velocity=True,
                 spatial_kernel=3,
             )
 
@@ -1045,7 +1042,6 @@ class TestProcessIqToAxialVelocity:
             velocity_window_width=10,
             velocity_window_stride=5,
             lag=2,
-            absolute_velocity=True,
             spatial_kernel=3,
         )
 
@@ -1053,14 +1049,9 @@ class TestProcessIqToAxialVelocity:
         self, sample_iq_dataarray
     ):
         """Axial-velocity-specific attrs use explicit `axial_velocity_` prefixes."""
-        result = process_iq_to_axial_velocity(
-            sample_iq_dataarray,
-            lag=2,
-            absolute_velocity=True,
-        )
+        result = process_iq_to_axial_velocity(sample_iq_dataarray, lag=2)
 
         assert result.attrs["axial_velocity_lag"] == 2
-        assert result.attrs["axial_velocity_absolute"] is True
         assert result.attrs["axial_velocity_spatial_kernel"] == 3
         assert "axial_velocity_estimation_method" not in result.attrs
         assert "lag" not in result.attrs

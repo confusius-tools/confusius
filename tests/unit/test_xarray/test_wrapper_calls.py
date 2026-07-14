@@ -168,7 +168,6 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
             velocity_window_width=8,
             velocity_window_stride=4,
             lag=2,
-            absolute_velocity=True,
             spatial_kernel=(1, 3, 5),
         )
         is expected
@@ -186,7 +185,6 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
             "velocity_window_width": 8,
             "velocity_window_stride": 4,
             "lag": 2,
-            "absolute_velocity": True,
             "spatial_kernel": (1, 3, 5),
         },
     )

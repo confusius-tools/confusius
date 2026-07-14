@@ -97,7 +97,6 @@ CONFUSIUS_INTERNAL_FIELDS: Final[frozenset[str]] = frozenset(
         "axial_velocity_integration_duration",
         "axial_velocity_integration_stride",
         "axial_velocity_lag",
-        "axial_velocity_absolute",
         "axial_velocity_spatial_kernel",
         "dim4_name",
         "dim4_coordinates",

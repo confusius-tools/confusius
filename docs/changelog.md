@@ -29,9 +29,9 @@ Current development version for the next ConfUSIus release.
   one-time `refresh=True` to replace the cached OSF file index before downloading or
   checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
 - Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
-  the `estimation_method` argument and `axial_velocity_estimation_method` metadata were
-  removed, and `spatial_kernel` now defaults to `3` and accepts explicit `(z, y, x)`
-  sizes ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+  the `estimation_method` and `absolute_velocity` arguments were removed, the
+  corresponding metadata fields were dropped, and `spatial_kernel` now defaults to `3`
+  and accepts explicit `(z, y, x)` sizes ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :sparkles: Enhancements
 
