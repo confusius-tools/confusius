@@ -634,6 +634,7 @@ class VideoPanel(QWidget):
         scale[self._fusi_time_idx] = time_scale
         scale[displayed_v] = spatial_scale
         scale[displayed_h] = spatial_scale
+        translate[self._fusi_time_idx] = self._compute_time_translate()
         translate[displayed_v] = translate_v
         translate[displayed_h] = translate_h
 
@@ -838,6 +839,13 @@ class VideoPanel(QWidget):
 
         center = (float(coords.min()) + float(coords.max())) / 2
         return center - scale * (video_n - 1) / 2
+
+    def _compute_time_translate(self) -> float:
+        """Return the translation that aligns video frame 0 to the reference start."""
+        coords = self._lookup_coord(self._fusi_time_idx)
+        if coords is None or coords.size == 0:
+            return 0.0
+        return float(coords[0])
 
     # ------------------------------------------------------------------
     # Dimension order guard
