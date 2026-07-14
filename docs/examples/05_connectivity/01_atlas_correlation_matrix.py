@@ -96,9 +96,7 @@ initialization = np.linalg.inv(napari_affine)
 target_z = napari_affine[0, 3] + float(moving.z.values[0])
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0)).fusi.scale.db()
 
-initialized = cf.registration.resample_like(
-    moving, fixed, initialization, default_value=float(moving.min())
-)
+initialized = cf.registration.resample_like(moving, fixed, initialization)
 _ = cf.plotting.plot_composite(
     fixed,
     initialized,
