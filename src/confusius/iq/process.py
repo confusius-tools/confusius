@@ -802,7 +802,6 @@ def compute_axial_velocity_volume(
     spatial_kernel: int = 1,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
-    estimation_method: Literal["average_angle", "angle_average"] = "average_angle",
 ) -> npt.NDArray:
     """Compute axial velocity volumes from beamformed IQ data.
 
@@ -858,13 +857,6 @@ def compute_axial_velocity_volume(
         Ultrasound transmit frequency in hertz.
     beamforming_sound_velocity : float, default: 1540
         Speed of sound assumed during beamforming, in meters per second.
-    estimation_method : {"average_angle", "angle_average"}, default: "average_angle"
-        Method for computing the velocity estimate.
-
-        - `"average_angle"`: Compute the angle of the autocorrelation, then average
-          (i.e., average of angles).
-        - `"angle_average"`: Average the autocorrelation, then compute the angle
-          (i.e., angle of average).
 
     Returns
     -------
@@ -887,7 +879,6 @@ def compute_axial_velocity_volume(
         fs: float,
         transmit_frequency: float,
         beamforming_sound_velocity: float,
-        estimation_method: Literal["average_angle", "angle_average"],
         **_,
     ) -> npt.NDArray:
         """Compute the Kasai estimator from an array of IQ data.
@@ -910,8 +901,6 @@ def compute_axial_velocity_volume(
             Ultrasound transmit frequency in hertz.
         beamforming_sound_velocity : float
             Speed of sound in the imaged medium, in meters per second.
-        estimation_method : {"average_angle", "angle_average"}
-            Method for computing the velocity estimate.
         **_
             Additional unused keyword arguments (absorbed and ignored).
 
@@ -924,20 +913,9 @@ def compute_axial_velocity_volume(
         block_rolled_conjugate[:lag, ...] = 0
         autocorrelation = cast("npt.NDArray", block * block_rolled_conjugate)[lag:]
 
-        if estimation_method == "average_angle":
-            autocorrelation_phase = np.angle(autocorrelation)
-            if absolute_velocity:
-                autocorrelation_phase = np.abs(autocorrelation_phase)
-            average_autocorrelation_phase = autocorrelation_phase.mean(0)
-        elif estimation_method == "angle_average":
-            average_autocorrelation_phase = np.angle(autocorrelation.mean(0))
-            if absolute_velocity:
-                average_autocorrelation_phase = np.abs(average_autocorrelation_phase)
-        else:
-            raise ValueError(
-                f"Unknown estimation method: {estimation_method}. "
-                "Must be 'average_angle' or 'angle_average'."
-            )
+        average_autocorrelation_phase = np.angle(autocorrelation.mean(0))
+        if absolute_velocity:
+            average_autocorrelation_phase = np.abs(average_autocorrelation_phase)
 
         if spatial_kernel > 1:
             import scipy.signal as sp_signal
@@ -972,7 +950,6 @@ def compute_axial_velocity_volume(
         lag=lag,
         absolute_velocity=absolute_velocity,
         beamforming_sound_velocity=beamforming_sound_velocity,
-        estimation_method=estimation_method,
     )
 
 
@@ -1498,7 +1475,6 @@ def process_iq_to_axial_velocity(
     lag: int = 1,
     absolute_velocity: bool = False,
     spatial_kernel: int = 1,
-    estimation_method: Literal["average_angle", "angle_average"] = "average_angle",
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into axial velocity volumes using sliding windows.
 
@@ -1562,13 +1538,6 @@ def process_iq_to_axial_velocity(
     spatial_kernel : int, default: 1
         Size of the median filter kernel applied spatially to denoise. Must be
         positive and odd. If `1`, no spatial filtering is applied.
-    estimation_method : {"average_angle", "angle_average"}, default: "average_angle"
-        Method for computing the velocity estimate.
-
-        - `"average_angle"`: Compute the angle of the autocorrelation, then average
-          (i.e., average of angles).
-        - `"angle_average"`: Average the autocorrelation, then compute the angle
-          (i.e., angle of average).
 
     Returns
     -------
@@ -1665,7 +1634,6 @@ def process_iq_to_axial_velocity(
         spatial_kernel=spatial_kernel,
         transmit_frequency=transmit_frequency,
         beamforming_sound_velocity=beamforming_sound_velocity,
-        estimation_method=estimation_method,
     )
 
     output_times_values, velocity_window_durations = compute_processed_volume_timings(
@@ -1725,7 +1693,6 @@ def process_iq_to_axial_velocity(
         "axial_velocity_spatial_kernel": spatial_kernel,
         "transmit_frequency": transmit_frequency,
         "beamforming_sound_velocity": beamforming_sound_velocity,
-        "axial_velocity_estimation_method": estimation_method,
         "axial_velocity_integration_duration": velocity_window_duration,
         "axial_velocity_integration_stride": velocity_window_stride_duration,
     }

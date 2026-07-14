@@ -141,7 +141,6 @@ class FUSIIQAccessor:
         lag: int = 1,
         absolute_velocity: bool = False,
         spatial_kernel: int = 1,
-        estimation_method: Literal["average_angle", "angle_average"] = "average_angle",
     ) -> xr.DataArray:
         """Process beamformed IQ into axial velocity volumes.
 
@@ -195,13 +194,6 @@ class FUSIIQAccessor:
         spatial_kernel : int, default: 1
             Size of the median filter kernel applied spatially to denoise. Must be
             positive and odd. If `1`, no spatial filtering is applied.
-        estimation_method : {"average_angle", "angle_average"}, default: "average_angle"
-            Method for computing the velocity estimate.
-
-            - `"average_angle"`: Compute the angle of the autocorrelation, then
-              average (i.e., average of angles).
-            - `"angle_average"`: Average the autocorrelation, then compute the angle
-              (i.e., angle of average).
 
         Returns
         -------
@@ -235,7 +227,6 @@ class FUSIIQAccessor:
             lag=lag,
             absolute_velocity=absolute_velocity,
             spatial_kernel=spatial_kernel,
-            estimation_method=estimation_method,
         )
 
     def process_to_bmode(

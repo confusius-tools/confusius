@@ -341,45 +341,12 @@ class TestComputeAxialVelocityVolume:
     """Tests for compute_axial_velocity_volume function."""
 
     def test_matches_reference_kasai_estimator(self, sample_iq_block_4d):
-        """Result matches reference Kasai estimator implementation."""
+        """Result matches the standard Kasai estimator."""
         fs = 100.0
         transmit_frequency = 15.625e6
         beamforming_sound_velocity = 1540.0
         lag = 1
 
-        # Reference Kasai estimator (average_angle method).
-        block_rolled_conjugate = np.roll(sample_iq_block_4d, lag, axis=0).conj()
-        block_rolled_conjugate[:lag, ...] = 0
-        autocorrelation = sample_iq_block_4d * block_rolled_conjugate
-        autocorrelation = autocorrelation[lag:]
-        autocorrelation_phase = np.angle(autocorrelation)
-        average_phase = autocorrelation_phase.mean(0)
-        expected = (
-            average_phase
-            * fs
-            * beamforming_sound_velocity
-            / (4 * np.pi * transmit_frequency)
-        )
-
-        result = compute_axial_velocity_volume(
-            sample_iq_block_4d,
-            fs=fs,
-            transmit_frequency=transmit_frequency,
-            beamforming_sound_velocity=beamforming_sound_velocity,
-            lag=lag,
-            estimation_method="average_angle",
-        )
-
-        assert_allclose(result[0], expected, rtol=1e-5)
-
-    def test_angle_average_method(self, sample_iq_block_4d):
-        """Angle_average method computes angle of average autocorrelation."""
-        fs = 100.0
-        transmit_frequency = 15.625e6
-        beamforming_sound_velocity = 1540.0
-        lag = 1
-
-        # Reference: angle of average autocorrelation.
         block_rolled_conjugate = np.roll(sample_iq_block_4d, lag, axis=0).conj()
         block_rolled_conjugate[:lag, ...] = 0
         autocorrelation = sample_iq_block_4d * block_rolled_conjugate
@@ -398,19 +365,9 @@ class TestComputeAxialVelocityVolume:
             transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
-            estimation_method="angle_average",
         )
 
         assert_allclose(result[0], expected, rtol=1e-5)
-
-    def test_invalid_estimation_method_raises(self, sample_iq_block_4d):
-        """Invalid estimation_method raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown estimation method"):
-            compute_axial_velocity_volume(
-                sample_iq_block_4d,
-                fs=100.0,
-                estimation_method="invalid",  # type: ignore
-            )
 
 
 class TestProcessIqBlocks:
@@ -1034,7 +991,6 @@ class TestProcessIqToAxialVelocity:
                 lag=2,
                 absolute_velocity=True,
                 spatial_kernel=3,
-                estimation_method="angle_average",
             )
 
         mock_fn.assert_called_once_with(
@@ -1051,7 +1007,6 @@ class TestProcessIqToAxialVelocity:
             lag=2,
             absolute_velocity=True,
             spatial_kernel=3,
-            estimation_method="angle_average",
         )
 
     def test_axial_velocity_output_uses_prefixed_metadata_names(
@@ -1063,13 +1018,12 @@ class TestProcessIqToAxialVelocity:
             lag=2,
             absolute_velocity=True,
             spatial_kernel=3,
-            estimation_method="angle_average",
         )
 
         assert result.attrs["axial_velocity_lag"] == 2
         assert result.attrs["axial_velocity_absolute"] is True
         assert result.attrs["axial_velocity_spatial_kernel"] == 3
-        assert result.attrs["axial_velocity_estimation_method"] == "angle_average"
+        assert "axial_velocity_estimation_method" not in result.attrs
         assert "lag" not in result.attrs
         assert "absolute_velocity" not in result.attrs
         assert "spatial_kernel" not in result.attrs

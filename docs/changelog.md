@@ -28,6 +28,9 @@ Current development version for the next ConfUSIus release.
   dataset from OSF project `7cf9g` instead of `dkseb`. Existing local caches may need a
   one-time `refresh=True` to replace the cached OSF file index before downloading or
   checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
+- Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
+  the `estimation_method` argument and `axial_velocity_estimation_method` metadata were
+  removed.
 
 ### :sparkles: Enhancements
 

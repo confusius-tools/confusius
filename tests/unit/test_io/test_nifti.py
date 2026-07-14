@@ -1624,7 +1624,6 @@ class TestSaveNifti:
                 "axial_velocity_lag": 2,
                 "axial_velocity_absolute": True,
                 "axial_velocity_spatial_kernel": 3,
-                "axial_velocity_estimation_method": "angle_average",
             }
         )
 
@@ -1646,7 +1645,6 @@ class TestSaveNifti:
         assert sidecar["ConfUSIusAxialVelocityLag"] == 2
         assert sidecar["ConfUSIusAxialVelocityAbsolute"] is True
         assert sidecar["ConfUSIusAxialVelocitySpatialKernel"] == 3
-        assert sidecar["ConfUSIusAxialVelocityEstimationMethod"] == "angle_average"
         assert sidecar["ConfUSIusLongName"] == "Power Doppler intensity"
         assert sidecar["ConfUSIusCmap"] == "gray"
         assert "long_name" not in sidecar

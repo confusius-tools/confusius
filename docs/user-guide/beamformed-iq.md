@@ -621,8 +621,7 @@ function or the corresponding Xarray accessor method.
         velocity_window_width=50,
         filter_method="svd_indices",
         low_cutoff=50,
-        lag=1,                          # Autocorrelation lag (volumes).
-        estimation_method="average_angle",  # Velocity estimation method.
+        lag=1,  # Autocorrelation lag (volumes).
     )
     ```
 
@@ -645,8 +644,7 @@ function or the corresponding Xarray accessor method.
         velocity_window_width=50,
         filter_method="svd_indices",
         low_cutoff=50,
-        lag=1,                          # Autocorrelation lag (volumes).
-        estimation_method="average_angle",  # Velocity estimation method.
+        lag=1,  # Autocorrelation lag (volumes).
     )
     ```
 
