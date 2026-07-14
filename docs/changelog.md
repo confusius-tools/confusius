@@ -30,7 +30,7 @@ Current development version for the next ConfUSIus release.
   checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
 - Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
   the `estimation_method` argument and `axial_velocity_estimation_method` metadata were
-  removed.
+  removed ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :sparkles: Enhancements
 
