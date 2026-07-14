@@ -68,6 +68,12 @@ Current development version for the next ConfUSIus release.
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
 
+### :books: Documentation
+
+- Fixed velocity sign interpretation in [Beamformed IQ user
+  guide](user-guide/beamformed-iq.md)
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+
 ### :wrench: Maintenance
 
 - [Example Gallery]: pandas DataFrame outputs in the example gallery now render with

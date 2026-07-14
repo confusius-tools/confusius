@@ -674,16 +674,14 @@ Attributes:
 
 #### Interpreting Velocity
 
-Velocity values are returned in **meters per second** with sign indicating direction:
-
-- **Positive values**: Flow toward the transducer.
-- **Negative values**: Flow away from the transducer.
-- **Magnitude**: Speed of flow.
+Velocity values are returned in **meters per second** and correspond to the speed of
+scatterers along the ultrasound beam. That is, positive velocities indicate motion away
+from the transducer, while negative values indicate motion toward the transducer.
 
 !!! warning "Velocity aliasing"
     Very high velocities may exceed the Nyquist limit and cause aliasing (wrapping). If
-    you observe sudden sign reversals in high-flow regions, reduce the `lag` parameter or
-    increase the pulse repetition frequency during acquisition.
+    you observe sudden sign reversals in high-motion regions, reduce the `lag` parameter
+    or increase the pulse repetition frequency during acquisition.
 
 ### B-mode
 
