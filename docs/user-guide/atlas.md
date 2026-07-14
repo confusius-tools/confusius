@@ -192,10 +192,9 @@ faces)` pair in the atlas's physical space (millimeters), ready to hand to any 3
 napari's `add_surface` takes exactly that pair:
 
 ```python
-surface_data = atlas.atlas.get_mesh("root")
-
 import napari
 
+surface_data = atlas.atlas.get_mesh("root")
 napari.Viewer(ndisplay=3).add_surface(surface_data)
 ```
 

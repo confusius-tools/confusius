@@ -36,9 +36,17 @@ _ATLAS_NAME = "allen_mouse_100um"
 _SLICE_Z = 6.0  # Coronal slice (mm) used for the annotation-contour figure.
 _MESH_REGION = "root"  # Whole-brain surface mesh for the napari screenshot.
 
-# 3/4 dorsal view (elevation, azimuth, roll) that reveals the cortex, olfactory
-# bulbs, and cerebellum in one shot.
-_MESH_CAMERA_ANGLES = (10.0, -35.0, 100.0)
+# Camera picked interactively in napari for the Allen atlas mesh screenshot.
+_MESH_CAMERA_ANGLES = (168.6206378127608, -54.99924316597373, 203.34564635933614)
+_MESH_UP_DIRECTION = (
+    0.22729948558043406,
+    -0.9641291993119706,
+    0.13707600405953269,
+)
+_MESH_CAMERA_CENTER: tuple[float, float, float] | None = None
+# Screenshot framing lands a bit tighter than the interactive napari view, so back
+# the picked zoom off slightly here.
+_MESH_CAMERA_ZOOM = 52.0
 
 _SAVEFIG_KWARGS = {"dpi": 150, "bbox_inches": "tight", "transparent": True}
 
@@ -70,8 +78,14 @@ def _napari_screenshot(viewer: "napari.Viewer", path: str) -> None:
     win.show()
     win.resize(1100, 750)
     get_qapp().processEvents()
+    try:
+        viewer.camera.up_direction = _MESH_UP_DIRECTION
+    except Exception:
+        pass
     viewer.camera.angles = _MESH_CAMERA_ANGLES
-    viewer.camera.zoom *= 0.85
+    if _MESH_CAMERA_CENTER is not None:
+        viewer.camera.center = _MESH_CAMERA_CENTER
+    viewer.camera.zoom = _MESH_CAMERA_ZOOM
     get_qapp().processEvents()
     viewer.screenshot(path=path, canvas_only=False)
 
