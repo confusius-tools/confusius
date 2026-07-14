@@ -14,7 +14,7 @@ from ._osf import (
 )
 from ._utils import get_datasets_dir, print_citation_message
 
-_OSF_PROJECT_ID = "dkseb"
+_OSF_PROJECT_ID = "7cf9g"
 _BIDS_ROOT = "landemard-2026-bids"
 _TOTAL_SIZE_BYTES = 42_036_009_786
 _CITATION = (
@@ -202,7 +202,7 @@ def fetch_landemard_2026(
 
     [^2]:
         fUSI-BIDS dataset on OSF:
-        [https://osf.io/dkseb/](https://osf.io/dkseb/overview)
+        [https://osf.io/7cf9g/](https://osf.io/7cf9g/overview)
 
     [^3]:
         Dataset license (CC BY-NC 4.0):

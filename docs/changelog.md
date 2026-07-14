@@ -24,6 +24,10 @@ Current development version for the next ConfUSIus release.
   [`write_events`][confusius.bids.save_events] →
   [`save_events`][confusius.bids.save_events]
   ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] now resolves the
+  dataset from OSF project `7cf9g` instead of `dkseb`. Existing local caches may need a
+  one-time `refresh=True` to replace the cached OSF file index before downloading or
+  checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
 
 ### :sparkles: Enhancements
 
