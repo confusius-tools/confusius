@@ -55,7 +55,7 @@ of `n_time` little-endian `float64` values.
 """
 
 
-def _u16(buffer: bytes, offset: int) -> int:
+def _read_u16(buffer: bytes, offset: int) -> int:
     """Read a little-endian `uint16` from `buffer` at `offset`.
 
     Parameters
@@ -73,7 +73,7 @@ def _u16(buffer: bytes, offset: int) -> int:
     return int.from_bytes(buffer[offset : offset + 2], "little")
 
 
-def _u32(buffer: bytes, offset: int) -> int:
+def _read_u32(buffer: bytes, offset: int) -> int:
     """Read a little-endian `uint32` from `buffer` at `offset`.
 
     Parameters
@@ -91,7 +91,7 @@ def _u32(buffer: bytes, offset: int) -> int:
     return int.from_bytes(buffer[offset : offset + 4], "little")
 
 
-def _u64(buffer: bytes, offset: int) -> int:
+def _read_u64(buffer: bytes, offset: int) -> int:
     """Read a little-endian `uint64` from `buffer` at `offset`.
 
     Parameters
@@ -109,7 +109,7 @@ def _u64(buffer: bytes, offset: int) -> int:
     return int.from_bytes(buffer[offset : offset + 8], "little")
 
 
-def _f64(buffer: bytes, offset: int) -> float:
+def _read_f64(buffer: bytes, offset: int) -> float:
     """Read a little-endian `float64` from `buffer` at `offset`.
 
     Parameters
@@ -828,7 +828,7 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     Only the fields listed in `_SCAN_V2_OFFSETS` are read. These all live before the
     first variable-length string, so their absolute offsets are stable across files.
     Provenance strings, which follow the variable-length region, are handled separately
-    by `_scan_v2_strings`.
+    by `_read_scan_v2_strings`.
 
     Parameters
     ----------
@@ -850,7 +850,7 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     """
     o = _SCAN_V2_OFFSETS
 
-    n_time = _u64(header, o["n_time"])
+    n_time = _read_u64(header, o["n_time"])
     time_end = o["time_coords"] + 8 * n_time
     if n_time < 1 or time_end > len(header):
         raise ValueError(
@@ -859,18 +859,18 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
         )
 
     fields: dict[str, Any] = {
-        "size_x": _u64(header, o["size_x"]),
-        "size_y": _u64(header, o["size_y"]),
-        "size_z": _u64(header, o["size_z"]),
+        "size_x": _read_u64(header, o["size_x"]),
+        "size_y": _read_u64(header, o["size_y"]),
+        "size_z": _read_u64(header, o["size_z"]),
         "n_time": n_time,
-        "npose": _u64(header, o["npose"]),
-        "nblock_repeat": _u64(header, o["nblock_repeat"]),
-        "payload_bytes": _u64(header, o["payload_bytes"]),
-        "total_header_bytes": _u64(header, o["total_header_bytes"]),
-        "dt": _f64(header, o["dt"]),
-        "x_voxel_m": _f64(header, o["x_voxel_m"]),
-        "y_voxel_m": _f64(header, o["y_voxel_m"]),
-        "z_voxel_m": _f64(header, o["z_voxel_m"]),
+        "npose": _read_u64(header, o["npose"]),
+        "nblock_repeat": _read_u64(header, o["nblock_repeat"]),
+        "payload_bytes": _read_u64(header, o["payload_bytes"]),
+        "total_header_bytes": _read_u64(header, o["total_header_bytes"]),
+        "dt": _read_f64(header, o["dt"]),
+        "x_voxel_m": _read_f64(header, o["x_voxel_m"]),
+        "y_voxel_m": _read_f64(header, o["y_voxel_m"]),
+        "z_voxel_m": _read_f64(header, o["z_voxel_m"]),
         "time_coords": np.frombuffer(
             header, dtype="<f8", count=n_time, offset=o["time_coords"]
         ).copy(),
@@ -886,7 +886,7 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     return fields
 
 
-def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
+def _read_scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     """Extract length-prefixed strings from a SCAN v2 header, best-effort.
 
     The provenance region stores strings as a `uint32` byte-length prefix followed by
@@ -898,7 +898,7 @@ def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
 
     Because the strings are variable-length and interleaved with numeric fields, this is
     a heuristic recovery, not a schema parse: it may miss fields or pick up spurious
-    matches. See `_scan_v2_provenance` for how the result is mapped to named fields.
+    matches. See `_map_scan_v2_provenance` for how the result is mapped to named fields.
 
     Parameters
     ----------
@@ -916,7 +916,7 @@ def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     i = 0
     n = len(header)
     while i + 4 <= n:
-        length = _u32(header, i)
+        length = _read_u32(header, i)
         if 1 <= length <= 256 and i + 4 + length <= n:
             body = header[i + 4 : i + 4 + length]
             if all(32 <= c < 127 for c in body):
@@ -939,7 +939,7 @@ def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     return records
 
 
-def _scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> str:
+def _read_scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> str:
     """Recover the acquisition timestamp from the SCAN v2 header, best-effort.
 
     The header stores the acquisition time as a `uint64` Unix timestamp (full seconds
@@ -955,7 +955,7 @@ def _scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> st
     header : bytes
         The full header bytes.
     records : list[tuple[str, bool, int]]
-        `(text, is_hex, end)` triples from `_scan_v2_strings`.
+        `(text, is_hex, end)` triples from `_read_scan_v2_strings`.
 
     Returns
     -------
@@ -966,13 +966,13 @@ def _scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> st
     plain_ends = [end for text, is_hex, end in records if not is_hex]
     start = plain_ends[4] if len(plain_ends) >= 5 else 0
     for offset in range(start, len(header) - 7):
-        value = _u64(header, offset)
+        value = _read_u64(header, offset)
         if 1_420_000_000 <= value <= 2_050_000_000:
             return datetime.fromtimestamp(value, UTC).isoformat()
     return ""
 
 
-def _scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, str]:
+def _map_scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, str]:
     """Map decoded header strings to v1-style provenance fields, best-effort.
 
     The provenance strings appear in a stable order:
@@ -984,12 +984,12 @@ def _scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, str]:
     anchors; the leading fields are mapped positionally. This is heuristic and matches
     a small number of example files — a field that is empty or absent in another file
     would shift the positional mapping, so the raw strings are always kept alongside the
-    mapped fields (see `_scan_v2_attrs`).
+    mapped fields (see `_build_scan_v2_attrs`).
 
     Parameters
     ----------
     records : list[tuple[str, bool, int]]
-        `(text, is_hex, end)` triples from `_scan_v2_strings`.
+        `(text, is_hex, end)` triples from `_read_scan_v2_strings`.
 
     Returns
     -------
@@ -1073,7 +1073,7 @@ def _load_scan_v2(
     """
     offset = _SCAN_V2_OFFSETS["total_header_bytes"]
     with path.open("rb") as f:
-        total_header_bytes = _u64(f.read(offset + 8), offset)
+        total_header_bytes = _read_u64(f.read(offset + 8), offset)
         f.seek(0)
         header = f.read(total_header_bytes)
 
@@ -1094,7 +1094,7 @@ def _load_scan_v2(
             "layout."
         )
 
-    meta["depth_start_mm"] = _scan_v2_depth_start(
+    meta["depth_start_mm"] = _find_scan_v2_depth_start(
         header, size_z, meta["z_voxel_m"] * 1e3
     )
 
@@ -1127,9 +1127,9 @@ def _load_scan_v2(
     else:
         dims = ["time", "pose", "z", "y", "x"]
 
-    coords = _scan_v2_coords(meta, n_time_total, npose)
-    attrs = _scan_v2_attrs(header, npose, n_time_total)
-    acquisition = _scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
+    coords = _build_scan_v2_coords(meta, n_time_total, npose)
+    attrs = _build_scan_v2_attrs(header, npose, n_time_total)
+    acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
     physical_to_lab = acquisition.pop("_physical_to_lab", None)
     attrs.update(acquisition)
     if physical_to_lab is not None:
@@ -1140,7 +1140,7 @@ def _load_scan_v2(
     return data_array
 
 
-def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
+def _find_scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
     """Recover the depth-axis origin (mm) from the SCAN v2 header, best-effort.
 
     The header stores the imaging depth range as an adjacent `(start, end)` pair of
@@ -1172,14 +1172,14 @@ def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
     expected_span = (size_z - 1) * dz_mm
     tolerance = max(0.1, dz_mm)
     for offset in range(0, len(header) - 16):
-        start = _f64(header, offset)
-        end = _f64(header, offset + 8)
+        start = _read_f64(header, offset)
+        end = _read_f64(header, offset + 8)
         if 0.0 < start < end < 100.0 and abs((end - start) - expected_span) < tolerance:
             return float(start)
     return 0.0
 
 
-def _rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.float64]:
+def _build_rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.float64]:
     """Build a 3x3 rotation matrix from intrinsic Z-Y-X Euler angles (radians).
 
     The Euler convention (order Z-Y-X) is assumed, not confirmed: the only non-trivial
@@ -1204,7 +1204,7 @@ def _rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.float64]
     return rot_z @ rot_y @ rot_x
 
 
-def _scan_v2_physical_to_lab(
+def _build_scan_v2_physical_to_lab(
     header: bytes, n_time: int
 ) -> npt.NDArray[np.float64] | None:
     """Build a `physical_to_lab` affine from the SCAN v2 6DOF probe-pose block.
@@ -1243,12 +1243,12 @@ def _scan_v2_physical_to_lab(
         return None
 
     probe_to_lab = np.eye(4, dtype=np.float64)
-    probe_to_lab[:3, :3] = _rotation_matrix(rx, ry, rz)
+    probe_to_lab[:3, :3] = _build_rotation_matrix(rx, ry, rz)
     probe_to_lab[:3, 3] = (tx, ty, tz)
     return _build_physical_to_lab(probe_to_lab)
 
 
-def _scan_v2_acquisition(
+def _read_scan_v2_acquisition(
     header: bytes, n_time: int, depth_start_mm: float
 ) -> dict[str, Any]:
     """Parse the acquisition-settings block of a SCAN v2 header, best-effort.
@@ -1260,7 +1260,7 @@ def _scan_v2_acquisition(
 
     Because the layout is inferred from a small number of example files, the walk is
     **anchor-validated**: the depth range stored right after the probe name must match
-    the value found independently by `_scan_v2_depth_start`. If it does not, the block is
+    the value found independently by `_find_scan_v2_depth_start`. If it does not, the block is
     assumed misaligned and nothing is returned, so a mislaid offset never emits wrong
     metadata. The two SVD/power-Doppler filter fields live at fixed offsets and are read
     unconditionally.
@@ -1281,7 +1281,7 @@ def _scan_v2_acquisition(
     n_time : int
         Number of stored time points (before folding `nblock_repeat`).
     depth_start_mm : float
-        Depth origin found by `_scan_v2_depth_start`, used as the alignment anchor.
+        Depth origin found by `_find_scan_v2_depth_start`, used as the alignment anchor.
 
     Returns
     -------
@@ -1295,8 +1295,8 @@ def _scan_v2_acquisition(
 
     # Filter fields at fixed absolute offsets, always available.
     result: dict[str, Any] = {
-        "svd_low_cutoff": _u32(header, o["svd_clutter_cutoff"]),
-        "power_doppler_integration_window": _u32(
+        "svd_low_cutoff": _read_u32(header, o["svd_clutter_cutoff"]),
+        "power_doppler_integration_window": _read_u32(
             header, o["power_doppler_integration_window"]
         ),
     }
@@ -1309,7 +1309,7 @@ def _scan_v2_acquisition(
     if name_off + 2 > len(header):
         return result
 
-    name_len = _u16(header, name_off)
+    name_len = _read_u16(header, name_off)
     name_end = name_off + 2 + name_len
     if not (1 <= name_len <= 64) or name_end + 52 > len(header):
         return result
@@ -1319,19 +1319,19 @@ def _scan_v2_acquisition(
 
     # Anchor check: the depth range starts right after the probe name and must agree
     # with the independently located depth origin.
-    depth_start = _f64(header, name_end)
+    depth_start = _read_f64(header, name_end)
     if not depth_start_mm or abs(depth_start - depth_start_mm) > 0.5:
         return result
 
     result["probe_model"] = name_bytes.decode("ascii")
-    result["probe_center_frequency"] = _f64(header, freq_off)
-    result["probe_pitch"] = _f64(header, freq_off + 8)
-    result["probe_focal_depth"] = _f64(header, freq_off + 24)
-    result["imaging_depth"] = (depth_start, _f64(header, name_end + 8))
-    result["transmit_frequency"] = _f64(header, name_end + 16)
-    result["pulse_repetition_frequency"] = _f64(header, name_end + 24)
+    result["probe_center_frequency"] = _read_f64(header, freq_off)
+    result["probe_pitch"] = _read_f64(header, freq_off + 8)
+    result["probe_focal_depth"] = _read_f64(header, freq_off + 24)
+    result["imaging_depth"] = (depth_start, _read_f64(header, name_end + 8))
+    result["transmit_frequency"] = _read_f64(header, name_end + 16)
+    result["pulse_repetition_frequency"] = _read_f64(header, name_end + 24)
 
-    n_angles = _u32(header, name_end + 48)
+    n_angles = _read_u32(header, name_end + 48)
     if 1 <= n_angles <= 512 and name_end + 52 + 8 * n_angles <= len(header):
         angles = np.frombuffer(
             header, dtype="<f8", count=n_angles, offset=name_end + 52
@@ -1341,14 +1341,14 @@ def _scan_v2_acquisition(
     # The depth anchor confirms the n_time-derived layout, so the 6DOF pose block (in the
     # same region) can be trusted; expose the affine it yields under a private key that
     # the caller moves into `attrs["affines"]`.
-    physical_to_lab = _scan_v2_physical_to_lab(header, n_time)
+    physical_to_lab = _build_scan_v2_physical_to_lab(header, n_time)
     if physical_to_lab is not None:
         result["_physical_to_lab"] = physical_to_lab
 
     return result
 
 
-def _scan_v2_coords(
+def _build_scan_v2_coords(
     meta: dict[str, Any], n_time_total: int, npose: int
 ) -> dict[str, xr.DataArray]:
     """Build coordinate DataArrays for a SCAN v2 volume.
@@ -1356,7 +1356,7 @@ def _scan_v2_coords(
     Spatial coordinates use the header voxel spacings (converted to millimeters). The
     v2 header does not encode a lateral/elevation origin, so those axes (`x`, `z`) are
     centered on zero. The depth (`y`) origin is recovered from the header when possible
-    (see `_scan_v2_depth_start`) and otherwise defaults to zero. Spacing is exact;
+    (see `_find_scan_v2_depth_start`) and otherwise defaults to zero. Spacing is exact;
     lateral/elevation absolute position is not (see `load_scan` Notes).
 
     Parameters
@@ -1414,12 +1414,14 @@ def _scan_v2_coords(
     return coords
 
 
-def _scan_v2_attrs(header: bytes, npose: int, n_time_total: int) -> dict[str, Any]:
+def _build_scan_v2_attrs(
+    header: bytes, npose: int, n_time_total: int
+) -> dict[str, Any]:
     """Assemble provenance attributes for a SCAN v2 volume.
 
     The v2 header carries no `probeToLab`-equivalent affine, so `affines` is left empty.
     Header strings are mapped to v1-style provenance fields (`iconeus_subject`,
-    `iconeus_session`, ...) on a best-effort basis (see `_scan_v2_provenance`); the raw
+    `iconeus_session`, ...) on a best-effort basis (see `_map_scan_v2_provenance`); the raw
     decoded strings are always kept in `iconeus_header_strings` so users can re-map them
     if the heuristic mislabels a field.
 
@@ -1444,14 +1446,14 @@ def _scan_v2_attrs(header: bytes, npose: int, n_time_total: int) -> dict[str, An
     else:
         scan_mode = "2Dscan"
 
-    records = _scan_v2_strings(header)
+    records = _read_scan_v2_strings(header)
     attrs: dict[str, Any] = {
         # No physical_to_lab affine has been located in the v2 header yet.
         "affines": {},
         "iconeus_scan_format": "v2",
         "iconeus_scan_mode": scan_mode,
-        "iconeus_datetime": _scan_v2_datetime(header, records),
+        "iconeus_datetime": _read_scan_v2_datetime(header, records),
         "iconeus_header_strings": [text for text, _, _ in records],
     }
-    attrs.update(_scan_v2_provenance(records))
+    attrs.update(_map_scan_v2_provenance(records))
     return attrs
