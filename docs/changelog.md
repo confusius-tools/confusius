@@ -35,9 +35,9 @@ Current development version for the next ConfUSIus release.
   addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
   experimental: data, timing, voxel spacing, the depth origin, provenance
   (subject/session/project/scan/experimenter, serial number, acquisition datetime), and
-  BIDS-corresponding acquisition settings (probe model, centre/transmit frequencies,
+  BIDS-corresponding acquisition settings (probe model, center/transmit frequencies,
   pitch, focal depth, imaging depth, PRF, plane-wave angles, SVD low cutoff, power-Doppler
-  integration window) are recovered (lateral and elevation axes are centred on zero). A
+  integration window) are recovered (lateral and elevation axes are centered on zero). A
   `physical_to_lab` affine is derived from a header block read as a 6DOF probe pose
   (experimental, assumed convention), and a BPS sidecar composes a `physical_to_brain`
   affine as for v1. Multi-pose layouts are inferred

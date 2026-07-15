@@ -32,7 +32,7 @@ _HARDWARE = "HW-1"
 _SVD_CUTOFF = 60
 _PD_WINDOW = 200
 # Acquisition-block values. Transmit frequency deliberately differs from the probe
-# centre frequency so tests prove the two distinct fields are read from the right spots.
+# center frequency so tests prove the two distinct fields are read from the right spots.
 _PROBE_MODEL = "IcoPrime"
 _CENTER_FREQ = 15.625
 _TRANSMIT_FREQ = 9.0
@@ -43,7 +43,7 @@ _PRF = 5500.0
 _ADC = 62.5
 _ANGLES = [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
 _ACQ_DEPTH_START = 1.0
-# 6DOF probe pose written into the orientation block: (tx, ty, tz) in metres,
+# 6DOF probe pose written into the orientation block: (tx, ty, tz) in meters,
 # (rx, ry, rz) in radians. A 90-degree rz gives a non-trivial rotation to validate.
 _POSE = (0.0007, 0.0026, 0.0, 0.0, 0.0, math.pi / 2)
 
@@ -54,7 +54,7 @@ def _acquisition_block(
     """Build the structured acquisition block the loader parses from `n_time`.
 
     Layout (immediately after the time-coordinate array): frame indices, a 64-byte
-    orientation block, the frequency block (centre freq, pitch, scan depth, focal depth),
+    orientation block, the frequency block (center freq, pitch, scan depth, focal depth),
     a 16-byte gap, the probe-name string, the depth range, the transmit/PRF/ADC block,
     then the plane-wave angle count and values.
 
@@ -530,7 +530,7 @@ class TestLoadScanV2Acquisition:
         return load_scan(path)
 
     def test_probe_fields(self, scan_v2_acq: xr.DataArray) -> None:
-        """Probe model, centre frequency, pitch, and focal depth are recovered."""
+        """Probe model, center frequency, pitch, and focal depth are recovered."""
         assert scan_v2_acq.attrs["probe_model"] == _PROBE_MODEL
         assert scan_v2_acq.attrs["probe_center_frequency"] == pytest.approx(
             _CENTER_FREQ
@@ -539,7 +539,7 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["probe_focal_depth"] == pytest.approx(_FOCAL_DEPTH)
 
     def test_transmit_distinct_from_center(self, scan_v2_acq: xr.DataArray) -> None:
-        """Transmit frequency is read from its own field, distinct from centre freq."""
+        """Transmit frequency is read from its own field, distinct from center freq."""
         assert scan_v2_acq.attrs["transmit_frequency"] == pytest.approx(_TRANSMIT_FREQ)
         assert scan_v2_acq.attrs["transmit_frequency"] != pytest.approx(_CENTER_FREQ)
 
@@ -654,7 +654,7 @@ class TestLoadScanV2Errors:
         """A non-HDF5 file without the SCAN magic raises a descriptive error."""
         path = tmp_path / "mystery.scan"
         path.write_bytes(b"XXXX not a scan file")
-        with pytest.raises(ValueError, match="not a SCAN file recognised"):
+        with pytest.raises(ValueError, match="not a SCAN file recognized"):
             load_scan(path)
 
     def test_payload_size_mismatch_raises(self, tmp_path: Path) -> None:

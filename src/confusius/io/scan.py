@@ -190,12 +190,12 @@ def _build_physical_to_lab(
     """Convert `probeToLab` to a ConfUSIus `physical_to_lab` affine in mm.
 
     `probeToLab` maps probe physical `(x_probe, y_probe, z_probe, 1)` to Iconeus lab
-    space `(x_lab, y_lab, z_lab, 1)` in metres. The Iconeus lab frame is a fixed scanner
+    space `(x_lab, y_lab, z_lab, 1)` in meters. The Iconeus lab frame is a fixed scanner
     frame; `probeToLab` carries any rotation of the probe within it.
 
     We want `physical_to_lab` to map ConfUSIus physical `(z_conf, y_conf, x_conf, 1)`
     (elevation, depth, lateral) to **ConfUSIus-ordered** lab space `(z_lab, y_lab,
-    x_lab)` in millimetres, using the same permutation `P` that maps between the two
+    x_lab)` in millimeters, using the same permutation `P` that maps between the two
     physical spaces:
 
     ```python
@@ -209,12 +209,12 @@ def _build_physical_to_lab(
     Parameters
     ----------
     probe_to_lab : (4, 4) or (npose, 4, 4) numpy.ndarray
-        `probeToLab` affine(s) from a SCAN file (units metres).
+        `probeToLab` affine(s) from a SCAN file (units meters).
 
     Returns
     -------
     numpy.ndarray
-        `physical_to_lab` affine(s) in millimetres. Shape matches input: `(4, 4)` for
+        `physical_to_lab` affine(s) in millimeters. Shape matches input: `(4, 4)` for
         `2Dscan` or `(npose, 4, 4)` for `3Dscan`/`4Dscan`.
     """
     physical_to_lab = (
@@ -240,8 +240,8 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     (the brain coordinate units are not declared by the BPS format and are
     therefore not converted).
 
-    The change of basis from ConfUSIus-ordered millimetre lab coordinates to
-    Iconeus-ordered metre lab coordinates is
+    The change of basis from ConfUSIus-ordered millimeter lab coordinates to
+    Iconeus-ordered meter lab coordinates is
 
     ```
     confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
@@ -264,7 +264,7 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     -------
     (4, 4) numpy.ndarray
         Affine mapping Iconeus brain coordinates to ConfUSIus-ordered Iconeus lab
-        coordinates `(z_lab, y_lab, x_lab, 1)` in millimetres.
+        coordinates `(z_lab, y_lab, x_lab, 1)` in millimeters.
     """
     bps_path = check_path(bps_path, label="bps_path", type="file")
 
@@ -345,7 +345,7 @@ def load_scan(
     number of example files. Data, temporal geometry, and voxel spacing are recovered.
     The depth (`y`) origin is read from the header when the depth range can be located;
     the lateral (`x`) and elevation (`z`) origins are not encoded, so those axes are
-    centred on zero (correct spacing, arbitrary origin). A `physical_to_lab` affine is
+    centered on zero (correct spacing, arbitrary origin). A `physical_to_lab` affine is
     built from a header block interpreted as a 6DOF probe pose (translation + rotation),
     the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
     (validated on a single near-identity pose, assumed axis order and Euler convention)
@@ -417,7 +417,7 @@ def load_scan(
         return data_array
 
     raise ValueError(
-        f"{path.name!r} is not a SCAN file recognised by ConfUSIus. Expected an "
+        f"{path.name!r} is not a SCAN file recognized by ConfUSIus. Expected an "
         f"HDF5-based SCAN (v1) or a binary SCAN v2 file starting with the magic bytes "
         f"{SCAN_V2_MAGIC!r}."
     )
@@ -698,7 +698,7 @@ def _load_4dscan(
     data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
 
     # Raw time shape is (npose * nscanRepeat * nblockRepeat, 1) or its transpose;
-    # squeeze normalises both orientations before reshaping.
+    # squeeze normalizes both orientations before reshaping.
     time_raw: npt.NDArray[np.float64] = (
         np.array(h5["/acqMetaData/time"][()], dtype=np.float64)
         .squeeze()
@@ -980,8 +980,8 @@ def _load_scan_v2(
     -------
     xarray.DataArray
         Lazy DataArray with dims `(time, z, y, x)` or `(time, pose, z, y, x)` and
-        millimetre spatial coordinates (depth origin from the header when found;
-        lateral/elevation centred on zero — see `load_scan` Notes).
+        millimeter spatial coordinates (depth origin from the header when found;
+        lateral/elevation centered on zero — see `load_scan` Notes).
 
     Raises
     ------
@@ -1063,11 +1063,11 @@ def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
     """Recover the depth-axis origin (mm) from the SCAN v2 header, best-effort.
 
     The header stores the imaging depth range as an adjacent `(start, end)` pair of
-    `float64` values in millimetres (grouped with the probe geometry). Its absolute
+    `float64` values in millimeters (grouped with the probe geometry). Its absolute
     offset shifts between files because it follows variable-length fields, so instead of
     seeking a fixed offset this scans the header for the first adjacent `float64` pair
     `(a, b)` whose extent `b - a` matches the depth span implied by the voxel count and
-    spacing. That span is distinctive enough (metres apart from the plane-wave angles,
+    spacing. That span is distinctive enough (meters apart from the plane-wave angles,
     time steps, and TGC gains) to identify the pair unambiguously.
 
     Parameters
@@ -1077,12 +1077,12 @@ def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
     size_z : int
         Number of depth voxels.
     dz_mm : float
-        Depth voxel spacing in millimetres.
+        Depth voxel spacing in millimeters.
 
     Returns
     -------
     float
-        The depth-axis origin in millimetres, or `0.0` if no matching pair is found
+        The depth-axis origin in millimeters, or `0.0` if no matching pair is found
         (in which case the depth axis is left relative, starting at zero).
     """
     if size_z < 2 or dz_mm <= 0:
@@ -1130,13 +1130,13 @@ def _scan_v2_physical_to_lab(
 
     The 64-byte orientation block preceding the frequency block holds eight `float64`
     slots; the first six are interpreted as a rigid probe pose `(tx, ty, tz, rx, ry, rz)`
-    — translations in metres, rotations in radians — describing the probe in Iconeus lab
+    — translations in meters, rotations in radians — describing the probe in Iconeus lab
     space (the v2 equivalent of SCAN v1's `probeToLab`). This is an **experimental**
     interpretation validated on a single near-identity example; the axis order and Euler
     convention are assumed.
 
     The resulting `probeToLab` is converted to a ConfUSIus-ordered `physical_to_lab`
-    affine (millimetres) with the same permutation used by the v1 loader, so it is
+    affine (millimeters) with the same permutation used by the v1 loader, so it is
     directly comparable to v1 output.
 
     Parameters
@@ -1149,7 +1149,7 @@ def _scan_v2_physical_to_lab(
     Returns
     -------
     (4, 4) numpy.ndarray or None
-        The `physical_to_lab` affine in millimetres, or `None` if the pose values are
+        The `physical_to_lab` affine in millimeters, or `None` if the pose values are
         implausible.
     """
     # The caller only invokes this after validating the acquisition block, which lies
@@ -1279,9 +1279,9 @@ def _scan_v2_coords(
 ) -> dict[str, xr.DataArray]:
     """Build coordinate DataArrays for a SCAN v2 volume.
 
-    Spatial coordinates use the header voxel spacings (converted to millimetres). The
+    Spatial coordinates use the header voxel spacings (converted to millimeters). The
     v2 header does not encode a lateral/elevation origin, so those axes (`x`, `z`) are
-    centred on zero. The depth (`y`) origin is recovered from the header when possible
+    centered on zero. The depth (`y`) origin is recovered from the header when possible
     (see `_scan_v2_depth_start`) and otherwise defaults to zero. Spacing is exact;
     lateral/elevation absolute position is not (see `load_scan` Notes).
 
