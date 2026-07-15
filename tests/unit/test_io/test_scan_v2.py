@@ -22,6 +22,70 @@ _DY_M = 0.0004
 _DZ_M = 0.00009856
 _SERIAL = "SN-0001"
 _HARDWARE = "HW-1"
+_SVD_CUTOFF = 60
+_PD_WINDOW = 200
+# Acquisition-block values. Transmit frequency deliberately differs from the probe
+# centre frequency so tests prove the two distinct fields are read from the right spots.
+_PROBE_MODEL = "IcoPrime"
+_CENTER_FREQ = 15.625
+_TRANSMIT_FREQ = 9.0
+_PITCH = 0.11
+_SCAN_DEPTH_CM = 1.5
+_FOCAL_DEPTH = 8.0
+_PRF = 5500.0
+_ADC = 62.5
+_ANGLES = [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+_ACQ_DEPTH_START = 1.0
+
+
+def _acquisition_block(
+    n_time: int, size_z: int, depth_start: float, corrupt: str | None = None
+) -> bytes:
+    """Build the structured acquisition block the loader parses from `n_time`.
+
+    Layout (immediately after the time-coordinate array): frame indices, a 64-byte
+    orientation block, the frequency block (centre freq, pitch, scan depth, focal depth),
+    a 16-byte gap, the probe-name string, the depth range, the transmit/PRF/ADC block,
+    then the plane-wave angle count and values.
+
+    Parameters
+    ----------
+    n_time : int
+        Number of time points (matches the frame-index count).
+    size_z : int
+        Number of depth voxels, used to space the depth range.
+    depth_start : float
+        Depth origin in mm; the depth range is `(depth_start, depth_start + span)`.
+    corrupt : {"name", "depth"}, optional
+        Inject a defect to exercise the loader's degradation guards: `"name"` writes a
+        non-printable probe name, `"depth"` breaks the depth-range span so the loader's
+        span-search fails and the anchor check cannot confirm alignment.
+
+    Returns
+    -------
+    bytes
+        The packed acquisition block.
+    """
+    depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
+    if corrupt == "depth":
+        depth_end = depth_start + 99.0  # break the span so span-search finds no pair
+    name = _PROBE_MODEL.encode("ascii")
+    if corrupt == "name":
+        name = bytes(range(1, len(name) + 1))  # valid length, non-printable
+    return (
+        struct.pack(f"<{n_time}I", *range(n_time))  # frame indices
+        + bytes(64)  # orientation block
+        + struct.pack("<dddd", _CENTER_FREQ, _PITCH, _SCAN_DEPTH_CM, _FOCAL_DEPTH)
+        + bytes(16)  # unknown probe block
+        + struct.pack("<H", len(name))
+        + name
+        + struct.pack("<dd", depth_start, depth_end)
+        + struct.pack("<dddd", _TRANSMIT_FREQ, _PRF, _ADC, 1.0)
+        + struct.pack("<I", len(_ANGLES))
+        + struct.pack(f"<{len(_ANGLES)}d", *_ANGLES)
+    )
+
+
 # Provenance layout matching the observed on-disk order: sequence, project, subject,
 # session, species, <type>, scan, <unknown>, <unknown>, experimenter, then the two
 # hex-encoded trailing fields (serial, hardware).
@@ -56,6 +120,8 @@ def _write_scan_v2(
     strings: list[str] | None = None,
     depth_start: float | None = None,
     timestamp: int | None = None,
+    acquisition: bool = False,
+    corrupt_acquisition: str | None = None,
     payload_bytes_override: int | None = None,
 ) -> None:
     """Write a synthetic binary SCAN v2 file.
@@ -86,6 +152,12 @@ def _write_scan_v2(
     timestamp : int, optional
         Acquisition time as a Unix timestamp. If provided, it is written as a `uint64`
         after the string block so the loader can recover the acquisition datetime.
+    acquisition : bool, default: False
+        Whether to embed the full structured acquisition block (probe model, frequencies,
+        pitch, focal depth, depth range, plane-wave angles). When set, the block supplies
+        the depth range, so `depth_start` seeds it.
+    corrupt_acquisition : {"name", "depth"}, optional
+        Passed to `_acquisition_block` to inject a defect (only when `acquisition` is set).
     payload_bytes_override : int, optional
         Value to write into the payload-size header field instead of the true size.
         Used to exercise the size-mismatch error path.
@@ -103,12 +175,20 @@ def _write_scan_v2(
     o = _SCAN_V2_OFFSETS
     time_end = o["time_coords"] + 8 * n_time
 
-    # Optional adjacent (start, end) depth-range pair, spaced by the depth voxel count,
-    # so the loader's span-search can recover the depth origin.
-    depth_bytes = b""
-    if depth_start is not None:
+    if acquisition:
+        # Full structured acquisition block (includes its own depth range).
+        head_bytes: bytes = _acquisition_block(
+            n_time,
+            size_z,
+            _ACQ_DEPTH_START if depth_start is None else depth_start,
+            corrupt=corrupt_acquisition,
+        )
+    elif depth_start is not None:
+        # Just an adjacent (start, end) depth-range pair for the span-search.
         depth_end = depth_start + (size_z - 1) * _DZ_M * 1e3
-        depth_bytes = struct.pack("<dd", depth_start, depth_end)
+        head_bytes = struct.pack("<dd", depth_start, depth_end)
+    else:
+        head_bytes = b""
 
     string_bytes = bytearray()
     for text in strings:
@@ -118,7 +198,7 @@ def _write_scan_v2(
     # Optional acquisition timestamp (uint64 Unix seconds) after the string block.
     ts_bytes = struct.pack("<Q", timestamp) if timestamp is not None else b""
 
-    tail_bytes = bytes(depth_bytes) + bytes(string_bytes) + ts_bytes
+    tail_bytes = head_bytes + bytes(string_bytes) + ts_bytes
     total_header_bytes = time_end + len(tail_bytes)
     payload = np.ascontiguousarray(payload, dtype="<f8")
     payload_bytes = (
@@ -137,6 +217,8 @@ def _write_scan_v2(
     struct.pack_into("<Q", header, o["npose"], npose)
     struct.pack_into("<Q", header, o["nblock_repeat"], nblock_repeat)
     struct.pack_into("<d", header, o["dt"], dt)
+    struct.pack_into("<I", header, o["svd_clutter_cutoff"], _SVD_CUTOFF)
+    struct.pack_into("<I", header, o["power_doppler_integration_window"], _PD_WINDOW)
     struct.pack_into("<d", header, o["x_voxel_m"], _DX_M)
     struct.pack_into("<d", header, o["y_voxel_m"], _DY_M)
     struct.pack_into("<d", header, o["z_voxel_m"], _DZ_M)
@@ -419,6 +501,75 @@ class TestLoadScanV2Multiblock:
         assert da.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
             _DT
         )
+
+
+class TestLoadScanV2Acquisition:
+    """Tests for BIDS-corresponding acquisition metadata."""
+
+    @pytest.fixture
+    def scan_v2_acq(self, tmp_path: Path) -> xr.DataArray:
+        """Loaded v2 DataArray with a full acquisition block."""
+        path = tmp_path / "scan_v2_acq.scan"
+        _write_scan_v2(path, _raw_payload(), acquisition=True)
+        return load_scan(path)
+
+    def test_probe_fields(self, scan_v2_acq: xr.DataArray) -> None:
+        """Probe model, centre frequency, pitch, and focal depth are recovered."""
+        assert scan_v2_acq.attrs["probe_model"] == _PROBE_MODEL
+        assert scan_v2_acq.attrs["probe_center_frequency"] == pytest.approx(
+            _CENTER_FREQ
+        )
+        assert scan_v2_acq.attrs["probe_pitch"] == pytest.approx(_PITCH)
+        assert scan_v2_acq.attrs["probe_focal_depth"] == pytest.approx(_FOCAL_DEPTH)
+
+    def test_transmit_distinct_from_center(self, scan_v2_acq: xr.DataArray) -> None:
+        """Transmit frequency is read from its own field, distinct from centre freq."""
+        assert scan_v2_acq.attrs["transmit_frequency"] == pytest.approx(_TRANSMIT_FREQ)
+        assert scan_v2_acq.attrs["transmit_frequency"] != pytest.approx(_CENTER_FREQ)
+
+    def test_sequence_fields(self, scan_v2_acq: xr.DataArray) -> None:
+        """PRF, plane-wave angles, and imaging depth are recovered."""
+        assert scan_v2_acq.attrs["pulse_repetition_frequency"] == pytest.approx(_PRF)
+        np.testing.assert_allclose(scan_v2_acq.attrs["plane_wave_angles"], _ANGLES)
+        np.testing.assert_allclose(
+            scan_v2_acq.attrs["imaging_depth"],
+            (_ACQ_DEPTH_START, _ACQ_DEPTH_START + (_SIZE_Z - 1) * _DZ_M * 1e3),
+        )
+
+    def test_filter_fields(self, scan_v2_acq: xr.DataArray) -> None:
+        """SVD low cutoff and power-Doppler window come from fixed offsets."""
+        assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
+        assert scan_v2_acq.attrs["power_doppler_integration_window"] == _PD_WINDOW
+
+    def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
+        """Without a valid acquisition block, probe/sequence fields are not emitted.
+
+        The fixed-offset filter fields are still present; only the anchor-validated
+        structured fields are withheld to avoid emitting misaligned metadata.
+        """
+        assert "probe_model" not in scan_v2.attrs
+        assert "transmit_frequency" not in scan_v2.attrs
+        assert "svd_low_cutoff" in scan_v2.attrs
+
+    def test_acquisition_skipped_on_nonprintable_name(self, tmp_path: Path) -> None:
+        """A non-printable probe name makes the loader skip the structured fields."""
+        path = tmp_path / "scan_v2_badname.scan"
+        _write_scan_v2(
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="name"
+        )
+        da = load_scan(path)
+        assert "probe_model" not in da.attrs
+        assert "svd_low_cutoff" in da.attrs
+
+    def test_acquisition_skipped_on_depth_anchor_mismatch(self, tmp_path: Path) -> None:
+        """A broken depth range fails the anchor check, so the block is not trusted."""
+        path = tmp_path / "scan_v2_baddepth.scan"
+        _write_scan_v2(
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="depth"
+        )
+        da = load_scan(path)
+        assert "probe_model" not in da.attrs
+        assert "svd_low_cutoff" in da.attrs
 
 
 class TestLoadScanV2Errors:

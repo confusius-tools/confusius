@@ -38,6 +38,8 @@ _SCAN_V2_OFFSETS: dict[str, int] = {
     "npose": 0x7C,
     "nblock_repeat": 0x84,
     "dt": 0x94,
+    "svd_clutter_cutoff": 0x9C,
+    "power_doppler_integration_window": 0xA0,
     "x_voxel_m": 0xA4,
     "y_voxel_m": 0xAC,
     "z_voxel_m": 0xB4,
@@ -349,6 +351,14 @@ def load_scan(
     `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
     strings as anchors); the raw decoded strings are always kept in
     `iconeus_header_strings` for manual re-mapping.
+
+    Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
+    attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
+    `probe_pitch` (mm), `probe_focal_depth` (mm), `imaging_depth` (mm start/end),
+    `transmit_frequency` (MHz), `pulse_repetition_frequency` (Hz), `plane_wave_angles`
+    (deg), `svd_low_cutoff`, and `power_doppler_integration_window`. The probe/sequence
+    subset is parsed from a structured block whose layout is anchor-validated against the
+    depth origin; if that check fails, those fields are omitted rather than guessed.
 
     The `physical_to_lab` affine stored in `da.attrs["affines"]` maps ConfUSIus physical
     coordinates `(z, y, x)` to **ConfUSIus-ordered** Iconeus lab coordinates (mm). Apply
@@ -723,8 +733,9 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     -------
     dict
         Parsed fields: `size_x`, `size_y`, `size_z`, `n_time`, `npose`,
-        `nblock_repeat`, `payload_bytes`, `total_header_bytes` (int); `dt`, `x_voxel_m`,
-        `y_voxel_m`, `z_voxel_m` (float); and `time_coords` (`(n_time,) numpy.ndarray`).
+        `nblock_repeat`, `payload_bytes`, `total_header_bytes`, `svd_clutter_cutoff`,
+        `power_doppler_integration_window` (int); `dt`, `x_voxel_m`, `y_voxel_m`,
+        `z_voxel_m` (float); and `time_coords` (`(n_time,) numpy.ndarray`).
 
     Raises
     ------
@@ -733,6 +744,9 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
         not a positive integer.
     """
     o = _SCAN_V2_OFFSETS
+
+    def u32(offset: int) -> int:
+        return int.from_bytes(header[offset : offset + 4], "little")
 
     def u64(offset: int) -> int:
         return int.from_bytes(header[offset : offset + 8], "little")
@@ -758,6 +772,8 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
         "payload_bytes": u64(o["payload_bytes"]),
         "total_header_bytes": u64(o["total_header_bytes"]),
         "dt": f64(o["dt"]),
+        "svd_clutter_cutoff": u32(o["svd_clutter_cutoff"]),
+        "power_doppler_integration_window": u32(o["power_doppler_integration_window"]),
         "x_voxel_m": f64(o["x_voxel_m"]),
         "y_voxel_m": f64(o["y_voxel_m"]),
         "z_voxel_m": f64(o["z_voxel_m"]),
@@ -1020,6 +1036,7 @@ def _load_scan_v2(
 
     coords = _scan_v2_coords(meta, n_time_total, npose)
     attrs = _scan_v2_attrs(header, npose, n_time_total)
+    attrs.update(_scan_v2_acquisition(header, n_time, meta["depth_start_mm"]))
 
     data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
     data_array.name = attrs.get("iconeus_scan") or path.stem
@@ -1063,6 +1080,104 @@ def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
         if 0.0 < start < end < 100.0 and abs((end - start) - expected_span) < tolerance:
             return float(start)
     return 0.0
+
+
+def _scan_v2_acquisition(
+    header: bytes, n_time: int, depth_start_mm: float
+) -> dict[str, Any]:
+    """Parse the acquisition-settings block of a SCAN v2 header, best-effort.
+
+    The probe- and sequence-related fields sit in a structured block whose position is
+    computable from `n_time` (the preceding time and frame-index arrays have `n_time`
+    elements each). The probe-name string is variable-length, so the fields after it are
+    located relative to its end.
+
+    Because the layout is inferred from a small number of example files, the walk is
+    **anchor-validated**: the depth range stored right after the probe name must match
+    the value found independently by `_scan_v2_depth_start`. If it does not, the block is
+    assumed misaligned and nothing is returned, so a mislaid offset never emits wrong
+    metadata. The two SVD/power-Doppler filter fields live at fixed offsets and are read
+    unconditionally.
+
+    Fields map to fUSI-BIDS as follows (values kept in native header units): `probe_model`
+    → `ProbeModel`; `probe_center_frequency` (MHz) → `ProbeCenterFrequency`; `probe_pitch`
+    (mm) → `ProbePitch`; `probe_focal_depth` (mm) → `ProbeFocalDepth`; `imaging_depth`
+    (mm start/end) → `Depth`; `transmit_frequency` (MHz) → `UltrasoundTransmitFrequency`;
+    `pulse_repetition_frequency` (Hz) → `UltrasoundPulseRepetitionFrequency`;
+    `plane_wave_angles` (deg) → `PlaneWaveAngles`. `svd_low_cutoff` is the low cutoff of
+    the SVD clutter filter (see `confusius.iq.clutter_filter_svd_from_indices`) and
+    `power_doppler_integration_window` relates to `PowerDopplerIntegrationDuration`.
+
+    Parameters
+    ----------
+    header : bytes
+        The full header bytes.
+    n_time : int
+        Number of stored time points (before folding `nblock_repeat`).
+    depth_start_mm : float
+        Depth origin found by `_scan_v2_depth_start`, used as the alignment anchor.
+
+    Returns
+    -------
+    dict
+        Acquisition attributes that could be recovered; fields whose block could not be
+        validated are simply absent.
+    """
+    o = _SCAN_V2_OFFSETS
+
+    def u16(offset: int) -> int:
+        return int.from_bytes(header[offset : offset + 2], "little")
+
+    def u32(offset: int) -> int:
+        return int.from_bytes(header[offset : offset + 4], "little")
+
+    def f64(offset: int) -> float:
+        return float(struct.unpack_from("<d", header, offset)[0])
+
+    # Filter fields at fixed absolute offsets, always available.
+    result: dict[str, Any] = {
+        "svd_low_cutoff": u32(o["svd_clutter_cutoff"]),
+        "power_doppler_integration_window": u32(o["power_doppler_integration_window"]),
+    }
+
+    # Structured block: after time_coords (n_time f64) and frame indices (n_time u32)
+    # come a 64-byte orientation block, then the frequency block, a 16-byte gap, and the
+    # probe-name string.
+    freq_off = o["time_coords"] + 12 * n_time + 64
+    name_off = freq_off + 48
+    if name_off + 2 > len(header):
+        return result
+
+    name_len = u16(name_off)
+    name_end = name_off + 2 + name_len
+    if not (1 <= name_len <= 64) or name_end + 52 > len(header):
+        return result
+    name_bytes = header[name_off + 2 : name_end]
+    if not all(32 <= c < 127 for c in name_bytes):
+        return result
+
+    # Anchor check: the depth range starts right after the probe name and must agree
+    # with the independently located depth origin.
+    depth_start = f64(name_end)
+    if not depth_start_mm or abs(depth_start - depth_start_mm) > 0.5:
+        return result
+
+    result["probe_model"] = name_bytes.decode("ascii")
+    result["probe_center_frequency"] = f64(freq_off)
+    result["probe_pitch"] = f64(freq_off + 8)
+    result["probe_focal_depth"] = f64(freq_off + 24)
+    result["imaging_depth"] = (depth_start, f64(name_end + 8))
+    result["transmit_frequency"] = f64(name_end + 16)
+    result["pulse_repetition_frequency"] = f64(name_end + 24)
+
+    n_angles = u32(name_end + 48)
+    if 1 <= n_angles <= 512 and name_end + 52 + 8 * n_angles <= len(header):
+        angles = np.frombuffer(
+            header, dtype="<f8", count=n_angles, offset=name_end + 52
+        )
+        result["plane_wave_angles"] = angles.tolist()
+
+    return result
 
 
 def _scan_v2_coords(
