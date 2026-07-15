@@ -284,9 +284,10 @@ compute operations on it.
 
 ### Loading Iconeus SCAN Files
 
-Use [`load_scan`][confusius.io.load_scan] to load Iconeus `.scan` files (HDF5 files
-produced by IcoScan) as lazy Xarray DataArrays. Three acquisition modes are supported,
-each yielding a DataArray with different dimensions:
+Use [`load_scan`][confusius.io.load_scan] to load Iconeus `.scan` files as lazy Xarray
+DataArrays. Two on-disk formats are detected automatically: the HDF5-based **v1** format
+(produced by IcoScan) and the newer binary **v2** format (see below). For v1, three
+acquisition modes are supported, each yielding a DataArray with different dimensions:
 
 | Mode | Dimensions | Description |
 |------|------------|-------------|
@@ -342,7 +343,7 @@ SCAN files stay open while the Dask graph is un-computed, so keep the DataArray 
 scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
 
 !!! warning "SCAN files and parallel processing"
-    SCAN files are HDF5 files, and h5py datasets **cannot be pickled**. This means
+    v1 SCAN files are HDF5 files, and h5py datasets **cannot be pickled**. This means
     lazy SCAN DataArrays cannot be passed to functions that use parallel workers
     (e.g., [`register_volumewise`][confusius.registration.register_volumewise] with
     `n_jobs != 1`). Call `.compute()` to load the data into memory before running any
@@ -360,6 +361,22 @@ scope or call [`.compute()`][xarray.DataArray.compute] before discarding it.
 
 Provenance metadata from the file is stored in `da.attrs`: `scan_mode`, `subject`,
 `session`, `scan`, `project`, `date`, `neuroscan_version`, and `machine_sn`.
+
+#### SCAN v2 (binary format)
+
+`load_scan` also opens the newer binary SCAN v2 format, detected automatically (no extra
+arguments needed).
+
+!!! warning "Experimental"
+    v2 field offsets were reverse-engineered from a few example files. The data, timing,
+    voxel spacing, depth origin, provenance (`iconeus_*` attrs plus the raw
+    `iconeus_header_strings`), acquisition datetime, and BIDS-corresponding acquisition
+    settings (`probe_model`, `probe_center_frequency`, `transmit_frequency`,
+    `pulse_repetition_frequency`, `plane_wave_angles`, `svd_low_cutoff`, …) are recovered
+    into `da.attrs`. Lateral/elevation coordinates are centered on zero. A
+    `physical_to_lab` affine is derived from a header block read as a 6DOF probe pose;
+    this and multi-pose layouts are unvalidated and may change. `bps_path` works as for
+    v1 when that affine could be built.
 
 #### Loading a BPS File
 
