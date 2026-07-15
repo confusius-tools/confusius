@@ -1,5 +1,6 @@
 """Unit tests for the binary SCAN v2 loader in confusius.io.scan."""
 
+import math
 import struct
 from pathlib import Path
 
@@ -8,7 +9,12 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius.io.scan import _SCAN_V2_OFFSETS, SCAN_V2_MAGIC, load_scan
+from confusius.io.scan import (
+    PHYSICAL_TO_PROBE_PERMUTATION,
+    _SCAN_V2_OFFSETS,
+    SCAN_V2_MAGIC,
+    load_scan,
+)
 
 _SIZE_X = 4
 _SIZE_Y = 1
@@ -36,6 +42,9 @@ _PRF = 5500.0
 _ADC = 62.5
 _ANGLES = [-10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
 _ACQ_DEPTH_START = 1.0
+# 6DOF probe pose written into the orientation block: (tx, ty, tz) in metres,
+# (rx, ry, rz) in radians. A 90-degree rz gives a non-trivial rotation to validate.
+_POSE = (0.0007, 0.0026, 0.0, 0.0, 0.0, math.pi / 2)
 
 
 def _acquisition_block(
@@ -56,10 +65,11 @@ def _acquisition_block(
         Number of depth voxels, used to space the depth range.
     depth_start : float
         Depth origin in mm; the depth range is `(depth_start, depth_start + span)`.
-    corrupt : {"name", "depth"}, optional
+    corrupt : {"name", "depth", "pose"}, optional
         Inject a defect to exercise the loader's degradation guards: `"name"` writes a
         non-printable probe name, `"depth"` breaks the depth-range span so the loader's
-        span-search fails and the anchor check cannot confirm alignment.
+        span-search fails and the anchor check cannot confirm alignment, `"pose"` writes
+        an implausible probe pose so no affine is built.
 
     Returns
     -------
@@ -72,9 +82,14 @@ def _acquisition_block(
     name = _PROBE_MODEL.encode("ascii")
     if corrupt == "name":
         name = bytes(range(1, len(name) + 1))  # valid length, non-printable
+    # Orientation block: 6DOF pose (6 f64) + a flag slot + padding = 64 bytes.
+    pose = (
+        (5.0, *_POSE[1:]) if corrupt == "pose" else _POSE
+    )  # 5 m translation: implausible
+    orientation = struct.pack("<6d", *pose) + struct.pack("<Q", 1) + bytes(8)
     return (
         struct.pack(f"<{n_time}I", *range(n_time))  # frame indices
-        + bytes(64)  # orientation block
+        + orientation
         + struct.pack("<dddd", _CENTER_FREQ, _PITCH, _SCAN_DEPTH_CM, _FOCAL_DEPTH)
         + bytes(16)  # unknown probe block
         + struct.pack("<H", len(name))
@@ -156,7 +171,7 @@ def _write_scan_v2(
         Whether to embed the full structured acquisition block (probe model, frequencies,
         pitch, focal depth, depth range, plane-wave angles). When set, the block supplies
         the depth range, so `depth_start` seeds it.
-    corrupt_acquisition : {"name", "depth"}, optional
+    corrupt_acquisition : {"name", "depth", "pose"}, optional
         Passed to `_acquisition_block` to inject a defect (only when `acquisition` is set).
     payload_bytes_override : int, optional
         Value to write into the payload-size header field instead of the true size.
@@ -541,6 +556,30 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
         assert scan_v2_acq.attrs["power_doppler_integration_window"] == _PD_WINDOW
 
+    def test_physical_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
+        """physical_to_lab is built from the 6DOF pose, matching the v1 permutation."""
+        tx, ty, tz, _, _, rz = _POSE
+        cz, sz = math.cos(rz), math.sin(rz)
+        probe_to_lab = np.eye(4)
+        probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
+        probe_to_lab[:3, 3] = (tx, ty, tz)
+        perm = np.asarray(PHYSICAL_TO_PROBE_PERMUTATION)
+        expected = perm.T @ probe_to_lab @ perm
+        expected[:3, 3] *= 1e3
+
+        affine = np.asarray(scan_v2_acq.attrs["affines"]["physical_to_lab"])
+        np.testing.assert_allclose(affine, expected, atol=1e-9)
+
+    def test_affine_skipped_on_implausible_pose(self, tmp_path: Path) -> None:
+        """An implausible pose yields no affine, but other fields still load."""
+        path = tmp_path / "scan_v2_badpose.scan"
+        _write_scan_v2(
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
+        )
+        da = load_scan(path)
+        assert "probe_model" in da.attrs
+        assert "physical_to_lab" not in da.attrs["affines"]
+
     def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
         """Without a valid acquisition block, probe/sequence fields are not emitted.
 
@@ -579,7 +618,9 @@ class TestLoadScanV2Errors:
         """bps_path is rejected for v2 files."""
         bps = tmp_path / "sidecar.bps"
         bps.write_bytes(b"")
-        with pytest.raises(ValueError, match="bps_path is not supported for SCAN v2"):
+        with pytest.raises(
+            ValueError, match="bps_path is not yet supported for SCAN v2"
+        ):
             load_scan(scan_v2_path, bps_path=bps)
 
     def test_unrecognized_format_raises(self, tmp_path: Path) -> None:

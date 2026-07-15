@@ -344,8 +344,11 @@ def load_scan(
     number of example files. Data, temporal geometry, and voxel spacing are recovered.
     The depth (`y`) origin is read from the header when the depth range can be located;
     the lateral (`x`) and elevation (`z`) origins are not encoded, so those axes are
-    centred on zero (correct spacing, arbitrary origin). No `probeToLab`-equivalent
-    affine has been located, so v2 DataArrays carry **no** `physical_to_lab` affine.
+    centred on zero (correct spacing, arbitrary origin). A `physical_to_lab` affine is
+    built from a header block interpreted as a 6DOF probe pose (translation + rotation),
+    the v2 equivalent of SCAN v1's `probeToLab`; this interpretation is experimental
+    (validated on a single near-identity pose, assumed axis order and Euler convention)
+    and is omitted if the block cannot be validated.
     Multi-pose / multi-block v2 layouts are inferred by analogy with v1 and have not
     been validated against real files. Provenance strings are mapped to v1-style
     `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
@@ -387,9 +390,9 @@ def load_scan(
     if magic == SCAN_V2_MAGIC:
         if bps_path is not None:
             raise ValueError(
-                "bps_path is not supported for SCAN v2 files: the physical_to_lab "
-                "affine needed to compose the BPS transform has not yet been located "
-                "in the v2 header."
+                "bps_path is not yet supported for SCAN v2 files: the v2 "
+                "physical_to_lab affine is experimental (see load_scan Notes), so BPS "
+                "composition is deferred until it is validated."
             )
         # v2 support is reverse-engineered and incomplete: re-raise any parse failure
         # with a pointer to the issue tracker and the original error appended.
@@ -1036,7 +1039,11 @@ def _load_scan_v2(
 
     coords = _scan_v2_coords(meta, n_time_total, npose)
     attrs = _scan_v2_attrs(header, npose, n_time_total)
-    attrs.update(_scan_v2_acquisition(header, n_time, meta["depth_start_mm"]))
+    acquisition = _scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
+    physical_to_lab = acquisition.pop("_physical_to_lab", None)
+    attrs.update(acquisition)
+    if physical_to_lab is not None:
+        attrs["affines"]["physical_to_lab"] = physical_to_lab
 
     data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
     data_array.name = attrs.get("iconeus_scan") or path.stem
@@ -1082,6 +1089,75 @@ def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
     return 0.0
 
 
+def _rotation_matrix(rx: float, ry: float, rz: float) -> npt.NDArray[np.float64]:
+    """Build a 3x3 rotation matrix from intrinsic Z-Y-X Euler angles (radians).
+
+    The Euler convention (order Z-Y-X) is assumed, not confirmed: the only non-trivial
+    example so far has a single non-zero angle (`rz`), for which the order is irrelevant.
+
+    Parameters
+    ----------
+    rx, ry, rz : float
+        Rotation angles about the x, y, and z axes, in radians.
+
+    Returns
+    -------
+    (3, 3) numpy.ndarray
+        The composed rotation matrix `Rz @ Ry @ Rx`.
+    """
+    cx, sx = np.cos(rx), np.sin(rx)
+    cy, sy = np.cos(ry), np.sin(ry)
+    cz, sz = np.cos(rz), np.sin(rz)
+    rot_x = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
+    rot_y = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
+    rot_z = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
+    return rot_z @ rot_y @ rot_x
+
+
+def _scan_v2_physical_to_lab(
+    header: bytes, n_time: int
+) -> npt.NDArray[np.float64] | None:
+    """Build a `physical_to_lab` affine from the SCAN v2 6DOF probe-pose block.
+
+    The 64-byte orientation block preceding the frequency block holds eight `float64`
+    slots; the first six are interpreted as a rigid probe pose `(tx, ty, tz, rx, ry, rz)`
+    — translations in metres, rotations in radians — describing the probe in Iconeus lab
+    space (the v2 equivalent of SCAN v1's `probeToLab`). This is an **experimental**
+    interpretation validated on a single near-identity example; the axis order and Euler
+    convention are assumed.
+
+    The resulting `probeToLab` is converted to a ConfUSIus-ordered `physical_to_lab`
+    affine (millimetres) with the same permutation used by the v1 loader, so it is
+    directly comparable to v1 output.
+
+    Parameters
+    ----------
+    header : bytes
+        The full header bytes.
+    n_time : int
+        Number of stored time points, used to locate the pose block.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray or None
+        The `physical_to_lab` affine in millimetres, or `None` if the pose values are
+        implausible.
+    """
+    # The caller only invokes this after validating the acquisition block, which lies
+    # after the pose block, so `pose_offset` is guaranteed to be in range.
+    pose_offset = _SCAN_V2_OFFSETS["time_coords"] + 12 * n_time
+    tx, ty, tz, rx, ry, rz = struct.unpack_from("<6d", header, pose_offset)
+    if any(abs(t) >= 1.0 for t in (tx, ty, tz)) or any(
+        abs(a) > 2 * np.pi for a in (rx, ry, rz)
+    ):
+        return None
+
+    probe_to_lab = np.eye(4, dtype=np.float64)
+    probe_to_lab[:3, :3] = _rotation_matrix(rx, ry, rz)
+    probe_to_lab[:3, 3] = (tx, ty, tz)
+    return _build_physical_to_lab(probe_to_lab)
+
+
 def _scan_v2_acquisition(
     header: bytes, n_time: int, depth_start_mm: float
 ) -> dict[str, Any]:
@@ -1121,7 +1197,9 @@ def _scan_v2_acquisition(
     -------
     dict
         Acquisition attributes that could be recovered; fields whose block could not be
-        validated are simply absent.
+        validated are simply absent. When the block validates, a private
+        `_physical_to_lab` key holds the pose-derived affine for the caller to move into
+        `attrs["affines"]`.
     """
     o = _SCAN_V2_OFFSETS
 
@@ -1176,6 +1254,13 @@ def _scan_v2_acquisition(
             header, dtype="<f8", count=n_angles, offset=name_end + 52
         )
         result["plane_wave_angles"] = angles.tolist()
+
+    # The depth anchor confirms the n_time-derived layout, so the 6DOF pose block (in the
+    # same region) can be trusted; expose the affine it yields under a private key that
+    # the caller moves into `attrs["affines"]`.
+    physical_to_lab = _scan_v2_physical_to_lab(header, n_time)
+    if physical_to_lab is not None:
+        result["_physical_to_lab"] = physical_to_lab
 
     return result
 
