@@ -122,7 +122,7 @@ def clean(
 
     1. Interpolate censored samples (pre-scrubbing).
     2. Detrend.
-    3. Optional temporal filtering (Butterworth or cosine high-pass).
+    3. Temporal filtering (Butterworth or cosine high-pass).
     4. Censor samples.
     5. Regress confounds.
     6. Standardize.
