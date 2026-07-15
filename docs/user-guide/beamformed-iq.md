@@ -82,8 +82,10 @@ typically hundreds of Hz.
 ### Expected Data Structure
 
 Beamformed IQ data in ConfUSIus should be a complex-valued Xarray DataArray with
-dimensions `(time, z, y, x)`, where `time` is the slow-time dimension and `(z, y, x)`
-are the spatial dimensions. ConfUSIus typically adopts the following convention for the
+dimensions exactly ordered as `(time, z, y, x)`, where `time` is the slow-time
+dimension and `(z, y, x)` are the spatial dimensions. IQ processing works on temporal
+blocks and flattens the spatial axes, so this stricter order keeps the data layout
+unambiguous and efficient. ConfUSIus typically adopts the following convention for the
 spatial dimensions:
 
 - `z`: Elevation dimension (out-of-plane dimension for linear arrays).

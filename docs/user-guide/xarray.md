@@ -120,6 +120,34 @@ when loading data, or to store multiple related variables together (e.g.,
 `power_doppler` for the power Doppler signals and `brain_mask` for a corresponding brain
 mask).
 
+### Canonical fUSI dimensions and scalar indexing
+
+ConfUSIus stores fUSI recordings with the spatial dimensions `z`, `y`, and `x`.
+Single-slice acquisitions still keep a singleton `z` axis, so the canonical shape is
+`(time, z, y, x)` with `z=1`, not `(time, y, x)`.
+
+Xarray scalar indexing drops the indexed dimension but usually keeps its coordinate as a
+scalar coordinate:
+
+```python
+slice_movie = pwd.isel(z=0)
+slice_movie.dims
+# ('time', 'y', 'x')
+
+slice_movie.coords['z']
+# scalar coordinate: z = 0.0 mm, with the original coordinate metadata
+```
+
+Most fUSI-native ConfUSIus functions automatically restore such scalar-indexed spatial
+coordinates as singleton dimensions before validating the data. For example,
+`slice_movie` is treated as `(time, z, y, x)` with `z=1` when passed to registration,
+resampling, smoothing, or other volume-oriented APIs.
+
+This recovery only works when the missing spatial dimension is still present as a
+scalar coordinate. A manually constructed bare `(time, y, x)` array with no `z`
+coordinate is rejected because ConfUSIus cannot infer its physical position, units, or
+voxel size.
+
 !!! question "New to Xarray?"
     If you are not yet familiar with Xarray, the [Xarray quick
     overview](https://docs.xarray.dev/en/stable/getting-started-guide/quick-overview.html)
