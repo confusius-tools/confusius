@@ -18,8 +18,14 @@ from confusius.datasets._dataverse import (
     get_zip_index,
     update_cached_zip_index,
 )
-from confusius.datasets._khallaf_2026 import _BIDS_ROOT, _DATAFILE_ID, _ZIP_ROOT
+from confusius.datasets._khallaf_2026 import (
+    _BIDS_ROOT,
+    _CITATION,
+    _DATAFILE_ID,
+    _ZIP_ROOT,
+)
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
+from confusius.datasets._utils import plain_citation
 
 # Minimal fake index covering every bucket and reconstruction variant. Keys are
 # prefix-stripped member paths (the form get_zip_index returns).
@@ -113,6 +119,19 @@ def test_fetch_returns_bids_root(tmp_path, mock_get_zip_index, opened_members):
     result = fetch_khallaf_2026(data_dir=tmp_path)
     assert result == tmp_path / _BIDS_ROOT
     assert isinstance(result, Path)
+
+
+def test_fetch_citation_message(tmp_path, mock_get_zip_index, opened_members, capsys):
+    fetch_khallaf_2026(data_dir=tmp_path)
+    out = capsys.readouterr().out
+    assert (
+        "If you use this dataset in your work, please cite the following source:" in out
+    )
+    # Rich word-wraps the printed citation, so compare on whitespace-normalized text.
+    assert plain_citation(_CITATION) in " ".join(out.split())
+
+    fetch_khallaf_2026(data_dir=tmp_path, print_citation=False)
+    assert capsys.readouterr().out == ""
 
 
 def test_fetch_downloads_all_except_sourcedata_by_default(

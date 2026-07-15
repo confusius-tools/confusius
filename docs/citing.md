@@ -231,6 +231,42 @@ Or in BibTeX format:
 
 License: **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)**.
 
+### Khallaf et al. (2026)
+
+The [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026]
+function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
+
+> Khallaf, M. A., Hart, D. W., Luo, W., Murad, F., Cybis Pereira, F., Mendez-Aranda, D.,
+> Hagenah, N., Rossi, A., Bégay, V., Okrouhlík, J., Krautwurst, D., Ngalameno, M. K.,
+> Ganswindt, A., Barker, A. J., Šumbera, R., Knaden, M., Pezet, S., Woehler, A.,
+> Hansson, B. S., Bennett, N. C., & Lewin, G. R. (2026). A queen odour mediates
+> reproductive suppression in a eusocial mammal. *Nature*.
+> https://doi.org/10.1038/s41586-026-10772-5
+
+Or in BibTeX format:
+
+```bibtex
+@article{khallafQueenOdourMediates2026,
+  title = {A Queen Odour Mediates Reproductive Suppression in a Eusocial Mammal},
+  author = {Khallaf, Mohammed A. and Hart, Daniel W. and Luo, Wenhan and
+            Murad, Firdevs and Cybis Pereira, Felipe and {Mendez-Aranda}, Daniel and
+            Hagenah, Nicole and Rossi, Alice and B{\'e}gay, Val{\'e}rie and
+            Okrouhl{\'i}k, Jan and Krautwurst, Dietmar and Ngalameno, Mungo Kisinza and
+            Ganswindt, Andre and Barker, Alison J. and {\v S}umbera, Radim and
+            Knaden, Markus and Pezet, Sophie and Woehler, Andrew and
+            Hansson, Bill S. and Bennett, Nigel C. and Lewin, Gary R.},
+  year = 2026,
+  month = jul,
+  journal = {Nature},
+  issn = {0028-0836, 1476-4687},
+  doi = {10.1038/s41586-026-10772-5},
+  url = {https://doi.org/10.1038/s41586-026-10772-5},
+  urldate = {2026-07-15},
+}
+```
+
+License: **[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)**.
+
 ## Templates
 
 ### Huang et al. (2025)

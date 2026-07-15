@@ -16,7 +16,7 @@ from ._dataverse import (
     read_cached_zip_index,
     update_cached_zip_index,
 )
-from ._utils import get_datasets_dir
+from ._utils import get_datasets_dir, print_citation_message
 
 _DOI = "doi:10.17617/3.7QCU1F"
 """Persistent identifier of the Edmond dataset hosting the fUSI archive."""
@@ -32,6 +32,17 @@ _BIDS_ROOT = "khallaf-2026-bids"
 
 _TOTAL_SIZE_BYTES = 19_485_480_391
 """Size of the full `fUSI data.zip` archive in bytes."""
+
+_CITATION = (
+    "Khallaf, M. A., Hart, D. W., Luo, W., Murad, F., Cybis Pereira, F., "
+    "Mendez-Aranda, D., Hagenah, N., Rossi, A., Bégay, V., Okrouhlík, J., "
+    "Krautwurst, D., Ngalameno, M. K., Ganswindt, A., Barker, A. J., Šumbera, R., "
+    "Knaden, M., Pezet, S., Woehler, A., Hansson, B. S., Bennett, N. C., & "
+    "Lewin, G. R. (2026). [citation.title]A queen odour mediates reproductive "
+    "suppression in a eusocial mammal.[/citation.title] [italic]Nature[/italic]. "
+    "[citation.doi]https://doi.org/10.1038/s41586-026-10772-5[/citation.doi]"
+)
+"""Citation for the source article, in rich markup for terminal rendering."""
 
 
 _VALID_DATASETS = frozenset({"rawdata", "glm", "bootstrapping"})
@@ -271,6 +282,7 @@ def fetch_khallaf_2026(
     reconstruction: str = "both",
     sourcedata: bool = False,
     refresh: bool = False,
+    print_citation: bool = True,
 ) -> Path:
     """Fetch the Khallaf et al. (2026) naked mole-rat fUSI dataset.
 
@@ -325,6 +337,8 @@ def fetch_khallaf_2026(
         re-read one) are re-downloaded. If `False` and all requested files are
         already cached, the function returns immediately without any network
         access.
+    print_citation : bool, default: True
+        Whether to print the citation for the dataset.
 
     Returns
     -------
@@ -340,8 +354,12 @@ def fetch_khallaf_2026(
     References
     ----------
     [^1]:
-        Khallaf, M. A. et al. (2026). A queen odour mediates reproductive
-        suppression in a eusocial mammal. *Nature*.
+        Khallaf, M. A., Hart, D. W., Luo, W., Murad, F., Cybis Pereira, F.,
+        Mendez-Aranda, D., Hagenah, N., Rossi, A., Bégay, V., Okrouhlík, J.,
+        Krautwurst, D., Ngalameno, M. K., Ganswindt, A., Barker, A. J.,
+        Šumbera, R., Knaden, M., Pezet, S., Woehler, A., Hansson, B. S.,
+        Bennett, N. C., & Lewin, G. R. (2026). A queen odour mediates
+        reproductive suppression in a eusocial mammal. *Nature*.
         [https://doi.org/10.1038/s41586-026-10772-5](https://doi.org/10.1038/s41586-026-10772-5)
 
     [^2]:
@@ -403,4 +421,6 @@ def fetch_khallaf_2026(
         if refresh:
             update_cached_zip_index(bids_dir, index, previous_index or {}, members)
 
+    if print_citation:
+        print_citation_message(_CITATION, "dataset")
     return bids_dir

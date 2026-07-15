@@ -105,6 +105,10 @@ omit = ["*/confusius/_napari/*", "*/confusius/_cli.py"]
 [tool.ruff]
 exclude = ["benchmark/*"]
 
+[tool.codespell]
+# Author surnames from cited references that codespell reads as typos.
+ignore-words-list = "hart,portugues"
+
 [tool.ty.src]
 include = ["src", "tests"]
 
