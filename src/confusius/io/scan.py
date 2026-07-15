@@ -48,10 +48,84 @@ _SCAN_V2_OFFSETS: dict[str, int] = {
 """Byte offsets of fixed-position fields in the SCAN v2 header.
 
 All fields listed here live before the first variable-length string in the header, so
-their absolute offsets are stable across files. Integer fields are little-endian
-`uint64`; `dt` and the voxel sizes are little-endian `float64`; `time_coords` is the
-start of an array of `n_time` little-endian `float64` values.
+their absolute offsets are stable across files. The dimension and size fields are
+little-endian `uint64`; `svd_clutter_cutoff` and `power_doppler_integration_window` are
+`uint32`; `dt` and the voxel sizes are `float64`; `time_coords` is the start of an array
+of `n_time` little-endian `float64` values.
 """
+
+
+def _u16(buffer: bytes, offset: int) -> int:
+    """Read a little-endian `uint16` from `buffer` at `offset`.
+
+    Parameters
+    ----------
+    buffer : bytes
+        Byte buffer to read from.
+    offset : int
+        Byte offset of the value.
+
+    Returns
+    -------
+    int
+        The decoded value.
+    """
+    return int.from_bytes(buffer[offset : offset + 2], "little")
+
+
+def _u32(buffer: bytes, offset: int) -> int:
+    """Read a little-endian `uint32` from `buffer` at `offset`.
+
+    Parameters
+    ----------
+    buffer : bytes
+        Byte buffer to read from.
+    offset : int
+        Byte offset of the value.
+
+    Returns
+    -------
+    int
+        The decoded value.
+    """
+    return int.from_bytes(buffer[offset : offset + 4], "little")
+
+
+def _u64(buffer: bytes, offset: int) -> int:
+    """Read a little-endian `uint64` from `buffer` at `offset`.
+
+    Parameters
+    ----------
+    buffer : bytes
+        Byte buffer to read from.
+    offset : int
+        Byte offset of the value.
+
+    Returns
+    -------
+    int
+        The decoded value.
+    """
+    return int.from_bytes(buffer[offset : offset + 8], "little")
+
+
+def _f64(buffer: bytes, offset: int) -> float:
+    """Read a little-endian `float64` from `buffer` at `offset`.
+
+    Parameters
+    ----------
+    buffer : bytes
+        Byte buffer to read from.
+    offset : int
+        Byte offset of the value.
+
+    Returns
+    -------
+    float
+        The decoded value.
+    """
+    return float(struct.unpack_from("<d", buffer, offset)[0])
+
 
 PHYSICAL_TO_PROBE_PERMUTATION: npt.NDArray[np.float64] = np.array(
     [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
@@ -278,6 +352,30 @@ def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
     return brain_to_confusius_lab
 
 
+def _add_physical_to_brain(affines: dict[str, Any], bps_path: str | Path) -> None:
+    """Compose a `physical_to_brain` affine from a BPS sidecar and store it in `affines`.
+
+    Requires `affines["physical_to_lab"]` to be present. The composition matches both the
+    v1 and v2 loaders: `physical_to_brain = inv(load_bps(bps_path)) @ physical_to_lab`.
+
+    Parameters
+    ----------
+    affines : dict
+        The DataArray's `affines` attribute; mutated in place to add `physical_to_brain`.
+    bps_path : str or pathlib.Path
+        Path to the BPS file (`.bps`).
+
+    Returns
+    -------
+    None
+        `affines` is updated in place.
+    """
+    brain_to_lab = load_bps(bps_path)
+    affines["physical_to_brain"] = (
+        np.linalg.inv(brain_to_lab) @ affines["physical_to_lab"]
+    )
+
+
 def load_scan(
     path: str | Path,
     bps_path: str | Path | None = None,
@@ -411,10 +509,7 @@ def load_scan(
                     "for this SCAN v2 file (the 6DOF probe-pose block was missing or "
                     "implausible), so the BPS transform cannot be composed."
                 )
-            brain_to_lab = load_bps(bps_path)
-            affines["physical_to_brain"] = (
-                np.linalg.inv(brain_to_lab) @ affines["physical_to_lab"]
-            )
+            _add_physical_to_brain(affines, bps_path)
         return data_array
 
     raise ValueError(
@@ -506,9 +601,7 @@ def _load_scan_v1(
 
         data_array.name = attrs["iconeus_scan"] or path.stem
         if bps_path is not None:
-            brain_to_lab = load_bps(bps_path)
-            physical_to_brain = np.linalg.inv(brain_to_lab) @ physical_to_lab
-            data_array.attrs["affines"]["physical_to_brain"] = physical_to_brain
+            _add_physical_to_brain(data_array.attrs["affines"], bps_path)
     except Exception:
         h5.close()
         raise
@@ -746,9 +839,8 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     -------
     dict
         Parsed fields: `size_x`, `size_y`, `size_z`, `n_time`, `npose`,
-        `nblock_repeat`, `payload_bytes`, `total_header_bytes`, `svd_clutter_cutoff`,
-        `power_doppler_integration_window` (int); `dt`, `x_voxel_m`, `y_voxel_m`,
-        `z_voxel_m` (float); and `time_coords` (`(n_time,) numpy.ndarray`).
+        `nblock_repeat`, `payload_bytes`, `total_header_bytes` (int); `dt`, `x_voxel_m`,
+        `y_voxel_m`, `z_voxel_m` (float); and `time_coords` (`(n_time,) numpy.ndarray`).
 
     Raises
     ------
@@ -758,16 +850,7 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     """
     o = _SCAN_V2_OFFSETS
 
-    def u32(offset: int) -> int:
-        return int.from_bytes(header[offset : offset + 4], "little")
-
-    def u64(offset: int) -> int:
-        return int.from_bytes(header[offset : offset + 8], "little")
-
-    def f64(offset: int) -> float:
-        return float(struct.unpack_from("<d", header, offset)[0])
-
-    n_time = u64(o["n_time"])
+    n_time = _u64(header, o["n_time"])
     time_end = o["time_coords"] + 8 * n_time
     if n_time < 1 or time_end > len(header):
         raise ValueError(
@@ -776,20 +859,18 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
         )
 
     fields: dict[str, Any] = {
-        "size_x": u64(o["size_x"]),
-        "size_y": u64(o["size_y"]),
-        "size_z": u64(o["size_z"]),
+        "size_x": _u64(header, o["size_x"]),
+        "size_y": _u64(header, o["size_y"]),
+        "size_z": _u64(header, o["size_z"]),
         "n_time": n_time,
-        "npose": u64(o["npose"]),
-        "nblock_repeat": u64(o["nblock_repeat"]),
-        "payload_bytes": u64(o["payload_bytes"]),
-        "total_header_bytes": u64(o["total_header_bytes"]),
-        "dt": f64(o["dt"]),
-        "svd_clutter_cutoff": u32(o["svd_clutter_cutoff"]),
-        "power_doppler_integration_window": u32(o["power_doppler_integration_window"]),
-        "x_voxel_m": f64(o["x_voxel_m"]),
-        "y_voxel_m": f64(o["y_voxel_m"]),
-        "z_voxel_m": f64(o["z_voxel_m"]),
+        "npose": _u64(header, o["npose"]),
+        "nblock_repeat": _u64(header, o["nblock_repeat"]),
+        "payload_bytes": _u64(header, o["payload_bytes"]),
+        "total_header_bytes": _u64(header, o["total_header_bytes"]),
+        "dt": _f64(header, o["dt"]),
+        "x_voxel_m": _f64(header, o["x_voxel_m"]),
+        "y_voxel_m": _f64(header, o["y_voxel_m"]),
+        "z_voxel_m": _f64(header, o["z_voxel_m"]),
         "time_coords": np.frombuffer(
             header, dtype="<f8", count=n_time, offset=o["time_coords"]
         ).copy(),
@@ -835,7 +916,7 @@ def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     i = 0
     n = len(header)
     while i + 4 <= n:
-        length = int.from_bytes(header[i : i + 4], "little")
+        length = _u32(header, i)
         if 1 <= length <= 256 and i + 4 + length <= n:
             body = header[i + 4 : i + 4 + length]
             if all(32 <= c < 127 for c in body):
@@ -885,7 +966,7 @@ def _scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> st
     plain_ends = [end for text, is_hex, end in records if not is_hex]
     start = plain_ends[4] if len(plain_ends) >= 5 else 0
     for offset in range(start, len(header) - 7):
-        value = int.from_bytes(header[offset : offset + 8], "little")
+        value = _u64(header, offset)
         if 1_420_000_000 <= value <= 2_050_000_000:
             return datetime.fromtimestamp(value, UTC).isoformat()
     return ""
@@ -990,10 +1071,9 @@ def _load_scan_v2(
         If the header is truncated, reports implausible dimensions, or if the reported
         payload size does not match the product of the dimensions.
     """
+    offset = _SCAN_V2_OFFSETS["total_header_bytes"]
     with path.open("rb") as f:
-        total_header_bytes = int.from_bytes(
-            f.read(_SCAN_V2_OFFSETS["total_header_bytes"] + 8)[-8:], "little"
-        )
+        total_header_bytes = _u64(f.read(offset + 8), offset)
         f.seek(0)
         header = f.read(total_header_bytes)
 
@@ -1092,8 +1172,8 @@ def _scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float:
     expected_span = (size_z - 1) * dz_mm
     tolerance = max(0.1, dz_mm)
     for offset in range(0, len(header) - 16):
-        start = struct.unpack_from("<d", header, offset)[0]
-        end = struct.unpack_from("<d", header, offset + 8)[0]
+        start = _f64(header, offset)
+        end = _f64(header, offset + 8)
         if 0.0 < start < end < 100.0 and abs((end - start) - expected_span) < tolerance:
             return float(start)
     return 0.0
@@ -1213,19 +1293,12 @@ def _scan_v2_acquisition(
     """
     o = _SCAN_V2_OFFSETS
 
-    def u16(offset: int) -> int:
-        return int.from_bytes(header[offset : offset + 2], "little")
-
-    def u32(offset: int) -> int:
-        return int.from_bytes(header[offset : offset + 4], "little")
-
-    def f64(offset: int) -> float:
-        return float(struct.unpack_from("<d", header, offset)[0])
-
     # Filter fields at fixed absolute offsets, always available.
     result: dict[str, Any] = {
-        "svd_low_cutoff": u32(o["svd_clutter_cutoff"]),
-        "power_doppler_integration_window": u32(o["power_doppler_integration_window"]),
+        "svd_low_cutoff": _u32(header, o["svd_clutter_cutoff"]),
+        "power_doppler_integration_window": _u32(
+            header, o["power_doppler_integration_window"]
+        ),
     }
 
     # Structured block: after time_coords (n_time f64) and frame indices (n_time u32)
@@ -1236,7 +1309,7 @@ def _scan_v2_acquisition(
     if name_off + 2 > len(header):
         return result
 
-    name_len = u16(name_off)
+    name_len = _u16(header, name_off)
     name_end = name_off + 2 + name_len
     if not (1 <= name_len <= 64) or name_end + 52 > len(header):
         return result
@@ -1246,19 +1319,19 @@ def _scan_v2_acquisition(
 
     # Anchor check: the depth range starts right after the probe name and must agree
     # with the independently located depth origin.
-    depth_start = f64(name_end)
+    depth_start = _f64(header, name_end)
     if not depth_start_mm or abs(depth_start - depth_start_mm) > 0.5:
         return result
 
     result["probe_model"] = name_bytes.decode("ascii")
-    result["probe_center_frequency"] = f64(freq_off)
-    result["probe_pitch"] = f64(freq_off + 8)
-    result["probe_focal_depth"] = f64(freq_off + 24)
-    result["imaging_depth"] = (depth_start, f64(name_end + 8))
-    result["transmit_frequency"] = f64(name_end + 16)
-    result["pulse_repetition_frequency"] = f64(name_end + 24)
+    result["probe_center_frequency"] = _f64(header, freq_off)
+    result["probe_pitch"] = _f64(header, freq_off + 8)
+    result["probe_focal_depth"] = _f64(header, freq_off + 24)
+    result["imaging_depth"] = (depth_start, _f64(header, name_end + 8))
+    result["transmit_frequency"] = _f64(header, name_end + 16)
+    result["pulse_repetition_frequency"] = _f64(header, name_end + 24)
 
-    n_angles = u32(name_end + 48)
+    n_angles = _u32(header, name_end + 48)
     if 1 <= n_angles <= 512 and name_end + 52 + 8 * n_angles <= len(header):
         angles = np.frombuffer(
             header, dtype="<f8", count=n_angles, offset=name_end + 52
