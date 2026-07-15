@@ -10,7 +10,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
-from confusius._utils.io import restore_affines, zarr_safe_attrs
+from confusius._utils.io import make_attrs_zarr_safe, restore_affines_in_attrs
 from confusius.io.utils import check_path
 
 if TYPE_CHECKING:
@@ -258,9 +258,9 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     # them to arrays on load. cmap/norm are stripped above, so nothing is dropped here.
     for name in list(to_save.data_vars):
         var = to_save[name].copy()
-        var.attrs = zarr_safe_attrs(var.attrs)
+        var.attrs = make_attrs_zarr_safe(var.attrs)
         to_save[name] = var
-    to_save.attrs = zarr_safe_attrs(to_save.attrs)
+    to_save.attrs = make_attrs_zarr_safe(to_save.attrs)
 
     # A nonlinear (displacement-field) physical_to_base transform carries a decorative
     # string `component` coordinate that zarr v3 cannot serialize stably. Replace it with
@@ -322,8 +322,8 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     # Restore any per-variable `affines` matrices (e.g. physical_to_sform) JSON-encoded on
     # save back to numpy arrays, so they match the arrays a NIfTI-loaded volume carries.
     for name in ds.data_vars:
-        restore_affines(ds[name].attrs)
-    restore_affines(ds.attrs)
+        restore_affines_in_attrs(ds[name].attrs)
+    restore_affines_in_attrs(ds.attrs)
 
     # Restore the physical_to_base transform to its single attr: a displacement field was
     # stored as a data variable (lift it back into attrs); a numpy affine was JSON-encoded

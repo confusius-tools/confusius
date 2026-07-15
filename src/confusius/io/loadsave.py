@@ -9,7 +9,7 @@ import xarray as xr
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
-from confusius._utils.io import restore_affines, zarr_safe_attrs
+from confusius._utils.io import make_attrs_zarr_safe, restore_affines_in_attrs
 from confusius.io.utils import check_path
 
 
@@ -75,7 +75,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         )
 
     restore_atlas_cmap_and_norm(data_array)
-    restore_affines(data_array.attrs)
+    restore_affines_in_attrs(data_array.attrs)
     return data_array
 
 
@@ -111,7 +111,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         return
     if name.endswith(".zarr"):
         data_array = data_array.copy(deep=False)
-        data_array.attrs = zarr_safe_attrs(data_array.attrs)
+        data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",

@@ -12,7 +12,7 @@ import xarray as xr
 from confusius._utils.stack import find_stack_level
 
 
-def to_json_serializable(value: Any) -> Any:
+def convert_to_json_serializable(value: Any) -> Any:
     """Recursively convert numpy containers and scalars to native Python objects.
 
     Parameters
@@ -33,13 +33,13 @@ def to_json_serializable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     if isinstance(value, dict):
-        return {key: to_json_serializable(item) for key, item in value.items()}
+        return {key: convert_to_json_serializable(item) for key, item in value.items()}
     if isinstance(value, list | tuple):
-        return [to_json_serializable(item) for item in value]
+        return [convert_to_json_serializable(item) for item in value]
     return value
 
 
-def zarr_safe_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
+def make_attrs_zarr_safe(attrs: dict[str, Any]) -> dict[str, Any]:
     """Make attributes safe to store as Zarr attributes.
 
     Zarr stores attributes as JSON. Numpy arrays and scalars, including those nested
@@ -61,7 +61,7 @@ def zarr_safe_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
     safe: dict[str, Any] = {}
     dropped: list[str] = []
     for key, value in attrs.items():
-        converted = to_json_serializable(value)
+        converted = convert_to_json_serializable(value)
         try:
             json.dumps(converted)
         except TypeError:
@@ -78,11 +78,11 @@ def zarr_safe_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
-def restore_affines(attrs: dict[str, Any]) -> None:
+def restore_affines_in_attrs(attrs: dict[str, Any]) -> None:
     """Restore `attrs["affines"]` dict values to numpy arrays in place.
 
     Zarr stores the affines as nested lists (see
-    [`zarr_safe_attrs`][confusius._utils.io.zarr_safe_attrs]); this converts them back to
+    [`make_attrs_zarr_safe`][confusius._utils.io.make_attrs_zarr_safe]); this converts them back to
     numpy arrays so a Zarr round-trip matches the NIfTI and SCAN loaders. A no-op when
     `affines` is absent or not a dict.
 
