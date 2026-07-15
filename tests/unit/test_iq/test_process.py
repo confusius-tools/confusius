@@ -1,6 +1,6 @@
 """Unit tests for IQ processing functions."""
 
-from typing import Literal, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict, cast
 
 import dask.array as da
 import numpy as np
@@ -340,25 +340,20 @@ class TestComputePowerDopplerVolume:
 class TestComputeAxialVelocityVolume:
     """Tests for compute_axial_velocity_volume function."""
 
-    def test_matches_reference_kasai_estimator(self, sample_iq_block_4d):
-        """Result matches reference Kasai estimator implementation."""
+    @pytest.mark.parametrize("lag", [1, 2])
+    def test_matches_reference_kasai_estimator(self, sample_iq_block_4d, lag):
+        """Result matches the standard Kasai estimator."""
         fs = 100.0
         transmit_frequency = 15.625e6
         beamforming_sound_velocity = 1540.0
-        lag = 1
 
-        # Reference Kasai estimator (average_angle method).
-        block_rolled_conjugate = np.roll(sample_iq_block_4d, lag, axis=0).conj()
-        block_rolled_conjugate[:lag, ...] = 0
-        autocorrelation = sample_iq_block_4d * block_rolled_conjugate
-        autocorrelation = autocorrelation[lag:]
-        autocorrelation_phase = np.angle(autocorrelation)
-        average_phase = autocorrelation_phase.mean(0)
+        autocorrelation = sample_iq_block_4d[lag:] * np.conj(sample_iq_block_4d[:-lag])
+        average_phase = np.angle(autocorrelation.mean(axis=0))
         expected = (
             average_phase
             * fs
             * beamforming_sound_velocity
-            / (4 * np.pi * transmit_frequency)
+            / (4 * np.pi * transmit_frequency * lag)
         )
 
         result = compute_axial_velocity_volume(
@@ -367,49 +362,48 @@ class TestComputeAxialVelocityVolume:
             transmit_frequency=transmit_frequency,
             beamforming_sound_velocity=beamforming_sound_velocity,
             lag=lag,
-            estimation_method="average_angle",
+            spatial_kernel=1,
         )
 
         assert_allclose(result[0], expected, rtol=1e-5)
 
-    def test_angle_average_method(self, sample_iq_block_4d):
-        """Angle_average method computes angle of average autocorrelation."""
-        fs = 100.0
-        transmit_frequency = 15.625e6
-        beamforming_sound_velocity = 1540.0
-        lag = 1
+    def test_spatial_kernel_accepts_per_axis_sizes(
+        self, monkeypatch, sample_iq_block_4d
+    ):
+        """Per-axis spatial kernels are passed to the median filter."""
+        import scipy.signal as sp_signal
 
-        # Reference: angle of average autocorrelation.
-        block_rolled_conjugate = np.roll(sample_iq_block_4d, lag, axis=0).conj()
-        block_rolled_conjugate[:lag, ...] = 0
-        autocorrelation = sample_iq_block_4d * block_rolled_conjugate
-        autocorrelation = autocorrelation[lag:]
-        average_phase = np.angle(autocorrelation.mean(0))
-        expected = (
-            average_phase
-            * fs
-            * beamforming_sound_velocity
-            / (4 * np.pi * transmit_frequency)
-        )
+        kernel_sizes: list[tuple[int, ...]] = []
+        real_medfilt = sp_signal.medfilt
 
-        result = compute_axial_velocity_volume(
+        def wrapped_medfilt(volume, kernel_size):
+            kernel_sizes.append(tuple(kernel_size))
+            return real_medfilt(volume, kernel_size)
+
+        monkeypatch.setattr(sp_signal, "medfilt", wrapped_medfilt)
+
+        compute_axial_velocity_volume(
             sample_iq_block_4d,
-            fs=fs,
-            transmit_frequency=transmit_frequency,
-            beamforming_sound_velocity=beamforming_sound_velocity,
-            lag=lag,
-            estimation_method="angle_average",
+            fs=100.0,
+            spatial_kernel=(1, 3, 5),
         )
 
-        assert_allclose(result[0], expected, rtol=1e-5)
+        assert kernel_sizes == [(1, 3, 5)]
 
-    def test_invalid_estimation_method_raises(self, sample_iq_block_4d):
-        """Invalid estimation_method raises ValueError."""
-        with pytest.raises(ValueError, match="Unknown estimation method"):
+    def test_spatial_kernel_rejects_invalid_sequences(self, sample_iq_block_4d):
+        """Spatial kernels must be positive length-3 integer sizes."""
+        with pytest.raises(ValueError, match="length-3 sequence"):
             compute_axial_velocity_volume(
                 sample_iq_block_4d,
                 fs=100.0,
-                estimation_method="invalid",  # type: ignore
+                spatial_kernel=cast("Any", (3, 3)),
+            )
+
+        with pytest.raises(ValueError, match="must be positive"):
+            compute_axial_velocity_volume(
+                sample_iq_block_4d,
+                fs=100.0,
+                spatial_kernel=(1, 0, 3),
             )
 
 
@@ -923,7 +917,6 @@ class TestProcessIqToAxialVelocity:
             velocity_window_width=3,
             velocity_window_stride=1,
             lag=2,
-            absolute_velocity=True,
         )
 
         assert result.name == "axial_velocity"
@@ -938,7 +931,6 @@ class TestProcessIqToAxialVelocity:
         assert result.attrs["axial_velocity_integration_stride"] == pytest.approx(0.1)
         assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
         assert result.attrs["axial_velocity_lag"] == 2
-        assert result.attrs["axial_velocity_absolute"] is True
 
     def test_uses_attrs_for_parameters(self, sample_iq_dataarray):
         """Uses DataArray attributes for transmit frequency and sound velocity."""
@@ -1032,9 +1024,7 @@ class TestProcessIqToAxialVelocity:
                 velocity_window_width=10,
                 velocity_window_stride=5,
                 lag=2,
-                absolute_velocity=True,
                 spatial_kernel=3,
-                estimation_method="angle_average",
             )
 
         mock_fn.assert_called_once_with(
@@ -1049,31 +1039,31 @@ class TestProcessIqToAxialVelocity:
             velocity_window_width=10,
             velocity_window_stride=5,
             lag=2,
-            absolute_velocity=True,
             spatial_kernel=3,
-            estimation_method="angle_average",
         )
 
     def test_axial_velocity_output_uses_prefixed_metadata_names(
         self, sample_iq_dataarray
     ):
         """Axial-velocity-specific attrs use explicit `axial_velocity_` prefixes."""
-        result = process_iq_to_axial_velocity(
-            sample_iq_dataarray,
-            lag=2,
-            absolute_velocity=True,
-            spatial_kernel=3,
-            estimation_method="angle_average",
-        )
+        result = process_iq_to_axial_velocity(sample_iq_dataarray, lag=2)
 
         assert result.attrs["axial_velocity_lag"] == 2
-        assert result.attrs["axial_velocity_absolute"] is True
         assert result.attrs["axial_velocity_spatial_kernel"] == 3
-        assert result.attrs["axial_velocity_estimation_method"] == "angle_average"
+        assert "axial_velocity_estimation_method" not in result.attrs
         assert "lag" not in result.attrs
         assert "absolute_velocity" not in result.attrs
         assert "spatial_kernel" not in result.attrs
         assert "estimation_method" not in result.attrs
+
+    def test_axial_velocity_accepts_per_axis_spatial_kernel(self, sample_iq_dataarray):
+        """Axial velocity metadata preserves explicit per-axis kernel sizes."""
+        result = process_iq_to_axial_velocity(
+            sample_iq_dataarray,
+            spatial_kernel=(1, 3, 5),
+        )
+
+        assert result.attrs["axial_velocity_spatial_kernel"] == (1, 3, 5)
 
 
 class TestDataArrayClutterMask:

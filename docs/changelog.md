@@ -28,6 +28,10 @@ Current development version for the next ConfUSIus release.
   dataset from OSF project `7cf9g` instead of `dkseb`. Existing local caches may need a
   one-time `refresh=True` to replace the cached OSF file index before downloading or
   checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
+- Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
+  the `estimation_method` and `absolute_velocity` arguments were removed, the
+  corresponding metadata fields were dropped, and `spatial_kernel` now defaults to `3`
+  and accepts explicit `(z, y, x)` sizes ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :sparkles: Enhancements
 
@@ -44,6 +48,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Axial velocity estimation now scales the Kasai phase increment by the requested
+  autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
   the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
   `pixdim[4]` when available, and otherwise warns before using frame indices.
@@ -63,6 +70,12 @@ Current development version for the next ConfUSIus release.
 - Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
+
+### :books: Documentation
+
+- Fixed velocity sign interpretation in [Beamformed IQ user
+  guide](user-guide/beamformed-iq.md)
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :wrench: Maintenance
 
