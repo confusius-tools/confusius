@@ -33,9 +33,10 @@ Current development version for the next ConfUSIus release.
 
 - [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
   addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
-  experimental: data, timing, voxel spacing, and the depth origin are recovered (lateral
-  and elevation axes are centred on zero), but there is no `physical_to_lab` affine yet
-  and multi-pose layouts are inferred
+  experimental: data, timing, voxel spacing, the depth origin, and provenance
+  (subject/session/project/scan/experimenter, serial number, acquisition datetime) are
+  recovered (lateral and elevation axes are centred on zero), but there is no
+  `physical_to_lab` affine yet and multi-pose layouts are inferred
   ([#316](https://github.com/confusius-tools/confusius/issues/316)).
 - **[Napari plugin]** Added an interactive registration panel for volume alignment in
   napari, including linear and non-linear transforms, progress preview, manual and

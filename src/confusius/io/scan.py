@@ -13,6 +13,7 @@ example files and may not cover every acquisition mode. See `_load_scan_v2` for 
 """
 
 import struct
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -344,7 +345,10 @@ def load_scan(
     centred on zero (correct spacing, arbitrary origin). No `probeToLab`-equivalent
     affine has been located, so v2 DataArrays carry **no** `physical_to_lab` affine.
     Multi-pose / multi-block v2 layouts are inferred by analogy with v1 and have not
-    been validated against real files.
+    been validated against real files. Provenance strings are mapped to v1-style
+    `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
+    strings as anchors); the raw decoded strings are always kept in
+    `iconeus_header_strings` for manual re-mapping.
 
     The `physical_to_lab` affine stored in `da.attrs["affines"]` maps ConfUSIus physical
     coordinates `(z, y, x)` to **ConfUSIus-ordered** Iconeus lab coordinates (mm). Apply
@@ -772,18 +776,19 @@ def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
     return fields
 
 
-def _scan_v2_strings(header: bytes) -> list[str]:
+def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     """Extract length-prefixed strings from a SCAN v2 header, best-effort.
 
     The provenance region stores strings as a `uint32` byte-length prefix followed by
     that many ASCII bytes. This walker greedily collects every position whose prefix is
-    followed by a printable run of exactly the stated length. Some Iconeus fields store
-    the ASCII **as hex**; those are decoded once more so the readable text is returned.
+    followed by a non-empty printable run of exactly the stated length. Some Iconeus
+    fields store the ASCII **as hex** (e.g. serial number, hardware label); those are
+    decoded once more so the readable text is returned, and flagged as hex so callers
+    can use them as structural anchors.
 
     Because the strings are variable-length and interleaved with numeric fields, this is
     a heuristic recovery, not a schema parse: it may miss fields or pick up spurious
-    matches. It is used only to populate `iconeus_header_strings` for user inspection;
-    the data array and its geometry never depend on it.
+    matches. See `_scan_v2_provenance` for how the result is mapped to named fields.
 
     Parameters
     ----------
@@ -792,10 +797,12 @@ def _scan_v2_strings(header: bytes) -> list[str]:
 
     Returns
     -------
-    list[str]
-        Decoded strings in the order they appear in the header.
+    list[tuple[str, bool, int]]
+        `(text, is_hex, end)` triples in the order they appear in the header, where
+        `is_hex` marks values that were hex-decoded and `end` is the byte offset just
+        past the record (used to locate the trailing timestamp).
     """
-    strings: list[str] = []
+    records: list[tuple[str, bool, int]] = []
     i = 0
     n = len(header)
     while i + 4 <= n:
@@ -804,6 +811,7 @@ def _scan_v2_strings(header: bytes) -> list[str]:
             body = header[i + 4 : i + 4 + length]
             if all(32 <= c < 127 for c in body):
                 text = body.decode("ascii")
+                is_hex = False
                 # Some fields (serial number, hardware label) are stored as hex-encoded
                 # ASCII; decode a second time when the run is valid hex.
                 if length % 2 == 0:
@@ -811,13 +819,101 @@ def _scan_v2_strings(header: bytes) -> list[str]:
                         decoded = bytes.fromhex(text)
                         if all(32 <= c < 127 for c in decoded):
                             text = decoded.decode("ascii")
+                            is_hex = True
                     except ValueError:
                         pass
-                strings.append(text)
+                records.append((text, is_hex, i + 4 + length))
                 i += 4 + length
                 continue
         i += 1
-    return strings
+    return records
+
+
+def _scan_v2_date(header: bytes, records: list[tuple[str, bool, int]]) -> str:
+    """Recover the acquisition timestamp from the SCAN v2 header, best-effort.
+
+    The header stores the acquisition time as a `uint64` Unix timestamp (full seconds
+    precision), but its offset shifts between files and several unrelated fields fall in
+    a plausible date range, so a blind scan is unreliable. Instead this anchors on
+    structure: the acquisition timestamp is the first `uint64` in a plausible range
+    (years ~2015–2035) that follows the leading provenance strings, so the scan starts
+    at the end of the fifth plain string (species). A later, second timestamp — the file
+    save time — is deliberately skipped by starting after the acquisition one.
+
+    Parameters
+    ----------
+    header : bytes
+        The full header bytes.
+    records : list[tuple[str, bool, int]]
+        `(text, is_hex, end)` triples from `_scan_v2_strings`.
+
+    Returns
+    -------
+    str
+        The acquisition timestamp as an ISO 8601 UTC datetime (e.g.
+        `2026-07-14T05:00:00+00:00`), or an empty string if it cannot be located.
+    """
+    plain_ends = [end for text, is_hex, end in records if not is_hex]
+    start = plain_ends[4] if len(plain_ends) >= 5 else 0
+    for offset in range(start, len(header) - 7):
+        value = int.from_bytes(header[offset : offset + 8], "little")
+        if 1_420_000_000 <= value <= 2_050_000_000:
+            return datetime.fromtimestamp(value, UTC).isoformat()
+    return ""
+
+
+def _scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, str]:
+    """Map decoded header strings to v1-style provenance fields, best-effort.
+
+    The provenance strings appear in a stable order:
+
+    `sequence, project, subject, session, species, <type>, scan, <unknown>, <unknown>,
+    experimenter, serial (hex), hardware (hex)`
+
+    The two trailing hex-decoded strings (serial, hardware) are used as structural
+    anchors; the leading fields are mapped positionally. This is heuristic and matches
+    a small number of example files — a field that is empty or absent in another file
+    would shift the positional mapping, so the raw strings are always kept alongside the
+    mapped fields (see `_scan_v2_attrs`).
+
+    Parameters
+    ----------
+    records : list[tuple[str, bool, int]]
+        `(text, is_hex, end)` triples from `_scan_v2_strings`.
+
+    Returns
+    -------
+    dict[str, str]
+        Provenance fields (`iconeus_subject`, `iconeus_session`, ...) that could be
+        recovered; missing fields are simply absent.
+    """
+    provenance: dict[str, str] = {}
+
+    hex_positions = [i for i, (_, is_hex, _) in enumerate(records) if is_hex]
+    if len(hex_positions) >= 2:
+        provenance["device_serial_number"] = records[hex_positions[-2]][0]
+        provenance["iconeus_hardware"] = records[hex_positions[-1]][0]
+        # The experimenter is the last plain string before the trailing hex pair.
+        plain_before = [
+            t for t, is_hex, _ in records[: hex_positions[-2]] if not is_hex
+        ]
+        if plain_before:
+            provenance["iconeus_experimenter"] = plain_before[-1]
+
+    plain = [text for text, is_hex, _ in records if not is_hex]
+    leading_fields = (
+        "iconeus_sequence",
+        "iconeus_project",
+        "iconeus_subject",
+        "iconeus_session",
+        "iconeus_species",
+    )
+    for field, value in zip(leading_fields, plain):
+        provenance[field] = value
+    if len(plain) > 6:
+        provenance["iconeus_scan"] = plain[6]
+
+    return provenance
 
 
 def _load_scan_v2(
@@ -926,7 +1022,7 @@ def _load_scan_v2(
     attrs = _scan_v2_attrs(header, npose, n_time_total)
 
     data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
-    data_array.name = path.stem
+    data_array.name = attrs.get("iconeus_scan") or path.stem
     return data_array
 
 
@@ -1038,8 +1134,10 @@ def _scan_v2_attrs(header: bytes, npose: int, n_time_total: int) -> dict[str, An
     """Assemble provenance attributes for a SCAN v2 volume.
 
     The v2 header carries no `probeToLab`-equivalent affine, so `affines` is left empty.
-    An inferred `iconeus_scan_mode` and the best-effort decoded header strings are
-    stored so users can recover subject/session/probe information manually.
+    Header strings are mapped to v1-style provenance fields (`iconeus_subject`,
+    `iconeus_session`, ...) on a best-effort basis (see `_scan_v2_provenance`); the raw
+    decoded strings are always kept in `iconeus_header_strings` so users can re-map them
+    if the heuristic mislabels a field.
 
     Parameters
     ----------
@@ -1053,18 +1151,23 @@ def _scan_v2_attrs(header: bytes, npose: int, n_time_total: int) -> dict[str, An
     Returns
     -------
     dict
-        Attributes for the DataArray, including `affines` (empty), `iconeus_scan_format`,
-        `iconeus_scan_mode`, and `iconeus_header_strings`.
+        Attributes for the DataArray: `affines` (empty), `iconeus_scan_format`,
+        `iconeus_scan_mode`, `iconeus_date`, the mapped provenance fields, and the raw
+        `iconeus_header_strings`.
     """
     if npose > 1:
         scan_mode = "4Dscan" if n_time_total > 1 else "3Dscan"
     else:
         scan_mode = "2Dscan"
 
-    return {
+    records = _scan_v2_strings(header)
+    attrs: dict[str, Any] = {
         # No physical_to_lab affine has been located in the v2 header yet.
         "affines": {},
         "iconeus_scan_format": "v2",
         "iconeus_scan_mode": scan_mode,
-        "iconeus_header_strings": _scan_v2_strings(header),
+        "iconeus_date": _scan_v2_date(header, records),
+        "iconeus_header_strings": [text for text, _, _ in records],
     }
+    attrs.update(_scan_v2_provenance(records))
+    return attrs

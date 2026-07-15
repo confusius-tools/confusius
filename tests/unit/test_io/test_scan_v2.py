@@ -20,7 +20,25 @@ _DT = 0.4
 _DX_M = 0.00011
 _DY_M = 0.0004
 _DZ_M = 0.00009856
-_STRINGS = ["default sequence", "proj-01", "sub-01", "ses-01"]
+_SERIAL = "SN-0001"
+_HARDWARE = "HW-1"
+# Provenance layout matching the observed on-disk order: sequence, project, subject,
+# session, species, <type>, scan, <unknown>, <unknown>, experimenter, then the two
+# hex-encoded trailing fields (serial, hardware).
+_STRINGS = [
+    "default sequence",
+    "proj-01",
+    "sub-01",
+    "ses-01",
+    "Rat",
+    "T",
+    "scan-01",
+    "none",
+    "None",
+    "user-01",
+    _SERIAL.encode("ascii").hex().upper(),
+    _HARDWARE.encode("ascii").hex().upper(),
+]
 
 
 def _write_scan_v2(
@@ -37,6 +55,7 @@ def _write_scan_v2(
     times: np.ndarray | None = None,
     strings: list[str] | None = None,
     depth_start: float | None = None,
+    timestamp: int | None = None,
     payload_bytes_override: int | None = None,
 ) -> None:
     """Write a synthetic binary SCAN v2 file.
@@ -64,6 +83,9 @@ def _write_scan_v2(
         Depth-axis origin in mm. If provided, an adjacent `(start, end)` depth-range
         pair is embedded so the loader can recover the depth origin. If not provided,
         no depth range is written and the loader falls back to a zero origin.
+    timestamp : int, optional
+        Acquisition time as a Unix timestamp. If provided, it is written as a `uint64`
+        after the string block so the loader can recover the acquisition datetime.
     payload_bytes_override : int, optional
         Value to write into the payload-size header field instead of the true size.
         Used to exercise the size-mismatch error path.
@@ -93,7 +115,11 @@ def _write_scan_v2(
         encoded = text.encode("ascii")
         string_bytes += struct.pack("<I", len(encoded)) + encoded
 
-    total_header_bytes = time_end + len(depth_bytes) + len(string_bytes)
+    # Optional acquisition timestamp (uint64 Unix seconds) after the string block.
+    ts_bytes = struct.pack("<Q", timestamp) if timestamp is not None else b""
+
+    tail_bytes = bytes(depth_bytes) + bytes(string_bytes) + ts_bytes
+    total_header_bytes = time_end + len(tail_bytes)
     payload = np.ascontiguousarray(payload, dtype="<f8")
     payload_bytes = (
         payload_bytes_override if payload_bytes_override is not None else payload.nbytes
@@ -101,6 +127,7 @@ def _write_scan_v2(
 
     header = bytearray(total_header_bytes)
     header[0 : len(SCAN_V2_MAGIC)] = SCAN_V2_MAGIC
+    struct.pack_into("<Q", header, 0x04, 1)  # version, as in real files
     struct.pack_into("<Q", header, o["total_header_bytes"], total_header_bytes)
     struct.pack_into("<Q", header, o["payload_bytes"], payload_bytes)
     struct.pack_into("<Q", header, o["size_x"], size_x)
@@ -114,8 +141,7 @@ def _write_scan_v2(
     struct.pack_into("<d", header, o["y_voxel_m"], _DY_M)
     struct.pack_into("<d", header, o["z_voxel_m"], _DZ_M)
     struct.pack_into(f"<{n_time}d", header, o["time_coords"], *times.tolist())
-    header[time_end : time_end + len(depth_bytes)] = depth_bytes
-    header[time_end + len(depth_bytes) : total_header_bytes] = string_bytes
+    header[time_end:total_header_bytes] = tail_bytes
 
     path.write_bytes(bytes(header) + payload.tobytes())
 
@@ -264,13 +290,36 @@ class TestLoadScanV2:
         assert scan_v2.attrs["iconeus_scan_mode"] == "2Dscan"
 
     def test_header_strings_recovered(self, scan_v2: xr.DataArray) -> None:
-        """Length-prefixed header strings are recovered best-effort."""
-        for text in _STRINGS:
-            assert text in scan_v2.attrs["iconeus_header_strings"]
+        """Plain header strings are recovered and hex fields decoded."""
+        header_strings = scan_v2.attrs["iconeus_header_strings"]
+        assert "sub-01" in header_strings
+        assert "scan-01" in header_strings
+        # The hex-encoded serial is stored decoded, not as its raw hex form.
+        assert _SERIAL in header_strings
 
-    def test_name_from_stem(self, scan_v2: xr.DataArray, scan_v2_path: Path) -> None:
-        """v2 DataArray name falls back to the file stem."""
-        assert scan_v2.name == scan_v2_path.stem
+    def test_provenance_fields_mapped(self, scan_v2: xr.DataArray) -> None:
+        """Header strings map to v1-style provenance fields."""
+        assert scan_v2.attrs["iconeus_project"] == "proj-01"
+        assert scan_v2.attrs["iconeus_subject"] == "sub-01"
+        assert scan_v2.attrs["iconeus_session"] == "ses-01"
+        assert scan_v2.attrs["iconeus_scan"] == "scan-01"
+        assert scan_v2.attrs["iconeus_experimenter"] == "user-01"
+
+    def test_serial_from_hex_anchor(self, scan_v2: xr.DataArray) -> None:
+        """Serial number is recovered from the trailing hex-encoded field."""
+        assert scan_v2.attrs["device_serial_number"] == _SERIAL
+
+    def test_acquisition_datetime_recovered(self, tmp_path: Path) -> None:
+        """Acquisition timestamp is recovered as a full ISO 8601 UTC datetime."""
+        path = tmp_path / "scan_v2_ts.scan"
+        # 1784005200 == 2026-07-14T05:00:00+00:00.
+        _write_scan_v2(path, _raw_payload(), timestamp=1784005200)
+        da = load_scan(path)
+        assert da.attrs["iconeus_date"] == "2026-07-14T05:00:00+00:00"
+
+    def test_name_from_scan_tag(self, scan_v2: xr.DataArray) -> None:
+        """v2 DataArray name is taken from the recovered scan tag."""
+        assert scan_v2.name == "scan-01"
 
 
 class TestLoadScanV2Multipose:
