@@ -98,8 +98,8 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
     Companion to [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray]
     and [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray]. Checks that
     `ds` matches the atlas schema produced by
-    [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] and consumed by the
-    `.atlas` accessor:
+    [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and consumed
+    by the `.atlas` accessor:
 
     1. **Type**: `ds` is an `xarray.Dataset`.
     2. **Data variables**: `reference`, `annotation`, and `hemispheres` are all present as
@@ -186,14 +186,15 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
 
     _validate_variable_affines(ds)
 
-    # In memory the structures ride as a BrainGlobe StructuresDict (serialized to JSON only
-    # inside the Zarr store); atlas_from_brainglobe and load_atlas both produce one.
+    # In memory the structures ride as a BrainGlobe StructuresDict (serialized to JSON
+    # only inside the Zarr store); fetch_brainglobe_atlas and load_atlas both produce
+    # one.
     from brainglobe_atlasapi.structure_class import StructuresDict
 
     if not isinstance(ds.attrs["structures"], StructuresDict):
         raise ValueError(
             "Atlas attribute 'structures' must be a brainglobe StructuresDict (as built "
-            "by atlas_from_brainglobe or load_atlas), got "
+            "by fetch_brainglobe_atlas or load_atlas), got "
             f"{type(ds.attrs['structures']).__name__}."
         )
 

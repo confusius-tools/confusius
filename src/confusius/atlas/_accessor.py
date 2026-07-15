@@ -35,7 +35,7 @@ class AtlasAccessor:
     """Brain-atlas operations on an atlas `xarray.Dataset`.
 
     Registered as the `.atlas` namespace on any Dataset produced by
-    [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] or
+    [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] or
     [`load_atlas`][confusius.io.load_atlas]. `Dataset.attrs["structures"]`
     holds the BrainGlobe
     [`StructuresDict`][brainglobe_atlasapi.structure_class.StructuresDict] directly, so

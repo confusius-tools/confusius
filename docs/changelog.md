@@ -17,9 +17,8 @@ Current development version for the next ConfUSIus release.
   [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
   through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
   `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
-  Name-based loading moved to `confusius.datasets`;
-  [`atlas_from_brainglobe`][confusius.atlas.atlas_from_brainglobe] now builds only from an
-  already-loaded BrainGlobe atlas
+  Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
+  BrainGlobe atlas is now internal to the datasets module
   ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like] now use `fill_value`

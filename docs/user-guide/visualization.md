@@ -478,8 +478,8 @@ If you need lower-level control beyond `plot_stat_map`, call
 This figure is generated in the [atlas-based seed connectivity maps
 example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
 registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
-Atlas][confusius.atlas] onto the recording's native grid, and computing
-voxel-wise seed-based correlation maps with
+Atlas][confusius.datasets.fetch_brainglobe_atlas] onto the recording's native grid, and
+computing voxel-wise seed-based correlation maps with
 [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
 
 ## Overlaying Contours

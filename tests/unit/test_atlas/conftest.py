@@ -3,16 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
 
 @pytest.fixture(scope="module")
 def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -155,21 +150,3 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "physical_to_base": np.eye(4),
         },
     )
-
-
-class _MockBgAtlas:
-    """Minimal BrainGlobeAtlas duck-type for `atlas_from_brainglobe` tests."""
-
-    def __init__(self, structures: StructuresDict, shape: Sequence[int]) -> None:
-        self.reference = np.ones(shape, dtype=np.uint16)
-        self.annotation = np.zeros(shape, dtype=np.int32)
-        self.hemispheres = np.zeros(shape, dtype=np.int8)
-        self.structures = structures
-        self.metadata = {
-            "name": "test_atlas",
-            "citation": "Test et al. (2026)",
-            "species": "Mus musculus",
-            "orientation": "asr",
-            "shape": list(shape),
-            "resolution": [25, 25, 25],
-        }

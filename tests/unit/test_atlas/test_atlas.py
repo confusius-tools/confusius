@@ -13,12 +13,9 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 import confusius as cf
-from confusius.atlas import atlas_from_brainglobe
 from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas_dataset
-
-from .conftest import _MockBgAtlas
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
@@ -45,7 +42,7 @@ def _with_physical_to_base_transform(
 
 
 class TestBuilder:
-    """Tests for atlas_from_brainglobe and the Dataset schema."""
+    """Tests for the atlas Dataset schema."""
 
     def test_reference_dtype(self, atlas_ds: xr.Dataset) -> None:
         assert atlas_ds.atlas.reference.dtype == np.float32
@@ -79,39 +76,6 @@ class TestBuilder:
         for dim in ["z", "y", "x"]:
             coord = atlas_ds.atlas.annotation.coords[dim]
             np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
-
-    def test_from_brainglobe_schema(self, mock_structures: StructuresDict) -> None:
-        """atlas_from_brainglobe must produce the locked schema (dims/vars/coords/attrs)."""
-        result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
-
-        assert isinstance(result, xr.Dataset)
-        assert set(result.data_vars) == {"reference", "annotation", "hemispheres"}
-        assert "hemispheres" not in result.coords
-        assert result.atlas.reference.dtype == np.float32
-        assert result.atlas.annotation.dtype == np.int32
-        assert {
-            "name",
-            "citation",
-            "species",
-            "orientation",
-            "structures",
-            "physical_to_base",
-        } <= set(result.attrs)
-        # Coordinates should be in mm: step = resolution_um[0] * 1e-3.
-        np.testing.assert_allclose(
-            result.atlas.annotation.coords["z"].values[1], 25 * 1e-3
-        )
-
-    def test_from_brainglobe_schema_attr_types(
-        self, mock_structures: StructuresDict
-    ) -> None:
-        """structures is a StructuresDict; physical_to_base is a numpy affine matrix."""
-        result = atlas_from_brainglobe(_MockBgAtlas(mock_structures, (4, 6, 8)))  # ty: ignore[invalid-argument-type]
-        assert isinstance(result.attrs["structures"], StructuresDict)
-        physical_to_base = result.attrs["physical_to_base"]
-        assert isinstance(physical_to_base, np.ndarray)
-        assert physical_to_base.shape == (4, 4)
-
 
 class TestStructuresSerialization:
     """Round-trip the structure hierarchy through JSON (W0)."""
