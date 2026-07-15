@@ -11,6 +11,7 @@ from confusius.signal import (
     filter_butterworth,
     filter_cosine,
     interpolate_samples,
+    regress_confounds,
     standardize,
 )
 
@@ -418,6 +419,34 @@ def test_clean_cosine_filter_kwargs_are_forwarded():
     assert_allclose(result.values, expected.values)
 
 
+def test_clean_cosine_filter_confounds_are_filtered(sample_timeseries):
+    """Test cosine filtering is applied to confounds before regression."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.column_stack(
+            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
+        ),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": [0, 1]},
+    )
+
+    expected = regress_confounds(
+        filter_cosine(signals, low_cutoff=0.1),
+        filter_cosine(confounds, low_cutoff=0.1),
+    )
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
 def test_clean_cosine_filter_rejects_high_cutoff(sample_timeseries):
     """Test cosine filtering cannot be used as a low-pass filter."""
     with pytest.raises(ValueError, match="Cosine filtering only supports low_cutoff"):
@@ -432,4 +461,16 @@ def test_clean_cosine_filter_rejects_butterworth_kwargs(sample_timeseries):
             low_cutoff=0.1,
             filter_method="cosine",
             filter_kwargs={"order": 3},
+        )
+
+
+def test_clean_rejects_invalid_filter_method(sample_timeseries):
+    """Test clean validates `filter_method`."""
+    with pytest.raises(
+        ValueError, match="filter_method must be 'butterworth' or 'cosine'"
+    ):
+        clean(
+            sample_timeseries(),
+            low_cutoff=0.1,
+            filter_method="invalid",  # ty: ignore[invalid-argument-type]
         )

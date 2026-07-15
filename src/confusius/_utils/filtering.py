@@ -33,10 +33,8 @@ def make_cosine_drift_regressors(
     Raises
     ------
     ValueError
-        If `n_timepoints` is less than 1 or `low_cutoff` is not positive.
+        If `low_cutoff` is not positive.
     """
-    if n_timepoints < 1:
-        raise ValueError("n_timepoints must be at least 1.")
     if low_cutoff <= 0:
         raise ValueError(f"'low_cutoff' must be positive, got {low_cutoff}.")
 

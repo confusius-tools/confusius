@@ -458,3 +458,15 @@ class TestFilterCosine:
 
         with pytest.raises(ValueError, match="'low_cutoff' must be positive"):
             filter_cosine(signals, low_cutoff=0.0)
+
+    def test_raises_when_time_is_nonuniform(self):
+        """Cosine filter should require uniformly sampled time coordinates."""
+        time = np.array([0.0, 0.1, 0.2, 0.35, 0.4, 0.5])
+        signals = xr.DataArray(
+            np.random.randn(6, 2),
+            dims=["time", "space"],
+            coords={"time": time},
+        )
+
+        with pytest.raises(ValueError, match="Non-uniform 'time' coordinates"):
+            filter_cosine(signals, low_cutoff=0.1)

@@ -250,8 +250,6 @@ def clean(
                 "Cosine filtering only supports low_cutoff; pass high_cutoff only "
                 "with filter_method='butterworth'."
             )
-        if do_filter and low_cutoff is None:
-            raise ValueError("Cosine filtering requires low_cutoff to be provided.")
     else:
         filter_kwargs.update({"low_cutoff": low_cutoff, "high_cutoff": high_cutoff})
 
