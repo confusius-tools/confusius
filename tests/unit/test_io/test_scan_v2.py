@@ -173,25 +173,52 @@ def _raw_payload(
 def _expected_confusius(raw: np.ndarray) -> np.ndarray:
     """Transform a raw v2 payload into the expected ConfUSIus array.
 
-    Mirrors `_load_scan_v2`: squeeze `nblock_repeat`, swap depth/elevation, and squeeze
-    a singleton pose axis.
+    Mirrors `_load_scan_v2`: fold `nblock_repeat` into time (or squeeze it when 1), swap
+    depth/elevation, and squeeze a singleton pose axis.
 
     Parameters
     ----------
     raw : numpy.ndarray
-        Array of shape `(n_time, npose, nblock_repeat, size_z, size_y, size_x)` with
-        `nblock_repeat == 1`.
+        Array of shape `(n_time, npose, nblock_repeat, size_z, size_y, size_x)`.
 
     Returns
     -------
     numpy.ndarray
         Expected array in ConfUSIus axis order.
     """
-    sq = raw.squeeze(axis=2)
+    n_time, npose, nblock, size_z, size_y, size_x = raw.shape
+    if nblock == 1:
+        sq = raw.squeeze(axis=2)
+    else:
+        sq = np.transpose(raw, [0, 2, 1, 3, 4, 5]).reshape(
+            n_time * nblock, npose, size_z, size_y, size_x
+        )
     swapped = np.transpose(sq, [0, 1, 3, 2, 4])
     if swapped.shape[1] == 1:
         return swapped.squeeze(axis=1)
     return swapped
+
+
+def _patch_u64(path: Path, offset: int, value: int) -> None:
+    """Overwrite a little-endian uint64 header field in an existing file.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        File to patch in place.
+    offset : int
+        Byte offset of the field.
+    value : int
+        New value to write.
+
+    Returns
+    -------
+    None
+        The file is modified as a side effect.
+    """
+    data = bytearray(path.read_bytes())
+    struct.pack_into("<Q", data, offset, value)
+    path.write_bytes(data)
 
 
 @pytest.fixture
@@ -214,6 +241,14 @@ def scan_v2_multipose_path(tmp_path: Path) -> Path:
     path = tmp_path / "scan_v2_multipose.scan"
     raw = _raw_payload(size_y=2, npose=2)
     _write_scan_v2(path, raw, size_y=2, npose=2)
+    return path
+
+
+@pytest.fixture
+def scan_v2_multiblock_path(tmp_path: Path) -> Path:
+    """Path to a synthetic SCAN v2 file with nblock_repeat > 1."""
+    path = tmp_path / "scan_v2_multiblock.scan"
+    _write_scan_v2(path, _raw_payload(nblock_repeat=2), nblock_repeat=2)
     return path
 
 
@@ -271,6 +306,13 @@ class TestLoadScanV2:
         da = load_scan(path)
         expected = 1.0 + np.arange(_SIZE_Z) * _DZ_M * 1e3
         np.testing.assert_allclose(da.coords["y"].values, expected)
+
+    def test_single_depth_voxel_zero_origin(self, tmp_path: Path) -> None:
+        """A single-depth-voxel file has no span to match, so the origin is zero."""
+        path = tmp_path / "scan_v2_depth1.scan"
+        _write_scan_v2(path, _raw_payload(size_z=1), size_z=1)
+        da = load_scan(path)
+        np.testing.assert_array_equal(da.coords["y"].values, [0.0])
 
     def test_spatial_units_mm(self, scan_v2: xr.DataArray) -> None:
         """Spatial coordinates are in mm."""
@@ -352,6 +394,29 @@ class TestLoadScanV2Multipose:
         np.testing.assert_array_equal(da.values, expected)
 
 
+class TestLoadScanV2Multiblock:
+    """Tests for nblock_repeat > 1, folded into the time dimension."""
+
+    def test_shape_folds_block_into_time(self, scan_v2_multiblock_path: Path) -> None:
+        """nblock_repeat is merged into time: T = n_time * nblock_repeat."""
+        da = load_scan(scan_v2_multiblock_path)
+        assert da.dims == ("time", "z", "y", "x")
+        assert da.shape == (_N_TIME * 2, _SIZE_Y, _SIZE_Z, _SIZE_X)
+
+    def test_values(self, scan_v2_multiblock_path: Path) -> None:
+        """Folded values match the transposed/reshaped payload."""
+        da = load_scan(scan_v2_multiblock_path)
+        expected = _expected_confusius(_raw_payload(nblock_repeat=2))
+        np.testing.assert_array_equal(da.values, expected)
+
+    def test_time_coord_falls_back_to_grid(self, scan_v2_multiblock_path: Path) -> None:
+        """With more time points than stored timestamps, time is a dt-spaced grid."""
+        da = load_scan(scan_v2_multiblock_path)
+        np.testing.assert_allclose(
+            da.coords["time"].values, np.arange(_N_TIME * 2) * _DT
+        )
+
+
 class TestLoadScanV2Errors:
     """Tests for v2 error handling and dispatch."""
 
@@ -375,3 +440,22 @@ class TestLoadScanV2Errors:
         _write_scan_v2(path, _raw_payload(), payload_bytes_override=12345)
         with pytest.raises(ValueError, match="does not match the product"):
             load_scan(path)
+
+    def test_truncated_header_raises(self, tmp_path: Path) -> None:
+        """An implausibly large n_time (header too short for it) raises."""
+        path = tmp_path / "truncated.scan"
+        _write_scan_v2(path, _raw_payload())
+        _patch_u64(path, _SCAN_V2_OFFSETS["n_time"], 10_000_000)
+        with pytest.raises(ValueError, match="experimental") as excinfo:
+            load_scan(path)
+        # The wrapped experimental error carries the underlying cause message.
+        assert "implausible time-point count" in str(excinfo.value)
+
+    def test_nonpositive_dimension_raises(self, tmp_path: Path) -> None:
+        """A zero dimension in the header raises."""
+        path = tmp_path / "zero_dim.scan"
+        _write_scan_v2(path, _raw_payload())
+        _patch_u64(path, _SCAN_V2_OFFSETS["size_x"], 0)
+        with pytest.raises(ValueError, match="experimental") as excinfo:
+            load_scan(path)
+        assert "non-positive" in str(excinfo.value)
