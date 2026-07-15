@@ -368,9 +368,9 @@ def sample_displacement_field_like(
         control-point DataArrays produced by
         [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be 2D or 3D spatial (no time
-        dimension). When spatial coordinate `units` metadata is present on both
-        `transform` and `reference`, they must match.
+        DataArray defining the output grid. Must be a 3D spatial volume with dimensions
+        `z`, `y`, `x` (no time dimension). When spatial coordinate `units` metadata is
+        present on both `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
@@ -384,7 +384,8 @@ def sample_displacement_field_like(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or is not 2D or 3D.
+        If `reference` contains a `time` dimension or does not contain the spatial
+        dimensions `z`, `y`, and `x`.
     """
     if "time" in reference.dims:
         raise ValueError(
@@ -396,7 +397,6 @@ def sample_displacement_field_like(
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_matching_spatial_units(
         (("transform", transform), ("reference", reference))

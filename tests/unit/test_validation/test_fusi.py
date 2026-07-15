@@ -14,12 +14,12 @@ def test_validate_fusi_dataarray_accepts_valid_3d(
     validate_fusi_dataarray(sample_3d_volume)
 
 
-def test_validate_fusi_dataarray_accepts_valid_2dt(
+def test_validate_fusi_dataarray_accepts_singleton_z(
     sample_3dt_volume: xr.DataArray,
 ) -> None:
-    """A canonical 2D+t DataArray also validates successfully."""
-    data_2dt = sample_3dt_volume.isel(z=0, drop=True)
-    validate_fusi_dataarray(data_2dt)
+    """A single-slice recording stored with a singleton `z` axis validates."""
+    single_slice = sample_3dt_volume.isel(z=[0])
+    validate_fusi_dataarray(single_slice)
 
 
 def test_validate_fusi_dataarray_accepts_valid_3dt(
@@ -92,14 +92,33 @@ def test_validate_fusi_dataarray_can_forbid_extra_dims(
         validate_fusi_dataarray(data, allow_extra_dims=False)
 
 
-def test_validate_fusi_dataarray_requires_minimum_spatial_dims(
+def test_validate_fusi_dataarray_requires_full_spatial_trio(
     sample_3dt_volume: xr.DataArray,
 ) -> None:
-    """At least the configured number of spatial dimensions must be present."""
-    bad = sample_3dt_volume.isel(z=0, y=0, drop=True)
+    """All three spatial dimensions `z`, `y`, `x` must be present."""
+    dropped_z = sample_3dt_volume.isel(z=0, drop=True)
 
-    with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
-        validate_fusi_dataarray(bad)
+    with pytest.raises(ValueError, match=r"must contain all spatial dimensions"):
+        validate_fusi_dataarray(dropped_z)
+
+    dropped_zy = sample_3dt_volume.isel(z=0, y=0, drop=True)
+    with pytest.raises(ValueError, match=r"must contain all spatial dimensions"):
+        validate_fusi_dataarray(dropped_zy)
+
+
+@pytest.mark.parametrize("dims", [("y", "x"), ("time", "y", "x")])
+def test_validate_fusi_dataarray_rejects_2d_spatial_layouts(
+    dims: tuple[str, ...],
+) -> None:
+    """Bare `(y, x)` and `(time, y, x)` layouts are rejected as fUSI data."""
+    data = xr.DataArray(
+        np.zeros((3,) * len(dims), dtype=np.float32),
+        dims=dims,
+        coords={dim: np.arange(3, dtype=float) for dim in dims},
+    )
+
+    with pytest.raises(ValueError, match=r"must contain all spatial dimensions"):
+        validate_fusi_dataarray(data)
 
 
 def test_validate_fusi_dataarray_can_require_time(
@@ -243,10 +262,11 @@ def test_validate_fusi_dataarray_regular_spacing_rejects_missing_single_selected
 def test_validate_fusi_dataarray_space_regular_spacing_excludes_pose() -> None:
     """`space` regular-spacing mode does not include the `pose` dimension."""
     data = xr.DataArray(
-        np.zeros((3, 4, 5), dtype=np.float32),
-        dims=("pose", "y", "x"),
+        np.zeros((3, 2, 4, 5), dtype=np.float32),
+        dims=("pose", "z", "y", "x"),
         coords={
             "pose": [0.0, 1.0, 3.0],
+            "z": np.arange(2, dtype=float),
             "y": np.arange(4, dtype=float),
             "x": np.arange(5, dtype=float),
         },
@@ -370,14 +390,6 @@ def test_validate_fusi_dataarray_rejects_non_string_dimension_names() -> None:
 
     with pytest.raises(ValueError, match="All dimensions must be strings"):
         validate_fusi_dataarray(bad)
-
-
-def test_validate_fusi_dataarray_validates_minimum_spatial_dims_bounds(
-    sample_3dt_volume: xr.DataArray,
-) -> None:
-    """minimum_spatial_dims must be in [0, 3]."""
-    with pytest.raises(ValueError, match="between 0 and 3 inclusive"):
-        validate_fusi_dataarray(sample_3dt_volume, minimum_spatial_dims=4)
 
 
 def test_validate_fusi_dataarray_can_require_spatial_units(

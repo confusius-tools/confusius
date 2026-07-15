@@ -121,7 +121,7 @@ class TestRegisterVolumewise:
                 stop_condition="done",
                 status="completed",
             )
-            return _volume.copy(), np.eye(3), diagnostics
+            return _volume.copy(), np.eye(4), diagnostics
 
         monkeypatch.setattr(
             "confusius.registration.volumewise.register_volume",
@@ -163,7 +163,7 @@ class TestRegisterVolumewise:
                 stop_condition="done",
                 status="completed",
             )
-            return volume.copy(), np.eye(3), diagnostics
+            return volume.copy(), np.eye(4), diagnostics
 
         class _FakeParallel:
             def __init__(self, *args, **kwargs):
@@ -208,21 +208,21 @@ class TestRegisterVolumewise:
         assert np.all(result.values[1:] == background)
 
     def test_wrong_dimensionality_raises(self):
-        """Data that is neither 2D+t nor 3D+t raises ValueError."""
-        # 1D+time = 2D total.
+        """Data missing spatial dimensions raises ValueError."""
+        # Only a single spatial dimension present alongside time.
         data = xr.DataArray(np.zeros((5, 10)), dims=("time", "x"))
-        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
             register_volumewise(data)
 
     @pytest.mark.parametrize(
         ("data_fixture", "dims"),
         [
-            ("sample_2d_dataarray", ("time", "y", "x")),
+            ("sample_2d_dataarray", ("time", "z", "y", "x")),
             ("sample_3d_dataarray", ("time", "z", "y", "x")),
         ],
     )
     def test_identical_frames_unchanged(self, data_fixture, dims, request):
-        """Identical frames remain unchanged after registration (2D and 3D)."""
+        """Identical frames remain unchanged after registration (single-slice and 3D)."""
         data = request.getfixturevalue(data_fixture)
         result = register_volumewise(data, n_jobs=1, transform="translation")
 
@@ -232,7 +232,7 @@ class TestRegisterVolumewise:
         assert_allclose(result.values, data.values, atol=1e-3)
 
     def test_2d_recovers_known_shift(self, sample_2d_image):
-        """2D registration recovers a known translation."""
+        """Single-slice registration recovers a known in-plane translation."""
         # Create data with a shifted frame.
         n_frames = 3
         shift_x, shift_y = 2, 3
@@ -241,11 +241,13 @@ class TestRegisterVolumewise:
         # Shift frame 1 by rolling (simulates translation).
         frames[1] = np.roll(np.roll(frames[1], shift_y, axis=0), shift_x, axis=1)
 
+        # Single-slice recording: singleton `z` axis inserted after `time`.
         data = xr.DataArray(
-            np.stack(frames, axis=0),
-            dims=("time", "y", "x"),
+            np.stack(frames, axis=0)[:, np.newaxis, :, :],
+            dims=("time", "z", "y", "x"),
             coords={
                 "time": np.arange(n_frames) * 0.1,
+                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 1.0}),
                 "y": np.arange(32) * 1.0,  # 1mm spacing.
                 "x": np.arange(32) * 1.0,
             },
@@ -307,9 +309,9 @@ class TestRegisterVolumewise:
             sample_2d_dataarray, n_jobs=1, transform="rigid"
         )
 
-        # Motion params should have rotation column in both cases.
-        assert "rotation" in result_no_rot.attrs["motion_params"].columns
-        assert "rotation" in result_with_rot.attrs["motion_params"].columns
+        # Motion params should have 3D rotation columns in both cases.
+        assert "rot_z" in result_no_rot.attrs["motion_params"].columns
+        assert "rot_z" in result_with_rot.attrs["motion_params"].columns
 
     def test_singleton_dimension_handling(self, sample_2d_image):
         """Singleton spatial dimensions are handled correctly."""
@@ -339,20 +341,21 @@ class TestRegisterVolumewise:
 
     def test_output_dimension_order_matches_input(self, sample_2d_image):
         """Output dimension order matches input regardless of internal transposition."""
-        # Create data with non-standard dimension order.
+        # Create single-slice data with a non-standard dimension order.
         data = xr.DataArray(
-            np.stack([sample_2d_image] * 3, axis=2),
-            dims=("y", "x", "time"),
+            np.stack([sample_2d_image] * 3, axis=2)[:, :, np.newaxis, :],
+            dims=("y", "x", "z", "time"),
             coords={
                 "y": np.arange(32) * 0.1,
                 "x": np.arange(32) * 0.1,
+                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
                 "time": np.arange(3) * 0.1,
             },
         )
 
         result = register_volumewise(data, n_jobs=1)
 
-        assert result.dims == ("y", "x", "time")
+        assert result.dims == ("y", "x", "z", "time")
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 

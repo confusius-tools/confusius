@@ -124,7 +124,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    validate_fusi_dataarray(data, minimum_spatial_dims=1)
+    validate_fusi_dataarray(data)
 
     all_dims = [str(d) for d in data.dims]
 

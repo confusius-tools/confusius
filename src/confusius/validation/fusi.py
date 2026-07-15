@@ -216,7 +216,6 @@ def validate_fusi_dataarray(
     require_time: bool = False,
     allow_pose: bool = True,
     allow_extra_dims: bool = True,
-    minimum_spatial_dims: int = 2,
     require_regular_spacing: bool = False,
     regular_spacing_tolerance: float = 1e-2,
     regular_spacing_dims: RegularSpacingDims = "space",
@@ -229,6 +228,9 @@ def validate_fusi_dataarray(
 
     A valid fUSI DataArray must:
 
+    - Contain all three spatial dimensions `z`, `y`, and `x`. Single-slice
+      acquisitions are represented as 3D data with a singleton `z` axis (for example
+      `(1, y, x)` or `(time, 1, y, x)`), never as bare `(y, x)` or `(time, y, x)`.
     - Have dimension names from the set `(time, pose, z, y, x)`, with optional extra
       dimensions if `allow_extra_dims` is `True` (e.g., `region`, `component`, `mask`,
       etc.).
@@ -250,9 +252,6 @@ def validate_fusi_dataarray(
     allow_extra_dims : bool, default: True
         Whether dimensions outside the ConfUSIus core set (`time`, `pose`, `z`, `y`,
         `x`) are allowed.
-    minimum_spatial_dims : int, default: 2
-        Minimum number of spatial dimensions from `("z", "y", "x")` required in the
-        DataArray.
     require_regular_spacing : bool, default: False
         Whether numeric dimension coordinates must have regular spacing.
     regular_spacing_tolerance : float, default: 1e-2
@@ -286,12 +285,6 @@ def validate_fusi_dataarray(
     if not isinstance(data, xr.DataArray):
         raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
 
-    if minimum_spatial_dims < 0 or minimum_spatial_dims > len(SPATIAL_DIMS):
-        raise ValueError(
-            "minimum_spatial_dims must be between 0 and 3 inclusive, got "
-            f"{minimum_spatial_dims}."
-        )
-
     _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
 
     if require_time and TIME_DIM not in data.dims:
@@ -300,11 +293,13 @@ def validate_fusi_dataarray(
     if not allow_pose and POSE_DIM in data.dims:
         raise ValueError("DataArray must not have a 'pose' dimension.")
 
-    spatial_dims_present = [dim for dim in SPATIAL_DIMS if dim in data.dims]
-    if len(spatial_dims_present) < minimum_spatial_dims:
+    missing_spatial_dims = [dim for dim in SPATIAL_DIMS if dim not in data.dims]
+    if missing_spatial_dims:
         raise ValueError(
-            f"DataArray must have at least {minimum_spatial_dims} spatial dimensions "
-            f"from {SPATIAL_DIMS!r}, got {tuple(spatial_dims_present)!r}."
+            f"DataArray must contain all spatial dimensions {SPATIAL_DIMS!r}, but is "
+            f"missing {tuple(missing_spatial_dims)!r}. Single-slice acquisitions must "
+            "be stored as 3D data with a singleton 'z' axis (for example (1, y, x) or "
+            "(time, 1, y, x)), not as bare (y, x) or (time, y, x)."
         )
 
     for dim in data.dims:

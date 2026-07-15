@@ -12,12 +12,24 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- fUSI DataArrays must now carry all three spatial dimensions `z`, `y`, and `x`.
+  Single-slice acquisitions are represented as 3D data with a singleton `z` axis
+  (for example `(1, y, x)` or `(time, 1, y, x)`); bare `(y, x)` and `(time, y, x)`
+  layouts are rejected by
+  [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray] and every
+  fUSI-native API that builds on it (registration, resampling, motion correction, IQ
+  processing, and volume smoothing) ([#231](https://github.com/confusius-tools/confusius/issues/231)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like] now use `fill_value`
   instead of `default_value` for out-of-field-of-view resampling, matching
   [`register_volume`][confusius.registration.register_volume] and the progress-plot
   resampling API.
-- Motion diagnostics helpers now require actual affine matrices: [`extract_motion_parameters`][confusius.registration.extract_motion_parameters], [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement], and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no longer accept `None` placeholders in their affine lists ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Motion diagnostics helpers now require actual affine matrices:
+  [`extract_motion_parameters`][confusius.registration.extract_motion_parameters],
+  [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement],
+  and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no
+  longer accept `None` placeholders in their affine lists
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
   [`read_events`][confusius.bids.load_events] →
   [`load_events`][confusius.bids.load_events], and
@@ -35,6 +47,11 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] (also exposed
+  as `confusius.create_fusi_dataarray`) to build a canonical fUSI DataArray from a raw
+  array plus higher-level metadata (`dt`, `dz`, `dy`, `dx`, and axis origins). It
+  attaches regularly spaced physical coordinates, `units`/`voxdim` metadata, and
+  validates the result before returning it ([#149](https://github.com/confusius-tools/confusius/issues/149)).
 - [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
   addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
   experimental: data, timing, voxel spacing, the depth origin, provenance
@@ -50,8 +67,14 @@ Current development version for the next ConfUSIus release.
   napari, including linear and non-linear transforms, progress preview, manual and
   automatic initialization, saving/loading transforms, and forward/inverse transform
   application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
-- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
-- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always reports all named rotation / translation axes exposed by the affine dimensionality, even when one spatial axis is singleton ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to
+  visualize motion-correction summaries from `motion_params` tables returned by
+  [`register_volumewise`][confusius.registration.register_volumewise]
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always
+  reports all named rotation / translation axes exposed by the affine dimensionality,
+  even when one spatial axis is singleton
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
   column names and metadata from the JSON sidecar, synthesizing a `time` column when
   needed; the napari plugin now uses it for imported signal tables
@@ -63,6 +86,12 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`register_volumewise`][confusius.registration.register_volumewise] now defaults
+  `learning_rate` to `1.0` instead of `0.01`. The previous default was generally too
+  small for the optimizer to move meaningfully within the default iteration budget, so
+  motion correction recovered only a fraction of real inter-frame shifts. The napari
+  time-series registration panel uses the same new default
+  ([#231](https://github.com/confusius-tools/confusius/issues/231)).
 - Axial velocity estimation now scales the Kasai phase increment by the requested
   autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).

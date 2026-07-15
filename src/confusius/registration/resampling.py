@@ -44,16 +44,16 @@ def resample_volume(
     Parameters
     ----------
     moving : xarray.DataArray
-        2D or 3D spatial DataArray to resample, or 3D+t or 2D+t DataArray with a time
-        dimension. If a time dimension is present, the same transform is applied to
-        all time points.
-    transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
+        3D spatial DataArray to resample, or a 3D+t DataArray with a time dimension
+        (single-slice recordings use a singleton `z` axis). If a time dimension is
+        present, the same transform is applied to all time points.
+    transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume].
 
-        - **Affine** (`numpy.ndarray`): homogeneous matrix of shape `(N+1, N+1)`
-          mapping output (fixed) physical coordinates to moving physical coordinates
-          (pull/inverse convention).
+        - **Affine** (`numpy.ndarray`): homogeneous `(4, 4)` matrix mapping output
+          (fixed) physical coordinates to moving physical coordinates (pull/inverse
+          convention).
         - **B-spline** (`xarray.DataArray`): control-point DataArray with `attrs["type"]
           == "bspline_transform"` as returned by `register_volume(transform="bspline")`.
         - **Displacement field** (`xarray.DataArray`): dense field with
@@ -95,7 +95,7 @@ def resample_volume(
     Raises
     ------
     ValueError
-        If `moving` is not 2D, 3D+t, 3D, or 3D+t.
+        If `moving` does not contain the spatial dimensions `z`, `y`, and `x`.
     ValueError
         If `transform` is a numpy array whose shape does not match the spatial image
         dimensionality.
@@ -111,7 +111,6 @@ def resample_volume(
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
 
     if isinstance(transform, np.ndarray):
@@ -202,13 +201,14 @@ def resample_like(
     Parameters
     ----------
     moving : xarray.DataArray
-        2D or 3D spatial DataArray to resample, or 3D+t DataArray with a time dimension.
-        If a time dimension is present, the same transform is applied to all time points.
+        3D spatial DataArray to resample, or a 3D+t DataArray with a time dimension
+        (single-slice recordings use a singleton `z` axis). If a time dimension is
+        present, the same transform is applied to all time points.
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be 2D or 3D spatial (no time dimension).
-        When spatial coordinate `units` metadata is present on both `moving` and
-        `reference`, they must match.
-    transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
+        DataArray defining the output grid. Must be a 3D spatial volume with dimensions
+        `z`, `y`, `x` (no time dimension). When spatial coordinate `units` metadata is
+        present on both `moving` and `reference`, they must match.
+    transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume]. Maps points from
         the reference physical space to moving physical space (pull/inverse convention).
@@ -244,7 +244,8 @@ def resample_like(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or is not 2D or 3D.
+        If `reference` contains a `time` dimension or does not contain the spatial
+        dimensions `z`, `y`, and `x`.
     """
     if "time" in reference.dims:
         raise ValueError(
@@ -256,14 +257,12 @@ def resample_like(
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_fusi_dataarray(
         reference,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_matching_spatial_units((("moving", moving), ("reference", reference)))
     if isinstance(transform, xr.DataArray):

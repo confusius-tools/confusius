@@ -31,8 +31,8 @@ def _validate_affines(
     Raises
     ------
     ValueError
-        If `affines` is empty, contains non-square arrays, unsupported affine shapes,
-        or mixes 2D and 3D affines.
+        If `affines` is empty or contains an array that is not a `(4, 4)` homogeneous
+        3D affine.
     TypeError
         If any entry is not a `numpy.ndarray`.
     """
@@ -40,30 +40,16 @@ def _validate_affines(
         raise ValueError("affines must contain at least one affine matrix.")
 
     validated: list[NDArray[np.floating]] = []
-    ndim: int | None = None
 
     for i, affine in enumerate(affines):
         if not isinstance(affine, np.ndarray):
             raise TypeError(
                 f"affines[{i}] must be a numpy.ndarray, got {type(affine).__name__}."
             )
-        if affine.ndim != 2 or affine.shape[0] != affine.shape[1]:
+        if affine.shape != (4, 4):
             raise ValueError(
-                f"affines[{i}] must be a square 2D array, got shape {affine.shape}."
-            )
-
-        affine_ndim = affine.shape[0] - 1
-        if affine_ndim not in (2, 3):
-            raise ValueError(
-                f"affines[{i}] must have shape (3, 3) or (4, 4), got {affine.shape}."
-            )
-
-        if ndim is None:
-            ndim = affine_ndim
-        elif affine_ndim != ndim:
-            raise ValueError(
-                "affines must all have the same dimensionality, got both "
-                f"{ndim}D and {affine_ndim}D affines."
+                f"affines[{i}] must be a (4, 4) 3D homogeneous affine, got shape "
+                f"{affine.shape}."
             )
         validated.append(affine)
 
@@ -75,54 +61,36 @@ def extract_motion_parameters(
 ) -> NDArray[np.floating]:
     """Extract motion parameters from affine matrices.
 
-    Decomposes each `(N+1, N+1)` homogeneous affine into translation and
-    rotation parameters.
-
-    For 2D transforms, extracts: `[rotation, translation_0, translation_1]`.
-    For 3D transforms, extracts:
+    Decomposes each `(4, 4)` homogeneous 3D affine into translation and rotation
+    parameters, extracting
     `[rotation_0, rotation_1, rotation_2, translation_0, translation_1, translation_2]`.
 
     Parameters
     ----------
     affines : list[numpy.ndarray]
-        List of affine matrices from registration.
+        List of `(4, 4)` affine matrices from registration.
 
     Returns
     -------
-    (n_frames, n_params) numpy.ndarray
-        Motion parameters array in raw transform-component order.
-
-        - For 2D: `n_params = 3 (rotation, t0, t1)`.
-        - For 3D: `n_params = 6 (r0, r1, r2, t0, t1, t2)`.
+    (n_frames, 6) numpy.ndarray
+        Motion parameters array in raw transform-component order
+        `(r0, r1, r2, t0, t1, t2)`.
 
     Raises
     ------
     ValueError
-        If `affines` is empty, contains a non-square array, an affine that is not
-        `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines.
+        If `affines` is empty or contains an array that is not a `(4, 4)` homogeneous
+        3D affine.
     TypeError
         If any affine entry is not a `numpy.ndarray`.
     """
-    import math
-
     affines_validated = _validate_affines(affines)
     params_list = []
 
     for affine in affines_validated:
-        ndim = affine.shape[0] - 1
-
-        T, R, _Z, _S = (
-            decompose_affine(affine) if ndim == 3 else _decompose_affine_2d(affine)
-        )
-
-        if ndim == 2:
-            rotation = math.atan2(R[1, 0], R[0, 0])
-            params_list.append([rotation, float(T[0]), float(T[1])])
-        else:
-            rot_0, rot_1, rot_2 = _get_euler_xyz_from_rotation_matrix(R)
-            params_list.append(
-                [rot_0, rot_1, rot_2, float(T[0]), float(T[1]), float(T[2])]
-            )
+        T, R, _Z, _S = decompose_affine(affine)
+        rot_0, rot_1, rot_2 = _get_euler_xyz_from_rotation_matrix(R)
+        params_list.append([rot_0, rot_1, rot_2, float(T[0]), float(T[1]), float(T[2])])
 
     return np.array(params_list)
 
@@ -173,49 +141,6 @@ def _get_euler_xyz_from_rotation_matrix(
     return rot_0, rot_1, rot_2
 
 
-# TODO: Temporary, to be removed once we enforce minimum dimensionality of 3D for all
-# fUSI DataArrays.
-def _decompose_affine_2d(
-    A33: NDArray[np.floating],
-) -> tuple[
-    NDArray[np.floating],
-    NDArray[np.floating],
-    NDArray[np.floating],
-    NDArray[np.floating],
-]:
-    """Decompose a (3, 3) 2D homogeneous affine into T, R, Z, S.
-
-    Parameters
-    ----------
-    A33 : (3, 3) numpy.ndarray
-        2D homogeneous affine.
-
-    Returns
-    -------
-    T : (2,) numpy.ndarray
-    R : (2, 2) numpy.ndarray
-    Z : (2,) numpy.ndarray
-    S : (1,) numpy.ndarray
-    """
-    import math
-
-    T = A33[:2, 2].copy()
-    RZS = A33[:2, :2]
-    c0 = RZS[:, 0].copy()
-    sx = math.sqrt(float(np.dot(c0, c0)))
-    c0 /= sx
-    sxy_sx = float(np.dot(c0, RZS[:, 1]))
-    c1 = RZS[:, 1] - sxy_sx * c0
-    sy = math.sqrt(float(np.dot(c1, c1)))
-    c1 /= sy
-    sxy = sxy_sx / sx
-    R = np.array([[c0[0], c1[0]], [c0[1], c1[1]]])
-    if np.linalg.det(R) < 0:
-        sx *= -1
-        R[:, 0] *= -1
-    return T, R, np.array([sx, sy]), np.array([sxy])
-
-
 def _get_motion_parameter_columns(
     reference: "xr.DataArray", params: NDArray[np.floating]
 ) -> list[tuple[str, int]]:
@@ -236,24 +161,17 @@ def _get_motion_parameter_columns(
     Raises
     ------
     ValueError
-        If `params` does not have 3 or 6 columns.
+        If `params` does not have 6 columns.
     """
     spatial_dims = tuple(str(dim) for dim in reference.dims)
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
 
-    if params.shape[1] == 3:
-        columns: list[tuple[str, int]] = [("rotation", 0)]
-        for dim in ("x", "y", "z"):
-            if dim in axis_index:
-                columns.append((f"trans_{dim}", 1 + axis_index[dim]))
-        return columns
-
     if params.shape[1] != 6:
         raise ValueError(
-            f"Expected motion parameters with 3 or 6 columns, got {params.shape[1]}."
+            f"Expected motion parameters with 6 columns, got {params.shape[1]}."
         )
 
-    columns = []
+    columns: list[tuple[str, int]] = []
     for dim in ("x", "y", "z"):
         columns.append((f"rot_{dim}", axis_index[dim]))
     for dim in ("x", "y", "z"):
@@ -296,9 +214,8 @@ def compute_framewise_displacement(
     Raises
     ------
     ValueError
-        If `reference` fails fUSI validation, if `affines` is empty, contains an
-        affine that is not `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines, or if
-        `reference`'s dimensionality does not match the affine dimensionality.
+        If `reference` fails fUSI validation, or if `affines` is empty or contains an
+        array that is not a `(4, 4)` homogeneous 3D affine.
     TypeError
         If any affine entry is not a `numpy.ndarray`.
 
@@ -316,19 +233,14 @@ def compute_framewise_displacement(
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
         require_regular_spacing=True,
         regular_spacing_dims="space",
     )
 
     affines_validated = _validate_affines(affines)
     n_frames = len(affines_validated)
-    ndim = affines_validated[0].shape[0] - 1
-    if reference.ndim != ndim:
-        raise ValueError(
-            "reference dimensionality must match affine dimensionality, got "
-            f"reference.ndim={reference.ndim} and affine ndim={ndim}."
-        )
+    # fUSI references and affines are both 3D after validation.
+    ndim = 3
 
     coords_1d = [
         np.asarray(reference.coords[str(dim)].values, dtype=float)
@@ -392,22 +304,12 @@ def create_motion_dataframe(
     Returns
     -------
     pandas.DataFrame
-        DataFrame with columns determined by the affine dimensionality.
-
-        2D affines:
-
-        - `rotation`: In-plane rotation angle in radians.
-        - `trans_<dim>`: Translations along the DataArray's two named spatial axes
-          (mm), reported in named-axis order.
-
-        3D affines:
+        DataFrame with the following columns:
 
         - `rot_x, rot_y, rot_z`: Rotation angles around the DataArray's
           `x`, `y`, and `z` axes, in radians.
         - `trans_x, trans_y, trans_z`: Translations along the DataArray's
           `x`, `y`, and `z` axes (mm), even when one spatial axis is singleton.
-
-        Both:
         - `mean_fd`: Mean framewise displacement (mm).
         - `max_fd`: Maximum framewise displacement (mm).
         - `rms_fd`: RMS framewise displacement (mm).
@@ -419,9 +321,8 @@ def create_motion_dataframe(
     Raises
     ------
     ValueError
-        If `reference` fails fUSI validation, if `affines` is empty, contains an
-        affine that is not `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines, or if
-        `reference`'s dimensionality does not match the affine dimensionality.
+        If `reference` fails fUSI validation, or if `affines` is empty or contains an
+        array that is not a `(4, 4)` homogeneous 3D affine.
     TypeError
         If any affine entry is not a `numpy.ndarray`.
     """

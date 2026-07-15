@@ -374,12 +374,13 @@ class TestRegisterVolumeShowProgress:
 
         from confusius.registration.volume import register_volume
 
-        arr = np.zeros((16, 16), dtype=np.float32)
-        arr[6:10, 6:10] = 1.0
+        arr = np.zeros((1, 16, 16), dtype=np.float32)
+        arr[0, 6:10, 6:10] = 1.0
         da = xr.DataArray(
             arr,
-            dims=("y", "x"),
+            dims=("z", "y", "x"),
             coords={
+                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
                 "y": np.arange(16) * 0.1,
                 "x": np.arange(16) * 0.1,
             },
