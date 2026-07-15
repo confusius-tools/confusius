@@ -675,8 +675,12 @@ Attributes:
 #### Interpreting Velocity
 
 Velocity values are returned in **meters per second** and correspond to the speed of
-scatterers along the ultrasound beam. That is, positive velocities indicate motion away
-from the transducer, while negative values indicate motion toward the transducer.
+scatterers along the ultrasound beam. However, the **sign convention is scanner-
+dependent**: it depends on choices such as the analytic-signal convention, the IQ
+demodulation, and other parameters. Before interpreting the sign, verify it on your
+scanner with a known flow direction (e.g., large arteries flowing from the circle of
+Willis toward the probe) or a phantom, or another acquisition where the motion direction
+is unambiguous.
 
 !!! warning "Velocity aliasing"
     Very high velocities may exceed the Nyquist limit and cause aliasing (wrapping). If
