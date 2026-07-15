@@ -39,7 +39,8 @@ Current development version for the next ConfUSIus release.
   pitch, focal depth, imaging depth, PRF, plane-wave angles, SVD low cutoff, power-Doppler
   integration window) are recovered (lateral and elevation axes are centred on zero). A
   `physical_to_lab` affine is derived from a header block read as a 6DOF probe pose
-  (experimental, assumed convention). Multi-pose layouts are inferred
+  (experimental, assumed convention), and a BPS sidecar composes a `physical_to_brain`
+  affine as for v1. Multi-pose layouts are inferred
   ([#317](https://github.com/confusius-tools/confusius/pull/317)).
 - **[Napari plugin]** Added an interactive registration panel for volume alignment in
   napari, including linear and non-linear transforms, progress preview, manual and

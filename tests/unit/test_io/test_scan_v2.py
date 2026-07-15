@@ -13,6 +13,7 @@ from confusius.io.scan import (
     PHYSICAL_TO_PROBE_PERMUTATION,
     _SCAN_V2_OFFSETS,
     SCAN_V2_MAGIC,
+    load_bps,
     load_scan,
 )
 
@@ -611,17 +612,43 @@ class TestLoadScanV2Acquisition:
         assert "svd_low_cutoff" in da.attrs
 
 
+class TestLoadScanV2WithBPS:
+    """Tests for BPS composition on v2 files (experimental affine)."""
+
+    @pytest.fixture
+    def scan_v2_acq_path(self, tmp_path: Path) -> Path:
+        """Path to a v2 file with a valid acquisition block (so an affine exists)."""
+        path = tmp_path / "scan_v2_acq_bps.scan"
+        _write_scan_v2(path, _raw_payload(), acquisition=True)
+        return path
+
+    def test_physical_to_brain_composed(
+        self, scan_v2_acq_path: Path, bps_path: Path
+    ) -> None:
+        """bps_path adds a physical_to_brain affine composed from physical_to_lab."""
+        physical_to_lab = np.asarray(
+            load_scan(scan_v2_acq_path).attrs["affines"]["physical_to_lab"]
+        )
+        da = load_scan(scan_v2_acq_path, bps_path=bps_path)
+        expected = np.linalg.inv(load_bps(bps_path)) @ physical_to_lab
+        np.testing.assert_allclose(
+            da.attrs["affines"]["physical_to_brain"], expected, atol=1e-12
+        )
+
+    def test_bps_rejected_without_affine(self, tmp_path: Path, bps_path: Path) -> None:
+        """bps_path raises when no physical_to_lab affine could be built."""
+        path = tmp_path / "scan_v2_noaffine.scan"
+        _write_scan_v2(
+            path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
+        )
+        with pytest.raises(
+            ValueError, match="no physical_to_lab affine could be built"
+        ):
+            load_scan(path, bps_path=bps_path)
+
+
 class TestLoadScanV2Errors:
     """Tests for v2 error handling and dispatch."""
-
-    def test_bps_path_rejected(self, scan_v2_path: Path, tmp_path: Path) -> None:
-        """bps_path is rejected for v2 files."""
-        bps = tmp_path / "sidecar.bps"
-        bps.write_bytes(b"")
-        with pytest.raises(
-            ValueError, match="bps_path is not yet supported for SCAN v2"
-        ):
-            load_scan(scan_v2_path, bps_path=bps)
 
     def test_unrecognized_format_raises(self, tmp_path: Path) -> None:
         """A non-HDF5 file without the SCAN magic raises a descriptive error."""

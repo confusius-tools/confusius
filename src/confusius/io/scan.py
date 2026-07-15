@@ -302,9 +302,10 @@ def load_scan(
     path : str or pathlib.Path
         Path to the SCAN file (`.scan`).
     bps_path : str or pathlib.Path, optional
-        Path to the corresponding BPS file (`.bps`). If provided, the BPS transformation
-        matrix will be added as an affine attribute to the returned DataArray. Only
-        supported for v1 (HDF5) files.
+        Path to the corresponding BPS file (`.bps`). If provided, a `physical_to_brain`
+        affine is added to `da.attrs["affines"]`. For v2 files this requires the
+        (experimental) `physical_to_lab` affine to have been built; if it could not be,
+        passing `bps_path` raises.
     chunks : int or tuple[int, ...] or str or None, default: "auto"
         Dask chunk specification passed to `dask.array.from_array`. Accepted forms:
 
@@ -335,8 +336,8 @@ def load_scan(
     ValueError
         If `path` does not exist or is not a file, if the file is neither an
         HDF5-based SCAN (v1) nor a binary SCAN v2 file, if `bps_path` is passed for a
-        v2 file, or if a v1 `acquisitionMode` is not one of `"2Dscan"`, `"3Dscan"`, or
-        `"4Dscan"`.
+        v2 file whose `physical_to_lab` affine could not be built, or if a v1
+        `acquisitionMode` is not one of `"2Dscan"`, `"3Dscan"`, or `"4Dscan"`.
 
     Notes
     -----
@@ -388,16 +389,10 @@ def load_scan(
         magic = f.read(len(SCAN_V2_MAGIC))
 
     if magic == SCAN_V2_MAGIC:
-        if bps_path is not None:
-            raise ValueError(
-                "bps_path is not yet supported for SCAN v2 files: the v2 "
-                "physical_to_lab affine is experimental (see load_scan Notes), so BPS "
-                "composition is deferred until it is validated."
-            )
         # v2 support is reverse-engineered and incomplete: re-raise any parse failure
         # with a pointer to the issue tracker and the original error appended.
         try:
-            return _load_scan_v2(path, chunks)
+            data_array = _load_scan_v2(path, chunks)
         except Exception as error:
             raise ValueError(
                 "Loading Iconeus SCAN v2 files is experimental and this file could "
@@ -406,6 +401,20 @@ def load_scan(
                 f"example file if possible).\n\nOriginal error: "
                 f"{type(error).__name__}: {error}"
             ) from error
+
+        if bps_path is not None:
+            affines = data_array.attrs["affines"]
+            if "physical_to_lab" not in affines:
+                raise ValueError(
+                    "bps_path was given but no physical_to_lab affine could be built "
+                    "for this SCAN v2 file (the 6DOF probe-pose block was missing or "
+                    "implausible), so the BPS transform cannot be composed."
+                )
+            brain_to_lab = load_bps(bps_path)
+            affines["physical_to_brain"] = (
+                np.linalg.inv(brain_to_lab) @ affines["physical_to_lab"]
+            )
+        return data_array
 
     raise ValueError(
         f"{path.name!r} is not a SCAN file recognised by ConfUSIus. Expected an "
