@@ -4,7 +4,7 @@ icon: lucide/app-window
 
 # Using the Plugin
 
-The ConfUSIus sidebar contains five collapsible panels. Each panel operates
+The ConfUSIus sidebar contains six collapsible panels. Each panel operates
 independently and can be expanded or collapsed by clicking its header. For an in-app
 introduction, click **Take a Tour** in the sidebar header.
 
@@ -14,6 +14,8 @@ introduction, click **Take a Tour** in the sidebar header.
 - [**Events**](#events-panel) — annotate periods of time (BIDS events) and shade them on
   the signal plot.
 - [**QC**](#qc-panel) — compute DVARS, carpet, CV, tSNR for a selected layer.
+- [**Registration**](#registration-panel) — run between-scan or within-scan
+  registration, inspect progress, and save/apply transforms.
 
 ## Data I/O Panel
 
@@ -196,7 +198,8 @@ signals (from the current source mode) and imported signals:
 
 ## Events Panel
 
-The Events Panel annotates *periods of time*—not individual frames—following the [BIDS
+The Events Panel allows annotating *periods of time*—not individual frames—following the
+[BIDS
 events](https://bids-specification.readthedocs.io/en/stable/modality-agnostic-files/events.html)
 convention (`onset`, `duration`, and an optional `trial_type`). Annotated events shade
 the [signal plot](#signals-panel) and are named in the time overlay while they are
@@ -288,3 +291,110 @@ Select a layer from the **Layer** dropdown, check the metrics you want, and clic
         shadow zones behind the skull can appear bright. CV correctly highlights regions
         with high temporal variability. See the [Quality Control
         guide](../user-guide/quality-control.md#temporal-snr) for a full explanation.
+
+## Registration Panel
+
+The Registration Panel runs the ConfUSIus registration workflows directly from napari.
+Use **Between scans** for registering different recordings, or **Within-scan** for
+volume-wise motion correction within a single recording. The panel supports modifying
+registration parameters, live preview, and saving/loading/applying computed transforms.
+
+### Between scans
+
+Use **Between scans** when you want to register one layer onto another, for example two
+recordings from different animals or a functional recording onto an angiography.
+
+1. Select the **Moving layer** and **Fixed layer**.
+2. Choose a transform model.
+3. Optionally choose a **Scale** for to compress the intensity dynamics.
+3. Optionally choose an **Initialization** transform if layers are very misaligned.
+4. Click **Run registration**.
+
+Available transform models are:
+
+- `translation` for x/y/z-only shifts,
+- `rigid` for translations and rotations,
+- `affine` for translations, rotations, scaling, and shear,
+- `bspline` for non-linear local deformations.
+
+For `bspline`, a staged workflow usually works best: first run `rigid` or `affine`, then
+run `bspline` and select the previous transform in **Initialization**. This lets the
+B-spline model refine a good global alignment instead of trying to solve both
+large-scale and local deformation at once.
+
+#### Main parameters
+
+| Parameter | What it does | When it is useful |
+|---|---|---|
+| **Transform** | Chooses the motion model being optimized. | Start with `translation` or `rigid` for simple alignment; use `affine` for global scale/shear differences; use `bspline` only after a good global initialization. |
+| **Mesh size** | Sets the B-spline control-grid density. | Increase it only when `bspline` needs to capture finer local mismatches; too fine a grid can lead to unrealistic warping. |
+| **Metric** | Chooses the similarity criterion (`correlation` or `mattes_mi`). | `correlation` is a good default for power Doppler data; `mattes_mi` is more robust when intensity distributions differ. |
+| **Scale** | Applies optional intensity scaling before registration. | Useful for power Doppler data where large vessels are typically overbright compared to finer structures. |
+| **Initialization** | Sets the starting transform before optimization. | Use `center_geometry` or `center_moments` for coarse setup; reuse a saved/manual affine transform when you already have a good approximate alignment. |
+| **Learning rate** | Sets the optimizer step size. | Leave **Auto** enabled to let SimpleITK estimate it each iteration, or untick it to use a fixed value (default `1.0`). |
+| **Iterations** | Maximum number of optimizer steps. | Increase it when alignment is still improving near the end of a run. |
+
+#### Advanced parameters
+
+| Parameter | What it does | When it is useful |
+|---|---|---|
+| **Histogram bins** | Number of bins used by `mattes_mi`. | Tune only when using mutual information; more bins can capture finer intensity structure but may be noisier. |
+| **Convergence min** | Minimum optimizer improvement required to keep iterating. | Lower it when you want stricter convergence. |
+| **Convergence window** | Number of recent iterations used to test convergence. | Increase it to make convergence detection less sensitive to noise. |
+| **Multi-resolution** | Runs registration from coarse to fine scales. | Usually helpful for difficult B-spline alignments or large initial offsets. |
+| **Shrink factors** | Downsampling factors for each resolution level. | Use larger coarse levels when the initial mismatch is large. |
+| **Smoothing sigmas** | Gaussian smoothing at each resolution level. | Helps emphasize global structure before fine alignment. |
+| **Resample interp.** | Interpolation used for the registered output and previews. | `linear` is the usual default; `bspline` can give smoother resampled images. |
+| **Fill value** | Value written outside the moving field of view after resampling. | Useful for controlling the appearance of padded background. |
+| **ITK Threads** | Number of SimpleITK threads used for between-scan registration. | Reduce it when you are running several heavy jobs at once; `-1` uses all CPUs. |
+| **Optimizer weights** | Applies per-parameter optimizer weights. | Use it to freeze or down-weight specific affine parameters; not available for B-spline transforms. |
+
+The animation below uses between-session angiography volumes from the same animal across
+different days. ConfUSIus keeps the original layers untouched, adds dedicated preview
+layers for inspection, and stores the final registered result as a new layer when the
+run completes.
+
+![ConfUSIus Registration panel — rigid between-session angiography run](../images/gui/plugin-registration.gif)
+
+### Within-scan
+
+Use **Within-scan** for motion correction inside a single time series.
+
+1. Switch **Mode** to **Within-scan**.
+2. Select the time-series **Moving layer**.
+3. Choose the **Reference volume** index used as the registration target.
+4. Pick a transform model (`translation`, `rigid`, or `affine`).
+5. Click **Run registration**.
+
+#### Main parameters
+
+| Parameter | What it does | When it is useful |
+|---|---|---|
+| **Reference volume** | Chooses the volume index used as the motion-correction target. | Pick a representative, sharp frame with little motion. |
+| **Transform** | Chooses the volume-wise motion model. | `rigid` is the safest starting point; `affine` is available when motion is more complex. |
+| **Metric** | Chooses the volume-to-reference similarity criterion. | `correlation` is usually a good default for within-recording motion correction. |
+| **Scale** | Applies optional preprocessing before registration. | Useful when an intensity transform makes anatomy more stable across time for the optimizer. |
+| **Initialization** | Sets the initial volume-wise centering transform. | Most runs can use no initialization. |
+| **Learning rate** | Sets the optimizer step size for each frame. | Within-scan uses a fixed value here; the default is `0.01`. Reduce it if updates look unstable; increase it if frames are already close and convergence is too slow. |
+| **Iterations** | Maximum optimizer steps per frame. | Increase it for harder motion or more flexible transforms. |
+
+#### Advanced parameters
+
+| Parameter | What it does | When it is useful |
+|---|---|---|
+| **Histogram bins** | Number of bins used by `mattes_mi`. | Only relevant when using mutual information. |
+| **Convergence min** | Minimum optimizer improvement required to keep iterating. | Lower it when you want stricter volume-wise convergence. |
+| **Convergence window** | Number of recent iterations used to test convergence. | Increase it when convergence decisions look too jittery. |
+| **Multi-resolution** | Runs each frame registration from coarse to fine scales. | Helpful when motion is large or frames are noisy. |
+| **Shrink factors** | Downsampling factors for each resolution level. | Useful for coarse-to-fine motion correction. |
+| **Smoothing sigmas** | Gaussian smoothing at each resolution level. | Helps stabilize coarse registration before fine refinement. |
+| **Resample interp.** | Interpolation used for the motion-corrected output. | Controls output smoothness. |
+| **Fill value** | Value used outside the field of view after resampling. | Mostly useful for controlling output background appearance. |
+| **Diagnostics** | Stores full volume-wise optimizer traces. | Enable it only when you want detailed debugging or later inspection. |
+| **Parallel jobs** | Number of workers used for volume-wise registration. | Increase it to speed up long runs; reduce it if your machine is already busy. `-1` uses all available CPUs. |
+
+This workflow returns a `Motion corrected` layer and updates the progress bar as frames
+finish. The animation below uses a short open-field recording chunk and shows the result
+filling in progressively.
+
+![ConfUSIus Registration panel — within-scan motion correction](../images/gui/plugin-registration-volumewise.gif)

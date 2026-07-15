@@ -104,6 +104,60 @@ def test_render_returns_thumbnail_paths_for_tagged_output(tmp_path: Path) -> Non
     assert (tmp_path / "ex_thumb_dark.png").is_file()
 
 
+def test_render_collapses_code_cell_with_tag(tmp_path: Path) -> None:
+    """A `collapse: <title>` tag hides the code behind a titled admonition."""
+    nb = nbformat.v4.new_notebook()
+    nb.cells.append(nbformat.v4.new_markdown_cell("# Hello"))
+    code = nbformat.v4.new_code_cell("print('hi')")
+    code.metadata["tags"] = ["collapse: Setup and registration"]
+    code.outputs = [
+        nbformat.v4.new_output(output_type="stream", name="stdout", text="hi\n"),
+    ]
+    nb.cells.append(code)
+
+    md_path, _ = render_notebook(
+        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+    )
+    md = md_path.read_text()
+    # The code is wrapped in a collapsed admonition with the given title, indented as its
+    # content; the output still renders (below, un-indented) so only the input is hidden.
+    assert '??? example "Setup and registration"' in md
+    assert "    ```python\n    print('hi')\n    ```" in md
+    assert '<div class="gallery-output" markdown>\n\n```\nhi\n```' in md
+
+
+def test_render_collapse_tag_without_title_uses_default(tmp_path: Path) -> None:
+    nb = nbformat.v4.new_notebook()
+    code = nbformat.v4.new_code_cell("x = 1")
+    code.metadata["tags"] = ["collapse"]
+    nb.cells.append(code)
+
+    md_path, _ = render_notebook(
+        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+    )
+    md = md_path.read_text()
+    assert '??? example "Show code"' in md
+    assert "    ```python\n    x = 1\n    ```" in md
+
+
+def test_render_collapse_tag_with_admonition_type(tmp_path: Path) -> None:
+    """`collapse[<type>]` picks the admonition type, with or without a title."""
+    nb = nbformat.v4.new_notebook()
+    titled = nbformat.v4.new_code_cell("x = 1")
+    titled.metadata["tags"] = ["collapse[warning]: Advanced setup"]
+    nb.cells.append(titled)
+    untitled = nbformat.v4.new_code_cell("y = 2")
+    untitled.metadata["tags"] = ["collapse[tip]"]
+    nb.cells.append(untitled)
+
+    md_path, _ = render_notebook(
+        nb, nb, nb, out_dir=tmp_path, base_name="ex", runtime_seconds=1.0
+    )
+    md = md_path.read_text()
+    assert '??? warning "Advanced setup"' in md
+    assert '??? tip "Show code"' in md
+
+
 def test_render_handles_notebook_without_images(tmp_path: Path) -> None:
     nb = nbformat.v4.new_notebook()
     nb.cells.append(nbformat.v4.new_code_cell("x = 1"))

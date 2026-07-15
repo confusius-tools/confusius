@@ -1226,6 +1226,29 @@ class TestSaveNifti:
         )
         np.testing.assert_array_equal(roundtripped.squeeze("y", drop=True).values, data)
 
+    def test_save_string_extra_coord_roundtrips_through_sidecar(self, tmp_path) -> None:
+        """String-valued extra-dim coordinates roundtrip through the JSON sidecar."""
+        data = np.zeros((3, 4, 6, 8), dtype=np.float32)
+        da = xr.DataArray(
+            data,
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": ["z", "y", "x"],
+                "z": np.arange(4, dtype=np.float64),
+                "y": np.arange(6, dtype=np.float64),
+                "x": np.arange(8, dtype=np.float64),
+            },
+        )
+
+        output_path = tmp_path / "component_strings.nii.gz"
+        save_nifti(da, output_path)
+
+        roundtripped = load_nifti(output_path)
+        np.testing.assert_array_equal(
+            roundtripped.coords["component"].values, ["z", "y", "x"]
+        )
+        np.testing.assert_array_equal(roundtripped.values, data)
+
     def test_save_irregular_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""
         data = np.zeros((2, 4, 8, 10), dtype=np.float32)
@@ -1599,9 +1622,7 @@ class TestSaveNifti:
                 "axial_velocity_integration_stride": 0.25,
                 "bmode_integration_stride": 0.3,
                 "axial_velocity_lag": 2,
-                "axial_velocity_absolute": True,
                 "axial_velocity_spatial_kernel": 3,
-                "axial_velocity_estimation_method": "angle_average",
             }
         )
 
@@ -1621,9 +1642,7 @@ class TestSaveNifti:
         assert sidecar["ConfUSIusAxialVelocityIntegrationStride"] == pytest.approx(0.25)
         assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.3)
         assert sidecar["ConfUSIusAxialVelocityLag"] == 2
-        assert sidecar["ConfUSIusAxialVelocityAbsolute"] is True
         assert sidecar["ConfUSIusAxialVelocitySpatialKernel"] == 3
-        assert sidecar["ConfUSIusAxialVelocityEstimationMethod"] == "angle_average"
         assert sidecar["ConfUSIusLongName"] == "Power Doppler intensity"
         assert sidecar["ConfUSIusCmap"] == "gray"
         assert "long_name" not in sidecar

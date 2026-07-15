@@ -12,6 +12,11 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now use `fill_value`
+  instead of `default_value` for out-of-field-of-view resampling, matching
+  [`register_volume`][confusius.registration.register_volume] and the progress-plot
+  resampling API.
 - Motion diagnostics helpers now require actual affine matrices: [`extract_motion_parameters`][confusius.registration.extract_motion_parameters], [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement], and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no longer accept `None` placeholders in their affine lists ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
   [`read_events`][confusius.bids.load_events] →
@@ -19,9 +24,32 @@ Current development version for the next ConfUSIus release.
   [`write_events`][confusius.bids.save_events] →
   [`save_events`][confusius.bids.save_events]
   ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] now resolves the
+  dataset from OSF project `7cf9g` instead of `dkseb`. Existing local caches may need a
+  one-time `refresh=True` to replace the cached OSF file index before downloading or
+  checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
+- Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
+  the `estimation_method` and `absolute_velocity` arguments were removed, the
+  corresponding metadata fields were dropped, and `spatial_kernel` now defaults to `3`
+  and accepts explicit `(z, y, x)` sizes ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :sparkles: Enhancements
 
+- [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
+  addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
+  experimental: data, timing, voxel spacing, the depth origin, provenance
+  (subject/session/project/scan/experimenter, serial number, acquisition datetime), and
+  BIDS-corresponding acquisition settings (probe model, center/transmit frequencies,
+  pitch, focal depth, imaging depth, PRF, plane-wave angles, SVD low cutoff, power-Doppler
+  integration window) are recovered (lateral and elevation axes are centered on zero). A
+  `physical_to_lab` affine is derived from a header block read as a 6DOF probe pose
+  (experimental, assumed convention), and a BPS sidecar composes a `physical_to_brain`
+  affine as for v1. Multi-pose layouts are inferred
+  ([#317](https://github.com/confusius-tools/confusius/pull/317)).
+- **[Napari plugin]** Added an interactive registration panel for volume alignment in
+  napari, including linear and non-linear transforms, progress preview, manual and
+  automatic initialization, saving/loading transforms, and forward/inverse transform
+  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
 - Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always reports all named rotation / translation axes exposed by the affine dimensionality, even when one spatial axis is singleton ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
@@ -35,6 +63,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Axial velocity estimation now scales the Kasai phase increment by the requested
+  autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
   the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
   `pixdim[4]` when available, and otherwise warns before using frame indices.
@@ -55,11 +86,21 @@ Current development version for the next ConfUSIus release.
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
 
+### :books: Documentation
+
+- Fixed velocity sign interpretation in [Beamformed IQ user
+  guide](user-guide/beamformed-iq.md)
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+
 ### :wrench: Maintenance
 
-- pandas DataFrame outputs in the example gallery now render with clean, theme-aware
-  notebook styling instead of a fully-bordered table
+- [Example Gallery]: pandas DataFrame outputs in the example gallery now render with
+  clean, theme-aware notebook styling instead of a fully-bordered table
   ([#307](https://github.com/confusius-tools/confusius/pull/307)).
+- [Example Gallery]: Cells can now hide their code behind a collapsed callout with a
+  `collapse` cell tag, with optional custom title and type (`collapse[<type>]:
+  <title>`), i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
+  ([#309](https://github.com/confusius-tools/confusius/pull/309)).
 
 ## 0.5.2
 
@@ -133,11 +174,6 @@ Released 2026-07-10.
   matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
   now requires strictly monotonic `(value, color)` pairs, and the threshold gray
   band could collide with neighbouring cmap entries at the boundary values.
-- [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm]
-  no longer calls the matplotlib-3.11-deprecated `set_under`/`set_over`/`set_bad`
-  colormap methods, and no longer passes the deprecated `N=` argument to
-  `ListedColormap`. The under colour is now passed as a constructor kwarg, the
-  matplotlib-3.11-recommended way to set it.
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and
