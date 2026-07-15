@@ -315,7 +315,7 @@ class TestLoadScanV2:
         # 1784005200 == 2026-07-14T05:00:00+00:00.
         _write_scan_v2(path, _raw_payload(), timestamp=1784005200)
         da = load_scan(path)
-        assert da.attrs["iconeus_date"] == "2026-07-14T05:00:00+00:00"
+        assert da.attrs["iconeus_datetime"] == "2026-07-14T05:00:00+00:00"
 
     def test_name_from_scan_tag(self, scan_v2: xr.DataArray) -> None:
         """v2 DataArray name is taken from the recovered scan tag."""

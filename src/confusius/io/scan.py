@@ -829,7 +829,7 @@ def _scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     return records
 
 
-def _scan_v2_date(header: bytes, records: list[tuple[str, bool, int]]) -> str:
+def _scan_v2_datetime(header: bytes, records: list[tuple[str, bool, int]]) -> str:
     """Recover the acquisition timestamp from the SCAN v2 header, best-effort.
 
     The header stores the acquisition time as a `uint64` Unix timestamp (full seconds
@@ -1152,7 +1152,7 @@ def _scan_v2_attrs(header: bytes, npose: int, n_time_total: int) -> dict[str, An
     -------
     dict
         Attributes for the DataArray: `affines` (empty), `iconeus_scan_format`,
-        `iconeus_scan_mode`, `iconeus_date`, the mapped provenance fields, and the raw
+        `iconeus_scan_mode`, `iconeus_datetime`, the mapped provenance fields, and the raw
         `iconeus_header_strings`.
     """
     if npose > 1:
@@ -1166,7 +1166,7 @@ def _scan_v2_attrs(header: bytes, npose: int, n_time_total: int) -> dict[str, An
         "affines": {},
         "iconeus_scan_format": "v2",
         "iconeus_scan_mode": scan_mode,
-        "iconeus_date": _scan_v2_date(header, records),
+        "iconeus_datetime": _scan_v2_datetime(header, records),
         "iconeus_header_strings": [text for text, _, _ in records],
     }
     attrs.update(_scan_v2_provenance(records))
