@@ -44,14 +44,22 @@ def _with_physical_to_base_transform(
 class TestBuilder:
     """Tests for the atlas Dataset schema."""
 
-    def test_reference_dtype(self, atlas_ds: xr.Dataset) -> None:
+    def test_dataset_schema_contract(self, atlas_ds: xr.Dataset) -> None:
+        """The atlas fixture exposes the expected dtypes, dims, and spatial coords."""
         assert atlas_ds.atlas.reference.dtype == np.float32
-
-    def test_annotation_dtype(self, atlas_ds: xr.Dataset) -> None:
         assert atlas_ds.atlas.annotation.dtype == np.int32
-
-    def test_hemispheres_dtype(self, atlas_ds: xr.Dataset) -> None:
         assert atlas_ds.atlas.hemispheres.dtype == np.int8
+
+        for da in [
+            atlas_ds.atlas.reference,
+            atlas_ds.atlas.annotation,
+            atlas_ds.atlas.hemispheres,
+        ]:
+            assert da.dims == ("z", "y", "x")
+
+        for dim in ["z", "y", "x"]:
+            coord = atlas_ds.atlas.annotation.coords[dim]
+            np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
 
     def test_hemispheres_is_data_var(self, atlas_ds: xr.Dataset) -> None:
         """hemispheres must be a data variable, not a coordinate.
@@ -65,17 +73,6 @@ class TestBuilder:
         # It must not leak onto the other variables as a coordinate.
         assert "hemispheres" not in atlas_ds["annotation"].coords
         assert "hemispheres" not in atlas_ds["reference"].coords
-
-    def test_dataarray_dims(self, atlas_ds: xr.Dataset) -> None:
-        acc = atlas_ds.atlas
-        for da in [acc.reference, acc.annotation, acc.hemispheres]:
-            assert da.dims == ("z", "y", "x")
-
-    def test_physical_coordinates_in_mm(self, atlas_ds: xr.Dataset) -> None:
-        """Coordinate step must equal the voxdim attribute (in mm)."""
-        for dim in ["z", "y", "x"]:
-            coord = atlas_ds.atlas.annotation.coords[dim]
-            np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
 
 class TestStructuresSerialization:
     """Round-trip the structure hierarchy through JSON (W0)."""
@@ -115,9 +112,27 @@ class TestStructureMetadata:
         assert df.loc[10, "acronym"] == "ch"
         assert df.loc[10, "name"] == "child region"
 
-    def test_lookup_is_cached(self, atlas_ds: xr.Dataset) -> None:
-        """Accessing lookup twice must return the same DataFrame object."""
-        assert atlas_ds.atlas.lookup is atlas_ds.atlas.lookup
+    def test_lookup_is_built_once_per_accessor(
+        self, atlas_ds: xr.Dataset, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repeated lookup access on one accessor instance reuses the cached DataFrame."""
+        accessor = atlas_ds.atlas
+        build_calls = 0
+        original = cf.atlas._accessor._build_lookup_df
+
+        def wrapped(structures: StructuresDict) -> pd.DataFrame:
+            nonlocal build_calls
+            build_calls += 1
+            return original(structures)
+
+        monkeypatch.setattr(cf.atlas._accessor, "_build_lookup_df", wrapped)
+        accessor._lookup = None
+
+        first = accessor.lookup
+        second = accessor.lookup
+
+        assert build_calls == 1
+        assert first is second
 
     def test_norm_maps_background_below_range(self, atlas_ds: xr.Dataset) -> None:
         """Label 0 (background) must map below the colormap range."""
@@ -782,18 +797,18 @@ class TestGroupbyIntegration:
 
 
 class TestStandaloneOperations:
-    """The module-level get_mesh/get_masks/search take a Dataset and validate it."""
+    """The module-level atlas helpers take a Dataset and validate it."""
 
-    def test_search_returns_expected_region(self, atlas_ds: xr.Dataset) -> None:
+    def test_standalone_helpers_match_accessor_smoke(
+        self, atlas_ds: xr.Dataset
+    ) -> None:
+        """Standalone helpers return the same outputs as the accessor on a valid atlas."""
         assert cf.atlas.search_atlas(atlas_ds, "gc", field="acronym").index.tolist() == [20]
-
-    def test_get_masks_matches_accessor(self, atlas_ds: xr.Dataset) -> None:
         np.testing.assert_array_equal(
             cf.atlas.get_atlas_masks(atlas_ds, 10).values,
             atlas_ds.atlas.get_masks(10).values,
         )
 
-    def test_get_mesh_matches_accessor(self, atlas_ds: xr.Dataset) -> None:
         vertices, faces = cf.atlas.get_atlas_mesh(atlas_ds, 997)
         acc_vertices, acc_faces = atlas_ds.atlas.get_mesh(997)
         np.testing.assert_array_equal(vertices, acc_vertices)
