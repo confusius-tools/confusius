@@ -23,6 +23,9 @@ _TIME_UNITS = "s"
 VolumeAcquisitionReference = Literal["start", "center", "end"]
 """Where within its acquisition window each frame's `time` coordinate is anchored."""
 
+_VOLUME_ACQUISITION_REFERENCES = ("start", "center", "end")
+"""Accepted values for `volume_acquisition_reference`."""
+
 
 def create_fusi_dataarray(
     data: npt.ArrayLike,
@@ -105,7 +108,8 @@ def create_fusi_dataarray(
     ------
     ValueError
         If `dims` contains duplicate names, if its length does not match the rank of
-        `data`, if `volume_acquisition_duration` is given without a `time` dimension,
+        `data`, if `volume_acquisition_reference` is not one of `"start"`, `"center"`,
+        `"end"`, if `volume_acquisition_duration` is given without a `time` dimension,
         or if the resulting DataArray fails fUSI validation (for example when the
         spatial trio `z`, `y`, `x` is not present).
 
@@ -135,21 +139,23 @@ def create_fusi_dataarray(
             f"dimensions ({len(shape)})."
         )
 
+    if volume_acquisition_reference not in _VOLUME_ACQUISITION_REFERENCES:
+        raise ValueError(
+            f"volume_acquisition_reference must be one of "
+            f"{_VOLUME_ACQUISITION_REFERENCES!r}, got {volume_acquisition_reference!r}."
+        )
+
     if TIME_DIM not in dims and volume_acquisition_duration is not None:
         raise ValueError("volume_acquisition_duration requires a 'time' dimension.")
 
     # The `time` coordinate is always regularly spaced here, so the acquisition-window
     # duration defaults to that spacing when the caller does not provide one.
     time_step = 1.0 if dt is None else float(dt)
-    time_attrs: dict[str, object] = {
-        "units": _TIME_UNITS,
-        "volume_acquisition_reference": volume_acquisition_reference,
-        "volume_acquisition_duration": (
-            time_step
-            if volume_acquisition_duration is None
-            else float(volume_acquisition_duration)
-        ),
-    }
+    time_duration = (
+        time_step
+        if volume_acquisition_duration is None
+        else float(volume_acquisition_duration)
+    )
 
     spacings = {TIME_DIM: dt, "z": dz, "y": dy, "x": dx}
     origins = {TIME_DIM: t0, "z": z0, "y": y0, "x": x0}
@@ -161,7 +167,11 @@ def create_fusi_dataarray(
             step = 1.0 if spacing is None else float(spacing)
             values = origins[dim] + np.arange(size) * step
             if dim == TIME_DIM:
-                coord_attrs: dict[str, object] = time_attrs
+                coord_attrs: dict[str, object] = {
+                    "units": _TIME_UNITS,
+                    "volume_acquisition_reference": volume_acquisition_reference,
+                    "volume_acquisition_duration": time_duration,
+                }
             else:
                 coord_attrs = {"units": _SPATIAL_UNITS, "voxdim": step}
             coords[dim] = xr.DataArray(values, dims=(dim,), attrs=coord_attrs)

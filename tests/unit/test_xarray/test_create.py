@@ -89,6 +89,16 @@ def test_create_fusi_dataarray_acquisition_metadata_defaults():
     assert time_attrs["volume_acquisition_duration"] == 0.5
 
 
+def test_create_fusi_dataarray_rejects_invalid_reference():
+    """An out-of-set `volume_acquisition_reference` is rejected."""
+    with pytest.raises(ValueError, match=r"volume_acquisition_reference must be one of"):
+        create_fusi_dataarray(
+            np.zeros((5, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            volume_acquisition_reference="middle",  # ty: ignore[invalid-argument-type]
+        )
+
+
 def test_create_fusi_dataarray_rejects_duration_without_time():
     """`volume_acquisition_duration` requires a `time` dimension."""
     with pytest.raises(ValueError, match=r"requires a 'time' dimension"):
