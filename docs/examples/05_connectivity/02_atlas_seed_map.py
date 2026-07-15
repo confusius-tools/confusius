@@ -2,17 +2,20 @@
 # # Atlas-based seed connectivity maps
 #
 # This example computes voxel-wise seed-based functional connectivity maps: register a
-# single-slice fUSI recording to an Allen-space template, bring an
-# [Allen Mouse Brain Atlas][confusius.atlas] into the recording's native space,
-# pick four atlas regions of interest as seeds, and correlate each seed's signal
-# against every voxel with [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each
-# resulting map is displayed with
-# [`plot_stat_map`][confusius.plotting.plot_stat_map], using the resampled Allen
-# reference volume as background.
+# single-slice fUSI recording to an Allen-space template, bring an [Allen Mouse Brain
+# Atlas][confusius.atlas] into the recording's native space, pick four atlas regions of
+# interest as seeds, and correlate each seed's signal against every voxel with
+# [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each resulting map is
+# displayed with [`plot_stat_map`][confusius.plotting.plot_stat_map], using the
+# resampled Allen reference volume as background.
 #
-# We reuse the same recording, template, and registration workflow as the
-# [Atlas-based region correlation matrix](atlas_correlation_matrix.md) example—see it
-# for a detailed walkthrough of the registration steps condensed here.
+# We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# and the [Pepe, Mariani 2026 fUSI
+# template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
+# affine transform required to bring it into Allen Common Coordinate Framework (CCF)
+# space. For the full registration workflow, see [Register a recording to an Allen fUSI
+# template](../registration/register_to_allen_fusi_template.md).
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
@@ -56,14 +59,19 @@ data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
 # %% [markdown]
-# As in the correlation-matrix example, we initialize the registration with an affine
-# transformed obtained using [napari's manual transform
-# tool](https://napari.org/stable/howtos/layers/image.html#buttons) by placing the
-# recording at an approximate location on the template. The transform is not perfect,
-# but it is close enough to allow the registration algorithm to converge to a good
-# solution.
+# We don't describe the registration process here to keep the notebook focused on
+# seed-based connectivity, but the key steps are:
+#
+# - Get an initial affine transform using napari's "Transform" tool.
+# - Use [`register_volume`][confusius.registration.register_volume] to refine the
+#   alignment.
+# - Resample the Allen atlas into the recording's native space with
+#   [`resample_like`][confusius.atlas.Atlas.resample_like].
+#
+# For the full walkthrough, see [Register a recording to an Allen fUSI
+# template](../registration/register_to_allen_fusi_template.md).
 
-# %%
+# %% tags=["collapse: Registration and atlas resampling"]
 napari_affine = np.array(
     [
         [1.0, 0.0, 0.0, 5.594638656430411],
@@ -86,24 +94,9 @@ registered, affine, diagnostics = cf.registration.register_volume(
     number_of_iterations=500,
     learning_rate=1,
     initialization=initialization,
-    show_progress=True,
+    show_progress=False,
 )
 
-print(f"Initial metric: {diagnostics.metric_values[0]:.4f}")
-print(f"Final metric: {diagnostics.final_metric_value:.4f}")
-
-# %% [markdown]
-# ## Resample the Allen atlas onto the recording's native grid
-#
-# Composing the template's `physical_to_sform` affine with the inverse of the estimated
-# registration affine gives a single transform from the recording's native coordinates
-# directly to Allen atlas coordinates.
-# [`resample_like`][confusius.atlas.AtlasAccessor.resample_like] resamples the atlas'
-# reference volume, annotations, and hemisphere map onto that grid in one call, so
-# `atlas_native.reference` can be used directly as the anatomical background for our
-# stat maps below.
-
-# %%
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
@@ -132,7 +125,9 @@ atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 # `seed_masks`.
 
 # %%
-seed_masks = atlas_native.atlas.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="left")
+seed_masks = atlas_native.atlas.get_masks(
+    ["SSp-bfd", "RSP", "HIP", "VPM"], sides="left"
+)
 
 # %% [markdown]
 # ## Smooth and compute nuisance regressors

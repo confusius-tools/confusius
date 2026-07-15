@@ -73,9 +73,7 @@ nav = [
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },
             { "Motion correction of a single recording" = "examples/_built/registration/volumewise_motion_correction.md" },
-        ]},
-        { "Atlases and Templates" = [
-            { "Save and reload a resampled atlas" = "examples/_built/atlases_and_templates/saving_resampled_atlas.md" },
+            { "Register a recording to an Allen fUSI template" = "examples/_built/registration/register_to_allen_fusi_template.md" },
         ]},
         { "Decomposition" = [
             { "PCA on a single fUSI recording" = "examples/_built/decomposition/pca_single_recording.md" },

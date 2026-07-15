@@ -255,7 +255,7 @@ Resampling can be costly, so it is worth doing once and caching the result.
 [`save_atlas`][confusius.io.save_atlas] / [`load_atlas`][confusius.io.load_atlas] write
 the whole atlas (arrays, structure hierarchy, and region meshes) to a Zarr store and
 read it back ready to use. The
-[Save and reload a resampled atlas](../examples/_built/atlases_and_templates/saving_resampled_atlas.md)
+[Register a recording to an Allen fUSI template](../examples/_built/registration/register_to_allen_fusi_template.md)
 example walks through the full register → resample → save → reload workflow.
 
 ## API Reference
