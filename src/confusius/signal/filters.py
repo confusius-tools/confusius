@@ -134,11 +134,13 @@ def _butterworth_filter_wrapper(
     return result
 
 
-def _cosine_filter_wrapper(
-    data: np.ndarray, projection_matrix: np.ndarray
+def _residualize_cosine_drift(
+    data: np.ndarray,
+    regressors: np.ndarray,
+    pinv_regressors: np.ndarray,
 ) -> np.ndarray:
-    """Project one time series out of the cosine drift subspace."""
-    return data - projection_matrix @ data
+    """Remove the cosine drift subspace from one time series."""
+    return data - regressors @ (pinv_regressors @ data)
 
 
 def filter_butterworth(
@@ -346,15 +348,18 @@ def filter_cosine(
         low_cutoff,
         time_spacing,
     )
-    projection_matrix = regressors @ np.linalg.pinv(regressors)
+    pinv_regressors = np.linalg.pinv(regressors)
     output_dtype = np.result_type(signals.dtype, np.float64)
 
     result = xr.apply_ufunc(
-        _cosine_filter_wrapper,
+        _residualize_cosine_drift,
         signals,
         input_core_dims=[["time"]],
         output_core_dims=[["time"]],
-        kwargs={"projection_matrix": projection_matrix},
+        kwargs={
+            "regressors": regressors,
+            "pinv_regressors": pinv_regressors,
+        },
         vectorize=True,
         dask="parallelized",
         output_dtypes=[output_dtype],
