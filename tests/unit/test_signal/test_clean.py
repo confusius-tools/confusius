@@ -135,15 +135,15 @@ def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
 
 
 def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
-    """Test filter_butterworth_kwargs must be a dict."""
-    with pytest.raises(TypeError, match="filter_butterworth_kwargs must be a dict"):
-        clean(sample_timeseries(), filter_butterworth_kwargs=1)  # ty: ignore[invalid-argument-type]
+    """Test filter_kwargs must be a dict."""
+    with pytest.raises(TypeError, match="filter_kwargs must be a dict"):
+        clean(sample_timeseries(), filter_kwargs=1)  # ty: ignore[invalid-argument-type]
 
 
 def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
     """Test cutoffs must be passed directly to clean."""
     with pytest.raises(ValueError, match="Pass low_pass/high_pass directly to clean"):
-        clean(sample_timeseries(), filter_butterworth_kwargs={"high_cutoff": 1.0})
+        clean(sample_timeseries(), filter_kwargs={"high_cutoff": 1.0})
 
 
 def test_clean_rejects_non_dict_interpolate_kwargs(sample_timeseries):
@@ -394,6 +394,30 @@ def test_clean_cosine_filter_matches_filter_cosine(sample_timeseries):
     assert_allclose(result.values, expected.values)
 
 
+def test_clean_cosine_filter_kwargs_are_forwarded():
+    """Test cosine filter kwargs are forwarded by clean."""
+    time = np.array([0.0, 0.1001, 0.2002, 0.3000, 0.4001, 0.5002])
+    signals = xr.DataArray(
+        np.arange(12, dtype=float).reshape(6, 2),
+        dims=["time", "space"],
+        coords={"time": time},
+    )
+
+    expected = filter_cosine(
+        signals,
+        low_cutoff=1.0,
+        uniformity_tolerance=5e-3,
+    )
+    result = clean(
+        signals,
+        low_cutoff=1.0,
+        filter_method="cosine",
+        filter_kwargs={"uniformity_tolerance": 5e-3},
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
 def test_clean_cosine_filter_rejects_high_cutoff(sample_timeseries):
     """Test cosine filtering cannot be used as a low-pass filter."""
     with pytest.raises(ValueError, match="Cosine filtering only supports low_cutoff"):
@@ -402,10 +426,10 @@ def test_clean_cosine_filter_rejects_high_cutoff(sample_timeseries):
 
 def test_clean_cosine_filter_rejects_butterworth_kwargs(sample_timeseries):
     """Test cosine filtering rejects Butterworth-only kwargs."""
-    with pytest.raises(ValueError, match="filter_butterworth_kwargs is only supported"):
+    with pytest.raises(TypeError, match="unexpected keyword argument 'order'"):
         clean(
             sample_timeseries(),
             low_cutoff=0.1,
             filter_method="cosine",
-            filter_butterworth_kwargs={"order": 3},
+            filter_kwargs={"order": 3},
         )

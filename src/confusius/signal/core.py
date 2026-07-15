@@ -107,7 +107,7 @@ def clean(
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
     filter_method: Literal["butterworth", "cosine"] = "butterworth",
-    filter_butterworth_kwargs: dict | None = None,
+    filter_kwargs: dict | None = None,
     confounds: xr.DataArray | None = None,
     standardize_confounds: bool = True,
     ensure_finite: bool = False,
@@ -162,9 +162,10 @@ def clean(
         Butterworth filtering supports low-pass, high-pass, and band-pass filtering.
         Cosine filtering supports high-pass filtering only and uses the same
         discrete-cosine drift basis as the GLM module.
-    filter_butterworth_kwargs : dict, optional
-        Extra keyword arguments passed to `confusius.signal.filter_butterworth` when
-        `filter_method="butterworth"`.
+    filter_kwargs : dict, optional
+        Extra keyword arguments passed to the selected filtering function. This means
+        `confusius.signal.filter_butterworth` when `filter_method="butterworth"`
+        and `confusius.signal.filter_cosine` when `filter_method="cosine"`.
     confounds : (time, n_confounds) xarray.DataArray, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
@@ -216,22 +217,16 @@ def clean(
     """
     validate_time_series(signals, operation_name="clean", check_time_chunks=False)
 
-    if filter_butterworth_kwargs is not None and not isinstance(
-        filter_butterworth_kwargs, dict
-    ):
-        raise TypeError("filter_butterworth_kwargs must be a dict or None")
+    if filter_kwargs is not None and not isinstance(filter_kwargs, dict):
+        raise TypeError("filter_kwargs must be a dict or None")
 
-    if filter_butterworth_kwargs:
-        if (
-            "low_cutoff" in filter_butterworth_kwargs
-            or "high_cutoff" in filter_butterworth_kwargs
-        ):
+    if filter_kwargs:
+        if "low_cutoff" in filter_kwargs or "high_cutoff" in filter_kwargs:
             raise ValueError(
-                "Pass low_pass/high_pass directly to clean, not in "
-                "filter_butterworth_kwargs."
+                "Pass low_pass/high_pass directly to clean, not in filter_kwargs."
             )
     else:
-        filter_butterworth_kwargs = {}
+        filter_kwargs = {}
 
     if interpolate_kwargs is not None and not isinstance(interpolate_kwargs, dict):
         raise TypeError("interpolate_kwargs must be a dict or None")
@@ -257,15 +252,8 @@ def clean(
             )
         if do_filter and low_cutoff is None:
             raise ValueError("Cosine filtering requires low_cutoff to be provided.")
-        if filter_butterworth_kwargs:
-            raise ValueError(
-                "filter_butterworth_kwargs is only supported when "
-                "filter_method='butterworth'."
-            )
     else:
-        filter_butterworth_kwargs.update(
-            {"low_cutoff": low_cutoff, "high_cutoff": high_cutoff}
-        )
+        filter_kwargs.update({"low_cutoff": low_cutoff, "high_cutoff": high_cutoff})
 
     if ensure_finite:
         signals = _interpolate_non_finite(signals, name="signals")
@@ -301,14 +289,18 @@ def clean(
 
     if do_filter:
         if filter_method == "butterworth":
-            signals = filter_butterworth(signals, **filter_butterworth_kwargs)
+            signals = filter_butterworth(signals, **filter_kwargs)
             if confounds is not None:
-                confounds = filter_butterworth(confounds, **filter_butterworth_kwargs)
+                confounds = filter_butterworth(confounds, **filter_kwargs)
         else:
             assert low_cutoff is not None
-            signals = filter_cosine(signals, low_cutoff=low_cutoff)
+            signals = filter_cosine(signals, low_cutoff=low_cutoff, **filter_kwargs)
             if confounds is not None:
-                confounds = filter_cosine(confounds, low_cutoff=low_cutoff)
+                confounds = filter_cosine(
+                    confounds,
+                    low_cutoff=low_cutoff,
+                    **filter_kwargs,
+                )
 
     if sample_mask is not None:
         signals = censor_samples(signals, sample_mask=sample_mask)
