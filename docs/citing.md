@@ -137,7 +137,7 @@ Or in BibTeX format:
 ### Nunez-Elizalde et al. (2022)
 
 The [`fetch_nunez_elizalde_2022`][confusius.datasets.fetch_nunez_elizalde_2022]
-function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
+function provides a fUSI-BIDS conversion of this dataset. If you use it, please cite:
 
 > Nunez-Elizalde, A. O., Krumin, M., Reddy, C. B., Montaldo, G., Urban, A., Harris,
 > K. D., & Carandini, M. (2022). Neural correlates of blood flow measured by
@@ -169,7 +169,7 @@ License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 ### Cybis Pereira et al. (2026)
 
 The [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026]
-function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
+function provides a fUSI-BIDS conversion of this dataset. If you use it, please cite:
 
 > Cybis Pereira, F., Castedo, S. H., Meur-Diebolt, S. L., Ialy-Radio, N., Bhattacharya,
 > S., Ferrier, J., Osmanski, B. F., Cocco, S., Monasson, R., Pezet, S., & Tanter, M.
@@ -206,7 +206,7 @@ License: **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**.
 ### Landemard et al. (2026)
 
 The [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026]
-function provides an fUSI-BIDS re-export of this dataset. If you use it,
+function provides a fUSI-BIDS re-export of this dataset. If you use it,
 please cite:
 
 > Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide
@@ -234,7 +234,7 @@ License: **[CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)**.
 ### Khallaf et al. (2026)
 
 The [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026]
-function provides an fUSI-BIDS conversion of this dataset. If you use it, please cite:
+function provides a fUSI-BIDS conversion of this dataset. If you use it, please cite:
 
 > Khallaf, M. A., Hart, D. W., Luo, W., Murad, F., Cybis Pereira, F., Mendez-Aranda, D.,
 > Hagenah, N., Rossi, A., Bégay, V., Okrouhlík, J., Krautwurst, D., Ngalameno, M. K.,
