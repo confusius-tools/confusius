@@ -295,6 +295,30 @@ class TestGetMasks:
                 result.coords[dim].values, atlas_ds.atlas.annotation.coords[dim].values
             )
 
+    def test_uses_hemisphere_labels_from_attrs(self, atlas_ds: xr.Dataset) -> None:
+        ds = atlas_ds.copy()
+        ds["hemispheres"] = ds["hemispheres"].copy(
+            data=np.where(ds["hemispheres"].values == 1, 7, 9).astype(np.int8)
+        )
+        ds["hemispheres"].attrs = {"left": 7, "right": 9}
+
+        left = ds.atlas.get_masks(10, sides="left").values[0]
+        right = ds.atlas.get_masks(10, sides="right").values[0]
+        both = ds.atlas.get_masks(10, sides="both").values[0]
+
+        np.testing.assert_array_equal((left > 0) | (right > 0), both > 0)
+
+    def test_2d_slice_preserves_spatial_dims(self, atlas_ds: xr.Dataset) -> None:
+        sliced = atlas_ds.isel(z=0, drop=True)
+        result = sliced.atlas.get_masks(10)
+        assert result.dims == ("mask", "y", "x")
+        np.testing.assert_array_equal(
+            result.coords["y"], sliced["annotation"].coords["y"]
+        )
+        np.testing.assert_array_equal(
+            result.coords["x"], sliced["annotation"].coords["x"]
+        )
+
     def test_sides_length_mismatch_raises(self, atlas_ds: xr.Dataset) -> None:
         with pytest.raises(ValueError, match="same length"):
             atlas_ds.atlas.get_masks([10, 20], sides=["left"])

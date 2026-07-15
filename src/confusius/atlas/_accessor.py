@@ -233,10 +233,10 @@ class AtlasAccessor:
         Returns
         -------
         xarray.DataArray
-            Integer DataArray with dims `["mask", "z", "y", "x"]`. The
-            `mask` coordinate holds the region acronym for each layer, suffixed with
-            `_L`/`_R` when the corresponding `side` is `"left"`/`"right"` (left/right
-            requests for the same region would otherwise share an acronym).
+            Integer DataArray with dims `["mask", *annotation.dims]`. The `mask`
+            coordinate holds the region acronym for each layer, suffixed with `_L`/`_R`
+            when the corresponding `side` is `"left"`/`"right"` (left/right requests for
+            the same region would otherwise share an acronym).
 
         Raises
         ------
@@ -600,10 +600,10 @@ def get_masks(
     Returns
     -------
     xarray.DataArray
-        Integer DataArray with dims `["mask", "z", "y", "x"]`. The `mask` coordinate holds
-        the region acronym for each layer, suffixed with `_L`/`_R` when the corresponding
-        `side` is `"left"`/`"right"` (left/right requests for the same region would
-        otherwise share an acronym).
+        Integer DataArray with dims `["mask", *annotation.dims]`. The `mask` coordinate
+        holds the region acronym for each layer, suffixed with `_L`/`_R` when the
+        corresponding `side` is `"left"`/`"right"` (left/right requests for the same
+        region would otherwise share an acronym).
 
     Raises
     ------
@@ -647,6 +647,8 @@ def get_masks(
 
     annotation_np = acc.annotation.values
     hemispheres_np = acc.hemispheres.values
+    left_value = acc.hemispheres.attrs["left"]
+    right_value = acc.hemispheres.attrs["right"]
 
     layers = []
     acronyms = []
@@ -661,10 +663,10 @@ def get_masks(
 
         acronym = acc.structures[rid]["acronym"]
         if s == "left":
-            layer[hemispheres_np != 1] = 0
+            layer[hemispheres_np != left_value] = 0
             acronym = f"{acronym}_L"
         elif s == "right":
-            layer[hemispheres_np != 2] = 0
+            layer[hemispheres_np != right_value] = 0
             acronym = f"{acronym}_R"
 
         layers.append(layer)
@@ -672,10 +674,11 @@ def get_masks(
 
     stacked = np.stack(layers, axis=0)
 
-    spatial_coords = {d: acc.annotation.coords[d] for d in ["z", "y", "x"]}
+    spatial_dims = [str(dim) for dim in acc.annotation.dims]
+    spatial_coords = {dim: acc.annotation.coords[dim] for dim in spatial_dims}
     return xr.DataArray(
         stacked,
-        dims=["mask", "z", "y", "x"],
+        dims=["mask", *spatial_dims],
         coords={"mask": acronyms, **spatial_coords},
         attrs=acc.annotation.attrs.copy(),
     )

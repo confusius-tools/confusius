@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import xarray as xr
 
-from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.io import restore_affines, zarr_safe_attrs
 from confusius.io.utils import check_path
 
@@ -330,13 +330,7 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
             ds.attrs["physical_to_base"], dtype=np.float64
         )
 
-    annotation = ds["annotation"]
-    if "rgb_lookup" in annotation.attrs and not all(
-        k in annotation.attrs for k in _NONSERIALIZABLE_ANNOTATION_ATTRS
-    ):
-        cmap, norm = build_atlas_cmap_and_norm(annotation.attrs["rgb_lookup"])
-        annotation.attrs["cmap"] = cmap
-        annotation.attrs["norm"] = norm
+    restore_atlas_cmap_and_norm(ds["annotation"])
 
     if "structures" in ds.attrs:
         blob = _rebase_meshes(ds.attrs["structures"], path / _MESHES_SUBDIR)

@@ -7,7 +7,7 @@ import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
-from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.io import restore_affines, zarr_safe_attrs
 from confusius.io.utils import check_path
 
@@ -67,31 +67,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
             " extensions are: .nii, .nii.gz, .scan, .zarr."
         )
 
-    _restore_atlas_cmap_and_norm(data_array)
+    restore_atlas_cmap_and_norm(data_array)
     restore_affines(data_array.attrs)
     return data_array
-
-
-def _restore_atlas_cmap_and_norm(data_array: xr.DataArray) -> None:
-    """Rebuild `cmap`/`norm` attrs from `rgb_lookup` in place, when missing.
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        DataArray to update in place.
-
-    Returns
-    -------
-    None
-        This function mutates `data_array.attrs` and returns nothing.
-    """
-    if "rgb_lookup" not in data_array.attrs:
-        return
-    if "cmap" in data_array.attrs and "norm" in data_array.attrs:
-        return
-    cmap, norm = build_atlas_cmap_and_norm(data_array.attrs["rgb_lookup"])
-    data_array.attrs["cmap"] = cmap
-    data_array.attrs["norm"] = norm
 
 
 def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
