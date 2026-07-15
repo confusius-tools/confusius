@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from napari.utils.notifications import show_error, show_info
+from napari.utils.notifications import show_error, show_info, show_warning
 from napari_video.napari_video import VideoReaderNP
 
 from confusius.timing import get_representative_time_step
@@ -314,12 +314,6 @@ class VideoPanel(QWidget):
         # input, never as a side-effect of layer inserts or removals.
         self._ref_combo.activated.connect(self._on_user_ref_changed)
         ref_layout.addWidget(self._ref_combo)
-
-        self._ref_warning = QLabel(_IRREGULAR_TIME_WARNING)
-        self._ref_warning.setWordWrap(True)
-        self._ref_warning.hide()
-        ref_layout.addWidget(self._ref_warning)
-
         layout.addWidget(ref_group)
 
         # Video file selector.
@@ -447,7 +441,6 @@ class VideoPanel(QWidget):
         has_path = bool(self._path_edit.text().strip())
         has_ref = self._ref_combo.currentIndex() >= 0
         self._load_btn.setEnabled(has_ref and has_path)
-        self._update_ref_warning(self._get_ref_layer())
 
     def _on_user_ref_changed(self, _idx: int | None = None) -> None:
         """Handle user-initiated reference layer changes in the combo.
@@ -475,10 +468,10 @@ class VideoPanel(QWidget):
                         self._ref_combo.setCurrentIndex(idx)
                     finally:
                         self._ref_combo.blockSignals(False)
-            self._update_ref_warning(self._get_ref_layer())
             return
 
         self._update_shared_ref_state(new_ref)
+        self._warn_if_irregular_reference(new_ref)
         self._rebuild_all_entries()
 
     def _update_shared_ref_state(self, ref_layer) -> None:
@@ -492,15 +485,16 @@ class VideoPanel(QWidget):
         self._axis_labels = tuple(ref_xr.dims)
         self._units = list(getattr(ref_layer, "units", [None] * ref_layer.ndim))
 
-    def _update_ref_warning(self, ref_layer) -> None:
-        """Show a warning when the selected reference has irregular timing."""
-        visible = False
-        if ref_layer is not None:
-            xr_da = ref_layer.metadata.get("xarray")
-            if xr_da is not None and "time" in xr_da.coords:
-                _, approximate = get_representative_time_step(xr_da)
-                visible = approximate
-        self._ref_warning.setVisible(visible)
+    def _warn_if_irregular_reference(self, ref_layer) -> None:
+        """Show a toast when the selected reference has irregular timing."""
+        if ref_layer is None:
+            return
+        xr_da = ref_layer.metadata.get("xarray")
+        if xr_da is None or "time" not in xr_da.coords:
+            return
+        _, approximate = get_representative_time_step(xr_da)
+        if approximate:
+            show_warning(_IRREGULAR_TIME_WARNING)
 
     def _get_ref_layer(self):
         """Return the layer currently selected in the combo, or None."""
@@ -571,6 +565,7 @@ class VideoPanel(QWidget):
         # enables grid mode.
         if not self._videos:
             self._update_shared_ref_state(ref_layer)
+            self._warn_if_irregular_reference(ref_layer)
             order = self._viewer.dims.order
             self._displayed_dims = (order[-2], order[-1])
 

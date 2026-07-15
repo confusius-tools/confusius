@@ -339,11 +339,25 @@ def loaded_panel(panel, viewer):
 
 
 class TestReferenceWarning:
-    def test_regular_reference_keeps_warning_hidden(self, panel):
-        assert panel._ref_warning.text() == _IRREGULAR_TIME_WARNING
-        assert panel._ref_warning.isHidden()
+    def test_regular_reference_does_not_warn(self, panel, monkeypatch):
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_warning",
+            warnings_seen.append,
+        )
 
-    def test_irregular_reference_shows_warning(self, panel, viewer, sample_3dt_volume):
+        panel._warn_if_irregular_reference(panel._ref_layer)
+
+        assert warnings_seen == []
+
+    def test_irregular_reference_warns(
+        self, panel, viewer, sample_3dt_volume, monkeypatch
+    ):
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_warning",
+            warnings_seen.append,
+        )
         time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
         time_values[2:] += 0.02
         irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
@@ -354,11 +368,43 @@ class TestReferenceWarning:
                 show_colorbar=False,
                 show_scale_bar=False,
             )
-        idx = panel._ref_combo.findText(irregular_layer.name)
-        panel._ref_combo.setCurrentIndex(idx)
 
-        assert idx >= 0
-        assert not panel._ref_warning.isHidden()
+        panel._warn_if_irregular_reference(irregular_layer)
+
+        assert warnings_seen == [_IRREGULAR_TIME_WARNING]
+
+    def test_add_video_warns_for_irregular_reference(
+        self, panel, viewer, sample_3dt_volume, monkeypatch, tmp_path
+    ):
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_warning",
+            warnings_seen.append,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_info",
+            lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.VideoReaderNP",
+            lambda *_args, **_kwargs: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
+        )
+        time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
+        time_values[2:] += 0.02
+        irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
+        with pytest.warns(UserWarning, match="non-uniform spacing"):
+            _, irregular_layer = plot_napari(
+                irregular,
+                viewer=viewer,
+                show_colorbar=False,
+                show_scale_bar=False,
+            )
+
+        video_path = tmp_path / "video.mp4"
+        video_path.touch()
+        panel._add_video(video_path, irregular_layer)
+
+        assert warnings_seen == [_IRREGULAR_TIME_WARNING]
 
 
 # ---------------------------------------------------------------------------
