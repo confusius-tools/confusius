@@ -1,15 +1,18 @@
 """Signal cleaning pipeline for fUSI time series."""
 
+import warnings
 from typing import Literal
 
 import numpy as np
 import xarray as xr
 from xarray.core.types import InterpOptions
 
+from confusius._utils.coordinates import get_coordinate_spacings
+from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius.signal.censor import censor_samples, interpolate_samples
 from confusius.signal.confounds import regress_confounds
 from confusius.signal.detrending import detrend as detrend_signals
-from confusius.signal.filters import filter_butterworth, filter_cosine
+from confusius.signal.filters import filter_butterworth
 from confusius.signal.standardization import standardize
 from confusius.validation import validate_time_series
 
@@ -97,6 +100,92 @@ def _fill_interpolated_boundary_non_finite(
         result = xr.where(right_missing, right_fill, result)
 
     return result
+
+
+def _append_cosine_drift_confounds(
+    signals: xr.DataArray,
+    confounds: xr.DataArray | None,
+    *,
+    low_cutoff: float,
+    uniformity_tolerance: float = 1e-2,
+) -> xr.DataArray:
+    """Append cosine drift regressors to an existing confound matrix.
+
+    Parameters
+    ----------
+    signals : (time, ...) xarray.DataArray
+        Signals defining the time grid.
+    confounds : xarray.DataArray or None
+        Existing confounds to augment. Can have shape `(time,)` or
+        `(time, n_confounds)`. If not provided, only cosine drift regressors are
+        returned.
+    low_cutoff : float
+        High-pass cutoff frequency in hertz.
+    uniformity_tolerance : float, default: 1e-2
+        Maximum allowed relative range of consecutive time intervals, defined as
+        `(max_interval - min_interval) / median_interval`.
+
+    Returns
+    -------
+    (time, confound) xarray.DataArray
+        Confound matrix including cosine drift regressors.
+
+    Raises
+    ------
+    ValueError
+        If `signals` is not uniformly sampled within the specified tolerance or if
+        `confounds` is not 1D or 2D.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        spacing = get_coordinate_spacings(
+            signals, uniformity_tolerance=uniformity_tolerance
+        )
+
+    time_spacing = spacing["time"]
+    if time_spacing is None:
+        raise ValueError(
+            "Non-uniform 'time' coordinates detected. Cosine filtering requires "
+            "uniformly sampled data. Consider interpolating your data to a regular "
+            "time grid first."
+        )
+
+    regressors, names = make_cosine_drift_regressors(
+        signals.sizes["time"],
+        low_cutoff,
+        time_spacing,
+    )
+    cosine_confounds = xr.DataArray(
+        regressors,
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": names},
+    )
+
+    if confounds is None:
+        return cosine_confounds
+
+    if confounds.ndim == 1:
+        existing_confounds = xr.DataArray(
+            confounds.values[:, None],
+            dims=["time", "confound"],
+            coords={
+                "time": confounds.coords["time"],
+                "confound": ["confound_0"],
+            },
+        )
+    elif confounds.ndim == 2:
+        existing_confounds = confounds.transpose("time", ...)
+        if "confound" not in existing_confounds.dims:
+            other_dim = next(dim for dim in existing_confounds.dims if dim != "time")
+            existing_confounds = existing_confounds.rename({other_dim: "confound"})
+        if "confound" not in existing_confounds.coords:
+            existing_confounds = existing_confounds.assign_coords(
+                confound=np.arange(existing_confounds.sizes["confound"])
+            )
+    else:
+        raise ValueError(f"confounds must be 1D or 2D, got {confounds.ndim}D")
+
+    return xr.concat([existing_confounds, cosine_confounds], dim="confound")
 
 
 def clean(
@@ -261,9 +350,11 @@ def clean(
     original_mean = signals.mean(dim="time") if standardize_method == "psc" else None
 
     # Pre-scrubbing interpolation is performed when scrubbing is requested and either
-    # detrending or filtering is applied. This allows detrending and filtering to be
-    # applied to the full time series without gaps.
-    if sample_mask is not None and (detrend_order is not None or do_filter):
+    # detrending or Butterworth filtering is applied. Cosine filtering is handled as
+    # a regression step, so it follows Nilearn and censors without interpolation.
+    if sample_mask is not None and (
+        detrend_order is not None or (do_filter and filter_method == "butterworth")
+    ):
         signals = interpolate_samples(
             signals,
             sample_mask=sample_mask,
@@ -292,13 +383,12 @@ def clean(
                 confounds = filter_butterworth(confounds, **filter_kwargs)
         else:
             assert low_cutoff is not None
-            signals = filter_cosine(signals, low_cutoff=low_cutoff, **filter_kwargs)
-            if confounds is not None:
-                confounds = filter_cosine(
-                    confounds,
-                    low_cutoff=low_cutoff,
-                    **filter_kwargs,
-                )
+            confounds = _append_cosine_drift_confounds(
+                signals,
+                confounds,
+                low_cutoff=low_cutoff,
+                **filter_kwargs,
+            )
 
     if sample_mask is not None:
         signals = censor_samples(signals, sample_mask=sample_mask)
