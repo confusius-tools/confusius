@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from napari.utils.notifications import show_error, show_info
+from napari.utils.notifications import show_error, show_info, show_warning
 from napari_video.napari_video import VideoReaderNP
+
+from confusius.timing import get_representative_time_step
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -29,6 +31,13 @@ from qtpy.QtWidgets import (
 if TYPE_CHECKING:
     import napari
     import napari.layers
+
+
+_IRREGULAR_TIME_WARNING = (
+    "Reference layer time axis is not regularly sampled; "
+    "video synchronization uses a linear approximation and may drift."
+)
+"""Warning shown when a video is synchronized against irregular time samples."""
 
 
 class _VideoArray:
@@ -462,6 +471,7 @@ class VideoPanel(QWidget):
             return
 
         self._update_shared_ref_state(new_ref)
+        self._warn_if_irregular_reference(new_ref)
         self._rebuild_all_entries()
 
     def _update_shared_ref_state(self, ref_layer) -> None:
@@ -474,6 +484,17 @@ class VideoPanel(QWidget):
         )
         self._axis_labels = tuple(ref_xr.dims)
         self._units = list(getattr(ref_layer, "units", [None] * ref_layer.ndim))
+
+    def _warn_if_irregular_reference(self, ref_layer) -> None:
+        """Show a toast when the selected reference has irregular timing."""
+        if ref_layer is None:
+            return
+        xr_da = ref_layer.metadata.get("xarray")
+        if xr_da is None or "time" not in xr_da.coords:
+            return
+        _, approximate = get_representative_time_step(xr_da)
+        if approximate:
+            show_warning(_IRREGULAR_TIME_WARNING)
 
     def _get_ref_layer(self):
         """Return the layer currently selected in the combo, or None."""
@@ -544,6 +565,7 @@ class VideoPanel(QWidget):
         # enables grid mode.
         if not self._videos:
             self._update_shared_ref_state(ref_layer)
+            self._warn_if_irregular_reference(ref_layer)
             order = self._viewer.dims.order
             self._displayed_dims = (order[-2], order[-1])
 
