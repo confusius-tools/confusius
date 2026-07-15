@@ -562,7 +562,7 @@ def search(
     >>> cf.atlas.search(ds, "VISp", field="acronym")
     """
     validate_atlas_dataset(ds)
-    df = AtlasAccessor(ds).lookup
+    df = _build_lookup_df(ds.attrs["structures"])
     if field == "acronym":
         mask = df["acronym"].str.fullmatch(pattern)
     elif field == "name":
@@ -621,7 +621,6 @@ def get_masks(
     >>> cf.atlas.get_masks(ds, ["VISp", "AUDp"], sides=["left", "both"])
     """
     validate_atlas_dataset(ds)
-    acc = AtlasAccessor(ds)
 
     region_list: list[int | str] = (
         [regions] if isinstance(regions, (int, str)) else list(regions)
@@ -645,23 +644,27 @@ def get_masks(
             f"Each element must be one of {sorted(_valid_sides)}."
         )
 
-    annotation_np = acc.annotation.values
-    hemispheres_np = acc.hemispheres.values
-    left_value = acc.hemispheres.attrs["left"]
-    right_value = acc.hemispheres.attrs["right"]
+    annotation = ds["annotation"]
+    hemispheres = ds["hemispheres"]
+    structures = ds.attrs["structures"]
+
+    annotation_np = annotation.values
+    hemispheres_np = hemispheres.values
+    left_value = hemispheres.attrs["left"]
+    right_value = hemispheres.attrs["right"]
 
     layers = []
     acronyms = []
     for reg, s in zip(region_list, side_list):
-        rid = _resolve_region_id(acc.structures, reg)
-        descendant_ids = _get_descendant_ids(acc.structures, rid)
+        rid = _resolve_region_id(structures, reg)
+        descendant_ids = _get_descendant_ids(structures, rid)
 
         layer = np.zeros_like(annotation_np, dtype=np.int32)
         # Using kind="table" here will use a lookup table approach that is much
         # faster at the cost of higher memory usage.
         layer[np.isin(annotation_np, descendant_ids, kind="table")] = rid
 
-        acronym = acc.structures[rid]["acronym"]
+        acronym = structures[rid]["acronym"]
         if s == "left":
             layer[hemispheres_np != left_value] = 0
             acronym = f"{acronym}_L"
@@ -674,13 +677,13 @@ def get_masks(
 
     stacked = np.stack(layers, axis=0)
 
-    spatial_dims = [str(dim) for dim in acc.annotation.dims]
-    spatial_coords = {dim: acc.annotation.coords[dim] for dim in spatial_dims}
+    spatial_dims = [str(dim) for dim in annotation.dims]
+    spatial_coords = {dim: annotation.coords[dim] for dim in spatial_dims}
     return xr.DataArray(
         stacked,
         dims=["mask", *spatial_dims],
         coords={"mask": acronyms, **spatial_coords},
-        attrs=acc.annotation.attrs.copy(),
+        attrs=annotation.attrs.copy(),
     )
 
 
@@ -739,10 +742,14 @@ def get_mesh(
     >>> vertices, faces = cf.atlas.get_mesh(ds, "root")
     """
     validate_atlas_dataset(ds, require_mesh_use=True)
-    acc = AtlasAccessor(ds)
 
-    rid = _resolve_region_id(acc.structures, region)
-    info = acc.structures[rid]
+    structures = ds.attrs["structures"]
+    reference = ds["reference"]
+    hemispheres = ds["hemispheres"]
+    physical_to_base = ds.attrs["physical_to_base"]
+
+    rid = _resolve_region_id(structures, region)
+    info = structures[rid]
 
     mesh_filename = info.get("mesh_filename")
     if mesh_filename is None:
@@ -760,28 +767,25 @@ def get_mesh(
         )
 
     # defer loading mesh to BrainGlobe's structured dict
-    mesh = acc.structures[rid]["mesh"]
+    mesh = structures[rid]["mesh"]
     vertices_um = mesh.points  # (N, 3) in microns
     faces = mesh.get_cells_type("triangle")
 
     vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
-    physical_to_base = acc._physical_to_base_transform
     vertices_m = _apply_physical_to_base_transform(
-        physical_to_base, vertices_mm, acc.reference
+        physical_to_base, vertices_mm, reference
     )
 
     if clip:
-        vertices_m, faces = _drop_vertices_outside_grid(
-            vertices_m, faces, acc.reference
-        )
+        vertices_m, faces = _drop_vertices_outside_grid(vertices_m, faces, reference)
 
     if side != "both":
         sel = {
             d: xr.DataArray(vertices_m[:, i], dims="point") for i, d in enumerate("zyx")
         }
-        side_value = acc.hemispheres.attrs[side]
-        hem_points = acc.hemispheres.sel(sel, method="nearest").compute()
+        side_value = hemispheres.attrs[side]
+        hem_points = hemispheres.sel(sel, method="nearest").compute()
 
         keep_idx = np.where(hem_points == side_value)[0]
         old_to_new = np.full(len(vertices_m), -1, dtype=np.int64)
