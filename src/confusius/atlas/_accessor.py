@@ -204,7 +204,16 @@ class AtlasAccessor:
         >>> ds.atlas.search("visual cortex")
         >>> ds.atlas.search("VISp", field="acronym")
         """
-        return search(self._ds, pattern, field)
+        df = self.lookup
+        if field == "acronym":
+            mask = df["acronym"].str.fullmatch(pattern)
+        elif field == "name":
+            mask = df["name"].str.fullmatch(pattern, case=False)
+        else:
+            mask = df["acronym"].str.contains(pattern, case=False, na=False) | df[
+                "name"
+            ].str.contains(pattern, case=False, na=False)
+        return df[mask]
 
     # ── Masks ─────────────────────────────────────────────────────────────────────────
 
@@ -255,7 +264,7 @@ class AtlasAccessor:
         >>> ds.atlas.get_masks(["VISp", "VISp"], sides=["left", "right"]).coords["mask"].values
         array(['VISp_L', 'VISp_R'], dtype=object)
         """
-        return get_masks(self._ds, regions, sides)
+        return get_atlas_masks(self._ds, regions, sides)
 
     # ── Meshes ────────────────────────────────────────────────────────────────────────
 
@@ -307,7 +316,7 @@ class AtlasAccessor:
         ValueError
             If the region has no mesh file, or the mesh file cannot be located.
         """
-        return get_mesh(self._ds, region, side, clip=clip)
+        return get_atlas_mesh(self._ds, region, side, clip=clip)
 
     # ── Resampling ────────────────────────────────────────────────────────────────────
 
@@ -521,10 +530,11 @@ class AtlasAccessor:
 # These free functions are the implementation behind the matching `AtlasAccessor` methods:
 # each validates `ds` as an atlas, then operates on it, and the accessor method is a thin
 # wrapper (`ds.atlas.get_mesh(...)` calls `get_mesh(ds, ...)`). Import them as
-# `confusius.atlas.get_mesh` / `search` / `get_masks` to operate on a Dataset directly.
+# `confusius.atlas.get_atlas_mesh` / `search_atlas` / `get_atlas_masks` to operate on a
+# Dataset directly.
 
 
-def search(
+def search_atlas(
     ds: xr.Dataset,
     pattern: str,
     field: Literal["all", "acronym", "name"] = "all",
@@ -558,23 +568,14 @@ def search(
     Examples
     --------
     >>> import confusius as cf
-    >>> cf.atlas.search(ds, "visual cortex")
-    >>> cf.atlas.search(ds, "VISp", field="acronym")
+    >>> cf.atlas.search_atlas(ds, "visual cortex")
+    >>> cf.atlas.search_atlas(ds, "VISp", field="acronym")
     """
     validate_atlas_dataset(ds)
-    df = _build_lookup_df(ds.attrs["structures"])
-    if field == "acronym":
-        mask = df["acronym"].str.fullmatch(pattern)
-    elif field == "name":
-        mask = df["name"].str.fullmatch(pattern, case=False)
-    else:
-        mask = df["acronym"].str.contains(pattern, case=False, na=False) | df[
-            "name"
-        ].str.contains(pattern, case=False, na=False)
-    return df[mask]
+    return ds.atlas.search(pattern, field)
 
 
-def get_masks(
+def get_atlas_masks(
     ds: xr.Dataset,
     regions: int | str | Sequence[int | str],
     sides: (
@@ -617,8 +618,8 @@ def get_masks(
     Examples
     --------
     >>> import confusius as cf
-    >>> cf.atlas.get_masks(ds, "VISp")
-    >>> cf.atlas.get_masks(ds, ["VISp", "AUDp"], sides=["left", "both"])
+    >>> cf.atlas.get_atlas_masks(ds, "VISp")
+    >>> cf.atlas.get_atlas_masks(ds, ["VISp", "AUDp"], sides=["left", "both"])
     """
     validate_atlas_dataset(ds)
 
@@ -687,7 +688,7 @@ def get_masks(
     )
 
 
-def get_mesh(
+def get_atlas_mesh(
     ds: xr.Dataset,
     region: int | str,
     side: Literal["left", "right", "both"] = "both",
@@ -739,7 +740,7 @@ def get_mesh(
     Examples
     --------
     >>> import confusius as cf
-    >>> vertices, faces = cf.atlas.get_mesh(ds, "root")
+    >>> vertices, faces = cf.atlas.get_atlas_mesh(ds, "root")
     """
     validate_atlas_dataset(ds, require_mesh_use=True)
 

@@ -163,7 +163,7 @@ id
 [`get_masks`][confusius.atlas.AtlasAccessor.get_masks], and
 [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] are also exposed as free functions
 in `confusius.atlas` that take the Dataset as their first argument, so
-`cf.atlas.search(atlas, "visual")` is equivalent to `atlas.atlas.search("visual")`. Both
+`cf.atlas.search_atlas(atlas, "visual")` is equivalent to `atlas.atlas.search("visual")`. Both
 forms validate the Dataset as an atlas before running.
 
 ## Plotting Annotations over the Reference

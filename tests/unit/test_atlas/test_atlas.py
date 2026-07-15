@@ -785,16 +785,16 @@ class TestStandaloneOperations:
     """The module-level get_mesh/get_masks/search take a Dataset and validate it."""
 
     def test_search_returns_expected_region(self, atlas_ds: xr.Dataset) -> None:
-        assert cf.atlas.search(atlas_ds, "gc", field="acronym").index.tolist() == [20]
+        assert cf.atlas.search_atlas(atlas_ds, "gc", field="acronym").index.tolist() == [20]
 
     def test_get_masks_matches_accessor(self, atlas_ds: xr.Dataset) -> None:
         np.testing.assert_array_equal(
-            cf.atlas.get_masks(atlas_ds, 10).values,
+            cf.atlas.get_atlas_masks(atlas_ds, 10).values,
             atlas_ds.atlas.get_masks(10).values,
         )
 
     def test_get_mesh_matches_accessor(self, atlas_ds: xr.Dataset) -> None:
-        vertices, faces = cf.atlas.get_mesh(atlas_ds, 997)
+        vertices, faces = cf.atlas.get_atlas_mesh(atlas_ds, 997)
         acc_vertices, acc_faces = atlas_ds.atlas.get_mesh(997)
         np.testing.assert_array_equal(vertices, acc_vertices)
         np.testing.assert_array_equal(faces, acc_faces)
@@ -804,8 +804,8 @@ class TestStandaloneOperations:
         """A Dataset missing a required variable is rejected before any work."""
         not_atlas = atlas_ds.drop_vars("hemispheres")
         with pytest.raises(ValueError, match="hemispheres"):
-            cf.atlas.get_mesh(not_atlas, 997)
+            cf.atlas.get_atlas_mesh(not_atlas, 997)
         with pytest.raises(ValueError, match="hemispheres"):
-            cf.atlas.get_masks(not_atlas, 10)
+            cf.atlas.get_atlas_masks(not_atlas, 10)
         with pytest.raises(ValueError, match="hemispheres"):
-            cf.atlas.search(not_atlas, "gc")
+            cf.atlas.search_atlas(not_atlas, "gc")
