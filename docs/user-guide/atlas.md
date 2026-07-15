@@ -9,10 +9,10 @@ atlas is a plain [`xarray.Dataset`][xarray.Dataset] with three data variables on
 common `(z, y, x)` grid ([`reference`][confusius.atlas.AtlasAccessor.reference], the
 template volume; [`annotation`][confusius.atlas.AtlasAccessor.annotation], integer
 region labels; and [`hemispheres`][confusius.atlas.AtlasAccessor.hemispheres], 1 = left,
-2 = right), plus a registered `.atlas` accessor
-([`AtlasAccessor`][confusius.atlas.AtlasAccessor]) that carries all atlas-aware
-operations. The structure hierarchy rides along in `Dataset.attrs["structures"]`, so a
-single object fully describes the atlas and its region tree.
+2 = right), plus an [`.atlas`][confusius.atlas.AtlasAccessor] accessor that
+carries all atlas-aware operations. The structure hierarchy rides along in
+`Dataset.attrs["structures"]`, so a single object fully describes the atlas and its
+region tree.
 
 ## BrainGlobe Atlases
 

@@ -101,23 +101,6 @@ The same table is available from the command line:
 confusius datasets --list
 ```
 
-## Brain Atlases
-
-[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] fetches any
-[BrainGlobe](https://brainglobe.info/) atlas by name and returns it as an atlas
-[`xarray.Dataset`][xarray.Dataset] with the `.atlas` accessor:
-
-```python
-from confusius.datasets import fetch_brainglobe_atlas
-
-atlas = fetch_brainglobe_atlas("allen_mouse_100um")
-masks = atlas.atlas.get_masks("VISp")
-```
-
-Unlike the fUSI-BIDS datasets above, BrainGlobe atlases are cached in BrainGlobe's own
-atlas directory (`~/.brainglobe`, shared with other BrainGlobe tools), so they do not
-appear in `list_datasets`. Pass `data_dir=` to override the cache location.
-
 ## Available fUSI-BIDS Datasets
 
 === "Nunez-Elizalde 2022"
@@ -280,8 +263,8 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
 === "Huang 2025"
 
     A vascular mouse fUSI template derived from Huang et al. (2025)[^huang2025] and
-    distributed as a single ConfUSIus-compatible NIfTI on
-    [OSF (am3jw)](https://osf.io/am3jw/). Total size: **~16.3 MB**.
+    distributed as a single NIfTI on [OSF (am3jw)](https://osf.io/am3jw/). Total size:
+    **~16.3 MB**.
 
     Use [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] to
     download and load the template directly:
@@ -300,8 +283,8 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
 === "Pepe Mariani 2026"
 
     A mouse fUSI template derived from Pepe, Mariani et al. (2026)[^pepe_mariani2026] and
-    distributed as a single ConfUSIus-compatible NIfTI on
-    [OSF (43tu9)](https://osf.io/43tu9/). Total size: **~5.5 MB**.
+    distributed as a single NIfTI on [OSF (43tu9)](https://osf.io/43tu9/). Total size:
+    **~5.5 MB**.
 
     Use [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026] to
     download and load the template directly:
@@ -316,6 +299,27 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
         template.attrs["affines"]["physical_to_sform"],
     )
     ```
+
+## Available Brain Atlases
+
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] fetches any
+[BrainGlobe](https://brainglobe.info/) atlas by name and returns it as an atlas
+[`xarray.Dataset`][xarray.Dataset]. ConfUSIus provides the
+[`.atlas`][confusius.atlas.AtlasAccessor] accessor for common atlas operations like
+resampling, masking, and region lookups:
+
+```python
+from confusius.datasets import fetch_brainglobe_atlas
+
+atlas = fetch_brainglobe_atlas("allen_mouse_100um")
+masks = atlas.atlas.get_masks("VISp")
+```
+
+Unlike the fUSI-BIDS datasets above, BrainGlobe atlases are cached in BrainGlobe's own
+atlas directory (`~/.brainglobe`, shared with other BrainGlobe tools), so they do not
+appear in [`list_datasets`][confusius.datasets.list_datasets]. Use `data_dir` to
+override the cache location.
+
 
 ## API Reference
 
