@@ -49,7 +49,8 @@ Current development version for the next ConfUSIus release.
 ### :bug: Fixes
 
 - Axial velocity estimation now scales the Kasai phase increment by the requested
-  autocorrelation `lag`, so multi-volume lags no longer overestimate velocity.
+  autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
   the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
   `pixdim[4]` when available, and otherwise warns before using frame indices.
