@@ -1,5 +1,6 @@
 """Generic file loading and saving dispatcher."""
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,12 @@ import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.io import restore_affines, zarr_safe_attrs
 from confusius.io.utils import check_path
+
+
+_ZARR_V3_CONSOLIDATED_METADATA_WARNING = (
+    "Consolidated metadata is currently not part in the Zarr format 3 specification."
+)
+"""Zarr v3 warning text emitted when consolidated metadata is written."""
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
@@ -105,7 +112,12 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     if name.endswith(".zarr"):
         data_array = data_array.copy(deep=False)
         data_array.attrs = zarr_safe_attrs(data_array.attrs)
-        data_array.to_zarr(path, **kwargs)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=_ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+            )
+            data_array.to_zarr(path, **kwargs)
         return
 
     raise ValueError(

@@ -2,6 +2,7 @@
 
 import json
 import shutil
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -37,6 +38,11 @@ _NONSERIALIZABLE_ANNOTATION_ATTRS = ("cmap", "norm")
 They are dropped on save and rebuilt from `rgb_lookup` on load, so an atlas keeps its
 canonical region colors across a round-trip without persisting non-serializable objects.
 """
+
+_ZARR_V3_CONSOLIDATED_METADATA_WARNING = (
+    "Consolidated metadata is currently not part in the Zarr format 3 specification."
+)
+"""Zarr v3 warning text emitted when consolidated metadata is written."""
 
 _MESHES_SUBDIR = "meshes"
 """Subdirectory of the Zarr store that holds the bundled region OBJ meshes.
@@ -265,7 +271,12 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
 
     # Write the store first (to_zarr requires the path not to exist yet), then copy the
     # OBJ files into its meshes/ subdirectory.
-    to_save.to_zarr(path, **kwargs)
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=_ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+        )
+        to_save.to_zarr(path, **kwargs)
     if to_copy:
         meshes_dir = path / _MESHES_SUBDIR
         meshes_dir.mkdir(parents=True, exist_ok=True)

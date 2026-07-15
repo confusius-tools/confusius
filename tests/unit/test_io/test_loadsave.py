@@ -1,5 +1,6 @@
 """Unit tests for confusius.io.loadsave module."""
 
+import warnings
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -113,6 +114,24 @@ class TestSaveDispatch:
         da = xr.DataArray(np.arange(12.0).reshape(4, 3))
         save(da, path)
         npt.assert_array_equal(load(path).values, da.values)
+
+    def test_zarr_suppresses_consolidated_metadata_warning(self, tmp_path):
+        """Zarr v3 consolidated-metadata warning from xarray/zarr is hidden."""
+        path = tmp_path / "data.zarr"
+        da = xr.DataArray(np.arange(6.0).reshape(2, 3))
+
+        def fake_to_zarr(*args, **kwargs) -> None:
+            warnings.warn(
+                "Consolidated metadata is currently not part in the Zarr format 3 specification.",
+                UserWarning,
+            )
+
+        with patch.object(xr.DataArray, "to_zarr", side_effect=fake_to_zarr):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                save(da, path)
+
+        assert not caught
 
     def test_kwargs_forwarded_to_saver(self, tmp_path):
         """Extra kwargs are forwarded to the underlying saver."""

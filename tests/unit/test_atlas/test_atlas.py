@@ -4,6 +4,8 @@ Reference implementations are used for get_masks and get_mesh to avoid
 testing against the implementation itself.
 """
 
+import warnings
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -529,6 +531,25 @@ class TestIO:
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
         assert (path / "meshes" / "997.obj").is_file()
+
+    def test_save_suppresses_consolidated_metadata_warning(
+        self, atlas_ds: xr.Dataset, tmp_path, monkeypatch
+    ) -> None:
+        """Zarr v3 consolidated-metadata warning from xarray/zarr is hidden."""
+        path = tmp_path / "atlas.zarr"
+
+        def fake_to_zarr(self, *args, **kwargs) -> None:
+            warnings.warn(
+                "Consolidated metadata is currently not part in the Zarr format 3 specification.",
+                UserWarning,
+            )
+
+        monkeypatch.setattr(xr.Dataset, "to_zarr", fake_to_zarr)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            save_atlas(atlas_ds, path)
+
+        assert not caught
 
     def test_loaded_mesh_filename_points_into_store(
         self, atlas_ds: xr.Dataset, tmp_path
