@@ -452,8 +452,8 @@ def load_scan(
     Multi-pose / multi-block v2 layouts are inferred by analogy with v1 and have not
     been validated against real files. Provenance strings are mapped to v1-style
     `iconeus_*` fields heuristically (by position, with the hex-encoded serial/hardware
-    strings as anchors); the raw decoded strings are always kept in
-    `iconeus_header_strings` for manual re-mapping.
+    strings as anchors); the three still-unidentified plain-string slots are exposed as
+    `iconeus_unknown1`, `iconeus_unknown2`, and `iconeus_unknown3`.
 
     Acquisition settings that correspond to fUSI-BIDS fields are also surfaced as
     attributes, in native header units: `probe_model`, `probe_center_frequency` (MHz),
@@ -897,8 +897,9 @@ def _read_scan_v2_strings(header: bytes) -> list[tuple[str, bool, int]]:
     can use them as structural anchors.
 
     Because the strings are variable-length and interleaved with numeric fields, this is
-    a heuristic recovery, not a schema parse: it may miss fields or pick up spurious
-    matches. See `_map_scan_v2_provenance` for how the result is mapped to named fields.
+    still a heuristic recovery rather than a full schema parse: it trusts the inline
+    length prefixes, but it does not yet know the exact semantic type of every record.
+    See `_map_scan_v2_provenance` for how the result is mapped to named fields.
 
     Parameters
     ----------
@@ -977,14 +978,13 @@ def _map_scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, s
 
     The provenance strings appear in a stable order:
 
-    `sequence, project, subject, session, species, <type>, scan, <unknown>, <unknown>,
-    experimenter, serial (hex), hardware (hex)`
+    `sequence, project, subject, session, species, <unknown1>, scan, <unknown2>,
+    <unknown3>, experimenter, serial (hex), hardware (hex)`
 
     The two trailing hex-decoded strings (serial, hardware) are used as structural
     anchors; the leading fields are mapped positionally. This is heuristic and matches
     a small number of example files — a field that is empty or absent in another file
-    would shift the positional mapping, so the raw strings are always kept alongside the
-    mapped fields (see `_build_scan_v2_attrs`).
+    would shift the positional mapping.
 
     Parameters
     ----------
@@ -1011,17 +1011,19 @@ def _map_scan_v2_provenance(records: list[tuple[str, bool, int]]) -> dict[str, s
             provenance["iconeus_experimenter"] = plain_before[-1]
 
     plain = [text for text, is_hex, _ in records if not is_hex]
-    leading_fields = (
+    indexed_fields = (
         "iconeus_sequence",
         "iconeus_project",
         "iconeus_subject",
         "iconeus_session",
         "iconeus_species",
+        "iconeus_unknown1",
+        "iconeus_scan",
+        "iconeus_unknown2",
+        "iconeus_unknown3",
     )
-    for field, value in zip(leading_fields, plain):
+    for field, value in zip(indexed_fields, plain):
         provenance[field] = value
-    if len(plain) > 6:
-        provenance["iconeus_scan"] = plain[6]
 
     return provenance
 
@@ -1419,11 +1421,10 @@ def _build_scan_v2_attrs(
 ) -> dict[str, Any]:
     """Assemble provenance attributes for a SCAN v2 volume.
 
-    The v2 header carries no `probeToLab`-equivalent affine, so `affines` is left empty.
     Header strings are mapped to v1-style provenance fields (`iconeus_subject`,
-    `iconeus_session`, ...) on a best-effort basis (see `_map_scan_v2_provenance`); the raw
-    decoded strings are always kept in `iconeus_header_strings` so users can re-map them
-    if the heuristic mislabels a field.
+    `iconeus_session`, ...) on a best-effort basis (see `_map_scan_v2_provenance`).
+    The three still-unidentified plain-string slots are surfaced explicitly as
+    `iconeus_unknown1`, `iconeus_unknown2`, and `iconeus_unknown3`.
 
     Parameters
     ----------
@@ -1437,9 +1438,8 @@ def _build_scan_v2_attrs(
     Returns
     -------
     dict
-        Attributes for the DataArray: `affines` (empty), `iconeus_scan_format`,
-        `iconeus_scan_mode`, `iconeus_datetime`, the mapped provenance fields, and the raw
-        `iconeus_header_strings`.
+        Attributes for the DataArray: `affines`, `iconeus_scan_format`,
+        `iconeus_scan_mode`, `iconeus_datetime`, and the mapped provenance fields.
     """
     if npose > 1:
         scan_mode = "4Dscan" if n_time_total > 1 else "3Dscan"
@@ -1448,12 +1448,10 @@ def _build_scan_v2_attrs(
 
     records = _read_scan_v2_strings(header)
     attrs: dict[str, Any] = {
-        # No physical_to_lab affine has been located in the v2 header yet.
         "affines": {},
         "iconeus_scan_format": "v2",
         "iconeus_scan_mode": scan_mode,
         "iconeus_datetime": _read_scan_v2_datetime(header, records),
-        "iconeus_header_strings": [text for text, _, _ in records],
     }
     attrs.update(_map_scan_v2_provenance(records))
     return attrs

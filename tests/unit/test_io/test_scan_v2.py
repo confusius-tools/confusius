@@ -429,13 +429,11 @@ class TestLoadScanV2:
         """Single-pose v2 is reported as 2Dscan."""
         assert scan_v2.attrs["iconeus_scan_mode"] == "2Dscan"
 
-    def test_header_strings_recovered(self, scan_v2: xr.DataArray) -> None:
-        """Plain header strings are recovered and hex fields decoded."""
-        header_strings = scan_v2.attrs["iconeus_header_strings"]
-        assert "sub-01" in header_strings
-        assert "scan-01" in header_strings
-        # The hex-encoded serial is stored decoded, not as its raw hex form.
-        assert _SERIAL in header_strings
+    def test_unknown_fields_mapped(self, scan_v2: xr.DataArray) -> None:
+        """The three unmapped plain-string slots are exposed explicitly."""
+        assert scan_v2.attrs["iconeus_unknown1"] == "T"
+        assert scan_v2.attrs["iconeus_unknown2"] == "none"
+        assert scan_v2.attrs["iconeus_unknown3"] == "None"
 
     def test_provenance_fields_mapped(self, scan_v2: xr.DataArray) -> None:
         """Header strings map to v1-style provenance fields."""
@@ -444,6 +442,7 @@ class TestLoadScanV2:
         assert scan_v2.attrs["iconeus_session"] == "ses-01"
         assert scan_v2.attrs["iconeus_scan"] == "scan-01"
         assert scan_v2.attrs["iconeus_experimenter"] == "user-01"
+        assert scan_v2.attrs["iconeus_species"] == "Rat"
 
     def test_serial_from_hex_anchor(self, scan_v2: xr.DataArray) -> None:
         """Serial number is recovered from the trailing hex-encoded field."""
