@@ -9,6 +9,7 @@ from confusius.signal import (
     censor_samples,
     clean,
     filter_butterworth,
+    filter_cosine,
     interpolate_samples,
     standardize,
 )
@@ -375,3 +376,36 @@ def test_clean_psc_restores_original_mean_after_highpass(sample_timeseries):
     )
 
     assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_matches_filter_cosine(sample_timeseries):
+    """Test clean can use cosine high-pass filtering."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+
+    expected = filter_cosine(signals, low_cutoff=0.1)
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_rejects_high_cutoff(sample_timeseries):
+    """Test cosine filtering cannot be used as a low-pass filter."""
+    with pytest.raises(ValueError, match="Cosine filtering only supports low_cutoff"):
+        clean(sample_timeseries(), high_cutoff=1.0, filter_method="cosine")
+
+
+def test_clean_cosine_filter_rejects_butterworth_kwargs(sample_timeseries):
+    """Test cosine filtering rejects Butterworth-only kwargs."""
+    with pytest.raises(ValueError, match="filter_butterworth_kwargs is only supported"):
+        clean(
+            sample_timeseries(),
+            low_cutoff=0.1,
+            filter_method="cosine",
+            filter_butterworth_kwargs={"order": 3},
+        )

@@ -8,6 +8,7 @@ import scipy.signal
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings
+from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius.validation import validate_time_series
 
 
@@ -131,6 +132,13 @@ def _butterworth_filter_wrapper(
         result = np.moveaxis(result, 0, axis)
 
     return result
+
+
+def _cosine_filter_wrapper(
+    data: np.ndarray, projection_matrix: np.ndarray
+) -> np.ndarray:
+    """Project one time series out of the cosine drift subspace."""
+    return data - projection_matrix @ data
 
 
 def filter_butterworth(
@@ -273,3 +281,83 @@ def filter_butterworth(
     )
 
     return result
+
+
+def filter_cosine(
+    signals: xr.DataArray,
+    low_cutoff: float,
+    uniformity_tolerance: float = 1e-2,
+) -> xr.DataArray:
+    """Apply cosine high-pass filtering along `time`.
+
+    This removes low-frequency drift by regressing each time series onto the same
+    discrete-cosine basis used by the GLM `drift_model="cosine"` design matrix.
+
+    Parameters
+    ----------
+    signals : (time, ...) xarray.DataArray
+        Array to filter. Must have a `time` dimension. Can be any shape, e.g.,
+        extracted signals `(time, space)`, full 3D+t imaging data `(time, z, y,
+        x)`, or regional signals `(time, region)`.
+
+        !!! warning "Chunking along time is not supported"
+            The `time` dimension must NOT be chunked. Chunk only spatial dimensions:
+            `data.chunk({'time': -1})`.
+
+    low_cutoff : float
+        High-pass cutoff frequency in hertz. Frequencies below this are removed by
+        projection onto the cosine drift basis.
+    uniformity_tolerance : float, default: 1e-2
+        Maximum allowed relative range of consecutive time intervals, defined as
+        `(max_interval - min_interval) / median_interval`. Raise a `ValueError` if
+        the time coordinate exceeds this threshold. Increase this value to tolerate
+        slight timestamp jitter (e.g. from acquisition clocks or dropped volumes).
+
+    Returns
+    -------
+    xarray.DataArray
+        Filtered signals with same shape and coordinates as input.
+
+    Raises
+    ------
+    ValueError
+        If `signals` does not have a `time` dimension or `time` coordinates, if
+        time coordinates are not uniformly sampled within the specified tolerance, or if
+        `low_cutoff` is not positive.
+    """
+    validate_time_series(signals, "filtering")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        spacing = get_coordinate_spacings(
+            signals, uniformity_tolerance=uniformity_tolerance
+        )
+
+    time_spacing = spacing["time"]
+    if time_spacing is None:
+        raise ValueError(
+            "Non-uniform 'time' coordinates detected. Cosine filtering requires "
+            "uniformly sampled data. Consider interpolating your data to a regular "
+            "time grid first."
+        )
+
+    regressors, _ = make_cosine_drift_regressors(
+        signals.sizes["time"],
+        low_cutoff,
+        time_spacing,
+    )
+    projection_matrix = regressors @ np.linalg.pinv(regressors)
+    output_dtype = np.result_type(signals.dtype, np.float64)
+
+    result = xr.apply_ufunc(
+        _cosine_filter_wrapper,
+        signals,
+        input_core_dims=[["time"]],
+        output_core_dims=[["time"]],
+        kwargs={"projection_matrix": projection_matrix},
+        vectorize=True,
+        dask="parallelized",
+        output_dtypes=[output_dtype],
+    )
+
+    return result.transpose(*signals.dims)

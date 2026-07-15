@@ -9,7 +9,7 @@ from xarray.core.types import InterpOptions
 from confusius.signal.censor import censor_samples, interpolate_samples
 from confusius.signal.confounds import regress_confounds
 from confusius.signal.detrending import detrend as detrend_signals
-from confusius.signal.filters import filter_butterworth
+from confusius.signal.filters import filter_butterworth, filter_cosine
 from confusius.signal.standardization import standardize
 from confusius.validation import validate_time_series
 
@@ -106,6 +106,7 @@ def clean(
     standardize_method: Literal["zscore", "psc"] | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
+    filter_method: Literal["butterworth", "cosine"] = "butterworth",
     filter_butterworth_kwargs: dict | None = None,
     confounds: xr.DataArray | None = None,
     standardize_confounds: bool = True,
@@ -121,7 +122,7 @@ def clean(
 
     1. Interpolate censored samples (pre-scrubbing).
     2. Detrend.
-    3. Butterworth filter.
+    3. Optional temporal filtering (Butterworth or cosine high-pass).
     4. Censor samples.
     5. Regress confounds.
     6. Standardize.
@@ -156,8 +157,14 @@ def clean(
     high_cutoff : float, optional
         High cutoff frequency in Hz. Frequencies above this are attenuated (acts as
         low-pass filter). If not provided, no low-pass filtering is applied.
+    filter_method : {"butterworth", "cosine"}, default: "butterworth"
+        Filtering method used when `low_cutoff` or `high_cutoff` is provided.
+        Butterworth filtering supports low-pass, high-pass, and band-pass filtering.
+        Cosine filtering supports high-pass filtering only and uses the same
+        discrete-cosine drift basis as the GLM module.
     filter_butterworth_kwargs : dict, optional
-        Extra keyword arguments passed to `confusius.signal.filter_butterworth`.
+        Extra keyword arguments passed to `confusius.signal.filter_butterworth` when
+        `filter_method="butterworth"`.
     confounds : (time, n_confounds) xarray.DataArray, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
@@ -236,11 +243,29 @@ def clean(
 
     interpolate_kwargs = {} if interpolate_kwargs is None else interpolate_kwargs.copy()
 
-    filter_butterworth_kwargs.update(
-        {"low_cutoff": low_cutoff, "high_cutoff": high_cutoff}
-    )
-
     do_filter = low_cutoff is not None or high_cutoff is not None
+    if filter_method not in {"butterworth", "cosine"}:
+        raise ValueError(
+            f"filter_method must be 'butterworth' or 'cosine', got {filter_method}."
+        )
+
+    if filter_method == "cosine":
+        if high_cutoff is not None:
+            raise ValueError(
+                "Cosine filtering only supports low_cutoff; pass high_cutoff only "
+                "with filter_method='butterworth'."
+            )
+        if do_filter and low_cutoff is None:
+            raise ValueError("Cosine filtering requires low_cutoff to be provided.")
+        if filter_butterworth_kwargs:
+            raise ValueError(
+                "filter_butterworth_kwargs is only supported when "
+                "filter_method='butterworth'."
+            )
+    else:
+        filter_butterworth_kwargs.update(
+            {"low_cutoff": low_cutoff, "high_cutoff": high_cutoff}
+        )
 
     if ensure_finite:
         signals = _interpolate_non_finite(signals, name="signals")
@@ -275,9 +300,15 @@ def clean(
             confounds = detrend_signals(confounds, order=detrend_order)
 
     if do_filter:
-        signals = filter_butterworth(signals, **filter_butterworth_kwargs)
-        if confounds is not None:
-            confounds = filter_butterworth(confounds, **filter_butterworth_kwargs)
+        if filter_method == "butterworth":
+            signals = filter_butterworth(signals, **filter_butterworth_kwargs)
+            if confounds is not None:
+                confounds = filter_butterworth(confounds, **filter_butterworth_kwargs)
+        else:
+            assert low_cutoff is not None
+            signals = filter_cosine(signals, low_cutoff=low_cutoff)
+            if confounds is not None:
+                confounds = filter_cosine(confounds, low_cutoff=low_cutoff)
 
     if sample_mask is not None:
         signals = censor_samples(signals, sample_mask=sample_mask)
