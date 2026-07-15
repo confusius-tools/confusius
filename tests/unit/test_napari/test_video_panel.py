@@ -16,6 +16,7 @@ import pytest
 
 from confusius._napari._video._video_panel import (
     VideoPanel,
+    _IRREGULAR_TIME_WARNING,
     _VideoArray,
     _VideoEntry,
 )
@@ -335,6 +336,29 @@ def loaded_panel(panel, viewer):
     panel._guarding_order = True
 
     return panel
+
+
+class TestReferenceWarning:
+    def test_regular_reference_keeps_warning_hidden(self, panel):
+        assert panel._ref_warning.text() == _IRREGULAR_TIME_WARNING
+        assert panel._ref_warning.isHidden()
+
+    def test_irregular_reference_shows_warning(self, panel, viewer, sample_3dt_volume):
+        time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
+        time_values[2:] += 0.02
+        irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
+        with pytest.warns(UserWarning, match="non-uniform spacing"):
+            _, irregular_layer = plot_napari(
+                irregular,
+                viewer=viewer,
+                show_colorbar=False,
+                show_scale_bar=False,
+            )
+        idx = panel._ref_combo.findText(irregular_layer.name)
+        panel._ref_combo.setCurrentIndex(idx)
+
+        assert idx >= 0
+        assert not panel._ref_warning.isHidden()
 
 
 # ---------------------------------------------------------------------------
