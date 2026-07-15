@@ -22,6 +22,7 @@ from __future__ import annotations
 from confusius.datasets import (
     fetch_brainglobe_atlas,
     fetch_cybis_pereira_2026,
+    fetch_khallaf_2026,
     fetch_nunez_elizalde_2022,
     fetch_template_pepe_mariani_2026,
 )
@@ -129,11 +130,27 @@ def _prefetch_cybis_pereira() -> None:
     )
 
 
+def _prefetch_khallaf() -> None:
+    # docs/examples/glm/first_level.py
+    fetch_khallaf_2026(
+        datasets="rawdata",
+        subjects="5622",
+        sessions="IPM",
+        reconstruction="resampled",
+    )
+    # Mouse template and Allen atlas used for registration and masks in the same
+    # example. Warming the brainglobe atlas here keeps its download progress out of
+    # the parity-sensitive gallery render.
+    fetch_template_pepe_mariani_2026()
+    Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
+
+
 def main() -> None:
     _prefetch_nunez_elizalde()
     _prefetch_cybis_pereira()
     _prefetch_pepe_mariani_template()
     _prefetch_allen_atlas()
+    _prefetch_khallaf()
 
 
 if __name__ == "__main__":
