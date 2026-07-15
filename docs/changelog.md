@@ -38,6 +38,14 @@ Current development version for the next ConfUSIus release.
   [`write_events`][confusius.bids.save_events] →
   [`save_events`][confusius.bids.save_events]
   ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] now resolves the
+  dataset from OSF project `7cf9g` instead of `dkseb`. Existing local caches may need a
+  one-time `refresh=True` to replace the cached OSF file index before downloading or
+  checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
+- Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
+  the `estimation_method` and `absolute_velocity` arguments were removed, the
+  corresponding metadata fields were dropped, and `spatial_kernel` now defaults to `3`
+  and accepts explicit `(z, y, x)` sizes ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :sparkles: Enhancements
 
@@ -49,6 +57,17 @@ Current development version for the next ConfUSIus release.
 - [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
   Dataset is a well-formed atlas
   ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
+  addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
+  experimental: data, timing, voxel spacing, the depth origin, provenance
+  (subject/session/project/scan/experimenter, serial number, acquisition datetime), and
+  BIDS-corresponding acquisition settings (probe model, center/transmit frequencies,
+  pitch, focal depth, imaging depth, PRF, plane-wave angles, SVD low cutoff, power-Doppler
+  integration window) are recovered (lateral and elevation axes are centered on zero). A
+  `physical_to_lab` affine is derived from a header block read as a 6DOF probe pose
+  (experimental, assumed convention), and a BPS sidecar composes a `physical_to_brain`
+  affine as for v1. Multi-pose layouts are inferred
+  ([#317](https://github.com/confusius-tools/confusius/pull/317)).
 - **[Napari plugin]** Added an interactive registration panel for volume alignment in
   napari, including linear and non-linear transforms, progress preview, manual and
   automatic initialization, saving/loading transforms, and forward/inverse transform
@@ -68,6 +87,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Axial velocity estimation now scales the Kasai phase increment by the requested
+  autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
   the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
   `pixdim[4]` when available, and otherwise warns before using frame indices
@@ -88,6 +110,12 @@ Current development version for the next ConfUSIus release.
 - Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
   single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
   `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
+
+### :books: Documentation
+
+- Fixed velocity sign interpretation in [Beamformed IQ user
+  guide](user-guide/beamformed-iq.md)
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 
 ### :wrench: Maintenance
 

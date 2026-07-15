@@ -206,7 +206,7 @@ appear in `list_datasets`. Pass `data_dir=` to override the cache location.
     Functional ultrasound imaging recordings from awake, head-fixed,
     freely-running mice, from Landemard et al. (2026)[^landemard2026],
     re-exported to fUSI-BIDS format and hosted on
-    [OSF (dkseb)](https://osf.io/dkseb/overview).
+    [OSF (7cf9g)](https://osf.io/7cf9g/overview).
     Total size: **~42 GB**.
 
     Use [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] to
