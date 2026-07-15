@@ -189,9 +189,9 @@ class AtlasAccessor:
         field : {"all", "acronym", "name"}, default: "all"
             Which column to search.
 
-            - `"all"`: case-insensitive substring match on both `acronym`
-              and `name`.
-            - `"acronym"` / `"name"`: full regex match on that column only.
+            - `"all"`: case-insensitive regex search on both `acronym` and `name`.
+            - `"acronym"` / `"name"`: case-insensitive full regex match on that
+              column only.
 
         Returns
         -------
@@ -206,7 +206,7 @@ class AtlasAccessor:
         """
         df = self.lookup
         if field == "acronym":
-            mask = df["acronym"].str.fullmatch(pattern)
+            mask = df["acronym"].str.fullmatch(pattern, case=False)
         elif field == "name":
             mask = df["name"].str.fullmatch(pattern, case=False)
         else:
@@ -550,8 +550,9 @@ def search_atlas(
     field : {"all", "acronym", "name"}, default: "all"
         Which column to search.
 
-        - `"all"`: case-insensitive substring match on both `acronym` and `name`.
-        - `"acronym"` / `"name"`: full regex match on that column only.
+        - `"all"`: case-insensitive regex search on both `acronym` and `name`.
+        - `"acronym"` / `"name"`: case-insensitive full regex match on that column
+          only.
 
     Returns
     -------
@@ -767,35 +768,35 @@ def get_atlas_mesh(
             "atlas reads them from the meshes bundled in its Zarr store."
         )
 
-    # defer loading mesh to BrainGlobe's structured dict
     mesh = structures[rid]["mesh"]
     vertices_um = mesh.points  # (N, 3) in microns
     faces = mesh.get_cells_type("triangle")
 
     vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
-    vertices_m = _apply_physical_to_base_transform(
+    vertices_mm = _apply_physical_to_base_transform(
         physical_to_base, vertices_mm, reference
     )
 
     if clip:
-        vertices_m, faces = _drop_vertices_outside_grid(vertices_m, faces, reference)
+        vertices_mm, faces = _drop_vertices_outside_grid(vertices_mm, faces, reference)
 
     if side != "both":
         sel = {
-            d: xr.DataArray(vertices_m[:, i], dims="point") for i, d in enumerate("zyx")
+            d: xr.DataArray(vertices_mm[:, i], dims="point")
+            for i, d in enumerate("zyx")
         }
         side_value = hemispheres.attrs[side]
         hem_points = hemispheres.sel(sel, method="nearest").compute()
 
         keep_idx = np.where(hem_points == side_value)[0]
-        old_to_new = np.full(len(vertices_m), -1, dtype=np.int64)
+        old_to_new = np.full(len(vertices_mm), -1, dtype=np.int64)
         old_to_new[keep_idx] = np.arange(len(keep_idx), dtype=np.int64)
 
         new_face_idx = old_to_new[faces]  # (M, 3); -1 for dropped vertices.
         valid = np.all(new_face_idx >= 0, axis=1)
 
-        vertices_m = vertices_m[keep_idx]
+        vertices_mm = vertices_mm[keep_idx]
         faces = new_face_idx[valid].astype(np.int32)
 
-    return vertices_m, faces
+    return vertices_mm, faces

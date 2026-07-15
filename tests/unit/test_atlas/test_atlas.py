@@ -1,4 +1,4 @@
-"""Tests for the atlas Dataset builder, `.atlas` accessor, and IO.
+"""Tests for atlas Datasets, the `.atlas` accessor, and atlas I/O.
 
 Reference implementations are used for get_masks and get_mesh to avoid
 testing against the implementation itself.
