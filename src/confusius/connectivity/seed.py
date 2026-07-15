@@ -159,17 +159,18 @@ class SeedBasedMaps(BaseEstimator):
     >>>
     >>> rng = np.random.default_rng(0)
     >>> data = xr.DataArray(
-    ...     rng.standard_normal((200, 10, 20)),
-    ...     dims=["time", "y", "x"],
-    ...     coords={"time": np.arange(200) * 0.1},
+    ...     rng.standard_normal((200, 1, 10, 20)),
+    ...     dims=["time", "z", "y", "x"],
+    ...     coords={"time": np.arange(200) * 0.1, "z": [0.0]},
     ... )
     >>>
     >>> labels = xr.DataArray(
-    ...     np.zeros((10, 20), dtype=int),
-    ...     dims=["y", "x"],
+    ...     np.zeros((1, 10, 20), dtype=int),
+    ...     dims=["z", "y", "x"],
+    ...     coords={"z": [0.0]},
     ... )
-    >>> labels[:3, :] = 1   # Region 1: first 3 y-slices.
-    >>> labels[3:6, :] = 2  # Region 2: next 3 y-slices.
+    >>> labels[:, :3, :] = 1   # Region 1: first 3 y-slices.
+    >>> labels[:, 3:6, :] = 2  # Region 2: next 3 y-slices.
     >>>
     >>> mapper = SeedBasedMaps(seed_masks=labels)
     >>> mapper.fit(data)
@@ -181,15 +182,16 @@ class SeedBasedMaps(BaseEstimator):
     >>>
     >>> # Single seed from a boolean mask converted to integer.
     >>> mask = xr.DataArray(
-    ...     np.zeros((10, 20), dtype=bool),
-    ...     dims=["y", "x"],
+    ...     np.zeros((1, 10, 20), dtype=bool),
+    ...     dims=["z", "y", "x"],
+    ...     coords={"z": [0.0]},
     ... )
-    >>> mask[:3, :] = True
+    >>> mask[:, :3, :] = True
     >>> mapper_single = SeedBasedMaps(seed_masks=mask.astype(int))
     >>> mapper_single.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper_single.maps_.dims  # region dim is squeezed for a single seed
-    ('y', 'x')
+    ('z', 'y', 'x')
 
     Signal-based usage: provide seed signals directly.
 
@@ -202,7 +204,7 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper_sig.fit(data)
     SeedBasedMaps(seed_signals=...)
     >>> mapper_sig.maps_.dims  # single signal, region dim squeezed
-    ('y', 'x')
+    ('z', 'y', 'x')
     """
 
     def __init__(
