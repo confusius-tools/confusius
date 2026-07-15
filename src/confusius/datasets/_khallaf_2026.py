@@ -276,9 +276,9 @@ def _as_str_list(value: str | int | Iterable[str | int] | None) -> list[str] | N
 def fetch_khallaf_2026(
     data_dir: str | Path | None = None,
     datasets: str | list[str] | None = None,
-    subjects: str | list[str] | None = None,
+    subjects: str | int | list[int] | list[str] | None = None,
     sessions: str | list[str] | None = None,
-    runs: str | list[str] | None = None,
+    runs: str | int | list[int] | list[str] | None = None,
     reconstruction: str = "both",
     sourcedata: bool = False,
     refresh: bool = False,
@@ -309,18 +309,18 @@ def fetch_khallaf_2026(
         `"glm"` and `"bootstrapping"` for the processed derivatives. Accepts a
         single string or a list. If not provided, all of these are downloaded.
         Does not control `"sourcedata"` (see the `"sourcedata"` parameter).
-    subjects : str or list[str], optional
-        Subject IDs to download (without `sub-` prefix), e.g. `"5622"` or
-        `["5622", "6036"]`. If not provided, all subjects are downloaded. Files
-        with no subject entity are always included.
+    subjects : str or int or list[str | int], optional
+        Subject IDs to download (without `sub-` prefix), e.g. `"5622"` or `["5622",
+        "6036"]`. If not provided, all subjects are downloaded. Integer inputs are
+        coerced to strings. Files with no subject entity are always included.
     sessions : str or list[str], optional
         Session IDs to download (without `ses-` prefix), e.g. `"IPM"` or
         `["Air", "Etoh"]`. If not provided, all sessions are downloaded. Files
         with no session entity are always included.
     runs : str or list[str], optional
-        Run indices to download (without `run-` prefix), e.g. `"1"` or
-        `["1", "2"]`. If not provided, all runs are downloaded. Files with no
-        run entity are always included.
+        Run indices to download (without `run-` prefix), e.g. `"1"` or `["1", "2"]`. If
+        not provided, all runs are downloaded. Integer inputs are coerced to strings.
+        Files with no run entity are always included.
     reconstruction : str, default: "both"
         Which reconstruction of the rawdata `fusi/` volumes to download:
         `"raw"` for the unregistered volumes (no `rec-` entity), `"resampled"`

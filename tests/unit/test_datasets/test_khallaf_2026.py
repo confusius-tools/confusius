@@ -13,6 +13,7 @@ import urllib3.exceptions
 
 from confusius.datasets import fetch_khallaf_2026
 from confusius.datasets._dataverse import (
+    ZipMemberInfo,
     access_url,
     download_zip_members,
     get_zip_index,
@@ -458,7 +459,7 @@ def test_download_rejects_zip_slip(tmp_path):
 
     with patch("confusius.datasets._dataverse.RemoteZip", _Fake):
         with pytest.raises(ValueError, match="outside the cache"):
-            download_zip_members(bids_dir, "url", members, _ZIP_ROOT)
+            download_zip_members(bids_dir, "url", members, _ZIP_ROOT)  # type: ignore
     assert not (tmp_path / "escape.txt").exists()
 
 
@@ -495,14 +496,14 @@ def test_download_zip_members_refresh_redownloads_changed_crc(tmp_path):
     # "missing.nii" is absent from disk.
 
     members = {
-        "unchanged.nii": {"size": 3, "crc": 111},
-        "changed.nii": {"size": 3, "crc": 222},  # remote crc bumped
-        "missing.nii": {"size": 3, "crc": 333},
+        "unchanged.nii": ZipMemberInfo({"size": 3, "crc": 111}),
+        "changed.nii": ZipMemberInfo({"size": 3, "crc": 222}),  # remote crc bumped
+        "missing.nii": ZipMemberInfo({"size": 3, "crc": 333}),
     }
     previous_index = {
-        "unchanged.nii": {"size": 3, "crc": 111},
-        "changed.nii": {"size": 3, "crc": 111},  # cached crc is stale
-        "missing.nii": {"size": 3, "crc": 333},
+        "unchanged.nii": ZipMemberInfo({"size": 3, "crc": 111}),
+        "changed.nii": ZipMemberInfo({"size": 3, "crc": 111}),  # cached crc is stale
+        "missing.nii": ZipMemberInfo({"size": 3, "crc": 333}),
     }
 
     opened = []
@@ -520,10 +521,10 @@ def test_download_zip_members_no_refresh_ignores_crc(tmp_path):
     (bids_dir / "present.nii").write_bytes(b"old")
 
     members = {
-        "present.nii": {"size": 3, "crc": 999},  # crc differs, but no refresh
-        "missing.nii": {"size": 3, "crc": 111},
+        "present.nii": ZipMemberInfo({"size": 3, "crc": 999}),
+        "missing.nii": ZipMemberInfo({"size": 3, "crc": 111}),
     }
-    previous_index = {"present.nii": {"size": 3, "crc": 111}}
+    previous_index = {"present.nii": ZipMemberInfo({"size": 3, "crc": 111})}
 
     opened = []
     with patch("confusius.datasets._dataverse.RemoteZip", _recording_remotezip(opened)):
@@ -535,9 +536,15 @@ def test_download_zip_members_no_refresh_ignores_crc(tmp_path):
 
 
 def test_update_cached_zip_index_preserves_unrequested_baseline(tmp_path):
-    remote = {"a.nii": {"size": 1, "crc": 2}, "b.nii": {"size": 1, "crc": 9}}
-    previous = {"a.nii": {"size": 1, "crc": 1}, "b.nii": {"size": 1, "crc": 1}}
-    members = {"a.nii": {"size": 1, "crc": 2}}  # only "a" was reconciled
+    remote = {
+        "a.nii": ZipMemberInfo({"size": 1, "crc": 2}),
+        "b.nii": ZipMemberInfo({"size": 1, "crc": 9}),
+    }
+    previous = {
+        "a.nii": ZipMemberInfo({"size": 1, "crc": 1}),
+        "b.nii": ZipMemberInfo({"size": 1, "crc": 1}),
+    }
+    members = {"a.nii": ZipMemberInfo({"size": 1, "crc": 2})}  # only "a" was reconciled
 
     update_cached_zip_index(tmp_path, remote, previous, members)
 
