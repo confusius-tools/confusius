@@ -293,7 +293,8 @@ def load_scan(
       `.compute()`) before the handle is garbage-collected.
     - **v2**: a flat binary file (variable-length header + little-endian `float64`
       payload). The returned DataArray wraps a NumPy memmap via a Dask array. Support is
-      **experimental** (see Notes); `bps_path` is not yet supported for v2.
+      **experimental** (see Notes), including its `physical_to_lab` affine and, when a
+      `bps_path` is given, `physical_to_brain`.
 
     `load_scan` sniffs the format automatically and dispatches accordingly.
 
