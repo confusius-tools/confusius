@@ -340,23 +340,20 @@ class TestComputePowerDopplerVolume:
 class TestComputeAxialVelocityVolume:
     """Tests for compute_axial_velocity_volume function."""
 
-    def test_matches_reference_kasai_estimator(self, sample_iq_block_4d):
+    @pytest.mark.parametrize("lag", [1, 2])
+    def test_matches_reference_kasai_estimator(self, sample_iq_block_4d, lag):
         """Result matches the standard Kasai estimator."""
         fs = 100.0
         transmit_frequency = 15.625e6
         beamforming_sound_velocity = 1540.0
-        lag = 1
 
-        block_rolled_conjugate = np.roll(sample_iq_block_4d, lag, axis=0).conj()
-        block_rolled_conjugate[:lag, ...] = 0
-        autocorrelation = sample_iq_block_4d * block_rolled_conjugate
-        autocorrelation = autocorrelation[lag:]
-        average_phase = np.angle(autocorrelation.mean(0))
+        autocorrelation = sample_iq_block_4d[lag:] * np.conj(sample_iq_block_4d[:-lag])
+        average_phase = np.angle(autocorrelation.mean(axis=0))
         expected = (
             average_phase
             * fs
             * beamforming_sound_velocity
-            / (4 * np.pi * transmit_frequency)
+            / (4 * np.pi * transmit_frequency * lag)
         )
 
         result = compute_axial_velocity_volume(

@@ -917,7 +917,7 @@ def compute_axial_velocity_volume(
     Notes
     -----
     The Kasai estimator computes velocity from the phase shift of the autocorrelation
-    function between consecutive IQ volumes.
+    function between IQ volumes separated by `lag` volumes.
     """
 
     def process_block_func(
@@ -955,11 +955,8 @@ def compute_axial_velocity_volume(
         (z, y, x) numpy.ndarray
             Axial velocity volume in meters per second.
         """
-        block_rolled_conjugate = np.roll(block, lag, axis=0).conj()
-        block_rolled_conjugate[:lag, ...] = 0
-        autocorrelation = cast("npt.NDArray", block * block_rolled_conjugate)[lag:]
-
-        average_autocorrelation_phase = np.angle(autocorrelation.mean(0))
+        autocorrelation = cast("npt.NDArray", block[lag:] * np.conj(block[:-lag]))
+        average_autocorrelation_phase = np.angle(autocorrelation.mean(axis=0))
 
         kernel_size = _normalize_spatial_kernel(spatial_kernel, block.shape[1:])
         if any(size > 1 for size in kernel_size):
@@ -973,7 +970,7 @@ def compute_axial_velocity_volume(
             average_autocorrelation_phase
             * fs
             * beamforming_sound_velocity
-            / (4 * np.pi * transmit_frequency)
+            / (4 * np.pi * transmit_frequency * lag)
         )
 
     return process_iq_block_with_clutter_filter(
