@@ -6,7 +6,7 @@ import numpy as np
 import scipy.ndimage
 import xarray as xr
 
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import ensure_fusi_dataarray
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 """FWM to Gaussian sigma conversion factor."""
@@ -124,7 +124,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    validate_fusi_dataarray(data)
+    data = ensure_fusi_dataarray(data)
 
     all_dims = [str(d) for d in data.dims]
 

@@ -18,7 +18,7 @@ from confusius.registration.bspline import (
     _dataarray_to_sitk_displacement_field,
 )
 from confusius.validation import (
-    validate_fusi_dataarray,
+    ensure_fusi_dataarray,
     validate_matching_spatial_units,
 )
 
@@ -102,16 +102,16 @@ def resample_volume(
     """
     import SimpleITK as sitk
 
-    has_time = "time" in moving.dims
-    spatial_dims = [str(d) for d in moving.dims if str(d) != "time"]
-    ndim = len(spatial_dims)
-
-    validate_fusi_dataarray(
+    moving = ensure_fusi_dataarray(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
+
+    has_time = "time" in moving.dims
+    spatial_dims = [str(d) for d in moving.dims if str(d) != "time"]
+    ndim = len(spatial_dims)
 
     if isinstance(transform, np.ndarray):
         expected_shape = (ndim + 1, ndim + 1)
@@ -252,13 +252,13 @@ def resample_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    validate_fusi_dataarray(
+    moving = ensure_fusi_dataarray(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
-    validate_fusi_dataarray(
+    reference = ensure_fusi_dataarray(
         reference,
         require_time=False,
         allow_pose=False,

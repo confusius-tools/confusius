@@ -44,7 +44,7 @@ def _validate_register_volume_inputs(
     shrink_factors: Sequence[int],
     smoothing_sigmas: Sequence[int],
     resample_interpolation: Literal["linear", "bspline"],
-) -> tuple[xr.DataArray | None, xr.DataArray | None]:
+) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray | None, xr.DataArray | None]:
     """Validate all inputs to `register_volume` before any computation.
 
     Parameters
@@ -80,6 +80,10 @@ def _validate_register_volume_inputs(
 
     Returns
     -------
+    moving : xarray.DataArray
+        Canonicalized moving volume.
+    fixed : xarray.DataArray
+        Canonicalized fixed volume.
     fixed_mask : xarray.DataArray or None
         `fixed_mask` coerced to boolean dtype, or None if not provided.
     moving_mask : xarray.DataArray or None
@@ -97,15 +101,15 @@ def _validate_register_volume_inputs(
             "For volume-wise registration, use register_volumewise."
         )
 
-    from confusius.validation import validate_fusi_dataarray
+    from confusius.validation import ensure_fusi_dataarray
 
-    validate_fusi_dataarray(
+    moving = ensure_fusi_dataarray(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
-    validate_fusi_dataarray(
+    fixed = ensure_fusi_dataarray(
         fixed,
         require_time=False,
         allow_pose=False,
@@ -207,7 +211,7 @@ def _validate_register_volume_inputs(
             f"got {len(shrink_factors)} and {len(smoothing_sigmas)}."
         )
 
-    return fixed_mask, moving_mask
+    return moving, fixed, fixed_mask, moving_mask
 
 
 def _translate_registration_runtime_error(
@@ -595,7 +599,7 @@ def register_volume(
     """
     import SimpleITK as sitk
 
-    fixed_mask, moving_mask = _validate_register_volume_inputs(
+    moving, fixed, fixed_mask, moving_mask = _validate_register_volume_inputs(
         moving=moving,
         fixed=fixed,
         fixed_mask=fixed_mask,

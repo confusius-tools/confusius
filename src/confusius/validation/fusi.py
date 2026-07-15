@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Hashable, Sequence
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import xarray as xr
@@ -208,6 +208,99 @@ def _validate_regular_spacing(
                 f"Coordinate {dim!r} must have regular spacing, but spacing is "
                 "non-uniform or undefined."
             )
+
+
+def canonicalize_fusi_dataarray(data: xr.DataArray) -> xr.DataArray:
+    """Return `data` with scalar spatial coordinates restored as dimensions.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to canonicalize. It may be a canonical fUSI DataArray already, or an
+        xarray scalar-indexed slice such as `da.isel(z=0)` where `z` remains as a
+        scalar coordinate but no longer appears in `dims`.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray with any missing spatial dimensions restored from scalar coordinates.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If a missing spatial dimension has no scalar coordinate to restore from.
+    """
+    if not isinstance(data, xr.DataArray):
+        raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
+
+    result = data
+    for dim in SPATIAL_DIMS:
+        if dim in result.dims:
+            continue
+        if dim not in result.coords or result.coords[dim].shape != ():
+            raise ValueError(
+                f"DataArray must contain all spatial dimensions {SPATIAL_DIMS!r}, but "
+                f"is missing spatial dimension {dim!r}. If this came from scalar "
+                f"indexing, keep the scalar {dim!r} coordinate so ConfUSIus can "
+                "restore it as a singleton dimension."
+            )
+        coord = result.coords[dim]
+        attrs = coord.attrs.copy()
+        spatial_index = SPATIAL_DIMS.index(dim)
+        next_dims = [d for d in SPATIAL_DIMS[spatial_index + 1 :] if d in result.dims]
+        previous_dims = [d for d in SPATIAL_DIMS[:spatial_index] if d in result.dims]
+        if next_dims:
+            axis = result.dims.index(next_dims[0])
+        elif previous_dims:
+            axis = result.dims.index(previous_dims[-1]) + 1
+        else:
+            axis = len(result.dims)
+        result = result.expand_dims({dim: [coord.item()]}, axis=axis)
+        result.coords[dim].attrs.update(attrs)
+
+    return result
+
+
+def ensure_fusi_dataarray(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
+    """Canonicalize and validate a ConfUSIus fUSI DataArray.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to canonicalize and validate.
+    **validate_kwargs : Any
+        Keyword arguments forwarded to
+        [validate_fusi_dataarray][confusius.validation.validate_fusi_dataarray].
+
+    Returns
+    -------
+    xarray.DataArray
+        Canonicalized DataArray that passed fUSI validation.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
+    ValueError
+        If canonicalization or validation fails.
+    """
+    if not isinstance(data, xr.DataArray):
+        raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
+
+    _validate_core_dimension_names(
+        data,
+        allow_extra_dims=validate_kwargs.get("allow_extra_dims", True),
+    )
+    if validate_kwargs.get("allow_pose") is False and POSE_DIM in data.dims:
+        raise ValueError("DataArray must not have a 'pose' dimension.")
+    if validate_kwargs.get("require_time") is True and TIME_DIM not in data.dims:
+        raise ValueError("DataArray must have a 'time' dimension.")
+
+    result = canonicalize_fusi_dataarray(data)
+    validate_fusi_dataarray(result, **validate_kwargs)
+    return result
 
 
 def validate_fusi_dataarray(

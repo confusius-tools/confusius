@@ -226,9 +226,9 @@ def compute_framewise_displacement(
         Spurious but systematic correlations in functional connectivity MRI networks
         arise from subject motion. Neuroimage 59, 2142-2154
     """
-    from confusius.validation import validate_fusi_dataarray
+    from confusius.validation import ensure_fusi_dataarray
 
-    validate_fusi_dataarray(
+    reference = ensure_fusi_dataarray(
         reference,
         require_time=False,
         allow_pose=False,

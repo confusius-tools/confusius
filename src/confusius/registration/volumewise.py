@@ -12,7 +12,7 @@ from confusius._utils.io import is_h5py_backed
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import ensure_fusi_dataarray
 
 if TYPE_CHECKING:
     from threading import Event
@@ -189,8 +189,7 @@ def register_volumewise(
         )
 
     data_moved = data.transpose("time", ...)
-
-    validate_fusi_dataarray(
+    data_moved = ensure_fusi_dataarray(
         data_moved,
         require_time=True,
         allow_pose=False,

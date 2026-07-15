@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import scipy.ndimage
 import xarray as xr
+from xarray.testing import assert_identical
 
 from confusius.spatial import smooth_volume
 
@@ -27,7 +28,9 @@ class TestSmoothVolume:
         expected_sigmas = [
             fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -42,7 +45,9 @@ class TestSmoothVolume:
         expected_sigmas = [0.0] + [
             fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -57,7 +62,9 @@ class TestSmoothVolume:
         expected_sigmas = [
             fwhm_dict[d] * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -74,7 +81,9 @@ class TestSmoothVolume:
             0.0,  # y not smoothed.
             fwhm * fwhm_to_sigma / _spacing(vol, "x"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -91,7 +100,9 @@ class TestSmoothVolume:
             0.0,
             fwhm_dict["x"] * fwhm_to_sigma / _spacing(vol, "x"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -109,7 +120,9 @@ class TestSmoothVolume:
             0.0,
             0.0,
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -123,6 +136,15 @@ class TestSmoothVolume:
         assert smoothed.attrs == vol.attrs
         for dim in vol.dims:
             np.testing.assert_array_equal(smoothed.coords[dim], vol.coords[dim])
+
+    def test_accepts_scalar_indexed_spatial_dimension(self, sample_3dt_volume):
+        """A scalar-indexed fUSI slice is promoted before smoothing."""
+        sliced = sample_3dt_volume.isel(y=1)
+        expected = smooth_volume(sample_3dt_volume.isel(y=[1]), fwhm={"x": 0.2})
+
+        smoothed = smooth_volume(sliced, fwhm={"x": 0.2})
+
+        assert_identical(smoothed, expected)
 
     def test_zero_fwhm_is_identity(self, sample_3d_volume):
         """FWHM=0 should return a result numerically identical to the input."""
@@ -152,7 +174,9 @@ class TestSmoothVolume:
             0.0,
             0.4 * fwhm_to_sigma / _spacing(vol, "x"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -230,7 +254,7 @@ class TestSmoothVolume:
         def _raise(*args, **kwargs):
             raise ValueError("boom")
 
-        monkeypatch.setattr("confusius.spatial.smooth.validate_fusi_dataarray", _raise)
+        monkeypatch.setattr("confusius.spatial.smooth.ensure_fusi_dataarray", _raise)
 
         with pytest.raises(ValueError, match="boom"):
             smooth_volume(xr.DataArray(np.ones((2, 3))), fwhm=0.3)
@@ -243,7 +267,9 @@ class TestSmoothVolume:
             dims=["z", "y", "x"],
             coords={"z": coords, "y": np.arange(8) * 0.1, "x": np.arange(10) * 0.1},
         )
-        with pytest.raises(ValueError, match="non-uniform or undefined coordinate spacing"):
+        with pytest.raises(
+            ValueError, match="non-uniform or undefined coordinate spacing"
+        ):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_missing_coord(self):

@@ -60,7 +60,7 @@ from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
-    validate_fusi_dataarray,
+    ensure_fusi_dataarray,
     validate_matching_spatial_units,
 )
 
@@ -392,7 +392,7 @@ def sample_displacement_field_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    validate_fusi_dataarray(
+    reference = ensure_fusi_dataarray(
         reference,
         require_time=False,
         allow_pose=False,
