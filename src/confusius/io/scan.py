@@ -1108,8 +1108,9 @@ def _scan_v2_coords(
     time_vals = meta["time_coords"]
     if time_vals.size != n_time_total:
         # nblock_repeat > 1 (unobserved): the header only stores n_time timestamps, so
-        # fall back to a regular grid spaced by dt.
-        time_vals = np.arange(n_time_total) * meta["dt"]
+        # fall back to a regular grid spaced by dt. Keep it end-referenced (first volume
+        # ends at dt) to stay consistent with volume_acquisition_reference below.
+        time_vals = meta["dt"] * (np.arange(n_time_total) + 1)
 
     time_attrs: dict[str, Any] = {
         "units": "s",

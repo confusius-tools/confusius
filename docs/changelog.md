@@ -37,7 +37,7 @@ Current development version for the next ConfUSIus release.
   (subject/session/project/scan/experimenter, serial number, acquisition datetime) are
   recovered (lateral and elevation axes are centred on zero), but there is no
   `physical_to_lab` affine yet and multi-pose layouts are inferred
-  ([#316](https://github.com/confusius-tools/confusius/issues/316)).
+  ([#317](https://github.com/confusius-tools/confusius/pull/317)).
 - **[Napari plugin]** Added an interactive registration panel for volume alignment in
   napari, including linear and non-linear transforms, progress preview, manual and
   automatic initialization, saving/loading transforms, and forward/inverse transform

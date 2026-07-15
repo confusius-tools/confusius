@@ -410,10 +410,14 @@ class TestLoadScanV2Multiblock:
         np.testing.assert_array_equal(da.values, expected)
 
     def test_time_coord_falls_back_to_grid(self, scan_v2_multiblock_path: Path) -> None:
-        """With more time points than stored timestamps, time is a dt-spaced grid."""
+        """With more time points than stored timestamps, time is an end-referenced grid."""
         da = load_scan(scan_v2_multiblock_path)
         np.testing.assert_allclose(
-            da.coords["time"].values, np.arange(_N_TIME * 2) * _DT
+            da.coords["time"].values, _DT * (np.arange(_N_TIME * 2) + 1)
+        )
+        assert da.coords["time"].attrs["volume_acquisition_reference"] == "end"
+        assert da.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+            _DT
         )
 
 
