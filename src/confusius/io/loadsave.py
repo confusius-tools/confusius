@@ -9,14 +9,12 @@ import xarray as xr
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
-from confusius._utils.io import make_attrs_zarr_safe, restore_affines_in_attrs
-from confusius.io.utils import check_path
-
-
-_ZARR_V3_CONSOLIDATED_METADATA_WARNING = (
-    "Consolidated metadata is currently not part in the Zarr format 3 specification."
+from confusius.io._utils import (
+    ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+    make_attrs_zarr_safe,
+    restore_affines_in_attrs,
 )
-"""Zarr v3 warning text emitted when consolidated metadata is written."""
+from confusius.io.utils import check_path
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
@@ -115,7 +113,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
-                message=_ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+                message=ZARR_V3_CONSOLIDATED_METADATA_WARNING,
             )
             data_array.to_zarr(path, **kwargs)
         return

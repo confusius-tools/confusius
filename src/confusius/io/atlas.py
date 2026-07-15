@@ -10,7 +10,11 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
-from confusius._utils.io import make_attrs_zarr_safe, restore_affines_in_attrs
+from confusius.io._utils import (
+    ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+    make_attrs_zarr_safe,
+    restore_affines_in_attrs,
+)
 from confusius.io.utils import check_path
 
 if TYPE_CHECKING:
@@ -38,11 +42,6 @@ _NONSERIALIZABLE_ANNOTATION_ATTRS = ("cmap", "norm")
 They are dropped on save and rebuilt from `rgb_lookup` on load, so an atlas keeps its
 canonical region colors across a round-trip without persisting non-serializable objects.
 """
-
-_ZARR_V3_CONSOLIDATED_METADATA_WARNING = (
-    "Consolidated metadata is currently not part in the Zarr format 3 specification."
-)
-"""Zarr v3 warning text emitted when consolidated metadata is written."""
 
 _MESHES_SUBDIR = "meshes"
 """Subdirectory of the Zarr store that holds the bundled region OBJ meshes.
@@ -274,7 +273,7 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
-            message=_ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+            message=ZARR_V3_CONSOLIDATED_METADATA_WARNING,
         )
         to_save.to_zarr(path, **kwargs)
     if to_copy:
