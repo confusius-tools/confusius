@@ -114,19 +114,19 @@ atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 # hippocampus (`"HIP"`), which should instead correlate with a more localized,
 # hippocampal-formation-restricted network; and the ventral posteromedial thalamic
 # nucleus (`"VPM"`), a somatosensory relay nucleus expected to correlate with
-# `"SSp-bfd"` through the thalamocortical pathway. All seeds are taken from the left
-# hemisphere only, so that any right-hemisphere correlation in the resulting maps
+# `"SSp-bfd"` through the thalamocortical pathway. All seeds are taken from the right
+# hemisphere only, so that any left-hemisphere correlation in the resulting maps
 # reflects genuine interhemispheric connectivity rather than the seed leaking into its
 # own mask.
 #
 # [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] returns a stacked
-# `(mask, z, y, x)` integer DataArray — one layer per requested region — which
+# `(mask, z, y, x)` integer DataArray—one layer per requested region—which
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] accepts directly as
 # `seed_masks`.
 
 # %%
 seed_masks = atlas_native.atlas.get_masks(
-    ["SSp-bfd", "RSP", "HIP", "VPM"], sides="left"
+    ["SSp-bfd", "RSP", "HIP", "VPM"], sides="right"
 )
 
 # %% [markdown]
