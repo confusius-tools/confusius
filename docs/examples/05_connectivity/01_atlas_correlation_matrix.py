@@ -4,7 +4,7 @@
 # This example shows an end-to-end regional functional connectivity (FC) analysis:
 # briefly register a single-slice fUSI recording to an Allen-space template, bring the
 # [Allen Mouse Brain Atlas][confusius.atlas] into the recording's native space,
-# extract region-averaged signals, and visualise their pairwise correlation with
+# extract region-averaged signals, and visualize their pairwise correlation with
 # [`plot_matrix`][confusius.plotting.plot_matrix].
 #
 # We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
@@ -26,7 +26,6 @@
 from pathlib import Path
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 import numpy as np
 import xarray as xr
 
