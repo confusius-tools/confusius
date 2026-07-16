@@ -280,7 +280,9 @@ class TestRegisterVolumeValidation:
 
         monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
 
-        with pytest.raises(RuntimeError, match="could not compute valid optimizer scales"):
+        with pytest.raises(
+            RuntimeError, match="could not compute valid optimizer scales"
+        ):
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
@@ -306,7 +308,7 @@ class TestRegisterVolumeValidation:
 
         with pytest.raises(
             RuntimeError,
-            match='Retry with a fixed `learning_rate` such as `0.1` or `0.01`',
+            match="Retry with a fixed `learning_rate` such as `0.1` or `0.01`",
         ):
             register_volume(
                 sample_2d_dataarray_spatial,
@@ -336,6 +338,18 @@ class TestRegisterVolumeOutput:
         da = xr.DataArray(sample_2d_image[np.newaxis], dims=("z", "y", "x"))
         with pytest.raises(ValueError, match="Missing required coordinate"):
             register_volume(da, da, transform_type="translation")
+
+    def test_singleton_z_without_voxdim_raises(self, sample_2d_image):
+        """Singleton spatial dimensions need spacing metadata for registration."""
+        da = xr.DataArray(
+            sample_2d_image[np.newaxis],
+            dims=("z", "y", "x"),
+            coords={"z": [0.0], "y": np.arange(32.0), "x": np.arange(32.0)},
+        )
+
+        with pytest.warns(UserWarning, match="spacing is undefined"):
+            with pytest.raises(ValueError, match="SimpleITK image.*z"):
+                register_volume(da, da, transform_type="translation")
 
     def test_returns_affine_matrix(self, sample_2d_dataarray_spatial):
         """register_volume returns a (4, 4) numpy affine matrix for single-slice input."""
@@ -649,13 +663,12 @@ class TestRegisterVolumeThinDims:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": np.array([0.0]),
+                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
                 "y": np.arange(32) * 0.1,
                 "x": np.arange(32) * 0.1,
             },
         )
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _, _ = register_volume(da, da, transform_type="translation")
+        result, _, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
 
     def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
@@ -666,15 +679,14 @@ class TestRegisterVolumeThinDims:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": np.array([0.0]),
+                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
                 "y": np.arange(32) * 0.1,
                 "x": np.arange(32) * 0.1,
             },
         )
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            result, _, _ = register_volume(
-                da, da, transform_type="translation", resample=True
-            )
+        result, _, _ = register_volume(
+            da, da, transform_type="translation", resample=True
+        )
         assert result.shape == da.shape
 
     def test_float32_moving_float64_fixed_does_not_crash(
@@ -833,6 +845,7 @@ class TestInitialization:
             sample_2d_dataarray_spatial,
             transform_type="bspline",
             initialization=pre_affine,
+            learning_rate=0.1,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         assert "affines" in bspline_tx.attrs
@@ -1043,6 +1056,58 @@ class TestDisplacementField:
         )
         with pytest.raises(ValueError, match="'component' as its first dimension"):
             invert_displacement_field(field)
+
+    def test_invert_displacement_field_singleton_z_without_voxdim_raises(self):
+        """Displacement-field inversion validates field spacing before inversion."""
+        field = xr.DataArray(
+            np.zeros((3, 1, 4, 4)),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": [0, 1, 2],
+                "z": [0.0],
+                "y": np.arange(4.0),
+                "x": np.arange(4.0),
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        with pytest.warns(UserWarning, match="spacing is undefined"):
+            with pytest.raises(ValueError, match="convert displacement field.*z"):
+                invert_displacement_field(field)
+
+    def test_resample_displacement_field_singleton_z_without_voxdim_raises(self):
+        """Displacement-field resampling requires defined singleton spacing."""
+        moving = xr.DataArray(
+            np.zeros((1, 4, 4)),
+            dims=("z", "y", "x"),
+            coords={
+                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
+                "y": np.arange(4.0),
+                "x": np.arange(4.0),
+            },
+        )
+        field = xr.DataArray(
+            np.zeros((3, 1, 4, 4)),
+            dims=["component", "z", "y", "x"],
+            coords={
+                "component": [0, 1, 2],
+                "z": [0.0],
+                "y": np.arange(4.0),
+                "x": np.arange(4.0),
+            },
+            attrs={"type": "displacement_field_transform"},
+        )
+
+        with pytest.warns(UserWarning, match="spacing is undefined"):
+            with pytest.raises(ValueError, match="convert displacement field.*z"):
+                resample_volume(
+                    moving,
+                    field,
+                    shape=[1, 4, 4],
+                    spacing=[0.2, 1.0, 1.0],
+                    origin=[0.0, 0.0, 0.0],
+                    dims=["z", "y", "x"],
+                )
 
     def test_sample_displacement_field_returns_valid_dataarray(
         self, sample_2d_dataarray_spatial

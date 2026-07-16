@@ -493,7 +493,7 @@ def invert_displacement_field(
 
     spacing_dict = field.fusi.spacing
     origin_dict = field.fusi.origin
-    spacing = [spacing_dict[d] if spacing_dict[d] is not None else 1.0 for d in dims]
+    spacing = [cast(float, spacing_dict[d]) for d in dims]
     origin = [origin_dict[d] for d in dims]
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims
@@ -589,10 +589,14 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     # coords[dim].diff(dim) is empty and .mean() would silently return NaN.
     spacing_dict = da.fusi.spacing
     origin_dict = da.fusi.origin
-    spacing = [
-        spacing_dict[dim] if spacing_dict[dim] is not None else 1.0
-        for dim in spatial_dims
-    ]
+    missing_spacing = [dim for dim in spatial_dims if spacing_dict[dim] is None]
+    if missing_spacing:
+        raise ValueError(
+            "Cannot convert displacement field to SimpleITK because spacing is "
+            f"undefined for dimensions {missing_spacing!r}. Provide regular "
+            "coordinates or `voxdim` metadata for singleton coordinates."
+        )
+    spacing = [spacing_dict[dim] for dim in spatial_dims]
     origin = [origin_dict[dim] for dim in spatial_dims]
 
     # .T maps the first DataArray axis to SimpleITK's physical x-axis, matching the
