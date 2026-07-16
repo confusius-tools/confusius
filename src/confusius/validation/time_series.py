@@ -1,31 +1,31 @@
 """Time series validation utilities."""
 
 import warnings
-from typing import TYPE_CHECKING, Literal, overload
+from typing import Literal, overload
 
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings
 
-if TYPE_CHECKING:
 
-    @overload
-    def validate_time_series(
-        time_series: xr.DataArray,
-        operation_name: str,
-        check_time_chunks: bool = True,
-        require_uniform_time: Literal[False] = False,
-        uniformity_tolerance: float = 1e-2,
-    ) -> tuple[int, None]: ...
+@overload
+def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
+    time_series: xr.DataArray,
+    operation_name: str,
+    check_time_chunks: bool = True,
+    require_uniform_time: Literal[False] = False,
+    uniformity_tolerance: float = 1e-2,
+) -> tuple[int, None]: ...
 
-    @overload
-    def validate_time_series(
-        time_series: xr.DataArray,
-        operation_name: str,
-        check_time_chunks: bool = True,
-        require_uniform_time: Literal[True] = True,
-        uniformity_tolerance: float = 1e-2,
-    ) -> tuple[int, float]: ...
+
+@overload
+def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
+    time_series: xr.DataArray,
+    operation_name: str,
+    check_time_chunks: bool = True,
+    require_uniform_time: Literal[True] = True,
+    uniformity_tolerance: float = 1e-2,
+) -> tuple[int, float]: ...
 
 
 def validate_time_series(
