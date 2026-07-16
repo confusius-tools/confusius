@@ -292,8 +292,8 @@ class QCPanel(QWidget):
     def _time_dim_index(self) -> int:
         """Return the viewer dimension index for the time dimension.
 
-        Searches all layers for xarray metadata containing a ``time``
-        dimension and returns its index.  Falls back to ``0`` when no
+        Searches all layers for xarray metadata containing a `time`
+        dimension and returns its index.  Falls back to `0` when no
         suitable layer is found (same convention as the signals panel).
         """
         for layer in self.viewer.layers:
@@ -311,7 +311,7 @@ class QCPanel(QWidget):
     def _on_time_step_changed(self) -> None:
         """Forward the current napari time world coordinate to the cursor.
 
-        Reads the world coordinate directly from ``self.viewer.dims.point``
+        Reads the world coordinate directly from `self.viewer.dims.point`
         for the time dimension, which is correct regardless of which layer
         is selected (mirrors the approach used in the signals panel).
         """

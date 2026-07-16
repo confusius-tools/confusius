@@ -56,10 +56,12 @@ data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
 # %% [markdown]
-# As in the correlation-matrix example, we initialize registration with an affine
-# measured once in Napari's registration widget, inverted so it maps template physical
-# coordinates to recording physical coordinates, and crop the template to a thin band
-# around the recording's expected location.
+# As in the correlation-matrix example, we initialize the registration with an affine
+# transformed obtained using [napari's manual transform
+# tool](https://napari.org/stable/howtos/layers/image.html#buttons) by placing the
+# recording at an approximate location on the template. The transform is not perfect,
+# but it is close enough to allow the registration algorithm to converge to a good
+# solution.
 
 # %%
 napari_affine = np.array(
@@ -130,7 +132,7 @@ atlas_native = atlas.resample_like(moving, subject_to_atlas)
 # `seed_masks`.
 
 # %%
-seed_masks = atlas_native.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="left")
+seed_masks = atlas_native.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="right")
 
 # %% [markdown]
 # ## Smooth and compute nuisance regressors
@@ -142,9 +144,10 @@ seed_masks = atlas_native.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="lef
 # As in the correlation-matrix example, we regress out an
 # [aCompCor][confusius.signal.compute_compcor_confounds] component extracted from
 # white-matter voxels (the Allen ontology's `"fiber tracts"` division) together with a
-# `low_cutoff` high-pass filter for slow drift. Both are passed to `SeedBasedMaps` via
-# `clean_kwargs`, which cleans the full voxel-wise recording *before* extracting the
-# seed signals, so seeds and voxels are preprocessed consistently.
+# `low_cutoff` high-pass cosine filter for slow drift. Both are passed to
+# `SeedBasedMaps` via `clean_kwargs`, which cleans the full voxel-wise recording
+# *before* extracting the seed signals, so seeds and voxels are preprocessed
+# consistently.
 
 # %%
 data = cf.spatial.smooth_volume(data, fwhm=0.1)
@@ -163,7 +166,8 @@ acompcor = cf.signal.compute_compcor_confounds(
 
 # %%
 mapper = cf.connectivity.SeedBasedMaps(
-    seed_masks=seed_masks, clean_kwargs={"low_cutoff": 0.01, "confounds": acompcor}
+    seed_masks=seed_masks,
+    clean_kwargs={"low_cutoff": 0.01, "filter_method": "cosine", "confounds": acompcor},
 )
 mapper.fit(data)
 mapper.maps_
@@ -202,7 +206,7 @@ plotter = cf.plotting.plot_stat_map(
     slice_mode="region",
     cmap=cmap,
     vmax=0.8,
-    threshold=0.20,
+    threshold=0.2,
     cbar_label="Pearson correlation",
     show_axes=False,
     figure=fig,

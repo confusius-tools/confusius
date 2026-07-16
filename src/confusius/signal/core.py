@@ -6,6 +6,7 @@ import numpy as np
 import xarray as xr
 from xarray.core.types import InterpOptions
 
+from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius.signal.censor import censor_samples, interpolate_samples
 from confusius.signal.confounds import regress_confounds
 from confusius.signal.detrending import detrend as detrend_signals
@@ -99,6 +100,87 @@ def _fill_interpolated_boundary_non_finite(
     return result
 
 
+def _append_cosine_drift_confounds(
+    signals: xr.DataArray,
+    confounds: xr.DataArray | None,
+    *,
+    low_cutoff: float,
+    uniformity_tolerance: float = 1e-2,
+) -> xr.DataArray:
+    """Append cosine drift regressors to an existing confound matrix.
+
+    Parameters
+    ----------
+    signals : (time, ...) xarray.DataArray
+        Signals defining the time grid.
+    confounds : xarray.DataArray or None
+        Existing confounds to augment. Can have shape `(time,)` or
+        `(time, n_confounds)`. If not provided, only cosine drift regressors are
+        returned.
+    low_cutoff : float
+        High-pass cutoff frequency in hertz.
+    uniformity_tolerance : float, default: 1e-2
+        Maximum allowed relative range of consecutive time intervals, defined as
+        `(max_interval - min_interval) / median_interval`.
+
+    Returns
+    -------
+    (time, confound) xarray.DataArray
+        Confound matrix including cosine drift regressors.
+
+    Raises
+    ------
+    ValueError
+        If `signals` is not uniformly sampled within the specified tolerance or if
+        `confounds` is not 1D or 2D.
+    """
+    _, time_spacing = validate_time_series(
+        signals,
+        "cosine filtering",
+        check_time_chunks=False,
+        require_uniform_time=True,
+        uniformity_tolerance=uniformity_tolerance,
+    )
+
+    regressors, names = make_cosine_drift_regressors(
+        signals.sizes["time"],
+        low_cutoff,
+        time_spacing,
+    )
+    cosine_confounds = xr.DataArray(
+        regressors,
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": names},
+    ).reset_coords(drop=True)
+
+    if confounds is None:
+        return cosine_confounds
+
+    if confounds.ndim == 1:
+        existing_confounds = xr.DataArray(
+            confounds.values[:, None],
+            dims=["time", "confound"],
+            coords={
+                "time": confounds.coords["time"],
+                "confound": ["confound_0"],
+            },
+        ).reset_coords(drop=True)
+    elif confounds.ndim == 2:
+        existing_confounds = confounds.transpose("time", ...)
+        if "confound" not in existing_confounds.dims:
+            other_dim = next(dim for dim in existing_confounds.dims if dim != "time")
+            existing_confounds = existing_confounds.rename({other_dim: "confound"})
+        if "confound" not in existing_confounds.coords:
+            existing_confounds = existing_confounds.assign_coords(
+                confound=np.arange(existing_confounds.sizes["confound"])
+            )
+        existing_confounds = existing_confounds.reset_coords(drop=True)
+    else:
+        raise ValueError(f"confounds must be 1D or 2D, got {confounds.ndim}D")
+
+    return xr.concat([existing_confounds, cosine_confounds], dim="confound")
+
+
 def clean(
     signals: xr.DataArray,
     *,
@@ -106,7 +188,8 @@ def clean(
     standardize_method: Literal["zscore", "psc"] | None = None,
     low_cutoff: float | None = None,
     high_cutoff: float | None = None,
-    filter_butterworth_kwargs: dict | None = None,
+    filter_method: Literal["butterworth", "cosine"] = "butterworth",
+    filter_kwargs: dict | None = None,
     confounds: xr.DataArray | None = None,
     standardize_confounds: bool = True,
     ensure_finite: bool = False,
@@ -121,7 +204,7 @@ def clean(
 
     1. Interpolate censored samples (pre-scrubbing).
     2. Detrend.
-    3. Butterworth filter.
+    3. Temporal filtering (Butterworth or cosine high-pass).
     4. Censor samples.
     5. Regress confounds.
     6. Standardize.
@@ -156,8 +239,15 @@ def clean(
     high_cutoff : float, optional
         High cutoff frequency in Hz. Frequencies above this are attenuated (acts as
         low-pass filter). If not provided, no low-pass filtering is applied.
-    filter_butterworth_kwargs : dict, optional
-        Extra keyword arguments passed to `confusius.signal.filter_butterworth`.
+    filter_method : {"butterworth", "cosine"}, default: "butterworth"
+        Filtering method used when `low_cutoff` or `high_cutoff` is provided.
+        Butterworth filtering supports low-pass, high-pass, and band-pass filtering.
+        Cosine filtering supports high-pass filtering only.
+    filter_kwargs : dict, optional
+        Extra keyword arguments passed to the selected filtering function. This means
+        [`filter_butterworth`][confusius.signal.filter_butterworth] when
+        `filter_method="butterworth"` and
+        [`filter_cosine`][confusius.signal.filter_cosine] when `filter_method="cosine"`.
     confounds : (time, n_confounds) xarray.DataArray, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
@@ -209,22 +299,16 @@ def clean(
     """
     validate_time_series(signals, operation_name="clean", check_time_chunks=False)
 
-    if filter_butterworth_kwargs is not None and not isinstance(
-        filter_butterworth_kwargs, dict
-    ):
-        raise TypeError("filter_butterworth_kwargs must be a dict or None")
+    if filter_kwargs is not None and not isinstance(filter_kwargs, dict):
+        raise TypeError("filter_kwargs must be a dict or None")
 
-    if filter_butterworth_kwargs:
-        if (
-            "low_cutoff" in filter_butterworth_kwargs
-            or "high_cutoff" in filter_butterworth_kwargs
-        ):
+    if filter_kwargs:
+        if "low_cutoff" in filter_kwargs or "high_cutoff" in filter_kwargs:
             raise ValueError(
-                "Pass low_pass/high_pass directly to clean, not in "
-                "filter_butterworth_kwargs."
+                "Pass low_cutoff/high_cutoff directly to clean, not in filter_kwargs."
             )
     else:
-        filter_butterworth_kwargs = {}
+        filter_kwargs = {}
 
     if interpolate_kwargs is not None and not isinstance(interpolate_kwargs, dict):
         raise TypeError("interpolate_kwargs must be a dict or None")
@@ -236,11 +320,20 @@ def clean(
 
     interpolate_kwargs = {} if interpolate_kwargs is None else interpolate_kwargs.copy()
 
-    filter_butterworth_kwargs.update(
-        {"low_cutoff": low_cutoff, "high_cutoff": high_cutoff}
-    )
-
     do_filter = low_cutoff is not None or high_cutoff is not None
+    if filter_method not in {"butterworth", "cosine"}:
+        raise ValueError(
+            f"filter_method must be 'butterworth' or 'cosine', got {filter_method}."
+        )
+
+    if filter_method == "cosine":
+        if high_cutoff is not None:
+            raise ValueError(
+                "Cosine filtering only supports low_cutoff; pass high_cutoff only "
+                "with filter_method='butterworth'."
+            )
+    else:
+        filter_kwargs.update({"low_cutoff": low_cutoff, "high_cutoff": high_cutoff})
 
     if ensure_finite:
         signals = _interpolate_non_finite(signals, name="signals")
@@ -250,9 +343,11 @@ def clean(
     original_mean = signals.mean(dim="time") if standardize_method == "psc" else None
 
     # Pre-scrubbing interpolation is performed when scrubbing is requested and either
-    # detrending or filtering is applied. This allows detrending and filtering to be
-    # applied to the full time series without gaps.
-    if sample_mask is not None and (detrend_order is not None or do_filter):
+    # detrending or Butterworth filtering is applied. Cosine filtering is handled as
+    # a regression step, so it follows Nilearn and censors without interpolation.
+    if sample_mask is not None and (
+        detrend_order is not None or (do_filter and filter_method == "butterworth")
+    ):
         signals = interpolate_samples(
             signals,
             sample_mask=sample_mask,
@@ -275,9 +370,18 @@ def clean(
             confounds = detrend_signals(confounds, order=detrend_order)
 
     if do_filter:
-        signals = filter_butterworth(signals, **filter_butterworth_kwargs)
-        if confounds is not None:
-            confounds = filter_butterworth(confounds, **filter_butterworth_kwargs)
+        if filter_method == "butterworth":
+            signals = filter_butterworth(signals, **filter_kwargs)
+            if confounds is not None:
+                confounds = filter_butterworth(confounds, **filter_kwargs)
+        else:
+            assert low_cutoff is not None
+            confounds = _append_cosine_drift_confounds(
+                signals,
+                confounds,
+                low_cutoff=low_cutoff,
+                **filter_kwargs,
+            )
 
     if sample_mask is not None:
         signals = censor_samples(signals, sample_mask=sample_mask)

@@ -284,7 +284,7 @@ def regress_confounds(
     ...     imaging_data, motion_params
     ... )
     """
-    time_axis = validate_time_series(signals, "confound regression")
+    time_axis, _ = validate_time_series(signals, "confound regression")
 
     confounds_array = _validate_confounds(signals, confounds)
 

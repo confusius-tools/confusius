@@ -47,7 +47,7 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/images/gui/generate.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
-        sessions="20201011",
+        sessions=["20201007", "20201011"],
         tasks="spontaneous",
         acqs="slice04",
     )
@@ -60,7 +60,7 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice04",
     )
 
-    # docs/examples/io/confusius_xarray_101.py
+    # docs/examples/01_io/01_confusius_xarray_101.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
         sessions="20201011",
@@ -68,8 +68,8 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice03",
     )
 
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/connectivity/02_atlas_seed_map.py
+    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/04_connectivity/02_atlas_seed_map.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
         sessions="20201007",
@@ -79,14 +79,14 @@ def _prefetch_nunez_elizalde() -> None:
 
 
 def _prefetch_pepe_mariani_template() -> None:
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/connectivity/02_atlas_seed_map.py
+    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/04_connectivity/02_atlas_seed_map.py
     fetch_template_pepe_mariani_2026()
 
 
 def _prefetch_allen_atlas() -> None:
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/connectivity/02_atlas_seed_map.py
+    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/04_connectivity/02_atlas_seed_map.py
     Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
 
 
@@ -99,7 +99,15 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice37",
     )
 
-    # docs/examples/registration/register_volume_same_subject.py
+    # docs/images/gui/generate.py (within-scan registration GIF)
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220523",
+        acqs="slice32",
+    )
+
+    # docs/examples/02_registration/01_register_volume_same_subject.py
     fetch_cybis_pereira_2026(
         datasets="rawdata",
         subjects="rat75",

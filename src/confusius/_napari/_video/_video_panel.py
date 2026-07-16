@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-from napari.utils.notifications import show_error, show_info
+from napari.utils.notifications import show_error, show_info, show_warning
 from napari_video.napari_video import VideoReaderNP
+
+from confusius.timing import get_representative_time_step
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -31,17 +33,24 @@ if TYPE_CHECKING:
     import napari.layers
 
 
+_IRREGULAR_TIME_WARNING = (
+    "Reference layer time axis is not regularly sampled; "
+    "video synchronization uses a linear approximation and may drift."
+)
+"""Warning shown when a video is synchronized against irregular time samples."""
+
+
 class _VideoArray:
     """Array-like wrapper around `VideoReaderNP` for napari Image layers.
 
-    Provides the ``shape``, ``dtype``, and ``__getitem__`` interface that
+    Provides the `shape`, `dtype`, and `__getitem__` interface that
     napari requires for lazy, frame-on-demand display.  Handles
     singleton-dimension padding so the video matches the fUSI scan's
     dimensionality.
 
-    The positions of H and W in the shape are controlled by ``h_dim`` and
-    ``w_dim``.  When ``h_dim > w_dim`` (H appears after W in the layout),
-    the raw ``(H, W)`` frame is transposed before reshaping so that the
+    The positions of H and W in the shape are controlled by `h_dim` and
+    `w_dim`.  When `h_dim > w_dim` (H appears after W in the layout),
+    the raw `(H, W)` frame is transposed before reshaping so that the
     data matches the expected axis order.
 
     Parameters
@@ -51,20 +60,20 @@ class _VideoArray:
     dtype : numpy.dtype
         Data type of a decoded frame.
     frame_shape : tuple[int, ...]
-        Shape of a single decoded frame --- ``(H, W)`` or ``(H, W, C)``.
+        Shape of a single decoded frame --- `(H, W)` or `(H, W, C)`.
     n_pad : int, default: 0
         Number of size-1 dimensions inserted between the time axis and
         the spatial axes.
     step : int, default: 1
         Show every *step*-th frame (temporal subsampling).  Logical
-        frame ``t`` maps to physical frame ``t * step``.
+        frame `t` maps to physical frame `t * step`.
     time_dim : int, default: 0
         Position of the time axis in the output shape.
     h_dim : int or None, optional
-        Position of the video height axis.  Defaults to ``n_core - 2``
-        where ``n_core = 1 + n_pad + 2``.
+        Position of the video height axis.  Defaults to `n_core - 2`
+        where `n_core = 1 + n_pad + 2`.
     w_dim : int or None, optional
-        Position of the video width axis.  Defaults to ``n_core - 1``.
+        Position of the video width axis.  Defaults to `n_core - 1`.
     """
 
     def __init__(
@@ -221,7 +230,7 @@ class VideoPanel(QWidget):
     layer and its own grid cell.  All videos share a single reference
     fUSI scan (selected at first load) so they align on the same time
     and spatial axes.  Videos are passed to napari as lazy, array-like
-    objects backed by ``VideoReaderNP`` (OpenCV frame-on-demand
+    objects backed by `VideoReaderNP` (OpenCV frame-on-demand
     decoding).  A thin wrapper (`_VideoArray`) handles singleton
     dimension padding and dimension reordering.
 
@@ -229,9 +238,9 @@ class VideoPanel(QWidget):
     is rebuilt with a new `_VideoArray` whose shape places H and W at
     the currently displayed dim positions.
 
-    The video layers receive the same ``axis_labels`` as the fUSI scan
+    The video layers receive the same `axis_labels` as the fUSI scan
     so that napari handles dimension reordering identically for both.
-    The time scale is ``frame_step / fps``, shared across all videos.
+    The time scale is `frame_step / fps`, shared across all videos.
     Spatial dimensions use a per-video isotropic scale matching the
     fUSI scan height.
 
@@ -366,7 +375,7 @@ class VideoPanel(QWidget):
         playback_layout.setSpacing(4)
 
         step_row = QHBoxLayout()
-        step_row.addWidget(QLabel("Frame step:"))
+        step_row.addWidget(QLabel("Frame step"))
         self._step_spin = QSpinBox()
         self._step_spin.setRange(1, 100)
         self._step_spin.setValue(1)
@@ -462,6 +471,7 @@ class VideoPanel(QWidget):
             return
 
         self._update_shared_ref_state(new_ref)
+        self._warn_if_irregular_reference(new_ref)
         self._rebuild_all_entries()
 
     def _update_shared_ref_state(self, ref_layer) -> None:
@@ -474,6 +484,17 @@ class VideoPanel(QWidget):
         )
         self._axis_labels = tuple(ref_xr.dims)
         self._units = list(getattr(ref_layer, "units", [None] * ref_layer.ndim))
+
+    def _warn_if_irregular_reference(self, ref_layer) -> None:
+        """Show a toast when the selected reference has irregular timing."""
+        if ref_layer is None:
+            return
+        xr_da = ref_layer.metadata.get("xarray")
+        if xr_da is None or "time" not in xr_da.coords:
+            return
+        _, approximate = get_representative_time_step(xr_da)
+        if approximate:
+            show_warning(_IRREGULAR_TIME_WARNING)
 
     def _get_ref_layer(self):
         """Return the layer currently selected in the combo, or None."""
@@ -504,7 +525,7 @@ class VideoPanel(QWidget):
                 self._load_from_path()
 
     def _load_from_path(self) -> None:
-        """Validate inputs and call ``_add_video``."""
+        """Validate inputs and call `_add_video`."""
         ref = self._get_ref_layer()
         if ref is None:
             show_error("Select a reference layer first.")
@@ -544,6 +565,7 @@ class VideoPanel(QWidget):
         # enables grid mode.
         if not self._videos:
             self._update_shared_ref_state(ref_layer)
+            self._warn_if_irregular_reference(ref_layer)
             order = self._viewer.dims.order
             self._displayed_dims = (order[-2], order[-1])
 
@@ -616,8 +638,8 @@ class VideoPanel(QWidget):
         )
 
         # Time scale = frame_step / fps.  Each logical frame spans
-        # ``frame_step`` physical frames, so consecutive data points are
-        # ``frame_step / fps`` seconds apart.
+        # `frame_step` physical frames, so consecutive data points are
+        # `frame_step / fps` seconds apart.
         time_scale = frame_step / entry.fps if entry.fps > 0 else 1.0
         # Isotropic spatial scale (video pixels are square).
         spatial_scale = self._compute_spatial_scale(displayed_v, entry.video_h)
@@ -738,7 +760,7 @@ class VideoPanel(QWidget):
         """Rebuild all video layers with a new frame step.
 
         The step is encoded in each `_VideoArray` shape (fewer logical
-        frames) and the layer's time scale (``value / fps``).  napari
+        frames) and the layer's time scale (`value / fps`).  napari
         auto-computes the correct slider range from shape and scale.
 
         The current world time is saved before the rebuild and restored
@@ -769,7 +791,7 @@ class VideoPanel(QWidget):
     def _lookup_coord(self, dim_idx: int) -> np.ndarray | None:
         """Return the reference xarray coordinate for *dim_idx*, or None.
 
-        Returns ``None`` when there is no reference layer, no xarray
+        Returns `None` when there is no reference layer, no xarray
         metadata, or the corresponding coordinate does not exist.
         """
         ref = self._ref_layer
@@ -795,7 +817,7 @@ class VideoPanel(QWidget):
         """Return the isotropic spatial scale for the video.
 
         The scale maps the video's height to the fUSI scan's extent
-        along ``vertical_dim`` and is then applied identically to both
+        along `vertical_dim` and is then applied identically to both
         displayed spatial axes so that video pixels remain square --
         webcam pixels are isotropic and must not be stretched.
 
@@ -827,8 +849,8 @@ class VideoPanel(QWidget):
     ) -> float:
         """Return the translation that centers the video on the fUSI.
 
-        The video's centre pixel along ``dim_idx`` (at index
-        ``(video_n - 1) / 2``) is placed at the midpoint of the fUSI
+        The video's centre pixel along `dim_idx` (at index
+        `(video_n - 1) / 2`) is placed at the midpoint of the fUSI
         coordinate range, so the video overlays the scan in both
         spatial axes.
         """

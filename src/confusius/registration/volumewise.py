@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from contextlib import nullcontext
-from typing import Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -14,6 +14,11 @@ from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
 from confusius.validation import validate_fusi_dataarray
 
+if TYPE_CHECKING:
+    from threading import Event
+
+    from confusius.registration.volumewise_progress import VolumewiseProgressReporter
+
 
 def register_volumewise(
     data: xr.DataArray,
@@ -23,7 +28,7 @@ def register_volumewise(
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
     number_of_histogram_bins: int = 50,
-    learning_rate: float | Literal["auto"] = "auto",
+    learning_rate: float | Literal["auto"] = 0.01,
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
@@ -34,7 +39,10 @@ def register_volumewise(
     shrink_factors: Sequence[int] = (6, 2, 1),
     smoothing_sigmas: Sequence[int] = (6, 2, 1),
     resample_interpolation: Literal["linear", "bspline"] = "linear",
+    fill_value: float | None = None,
     show_progress: bool = True,
+    progress_reporter: "VolumewiseProgressReporter | None" = None,
+    abort_event: "Event | None" = None,
     keep_diagnostics: bool = False,
 ) -> xr.DataArray:
     """Register all volumes in a fUSI recording to a reference volume.
@@ -61,7 +69,7 @@ def register_volumewise(
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when `metric="mattes_mi"`.
-    learning_rate : float or "auto", default: "auto"
+    learning_rate : float or "auto", default: 0.01
         Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
         `"auto"` re-estimates the rate at every iteration. A float uses that
         value directly; if registration diverges or fails to converge, reduce
@@ -110,8 +118,20 @@ def register_volumewise(
         `"linear"` is fast and appropriate for motion correction.
         `"bspline"` (3rd-order B-spline) produces smoother results at the
         cost of speed.
+    fill_value : float, optional
+        Fill value for voxels outside each moving volume's field of view after
+        resampling. If not provided, defaults to that volume's minimum value.
     show_progress : bool, default: True
         Whether to display a progress bar while registering volumes.
+    progress_reporter : VolumewiseProgressReporter, optional
+        Thread-safe reporter notified whenever one frame completes. Useful for GUI
+        progress bars or progressively filling an output layer while frames finish.
+    abort_event : threading.Event, optional
+        Cooperative cancellation flag shared across frames. If set before or during
+        execution, in-flight frame registrations stop at the next optimiser iteration
+        boundary and this function returns the partial dataset collected so far. Frames
+        that were not started are left blank (filled with the data minimum), and
+        per-frame `motion_params` rows are marked via the diagnostics status.
     keep_diagnostics : bool, default: False
         Whether to keep the full per-frame
         [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
@@ -128,7 +148,7 @@ def register_volumewise(
         Registered data with the same coordinates as input, input attributes,
         and added motion metadata in `attrs["reference_time"]` and
         `attrs["motion_params"]`. `motion_params` always carries per-frame
-        `final_metric_value` and `n_iterations` columns. When
+        `final_metric_value`, `n_iterations`, and `status` columns. When
         `keep_diagnostics=True`, `attrs["registration_diagnostics"]` also
         carries a list of
         [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
@@ -187,49 +207,100 @@ def register_volumewise(
 
         progress_context = joblib_progress("Registering volumes...", total=n_frames)
 
-    with progress_context:
-        results = cast(
-            "list[tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]]",  # noqa: E501
-            Parallel(n_jobs=n_jobs)(
-                delayed(register_volume)(
-                    volume,
-                    ref_da,
-                    transform_type=transform,
-                    metric=metric,
-                    number_of_histogram_bins=number_of_histogram_bins,
-                    learning_rate=learning_rate,
-                    number_of_iterations=number_of_iterations,
-                    convergence_minimum_value=convergence_minimum_value,
-                    convergence_window_size=convergence_window_size,
-                    initialization=initialization,
-                    optimizer_weights=optimizer_weights,
-                    use_multi_resolution=use_multi_resolution,
-                    shrink_factors=shrink_factors,
-                    smoothing_sigmas=smoothing_sigmas,
-                    resample=True,
-                    resample_interpolation=resample_interpolation,
-                    # Restrict SimpleITK to 1 thread per worker to avoid
-                    # over-subscribing the CPU when joblib spawns many workers.
-                    sitk_threads=1,
-                    show_progress=False,
-                )
-                for volume in data_moved
-            ),
+    parallel_kwargs: dict[str, object] = {"n_jobs": n_jobs}
+    if abort_event is not None or progress_reporter is not None:
+        # Use threads when cancellation or progress reporting is enabled so
+        # every worker sees the shared reporter / event instance.
+        parallel_kwargs["prefer"] = "threads"
+
+    aborted_affine = np.eye(ref_da.ndim + 1, dtype=float)
+    aborted_diagnostics = RegistrationDiagnostics(
+        metric=metric,
+        metric_values=np.empty(0, dtype=float),
+        final_metric_value=float("nan"),
+        n_iterations=0,
+        stop_condition="Registration aborted before frame started.",
+        status="aborted",
+    )
+
+    def _register_one(
+        frame_index: int,
+        volume: xr.DataArray,
+    ) -> tuple[int, xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]:
+        # Once aborted, skip cheaply: building SimpleITK images and resampling is
+        # pure-Python/GIL-bound work that, multiplied across joblib threads, starves the
+        # GUI thread. Return the original frame with a zero-iteration "aborted"
+        # diagnostic instead.
+        if abort_event is not None and abort_event.is_set():
+            return (
+                frame_index,
+                volume,
+                aborted_affine.copy(),
+                aborted_diagnostics,
+            )
+
+        registered_da, frame_affine, frame_diag = register_volume(
+            volume,
+            ref_da,
+            transform_type=transform,
+            metric=metric,
+            number_of_histogram_bins=number_of_histogram_bins,
+            learning_rate=learning_rate,
+            number_of_iterations=number_of_iterations,
+            convergence_minimum_value=convergence_minimum_value,
+            convergence_window_size=convergence_window_size,
+            initialization=initialization,
+            optimizer_weights=optimizer_weights,
+            use_multi_resolution=use_multi_resolution,
+            shrink_factors=shrink_factors,
+            smoothing_sigmas=smoothing_sigmas,
+            resample=True,
+            resample_interpolation=resample_interpolation,
+            fill_value=fill_value,
+            # Restrict SimpleITK to 1 thread per worker to avoid
+            # over-subscribing the CPU when joblib spawns many workers.
+            sitk_threads=1,
+            show_progress=False,
+            abort_event=abort_event,
         )
+        return frame_index, registered_da, frame_affine, frame_diag
 
     arr = data_moved.values
-    output = np.zeros_like(arr)
-    affines: list[npt.NDArray[np.floating]] = []
-    final_metric_values: list[float] = []
-    n_iterations_per_frame: list[int] = []
-    diagnostics: list[RegistrationDiagnostics] = []
-    for t, (registered_da, frame_affine, frame_diag) in enumerate(results):
-        output[t] = registered_da.values
-        affines.append(frame_affine)
-        final_metric_values.append(frame_diag.final_metric_value)
-        n_iterations_per_frame.append(frame_diag.n_iterations)
-        if keep_diagnostics:
-            diagnostics.append(frame_diag)
+    # Aborted/un-started frames are left blank (filled with the data minimum,
+    # i.e. background) rather than copying the unregistered input, so the partial
+    # result visibly shows which frames were skipped.
+    output = np.full_like(arr, arr.min())
+    affines: list[npt.NDArray[np.floating]] = [
+        aborted_affine.copy() for _ in range(n_frames)
+    ]
+    final_metric_values = [float("nan")] * n_frames
+    n_iterations_per_frame = [0] * n_frames
+    statuses = ["aborted"] * n_frames
+    diagnostics = [aborted_diagnostics] * n_frames
+
+    try:
+        with progress_context:
+            results = Parallel(return_as="generator_unordered", **parallel_kwargs)(
+                delayed(_register_one)(t, volume)
+                for t, volume in enumerate(data_moved)
+                if abort_event is None or not abort_event.is_set()
+            )
+            for t, registered_da, frame_affine, frame_diag in results:
+                skipped = (
+                    frame_diag.status == "aborted" and frame_diag.n_iterations == 0
+                )
+                if not skipped:
+                    output[t] = registered_da.values
+                affines[t] = frame_affine
+                final_metric_values[t] = frame_diag.final_metric_value
+                n_iterations_per_frame[t] = frame_diag.n_iterations
+                statuses[t] = frame_diag.status
+                diagnostics[t] = frame_diag
+                if progress_reporter is not None:
+                    progress_reporter.frame_completed(t, registered_da, frame_diag)
+    finally:
+        if progress_reporter is not None:
+            progress_reporter.close()
 
     time_coords = (
         data_moved.coords["time"].values if "time" in data_moved.coords else None
@@ -242,6 +313,7 @@ def register_volumewise(
     # for spotting frames that failed to converge, so we always keep them.
     motion_df["final_metric_value"] = final_metric_values
     motion_df["n_iterations"] = n_iterations_per_frame
+    motion_df["status"] = statuses
 
     result = xr.DataArray(
         output,
@@ -255,6 +327,6 @@ def register_volumewise(
     if keep_diagnostics:
         # The full diagnostics list carries every frame's optimizer metric
         # trace, which adds up over long recordings — gated behind the flag.
-        result.attrs["registration_diagnostics"] = diagnostics
+        result.attrs["registration_diagnostics"] = list(diagnostics)
 
     return result.transpose(*data.dims)
