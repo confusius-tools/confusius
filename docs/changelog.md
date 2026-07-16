@@ -60,6 +60,10 @@ Current development version for the next ConfUSIus release.
   the Khallaf et al. (2026) naked mole-rat fUSI dataset from Edmond, with `datasets`,
   `subjects`, `sessions`, `runs`, `reconstruction`, and `sourcedata` filters
   ([#319](https://github.com/confusius-tools/confusius/pull/319)).
+- Added standalone cosine high-pass filtering via
+  [`filter_cosine`][confusius.signal.filter_cosine], and
+  [`clean`][confusius.signal.clean] can now use it with `filter_method="cosine"`
+  ([#321](https://github.com/confusius-tools/confusius/pull/321)).
 
 ### :bug: Fixes
 

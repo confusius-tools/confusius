@@ -6,7 +6,8 @@ import pytest
 import scipy.signal
 import xarray as xr
 
-from confusius.signal import filter_butterworth
+from confusius.glm import make_first_level_design_matrix
+from confusius.signal import filter_butterworth, filter_cosine
 
 
 def create_signals_with_time(shape, sampling_rate=100, **kwargs):
@@ -167,7 +168,6 @@ class TestFilterButterworth:
 
     def test_output_actually_filtered(self):
         """Low-pass filter attenuates high-frequency energy."""
-        rng = np.random.default_rng(42)
         n = 500
         sampling_rate = 100
         t = np.arange(n) / sampling_rate
@@ -391,3 +391,82 @@ class TestFilterButterworth:
         # Should preserve structure regardless of dim order.
         assert filtered.shape == signals.shape
         assert filtered.dims == signals.dims
+
+
+class TestFilterCosine:
+    """Tests for cosine filtering."""
+
+    def test_matches_glm_cosine_drift_projection(self):
+        """Cosine filter should match residualizing against GLM cosine drift terms."""
+        rng = np.random.default_rng(42)
+        sampling_rate = 10.0
+        time = np.arange(200) / sampling_rate
+        signals = xr.DataArray(
+            rng.normal(size=(200, 3)),
+            dims=["time", "space"],
+            coords={"time": time},
+        )
+        low_cutoff = 0.1
+
+        design = make_first_level_design_matrix(
+            time,
+            events=None,
+            drift_model="cosine",
+            low_cutoff=low_cutoff,
+        )
+        drift = design[
+            [c for c in design.columns if c.startswith("cosine")] + ["constant"]
+        ].to_numpy()
+        expected = (
+            signals.values
+            - drift
+            @ np.linalg.lstsq(
+                drift,
+                signals.values,
+                rcond=None,
+            )[0]
+        )
+
+        result = filter_cosine(signals, low_cutoff=low_cutoff)
+
+        np.testing.assert_allclose(result.values, expected)
+
+    def test_preserves_dim_order_and_dask_support(self):
+        """Cosine filter should preserve dim order and support Dask arrays."""
+        rng = np.random.default_rng(42)
+        sampling_rate = 10.0
+        data = da.from_array(rng.normal(size=(4, 200)), chunks=(2, 200))
+        signals = xr.DataArray(
+            data,
+            dims=["space", "time"],
+            coords={"time": np.arange(200) / sampling_rate},
+        )
+
+        filtered = filter_cosine(signals, low_cutoff=0.1)
+
+        assert filtered.dims == signals.dims
+        assert isinstance(filtered.data, da.Array)
+
+        eager_expected = filter_cosine(signals.compute(), low_cutoff=0.1)
+        np.testing.assert_allclose(filtered.compute().values, eager_expected.values)
+
+    def test_raises_when_low_cutoff_not_positive(self):
+        """Cosine filter should require a positive low cutoff."""
+        signals = create_signals_with_time(
+            (100, 5), sampling_rate=10, dims=["time", "space"]
+        )
+
+        with pytest.raises(ValueError, match="'low_cutoff' must be positive"):
+            filter_cosine(signals, low_cutoff=0.0)
+
+    def test_raises_when_time_is_nonuniform(self):
+        """Cosine filter should require uniformly sampled time coordinates."""
+        time = np.array([0.0, 0.1, 0.2, 0.35, 0.4, 0.5])
+        signals = xr.DataArray(
+            np.random.randn(6, 2),
+            dims=["time", "space"],
+            coords={"time": time},
+        )
+
+        with pytest.raises(ValueError, match="Non-uniform 'time' coordinates"):
+            filter_cosine(signals, low_cutoff=0.1)
