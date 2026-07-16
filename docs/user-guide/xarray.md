@@ -304,7 +304,7 @@ brain region using an integer label map. It accepts two label formats:
   non-overlapping region (e.g., from an atlas annotation volume).
 - **Stacked mask format** `(masks, z, y, x)`: one layer per region, with values in
   `{0, region_id}`. Regions may overlap. This is the format returned by
-  [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks].
+  [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
 
 ```python
 # Using a flat label map (e.g., atlas annotations).

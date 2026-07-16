@@ -22,7 +22,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         dimensions that will be flattened. Must have boolean dtype, or integer dtype
         with exactly one non-zero value (0 = background, one region id =
         foreground). The latter format is produced by
-        [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks]. Coordinates must match
+        [`get_masks`][confusius.atlas.AtlasAccessor.get_masks]. Coordinates must match
         data.
 
     Returns

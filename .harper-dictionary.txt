@@ -1,5 +1,6 @@
 ANTsPy
 AUTC
+AtlasAccessor
 BrainGlobe
 Butterworth
 CompCor
@@ -29,7 +30,6 @@ Reindex
 SVD
 SimpleITK
 Verasonics
-Xarray
 Xarray's
 Zarr
 Zarr's
@@ -70,3 +70,4 @@ ty
 unvalidated
 velocimetry
 volumewise
+xarray

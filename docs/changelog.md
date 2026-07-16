@@ -12,12 +12,25 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
+- The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
+  registered `.atlas` accessor. Fetch an atlas by name with
+  [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
+  Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
+  BrainGlobe atlas is now internal to the datasets module
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like] now use `fill_value`
   instead of `default_value` for out-of-field-of-view resampling, matching
   [`register_volume`][confusius.registration.register_volume] and the progress-plot
   resampling API.
-- Motion diagnostics helpers now require actual affine matrices: [`extract_motion_parameters`][confusius.registration.extract_motion_parameters], [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement], and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no longer accept `None` placeholders in their affine lists ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Motion diagnostics helpers now require actual affine matrices:
+  [`extract_motion_parameters`][confusius.registration.extract_motion_parameters],
+  [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement],
+  and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no
+  longer accept `None` placeholders in their affine lists
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
   [`read_events`][confusius.bids.load_events] →
   [`load_events`][confusius.bids.load_events], and
@@ -35,6 +48,14 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Atlases are now serializable: save and reload a complete atlas, including its structure
+  hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
+  [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
+  Zarr store, so a reloaded atlas renders meshes without the BrainGlobe cache
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
+  Dataset is a well-formed atlas
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
   addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
   experimental: data, timing, voxel spacing, the depth origin, provenance
@@ -50,8 +71,14 @@ Current development version for the next ConfUSIus release.
   napari, including linear and non-linear transforms, progress preview, manual and
   automatic initialization, saving/loading transforms, and forward/inverse transform
   application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
-- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to visualize motion-correction summaries from `motion_params` tables returned by [`register_volumewise`][confusius.registration.register_volumewise] ([#302](https://github.com/confusius-tools/confusius/pull/302)).
-- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always reports all named rotation / translation axes exposed by the affine dimensionality, even when one spatial axis is singleton ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to
+  visualize motion-correction summaries from `motion_params` tables returned by
+  [`register_volumewise`][confusius.registration.register_volumewise]
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always
+  reports all named rotation / translation axes exposed by the affine dimensionality,
+  even when one spatial axis is singleton
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
 - Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
   column names and metadata from the JSON sidecar, synthesizing a `time` column when
   needed; the napari plugin now uses it for imported signal tables
@@ -72,7 +99,7 @@ Current development version for the next ConfUSIus release.
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
   the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
-  `pixdim[4]` when available, and otherwise warns before using frame indices.
+  `pixdim[4]` when available, and otherwise warns before using frame indices
   ([#304](https://github.com/confusius-tools/confusius/pull/304)).
 - Motion parameter tables from
   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
@@ -82,7 +109,8 @@ Current development version for the next ConfUSIus release.
   ([#301](https://github.com/confusius-tools/confusius/pull/301)).
 - **[Napari plugin]** The signal import dialog now finds BIDS physio files ending in
   `.tsv.gz`, keeps the x-axis cursor visible for imported-only plots when enabled, and
-  lets you import multiple signal files in one go ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+  lets you import multiple signal files in one go
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
 - Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
   clear error that points users to newer SCAN v2 files and to converting them to NIfTI
   with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
@@ -309,7 +337,7 @@ Released 2026-07-07.
   plugin]** The reader now falls back to the `"gray"` colormap (with a napari warning)
   instead of crashing when a layer's `cmap` attr is not a valid napari colormap name
   ([#255](https://github.com/confusius-tools/confusius/pull/255)).
-- [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
+- `Atlas.get_masks` now suffixes the `mask`
   coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
   on both hemispheres no longer produces duplicate `mask` values.
   [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires

@@ -157,7 +157,6 @@ def test_render_collapse_tag_with_admonition_type(tmp_path: Path) -> None:
     assert '??? warning "Advanced setup"' in md
     assert '??? tip "Show code"' in md
 
-
 def test_render_handles_notebook_without_images(tmp_path: Path) -> None:
     nb = nbformat.v4.new_notebook()
     nb.cells.append(nbformat.v4.new_code_cell("x = 1"))
