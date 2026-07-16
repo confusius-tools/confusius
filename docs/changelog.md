@@ -12,13 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- fUSI DataArrays must now carry all three spatial dimensions `z`, `y`, and `x`.
-  Single-slice acquisitions are represented as 3D data with a singleton `z` axis
-  (for example `(1, y, x)` or `(time, 1, y, x)`); bare `(y, x)` and `(time, y, x)`
-  layouts are rejected by
-  [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray] and every
-  fUSI-native API that builds on it (registration, resampling, motion correction, IQ
-  processing, and volume smoothing) ([#231](https://github.com/confusius-tools/confusius/issues/231)).
+- Geometry-sensitive registration and motion-correction APIs now require explicit
+  3D fUSI spatial geometry with `z`, `y`, and `x` dimensions. Any singleton spatial
+  dimension must carry `voxdim` metadata because spacing cannot be inferred from a
+  single coordinate point. Generic fUSI validation and dimension-generic operations
+  still accept named 2D layouts such as `(y, x)` or `(time, y, x)` when full 3D
+  geometry is not required ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like] now use `fill_value`
   instead of `default_value` for out-of-field-of-view resampling, matching

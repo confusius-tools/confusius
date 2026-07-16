@@ -175,13 +175,34 @@ Zarr for efficient processing.
 
 ### Other Systems
 
-For beamformed IQ data from a system other than AUTC or EchoFrame, load the raw array
-with the tool appropriate for your file format, then see
-[Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
-IQ-specific metadata and validation requirements.
+For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
+array with the tool appropriate for your file format, then wrap it as an IQ DataArray:
 
-For already-derived fUSI signals such as power Doppler, see
-[Creating fUSI DataArrays from raw arrays](xarray.md#creating-fusi-dataarrays-from-raw-arrays).
+```python
+import confusius as cf
+from confusius.validation import validate_iq_dataarray
+
+# Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
+raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
+
+iq = cf.create_fusi_dataarray(
+    raw_iq,
+    dims=("time", "z", "y", "x"),
+    dt=1 / 500,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+    attrs={
+        "compound_sampling_frequency": 500.0,
+        "transmit_frequency": 15.625e6,
+        "beamforming_sound_velocity": 1540.0,
+    },
+)
+validate_iq_dataarray(iq, require_attrs=True)
+```
+
+See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
+required IQ metadata fields and processing assumptions.
 
 ## Loading Data
 
@@ -461,6 +482,30 @@ ConfUSIus automatically loads a JSON sidecar file with the same basename (e.g.,
 fUSI-BIDS naming conventions and converted back to the usual ConfUSIus attribute names
 on the loaded DataArray. Timing metadata in the sidecar takes precedence over the NIfTI
 header when both are available.
+
+### Loading Other Formats
+
+For unsupported derived fUSI formats, such as lab-specific MAT-files containing power
+Doppler or velocity data, load the array with the appropriate Python tool and use
+[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to attach dimensions,
+coordinates, and metadata:
+
+```python
+import confusius as cf
+
+# Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
+raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (time, y, x)
+
+power = cf.create_fusi_dataarray(
+    raw_power,
+    dims=("time", "y", "x"),  # missing z is added as a singleton dimension
+    dt=0.6,   # seconds between volumes
+    dz=0.4,   # spacing for the singleton z dimension in mm
+    dy=0.05,  # axial voxel size in mm
+    dx=0.1,   # lateral voxel size in mm
+    attrs={"description": "Power Doppler from my system"},
+)
+```
 
 ## Saving Data
 
