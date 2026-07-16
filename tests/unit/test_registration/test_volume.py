@@ -840,13 +840,16 @@ class TestInitialization:
     ):
         """B-spline result stores the pre-affine when affine initialization is given."""
         pre_affine = np.eye(4)
-        _, bspline_tx, _ = register_volume(
+        _, bspline_tx, diagnostics = register_volume(
             sample_2d_dataarray_spatial,
             sample_2d_dataarray_spatial,
             transform_type="bspline",
             initialization=pre_affine,
+            mesh_size=(1, 1, 1),
+            number_of_iterations=1,
             learning_rate=0.1,
         )
+        assert diagnostics.status == "completed"
         assert isinstance(bspline_tx, xr.DataArray)
         assert "affines" in bspline_tx.attrs
         assert "bspline_initialization" in bspline_tx.attrs["affines"]
@@ -911,6 +914,8 @@ class TestResampleVolumeWithBspline:
             sample_2d_dataarray_spatial,
             transform_type="bspline",
             resample=True,
+            mesh_size=(1, 1, 1),
+            learning_rate=0.1,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
@@ -943,6 +948,8 @@ class TestResampleVolumeWithBspline:
             transform_type="bspline",
             initialization=affine_tx,
             resample=True,
+            mesh_size=(1, 1, 1),
+            learning_rate=0.1,
         )
         assert isinstance(bspline_tx, xr.DataArray)
         result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
