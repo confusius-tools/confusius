@@ -1,5 +1,7 @@
 """Tests for confusius.connectivity.CAP."""
 
+from typing import Any, cast
+
 import numpy as np
 import numpy.testing as npt
 import pytest
@@ -104,12 +106,12 @@ class TestFit:
             cap.fit([])
 
     def test_invalid_metric_raises(self, sample_3dt_volume):
-        cap = CAP(n_clusters=3, metric="manhattan")  # type: ignore[arg-type]
+        cap = CAP(n_clusters=3, metric=cast(Any, "manhattan"))
         with pytest.raises(ValueError, match="metric"):
             cap.fit([sample_3dt_volume])
 
     def test_invalid_update_rule_raises(self, sample_3dt_volume):
-        cap = CAP(n_clusters=3, update_rule="invalid")  # type: ignore[arg-type]
+        cap = CAP(n_clusters=3, update_rule=cast(Any, "invalid"))
         with pytest.raises(ValueError, match="update_rule"):
             cap.fit([sample_3dt_volume])
 
@@ -123,6 +125,15 @@ class TestFit:
     def test_mean_update_rule_cosine(self, clustered_recording):
         """update_rule='mean' in the cosine k-means loop correctly partitions volumes."""
         cap = CAP(n_clusters=2, metric="cosine", update_rule="mean", random_state=0)
+        cap.fit([clustered_recording])
+        labels = cap.labels_[0].values
+        assert labels[0] == labels[2] == labels[4] == labels[6]
+        assert labels[1] == labels[3] == labels[5] == labels[7]
+        assert labels[0] != labels[1]
+
+    def test_weighted_update_rule_cosine(self, clustered_recording):
+        """update_rule='weighted' in the cosine k-means loop partitions volumes."""
+        cap = CAP(n_clusters=2, metric="cosine", update_rule="weighted", random_state=0)
         cap.fit([clustered_recording])
         labels = cap.labels_[0].values
         assert labels[0] == labels[2] == labels[4] == labels[6]
@@ -159,7 +170,9 @@ class TestFit:
         local_rng = np.random.default_rng(42)
         ny, nx = 5, 8
         recs = [
-            xr.DataArray(local_rng.standard_normal((n_t, ny, nx)), dims=["time", "y", "x"])
+            xr.DataArray(
+                local_rng.standard_normal((n_t, ny, nx)), dims=["time", "y", "x"]
+            )
             for n_t in (50, 60, 40)
         ]
         cap_1 = CAP(n_clusters=10, n_init=1, random_state=0).fit(recs)
@@ -173,7 +186,7 @@ class TestFit:
         assert cap.caps_.sizes["cap"] == 4
 
     def test_invalid_n_init_raises(self, sample_3dt_volume):
-        cap = CAP(n_clusters=2, metric="cosine", n_init=0)  # type: ignore[arg-type]
+        cap = CAP(n_clusters=2, metric="cosine", n_init=cast(Any, 0))
         with pytest.raises(ValueError, match="n_init"):
             cap.fit([sample_3dt_volume])
 
@@ -303,9 +316,7 @@ class TestComputeMetrics:
 
     def test_persistence_attrs_units_no_time_coord(self, rng):
         ny, nx = 3, 3
-        rec = xr.DataArray(
-            rng.standard_normal((20, ny, nx)), dims=["time", "y", "x"]
-        )
+        rec = xr.DataArray(rng.standard_normal((20, ny, nx)), dims=["time", "y", "x"])
         cap = CAP(n_clusters=2, random_state=0).fit([rec])
         assert cap.compute_temporal_metrics()["persistence"].attrs["units"] == "volumes"
 
@@ -359,7 +370,9 @@ class TestComputeMetrics:
         lbl1 = cap.labels_[1].values
 
         # Verify that each volume is assigned to the correct CAP.
-        expected_raw0 = [label_for_center0 if s == 0 else label_for_center1 for s in seq0]
+        expected_raw0 = [
+            label_for_center0 if s == 0 else label_for_center1 for s in seq0
+        ]
         expected_raw1 = [label_for_center1] * 4
         npt.assert_array_equal(lbl0, expected_raw0)
         npt.assert_array_equal(lbl1, expected_raw1)
@@ -425,13 +438,15 @@ class TestSelectNClusters:
     def test_return_scores(self, recordings):
         cap = CAP(random_state=0)
         cluster_range = [2, 4, 6]
-        best_k, scores = cap.select_n_clusters(
+        result = cap.select_n_clusters(
             recordings,
             cluster_range,
             method="silhouette",
             show_progress=False,
             return_scores=True,
         )
+        assert isinstance(result, tuple)
+        best_k, scores = result
         assert best_k in cluster_range
         assert len(scores) == len(cluster_range)
         assert all(np.isfinite(score) for score in scores)
@@ -447,7 +462,10 @@ class TestSelectNClusters:
     def test_invalid_method_raises(self, recordings):
         with pytest.raises(ValueError, match="method"):
             CAP().select_n_clusters(
-                recordings, range(2, 4), method="invalid", show_progress=False  # type: ignore[arg-type]
+                recordings,
+                range(2, 4),
+                method=cast(Any, "invalid"),
+                show_progress=False,
             )
 
     def test_euclidean_elbow(self, recordings):
@@ -459,18 +477,53 @@ class TestSelectNClusters:
         assert best_k in range(2, 5)
 
     def test_invalid_metric_raises(self, recordings):
-        cap = CAP(metric="manhattan")  # type: ignore[arg-type]
+        cap = CAP(metric=cast(Any, "manhattan"))
         with pytest.raises(ValueError, match="metric"):
             cap.select_n_clusters(recordings, range(2, 4), show_progress=False)
 
     def test_invalid_update_rule_raises(self, recordings):
-        cap = CAP(update_rule="invalid")  # type: ignore[arg-type]
+        cap = CAP(update_rule=cast(Any, "invalid"))
         with pytest.raises(ValueError, match="update_rule"):
             cap.select_n_clusters(recordings, range(2, 4), show_progress=False)
 
     def test_empty_list_raises(self):
         with pytest.raises(ValueError, match="at least one recording"):
             CAP().select_n_clusters([], range(2, 4), show_progress=False)
+
+    def test_progress_object_is_advanced(self, recordings):
+        class DummyProgress:
+            def __init__(self):
+                self.advanced = 0
+
+            def add_task(self, description, total):
+                assert description == "Evaluating cluster counts..."
+                assert total == 2
+                return 1
+
+            def advance(self, task_id):
+                assert task_id == 1
+                self.advanced += 1
+
+        progress = DummyProgress()
+        best_k = CAP(random_state=0).select_n_clusters(
+            recordings, range(2, 4), show_progress=True, progress=cast(Any, progress)
+        )
+        assert best_k in range(2, 4)
+        assert progress.advanced == 2
+
+    def test_show_progress_uses_rich_track(self, recordings, monkeypatch):
+        calls = []
+
+        def fake_track(iterable, *, description, total):
+            calls.append((description, total))
+            return iterable
+
+        monkeypatch.setattr("rich.progress.track", fake_track)
+        best_k = CAP(random_state=0).select_n_clusters(
+            recordings, range(2, 4), show_progress=True
+        )
+        assert best_k in range(2, 4)
+        assert calls == [("Evaluating cluster counts...", 2)]
 
     def test_nan_raises(self, rng):
         data = rng.standard_normal((20, 3, 3))
@@ -495,9 +548,7 @@ class TestScoreSamples:
 
     def test_scores_time_coords_preserved(self, fitted_cap, recordings):
         for scr, rec in zip(fitted_cap.scores_, recordings):
-            npt.assert_array_equal(
-                scr.coords["time"].values, rec.coords["time"].values
-            )
+            npt.assert_array_equal(scr.coords["time"].values, rec.coords["time"].values)
 
     def test_scores_cosine_range(self, clustered_recording):
         """Cosine/correlation scores lie in [-1, 1]."""
