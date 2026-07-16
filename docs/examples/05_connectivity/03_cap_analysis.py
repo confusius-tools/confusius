@@ -4,14 +4,14 @@
 # Co-activation pattern (CAP) analysis clusters individual fUSI volumes into a small
 # set of recurring whole-brain activity patterns. This example uses
 # [`CAP`][confusius.connectivity.CAP] on the same spontaneous Nunez-Elizalde recording
-# used by the decomposition examples: load the recording, motion-correct and clean it,
+# used by the connectivity examples: load the recording, motion-correct and clean it,
 # cluster volumes, then inspect both the spatial CAP maps and their temporal dynamics.
 
 # %% [markdown]
 # ## Load and preprocess the recording
 #
-# We use the same `CR022 / 20201011 / slice03` recording as the PCA, FastICA, and NMF
-# examples. CAPs are sensitive to global drift and motion, so we first resample to a
+# We use the same `CR022 / 20201007 / slice02` recording as the atlas-based
+# connectivity examples. CAPs are sensitive to global drift and motion, so we first resample to a
 # uniform time grid, apply rigid volume-wise motion correction, then high-pass filter and
 # z-score each voxel's time series.
 
@@ -33,18 +33,18 @@ xr.set_options(display_expand_data=False)
 
 bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     subjects="CR022",
-    sessions="20201011",
+    sessions="20201007",
     tasks="spontaneous",
-    acqs="slice03",
+    acqs="slice02",
 )
 
 # %%
 pwd_path = (
     Path(bids_root)
     / "sub-CR022"
-    / "ses-20201011"
+    / "ses-20201007"
     / "fusi"
-    / "sub-CR022_ses-20201011_task-spontaneous_acq-slice03_pwd.nii.gz"
+    / "sub-CR022_ses-20201007_task-spontaneous_acq-slice02_pwd.nii.gz"
 )
 data = cf.timing.resample_to_uniform_time(cf.load(pwd_path)).compute()
 data
@@ -132,14 +132,16 @@ _ = axes[1].set_xlabel("Time (s)")
 #
 # [`compute_temporal_metrics`][confusius.connectivity.CAP.compute_temporal_metrics]
 # summarizes how often each CAP appears, how persistent its episodes are, and how often
-# the recording switches from one CAP to another.
+# the recording switches from one CAP to another. Squaring the one-step transition
+# matrix gives the two-step transition probabilities, i.e. where the sequence tends to
+# land after two consecutive transitions.
 
 # %%
 metrics = caps.compute_temporal_metrics()
 metrics
 
 # %%
-fig, axes = plt.subplots(1, 2, figsize=(9, 3.8), constrained_layout=True)
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
 
 fraction = metrics.temporal_fraction.sel(recording=0)
@@ -160,6 +162,23 @@ cf.plotting.plot_matrix(
     vmax=1,
     auto_range=False,
     cbar_label="P(next CAP)",
-    title="Transition probabilities",
+    title="One-step transitions",
+    bg_color=bg_color,
+)
+
+transition_matrix_2 = xr.DataArray(
+    np.linalg.matrix_power(transition_matrix.values, 2),
+    dims=transition_matrix.dims,
+    coords=transition_matrix.coords,
+)
+_ = cf.plotting.plot_matrix(
+    transition_matrix_2,
+    ax=axes[2],
+    cmap="magma",
+    vmin=0,
+    vmax=1,
+    auto_range=False,
+    cbar_label="P(CAP after 2 steps)",
+    title="Two-step transitions",
     bg_color=bg_color,
 )
