@@ -35,6 +35,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`CAP`][confusius.connectivity.CAP] for co-activation pattern analysis,
+  including cosine/correlation/euclidean clustering, temporal metrics, cluster scoring,
+  score-based censoring, and cluster-count selection
+  ([#116](https://github.com/confusius-tools/confusius/pull/116)).
 - [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
   addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
   experimental: data, timing, voxel spacing, the depth origin, provenance
