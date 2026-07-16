@@ -83,6 +83,14 @@ Current development version for the next ConfUSIus release.
   column names and metadata from the JSON sidecar, synthesizing a `time` column when
   needed; the napari plugin now uses it for imported signal tables
   ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- Added [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026] for downloading
+  the Khallaf et al. (2026) naked mole-rat fUSI dataset from Edmond, with `datasets`,
+  `subjects`, `sessions`, `runs`, `reconstruction`, and `sourcedata` filters
+  ([#319](https://github.com/confusius-tools/confusius/pull/319)).
+- Added standalone cosine high-pass filtering via
+  [`filter_cosine`][confusius.signal.filter_cosine], and
+  [`clean`][confusius.signal.clean] can now use it with `filter_method="cosine"`
+  ([#321](https://github.com/confusius-tools/confusius/pull/321)).
 
 ### :bug: Fixes
 
