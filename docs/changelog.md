@@ -17,6 +17,12 @@ Current development version for the next ConfUSIus release.
   score-based censoring, and cluster-count selection
   ([#116](https://github.com/confusius-tools/confusius/pull/116)).
 
+### :books: Documentation
+
+- Added a [CAP analysis example](examples/_built/connectivity/cap_analysis.md) to the
+  gallery, using the same recording as the decomposition examples
+  ([#116](https://github.com/confusius-tools/confusius/pull/116)).
+
 ## 0.8.0
 
 Released 2026-10-13.
