@@ -117,7 +117,7 @@ def detrend(signals: xr.DataArray, order: int = 1) -> xr.DataArray:
     if order < 0:
         raise ValueError(f"order must be non-negative, got {order}")
 
-    time_axis = validate_time_series(signals, "detrending")
+    time_axis, _ = validate_time_series(signals, "detrending")
 
     if order == 0:
         result = xr.apply_ufunc(

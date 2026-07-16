@@ -1,13 +1,11 @@
 """Filtering functions for signal preprocessing."""
 
 import math
-import warnings
 
 import numpy as np
 import scipy.signal
 import xarray as xr
 
-from confusius._utils.coordinates import get_coordinate_spacings
 from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius.signal.confounds import regress_confounds
 from confusius.validation import validate_time_series
@@ -236,21 +234,13 @@ def filter_butterworth(
     ...     signals, low_cutoff=0.01, high_cutoff=0.1, order=5
     ... )
     """
-    time_axis = validate_time_series(signals, "filtering")
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        spacing = get_coordinate_spacings(
-            signals, uniformity_tolerance=uniformity_tolerance
-        )
-
-    time_spacing = spacing["time"]
-    if time_spacing is None:
-        raise ValueError(
-            "Non-uniform 'time' coordinates detected. Butterworth filtering requires "
-            "uniformly sampled data. Consider interpolating your data to a regular "
-            "time grid first."
-        )
+    time_axis, time_spacing = validate_time_series(
+        signals,
+        "filtering",
+        require_uniform_time=True,
+        uniformity_tolerance=uniformity_tolerance,
+    )
+    assert time_spacing is not None
 
     sampling_rate = 1.0 / time_spacing
     _validate_cutoff_frequencies(
@@ -319,21 +309,13 @@ def filter_cosine(
         time coordinates are not uniformly sampled within the specified tolerance, or if
         `low_cutoff` is not positive.
     """
-    validate_time_series(signals, "filtering")
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        spacing = get_coordinate_spacings(
-            signals, uniformity_tolerance=uniformity_tolerance
-        )
-
-    time_spacing = spacing["time"]
-    if time_spacing is None:
-        raise ValueError(
-            "Non-uniform 'time' coordinates detected. Cosine filtering requires "
-            "uniformly sampled data. Consider interpolating your data to a regular "
-            "time grid first."
-        )
+    _, time_spacing = validate_time_series(
+        signals,
+        "filtering",
+        require_uniform_time=True,
+        uniformity_tolerance=uniformity_tolerance,
+    )
+    assert time_spacing is not None
 
     regressors, names = make_cosine_drift_regressors(
         signals.sizes["time"],

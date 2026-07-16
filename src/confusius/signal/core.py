@@ -1,13 +1,11 @@
 """Signal cleaning pipeline for fUSI time series."""
 
-import warnings
 from typing import Literal
 
 import numpy as np
 import xarray as xr
 from xarray.core.types import InterpOptions
 
-from confusius._utils.coordinates import get_coordinate_spacings
 from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius.signal.censor import censor_samples, interpolate_samples
 from confusius.signal.confounds import regress_confounds
@@ -136,19 +134,14 @@ def _append_cosine_drift_confounds(
         If `signals` is not uniformly sampled within the specified tolerance or if
         `confounds` is not 1D or 2D.
     """
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        spacing = get_coordinate_spacings(
-            signals, uniformity_tolerance=uniformity_tolerance
-        )
-
-    time_spacing = spacing["time"]
-    if time_spacing is None:
-        raise ValueError(
-            "Non-uniform 'time' coordinates detected. Cosine filtering requires "
-            "uniformly sampled data. Consider interpolating your data to a regular "
-            "time grid first."
-        )
+    _, time_spacing = validate_time_series(
+        signals,
+        "cosine filtering",
+        check_time_chunks=False,
+        require_uniform_time=True,
+        uniformity_tolerance=uniformity_tolerance,
+    )
+    assert time_spacing is not None
 
     regressors, names = make_cosine_drift_regressors(
         signals.sizes["time"],
