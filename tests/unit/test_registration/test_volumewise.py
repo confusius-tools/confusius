@@ -231,8 +231,8 @@ class TestRegisterVolumewise:
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 
-    def test_2d_recovers_known_shift(self, sample_2d_image):
-        """Single-slice registration recovers a known in-plane translation."""
+    def test_2d_recovers_known_shift_with_larger_learning_rate(self, sample_2d_image):
+        """Single-slice registration recovers a known shift with an explicit larger step."""
         # Create data with a shifted frame.
         n_frames = 3
         shift_x, shift_y = 2, 3
@@ -254,14 +254,16 @@ class TestRegisterVolumewise:
         )
 
         result = register_volumewise(
-            data, reference_time=0, n_jobs=1, transform="translation"
+            data,
+            reference_time=0,
+            n_jobs=1,
+            transform="translation",
+            learning_rate=1.0,
         )
 
-        # Check motion parameters recovered the shift.
         motion_df = result.attrs["motion_params"]
-        # Frame 1 should have approximately the opposite translation.
-        assert abs(motion_df.loc[motion_df.index[1], "trans_x"]) < shift_x + 1
-        assert abs(motion_df.loc[motion_df.index[1], "trans_y"]) < shift_y + 1
+        assert_allclose(motion_df.loc[motion_df.index[1], "trans_x"], shift_x, atol=0.2)
+        assert_allclose(motion_df.loc[motion_df.index[1], "trans_y"], shift_y, atol=0.2)
 
     def test_output_has_motion_metadata_attributes(self, sample_2d_dataarray):
         """Output has motion metadata attributes."""

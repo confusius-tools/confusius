@@ -28,7 +28,7 @@ def register_volumewise(
     transform: Literal["translation", "rigid", "affine"] = "rigid",
     metric: Literal["correlation", "mattes_mi"] = "correlation",
     number_of_histogram_bins: int = 50,
-    learning_rate: float | Literal["auto"] = 1.0,
+    learning_rate: float | Literal["auto"] = 0.01,
     number_of_iterations: int = 100,
     convergence_minimum_value: float = 1e-6,
     convergence_window_size: int = 10,
@@ -69,11 +69,11 @@ def register_volumewise(
     number_of_histogram_bins : int, default: 50
         Number of histogram bins used by Mattes mutual information. Only
         relevant when `metric="mattes_mi"`.
-    learning_rate : float or "auto", default: 1.0
+    learning_rate : float or "auto", default: 0.01
         Optimizer step size in normalised units (after `SetOptimizerScalesFromPhysicalShift`).
         `"auto"` re-estimates the rate at every iteration. A float uses that
-        value directly; if registration diverges or fails to converge, reduce
-        it.
+        value directly; increase it for large inter-volume shifts, or reduce it if
+        registration creates motion in otherwise stable data.
     number_of_iterations : int, default: 100
         Maximum number of optimizer iterations.
     convergence_minimum_value : float, default: 1e-6

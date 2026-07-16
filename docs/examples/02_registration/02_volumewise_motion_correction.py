@@ -65,15 +65,14 @@ data
 # [`register_volumewise`][confusius.registration.register_volumewise]. By default, each
 # volume (or frame in this case) is registered to the first acquired volume. You may
 # choose any other reference timepoint using the `reference_time`. Here, we're trying to
-# correct for rigid motion—that is, translation and rotations. A learning rate of 1.0
-# leads to good convergence across frames.
+# correct for rigid motion—that is, translation and rotations. The default learning rate
+# is conservative; increase it only when real inter-frame shifts are not recovered.
 
 # %%
 registered = cf.registration.register_volumewise(
     data,
     transform="rigid",
     metric="correlation",
-    learning_rate=1.0,
 )
 
 # %% [markdown]

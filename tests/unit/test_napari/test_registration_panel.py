@@ -240,7 +240,7 @@ class TestOperationMode:
         assert registration_panel._learning_rate_auto_check.isHidden()
         assert not registration_panel._learning_rate_auto_check.isChecked()
         assert registration_panel._learning_rate_edit.isEnabled()
-        assert registration_panel._learning_rate_edit.value() == pytest.approx(1.0)
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
 
     def test_mode_switch_preserves_session_parameters(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
@@ -295,7 +295,7 @@ class TestOperationMode:
         assert registration_panel._transform_combo.currentText() == "rigid"
         assert registration_panel._scale_combo.currentText() == "decibel"
         assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
-        assert registration_panel._learning_rate_edit.value() == pytest.approx(1.0)
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
         assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
             1e-10
         )

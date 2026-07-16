@@ -85,12 +85,6 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
-- [`register_volumewise`][confusius.registration.register_volumewise] now defaults
-  `learning_rate` to `1.0` instead of `0.01`. The previous default was generally too
-  small for the optimizer to move meaningfully within the default iteration budget, so
-  motion correction recovered only a fraction of real inter-frame shifts. The napari
-  time-series registration panel uses the same new default
-  ([#231](https://github.com/confusius-tools/confusius/issues/231)).
 - Axial velocity estimation now scales the Kasai phase increment by the requested
   autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
