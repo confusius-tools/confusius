@@ -125,7 +125,9 @@ atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 # `seed_masks`.
 
 # %%
-seed_masks = atlas_native.get_masks(["SSp-bfd", "RSP", "HIP", "VPM"], sides="left")
+seed_masks = atlas_native.atlas.get_masks(
+    ["SSp-bfd", "RSP", "HIP", "VPM"], sides="left"
+)
 
 # %% [markdown]
 # ## Smooth and compute nuisance regressors
