@@ -1,4 +1,4 @@
-"""Brain atlas integration via BrainGlobe.
+"""Brain atlases and region-aware utilities.
 
 An atlas is an [`xarray.Dataset`][xarray.Dataset] with a registered `.atlas` accessor.
 Fetch one from BrainGlobe with
