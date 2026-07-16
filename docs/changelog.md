@@ -10,6 +10,13 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- Added [`CAP`][confusius.connectivity.CAP] for co-activation pattern analysis,
+  including cosine/correlation/euclidean clustering, temporal metrics, cluster scoring,
+  score-based censoring, and cluster-count selection
+  ([#116](https://github.com/confusius-tools/confusius/pull/116)).
+
 ## 0.8.0
 
 Released 2026-10-13.
