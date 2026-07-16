@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -20,6 +20,12 @@ _SPATIAL_UNITS = "mm"
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
 
+_SPATIAL_DIMS = ("z", "y", "x")
+"""Spatial dimensions required by canonical ConfUSIus fUSI DataArrays."""
+
+_CORE_DIM_ORDER = (TIME_DIM, "z", "y", "x")
+"""Canonical output order for single-pose fUSI DataArrays."""
+
 VolumeAcquisitionReference = Literal["start", "center", "end"]
 """Where within its acquisition window each frame's `time` coordinate is anchored."""
 
@@ -27,10 +33,214 @@ _VOLUME_ACQUISITION_REFERENCES = ("start", "center", "end")
 """Accepted values for `volume_acquisition_reference`."""
 
 
+def _require_spacing(dim: str, spacing: float | None) -> float:
+    """Return a finite positive coordinate spacing.
+
+    Parameters
+    ----------
+    dim : str
+        Dimension whose spacing is required.
+    spacing : float, optional
+        Candidate spacing value.
+
+    Returns
+    -------
+    float
+        Validated spacing.
+
+    Raises
+    ------
+    ValueError
+        If `spacing` is not provided or is not positive and finite.
+    """
+    if spacing is None:
+        raise ValueError(
+            f"Spacing for dimension {dim!r} is required. Provide d{dim} or an "
+            f"explicit {dim!r} coordinate with enough information to infer spacing."
+        )
+    value = float(spacing)
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f"Spacing for dimension {dim!r} must be positive and finite.")
+    return value
+
+
+def _regular_step(values: np.ndarray) -> float | None:
+    """Return the regular spacing in `values`, or None if it cannot be inferred.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        One-dimensional coordinate values.
+
+    Returns
+    -------
+    float or None
+        Regular positive step, or None when `values` has fewer than two entries or is
+        not regularly spaced.
+    """
+    if values.size < 2:
+        return None
+    diffs = np.diff(values.astype(float))
+    if not np.all(np.isfinite(diffs)) or not np.all(diffs > 0):
+        return None
+    step = float(np.median(diffs))
+    if not np.allclose(diffs, step, rtol=1e-6, atol=1e-12):
+        return None
+    return step
+
+
+def _coordinate_dataarray(
+    dim: str,
+    size: int,
+    *,
+    coords: Mapping[str, npt.ArrayLike | xr.DataArray],
+    spacings: Mapping[str, float | None],
+    origins: Mapping[str, float],
+    volume_acquisition_reference: VolumeAcquisitionReference,
+    volume_acquisition_duration: float | None,
+) -> xr.DataArray:
+    """Build one dimension coordinate.
+
+    Parameters
+    ----------
+    dim : str
+        Dimension name.
+    size : int
+        Expected coordinate length.
+    coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray]
+        Explicit coordinates provided by the caller.
+    spacings : mapping[str, float or None]
+        Per-core-dimension spacings.
+    origins : mapping[str, float]
+        Per-core-dimension origins used with `spacings`.
+    volume_acquisition_reference : {"start", "center", "end"}
+        Time-coordinate acquisition reference metadata.
+    volume_acquisition_duration : float, optional
+        Time-coordinate acquisition duration metadata.
+
+    Returns
+    -------
+    xarray.DataArray
+        One-dimensional dimension coordinate.
+
+    Raises
+    ------
+    ValueError
+        If an explicit coordinate has the wrong shape or required spacing metadata is
+        missing.
+    """
+    generated_from_spacing = False
+    if dim in coords:
+        coord = coords[dim]
+        if isinstance(coord, xr.DataArray):
+            coord_values = np.asarray(coord.values)
+            attrs = coord.attrs.copy()
+        else:
+            coord_values = np.asarray(coord)
+            attrs = {}
+        coord_values = np.atleast_1d(coord_values)
+        if coord_values.ndim != 1 or coord_values.size != size:
+            raise ValueError(
+                f"Coordinate {dim!r} must be 1D with length {size}, got shape "
+                f"{coord_values.shape}."
+            )
+    elif dim in spacings:
+        step = _require_spacing(dim, spacings[dim])
+        coord_values = origins[dim] + np.arange(size) * step
+        attrs = {}
+        generated_from_spacing = True
+    else:
+        coord_values = np.arange(size)
+        attrs = {}
+
+    if dim == TIME_DIM:
+        if "units" not in attrs:
+            attrs["units"] = _TIME_UNITS
+        step = _regular_step(coord_values)
+        if step is None:
+            step = spacings[dim]
+        duration = volume_acquisition_duration
+        if duration is None:
+            duration = _require_spacing(dim, step)
+        attrs["volume_acquisition_reference"] = volume_acquisition_reference
+        attrs["volume_acquisition_duration"] = float(duration)
+    elif dim in _SPATIAL_DIMS:
+        if "units" not in attrs:
+            attrs["units"] = _SPATIAL_UNITS
+        if "voxdim" not in attrs:
+            step = (
+                spacings[dim] if generated_from_spacing else _regular_step(coord_values)
+            )
+            if step is None:
+                step = spacings[dim]
+            attrs["voxdim"] = _require_spacing(dim, step)
+
+    return xr.DataArray(coord_values, dims=(dim,), attrs=attrs)
+
+
+def _canonicalize_created_dataarray(
+    data: xr.DataArray,
+    coords: Mapping[str, npt.ArrayLike | xr.DataArray],
+    spacings: Mapping[str, float | None],
+    origins: Mapping[str, float],
+    volume_acquisition_reference: VolumeAcquisitionReference,
+    volume_acquisition_duration: float | None,
+    canonical_order: bool,
+) -> xr.DataArray:
+    """Add missing singleton spatial dimensions and optionally transpose.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray built from the caller's raw data and present dimensions.
+    coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray]
+        Explicit coordinates provided by the caller.
+    spacings : mapping[str, float or None]
+        Per-core-dimension spacings.
+    origins : mapping[str, float]
+        Per-core-dimension origins used with `spacings`.
+    volume_acquisition_reference : {"start", "center", "end"}
+        Time-coordinate acquisition reference metadata.
+    volume_acquisition_duration : float, optional
+        Time-coordinate acquisition duration metadata.
+    canonical_order : bool
+        Whether to transpose core dimensions to `(time, z, y, x)` order.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray with all spatial dimensions present.
+    """
+    result = data
+    for dim in _SPATIAL_DIMS:
+        if dim in result.dims:
+            continue
+        coord = _coordinate_dataarray(
+            dim,
+            1,
+            coords=coords,
+            spacings=spacings,
+            origins=origins,
+            volume_acquisition_reference=volume_acquisition_reference,
+            volume_acquisition_duration=volume_acquisition_duration,
+        )
+        attrs = coord.attrs.copy()
+        result = result.expand_dims({dim: coord.values})
+        result.coords[dim].attrs.update(attrs)
+
+    if canonical_order:
+        ordered_core = [dim for dim in _CORE_DIM_ORDER if dim in result.dims]
+        extra_dims = [dim for dim in result.dims if dim not in _CORE_DIM_ORDER]
+        result = result.transpose(*ordered_core, *extra_dims)
+
+    return result
+
+
 def create_fusi_dataarray(
     data: npt.ArrayLike,
     *,
     dims: Sequence[str],
+    coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     dt: float | None = None,
     dz: float | None = None,
     dy: float | None = None,
@@ -39,58 +249,68 @@ def create_fusi_dataarray(
     z0: float = 0.0,
     y0: float = 0.0,
     x0: float = 0.0,
+    canonical_order: bool = True,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     name: str | None = None,
     attrs: dict | None = None,
 ) -> xr.DataArray:
-    """Build a canonical ConfUSIus fUSI DataArray from a raw array.
+    """Build a ConfUSIus fUSI DataArray from a raw array.
 
-    The returned DataArray follows ConfUSIus conventions: it carries the spatial
-    dimensions `z`, `y`, and `x` (single-slice acquisitions use a singleton `z` axis),
-    an optional leading `time` dimension, regularly spaced physical coordinates in
-    millimetres, and `voxdim`/`units` metadata on each spatial coordinate. The result
-    is validated with [validate_fusi_dataarray][confusius.validation.validate_fusi_dataarray]
-    before being returned.
+    The returned DataArray carries the spatial dimensions `z`, `y`, and `x`.
+    Dimensions may be supplied in any order and may omit spatial singleton dimensions;
+    omitted spatial dimensions are added with length 1. Coordinates can be supplied
+    explicitly with `coords`, or generated from the matching spacing/origin pairs.
+    ConfUSIus never guesses physical spacings: every core coordinate must either contain
+    enough values to infer regular spacing or receive the corresponding `dt`, `dz`,
+    `dy`, or `dx` value.
 
     Parameters
     ----------
     data : numpy.typing.ArrayLike
         Raw array whose rank matches the length of `dims`.
     dims : sequence[str]
-        Explicit dimension names for each axis of `data`, in order. Must include the
-        spatial trio `z`, `y`, and `x`, may include a leading `time` dimension, and may
-        include extra non-core dimensions. No dimensions are inferred from the array
-        rank.
+        Explicit dimension names for each axis of `data`, in order. May include any
+        subset/order of `time`, `z`, `y`, and `x`, plus extra non-core dimensions.
+        Missing spatial dimensions are added as singleton axes.
+    coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
+        Explicit 1D coordinates. Spatial coordinates receive `units="mm"` and
+        `voxdim` metadata when missing; `voxdim` is inferred from regularly spaced
+        coordinates with at least two points, otherwise the matching `d*` spacing must
+        be provided. Time coordinates receive `units="s"` when missing.
     dt : float, optional
-        Spacing of the `time` coordinate, in seconds. If not provided, defaults to
-        `1.0`. Ignored when `dims` has no `time` dimension.
+        Spacing of the `time` coordinate, in seconds. Required when `time` is present
+        and the time coordinate spacing cannot be inferred from `coords`.
     dz : float, optional
-        Spacing of the `z` coordinate, in millimetres. If not provided, defaults to
-        `1.0`.
+        Spacing of the `z` coordinate, in millimetres. Required when `z` spacing cannot
+        be inferred from `coords`.
     dy : float, optional
-        Spacing of the `y` coordinate, in millimetres. If not provided, defaults to
-        `1.0`.
+        Spacing of the `y` coordinate, in millimetres. Required when `y` spacing cannot
+        be inferred from `coords`.
     dx : float, optional
-        Spacing of the `x` coordinate, in millimetres. If not provided, defaults to
-        `1.0`.
+        Spacing of the `x` coordinate, in millimetres. Required when `x` spacing cannot
+        be inferred from `coords`.
     t0 : float, default: 0.0
-        Origin of the `time` coordinate, in seconds.
+        Origin of the generated `time` coordinate, in seconds.
     z0 : float, default: 0.0
-        Origin of the `z` coordinate, in millimetres.
+        Origin of the generated `z` coordinate, in millimetres.
     y0 : float, default: 0.0
-        Origin of the `y` coordinate, in millimetres.
+        Origin of the generated `y` coordinate, in millimetres.
     x0 : float, default: 0.0
-        Origin of the `x` coordinate, in millimetres.
+        Origin of the generated `x` coordinate, in millimetres.
+    canonical_order : bool, default: True
+        Whether to transpose the result to canonical core order `(time, z, y, x)` with
+        extra dimensions appended afterwards. If `False`, the input dimension order is
+        preserved and missing spatial dimensions are added as singleton axes.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Where within its acquisition window each frame's `time` coordinate is anchored.
         Stored on the `time` coordinate attributes and used by downstream timing
         helpers. Only applied when a `time` dimension is present.
     volume_acquisition_duration : float, optional
         Duration of a single volume's acquisition window, in seconds. Stored on the
-        `time` coordinate attributes. If not provided, defaults to the `time`
-        coordinate spacing (the coordinate is always regularly spaced here). Only
-        applied when a `time` dimension is present.
+        `time` coordinate attributes. If not provided, defaults to the inferred or
+        provided time coordinate spacing. Only applied when a `time` dimension is
+        present.
     name : str, optional
         Name assigned to the resulting DataArray.
     attrs : dict, optional
@@ -101,17 +321,16 @@ def create_fusi_dataarray(
     Returns
     -------
     xarray.DataArray
-        Canonical ConfUSIus fUSI DataArray with regularly spaced physical coordinates
-        and spatial metadata.
+        ConfUSIus fUSI DataArray with physical coordinates and spatial metadata.
 
     Raises
     ------
     ValueError
         If `dims` contains duplicate names, if its length does not match the rank of
-        `data`, if `volume_acquisition_reference` is not one of `"start"`, `"center"`,
-        `"end"`, if `volume_acquisition_duration` is given without a `time` dimension,
-        or if the resulting DataArray fails fUSI validation (for example when the
-        spatial trio `z`, `y`, `x` is not present).
+        `data`, if required spacing/coordinate information is missing, if
+        `volume_acquisition_reference` is invalid, if `volume_acquisition_duration` is
+        given without a `time` dimension, or if the resulting DataArray fails fUSI
+        validation.
 
     Examples
     --------
@@ -119,14 +338,15 @@ def create_fusi_dataarray(
 
     >>> import numpy as np
     >>> from confusius.xarray import create_fusi_dataarray
-    >>> data = np.random.default_rng(0).standard_normal((20, 1, 64, 96))
+    >>> data = np.random.default_rng(0).standard_normal((20, 64, 96))
     >>> recording = create_fusi_dataarray(
-    ...     data, dims=("time", "z", "y", "x"), dt=0.5, dz=0.4, dy=0.1, dx=0.1
+    ...     data, dims=("time", "y", "x"), dt=0.5, dz=0.4, dy=0.1, dx=0.1
     ... )
     >>> recording.dims
     ('time', 'z', 'y', 'x')
     """
     dims = tuple(dims)
+    coords = {} if coords is None else dict(coords)
     # np.shape reads the array's `shape` without materializing lazy (e.g. dask) arrays.
     shape = np.shape(data)
 
@@ -148,43 +368,42 @@ def create_fusi_dataarray(
     if TIME_DIM not in dims and volume_acquisition_duration is not None:
         raise ValueError("volume_acquisition_duration requires a 'time' dimension.")
 
-    # The `time` coordinate is always regularly spaced here, so the acquisition-window
-    # duration defaults to that spacing when the caller does not provide one.
-    time_step = 1.0 if dt is None else float(dt)
-    time_duration = (
-        time_step
-        if volume_acquisition_duration is None
-        else float(volume_acquisition_duration)
-    )
-
     spacings = {TIME_DIM: dt, "z": dz, "y": dy, "x": dx}
     origins = {TIME_DIM: t0, "z": z0, "y": y0, "x": x0}
 
-    coords: dict[str, xr.DataArray] = {}
+    data_coords: dict[str, xr.DataArray] = {}
     for dim, size in zip(dims, shape):
-        if dim in spacings:
-            spacing = spacings[dim]
-            step = 1.0 if spacing is None else float(spacing)
-            values = origins[dim] + np.arange(size) * step
-            if dim == TIME_DIM:
-                coord_attrs: dict[str, object] = {
-                    "units": _TIME_UNITS,
-                    "volume_acquisition_reference": volume_acquisition_reference,
-                    "volume_acquisition_duration": time_duration,
-                }
-            else:
-                coord_attrs = {"units": _SPATIAL_UNITS, "voxdim": step}
-            coords[dim] = xr.DataArray(values, dims=(dim,), attrs=coord_attrs)
-        else:
-            coords[dim] = xr.DataArray(np.arange(size), dims=(dim,))
+        data_coords[dim] = _coordinate_dataarray(
+            dim,
+            size,
+            coords=coords,
+            spacings=spacings,
+            origins=origins,
+            volume_acquisition_reference=volume_acquisition_reference,
+            volume_acquisition_duration=volume_acquisition_duration,
+        )
 
-    result = xr.DataArray(data, dims=dims, coords=coords, name=name, attrs=attrs)
+    result = xr.DataArray(data, dims=dims, coords=data_coords, name=name, attrs=attrs)
+    result = _canonicalize_created_dataarray(
+        result,
+        coords=coords,
+        spacings=spacings,
+        origins=origins,
+        volume_acquisition_reference=volume_acquisition_reference,
+        volume_acquisition_duration=volume_acquisition_duration,
+        canonical_order=canonical_order,
+    )
 
+    regular_spacing_dims = tuple(
+        dim
+        for dim in _CORE_DIM_ORDER
+        if dim in result.dims and not (dim == TIME_DIM and result.sizes[dim] == 1)
+    )
     validate_fusi_dataarray(
         result,
         require_regular_spacing=True,
-        regular_spacing_dims="core",
-        require_canonical_dim_order=True,
+        regular_spacing_dims=regular_spacing_dims,
+        require_canonical_dim_order=canonical_order,
         require_spatial_voxdim=True,
         require_spatial_units=True,
         require_time_units=True,

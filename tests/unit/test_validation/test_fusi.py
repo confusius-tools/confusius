@@ -40,6 +40,18 @@ def test_validate_fusi_dataarray_rejects_non_dataarray() -> None:
         validate_fusi_dataarray(np.zeros((2, 2)))  # type: ignore
 
 
+def test_canonicalize_fusi_dataarray_rejects_non_dataarray() -> None:
+    """Canonicalization also validates input type."""
+    with pytest.raises(TypeError, match="xarray.DataArray"):
+        canonicalize_fusi_dataarray(np.zeros((2, 2)))  # ty: ignore[invalid-argument-type]
+
+
+def test_ensure_fusi_dataarray_rejects_non_dataarray() -> None:
+    """Ensure validates input type before inspecting dimensions."""
+    with pytest.raises(TypeError, match="xarray.DataArray"):
+        ensure_fusi_dataarray(np.zeros((2, 2)))  # ty: ignore[invalid-argument-type]
+
+
 @pytest.mark.parametrize(("dim", "index"), [("z", 1), ("y", 2), ("x", 3)])
 def test_canonicalize_fusi_dataarray_restores_scalar_indexed_spatial_dim(
     sample_3dt_volume: xr.DataArray,
@@ -106,6 +118,31 @@ def test_ensure_fusi_dataarray_returns_canonicalized_valid_data(
     )
 
     assert_identical(result, sample_3dt_volume.isel(z=[0]))
+
+
+def test_canonicalize_fusi_dataarray_restores_all_spatial_dims_from_scalars() -> None:
+    """A scalar-only spatial coordinate set is restored in append order."""
+    data = xr.DataArray(
+        np.arange(3),
+        dims=("time",),
+        coords={"time": [0.0, 1.0, 2.0], "z": 1.0, "y": 2.0, "x": 3.0},
+    )
+
+    result = canonicalize_fusi_dataarray(data)
+
+    assert result.dims == ("time", "z", "y", "x")
+    assert result.shape == (3, 1, 1, 1)
+
+
+def test_ensure_fusi_dataarray_applies_prevalidation_options(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`ensure_fusi_dataarray` preserves validator failures before canonicalizing."""
+    with pytest.raises(ValueError, match="must not have a 'pose' dimension"):
+        ensure_fusi_dataarray(sample_3dt_volume.expand_dims(pose=[0]), allow_pose=False)
+
+    with pytest.raises(ValueError, match="must have a 'time' dimension"):
+        ensure_fusi_dataarray(sample_3dt_volume.isel(time=0), require_time=True)
 
 
 def test_validate_fusi_dataarray_allows_extra_dims_by_default(

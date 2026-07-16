@@ -124,7 +124,8 @@ mask).
 
 Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
 have a NumPy, Dask, or array-like object and want to attach ConfUSIus-compatible
-dimensions, coordinates, and metadata:
+dimensions, coordinates, and metadata. Dimensions can be supplied in any order; by
+default, the result is transposed to canonical `(time, z, y, x)` order:
 
 ```python
 import confusius as cf
@@ -140,18 +141,21 @@ recording = cf.create_fusi_dataarray(
 )
 ```
 
-Single-slice recordings should still include `z` as a singleton dimension:
+Single-slice recordings can omit the singleton spatial axis in the raw array; provide
+its spacing and ConfUSIus adds it for you:
 
 ```python
 single_slice = cf.create_fusi_dataarray(
-    raw_power[:, None, :, :],
-    dims=("time", "z", "y", "x"),
+    raw_power,  # shape: (time, y, x)
+    dims=("time", "y", "x"),
     dt=0.6,
     dz=0.4,
     dy=0.05,
     dx=0.1,
 )
 ```
+
+Pass `canonical_order=False` only when you need to preserve the input dimension order.
 
 Acquisition metadata that describes the whole recording, such as
 `transmit_frequency` or `beamforming_sound_velocity`, belongs in `attrs`. Coordinate

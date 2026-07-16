@@ -187,8 +187,8 @@ import confusius as cf
 raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (time, y, x)
 
 power = cf.create_fusi_dataarray(
-    raw_power[:, None, :, :],  # add singleton z for single-slice fUSI
-    dims=("time", "z", "y", "x"),
+    raw_power,
+    dims=("time", "y", "x"),  # singleton z is added from dz
     dt=0.6,   # seconds between volumes
     dz=0.4,   # slice thickness / elevation spacing in mm
     dy=0.05,  # axial voxel size in mm
