@@ -175,30 +175,13 @@ Zarr for efficient processing.
 
 ### Other Systems
 
-If you're working with data from a system other than AUTC or EchoFrame, load the raw
-array with the tool appropriate for your file format, then wrap it with
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]. For example, after
-loading a power Doppler recording from a custom MAT-file:
+For beamformed IQ data from a system other than AUTC or EchoFrame, load the raw array
+with the tool appropriate for your file format, then see
+[Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
+IQ-specific metadata and validation requirements.
 
-```python
-import confusius as cf
-
-# Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
-raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (time, y, x)
-
-power = cf.create_fusi_dataarray(
-    raw_power,
-    dims=("time", "y", "x"),  # singleton z is added from dz
-    dt=0.6,   # seconds between volumes
-    dz=0.4,   # slice thickness / elevation spacing in mm
-    dy=0.05,  # axial voxel size in mm
-    dx=0.1,   # lateral voxel size in mm
-    attrs={"description": "Power Doppler from my system"},
-)
-```
-
-For beamformed IQ data, see [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure)
-for the IQ-specific metadata and validation requirements.
+For already-derived fUSI signals such as power Doppler, see
+[Creating fUSI DataArrays from raw arrays](xarray.md#creating-fusi-dataarrays-from-raw-arrays).
 
 ## Loading Data
 
