@@ -132,19 +132,16 @@ _ = axes[1].set_xlabel("Time (s)")
 #
 # [`compute_temporal_metrics`][confusius.connectivity.CAP.compute_temporal_metrics]
 # summarizes how often each CAP appears, how persistent its episodes are, and how often
-# the recording switches from one CAP to another. Squaring the one-step transition
-# matrix gives the two-step transition probabilities implied by a first-order Markov
-# model. Counting `t → t + 2` pairs directly gives the empirical two-step transitions;
-# comparing them shows where the Markov approximation misses sequence structure.
+# the recording switches from one CAP to another. We also count empirical `t → t + 2`
+# pairs directly to visualize two-step transitions.
 
 # %%
 metrics = caps.compute_temporal_metrics()
 metrics
 
 # %%
-fig, axes = plt.subplots(2, 3, figsize=(12, 7), constrained_layout=True)
+fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), constrained_layout=True)
 fig.patch.set_facecolor(bg_color)
-axes = axes.ravel()
 
 fraction = metrics.temporal_fraction.sel(recording=0)
 axes[0].bar(fraction.cap.values + 1, fraction.values * 100)
@@ -168,23 +165,6 @@ cf.plotting.plot_matrix(
     bg_color=bg_color,
 )
 
-markov_two_step = xr.DataArray(
-    np.linalg.matrix_power(transition_matrix.values, 2),
-    dims=transition_matrix.dims,
-    coords=transition_matrix.coords,
-)
-cf.plotting.plot_matrix(
-    markov_two_step,
-    ax=axes[2],
-    cmap="magma",
-    vmin=0,
-    vmax=1,
-    auto_range=False,
-    cbar_label="P(CAP after 2 steps)",
-    title="Two-step transitions (Markov)",
-    bg_color=bg_color,
-)
-
 label_values = labels.values
 counts = np.zeros((n_caps, n_caps), dtype=float)
 for start, stop in zip(label_values[:-2], label_values[2:], strict=True):
@@ -195,27 +175,14 @@ empirical_two_step = xr.DataArray(
     dims=transition_matrix.dims,
     coords=transition_matrix.coords,
 )
-cf.plotting.plot_matrix(
+_ = cf.plotting.plot_matrix(
     empirical_two_step,
-    ax=axes[3],
+    ax=axes[2],
     cmap="magma",
     vmin=0,
     vmax=1,
     auto_range=False,
     cbar_label="P(CAP at t+2)",
-    title="Two-step transitions (empirical)",
+    title="Two-step transitions",
     bg_color=bg_color,
 )
-
-_ = cf.plotting.plot_matrix(
-    empirical_two_step - markov_two_step,
-    ax=axes[4],
-    cmap="coolwarm",
-    vmin=-0.5,
-    vmax=0.5,
-    auto_range=False,
-    cbar_label="Empirical - Markov",
-    title="Two-step difference",
-    bg_color=bg_color,
-)
-axes[5].axis("off")
