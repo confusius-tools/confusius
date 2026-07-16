@@ -120,6 +120,43 @@ when loading data, or to store multiple related variables together (e.g.,
 `power_doppler` for the power Doppler signals and `brain_mask` for a corresponding brain
 mask).
 
+### Creating fUSI DataArrays from raw arrays
+
+Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
+have a NumPy, Dask, or array-like object and want to attach ConfUSIus-compatible
+dimensions, coordinates, and metadata:
+
+```python
+import confusius as cf
+
+recording = cf.create_fusi_dataarray(
+    raw_power,  # shape: (time, z, y, x)
+    dims=("time", "z", "y", "x"),
+    dt=0.6,    # seconds
+    dz=0.4,    # mm
+    dy=0.05,   # mm
+    dx=0.1,    # mm
+    attrs={"description": "Power Doppler from my system"},
+)
+```
+
+Single-slice recordings should still include `z` as a singleton dimension:
+
+```python
+single_slice = cf.create_fusi_dataarray(
+    raw_power[:, None, :, :],
+    dims=("time", "z", "y", "x"),
+    dt=0.6,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+)
+```
+
+Acquisition metadata that describes the whole recording, such as
+`transmit_frequency` or `beamforming_sound_velocity`, belongs in `attrs`. Coordinate
+metadata such as `units` and `voxdim` is added automatically.
+
 ### Canonical fUSI dimensions and scalar indexing
 
 ConfUSIus stores fUSI recordings with the spatial dimensions `z`, `y`, and `x`.

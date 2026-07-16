@@ -175,26 +175,53 @@ Zarr for efficient processing.
 
 ### Other Systems
 
-If you're working with IQ data from a system other than AUTC or EchoFrame, load it
-using your own loader and use [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] to
-ensure it meets ConfUSIus requirements before processing:
+If you're working with data from a system other than AUTC or EchoFrame, load the raw
+array with the tool appropriate for your file format, then wrap it with
+[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]. For example, after
+loading a power Doppler recording from a custom MAT-file:
 
 ```python
-import xarray as xr
-from confusius.validation import validate_iq_dataarray
+import confusius as cf
 
-# Load IQ data from an unsupported format (example using your own loading function).
-iq = your_loader_function("path/to/iq_data")
+# Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
+raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (time, y, x)
 
-# Validate the IQ data structure and required attributes.
-try:
-    validate_iq_dataarray(iq)
-    print("✓ IQ data is valid and ready for processing")
-except (ValueError, TypeError) as e:
-    print(f"✗ Validation failed: {e}")
+power = cf.create_fusi_dataarray(
+    raw_power[:, None, :, :],  # add singleton z for single-slice fUSI
+    dims=("time", "z", "y", "x"),
+    dt=0.6,   # seconds between volumes
+    dz=0.4,   # slice thickness / elevation spacing in mm
+    dy=0.05,  # axial voxel size in mm
+    dx=0.1,   # lateral voxel size in mm
+    attrs={"description": "Power Doppler from my system"},
+)
 ```
 
-The [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] function checks that your data:
+For beamformed IQ data, include the acquisition metadata required by IQ processing and
+then validate the result:
+
+```python
+from confusius.validation import validate_iq_dataarray
+
+raw_iq = load_my_mat_file("path/to/iq.mat")  # complex array, (time, z, y, x)
+
+iq = cf.create_fusi_dataarray(
+    raw_iq,
+    dims=("time", "z", "y", "x"),
+    dt=1 / 500,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+    attrs={
+        "compound_sampling_frequency": 500.0,
+        "transmit_frequency": 15.625e6,
+        "beamforming_sound_velocity": 1540.0,
+    },
+)
+validate_iq_dataarray(iq, require_attrs=True)
+```
+
+The [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] function checks that your IQ data:
 
 - Has the correct dimensions: `(time, z, y, x)`.
 - Is complex-valued ([`numpy.complex64`][numpy.complex64] or
