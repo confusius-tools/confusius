@@ -144,7 +144,9 @@ def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
 
 def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
     """Test cutoffs must be passed directly to clean."""
-    with pytest.raises(ValueError, match="Pass low_cutoff/high_cutoff directly to clean"):
+    with pytest.raises(
+        ValueError, match="Pass low_cutoff/high_cutoff directly to clean"
+    ):
         clean(sample_timeseries(), filter_kwargs={"high_cutoff": 1.0})
 
 
@@ -508,6 +510,36 @@ def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
         ),
         dims=["time", "component"],
         coords={"time": signals.coords["time"]},
+    )
+
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert result.shape == signals.shape
+
+
+def test_clean_cosine_filter_joint_regression_drops_extra_confound_coords(
+    sample_timeseries,
+):
+    """Test cosine joint regression ignores auxiliary confound coordinates."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.column_stack(
+            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
+        ),
+        dims=["time", "component"],
+        coords={
+            "time": signals.coords["time"],
+            "component": [0, 1],
+            "explained_variance_ratio": ("component", [0.7, 0.3]),
+        },
     )
 
     result = clean(

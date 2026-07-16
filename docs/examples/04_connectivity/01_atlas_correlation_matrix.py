@@ -228,7 +228,7 @@ signals
 # ## Clean the region signals
 #
 # Before correlating regions we remove nuisance variance that would otherwise inflate
-# their apparent FC: a 0.01 Hz high-pass filter for slow drift, and one
+# their apparent FC: a 0.01 Hz high-pass cosine filter for slow drift, and one
 # [aCompCor][confusius.signal.compute_compcor_confounds] component regressed out.
 # aCompCor components are extracted from white matter voxels—the Allen ontology's
 # `"fiber tracts"` division—so they must be computed from the voxelwise recording rather
@@ -239,7 +239,9 @@ white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
 acompcor = cf.signal.compute_compcor_confounds(
     data, noise_mask=white_matter, n_components=1
 )
-signals = cf.signal.clean(signals, low_cutoff=0.01, confounds=acompcor)
+signals = cf.signal.clean(
+    signals, low_cutoff=0.01, filter_method="cosine", confounds=acompcor
+)
 
 # %% [markdown]
 # ## Compute and plot the correlation matrix

@@ -151,7 +151,7 @@ def _append_cosine_drift_confounds(
         regressors,
         dims=["time", "confound"],
         coords={"time": signals.coords["time"], "confound": names},
-    )
+    ).reset_coords(drop=True)
 
     if confounds is None:
         return cosine_confounds
@@ -164,7 +164,7 @@ def _append_cosine_drift_confounds(
                 "time": confounds.coords["time"],
                 "confound": ["confound_0"],
             },
-        )
+        ).reset_coords(drop=True)
     elif confounds.ndim == 2:
         existing_confounds = confounds.transpose("time", ...)
         if "confound" not in existing_confounds.dims:
@@ -174,6 +174,7 @@ def _append_cosine_drift_confounds(
             existing_confounds = existing_confounds.assign_coords(
                 confound=np.arange(existing_confounds.sizes["confound"])
             )
+        existing_confounds = existing_confounds.reset_coords(drop=True)
     else:
         raise ValueError(f"confounds must be 1D or 2D, got {confounds.ndim}D")
 
@@ -241,12 +242,12 @@ def clean(
     filter_method : {"butterworth", "cosine"}, default: "butterworth"
         Filtering method used when `low_cutoff` or `high_cutoff` is provided.
         Butterworth filtering supports low-pass, high-pass, and band-pass filtering.
-        Cosine filtering supports high-pass filtering only and uses the same
-        discrete-cosine drift basis as the GLM module.
+        Cosine filtering supports high-pass filtering only.
     filter_kwargs : dict, optional
         Extra keyword arguments passed to the selected filtering function. This means
-        `confusius.signal.filter_butterworth` when `filter_method="butterworth"`
-        and `confusius.signal.filter_cosine` when `filter_method="cosine"`.
+        [`filter_butterworth`][confusius.signal.filter_butterworth] when
+        `filter_method="butterworth"` and
+        [`filter_cosine`][confusius.signal.filter_cosine] when `filter_method="cosine"`.
     confounds : (time, n_confounds) xarray.DataArray, optional
         Confound regressors to remove. Can have shape `(time,)` for a single
         confound. When provided, confounds are detrended and filtered along with
