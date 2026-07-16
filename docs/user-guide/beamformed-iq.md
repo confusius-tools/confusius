@@ -98,14 +98,45 @@ Additionally, ConfUSIus expects certain metadata attributes to be present:
 - `transmit_frequency`: Frequency of the transmitted ultrasound pulse (Hz).
 - `beamforming_sound_velocity`: Speed of sound used for beamforming (m/s).
 
-!!! note "Loading IQ data from unsupported formats"
-    If you've loaded IQ data from an unsupported format (i.e., not using ConfUSIus
-    converters), use [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] to check that your
-    data has the required structure and attributes. See [Other Systems](io.md#other-systems)
-    for details.
+For unsupported IQ formats, load the complex array with your system-specific loader,
+wrap it as a DataArray, and validate the result before processing:
 
 ```python
-import xarray as xr
+import confusius as cf
+from confusius.validation import validate_iq_dataarray
+
+raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
+
+iq = cf.create_fusi_dataarray(
+    raw_iq,
+    dims=("time", "z", "y", "x"),
+    dt=1 / 500,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+    attrs={
+        "compound_sampling_frequency": 500.0,
+        "transmit_frequency": 15.625e6,
+        "beamforming_sound_velocity": 1540.0,
+    },
+)
+validate_iq_dataarray(iq, require_attrs=True)
+```
+
+!!! question "Finding attribute values"
+    If you're unsure about the correct values for these attributes:
+
+    - `compound_sampling_frequency`: Check your acquisition software settings. The
+      compound sampling frequency is generally around 500-1000 Hz for fUSI acquisitions,
+      but can vary based on the system and settings used.
+    - `transmit_frequency`: Found in your probe specifications or acquisition
+      settings. Generally around 5-10 MHz for clinical probes, and 12-20 MHz for
+      high-frequency probes used in small animal imaging.
+    - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
+      with temperature and tissue type.
+
+```python
+import confusius as cf
 
 iq = cf.load("sub-01_task-rest_iq.zarr")
 

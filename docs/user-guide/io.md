@@ -197,51 +197,8 @@ power = cf.create_fusi_dataarray(
 )
 ```
 
-For beamformed IQ data, include the acquisition metadata required by IQ processing and
-then validate the result:
-
-```python
-from confusius.validation import validate_iq_dataarray
-
-raw_iq = load_my_mat_file("path/to/iq.mat")  # complex array, (time, z, y, x)
-
-iq = cf.create_fusi_dataarray(
-    raw_iq,
-    dims=("time", "z", "y", "x"),
-    dt=1 / 500,
-    dz=0.4,
-    dy=0.05,
-    dx=0.1,
-    attrs={
-        "compound_sampling_frequency": 500.0,
-        "transmit_frequency": 15.625e6,
-        "beamforming_sound_velocity": 1540.0,
-    },
-)
-validate_iq_dataarray(iq, require_attrs=True)
-```
-
-The [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] function checks that your IQ data:
-
-- Has the correct dimensions: `(time, z, y, x)`.
-- Is complex-valued ([`numpy.complex64`][numpy.complex64] or
-  [`numpy.complex128`][numpy.complex128]).
-- Contains required attributes:
-    - `compound_sampling_frequency`: Effective IQ sampling frequency in Hz.
-    - `transmit_frequency`: Ultrasound transmit frequency in Hz.
-    - `beamforming_sound_velocity`: Speed of sound in m/s.
-
-!!! question "Finding attribute values"
-    If you're unsure about the correct values for these attributes:
-
-    - `compound_sampling_frequency`: Check your acquisition software settings. The
-      compound sampling frequency is generally around 500-1000 Hz for fUSI acquisitions,
-      but can vary based on the system and settings used.
-    - `transmit_frequency`: Found in your probe specifications or acquisition
-      settings. Generally around 5-10 MHz for clinical probes, and 12-20 MHz for
-      high-frequency probes used in small animal imaging.
-    - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
-      with temperature and tissue type.
+For beamformed IQ data, see [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure)
+for the IQ-specific metadata and validation requirements.
 
 ## Loading Data
 
