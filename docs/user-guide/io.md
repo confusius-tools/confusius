@@ -176,18 +176,20 @@ Zarr for efficient processing.
 ### Other Systems
 
 For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
-array with the tool appropriate for your file format, then wrap it as an IQ DataArray:
+array with the tool appropriate for your file format, then wrap it as an IQ DataArray.
+For example for a MAT-file containing a complex array of shape `(x, y, z, time)`:
 
 ```python
 import confusius as cf
 from confusius.validation import validate_iq_dataarray
+from scipy.io import loadmat
 
-# Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
-raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
+# Replace this with your file format loader.
+raw_iq = loadmat("path/to/iq.mat")  # complex array, (x, y, z, time)
 
 iq = cf.create_fusi_dataarray(
     raw_iq,
-    dims=("time", "z", "y", "x"),
+    dims=("x", "y", "z", "time"),  # or whatever order your data is in
     dt=1 / 500,
     dz=0.4,
     dy=0.05,
@@ -494,11 +496,11 @@ coordinates, and metadata:
 import confusius as cf
 
 # Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
-raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (time, y, x)
+raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (x, y, time)
 
 power = cf.create_fusi_dataarray(
     raw_power,
-    dims=("time", "y", "x"),  # missing z is added as a singleton dimension
+    dims=("x", "y", "time"),  # missing z is added as a singleton dimension
     dt=0.6,   # seconds between volumes
     dz=0.4,   # spacing for the singleton z dimension in mm
     dy=0.05,  # axial voxel size in mm
