@@ -92,9 +92,9 @@ def _standardize_confounds(confounds: np.ndarray) -> np.ndarray:
 
     Notes
     -----
-    Based on nilearn.signal.clean implementation which standardizes by max
-    absolute value to improve numerical stability while keeping constant
-    contributions intact.
+    Based on [`nilearn.signal.clean`][nilearn.signal.clean] implementation which
+    standardizes by max absolute value to improve numerical stability while keeping
+    constant contributions intact.
     """
     confound_max = np.max(np.abs(confounds), axis=0)
     confound_max[confound_max == 0] = 1
@@ -129,9 +129,9 @@ def _regress_confounds_numpy(
 
     Notes
     -----
-    Based on nilearn.signal.clean implementation which follows
-    Friston et al. (1994) for confound removal via projection onto
-    the orthogonal of the signal space.
+    Based on [`nilearn.signal.clean`][nilearn.signal.clean] implementation which follows
+    Friston et al. (1994) for confound removal via projection onto the orthogonal of the
+    signal space.
     """
     if standardize_confounds:
         confounds = _standardize_confounds(confounds)
@@ -203,7 +203,7 @@ def regress_confounds(
     orthogonal complement of the confound space. This removes variance in the signals
     that can be explained by the confounds.
 
-    This function was adapted from `nilearn.signal.clean`.
+    This function was adapted from [`nilearn.signal.clean`][nilearn.signal.clean].
 
     Parameters
     ----------
@@ -353,12 +353,12 @@ def _extract_compcor_components(
             Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]],
             getattr(da.linalg, "svd"),
         )
-        U, s, Vt = svd(noise_signals.data)
+        U, s, _ = svd(noise_signals.data)
         components = U[:, :n_components]
         total_variance = (s**2).sum()
         explained_variance_ratio = (s[:n_components] ** 2) / total_variance
     else:
-        U, s, Vt = scipy.linalg.svd(
+        U, s, _ = scipy.linalg.svd(
             noise_signals.values, full_matrices=False, check_finite=False
         )
         components = U[:, :n_components]
@@ -541,7 +541,18 @@ def compute_compcor_confounds(
 
     if noise_mask is not None:
         noise_mask = validate_mask(noise_mask, signals, "noise_mask")
-        noise_mask_flat = noise_mask.values.flatten()
+        # Stack the mask using the same spatial dimension order as the signals so
+        # positional indexing is consistent. Using .values.flatten() instead would
+        # silently select wrong voxels when the mask's dim order differs from
+        # spatial_dims. Fall back to a raw flatten when the mask doesn't carry all
+        # spatial_dims (e.g. a subset-dimension mask) so the size check below still
+        # reports a clear error instead of xarray's stack raising a KeyError.
+        if "space" in noise_mask.dims:
+            noise_mask_flat = noise_mask.values
+        elif set(spatial_dims).issubset(noise_mask.dims):
+            noise_mask_flat = noise_mask.stack(space=spatial_dims).values
+        else:
+            noise_mask_flat = noise_mask.values.flatten()
 
         if noise_mask_flat.shape[0] != n_voxels:
             raise ValueError(

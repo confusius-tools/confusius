@@ -209,7 +209,7 @@ def clean(
     5. Regress confounds.
     6. Standardize.
 
-    This function is inspired by `nilearn.signal.clean`.
+    This function is inspired by [`nilearn.signal.clean`][nilearn.signal.clean].
 
     Parameters
     ----------

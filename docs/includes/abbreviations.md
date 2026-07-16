@@ -10,6 +10,8 @@
 *[IC]: Independent Component
 *[NMF]: Non-negative Matrix Factorization
 *[NNDSVD]: Non-negative Double Singular Value Decomposition
+*[CAP]: Co-Activation Pattern
+*[CAPs]: Co-Activation Patterns
 *[GLM]: General Linear Model
 *[GLMs]: General Linear Models
 *[OLS]: Ordinary Least Squares
@@ -23,6 +25,7 @@
 *[FWER]: Family-Wise Error Rate
 *[SNR]: Signal-to-Noise Ratio
 *[CNR]: Contrast-to-Noise Ratio
+*[SSQ]: Sum of Squares
 *[DOF]: Degrees of Freedom
 *[QC]: Quality Control
 *[tSNR]: Temporal Signal-to-Noise Ratio
