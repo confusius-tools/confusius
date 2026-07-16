@@ -30,9 +30,9 @@ __all__ = [
 
 __version__ = metadata.version("confusius")
 
-# Import the lightweight xarray registration module eagerly so `import confusius`
-# continues to register the `.fusi` accessor on xarray objects.
-from confusius import xarray
+# Import lightweight accessor-registration modules eagerly so `import confusius`
+# continues to register the `.fusi` and `.atlas` accessors on xarray objects.
+from confusius import atlas, xarray
 
 _SUBMODULES = {
     "atlas",

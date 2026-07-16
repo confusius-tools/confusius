@@ -1,6 +1,7 @@
 """Atlas-rendering helpers shared by atlas building and plotting code."""
 
 import numpy as np
+import xarray as xr
 from matplotlib.colors import BoundaryNorm, ListedColormap
 
 
@@ -38,3 +39,25 @@ def build_atlas_cmap_and_norm(
     cmap = ListedColormap(rgba, under=(0.0, 0.0, 0.0, 0.0))
     norm = BoundaryNorm(boundaries, ncolors=len(ordered_ids), clip=False)
     return cmap, norm
+
+
+def restore_atlas_cmap_and_norm(data_array: xr.DataArray) -> None:
+    """Rebuild `cmap`/`norm` attrs from `rgb_lookup` in place, when missing.
+
+    Parameters
+    ----------
+    data_array : xarray.DataArray
+        DataArray to update in place.
+
+    Returns
+    -------
+    None
+        This function mutates `data_array.attrs` and returns nothing.
+    """
+    if "rgb_lookup" not in data_array.attrs:
+        return
+    if "cmap" in data_array.attrs and "norm" in data_array.attrs:
+        return
+    cmap, norm = build_atlas_cmap_and_norm(data_array.attrs["rgb_lookup"])
+    data_array.attrs["cmap"] = cmap
+    data_array.attrs["norm"] = norm

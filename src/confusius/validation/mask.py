@@ -84,7 +84,7 @@ def validate_mask(
     mask : xarray.DataArray
         Mask to validate. Must have boolean dtype, or integer dtype with exactly one
         non-zero value (0 = background, one region id = foreground). The latter format
-        is produced by [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks]. Coordinates
+        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks]. Coordinates
         must match data.
     data : xarray.DataArray
         Data array to validate mask against.

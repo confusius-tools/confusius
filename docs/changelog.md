@@ -18,6 +18,14 @@ Current development version for the next ConfUSIus release.
   single coordinate point. Generic fUSI validation and dimension-generic operations
   still accept named 2D layouts such as `(y, x)` or `(time, y, x)` when full 3D
   geometry is not required ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
+  registered `.atlas` accessor. Fetch an atlas by name with
+  [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
+  Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
+  BrainGlobe atlas is now internal to the datasets module
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`resample_volume`][confusius.registration.resample_volume] and
   [`resample_like`][confusius.registration.resample_like] now use `fill_value`
   instead of `default_value` for out-of-field-of-view resampling, matching
@@ -51,6 +59,14 @@ Current development version for the next ConfUSIus release.
   array plus higher-level metadata (`dt`, `dz`, `dy`, `dx`, and axis origins). It
   attaches regularly spaced physical coordinates, `units`/`voxdim` metadata, and
   validates the result before returning it ([#149](https://github.com/confusius-tools/confusius/issues/149)).
+- Atlases are now serializable: save and reload a complete atlas, including its structure
+  hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
+  [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
+  Zarr store, so a reloaded atlas renders meshes without the BrainGlobe cache
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
+  Dataset is a well-formed atlas
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
   addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
   experimental: data, timing, voxel spacing, the depth origin, provenance
@@ -82,6 +98,10 @@ Current development version for the next ConfUSIus release.
   the Khallaf et al. (2026) naked mole-rat fUSI dataset from Edmond, with `datasets`,
   `subjects`, `sessions`, `runs`, `reconstruction`, and `sourcedata` filters
   ([#319](https://github.com/confusius-tools/confusius/pull/319)).
+- Added standalone cosine high-pass filtering via
+  [`filter_cosine`][confusius.signal.filter_cosine], and
+  [`clean`][confusius.signal.clean] can now use it with `filter_method="cosine"`
+  ([#321](https://github.com/confusius-tools/confusius/pull/321)).
 
 ### :bug: Fixes
 
@@ -90,7 +110,7 @@ Current development version for the next ConfUSIus release.
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
   the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
-  `pixdim[4]` when available, and otherwise warns before using frame indices.
+  `pixdim[4]` when available, and otherwise warns before using frame indices
   ([#304](https://github.com/confusius-tools/confusius/pull/304)).
 - Motion parameter tables from
   [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
@@ -100,7 +120,8 @@ Current development version for the next ConfUSIus release.
   ([#301](https://github.com/confusius-tools/confusius/pull/301)).
 - **[Napari plugin]** The signal import dialog now finds BIDS physio files ending in
   `.tsv.gz`, keeps the x-axis cursor visible for imported-only plots when enabled, and
-  lets you import multiple signal files in one go ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+  lets you import multiple signal files in one go
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
 - Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
   clear error that points users to newer SCAN v2 files and to converting them to NIfTI
   with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
@@ -327,7 +348,7 @@ Released 2026-07-07.
   plugin]** The reader now falls back to the `"gray"` colormap (with a napari warning)
   instead of crashing when a layer's `cmap` attr is not a valid napari colormap name
   ([#255](https://github.com/confusius-tools/confusius/pull/255)).
-- [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
+- `Atlas.get_masks` now suffixes the `mask`
   coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
   on both hemispheres no longer produces duplicate `mask` values.
   [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires

@@ -1,17 +1,19 @@
 """Generic file loading and saving dispatcher."""
 
-import json
 import warnings
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
-from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.stack import find_stack_level
+from confusius._utils.atlas import restore_atlas_cmap_and_norm
+from confusius.io._utils import (
+    ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+    make_attrs_zarr_safe,
+    restore_affines_in_attrs,
+)
 from confusius.io.utils import check_path
 
 
@@ -70,57 +72,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
             " extensions are: .nii, .nii.gz, .scan, .zarr."
         )
 
-    _restore_atlas_cmap_and_norm(data_array)
-    _restore_affines(data_array)
+    restore_atlas_cmap_and_norm(data_array)
+    restore_affines_in_attrs(data_array.attrs)
     return data_array
-
-
-def _restore_affines(data_array: xr.DataArray) -> None:
-    """Restore `attrs["affines"]` dict values to numpy arrays in place.
-
-    Zarr stores the affines as nested lists (see
-    [`save`][confusius.io.save]); this converts them back to numpy arrays so a
-    Zarr round-trip matches the NIfTI and SCAN loaders. A no-op when `affines` is
-    absent or its values are already arrays.
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        DataArray to update in place.
-
-    Returns
-    -------
-    None
-        This function mutates `data_array.attrs` and returns nothing.
-    """
-    affines = data_array.attrs.get("affines")
-    if not isinstance(affines, dict):
-        return
-    data_array.attrs["affines"] = {
-        key: np.asarray(value) for key, value in affines.items()
-    }
-
-
-def _restore_atlas_cmap_and_norm(data_array: xr.DataArray) -> None:
-    """Rebuild `cmap`/`norm` attrs from `rgb_lookup` in place, when missing.
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        DataArray to update in place.
-
-    Returns
-    -------
-    None
-        This function mutates `data_array.attrs` and returns nothing.
-    """
-    if "rgb_lookup" not in data_array.attrs:
-        return
-    if "cmap" in data_array.attrs and "norm" in data_array.attrs:
-        return
-    cmap, norm = build_atlas_cmap_and_norm(data_array.attrs["rgb_lookup"])
-    data_array.attrs["cmap"] = cmap
-    data_array.attrs["norm"] = norm
 
 
 def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
@@ -155,78 +109,16 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         return
     if name.endswith(".zarr"):
         data_array = data_array.copy(deep=False)
-        data_array.attrs = _zarr_safe_attrs(data_array.attrs)
-        data_array.to_zarr(path, **kwargs)
+        data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+            )
+            data_array.to_zarr(path, **kwargs)
         return
 
     raise ValueError(
         f"Unsupported file extension in {name!r}. Supported"
         " extensions are: .nii, .nii.gz, .zarr."
     )
-
-
-def _to_json_serializable(value: Any) -> Any:
-    """Recursively convert numpy containers and scalars to native Python objects.
-
-    Parameters
-    ----------
-    value : Any
-        Attribute value, possibly a numpy array or scalar or a `dict`/`list`/`tuple`
-        nesting them.
-
-    Returns
-    -------
-    Any
-        Equivalent value with every `numpy.ndarray` replaced by a nested list and every
-        numpy scalar replaced by its Python counterpart. Non-numpy values are returned
-        unchanged.
-    """
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, dict):
-        return {key: _to_json_serializable(item) for key, item in value.items()}
-    if isinstance(value, list | tuple):
-        return [_to_json_serializable(item) for item in value]
-    return value
-
-
-def _zarr_safe_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
-    """Make attributes safe to store as Zarr attributes.
-
-    Zarr stores attributes as JSON. Numpy arrays and scalars, including those nested
-    inside dicts or lists such as `attrs["affines"]`, are converted to native Python
-    objects. Any remaining value that cannot be JSON-encoded (e.g. the matplotlib
-    colormap and normalization objects on atlas-derived data) is dropped with a warning;
-    such `cmap`/`norm` attrs are rebuilt from `rgb_lookup` on load.
-
-    Parameters
-    ----------
-    attrs : dict[str, Any]
-        Attributes to sanitize.
-
-    Returns
-    -------
-    dict[str, Any]
-        Copy of `attrs` with numpy values converted to native Python and
-        non-JSON-serializable entries removed.
-    """
-    safe: dict[str, Any] = {}
-    dropped: list[str] = []
-    for key, value in attrs.items():
-        converted = _to_json_serializable(value)
-        try:
-            json.dumps(converted)
-        except TypeError:
-            dropped.append(key)
-        else:
-            safe[key] = converted
-
-    if dropped:
-        warnings.warn(
-            f"Dropping non-JSON-serializable attrs from Zarr store: {dropped}.",
-            stacklevel=find_stack_level(),
-        )
-
-    return safe
