@@ -312,7 +312,7 @@ def clean(
     if filter_kwargs:
         if "low_cutoff" in filter_kwargs or "high_cutoff" in filter_kwargs:
             raise ValueError(
-                "Pass low_pass/high_pass directly to clean, not in filter_kwargs."
+                "Pass low_cutoff/high_cutoff directly to clean, not in filter_kwargs."
             )
     else:
         filter_kwargs = {}

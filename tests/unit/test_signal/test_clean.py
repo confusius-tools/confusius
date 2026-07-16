@@ -144,7 +144,7 @@ def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
 
 def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
     """Test cutoffs must be passed directly to clean."""
-    with pytest.raises(ValueError, match="Pass low_pass/high_pass directly to clean"):
+    with pytest.raises(ValueError, match="Pass low_cutoff/high_cutoff directly to clean"):
         clean(sample_timeseries(), filter_kwargs={"high_cutoff": 1.0})
 
 

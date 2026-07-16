@@ -9,6 +9,7 @@ import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings
 from confusius._utils.filtering import make_cosine_drift_regressors
+from confusius.signal.confounds import regress_confounds
 from confusius.validation import validate_time_series
 
 
@@ -132,15 +133,6 @@ def _butterworth_filter_wrapper(
         result = np.moveaxis(result, 0, axis)
 
     return result
-
-
-def _residualize_cosine_drift(
-    data: np.ndarray,
-    regressors: np.ndarray,
-    pinv_regressors: np.ndarray,
-) -> np.ndarray:
-    """Remove the cosine drift subspace from one time series."""
-    return data - regressors @ (pinv_regressors @ data)
 
 
 def filter_butterworth(
@@ -343,26 +335,19 @@ def filter_cosine(
             "time grid first."
         )
 
-    regressors, _ = make_cosine_drift_regressors(
+    regressors, names = make_cosine_drift_regressors(
         signals.sizes["time"],
         low_cutoff,
         time_spacing,
     )
-    pinv_regressors = np.linalg.pinv(regressors)
-    output_dtype = np.result_type(signals.dtype, np.float64)
-
-    result = xr.apply_ufunc(
-        _residualize_cosine_drift,
-        signals,
-        input_core_dims=[["time"]],
-        output_core_dims=[["time"]],
-        kwargs={
-            "regressors": regressors,
-            "pinv_regressors": pinv_regressors,
-        },
-        vectorize=True,
-        dask="parallelized",
-        output_dtypes=[output_dtype],
+    cosine_confounds = xr.DataArray(
+        regressors,
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": names},
     )
 
-    return result.transpose(*signals.dims)
+    return regress_confounds(
+        signals,
+        cosine_confounds,
+        standardize_confounds=False,
+    )
