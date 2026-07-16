@@ -141,7 +141,6 @@ def _append_cosine_drift_confounds(
         require_uniform_time=True,
         uniformity_tolerance=uniformity_tolerance,
     )
-    assert time_spacing is not None
 
     regressors, names = make_cosine_drift_regressors(
         signals.sizes["time"],

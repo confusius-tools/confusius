@@ -240,7 +240,6 @@ def filter_butterworth(
         require_uniform_time=True,
         uniformity_tolerance=uniformity_tolerance,
     )
-    assert time_spacing is not None
 
     sampling_rate = 1.0 / time_spacing
     _validate_cutoff_frequencies(
@@ -315,7 +314,6 @@ def filter_cosine(
         require_uniform_time=True,
         uniformity_tolerance=uniformity_tolerance,
     )
-    assert time_spacing is not None
 
     regressors, names = make_cosine_drift_regressors(
         signals.sizes["time"],
