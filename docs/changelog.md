@@ -124,8 +124,9 @@ Current development version for the next ConfUSIus release.
   guide](user-guide/beamformed-iq.md)
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
 - Added a first-level GLM gallery example that fits a voxel-wise first-level model to
-  a stimulus-evoked olfactory task in the [Khallaf et al. 2026](TODO: url) fUSI dataset
-  ([#XXX](https://github.com/confusius-tools/confusius/pull/XXX)).
+  a stimulus-evoked olfactory task with the
+  [Khallaf et al. 2026](https://doi.org/10.1038/s41586-026-10772-5) fUSI dataset
+  ([#320](https://github.com/confusius-tools/confusius/pull/320)).
 
 ### :wrench: Maintenance
 
