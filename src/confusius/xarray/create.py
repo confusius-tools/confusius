@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import TIME_DIM
+from confusius._dims import SPATIAL_DIMS, TIME_DIM
 from confusius.validation import validate_fusi_dataarray
 
 if TYPE_CHECKING:
@@ -20,10 +20,10 @@ _SPATIAL_UNITS = "mm"
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
 
-_SPATIAL_DIMS = ("z", "y", "x")
+_SPATIAL_DIMS = SPATIAL_DIMS
 """Spatial dimensions required by canonical ConfUSIus fUSI DataArrays."""
 
-_CORE_DIM_ORDER = (TIME_DIM, "z", "y", "x")
+_CORE_DIM_ORDER = (TIME_DIM, *SPATIAL_DIMS)
 """Canonical output order for single-pose fUSI DataArrays."""
 
 VolumeAcquisitionReference = Literal["start", "center", "end"]

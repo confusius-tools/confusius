@@ -12,11 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :boom: Breaking changes
 
-- Geometry-sensitive registration and motion-correction APIs now require explicit
-  3D fUSI spatial geometry with `z`, `y`, and `x` dimensions. Any singleton spatial
-  dimension must carry `voxdim` metadata because spacing cannot be inferred from a
-  single coordinate point. fUSI validation now requires `z`, `y`, and `x`; scalar-indexed
-  slices are recovered as singleton dimensions at relevant API boundaries
+- fUSI DataArrays now require explicit 3D spatial geometry with `z`, `y`, and `x`
+  dimensions. Any singleton spatial dimension must carry `voxdim` metadata because
+  spacing cannot be inferred from a single coordinate point. Scalar-indexed slices are
+  recovered as singleton dimensions at relevant API boundaries; use
+  [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to add singleton
+  axes and coordinate metadata from raw 2D or 2D+t arrays
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 - The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
   registered `.atlas` accessor. Fetch an atlas by name with

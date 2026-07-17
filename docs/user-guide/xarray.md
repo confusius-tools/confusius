@@ -179,10 +179,11 @@ slice_movie.coords['z']
 # scalar coordinate: z = 0.0 mm, with the original coordinate metadata
 ```
 
-Most fUSI-native ConfUSIus functions automatically restore such scalar-indexed spatial
-coordinates as singleton dimensions before validating the data. For example,
-`slice_movie` is treated as `(time, z, y, x)` with `z=1` when passed to registration,
-resampling, smoothing, or other volume-oriented APIs.
+Most geometry-sensitive ConfUSIus functions automatically restore such scalar-indexed
+spatial coordinates as singleton dimensions before validating the data. For example,
+`slice_movie` is treated as `(time, z, y, x)` with `z=1` when passed to registration or
+resampling APIs. Dimension-generic operations such as smoothing preserve the indexed
+shape.
 
 This recovery only works when the missing spatial dimension is still present as a
 scalar coordinate. A manually constructed bare `(time, y, x)` array with no `z`
