@@ -11,10 +11,10 @@
 # In this example we run a complete first-level (single-subject) GLM on stimulus-evoked
 # fUSI data from the [Khallaf et al. 2026
 # dataset](https://doi.org/10.1038/s41586-026-10772-5)—functional
-# ultrasound of a naked mole-rat exposed to repeated olfactory stimulation. The notebook
+# ultrasound imaging of a naked mole-rat exposed to repeated olfactory stimulation. The notebook
 # will go through the following steps:
 #
-# 1. **Fetch and load** the five runs of the recording.
+# 1. **Fetch and load** the five fUSI recordings.
 # 2. **Register** the recording to a reference template aligned with an anatomical atlas,
 #    so we can define masks and draw region boundaries in a common space.
 # 3. **Build a design matrix** per run from the stimulation events, a fUSI-specific HRF,
@@ -26,8 +26,7 @@
 #
 # ## Fetch the olfactory-stimulation recordings
 #
-# As you may already know by now, ConfUSIus provides convenient functions to download
-# public datasets. Using [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026],
+# Using [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026],
 # we take subject `5622`, session `IPM`, and the `resampled` reconstruction (the runs
 # already aligned to a common within-session space), which yields five task runs.
 
