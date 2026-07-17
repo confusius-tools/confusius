@@ -173,9 +173,9 @@ def extract_with_labels(
     >>> signals.coords["region"].values
     array([1, 2])
     >>>
-    >>> # Stacked mask format from Atlas.get_masks. Left/right hemisphere layers
-    >>> # share the same region id, but each is disambiguated by its `mask` coord.
-    >>> mask = atlas_fusi.get_masks(["VISp", "VISp"], sides=["left", "right"])
+    >>> # Stacked mask format from the atlas accessor's get_masks. Left/right hemisphere
+    >>> # layers share a region id, but each is disambiguated by its `mask` coord.
+    >>> mask = atlas_fusi.atlas.get_masks(["VISp", "VISp"], sides=["left", "right"])
     >>> signals = extract_with_labels(data, mask)
     >>> signals.coords["region"].values
     array(['VISp_L', 'VISp_R'], dtype=object)

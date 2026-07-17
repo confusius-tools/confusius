@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
 import pooch
 import requests
@@ -19,7 +19,12 @@ from rich.progress import (
     TransferSpeedColumn,
 )
 
-from ._pooch import _RichProgressAdapter, quiet_pooch_logger, retrieve_with_retries
+from ._pooch import (
+    _CallbackProgressAdapter,
+    _RichProgressAdapter,
+    quiet_pooch_logger,
+    retrieve_with_retries,
+)
 
 _OSF_DOWNLOAD_BASE = "https://osf.io/download/{}/"
 """URL template for direct downloads of an OSF file by id."""
@@ -33,6 +38,9 @@ _INDEX_ENTRY_KEYS = frozenset({"osf_path", "size", "md5"})
 A cached index whose entries do not all define these keys is from an older,
 incompatible confusius release and is rejected by
 [`read_cached_index`][confusius.datasets._osf.read_cached_index]."""
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class OsfFileInfo(TypedDict):
@@ -236,7 +244,7 @@ def _validate_index(index: object, data_dir: Path) -> None:
         f"The dataset index in {data_dir} has an outdated or unrecognised structure "
         f"(every entry must define {sorted(_INDEX_ENTRY_KEYS)}). This local dataset was "
         f"likely downloaded with an older version of confusius. Delete the dataset "
-        f"directory and fetch it again to update it:\n\n    {data_dir}\n"
+        f"directory and fetch it again to update it."
     )
 
 
@@ -334,6 +342,7 @@ def download_osf_files(
     files: dict[str, OsfFileInfo],
     previous_index: dict[str, OsfFileInfo] | None = None,
     refresh: bool = False,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> None:
     """Download OSF files that are missing or whose upstream md5 changed.
 
@@ -356,6 +365,9 @@ def download_osf_files(
     refresh : bool, default: False
         Whether to re-download cached files whose remote md5 differs from the
         cached md5.
+    progress_callback : Callable[[int, int, str], None], optional
+        Callback receiving cumulative downloaded bytes, total bytes to download,
+        and a user-facing description. Intended for GUI progress bars.
     """
     to_download = _select_downloads(bids_dir, files, previous_index or {}, refresh)
     if not to_download:
@@ -365,6 +377,34 @@ def download_osf_files(
 
     with quiet_pooch_logger():
         pooch_logger = pooch.get_logger()
+        if progress_callback is not None:
+            completed_bytes = 0
+            progress_callback(0, total_bytes, "Preparing download...")
+            for rel_path, file_info in to_download.items():
+                dest = bids_dir / rel_path
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                description = f"Downloading {Path(rel_path).name}"
+                progress_callback(completed_bytes, total_bytes, description)
+                adapter = _CallbackProgressAdapter(
+                    progress_callback,
+                    total_bytes,
+                    completed_bytes,
+                    description,
+                )
+                osf_path = file_info["osf_path"]
+                md5 = file_info.get("md5")
+                retrieve_with_retries(
+                    url=_OSF_DOWNLOAD_BASE.format(osf_path.lstrip("/")),
+                    dest=dest,
+                    logger=pooch_logger,
+                    progressbar=adapter,
+                    on_retry=adapter.rewind,
+                    known_hash=f"md5:{md5}" if md5 else None,
+                )
+                completed_bytes += adapter.current_bytes
+            progress_callback(total_bytes, total_bytes, "Download complete.")
+            return
+
         with Progress(
             SpinnerColumn(),
             TextColumn("[progress.description]{task.description}"),

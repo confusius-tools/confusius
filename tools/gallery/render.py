@@ -27,6 +27,64 @@ def _cell_tags(cell: nbformat.NotebookNode) -> set[str]:
     return set(cell.metadata.get("tags", []))
 
 
+_COLLAPSE_TAG = re.compile(r"collapse(?:\[(?P<kind>[^\]]+)\])?(?::(?P<title>.*))?\Z")
+
+
+def _collapse_spec(tags: set[str]) -> tuple[str, str] | None:
+    """Return the (admonition type, title) for a collapsed code cell, or `None`.
+
+    A cell tagged `collapse` has its code hidden behind a collapsed admonition —
+    useful for tucking away setup/boilerplate. The tag accepts an optional admonition
+    type in brackets and an optional title after a colon: `collapse`,
+    `collapse: <title>`, `collapse[<type>]`, or `collapse[<type>]: <title>`. The type
+    is any admonition name Zensical understands (`example`, `warning`, `tip`, ...).
+
+    Parameters
+    ----------
+    tags : set[str]
+        The cell's tags.
+
+    Returns
+    -------
+    kind : str
+        The admonition type, defaulting to `example`.
+    title : str
+        The callout title, defaulting to `Show code`.
+    """
+    # Sorted so that a cell mistakenly carrying several collapse tags picks the same
+    # one on every build instead of following set iteration order.
+    for tag in sorted(tags):
+        match = _COLLAPSE_TAG.match(tag)
+        if match:
+            kind = (match["kind"] or "").strip() or "example"
+            title = (match["title"] or "").strip() or "Show code"
+            return kind, title
+    return None
+
+
+def _collapsible_code(kind: str, title: str, code_block: str) -> str:
+    """Wrap a fenced code block in a collapsed `??? <kind>` admonition.
+
+    Parameters
+    ----------
+    kind : str
+        The admonition type (e.g. `example`, `warning`).
+    title : str
+        The admonition title shown on the collapsed callout.
+    code_block : str
+        The fenced code block Markdown to hide.
+
+    Returns
+    -------
+    str
+        The Markdown for the collapsed callout, with `code_block` indented as its content.
+    """
+    indented = "\n".join(
+        ("    " + line) if line.strip() else "" for line in code_block.splitlines()
+    )
+    return f'??? {kind} "{title}"\n\n{indented}\n'
+
+
 def _png_data(output: dict[str, object]) -> str | None:
     """Return the base64 PNG payload from an output if present."""
     data = output.get("data")
@@ -54,6 +112,31 @@ def _image_tag(*, src: str, alt: str) -> str:
 def _html_block(html: str) -> str:
     """Return a raw HTML block for Markdown output."""
     return '<div class="gallery-rich-output">' + html.rstrip() + "</div>\n"
+
+
+def _output_code_block(text: str) -> str:
+    """Return a fenced code block for plain-text cell output.
+
+    The block is wrapped in a ``gallery-output`` container so docs CSS can wrap long
+    output lines (warnings, reprs, tracebacks) instead of showing a horizontal
+    scrollbar, without affecting the syntax-highlighted input code cells. The
+    ``markdown`` attribute lets Zensical still render the fence as a highlighted block.
+
+    Parameters
+    ----------
+    text : str
+        The plain-text output to display.
+
+    Returns
+    -------
+    str
+        The Markdown for the wrapped, fenced output block.
+    """
+    return (
+        '<div class="gallery-output" markdown>\n\n```\n'
+        + text.rstrip("\n")
+        + "\n```\n\n</div>\n"
+    )
 
 
 def _normalize_html_output(html: str) -> str:
@@ -279,7 +362,12 @@ def render_notebook(
         if cell.cell_type != "code":
             continue
 
-        parts.append("```python\n" + cell.source.rstrip() + "\n```\n")
+        code_block = "```python\n" + cell.source.rstrip() + "\n```\n"
+        collapse = _collapse_spec(_cell_tags(cell))
+        if collapse is not None:
+            parts.append(_collapsible_code(*collapse, code_block))
+        else:
+            parts.append(code_block)
 
         # Light and dark outputs are paired by index. They must have the
         # same length: a mismatch means non-deterministic output snuck in
@@ -316,7 +404,7 @@ def render_notebook(
             if output_type == "stream":
                 stream_text = _clean_stream_text(str(light_output.get("text", "")))
                 if stream_text:
-                    parts.append("```\n" + stream_text + "\n```\n")
+                    parts.append(_output_code_block(stream_text))
                 continue
 
             if output_type in {"execute_result", "display_data"}:
@@ -359,14 +447,12 @@ def render_notebook(
                     parts.append(_html_block(_normalize_html_output(str(html))))
                     continue
                 if isinstance(light_data, dict) and "text/plain" in light_data:
-                    parts.append(
-                        "```\n" + str(light_data["text/plain"]).rstrip("\n") + "\n```\n"
-                    )
+                    parts.append(_output_code_block(str(light_data["text/plain"])))
                 continue
 
             if output_type == "error":
                 traceback = "\n".join(light_output.get("traceback", []))
-                parts.append("```\n" + traceback + "\n```\n")
+                parts.append(_output_code_block(traceback))
 
     parts.append("\n---\n")
     parts.append(f"**Total running time:** {runtime_seconds:.1f} s\n\n")

@@ -1,4 +1,4 @@
-"""Fixtures for Atlas unit tests."""
+"""Fixtures for atlas unit tests."""
 
 from __future__ import annotations
 
@@ -6,28 +6,8 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import treelib
 import xarray as xr
-
-from confusius.atlas import Atlas
-
-
-class _MockStructuresDict:
-    """Minimal duck-type of StructuresDict for testing without BrainGlobe data."""
-
-    def __init__(self, structure_list: list[dict], tree: treelib.Tree) -> None:
-        self._data = {s["id"]: s for s in structure_list}
-        self.tree = tree
-
-    def __getitem__(self, key: int) -> dict:  # type: ignore[override]
-        return self._data[key]
-
-    def __contains__(self, key: object) -> bool:
-        return key in self._data
-
-    def items(self):  # type: ignore[override]
-        return self._data.items()
-
+from brainglobe_atlasapi.structure_class import StructuresDict
 
 @pytest.fixture(scope="module")
 def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -35,7 +15,7 @@ def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     Vertices 1-3 lie at RL coordinate 50 µm (right hemisphere).
     Vertices 4-6 lie at RL coordinate 150 µm (left hemisphere).
-    The RL midline splitting them is at 100 µm.
+    The atlas midline is at 100 µm (shape[2]=8, resolution=25 µm).
     """
     mesh_dir = tmp_path_factory.mktemp("meshes")
     path = mesh_dir / "997.obj"
@@ -53,29 +33,27 @@ def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def mock_structures(obj_path: Path) -> _MockStructuresDict:
-    """Three-node structure tree: root(997) → child(10) → grandchild(20).
+def structure_list(obj_path: Path) -> list[dict]:
+    """Flat BrainGlobe-style structures list: root(997) → child(10) → grandchild(20).
 
-    Only the root region (997) has a mesh file assigned.
+    Only the root region (997) has a mesh file (its absolute path, so `get_mesh` works
+    without a BrainGlobe cache lookup).
     """
-    tree = treelib.Tree()
-    tree.create_node("root", 997)  # ty: ignore[invalid-argument-type]
-    tree.create_node("child", 10, parent=997)  # ty: ignore[invalid-argument-type]
-    tree.create_node("grandchild", 20, parent=10)  # ty: ignore[invalid-argument-type]
-
-    structure_list = [
+    return [
         {
             "id": 997,
             "acronym": "root",
             "name": "whole brain",
             "rgb_triplet": [200, 200, 200],
-            "mesh_filename": obj_path,
+            "structure_id_path": [997],
+            "mesh_filename": str(obj_path),
         },
         {
             "id": 10,
             "acronym": "ch",
             "name": "child region",
             "rgb_triplet": [255, 0, 0],
+            "structure_id_path": [997, 10],
             "mesh_filename": None,
         },
         {
@@ -83,29 +61,37 @@ def mock_structures(obj_path: Path) -> _MockStructuresDict:
             "acronym": "gc",
             "name": "grandchild region",
             "rgb_triplet": [0, 255, 0],
+            "structure_id_path": [997, 10, 20],
             "mesh_filename": None,
         },
     ]
-    return _MockStructuresDict(structure_list, tree)
 
 
 @pytest.fixture(scope="module")
-def atlas(mock_structures: _MockStructuresDict) -> Atlas:
-    """Atlas built from fully controlled mock data.
+def mock_structures(structure_list: list[dict]) -> StructuresDict:
+    """Real BrainGlobe StructuresDict built from the mock structures list (no network)."""
+    return StructuresDict(structure_list)
+
+
+@pytest.fixture(scope="module")
+def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
+    """Atlas Dataset built from fully controlled mock data.
 
     Annotation (shape 4, 6, 8):
       - [:2, :, 2:6] = 10  (child)
       - [2:, :, 2:6] = 20  (grandchild)
       - elsewhere   = 0   (background)
 
-    Hemispheres (shape 4, 6, 8):
-      - [:, :, :4] = 2  (right — low RL in asr orientation)
-      - [:, :, 4:] = 1  (left  — high RL in asr orientation)
+    Hemispheres (shape 4, 6, 8), with attrs {"left": 1, "right": 2}:
+      - [:, :, :2] = 2  (right — RL below the 0.1 mm mesh midline)
+      - [:, :, 2:] = 1  (left  — RL at/above the 0.1 mm mesh midline)
 
-    Resolution: 50 µm (0.05 mm) isotropic.
-    RL midline: 100 µm (the OBJ mesh's RL midline, see `obj_path`).
+    Resolution: 50 µm (0.05 mm) isotropic. The split matches the OBJ mesh's RL midline
+    (0.1 mm), so sampling the map splits the mesh 3/3.
     """
     shape = (4, 6, 8)
+    # 50 µm so the OBJ mesh (z up to 100 µm) stays inside the reference grid, which the
+    # nonlinear get_mesh tests require.
     resolution_mm = 0.05
 
     annotation_data = np.zeros(shape, dtype=np.int32)
@@ -113,8 +99,8 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
     annotation_data[2:, :, 2:6] = 20
 
     hemispheres_data = np.zeros(shape, dtype=np.int8)
-    hemispheres_data[:, :, :4] = 2  # right
-    hemispheres_data[:, :, 4:] = 1  # left
+    hemispheres_data[:, :, :2] = 2  # right (RL < 0.1 mm mesh midline)
+    hemispheres_data[:, :, 2:] = 1  # left  (RL >= 0.1 mm mesh midline)
 
     coords = {
         dim: (
@@ -146,25 +132,21 @@ def atlas(mock_structures: _MockStructuresDict) -> Atlas:
         hemispheres_data,
         dims=["z", "y", "x"],
         coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        attrs={"left": 1, "right": 2},
     )
 
-    dataset = xr.Dataset(
+    return xr.Dataset(
         {
             "reference": reference_da,
             "annotation": annotation_da,
             "hemispheres": hemispheres_da,
         },
-        attrs={"name": "mock_atlas", "species": "Mus musculus", "orientation": "asr"},
-    )
-
-    mesh_vertex_transform = np.eye(4)
-    # RL midline of the OBJ mesh, halfway between its 50 µm and 150 µm vertices, so the
-    # hemisphere clip splits it 3/3. Fixed to the mesh, independent of the resolution.
-    rl_midline = 0.1
-
-    return Atlas(
-        dataset,
-        mock_structures,  # ty: ignore[invalid-argument-type]
-        mesh_vertex_transform,
-        rl_midline,
+        attrs={
+            "name": "mock_atlas",
+            "citation": "Mock et al. (2026)",
+            "species": "Mus musculus",
+            "orientation": "asr",
+            "structures": StructuresDict(structure_list),
+            "physical_to_base": np.eye(4),
+        },
     )

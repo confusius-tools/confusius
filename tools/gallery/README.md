@@ -30,4 +30,10 @@ paragraph is used as the index-card summary.
 
 - Files starting with `_` are skipped by the discovery pass.
 - Tag a cell with `thumbnail` to use its first image output on the gallery index page.
+- Tag a cell with `collapse` (or `collapse: <title>`) to hide its code behind a collapsed
+  callout — handy for setup/boilerplate the reader can expand on demand. The cell still
+  runs, and its output renders normally below the callout. The callout defaults to the
+  `example` admonition; pick another type with `collapse[<type>]` or
+  `collapse[<type>]: <title>`, where `<type>` is any admonition name Zensical understands
+  (`warning`, `tip`, `note`, ...) (see https://zensical.org/docs/authoring/admonitions/).
 - Keep examples self-contained: prefer small public dataset subsets over local files.

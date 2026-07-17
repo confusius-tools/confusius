@@ -621,8 +621,7 @@ function or the corresponding Xarray accessor method.
         velocity_window_width=50,
         filter_method="svd_indices",
         low_cutoff=50,
-        lag=1,                          # Autocorrelation lag (volumes).
-        estimation_method="average_angle",  # Velocity estimation method.
+        lag=1,  # Autocorrelation lag (volumes).
     )
     ```
 
@@ -645,8 +644,7 @@ function or the corresponding Xarray accessor method.
         velocity_window_width=50,
         filter_method="svd_indices",
         low_cutoff=50,
-        lag=1,                          # Autocorrelation lag (volumes).
-        estimation_method="average_angle",  # Velocity estimation method.
+        lag=1,  # Autocorrelation lag (volumes).
     )
     ```
 
@@ -676,16 +674,18 @@ Attributes:
 
 #### Interpreting Velocity
 
-Velocity values are returned in **meters per second** with sign indicating direction:
-
-- **Positive values**: Flow toward the transducer.
-- **Negative values**: Flow away from the transducer.
-- **Magnitude**: Speed of flow.
+Velocity values are returned in **meters per second** and correspond to the speed of
+scatterers along the ultrasound beam. However, the **sign convention is scanner-
+dependent**: it depends on choices such as the analytic-signal convention, the IQ
+demodulation, and other parameters. Before interpreting the sign, verify it on your
+scanner with a known flow direction (e.g., large arteries flowing from the circle of
+Willis toward the probe) or a phantom, or another acquisition where the motion direction
+is unambiguous.
 
 !!! warning "Velocity aliasing"
     Very high velocities may exceed the Nyquist limit and cause aliasing (wrapping). If
-    you observe sudden sign reversals in high-flow regions, reduce the `lag` parameter or
-    increase the pulse repetition frequency during acquisition.
+    you observe sudden sign reversals in high-motion regions, reduce the `lag` parameter
+    or increase the pulse repetition frequency during acquisition.
 
 ### B-mode
 

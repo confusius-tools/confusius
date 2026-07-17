@@ -12,6 +12,7 @@ import pandas as pd
 from qtpy.QtCore import QObject, Signal
 
 from confusius._napari._utils import CATEGORICAL_COLORS
+from confusius.bids import load_physio
 
 _IMPORTED_SIGNAL_COLORS = CATEGORICAL_COLORS
 """Palette cycled across imported signal columns."""
@@ -65,17 +66,17 @@ class LiveSignal:
     Attributes
     ----------
     id : str
-        Stable identifier (e.g. ``"mouse-0"``, ``"point-3"``, ``"label-5"``).
+        Stable identifier (e.g. `"mouse-0"`, `"point-3"`, `"label-5"`).
     name : str
         Display name used in legends (editable by the user).
     color : str
         Hex color for the plot line.
     visible : bool
         Whether the signal should be plotted.
-    source_type : ``"mouse"`` | ``"point"`` | ``"label"``
+    source_type : `"mouse"` | `"point"` | `"label"`
         Kind of napari source that produces this signal.
     source_id : int | None
-        ``None`` for mouse, point index for points, label integer for labels.
+        `None` for mouse, point index for points, label integer for labels.
     """
 
     id: str
@@ -236,9 +237,25 @@ class SignalStore(QObject):
 
     def _read_signals_table(self, path: Path) -> pd.DataFrame:
         """Read one CSV or TSV signals table from disk."""
+        if self._is_bids_physio_path(path):
+            return load_physio(path)
+
         _SEP: dict[str, str] = {".csv": ",", ".tsv": "\t"}
-        sep = _SEP.get(path.suffix.lower())
+        sep = _SEP.get(self._table_suffix(path))
         return pd.read_csv(path, sep=sep, engine="python" if sep is None else "c")
+
+    def _is_bids_physio_path(self, path: Path) -> bool:
+        """Return whether `path` looks like a BIDS physio table."""
+        if self._table_suffix(path) != ".tsv":
+            return False
+        name = path.name.removesuffix(".gz")
+        return name.endswith("_physio.tsv")
+
+    def _table_suffix(self, path: Path) -> str:
+        """Return the logical table suffix, ignoring a trailing `.gz`."""
+        if path.suffix.lower() == ".gz" and len(path.suffixes) >= 2:
+            return path.suffixes[-2].lower()
+        return path.suffix.lower()
 
     def _signal_from_frame(
         self, frame: pd.DataFrame, path: Path
@@ -320,7 +337,7 @@ class SignalStore(QObject):
         Returns
         -------
         LiveSignal | None
-            The signal, or ``None`` if not found.
+            The signal, or `None` if not found.
         """
         return self._live_signals.get(signal_id)
 

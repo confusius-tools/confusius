@@ -475,7 +475,7 @@ class SignalPlotter(QWidget):
         """Handle layer insertion/removal or active-layer change events.
 
         When the newly active layer is not a valid signal source (e.g., a
-        video layer without xarray metadata), ``_current_layer`` is left
+        video layer without xarray metadata), `_current_layer` is left
         unchanged so that the plotter continues to reference the previous
         valid layer for signal extraction, cursor mapping, and
         click-to-navigate.
@@ -843,14 +843,16 @@ class SignalPlotter(QWidget):
         Always uses the nearest voxel to the cursor position.
         """
         data = layer.data
-        ind = list(int(round(x)) for x in layer.world_to_data(cursor_pos))
+        ind: list[int | slice] = [
+            int(round(x)) for x in layer.world_to_data(cursor_pos)
+        ]
 
         xaxis_index = self._xaxis_dim_index(layer)
         # Replace the x-axis index before bounds-checking: the injected x-axis world
         # coordinate (typically 0) may fall outside the data range (e.g. when the
         # coordinate starts at a non-zero offset), which would cause the check to
         # reject valid spatial positions.
-        ind[xaxis_index] = slice(None)  # type: ignore
+        ind[xaxis_index] = slice(None)
 
         if not all(
             0 <= i < max_i for i, max_i in zip(ind, data.shape) if isinstance(i, int)
@@ -1483,7 +1485,6 @@ class SignalPlotter(QWidget):
             "Z-score" if self._zscore else "Value",
             "Imported Signals",
             with_legend=len(imported_signals) > 1,
-            show_cursor=False,
         )
         self._restore_view(saved_xlim, saved_ylim)
         self._has_plot = True

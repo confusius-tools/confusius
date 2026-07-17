@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import nbformat
@@ -156,8 +157,36 @@ def _build_one(
     progress: Progress,
     interactive: bool,
     binder_url: str | None = None,
+    run: bool = True,
 ) -> RenderedExample:
-    """Build one example and return its rendered metadata."""
+    """Build one example and return its rendered metadata.
+
+    Parameters
+    ----------
+    spec : ExampleSpec
+        The example to build.
+    built_dir : pathlib.Path
+        Directory where rendered pages and assets are written.
+    cache_root : pathlib.Path
+        Directory holding the execution/render cache.
+    deps_fingerprint : str
+        String identifying the execution/render inputs, used in the cache key.
+    progress : rich.progress.Progress
+        Progress instance the build reports into.
+    interactive : bool
+        Whether stdout is a TTY. When `False`, plain progress lines are printed.
+    binder_url : str, optional
+        Binder launch URL to stamp into the page. If not provided, no button is added.
+    run : bool, default: True
+        Whether to execute the example. When `False`, a cached result is still
+        restored if present; otherwise the page is rendered from the source with no
+        outputs (code and markdown only) and is not cached.
+
+    Returns
+    -------
+    RenderedExample
+        The rendered example's metadata.
+    """
     base_name = spec.base_name
     out_dir = built_dir / spec.section
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -190,6 +219,33 @@ def _build_one(
             md_path=out_dir / f"{base_name}.md",
             thumbnail_light=thumb[0] if thumb is not None else None,
             thumbnail_dark=thumb[1] if thumb is not None else None,
+        )
+
+    if not run:
+        # Render from the source without executing: code and markdown cells appear,
+        # but there are no outputs. Deliberately not cached, so a later full or
+        # targeted build that does run this example still executes it.
+        progress.add_task(f"{spec.section}/{base_name} [not run]", total=1, completed=1)
+        if not interactive:
+            print(f"-> {spec.section}/{base_name} [not run]", flush=True)
+        render.render_notebook(
+            source_notebook,
+            source_notebook,
+            source_notebook,
+            out_dir=out_dir,
+            base_name=base_name,
+            runtime_seconds=0.0,
+            binder_url=binder_url,
+        )
+        shutil.copyfile(spec.source, out_dir / f"{base_name}.py")
+        nbformat.write(source_notebook, out_dir / f"{base_name}.ipynb")
+        return RenderedExample(
+            spec=spec,
+            title=title,
+            summary=summary,
+            md_path=out_dir / f"{base_name}.md",
+            thumbnail_light=None,
+            thumbnail_dark=None,
         )
 
     if not interactive:
@@ -266,9 +322,46 @@ def build_gallery(
     repo_root: Path | None = None,
     binder_repo: str | None = None,
     binder_ref: str = "main",
+    only: Sequence[Path] | None = None,
 ) -> None:
-    """Run the full pipeline and write the gallery to disk."""
+    """Run the full pipeline and write the gallery to disk.
+
+    Parameters
+    ----------
+    examples_root : pathlib.Path
+        Directory containing the example sections and scripts.
+    built_dir : pathlib.Path
+        Directory where rendered pages and assets are written.
+    cache_root : pathlib.Path
+        Directory holding the execution/render cache.
+    deps_fingerprint : str
+        String identifying the execution/render inputs, used in cache keys.
+    repo_root : pathlib.Path, optional
+        Repository root, needed to compute Binder URLs. If not provided, no
+        Binder buttons are rendered.
+    binder_repo : str, optional
+        `owner/repo` slug used for Binder URLs. If not provided, no Binder
+        buttons are rendered.
+    binder_ref : str, default: "main"
+        Git ref stamped into Binder URLs.
+    only : Sequence[pathlib.Path], optional
+        Example scripts to execute. Every discovered example is still rendered
+        into the gallery (so `index.md` lists them all), but only these are run;
+        the rest are restored from cache if present, or rendered without outputs
+        (code and markdown only). If not provided, every example is executed.
+
+    Raises
+    ------
+    ValueError
+        If a path in `only` does not match any discovered example.
+    """
     specs = discover.discover(examples_root)
+    run_paths = {path.resolve() for path in only} if only is not None else None
+    if run_paths is not None:
+        missing = run_paths - {spec.source.resolve() for spec in specs}
+        if missing:
+            listing = "\n".join(f"  {path}" for path in sorted(missing))
+            raise ValueError(f"Not discoverable as example scripts:\n{listing}")
     cache_root.mkdir(parents=True, exist_ok=True)
 
     rendered: list[RenderedExample] = []
@@ -288,6 +381,7 @@ def build_gallery(
             rendered.append(
                 _build_one(
                     spec,
+                    run=run_paths is None or spec.source.resolve() in run_paths,
                     built_dir=built_dir,
                     cache_root=cache_root,
                     deps_fingerprint=deps_fingerprint,

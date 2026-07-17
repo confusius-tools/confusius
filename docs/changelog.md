@@ -6,12 +6,162 @@ icon: lucide/history
 
 # Changelog
 
-## 0.5.1.dev0
+## 0.6.0.dev0
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- The `Atlas` class has been replaced by an [`xarray.Dataset`][xarray.Dataset] with a
+  registered `.atlas` accessor. Fetch an atlas by name with
+  [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and call operations
+  through `ds.atlas.*` (`ds.atlas.get_masks`, `ds.atlas.get_mesh`, `ds.atlas.search`,
+  `ds.atlas.ancestors`, `ds.atlas.resample_like`); `resample_like` now returns a Dataset.
+  Name-based loading moved to `confusius.datasets`; atlas construction from a loaded
+  BrainGlobe atlas is now internal to the datasets module
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`resample_volume`][confusius.registration.resample_volume] and
+  [`resample_like`][confusius.registration.resample_like] now use `fill_value`
+  instead of `default_value` for out-of-field-of-view resampling, matching
+  [`register_volume`][confusius.registration.register_volume] and the progress-plot
+  resampling API.
+- Motion diagnostics helpers now require actual affine matrices:
+  [`extract_motion_parameters`][confusius.registration.extract_motion_parameters],
+  [`compute_framewise_displacement`][confusius.registration.compute_framewise_displacement],
+  and [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] no
+  longer accept `None` placeholders in their affine lists
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Renamed the public BIDS table I/O helpers to match the rest of ConfUSIus:
+  [`read_events`][confusius.bids.load_events] →
+  [`load_events`][confusius.bids.load_events], and
+  [`write_events`][confusius.bids.save_events] →
+  [`save_events`][confusius.bids.save_events]
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] now resolves the
+  dataset from OSF project `7cf9g` instead of `dkseb`. Existing local caches may need a
+  one-time `refresh=True` to replace the cached OSF file index before downloading or
+  checking for upstream updates ([#311](https://github.com/confusius-tools/confusius/pull/311)).
+- Axial velocity processing now always uses the standard Kasai estimator (`arg(mean(R1))`);
+  the `estimation_method` and `absolute_velocity` arguments were removed, the
+  corresponding metadata fields were dropped, and `spatial_kernel` now defaults to `3`
+  and accepts explicit `(z, y, x)` sizes ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+
 ### :sparkles: Enhancements
 
+- Atlases are now serializable: save and reload a complete atlas, including its structure
+  hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
+  [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
+  Zarr store, so a reloaded atlas renders meshes without the BrainGlobe cache
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
+  Dataset is a well-formed atlas
+  ([#274](https://github.com/confusius-tools/confusius/pull/274)).
+- [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
+  addition to HDF5 SCAN v1 files, detecting the format automatically. SCAN v2 support is
+  experimental: data, timing, voxel spacing, the depth origin, provenance
+  (subject/session/project/scan/experimenter, serial number, acquisition datetime), and
+  BIDS-corresponding acquisition settings (probe model, center/transmit frequencies,
+  pitch, focal depth, imaging depth, PRF, plane-wave angles, SVD low cutoff, power-Doppler
+  integration window) are recovered (lateral and elevation axes are centered on zero). A
+  `physical_to_lab` affine is derived from a header block read as a 6DOF probe pose
+  (experimental, assumed convention), and a BPS sidecar composes a `physical_to_brain`
+  affine as for v1. Multi-pose layouts are inferred
+  ([#317](https://github.com/confusius-tools/confusius/pull/317)).
+- **[Napari plugin]** Added an interactive registration panel for volume alignment in
+  napari, including linear and non-linear transforms, progress preview, manual and
+  automatic initialization, saving/loading transforms, and forward/inverse transform
+  application ([#216](https://github.com/confusius-tools/confusius/pull/216)).
+- Added [`plot_motion_diagnostics`][confusius.plotting.plot_motion_diagnostics] to
+  visualize motion-correction summaries from `motion_params` tables returned by
+  [`register_volumewise`][confusius.registration.register_volumewise]
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always
+  reports all named rotation / translation axes exposed by the affine dimensionality,
+  even when one spatial axis is singleton
+  ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Added [`load_physio`][confusius.bids.load_physio] to load BIDS physio TSV files with
+  column names and metadata from the JSON sidecar, synthesizing a `time` column when
+  needed; the napari plugin now uses it for imported signal tables
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- Added [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026] for downloading
+  the Khallaf et al. (2026) naked mole-rat fUSI dataset from Edmond, with `datasets`,
+  `subjects`, `sessions`, `runs`, `reconstruction`, and `sourcedata` filters
+  ([#319](https://github.com/confusius-tools/confusius/pull/319)).
+- Added standalone cosine high-pass filtering via
+  [`filter_cosine`][confusius.signal.filter_cosine], and
+  [`clean`][confusius.signal.clean] can now use it with `filter_method="cosine"`
+  ([#321](https://github.com/confusius-tools/confusius/pull/321)).
+
+### :bug: Fixes
+
+- Axial velocity estimation now scales the Kasai phase increment by the requested
+  autocorrelation `lag`, so multi-volume lags no longer overestimate velocity
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+- NIfTI loading no longer crashes when a sidecar `VolumeTiming` length disagrees with
+  the actual data. ConfUSIus now ignores the malformed sidecar timing, falls back to
+  `pixdim[4]` when available, and otherwise warns before using frame indices
+  ([#304](https://github.com/confusius-tools/confusius/pull/304)).
+- Motion parameter tables from
+  [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now label
+  rotations and translations by the coordinate names `x`/`y`/`z` instead of by raw
+  transform-component order, so canonical ConfUSIus arrays stored as `(z, y, x)` no
+  longer mislabel in-plane motion
+  ([#301](https://github.com/confusius-tools/confusius/pull/301)).
+- **[Napari plugin]** The signal import dialog now finds BIDS physio files ending in
+  `.tsv.gz`, keeps the x-axis cursor visible for imported-only plots when enabled, and
+  lets you import multiple signal files in one go
+  ([#294](https://github.com/confusius-tools/confusius/pull/294)).
+- Opening a `.scan` file that is not the legacy HDF5-based Iconeus format now raises a
+  clear error that points users to newer SCAN v2 files and to converting them to NIfTI
+  with Iconeus tools first ([#297](https://github.com/confusius-tools/confusius/pull/297)).
+- Plotting functions now accept a slice dimension reduced to a scalar coordinate by a
+  single-index selection, so `plot_contours(atlas.annotation.sel(z=6))` works like
+  `sel(z=[6])` ([#296](https://github.com/confusius-tools/confusius/pull/296)).
+
+### :books: Documentation
+
+- Fixed velocity sign interpretation in [Beamformed IQ user
+  guide](user-guide/beamformed-iq.md)
+  ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+
+### :wrench: Maintenance
+
+- [Example Gallery]: pandas DataFrame outputs in the example gallery now render with
+  clean, theme-aware notebook styling instead of a fully-bordered table
+  ([#307](https://github.com/confusius-tools/confusius/pull/307)).
+- [Example Gallery]: Cells can now hide their code behind a collapsed callout with a
+  `collapse` cell tag, with optional custom title and type (`collapse[<type>]:
+  <title>`), i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
+  ([#309](https://github.com/confusius-tools/confusius/pull/309)).
+
+## 0.5.2
+
+Released 2026-07-10.
+
+### :wrench: Maintenance
+
+- Python 3.14 now keeps `xarray[accel]` everywhere except macOS Intel, where ConfUSIus
+  falls back to plain `xarray` to avoid a `numba` / `llvmlite` build failure caused by
+  napari's macOS Intel `numba<=0.62.1` cap.
+
+## 0.5.1
+
+Released 2026-07-10.
+
+### :sparkles: Enhancements
+
+- **[Napari plugin]** Added a `File > Open Sample` entries for a [Nunez-Elizalde
+  2022](citing.md#nunez-elizalde-et-al-2022) mouse recording and for a pair of [Cybis
+  Pereira 2026](citing.md#cybis-pereira-et-al-2026) rat recordings. Samples are fetched on
+  demand, shows download progress with an abort button, and only downloads the matching
+  raw fUSI files instead of the full dataset
+  ([#273](https://github.com/confusius-tools/confusius/pull/273)).
+- Dataset fetchers now print the citation to use for the fetched data and accept a
+  `print_citation` argument to silence it. The template fetchers
+  [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] and
+  [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026]
+  also expose the citation on the returned DataArray as `da.attrs["citation"]`
+  ([#279](https://github.com/confusius-tools/confusius/pull/279)).
 - Dataset fetchers called with `refresh=True` now re-download cached files whose upstream
   MD5 changed, comparing the cached dataset index against the freshly fetched one instead
   of only checking whether the file exists; downloads are additionally verified against
@@ -36,6 +186,11 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Saving to Zarr (via [`save`][confusius.io.save] or `DataArray.fusi.save`) now works
+  for data carrying affines or other numpy-valued attributes: nested numpy arrays are
+  stored as lists and non-serializable attrs (e.g. matplotlib colormaps) are dropped
+  with a warning, matching the NIfTI sidecar behaviour
+  ([#284](https://github.com/confusius-tools/confusius/pull/284)).
 - B-spline control-point DataArrays returned by
   [`register_volume`][confusius.registration.register_volume] no longer have their
   per-axis grid geometry (spacing, origin, domain) swapped between axes on anisotropic
@@ -51,11 +206,6 @@ Current development version for the next ConfUSIus release.
   matplotlib ≥ 3.11 when a `threshold` is set. `LinearSegmentedColormap.from_list`
   now requires strictly monotonic `(value, color)` pairs, and the threshold gray
   band could collide with neighbouring cmap entries at the boundary values.
-- [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm]
-  no longer calls the matplotlib-3.11-deprecated `set_under`/`set_over`/`set_bad`
-  colormap methods, and no longer passes the deprecated `N=` argument to
-  `ListedColormap`. The under colour is now passed as a constructor kwarg, the
-  matplotlib-3.11-recommended way to set it.
 - [`plot_volume`][confusius.plotting.plot_volume],
   [`plot_stat_map`][confusius.plotting.plot_stat_map],
   [`plot_composite`][confusius.plotting.plot_composite], and
@@ -72,11 +222,19 @@ Current development version for the next ConfUSIus release.
   the rigid registration step with a B-spline refinement, showing the extra local
   correction it adds and how its parameters differ from the rigid step's
   ([#235](https://github.com/confusius-tools/confusius/pull/235)).
+- Long output in gallery examples—warnings, text reprs, tracebacks, and rich-rendered
+  text such as the dataset citation banner—now wraps instead of showing a horizontal
+  scrollbar ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ### :wrench: Maintenance
 
 - Raised the minimum supported versions to **napari 0.7.1** and
   **matplotlib 3.11**.
+- The example-gallery build tool now accepts specific example scripts as arguments
+  (`uv run python tools/build_gallery.py docs/examples/01_io/01_confusius_xarray_101.py`),
+  running only those; the rest of the gallery is still rendered, taken from cache if
+  present or built without outputs
+  ([#285](https://github.com/confusius-tools/confusius/pull/285)).
 
 ## 0.5.0
 
@@ -111,8 +269,8 @@ Released 2026-07-07.
   from / save to a BIDS `.tsv`
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - [`confusius.bids`][confusius.bids] module is now public with new
-  [`read_events`][confusius.bids.read_events] and
-  [`write_events`][confusius.bids.write_events]
+  [`load_events`][confusius.bids.load_events] and
+  [`save_events`][confusius.bids.save_events]
   ([#176](https://github.com/confusius-tools/confusius/pull/176)).
 - Added a `datasets` CLI namespace, listed in `confusius --help`:
   `confusius datasets --list` prints the table of available datasets, their sizes,
@@ -147,7 +305,7 @@ Released 2026-07-07.
 - [`plot_volume`][confusius.plotting.plot_volume] and
   [`plot_stat_map`][confusius.plotting.plot_stat_map] (and their `data.fusi.plot.*`
   accessors) now accept `cbar_kwargs`, forwarded to
-  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar] — useful to
+  [`matplotlib.figure.Figure.colorbar`][matplotlib.figure.Figure.colorbar]—useful to
   shrink a shared colorbar down to size on a multi-panel grid
   ([#242](https://github.com/confusius-tools/confusius/pull/242)).
 - [`apply_affine`][confusius.xarray.affine.apply_affine] and the
@@ -179,7 +337,7 @@ Released 2026-07-07.
   plugin]** The reader now falls back to the `"gray"` colormap (with a napari warning)
   instead of crashing when a layer's `cmap` attr is not a valid napari colormap name
   ([#255](https://github.com/confusius-tools/confusius/pull/255)).
-- [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] now suffixes the `mask`
+- `Atlas.get_masks` now suffixes the `mask`
   coordinate with `_L`/`_R` for `sides="left"`/`"right"`, so requesting the same region
   on both hemispheres no longer produces duplicate `mask` values.
   [`extract_with_labels`][confusius.extract.extract_with_labels] no longer requires

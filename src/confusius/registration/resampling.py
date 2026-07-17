@@ -7,7 +7,10 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.geometry import has_voxel_affine_geometry
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    has_voxel_affine_geometry,
+)
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
@@ -33,7 +36,7 @@ def resample_volume(
     origin: Sequence[float],
     dims: Sequence[str],
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float | None = None,
+    fill_value: float | None = None,
     direction: npt.ArrayLike | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
@@ -75,7 +78,7 @@ def resample_volume(
         Dimension names of the output DataArray.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, optional
+    fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
@@ -142,22 +145,13 @@ def resample_volume(
 
     moving_sitk = dataarray_to_sitk_image(moving)
 
-    _default_value = default_value if default_value is not None else float(moving.min())
+    resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
 
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.
     ref = sitk.Image(list(shape), sitk.sitkFloat32)
     ref.SetSpacing(list(spacing))
     ref.SetOrigin(list(origin))
-    if direction is None:
-        ref.SetDirection(np.eye(ndim, dtype=np.float64).flatten().tolist())
-    else:
-        direction_array = np.asarray(direction, dtype=np.float64)
-        if direction_array.shape != (ndim, ndim):
-            raise ValueError(
-                f"direction must have shape {(ndim, ndim)}, got {direction_array.shape}."
-            )
-        ref.SetDirection(direction_array.flatten().tolist())
 
     if interpolation == "nearest":
         sitk_interpolation = sitk.sitkNearestNeighbor
@@ -174,7 +168,7 @@ def resample_volume(
             ref,
             tx,
             sitk_interpolation,
-            _default_value,
+            resolved_fill_value,
             moving_sitk.GetPixelID(),
         )
         # .T restores DataArray axis order, inverse of the .T used to build the SITK
@@ -204,6 +198,7 @@ def resample_like(
     reference: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
+    fill_value: float | None = None,
     default_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
@@ -238,11 +233,14 @@ def resample_like(
 
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, optional
+    fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity).
+    default_value : float, optional
+        Alias for `fill_value` kept for compatibility with older branch code. If both
+        values are provided, `fill_value` takes precedence.
     sitk_threads : int, default: os.cpu_count() or 1
         Number of threads SimpleITK may use for the `Resample` call.
         Defaults to all available CPUs.
@@ -288,11 +286,12 @@ def resample_like(
     dims, spacing = get_defined_spatial_spacing(reference)
     shape = [int(reference.sizes[dim]) for dim in dims]
     origin_dict = reference.fusi.origin
-    origin = (
-        [origin_dict[dim] for dim in dims]
-        if not has_voxel_affine_geometry(reference)
-        else [o for d, o in origin_dict.items() if d != "time"]
+    origin_names = (
+        get_voxel_affine_physical_coord_names(reference)
+        if has_voxel_affine_geometry(reference)
+        else dims
     )
+    origin = [origin_dict[dim] for dim in origin_names]
     direction = reference.fusi.direction
 
     result = resample_volume(
@@ -302,9 +301,9 @@ def resample_like(
         spacing=spacing,
         origin=origin,
         dims=dims,
-        interpolation=interpolation,
-        default_value=default_value,
         direction=direction,
+        interpolation=interpolation,
+        fill_value=fill_value if fill_value is not None else default_value,
         sitk_threads=sitk_threads,
     )
 

@@ -13,92 +13,168 @@ if TYPE_CHECKING:
     import xarray as xr
 
 
+def _validate_affines(
+    affines: Sequence[NDArray[np.floating]],
+) -> list[NDArray[np.floating]]:
+    """Return validated affine matrices for motion diagnostics.
+
+    Parameters
+    ----------
+    affines : list[numpy.ndarray]
+        Candidate affine matrices.
+
+    Returns
+    -------
+    list[numpy.ndarray]
+        Validated affine matrices.
+
+    Raises
+    ------
+    ValueError
+        If `affines` is empty, contains non-square arrays, unsupported affine shapes,
+        or mixes 2D and 3D affines.
+    TypeError
+        If any entry is not a `numpy.ndarray`.
+    """
+    if len(affines) == 0:
+        raise ValueError("affines must contain at least one affine matrix.")
+
+    validated: list[NDArray[np.floating]] = []
+    ndim: int | None = None
+
+    for i, affine in enumerate(affines):
+        if not isinstance(affine, np.ndarray):
+            raise TypeError(
+                f"affines[{i}] must be a numpy.ndarray, got {type(affine).__name__}."
+            )
+        if affine.ndim != 2 or affine.shape[0] != affine.shape[1]:
+            raise ValueError(
+                f"affines[{i}] must be a square 2D array, got shape {affine.shape}."
+            )
+
+        affine_ndim = affine.shape[0] - 1
+        if affine_ndim not in (2, 3):
+            raise ValueError(
+                f"affines[{i}] must have shape (3, 3) or (4, 4), got {affine.shape}."
+            )
+
+        if ndim is None:
+            ndim = affine_ndim
+        elif affine_ndim != ndim:
+            raise ValueError(
+                "affines must all have the same dimensionality, got both "
+                f"{ndim}D and {affine_ndim}D affines."
+            )
+        validated.append(affine)
+
+    return validated
+
+
 def extract_motion_parameters(
-    affines: Sequence[NDArray[np.floating] | None],
+    affines: Sequence[NDArray[np.floating]],
 ) -> NDArray[np.floating]:
     """Extract motion parameters from affine matrices.
 
     Decomposes each `(N+1, N+1)` homogeneous affine into translation and
     rotation parameters.
 
-    For 2D transforms, extracts: `[rotation, translation_x, translation_y]`.
+    For 2D transforms, extracts: `[rotation, translation_0, translation_1]`.
     For 3D transforms, extracts:
-    `[rot_x, rot_y, rot_z, trans_x, trans_y, trans_z]`.
+    `[rotation_0, rotation_1, rotation_2, translation_0, translation_1, translation_2]`.
 
     Parameters
     ----------
-    affines : list[numpy.ndarray | None]
-        List of affine matrices from registration. `None` entries (e.g. from
-        B-spline transforms) are treated as identity transforms.
+    affines : list[numpy.ndarray]
+        List of affine matrices from registration.
 
     Returns
     -------
     (n_frames, n_params) numpy.ndarray
-        Motion parameters array.
+        Motion parameters array in raw transform-component order.
 
-        - For 2D: `n_params = 3 (rotation, tx, ty)`.
-        - For 3D: `n_params = 6 (rot_x, rot_y, rot_z, trans_x, trans_y, trans_z)`.
+        - For 2D: `n_params = 3 (rotation, t0, t1)`.
+        - For 3D: `n_params = 6 (r0, r1, r2, t0, t1, t2)`.
 
     Raises
     ------
     ValueError
-        If any affine does not have shape `(3, 3)` (2D) or `(4, 4)` (3D).
+        If `affines` is empty, contains a non-square array, an affine that is not
+        `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines.
+    TypeError
+        If any affine entry is not a `numpy.ndarray`.
     """
     import math
 
+    affines_validated = _validate_affines(affines)
     params_list = []
 
-    for affine in affines:
-        if affine is None:
-            # Non-linear (e.g. B-spline): treat as identity (zero motion). Dimension is
-            # unknown; append a placeholder and fix after loop.
-            params_list.append(None)
-            continue
-
+    for affine in affines_validated:
         ndim = affine.shape[0] - 1
-        if ndim not in (2, 3):
-            msg = f"Expected 2D or 3D affine, got shape {affine.shape}"
-            raise ValueError(msg)
 
         T, R, _Z, _S = (
             decompose_affine(affine) if ndim == 3 else _decompose_affine_2d(affine)
         )
 
         if ndim == 2:
-            # Rotation angle from the 2D rotation matrix.
             rotation = math.atan2(R[1, 0], R[0, 0])
             params_list.append([rotation, float(T[0]), float(T[1])])
         else:
-            # Decompose the 3D rotation matrix into Euler angles (XYZ convention).
-            rot_x, rot_y, rot_z = _rotation_matrix_to_euler_xyz(R)
+            rot_0, rot_1, rot_2 = _get_euler_xyz_from_rotation_matrix(R)
             params_list.append(
-                [rot_x, rot_y, rot_z, float(T[0]), float(T[1]), float(T[2])]
+                [rot_0, rot_1, rot_2, float(T[0]), float(T[1]), float(T[2])]
             )
 
-    # Resolve None placeholders: infer dimensionality from the first non-None entry.
-    ndim_inferred: int | None = None
-    for p in params_list:
-        if p is not None:
-            # 3 params → 2D, 6 params → 3D.
-            ndim_inferred = 2 if len(p) == 3 else 3
-            break
-
-    if ndim_inferred is None:
-        # All transforms are None; default to 3D identity.
-        ndim_inferred = 3
-
-    zero_2d = [0.0, 0.0, 0.0]
-    zero_3d = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # ndim_inferred is spatial dimensionality (2 or 3), not n_params.
-    n_params = 3 if ndim_inferred == 2 else 6
-    resolved = [
-        p if p is not None else (zero_2d if n_params == 3 else zero_3d)
-        for p in params_list
-    ]
-
-    return np.array(resolved)
+    return np.array(params_list)
 
 
+def _get_euler_xyz_from_rotation_matrix(
+    R: NDArray[np.floating],
+) -> tuple[float, float, float]:
+    """Get XYZ Euler angles from a 3D rotation matrix.
+
+    Parameters
+    ----------
+    R : (3, 3) numpy.ndarray
+        Rotation matrix.
+
+    Returns
+    -------
+    rot_0 : float
+        First XYZ Euler angle in radians.
+    rot_1 : float
+        Second XYZ Euler angle in radians.
+    rot_2 : float
+        Third XYZ Euler angle in radians.
+
+    Raises
+    ------
+    ValueError
+        If `R` is not a `(3, 3)` array.
+    """
+    import math
+
+    if R.shape != (3, 3):
+        raise ValueError(f"Expected a (3, 3) rotation matrix, got {R.shape}.")
+
+    # XYZ convention: R = Rz @ Ry @ Rx.
+    sy = -R[2, 0]
+    sy = max(-1.0, min(1.0, sy))
+    rot_1 = math.asin(sy)
+
+    cos_y = math.cos(rot_1)
+    if abs(cos_y) > 1e-6:
+        rot_0 = math.atan2(R[2, 1], R[2, 2])
+        rot_2 = math.atan2(R[1, 0], R[0, 0])
+    else:
+        # Gimbal lock: set the first angle to zero and recover the third.
+        rot_0 = 0.0
+        rot_2 = math.atan2(-R[0, 1], R[1, 1])
+
+    return rot_0, rot_1, rot_2
+
+
+# TODO: Temporary, to be removed once we enforce minimum dimensionality of 3D for all
+# fUSI DataArrays.
 def _decompose_affine_2d(
     A33: NDArray[np.floating],
 ) -> tuple[
@@ -140,43 +216,53 @@ def _decompose_affine_2d(
     return T, R, np.array([sx, sy]), np.array([sxy])
 
 
-def _rotation_matrix_to_euler_xyz(
-    R: NDArray[np.floating],
-) -> tuple[float, float, float]:
-    """Extract XYZ Euler angles from a (3, 3) rotation matrix.
+def _get_motion_parameter_columns(
+    reference: "xr.DataArray", params: NDArray[np.floating]
+) -> list[tuple[str, int]]:
+    """Return `(column_name, param_index)` pairs for `create_motion_dataframe`.
 
     Parameters
     ----------
-    R : (3, 3) numpy.ndarray
-        Rotation matrix.
+    reference : xarray.DataArray
+        Spatial reference DataArray whose dims and sizes define the named axes.
+    params : numpy.ndarray
+        Motion parameter array returned by `extract_motion_parameters`.
 
     Returns
     -------
-    rot_x, rot_y, rot_z : float
-        Rotation angles around X, Y, Z axes (radians).
+    list[tuple[str, int]]
+        Output motion columns paired with the source index in `params`.
+
+    Raises
+    ------
+    ValueError
+        If `params` does not have 3 or 6 columns.
     """
-    import math
+    spatial_dims = tuple(str(dim) for dim in reference.dims)
+    axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
 
-    # XYZ convention: R = Rz @ Ry @ Rx
-    # R[2,0] = -sin(rot_y)
-    sy = -R[2, 0]
-    sy = max(-1.0, min(1.0, sy))
-    rot_y = math.asin(sy)
+    if params.shape[1] == 3:
+        columns: list[tuple[str, int]] = [("rotation", 0)]
+        for dim in ("x", "y", "z"):
+            if dim in axis_index:
+                columns.append((f"trans_{dim}", 1 + axis_index[dim]))
+        return columns
 
-    cos_y = math.cos(rot_y)
-    if abs(cos_y) > 1e-6:
-        rot_x = math.atan2(R[2, 1], R[2, 2])
-        rot_z = math.atan2(R[1, 0], R[0, 0])
-    else:
-        # Gimbal lock: set rot_x = 0 and compute rot_z.
-        rot_x = 0.0
-        rot_z = math.atan2(-R[0, 1], R[1, 1])
+    if params.shape[1] != 6:
+        raise ValueError(
+            f"Expected motion parameters with 3 or 6 columns, got {params.shape[1]}."
+        )
 
-    return rot_x, rot_y, rot_z
+    columns = []
+    for dim in ("x", "y", "z"):
+        columns.append((f"rot_{dim}", axis_index[dim]))
+    for dim in ("x", "y", "z"):
+        columns.append((f"trans_{dim}", 3 + axis_index[dim]))
+    return columns
 
 
 def compute_framewise_displacement(
-    affines: Sequence[NDArray[np.floating] | None],
+    affines: Sequence[NDArray[np.floating]],
     reference: "xr.DataArray",
     mask: NDArray[np.bool_] | None = None,
 ) -> dict[str, NDArray[np.floating]]:
@@ -189,9 +275,8 @@ def compute_framewise_displacement(
 
     Parameters
     ----------
-    affines : list[numpy.ndarray | None]
-        List of affine matrices, one per frame. `None` entries are treated as identity
-        transforms.
+    affines : list[numpy.ndarray]
+        List of affine matrices, one per frame.
     reference : xarray.DataArray
         Spatial DataArray defining the physical grid (spacing and origin derived from
         its coordinates).
@@ -207,6 +292,22 @@ def compute_framewise_displacement(
         - `"mean_fd"`: Mean framewise displacement per frame.
         - `"max_fd"`: Maximum framewise displacement per frame.
         - `"rms_fd"`: RMS framewise displacement per frame.
+
+    Raises
+    ------
+    ValueError
+        If `reference` fails fUSI validation, if `affines` is empty, contains an
+        affine that is not `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines, or if
+        `reference`'s dimensionality does not match the affine dimensionality.
+    TypeError
+        If any affine entry is not a `numpy.ndarray`.
+
+    References
+    ----------
+    [^1]:
+        Power, J. D., Barnes, K. A., Snyder, A. Z., Schlaggar, B. L. & Petersen, S. E.
+        Spurious but systematic correlations in functional connectivity MRI networks
+        arise from subject motion. Neuroimage 59, 2142-2154
     """
     from confusius.validation import validate_fusi_dataarray
 
@@ -220,8 +321,14 @@ def compute_framewise_displacement(
         regular_spacing_dims="space",
     )
 
-    n_frames = len(affines)
-    ndim = reference.ndim
+    affines_validated = _validate_affines(affines)
+    n_frames = len(affines_validated)
+    ndim = affines_validated[0].shape[0] - 1
+    if reference.ndim != ndim:
+        raise ValueError(
+            "reference dimensionality must match affine dimensionality, got "
+            f"reference.ndim={reference.ndim} and affine ndim={ndim}."
+        )
 
     coords_1d = [
         np.asarray(reference.coords[str(dim)].values, dtype=float)
@@ -229,31 +336,28 @@ def compute_framewise_displacement(
     ]
 
     grids = np.meshgrid(*coords_1d, indexing="ij")
-    points = np.stack([g.ravel() for g in grids], axis=1)  # (n_voxels, ndim)
+    points = np.stack([g.ravel() for g in grids], axis=1)
 
     if mask is not None:
-        mask_flat = mask.ravel()
-        points = points[mask_flat]
-
-    eye = np.eye(ndim + 1)
-    transformed = []
-    for affine in affines:
-        A = affine if affine is not None else eye
-        # Apply affine: p_out = A[:ndim, :ndim] @ p.T + A[:ndim, ndim]
-        pts_out = (A[:ndim, :ndim] @ points.T).T + A[:ndim, ndim]
-        transformed.append(pts_out)
+        points = points[mask.ravel()]
 
     mean_fd = np.zeros(n_frames)
     max_fd = np.zeros(n_frames)
     rms_fd = np.zeros(n_frames)
 
+    # Framewise displacement is strictly pairwise, so transform one frame at a time and
+    # retain only the previous frame's points instead of every frame's transformed grid.
+    first = affines_validated[0]
+    prev_pts = (first[:ndim, :ndim] @ points.T).T + first[:ndim, ndim]
     for t in range(n_frames - 1):
-        displacements = np.linalg.norm(transformed[t + 1] - transformed[t], axis=1)
+        nxt = affines_validated[t + 1]
+        next_pts = (nxt[:ndim, :ndim] @ points.T).T + nxt[:ndim, ndim]
+        displacements = np.linalg.norm(next_pts - prev_pts, axis=1)
         mean_fd[t] = np.mean(displacements)
         max_fd[t] = np.max(displacements)
         rms_fd[t] = np.sqrt(np.mean(displacements**2))
+        prev_pts = next_pts
 
-    # Last frame has no next frame, so FD is 0.
     mean_fd[-1] = 0.0
     max_fd[-1] = 0.0
     rms_fd[-1] = 0.0
@@ -266,7 +370,7 @@ def compute_framewise_displacement(
 
 
 def create_motion_dataframe(
-    affines: Sequence[NDArray[np.floating] | None],
+    affines: Sequence[NDArray[np.floating]],
     reference: "xr.DataArray",
     mask: NDArray[np.bool_] | None = None,
     time_coords: NDArray[np.floating] | None = None,
@@ -275,9 +379,8 @@ def create_motion_dataframe(
 
     Parameters
     ----------
-    affines : list[numpy.ndarray | None]
-        List of affine matrices from registration. `None` entries (e.g. from B-spline
-        transforms) are treated as identity.
+    affines : list[numpy.ndarray]
+        List of affine matrices from registration.
     reference : xarray.DataArray
         Spatial DataArray defining the physical grid for framewise displacement
         computation.
@@ -289,55 +392,56 @@ def create_motion_dataframe(
     Returns
     -------
     pandas.DataFrame
-        DataFrame with columns:
+        DataFrame with columns determined by the affine dimensionality.
 
-        For 2D:
+        2D affines:
 
-        - `rotation`: Rotation angle in radians.
-        - `trans_x`: Translation in x (mm).
-        - `trans_y`: Translation in y (mm).
+        - `rotation`: In-plane rotation angle in radians.
+        - `trans_<dim>`: Translations along the DataArray's two named spatial axes
+          (mm), reported in named-axis order.
 
-        For 3D:
+        3D affines:
 
-        - `rot_x, rot_y, rot_z`: Rotation angles in radians.
-        - `trans_x, trans_y, trans_z`: Translations (mm).
+        - `rot_x, rot_y, rot_z`: Rotation angles around the DataArray's
+          `x`, `y`, and `z` axes, in radians.
+        - `trans_x, trans_y, trans_z`: Translations along the DataArray's
+          `x`, `y`, and `z` axes (mm), even when one spatial axis is singleton.
 
         Both:
         - `mean_fd`: Mean framewise displacement (mm).
         - `max_fd`: Maximum framewise displacement (mm).
         - `rms_fd`: RMS framewise displacement (mm).
+
+        Motion columns are reported in named-axis order (`x`, `y`, `z`), even when
+        the input DataArray stores its spatial dimensions in a different order such as
+        `(z, y, x)`.
+
+    Raises
+    ------
+    ValueError
+        If `reference` fails fUSI validation, if `affines` is empty, contains an
+        affine that is not `(3, 3)` or `(4, 4)`, or mixes 2D and 3D affines, or if
+        `reference`'s dimensionality does not match the affine dimensionality.
+    TypeError
+        If any affine entry is not a `numpy.ndarray`.
     """
     import pandas as pd
 
     params = extract_motion_parameters(affines)
-
     fd_dict = compute_framewise_displacement(affines, reference, mask)
 
-    if params.shape[1] == 3:
-        df = pd.DataFrame(
-            {
-                "rotation": params[:, 0],
-                "trans_x": params[:, 1],
-                "trans_y": params[:, 2],
-                "mean_fd": fd_dict["mean_fd"],
-                "max_fd": fd_dict["max_fd"],
-                "rms_fd": fd_dict["rms_fd"],
-            }
-        )
-    else:
-        df = pd.DataFrame(
-            {
-                "rot_x": params[:, 0],
-                "rot_y": params[:, 1],
-                "rot_z": params[:, 2],
-                "trans_x": params[:, 3],
-                "trans_y": params[:, 4],
-                "trans_z": params[:, 5],
-                "mean_fd": fd_dict["mean_fd"],
-                "max_fd": fd_dict["max_fd"],
-                "rms_fd": fd_dict["rms_fd"],
-            }
-        )
+    motion_data = {
+        name: params[:, index]
+        for name, index in _get_motion_parameter_columns(reference, params)
+    }
+    df = pd.DataFrame(
+        {
+            **motion_data,
+            "mean_fd": fd_dict["mean_fd"],
+            "max_fd": fd_dict["max_fd"],
+            "rms_fd": fd_dict["rms_fd"],
+        }
+    )
 
     if time_coords is not None:
         df.index = time_coords

@@ -11,9 +11,11 @@ import requests
 from confusius.datasets import fetch_nunez_elizalde_2022, get_datasets_dir
 from confusius.datasets._nunez_elizalde_2022 import (
     _BIDS_ROOT,
+    _CITATION,
     _OSF_PROJECT_ID,
 )
 from confusius.datasets._pooch import _MAX_DOWNLOAD_RETRIES
+from confusius.datasets._utils import plain_citation
 
 # Minimal fake index representing the different file categories in the dataset.
 _FAKE_INDEX = {
@@ -69,6 +71,14 @@ _FAKE_INDEX = {
     "derivatives/allenccf_align/sub-OTHER/ses-20191122/fusi/sub-OTHER_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz": {
         "osf_path": "/file014",
         "size": 1400,
+    },
+    "sourcedata/allenccf_align/sub-CR022/ses-20201011/fusi/2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf": {
+        "osf_path": "/file015",
+        "size": 1500,
+    },
+    "sourcedata/allenccf_align/sub-OTHER/ses-20201011/fusi/2020-10-11_OTHER_estimated_probe00_3Dtrack_manual.hdf": {
+        "osf_path": "/file016",
+        "size": 1600,
     },
 }
 
@@ -150,6 +160,19 @@ def test_fetch_returns_bids_root(tmp_path, mock_get_index, mock_retrieve):
     result = fetch_nunez_elizalde_2022(data_dir=tmp_path)
     assert result == tmp_path / _BIDS_ROOT
     assert isinstance(result, Path)
+
+
+def test_fetch_citation_message(tmp_path, mock_get_index, mock_retrieve, capsys):
+    fetch_nunez_elizalde_2022(data_dir=tmp_path)
+    out = capsys.readouterr().out
+    assert (
+        "If you use this dataset in your work, please cite the following source:" in out
+    )
+    # Rich word-wraps the printed citation, so compare on whitespace-normalized text.
+    assert plain_citation(_CITATION) in " ".join(out.split())
+
+    fetch_nunez_elizalde_2022(data_dir=tmp_path, print_citation=False)
+    assert capsys.readouterr().out == ""
 
 
 def test_fetch_downloads_all_missing_files(tmp_path, mock_get_index, mock_retrieve):
@@ -254,6 +277,48 @@ def test_fetch_acq_filter_excludes_non_matching_fusi_includes_angio(
     assert "sub-CR020_ses-20191122_pwd.nii.gz" in downloaded
 
 
+def test_fetch_rawdata_dataset_excludes_derivatives_and_sourcedata(
+    tmp_path, mock_get_index, mock_retrieve
+):
+    fetch_nunez_elizalde_2022(data_dir=tmp_path, datasets=["rawdata"])
+
+    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    assert (
+        "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
+    )
+    assert (
+        "sub-CR020_ses-20191122_space-fusi_desc-allenccf_dseg.nii.gz" not in downloaded
+    )
+    assert "structure_tree_safe_2017.csv" not in downloaded
+    assert "2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf" not in downloaded
+
+
+def test_fetch_allenccf_align_dataset_includes_matching_sourcedata(
+    tmp_path, mock_get_index, mock_retrieve
+):
+    fetch_nunez_elizalde_2022(
+        data_dir=tmp_path,
+        datasets=["allenccf_align"],
+        subjects=["CR022"],
+        sessions=["20201011"],
+        datatypes=["fusi"],
+    )
+
+    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    assert "2020-10-11_CR022_estimated_probe00_3Dtrack_manual.hdf" in downloaded
+    assert "2020-10-11_OTHER_estimated_probe00_3Dtrack_manual.hdf" not in downloaded
+
+
+def test_fetch_fusi_datatype_excludes_angio(tmp_path, mock_get_index, mock_retrieve):
+    fetch_nunez_elizalde_2022(data_dir=tmp_path, datatypes=["fusi"])
+
+    downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
+    assert (
+        "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz" in downloaded
+    )
+    assert "sub-CR020_ses-20191122_pwd.nii.gz" not in downloaded
+
+
 def test_fetch_subject_filter(tmp_path, mock_retrieve):
     index_with_two_subjects = {
         **_FAKE_INDEX,
@@ -277,10 +342,12 @@ def test_fetch_subject_filter(tmp_path, mock_retrieve):
 def test_fetch_accepts_string_filters(tmp_path, mock_get_index, mock_retrieve):
     fetch_nunez_elizalde_2022(
         data_dir=tmp_path,
+        datasets="rawdata",
         subjects="CR020",
         sessions="20191122",
         tasks="kalatsky",
         acqs="slice01",
+        datatypes="fusi",
     )
 
     downloaded = {c.kwargs["fname"] for c in mock_retrieve.call_args_list}
@@ -289,6 +356,17 @@ def test_fetch_accepts_string_filters(tmp_path, mock_get_index, mock_retrieve):
         "sub-CR020_ses-20191122_task-spontaneous_acq-slice01_pwd.nii.gz"
         not in downloaded
     )
+    assert "sub-CR020_ses-20191122_pwd.nii.gz" not in downloaded
+
+
+def test_fetch_rejects_unknown_dataset(tmp_path):
+    with pytest.raises(ValueError, match="Unknown dataset"):
+        fetch_nunez_elizalde_2022(data_dir=tmp_path, datasets=["not-a-dataset"])
+
+
+def test_fetch_rejects_unknown_datatype(tmp_path):
+    with pytest.raises(ValueError, match="Unknown datatype"):
+        fetch_nunez_elizalde_2022(data_dir=tmp_path, datatypes=["not-a-datatype"])
 
 
 # ---------------------------------------------------------------------------

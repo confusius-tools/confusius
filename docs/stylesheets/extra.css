@@ -449,3 +449,108 @@
   aspect-ratio: 4 / 3;
   object-fit: cover;
 }
+
+/* Rich-rendered text (e.g. the dataset citation banner the fetchers print) embeds
+   as a monospace block carrying inline `white-space:pre;overflow-x:auto`, which
+   produces a horizontal scrollbar on narrow columns. Wrap it instead. Scoped by
+   rich's inline `font-family:Menlo…` so xarray HTML reprs, which should keep
+   scrolling horizontally, are left untouched. `overflow-wrap:anywhere` breaks a
+   long unbreakable token (e.g. a DOI URL) that has no natural wrap point. */
+.gallery-rich-output [style*="Menlo"] {
+  white-space: pre-wrap !important;
+  overflow-x: hidden !important;
+  overflow-wrap: anywhere;
+}
+
+/* Plain-text example output (warnings, reprs, tracebacks) is wrapped in a
+   `.gallery-output` container by the gallery builder. Wrap long lines instead of
+   showing a horizontal scrollbar. Scoped to that container so authored code
+   blocks and xarray text reprs elsewhere in the docs keep scrolling. */
+.gallery-output .highlight pre,
+.gallery-output .highlight code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* pandas' `DataFrame._repr_html_()` emits `<table border="1" class="dataframe">`
+   with only a tiny scoped <style>; without notebook CSS the `border="1"` renders
+   as an ugly fully-bordered table. Restyle `.dataframe` blocks to match Jupyter's
+   clean notebook look, theme-aware. The docs theme only styles unclassed tables
+   (`.md-typeset table:not([class])`), so the classed pandas table is left to us —
+   including horizontal scroll, hence `overflow-x:auto` on the wrapper. */
+.gallery-rich-output {
+  overflow-x: auto;
+}
+
+.gallery-rich-output table.dataframe {
+  border: none;
+  border-collapse: collapse;
+  margin: 0.5rem auto;
+  font-size: 0.72rem;
+}
+
+.gallery-rich-output table.dataframe th,
+.gallery-rich-output table.dataframe td {
+  border: none;
+  padding: 0.3em 0.75em;
+  text-align: right;
+  vertical-align: middle;
+}
+
+.gallery-rich-output table.dataframe thead {
+  border-bottom: 2px solid var(--md-default-fg-color--light);
+}
+
+.gallery-rich-output table.dataframe thead th {
+  font-weight: 700;
+}
+
+.gallery-rich-output table.dataframe tbody th {
+  font-weight: 700;
+}
+
+/* Alternating row colors mirroring the xarray coordinate repr, theme-aware. These
+   hex values match the `--xr-background-color-row-*` variables injected alongside
+   the xarray HTML repr in tools/gallery/render.py. The first (odd) row uses the
+   stronger shade, matching xarray's `nth-child(odd)` override. */
+[data-md-color-scheme="default"]
+  .gallery-rich-output
+  table.dataframe
+  tbody
+  tr:nth-child(odd) {
+  background: #edf0f5;
+}
+
+[data-md-color-scheme="default"]
+  .gallery-rich-output
+  table.dataframe
+  tbody
+  tr:nth-child(even) {
+  background: #f8f9fb;
+}
+
+[data-md-color-scheme="slate"]
+  .gallery-rich-output
+  table.dataframe
+  tbody
+  tr:nth-child(odd) {
+  background: #1d2533;
+}
+
+[data-md-color-scheme="slate"]
+  .gallery-rich-output
+  table.dataframe
+  tbody
+  tr:nth-child(even) {
+  background: #161d29;
+}
+
+/* Hover highlight, kept above the striping rules (which include a color scheme
+   attribute) so the hovered row wins regardless of its odd/even shade. */
+[data-md-color-scheme]
+  .gallery-rich-output
+  table.dataframe
+  tbody
+  tr:hover {
+  background: var(--md-default-fg-color--lightest);
+}

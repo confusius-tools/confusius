@@ -19,11 +19,17 @@ from confusius._utils.geometry import (
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
 
-_ALLOWED_CORE_DIMS = (TIME_DIM, POSE_DIM, "k", "j", "i")
-"""Core dimension names recognized by ConfUSIus fUSI validators."""
+_PHYSICAL_CORE_DIMS = (TIME_DIM, POSE_DIM, "z", "y", "x")
+"""Physical-grid dimension names recognized by ConfUSIus fUSI validators."""
+
+_VOXEL_CORE_DIMS = (TIME_DIM, POSE_DIM, "k", "j", "i")
+"""Voxel-affine dimension names recognized by ConfUSIus fUSI validators."""
 
 _VOXEL_SPATIAL_DIMS = ("k", "j", "i")
 """Voxel-space spatial dimension names used by ConfUSIus geometry."""
+
+_PHYSICAL_SPATIAL_DIMS = ("z", "y", "x")
+"""Physical-grid spatial dimension names used by ConfUSIus geometry."""
 
 
 def _get_allowed_core_dims(da: xr.DataArray) -> tuple[str, ...]:
@@ -39,8 +45,7 @@ def _get_allowed_core_dims(da: xr.DataArray) -> tuple[str, ...]:
     tuple[str, ...]
         Allowed core dimensions for `da`.
     """
-    del da
-    return _ALLOWED_CORE_DIMS
+    return _VOXEL_CORE_DIMS if has_voxel_affine_geometry(da) else _PHYSICAL_CORE_DIMS
 
 
 def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
@@ -57,7 +62,10 @@ def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
         Spatial dimensions for `da`, using `k/j/i` for voxel-affine geometry and
         `z/y/x` otherwise.
     """
-    return tuple(dim for dim in _VOXEL_SPATIAL_DIMS if dim in da.dims)
+    spatial_dims = (
+        _VOXEL_SPATIAL_DIMS if has_voxel_affine_geometry(da) else _PHYSICAL_SPATIAL_DIMS
+    )
+    return tuple(dim for dim in spatial_dims if dim in da.dims)
 
 
 def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
@@ -75,12 +83,7 @@ def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
         shape.
     """
     if not has_voxel_affine_geometry(da):
-        raise ValueError(
-            "ConfUSIus DataArrays must use native voxel dimensions `k/j/i` with "
-            "linked physical coordinates `z/y/x` defined by a `voxel_to_physical` "
-            "affine. Plain `z/y/x` dimension arrays are not a valid ConfUSIus "
-            "geometry model."
-        )
+        return
 
     voxel_dims = get_voxel_affine_spatial_dims(da)
     expected_shape = (len(voxel_dims) + 1, len(voxel_dims) + 1)

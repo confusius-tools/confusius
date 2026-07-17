@@ -1,9 +1,13 @@
 """Internal utilities shared by registration modules."""
 
 import os
+import signal
+import threading
+from collections.abc import Callable
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import TYPE_CHECKING, Generator
+from types import FrameType
+from typing import TYPE_CHECKING, Generator, TypeGuard
 
 import numpy as np
 import xarray as xr
@@ -17,6 +21,8 @@ from confusius._utils.geometry import (
 )
 
 if TYPE_CHECKING:
+    from threading import Event
+
     import SimpleITK as sitk
 
 
@@ -220,6 +226,15 @@ def build_voxel_affine_plane_initial_transform(
     return transform
 
 
+SignalHandler = Callable[[int, FrameType | None], object]
+"""Python-level SIGINT handler callable."""
+
+
+def _is_python_signal_handler(handler: object) -> TypeGuard[SignalHandler]:
+    """Return whether `handler` is a callable Python SIGINT handler."""
+    return callable(handler)
+
+
 def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
     """Replace `result.attrs["affines"]` with affines from a reference array.
 
@@ -316,6 +331,63 @@ def set_sitk_thread_count(n: int) -> Generator[None, None, None]:
         sitk.ProcessObject.SetGlobalDefaultNumberOfThreads(prev)
 
 
+@contextmanager
+def abort_on_sigint(
+    abort_event: "Event | None",
+) -> Generator["Event", None, None]:
+    """Return an abort event that is set cooperatively on the first Ctrl+C.
+
+    Parameters
+    ----------
+    abort_event : threading.Event or None
+        Existing cooperative-cancellation event to reuse. If not provided, a
+        new event is created for the duration of the context.
+
+    Yields
+    ------
+    threading.Event
+        Event that is set when cooperative cancellation is requested, either
+        explicitly by the caller or via a Ctrl+C signal handled on the main
+        thread.
+
+    Notes
+    -----
+    On the main thread, the first `SIGINT`/Ctrl+C is converted into
+    `abort_event.set()` so long-running registrations can stop cleanly at the
+    next SimpleITK iteration boundary and return their current partial result.
+    A second Ctrl+C falls back to the previous signal handler so users can
+    still force an immediate interrupt if graceful cancellation stalls.
+    """
+    shared_abort_event = abort_event or threading.Event()
+
+    if threading.current_thread() is not threading.main_thread():
+        yield shared_abort_event
+        return
+
+    previous_handler = signal.getsignal(signal.SIGINT)
+    saw_sigint = False
+
+    def _handle_sigint(signum: int, frame: FrameType | None) -> None:
+        nonlocal saw_sigint
+        if not saw_sigint:
+            saw_sigint = True
+            shared_abort_event.set()
+            return
+
+        if previous_handler in {signal.SIG_DFL, signal.default_int_handler}:
+            raise KeyboardInterrupt
+        if previous_handler == signal.SIG_IGN:
+            return
+        if _is_python_signal_handler(previous_handler):
+            previous_handler(signum, frame)
+
+    signal.signal(signal.SIGINT, _handle_sigint)
+    try:
+        yield shared_abort_event
+    finally:
+        signal.signal(signal.SIGINT, previous_handler)
+
+
 def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """Convert a spatial or spatiotemporal DataArray to a SimpleITK image.
 
@@ -328,7 +400,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     ----------
     da : xarray.DataArray
         2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
-        Spacing and origin are derived from its coordinates.
+        Spacing and origin are derived from its coordinates; missing coordinates warn
+        and fall back to spacing `1.0` and origin `0.0`.
 
     Returns
     -------
@@ -336,27 +409,18 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
         SimpleITK image with spacing and origin set from the DataArray coordinates.
         For `time`-stacked input, returns a vector image where time is the vector
         dimension.
-
-    Raises
-    ------
-    ValueError
-        If any spatial spacing is undefined.
     """
     import SimpleITK as sitk
 
+    spatial_dims, spacing = get_defined_spatial_spacing(da)
     origin_dict = da.fusi.origin
 
     has_time = "time" in da.dims
-    spatial_dims, spacing = get_defined_spatial_spacing(da)
-    direction = np.asarray(da.fusi.direction, dtype=np.float64)
-
     if has_voxel_affine_geometry(da):
-        origin = tuple(o for d, o in origin_dict.items() if str(d) != "time")
+        origin_names = get_voxel_affine_physical_coord_names(da)
+        origin = tuple(origin_dict[d] for d in origin_names)
     else:
         origin = tuple(origin_dict[d] for d in spatial_dims)
-    spatial_ndim = len(spacing)
-    if direction.shape != (spatial_ndim, spatial_ndim):
-        direction = np.eye(spatial_ndim, dtype=np.float64)
 
     if has_time:
         data = da.values
@@ -368,9 +432,12 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     else:
         image = sitk.GetImageFromArray(da.values.T)
 
-    image.SetSpacing(spacing)
+    image.SetSpacing(tuple(spacing))
     image.SetOrigin(origin)
-    image.SetDirection(direction.flatten().tolist())
+    if has_voxel_affine_geometry(da):
+        image.SetDirection(
+            np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist()
+        )
     return image
 
 

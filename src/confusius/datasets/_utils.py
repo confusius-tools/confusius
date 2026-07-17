@@ -3,11 +3,70 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+from typing import Literal
 
 import pooch
+from rich.console import Console
+from rich.text import Text
+from rich.theme import Theme
+
+from confusius._utils.colors import RED, TURQUOISE
 
 _ENV_VAR = "CONFUSIUS_DATA"
+
+_CITATION_THEME = Theme({"citation.title": RED, "citation.doi": TURQUOISE})
+"""Maps the citation style names used in `_CITATION` markup to brand colors."""
+
+_DOI_URL_RE = re.compile(r"https://doi\.org/\S+")
+"""Pattern matching the DOI URL, turned into a clickable link when printed."""
+
+_console = Console(theme=_CITATION_THEME)
+
+
+def print_citation_message(citation: str, kind: Literal["dataset", "template"]) -> None:
+    """Print a citation prompt for a fetched dataset or template.
+
+    Parameters
+    ----------
+    citation : str
+        Citation text to print. Rich markup (e.g. `[italic]`, `[citation.title]`)
+        is rendered.
+    kind : {"dataset", "template"}
+        Resource kind used in the prompt.
+    """
+    # Render as a Text renderable rather than a str so the markup styles apply but
+    # rich's auto-highlighter does not colorize numbers, URLs, etc.
+    text = Text.from_markup(citation)
+    # Bold the whole citation; the rest of the markup is in each _CITATION string.
+    text.stylize("bold")
+    # Attach a link to the DOI so it renders as a clickable `<a>` in the docs gallery
+    # HTML. Terminals linkify bare URLs on their own, but browsers do not.
+    match = _DOI_URL_RE.search(text.plain)
+    if match:
+        text.stylize(f"link {match.group()}", match.start(), match.end())
+    _console.print(
+        f"If you use this {kind} in your work, please cite the following source:\n",
+        text,
+        sep="\n",
+    )
+
+
+def plain_citation(citation: str) -> str:
+    """Strip rich markup tags from a citation.
+
+    Parameters
+    ----------
+    citation : str
+        Citation text, possibly containing rich markup tags (e.g. `[italic]`).
+
+    Returns
+    -------
+    str
+        The citation with all markup tags removed, leaving only the visible text.
+    """
+    return Text.from_markup(citation).plain
 
 
 def get_datasets_dir(data_dir: str | Path | None = None) -> Path:

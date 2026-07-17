@@ -5,11 +5,14 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
+from confusius.glm import make_first_level_design_matrix
 from confusius.signal import (
     censor_samples,
     clean,
     filter_butterworth,
+    filter_cosine,
     interpolate_samples,
+    regress_confounds,
     standardize,
 )
 
@@ -134,15 +137,17 @@ def test_clean_filter_low_pass_matches_filter_butterworth(sample_timeseries):
 
 
 def test_clean_rejects_non_dict_filter_kwargs(sample_timeseries):
-    """Test filter_butterworth_kwargs must be a dict."""
-    with pytest.raises(TypeError, match="filter_butterworth_kwargs must be a dict"):
-        clean(sample_timeseries(), filter_butterworth_kwargs=1)  # ty: ignore[invalid-argument-type]
+    """Test filter_kwargs must be a dict."""
+    with pytest.raises(TypeError, match="filter_kwargs must be a dict"):
+        clean(sample_timeseries(), filter_kwargs=1)  # ty: ignore[invalid-argument-type]
 
 
 def test_clean_rejects_cutoffs_inside_filter_kwargs(sample_timeseries):
     """Test cutoffs must be passed directly to clean."""
-    with pytest.raises(ValueError, match="Pass low_pass/high_pass directly to clean"):
-        clean(sample_timeseries(), filter_butterworth_kwargs={"high_cutoff": 1.0})
+    with pytest.raises(
+        ValueError, match="Pass low_cutoff/high_cutoff directly to clean"
+    ):
+        clean(sample_timeseries(), filter_kwargs={"high_cutoff": 1.0})
 
 
 def test_clean_rejects_non_dict_interpolate_kwargs(sample_timeseries):
@@ -375,3 +380,235 @@ def test_clean_psc_restores_original_mean_after_highpass(sample_timeseries):
     )
 
     assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_matches_filter_cosine(sample_timeseries):
+    """Test clean can use cosine high-pass filtering."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+
+    expected = filter_cosine(signals, low_cutoff=0.1)
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_kwargs_are_forwarded():
+    """Test cosine filter kwargs are forwarded by clean."""
+    time = np.array([0.0, 0.1001, 0.2002, 0.3000, 0.4001, 0.5002])
+    signals = xr.DataArray(
+        np.arange(12, dtype=float).reshape(6, 2),
+        dims=["time", "space"],
+        coords={"time": time},
+    )
+
+    expected = filter_cosine(
+        signals,
+        low_cutoff=1.0,
+        uniformity_tolerance=5e-3,
+    )
+    result = clean(
+        signals,
+        low_cutoff=1.0,
+        filter_method="cosine",
+        filter_kwargs={"uniformity_tolerance": 5e-3},
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_is_jointly_regressed_with_confounds(sample_timeseries):
+    """Test cosine drift terms are regressed jointly with user confounds."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.column_stack(
+            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
+        ),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": [0, 1]},
+    )
+    design = make_first_level_design_matrix(
+        time,
+        events=None,
+        drift_model="cosine",
+        low_cutoff=0.1,
+    )
+    cosine_names = [c for c in design.columns if c.startswith("cosine")] + ["constant"]
+    cosine_confounds = xr.DataArray(
+        design[cosine_names].to_numpy(),
+        dims=["time", "confound"],
+        coords={"time": signals.coords["time"], "confound": cosine_names},
+    )
+    combined_confounds = xr.concat([confounds, cosine_confounds], dim="confound")
+
+    expected = regress_confounds(signals, combined_confounds)
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_joint_regression_with_1d_confounds(sample_timeseries):
+    """Test cosine drift terms are appended to 1D confounds."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.sin(2 * np.pi * 0.02 * time),
+        dims=["time"],
+        coords={"time": signals.coords["time"]},
+    )
+    design = make_first_level_design_matrix(
+        time,
+        events=None,
+        drift_model="cosine",
+        low_cutoff=0.1,
+    )
+    cosine_names = [c for c in design.columns if c.startswith("cosine")] + ["constant"]
+    combined_confounds = xr.DataArray(
+        np.column_stack([confounds.values, design[cosine_names].to_numpy()]),
+        dims=["time", "confound"],
+        coords={
+            "time": signals.coords["time"],
+            "confound": ["confound_0", *cosine_names],
+        },
+    )
+
+    expected = regress_confounds(signals, combined_confounds)
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert_allclose(result.values, expected.values)
+
+
+def test_clean_cosine_filter_joint_regression_renames_2d_confound_dim(
+    sample_timeseries,
+):
+    """Test cosine joint regression handles 2D confounds without `confound` dim."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.column_stack(
+            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
+        ),
+        dims=["time", "component"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert result.shape == signals.shape
+
+
+def test_clean_cosine_filter_joint_regression_drops_extra_confound_coords(
+    sample_timeseries,
+):
+    """Test cosine joint regression ignores auxiliary confound coordinates."""
+    signals = sample_timeseries(n_time=200, n_voxels=3, sampling_rate=10.0)
+    time = signals.coords["time"].values
+    confounds = xr.DataArray(
+        np.column_stack(
+            [np.sin(2 * np.pi * 0.02 * time), np.cos(2 * np.pi * 0.03 * time)]
+        ),
+        dims=["time", "component"],
+        coords={
+            "time": signals.coords["time"],
+            "component": [0, 1],
+            "explained_variance_ratio": ("component", [0.7, 0.3]),
+        },
+    )
+
+    result = clean(
+        signals,
+        detrend_order=None,
+        standardize_method=None,
+        low_cutoff=0.1,
+        filter_method="cosine",
+        confounds=confounds,
+    )
+
+    assert result.shape == signals.shape
+
+
+def test_clean_cosine_filter_rejects_nonuniform_time():
+    """Test cosine filtering requires uniformly sampled time coordinates."""
+    time = np.array([0.0, 0.1, 0.2, 0.35, 0.4, 0.5])
+    signals = xr.DataArray(
+        np.random.randn(6, 2),
+        dims=["time", "space"],
+        coords={"time": time},
+    )
+
+    with pytest.raises(ValueError, match="Non-uniform 'time' coordinates"):
+        clean(signals, low_cutoff=0.1, filter_method="cosine")
+
+
+def test_clean_cosine_filter_rejects_high_cutoff(sample_timeseries):
+    """Test cosine filtering cannot be used as a low-pass filter."""
+    with pytest.raises(ValueError, match="Cosine filtering only supports low_cutoff"):
+        clean(sample_timeseries(), high_cutoff=1.0, filter_method="cosine")
+
+
+def test_clean_cosine_filter_rejects_butterworth_kwargs(sample_timeseries):
+    """Test cosine filtering rejects Butterworth-only kwargs."""
+    with pytest.raises(TypeError, match="unexpected keyword argument 'order'"):
+        clean(
+            sample_timeseries(),
+            low_cutoff=0.1,
+            filter_method="cosine",
+            filter_kwargs={"order": 3},
+        )
+
+
+def test_clean_cosine_filter_rejects_3d_confounds(sample_timeseries):
+    """Test cosine joint regression rejects confounds above 2D."""
+    signals = sample_timeseries(n_time=100, n_voxels=3, sampling_rate=10.0)
+    confounds = xr.DataArray(
+        np.zeros((100, 2, 2)),
+        dims=["time", "a", "b"],
+        coords={"time": signals.coords["time"]},
+    )
+
+    with pytest.raises(ValueError, match="confounds must be 1D or 2D"):
+        clean(
+            signals,
+            low_cutoff=0.1,
+            filter_method="cosine",
+            confounds=confounds,
+        )
+
+
+def test_clean_rejects_invalid_filter_method(sample_timeseries):
+    """Test clean validates `filter_method`."""
+    with pytest.raises(
+        ValueError, match="filter_method must be 'butterworth' or 'cosine'"
+    ):
+        clean(
+            sample_timeseries(),
+            low_cutoff=0.1,
+            filter_method="invalid",  # ty: ignore[invalid-argument-type]
+        )

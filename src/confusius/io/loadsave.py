@@ -1,5 +1,6 @@
 """Generic file loading and saving dispatcher."""
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +8,12 @@ import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
-from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.atlas import restore_atlas_cmap_and_norm
+from confusius.io._utils import (
+    ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+    make_attrs_zarr_safe,
+    restore_affines_in_attrs,
+)
 from confusius.io.utils import check_path
 
 
@@ -66,30 +72,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
             " extensions are: .nii, .nii.gz, .scan, .zarr."
         )
 
-    _restore_atlas_cmap_and_norm(data_array)
+    restore_atlas_cmap_and_norm(data_array)
+    restore_affines_in_attrs(data_array.attrs)
     return data_array
-
-
-def _restore_atlas_cmap_and_norm(data_array: xr.DataArray) -> None:
-    """Rebuild `cmap`/`norm` attrs from `rgb_lookup` in place, when missing.
-
-    Parameters
-    ----------
-    data_array : xarray.DataArray
-        DataArray to update in place.
-
-    Returns
-    -------
-    None
-        This function mutates `data_array.attrs` and returns nothing.
-    """
-    if "rgb_lookup" not in data_array.attrs:
-        return
-    if "cmap" in data_array.attrs and "norm" in data_array.attrs:
-        return
-    cmap, norm = build_atlas_cmap_and_norm(data_array.attrs["rgb_lookup"])
-    data_array.attrs["cmap"] = cmap
-    data_array.attrs["norm"] = norm
 
 
 def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
@@ -123,7 +108,14 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):
-        data_array.to_zarr(path, **kwargs)
+        data_array = data_array.copy(deep=False)
+        data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=ZARR_V3_CONSOLIDATED_METADATA_WARNING,
+            )
+            data_array.to_zarr(path, **kwargs)
         return
 
     raise ValueError(
