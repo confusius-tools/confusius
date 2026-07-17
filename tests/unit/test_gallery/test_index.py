@@ -68,8 +68,8 @@ def test_build_index_groups_cards_by_section(tmp_path: Path) -> None:
     assert "_assets/default_thumb_dark.svg#only-dark" in index_md
     # The summary rides along as a hover overlay, only where there is one.
     assert (
-        '<span class="examples-card-summary" aria-hidden="true">'
-        "<span>Quick AUTC demo.</span></span>" in index_md
+        '<span class="examples-card-summary" aria-hidden="true">Quick AUTC demo.</span>'
+        in index_md
     )
     assert index_md.count("examples-card-summary") == 2
 
@@ -111,11 +111,12 @@ def test_build_index_preserves_section_order_from_input(tmp_path: Path) -> None:
 
 
 def test_build_index_flattens_links_in_card_overlays(tmp_path: Path) -> None:
-    """Relative links in a summary are flattened so they can't break the index page.
+    """Both link forms in a summary are flattened to their text.
 
     Overlays are copied verbatim onto the index page at the examples root, where an
     example's relative cross-links (written against its own built page) would not
-    resolve and would fail ``zensical build --strict``.
+    resolve and would fail ``zensical build --strict``. A mkdocstrings cross-reference
+    resolves, but would render as a link inside an overlay that is inert by design.
     """
     src = tmp_path / "decomposition" / "nmf.py"
     src.parent.mkdir(parents=True, exist_ok=True)
@@ -124,7 +125,10 @@ def test_build_index_flattens_links_in_card_overlays(tmp_path: Path) -> None:
         RenderedExample(
             spec=_spec(src, "decomposition"),
             title="NMF",
-            summary="Complements the [PCA](pca_single_recording.md) example.",
+            summary=(
+                "Uses [FastICA][confusius.decomposition.FastICA]. Complements the "
+                "[PCA](pca_single_recording.md) example."
+            ),
             md_path=src.with_suffix(".md"),
             thumbnail_light=None,
             thumbnail_dark=None,
@@ -132,11 +136,17 @@ def test_build_index_flattens_links_in_card_overlays(tmp_path: Path) -> None:
     ]
     md = build_index(rendered, root=tmp_path)
     assert "](pca_single_recording.md)" not in md
-    assert "<span>Complements the PCA example.</span>" in md
+    assert "confusius.decomposition.FastICA" not in md
+    assert "Uses FastICA. Complements the PCA example.</span>" in md
 
 
 def test_build_index_escapes_html_in_card_overlays(tmp_path: Path) -> None:
-    """Summary text is escaped so it cannot inject markup into the overlay span."""
+    """Summary text is escaped so it cannot inject markup into the overlay span.
+
+    Quotes are left alone: they need no escaping in text content, and an escaped one
+    survives a code span, which escapes the entity's ``&`` in turn and shows it
+    verbatim.
+    """
     src = tmp_path / "io" / "ex.py"
     src.parent.mkdir(parents=True, exist_ok=True)
     src.touch()
@@ -144,14 +154,14 @@ def test_build_index_escapes_html_in_card_overlays(tmp_path: Path) -> None:
         RenderedExample(
             spec=_spec(src, "io"),
             title="Ex",
-            summary='Uses <div> & "quotes".',
+            summary='Uses <div> & `mode="temporal"`.',
             md_path=src.with_suffix(".md"),
             thumbnail_light=None,
             thumbnail_dark=None,
         ),
     ]
     md = build_index(rendered, root=tmp_path)
-    assert "<span>Uses &lt;div&gt; &amp; &quot;quotes&quot;.</span>" in md
+    assert 'Uses &lt;div&gt; &amp; `mode="temporal"`.</span>' in md
 
 
 def test_build_index_demotes_h1_section_intros(tmp_path: Path) -> None:
