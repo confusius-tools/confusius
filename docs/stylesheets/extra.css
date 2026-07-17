@@ -554,3 +554,61 @@
   tr:hover {
   background: var(--md-default-fg-color--lightest);
 }
+
+/* scikit-learn's estimator repr (`BaseEstimator._repr_html_()`, e.g. FirstLevelModel)
+   ships its own <style> plus a `forceTheme()` script that adds a `.light`/`.dark` class
+   once at load, from the element luma or `prefers-color-scheme`. That never re-runs on
+   the Material palette toggle, and only four variables are gated on that class anyway —
+   sklearn's shared `.sk-global` block hardcodes `--sklearn-color-text: #000` and light
+   pastel level colors regardless. So redefine the whole set against the docs palette
+   here. The `.gallery-rich-output` ancestor is load-bearing: it lifts these to (0,3,0),
+   which beats `.sk-global.dark` at (0,2,0) even though sklearn's <style> sits in the
+   body and therefore comes later in document order than this stylesheet.
+
+   Level 0 is a box background and level 3 the matching text/border accent, and the two
+   swap on hover, so each pair has to contrast in both directions. The orange (unfitted)
+   / blue (fitted) split is sklearn's own semantic, kept here. */
+[data-md-color-scheme="default"] .gallery-rich-output .sk-global {
+  --sklearn-color-text: rgba(0, 0, 0, 1);
+  --sklearn-color-text-muted: rgba(0, 0, 0, 0.62);
+  --sklearn-color-text-on-default-background: rgba(0, 0, 0, 1);
+  --sklearn-color-line: rgba(0, 0, 0, 0.42);
+  --sklearn-color-background: #fff;
+  --sklearn-color-border-box: rgba(0, 0, 0, 0.85);
+  --sklearn-color-icon: #696969;
+  --sklearn-color-unfitted-level-0: #fff5e6;
+  --sklearn-color-unfitted-level-1: #f6e4d2;
+  --sklearn-color-unfitted-level-2: #ffe0b3;
+  --sklearn-color-unfitted-level-3: chocolate;
+  --sklearn-color-fitted-level-0: #f0f8ff;
+  --sklearn-color-fitted-level-1: #d4ebff;
+  --sklearn-color-fitted-level-2: #b3dbfd;
+  --sklearn-color-fitted-level-3: cornflowerblue;
+}
+
+/* Neutral shades match the `--xr-*` variables injected alongside the xarray repr in
+   tools/gallery/render.py, so both reprs read as one surface in dark mode. */
+[data-md-color-scheme="slate"] .gallery-rich-output .sk-global {
+  --sklearn-color-text: rgba(255, 255, 255, 0.95);
+  --sklearn-color-text-muted: rgba(255, 255, 255, 0.68);
+  --sklearn-color-text-on-default-background: rgba(255, 255, 255, 0.95);
+  --sklearn-color-line: rgba(255, 255, 255, 0.45);
+  --sklearn-color-background: #111720;
+  --sklearn-color-border-box: rgba(255, 255, 255, 0.85);
+  --sklearn-color-icon: rgba(255, 255, 255, 0.6);
+  --sklearn-color-unfitted-level-0: #2a2119;
+  --sklearn-color-unfitted-level-1: #3a2e21;
+  --sklearn-color-unfitted-level-2: #4b3a29;
+  --sklearn-color-unfitted-level-3: #e2903f;
+  --sklearn-color-fitted-level-0: #141e2b;
+  --sklearn-color-fitted-level-1: #1c2b3e;
+  --sklearn-color-fitted-level-2: #253850;
+  --sklearn-color-fitted-level-3: #7aa7f0;
+}
+
+/* The repr's inner `.sk-container` is `display:inline-block`, so centring it is just
+   `text-align` on its block-level parent. This does not leak into the parameter table:
+   sklearn sets `text-align:left` on `.sk-toggleable__content` itself. */
+.gallery-rich-output .sk-top-container {
+  text-align: center;
+}
