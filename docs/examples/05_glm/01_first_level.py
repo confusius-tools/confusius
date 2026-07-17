@@ -17,11 +17,15 @@
 # 1. **Fetch and load** the five fUSI recordings.
 # 2. **Register** the recording to a reference template aligned with an anatomical atlas,
 #    so we can define masks and draw region boundaries in a common space.
-# 3. **Build a design matrix** per run from the stimulation events, a fUSI-specific HRF,
-#    a drift model, and CompCor noise regressors.
+# 3. **Choose a fUSI-specific HRF** and **extract CompCor noise regressors** from a
+#    non-task region.
 # 4. **Fit** a [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] across all
 #    runs and **compute a contrast** for the stimulation condition.
 # 5. **Threshold** the resulting map for statistical significance and visualize it.
+#
+# !!! warning "Download size"
+#     Running this notebook fetches the five recordings for subject `5622`, session
+#     `IPM` (about 200 MB each, ~1 GB in total) into the ConfUSIus dataset cache.
 #
 #
 # ## Fetch the olfactory-stimulation recordings
@@ -46,6 +50,7 @@ import confusius as cf
 
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
+is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
 
 # Keep notebook output compact for large DataArray displays. The coordinates section is
 # left expanded on purpose; `display_expand_data` alone does not cover the attributes.
@@ -299,54 +304,66 @@ ax.set_ylabel("Response (a.u.)")
 _ = ax.set_title("Claron et al. 2021 fUSI HRF (beta=6.7)")
 
 # %% [markdown]
-# ## Build the design matrix
+# ## Model physiological noise with CompCor
 #
-# [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]
-# assembles, per run, the full set of regressors: the HRF-convolved `"active"`
-# condition, the CompCor confounds, and a `"cosine"` **drift model** that high-pass
-# filters slow scanner/physiological drifts below `0.01` Hz, plus a constant baseline
-# column. Each run gets its own design matrix because its CompCor regressors are
-# estimated from its own data.
-#
-# !!! note "Model physiological noise with CompCor"
-#     Beyond the stimulus response, the signal contains structured nuisance
-#     fluctuations.
-#     [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] extracts
-#     the leading principal components from a noise region—here the atlas `"fiber
-#     tracts"`, that ideally carries little task signal and some amount of global
-#     vascular fluctuations—and we add them to the design as nuisance regressors
-#     (anatomical CompCor). We take three components per run.
+# Beyond the stimulus response, the signal contains structured nuisance fluctuations.
+# [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] extracts the
+# leading principal components from a noise region—here the atlas `"fiber tracts"`, that
+# ideally carries little task signal and some amount of global vascular fluctuations—and
+# we add them to the design as nuisance regressors (anatomical CompCor). We take three
+# components per run.
 
 # %%
-mask = atlas.atlas.get_masks("fiber tracts").astype(bool)
-design_matrices = []
-for fusi in resampled_fusi_list:
-    confounds = cf.signal.compute_compcor_confounds(
+confounds = [
+    cf.signal.compute_compcor_confounds(
         fusi,
-        mask.sel(mask="fiber tracts"),
+        noise_mask=atlas.atlas.get_masks("fiber tracts")[0],
         n_components=3,
     )
-
-    design_matrices.append(
-        cf.glm.make_first_level_design_matrix(
-            fusi.time.values,
-            events=events,
-            hrf_model=modified_claron2021,
-            drift_model="cosine",
-            low_cutoff=0.01,
-            confounds=confounds.to_numpy(),
-            confound_names=confounds.component.values,
-        )
-    )
+    for fusi in resampled_fusi_list
+]
 
 # %% [markdown]
-# Visualizing the first run's design matrix makes the model concrete. Each column is a
-# regressor and each row a volume (time runs top to bottom). The leftmost `active`
-# column shows the HRF-convolved stimulation blocks; the CompCor and drift columns
-# follow, and the constant column models the baseline.
+# ## Fit the first-level GLM
+#
+# We hand the model specification to
+# [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] up front: the HRF, the
+# `"cosine"` drift model that high-pass filters slow scanner/physiological drifts below
+# `0.01` Hz, and the AR(1) noise model that accounts for temporal autocorrelation in the
+# residuals. [`fit`][confusius.glm.first_level.FirstLevelModel.fit] then takes the runs
+# together with the `events` table and the per-run CompCor `confounds`, assembles a design
+# matrix for each run internally, and fits it to the data voxel by voxel. We apply a light
+# Gaussian spatial smoothing (0.3 mm FWHM per axis) to boost SNR and fit every voxel,
+# leaving the anatomical masking to the thresholding step below. Passing the list of runs
+# together combines them with a fixed-effects model.
 
 # %%
-design_matrix = design_matrices[0]
+glm = cf.glm.FirstLevelModel(
+    smoothing_fwhm={"z": 0.3, "y": 0.3, "x": 0.3},
+    hrf_model=modified_claron2021,
+    drift_model="cosine",
+    low_cutoff=0.01,
+    noise_model="ar1",
+)
+glm.fit(resampled_fusi_list, events=events, confounds=confounds)
+
+# %% [markdown]
+# ## Inspect the design matrix
+#
+# The fit assembled one design matrix per run (through
+# [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]) and
+# stored them on the fitted model as `design_matrices_`. Each run gets its own matrix
+# because its CompCor regressors are estimated from its own data. Pulling the first run's
+# matrix back out lets us see exactly what the model fit.
+
+# %% [markdown]
+# Visualizing that matrix makes the model concrete. Each column is a regressor and each
+# row a volume (time runs top to bottom). The leftmost `active` column shows the
+# HRF-convolved stimulation blocks; the CompCor and drift columns follow, and the constant
+# column models the baseline.
+
+# %%
+design_matrix = glm.design_matrices_[0]
 
 fig, ax = plt.subplots(figsize=(6, 5), facecolor=bg_color)
 norm = mpl.colors.CenteredNorm()
@@ -356,18 +373,6 @@ ax.set_xticklabels([str(c) for c in design_matrix.columns], rotation=90, fontsiz
 ax.set_ylabel("Volume")
 _ = ax.set_title("Design matrix (run 1)")
 
-# %% [markdown]
-# ## Fit the first-level GLM
-#
-# [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] fits the design to the
-# data voxel by voxel. We apply a light Gaussian spatial smoothing (0.3 mm FWHM per axis)
-# to boost SNR and fit every voxel, leaving the anatomical masking to the thresholding
-# step below. Passing the list of runs together combines them with a fixed-effects model;
-# by default an AR(1) noise model accounts for temporal autocorrelation in the residuals.
-
-# %%
-glm = cf.glm.FirstLevelModel(smoothing_fwhm={"z": 0.3, "y": 0.3, "x": 0.3})
-glm.fit(resampled_fusi_list, design_matrices=design_matrices)
 
 # %% [markdown]
 # ## Compute and display the activation map
@@ -385,7 +390,6 @@ slice_coords = resampled_average_in_atlas.z[
     (resampled_average_in_atlas.z > 5) & (resampled_average_in_atlas.z < 9)
 ][::4]
 
-is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
 cmap = "berlin" if is_dark_theme else None
 vmax = 10
 fig = cf.plotting.plot_stat_map(
