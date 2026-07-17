@@ -450,6 +450,76 @@
   object-fit: cover;
 }
 
+/* The thumbnail's paragraph is the positioning context for the hover overlay below.
+   `line-height: 0` collapses the descender gap under the inline thumbnail, which the
+   overlay would otherwise cover; the overlay sets its own line height. Note the
+   thumbnail cannot simply be `display: block`, as that outranks the
+   `img[src$="#only-dark"]` theme rules above and would show both thumbnails. */
+.grid.cards.examples-cards > ul > li > p:first-child {
+  position: relative;
+  line-height: 0;
+}
+
+/* Hover overlay mirroring sphinx-gallery's thumbnail tooltip: the thumbnail blurs away
+   behind a near-opaque tint while the example's first paragraph fades in over it. Tint
+   values are sphinx-gallery's `--sg-tooltip-*`.
+
+   The tint is a pseudo-element rather than a background on the text span, so that the
+   span can size itself to its text and centre with `translateY`. Centring it with flex
+   instead would make every inline node Markdown leaves in the summary (`abbr`, `code`,
+   emphasis) a separate flex item, laid out side by side rather than as running text. */
+/* `:has()` keeps the tint off an example that has no summary to show. */
+.grid.cards.examples-cards > ul > li:has(.examples-card-summary) > p:first-child::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-color: rgba(250, 250, 250, 0.92);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  /* The tint is hit-testable like any other box, and would otherwise swallow clicks
+     meant for the thumbnail link it covers. */
+  pointer-events: none;
+}
+
+[data-md-color-scheme="slate"]
+  .grid.cards.examples-cards
+  > ul
+  > li:has(.examples-card-summary)
+  > p:first-child::before {
+  background-color: rgba(10, 10, 10, 0.92);
+}
+
+/* `pointer-events: none` keeps the thumbnail link underneath clickable through the
+   overlay. The clamp bounds the text to less than the thumbnail's height, so centring
+   it can never crop the opening line; a longer paragraph ellipsizes instead. */
+.examples-card-summary {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  transform: translateY(-50%);
+  padding: 0 0.9rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--md-default-fg-color);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+
+/* Hovering anywhere on the card, title included, reveals the thumbnail's overlay. */
+.grid.cards.examples-cards > ul > li:hover > p:first-child::before,
+.grid.cards.examples-cards > ul > li:focus-within > p:first-child::before,
+.grid.cards.examples-cards > ul > li:hover .examples-card-summary,
+.grid.cards.examples-cards > ul > li:focus-within .examples-card-summary {
+  opacity: 1;
+}
+
 /* Rich-rendered text (e.g. the dataset citation banner the fetchers print) embeds
    as a monospace block carrying inline `white-space:pre;overflow-x:auto`, which
    produces a horizontal scrollbar on narrow columns. Wrap it instead. Scoped by
