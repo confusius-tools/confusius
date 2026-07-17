@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html as html_lib
+import re
 from collections import defaultdict
 from pathlib import Path
 
@@ -10,6 +11,31 @@ from ._types import RenderedExample
 
 _DEFAULT_THUMB_LIGHT = "_assets/default_thumb.svg"
 _DEFAULT_THUMB_DARK = "_assets/default_thumb_dark.svg"
+
+# Markdown inline link `[text](url)`, and mkdocstrings cross-reference `[text][ident]`.
+# Card overlays are copied verbatim onto the gallery index page (at the examples root),
+# where an example's relative links — written against its own built page — would not
+# resolve and fail `zensical build --strict`. A cross-reference does resolve, but it
+# would render as a link inside an overlay that is inert by design. The full links still
+# render on the example's own page.
+_INLINE_LINK = re.compile(r"\[([^\]]+)\](?:\([^)]*\)|\[[^\]]*\])")
+
+
+def _flatten_links(text: str) -> str:
+    """Replace Markdown inline links and cross-references with their visible text.
+
+    Parameters
+    ----------
+    text : str
+        Markdown text that may contain inline links or cross-references.
+
+    Returns
+    -------
+    str
+        The text with every `[label](target)` and `[label][identifier]` reduced to
+        `label`.
+    """
+    return _INLINE_LINK.sub(r"\1", text)
 
 
 def _demote_h1(text: str) -> str:
@@ -39,6 +65,36 @@ def _card_image_markdown(rex: RenderedExample, *, root: Path, href: str) -> str:
     )
 
 
+def _card_overlay_markdown(rex: RenderedExample) -> str:
+    """Return the hover-overlay markup carrying an example's summary.
+
+    The span is centred over the card's thumbnail by `extra.css` and revealed on hover,
+    mirroring sphinx-gallery's thumbnail tooltip. It stays in the thumbnail's paragraph
+    so it adds no vertical space to the card.
+
+    The summary keeps whatever inline markup Markdown gives it (`abbr` for the glossary
+    terms in `docs/includes/abbreviations.md`, `code` for backticks), so `extra.css` has
+    to lay the overlay out as flowing text. Do not wrap the text in an inner element:
+    the pipeline drops a nested bare span, and the CSS is written not to need one.
+
+    Parameters
+    ----------
+    rex : RenderedExample
+        The example whose summary is shown on hover.
+
+    Returns
+    -------
+    str
+        The overlay markup, or an empty string for an example without a summary.
+    """
+    if not rex.summary:
+        return ""
+    # Text content, so quotes are left alone: escaping them here would survive a code
+    # span, which escapes the `&` of the entity in turn and shows it verbatim.
+    summary = html_lib.escape(_flatten_links(rex.summary), quote=False)
+    return f'<span class="examples-card-summary" aria-hidden="true">{summary}</span>'
+
+
 def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
     """Return the Markdown text of the gallery index page."""
     by_section: dict[str, list[RenderedExample]] = defaultdict(list)
@@ -63,8 +119,10 @@ def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
         for rendered_example in sorted(items, key=lambda item: item.spec.source.name):
             href = rendered_example.md_path.relative_to(root).as_posix()
             image = _card_image_markdown(rendered_example, root=root, href=href)
+            overlay = _card_overlay_markdown(rendered_example)
             card = (
-                f"-   {image}\n\n    ---\n\n    **[{rendered_example.title}]({href})**"
+                f"-   {image}{overlay}\n\n    ---\n\n"
+                f"    **[{rendered_example.title}]({href})**"
             )
             parts.append(card + "\n\n")
         parts.append("</div>\n\n")
