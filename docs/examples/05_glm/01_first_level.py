@@ -10,9 +10,9 @@
 #
 # In this example we run a complete first-level (single-subject) GLM on stimulus-evoked
 # fUSI data from the [Khallaf et al. 2026
-# dataset](https://doi.org/10.17617/3.7QCU1F)—functional ultrasound of a naked mole-rat
-# exposed to repeated olfactory stimulation. The notebook will go through the following
-# steps:
+# dataset](https://doi.org/10.1038/s41586-026-10772-5)—functional
+# ultrasound of a naked mole-rat exposed to repeated olfactory stimulation. The notebook
+# will go through the following steps:
 #
 # 1. **Fetch and load** the five runs of the recording.
 # 2. **Register** the recording to a reference template aligned with an anatomical atlas,
@@ -40,6 +40,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy.stats as sps
 import xarray as xr
 
 import confusius as cf
@@ -47,9 +48,11 @@ import confusius as cf
 # Adapt background color to the current Matplotlib style.
 bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
-# Keep notebook output compact for large DataArray displays.
-xr.set_options(display_expand_data=False)
+# Keep notebook output compact for large DataArray displays. The coordinates section is
+# left expanded on purpose; `display_expand_data` alone does not cover the attributes.
+xr.set_options(display_expand_data=False, display_expand_attrs=False)
 
+template_pepe_mariani = cf.datasets.fetch_template_pepe_mariani_2026()
 bids_root = cf.datasets.fetch_khallaf_2026(
     datasets="rawdata",
     subjects="5622",
@@ -89,11 +92,10 @@ events
 # the GLM, but we need to force some changes to make the example run smoothly after
 # that. The `_load_and_prepare_fusi` helper that we are using is described in the
 # collapsed admonition. Feel free to go through it if you are interested (the docstring
-# explains each step), otherwise jump to the next cell.The docstring documents each
-# step in detail.
+# explains each step), otherwise jump to the next cell.
 
 
-# %% [tags]
+# %% tags=["collapse: Code for `_load_and_prepare_fusi` helper"]
 def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     """Load fUSI data and prepare geometry for analysis and visualization.
 
@@ -115,7 +117,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     3. Apply the `physical_to_qform` to the coordinates to have metric coordinates.
     4. Shift the origin of the coordinates to the corner of the volume (nice to have).
     5. Convert the coordinates units to millimeter (nice to have).
-    6. Flip the "y" axis to have a depth direction "away" from the tranducer.
+    6. Flip the "y" axis to have a depth direction "away" from the transducer.
 
     """
     # 1. Transpose "z" and "y" and rename the coordinates accordingly.
@@ -157,7 +159,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         da.coords[dim].attrs["voxdim"] = da.coords[dim].voxdim * 1e3
         da.coords[dim].attrs["units"] = "mm"
 
-    # 6. Flip the "y" axis to have a depth direction "away" from the tranducer.
+    # 6. Flip the "y" axis to have a depth direction "away" from the transducer.
     flip_y = np.eye(4)
     flip_y[1, 1] = -1
     flip_y[1, 3] = da.y.max().item() + da.y.min().item()
@@ -181,7 +183,7 @@ fusi_list[0]
 # %% [markdown]
 # Averaging each run over time and then across runs gives a single, high-SNR
 # power-Doppler volume. This averaged image carries no task information, but it is a
-# clean anatomical reference that we use to drive registration in the next step.
+# clean anatomical reference that we use for registration in the next step.
 
 # %%
 average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra").mean(
@@ -191,18 +193,28 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 # %% [markdown]
 # ## Bring the data into a common anatomical space
 #
-# To interpret the activation map anatomically (and to define the masks the GLM needs)
-# we align the recording to the
+# To interpret the activation map anatomically (and to define the masks the analysis
+# needs) we register the averaged recording to the
 # [Pepe, Mariani et al. 2026 mouse fUSI template][confusius.datasets.fetch_template_pepe_mariani_2026],
-# which is itself aligned to the Allen Mouse Brain atlas. This gives us a common space
-# in which we can draw region boundaries and pull out anatomically defined masks.
+# which is itself registered to the Allen Mouse Brain atlas. This gives us a common
+# space in which we can draw region boundaries and pull out anatomically defined masks.
 #
-# We register in two passes with
-# [`register_volume`][confusius.registration.register_volume]: a first affine fit on the
-# linear-scale mean image, then a refinement initialized from that result and run on the
-# power-scaled image, which sharpens the alignment. Each call returns the (resampled)
-# moving image, the estimated transform, and a diagnostics object; here we only keep the
-# transform.
+# [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] gives us the
+# Allen atlas as an `xarray.Dataset`, holding the `reference`, `annotation` and
+# `hemispheres` volumes on a common grid plus an `.atlas` accessor for structure
+# queries. The template already carries the affine that maps it into atlas space
+# (`physical_to_sform`), so inverting it gives us what
+# [`resample_like`][confusius.registration.resample_like] needs to reslice the
+# template onto the atlas grid. Registering against that resampled template means the
+# transform we estimate maps the recording directly to the atlas space, with no further
+# composition needed.
+#
+# The registration itself is the single `transform` affine. We initialize the
+# registration from a coarse manual alignment (`napari_transform`) that we previously
+# obtained using [napari's manual transform
+# tool](https://napari.org/stable/howtos/layers/image.html#buttons).
+# The call returns the resampled moving image, the estimated transform, and a
+# diagnostics object; here we only keep the transform.
 #
 # !!! note
 #     Registration results are sensitive to their arguments. See the
@@ -210,37 +222,41 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 #     for guidance on inspecting convergence and tuning the optimizer.
 
 # %%
-template_pepe_mariani = cf.datasets.fetch_template_pepe_mariani_2026()
-atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um")
+atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
+resampled_template = cf.registration.resample_like(
+    template_pepe_mariani,
+    atlas.reference,
+    np.linalg.inv(template_pepe_mariani.affines["physical_to_sform"]),
+)
 
 napari_transform = np.array(
     [
-        [0.9964051642005587, 0.08471569367276423, 0.0, 1.017912047433129],
-        [-0.08471569367276423, 0.9964051642005588, 0.0, -1.100018006023873],
+        [0.7559553732760649, 0.31697755207337375, 0.0, 1.6997652603607039],
+        [-0.27557848987798905, 0.8004409446062637, 0.0, -0.7527078253190659],
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
     ]
 )
 
+
 _, transform, _ = cf.registration.register_volume(
-    average_fusi.fusi.scale.power(),
-    template_pepe_mariani,
+    average_fusi,
+    resampled_template,
     transform_type="affine",
     learning_rate="auto",
     initialization=np.linalg.inv(napari_transform),
 )
 
 # %% [markdown]
-# The refined transform lets us express the recording's physical-to-atlas mapping
+# The estimated transform maps atlas coordinates back onto the recording's physical
+# space, so inverting it gives exactly the recording's physical-to-atlas mapping
 # (`physical_to_sform`). With that affine in hand,
 # [`resample_like`][confusius.registration.resample_like] reslices each volume onto the
-# atlas grid. We resample the mean image (for display) and every individual run (to feed
-# the GLM in atlas space).
+# atlas grid. We resample the averaged image (for display) and every individual run (the
+# GLM input).
 
 # %%
-average_fusi.affines["physical_to_sform"] = template_pepe_mariani.affines[
-    "physical_to_sform"
-] @ np.linalg.inv(transform)
+average_fusi.affines["physical_to_sform"] = np.linalg.inv(transform)
 
 resampled_average_in_atlas = cf.registration.resample_like(
     average_fusi,
@@ -261,14 +277,14 @@ for fusi in fusi_list:
 # %% [markdown]
 # ## Choose a hemodynamic response function
 #
-# A stimulus does not produce an instantaneous change in the power-Doppler signal: the
-# vascular response is delayed and smeared out in time. The GLM accounts for this by
-# convolving the stimulation boxcar with a **hemodynamic response function (HRF)**. fUSI
-# responses are faster and lack the post-stimulus undershoot of the BOLD signal, so we
-# use [`claron2021_hrf`][confusius.glm.claron2021_hrf], an inverse-gamma HRF proposed for
+# A stimulus does not produce an instantaneous change in the power Doppler signal: the
+# vascular response is usually delayed through the neurovascular coupling. The GLM
+# accounts for this by convolving the stimulation boxcar with a **hemodynamic response
+# function (HRF)**. ConfUSIus offers different types of [HRFs][confusius.glm], some of
+# them originally proposed for fMRI analysis. Here we use
+# [`claron2021_hrf`][confusius.glm.claron2021_hrf], an inverse-gamma HRF proposed for
 # functional ultrasound, rather than a canonical BOLD HRF. We tune its `beta` scale
-# parameter to `6.7` to better match this dataset's response; `partial` binds that value
-# so the model can call the HRF with just the sampling interval.
+# parameter to `6.7` to find a faster peak response (around 2~3 seconds).
 
 # %%
 modified_claron2021 = partial(cf.glm.claron2021_hrf, beta=6.7)
@@ -284,18 +300,6 @@ ax.set_ylabel("Response (a.u.)")
 _ = ax.set_title("Claron et al. 2021 fUSI HRF (beta=6.7)")
 
 # %% [markdown]
-# ## Model physiological noise with CompCor
-#
-# Beyond the stimulus response, the signal contains structured nuisance fluctuations.
-# [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] extracts the
-# leading principal components from a noise region — here the atlas `"fiber tracts"`,
-# which carries little task signal — and we add them to the design as nuisance
-# regressors (anatomical CompCor). We take three components per run.
-
-# %%
-mask = atlas.get_masks("fiber tracts").astype(bool)
-
-# %% [markdown]
 # ## Build the design matrix
 #
 # [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]
@@ -304,8 +308,18 @@ mask = atlas.get_masks("fiber tracts").astype(bool)
 # filters slow scanner/physiological drifts below `0.01` Hz, plus a constant baseline
 # column. Each run gets its own design matrix because its CompCor regressors are
 # estimated from its own data.
+#
+# !!! note "Model physiological noise with CompCor"
+#     Beyond the stimulus response, the signal contains structured nuisance
+#     fluctuations.
+#     [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] extracts
+#     the leading principal components from a noise region—here the atlas `"fiber
+#     tracts"`, that ideally carries little task signal and some amount of global
+#     vascular fluctuations—and we add them to the design as nuisance regressors
+#     (anatomical CompCor). We take three components per run.
 
 # %%
+mask = atlas.atlas.get_masks("fiber tracts").astype(bool)
 design_matrices = []
 for fusi in resampled_fusi_list:
     confounds = cf.signal.compute_compcor_confounds(
@@ -348,21 +362,19 @@ _ = ax.set_title("Design matrix (run 1)")
 #
 # [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] fits the design to the
 # data voxel by voxel. We apply a light Gaussian spatial smoothing (0.3 mm FWHM per axis)
-# to boost SNR, and restrict the fit to the whole-brain `"root"` mask from the atlas.
-# Passing the list of runs together combines them with a fixed-effects model; by default
-# an AR(1) noise model accounts for temporal autocorrelation in the residuals.
+# to boost SNR and fit every voxel, leaving the anatomical masking to the thresholding
+# step below. Passing the list of runs together combines them with a fixed-effects model;
+# by default an AR(1) noise model accounts for temporal autocorrelation in the residuals.
 
 # %%
-glm = cf.glm.FirstLevelModel(
-    smoothing_fwhm={"z": 0.3, "y": 0.3, "x": 0.3}, mask=atlas.get_masks("root")[0]
-)
+glm = cf.glm.FirstLevelModel(smoothing_fwhm={"z": 0.3, "y": 0.3, "x": 0.3})
 glm.fit(resampled_fusi_list, design_matrices=design_matrices)
 
 # %% [markdown]
 # ## Compute and display the activation map
 #
 # [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast] turns
-# the fitted model into a statistical map. Asking for the `"active"` contrast tests, at
+# the fitted model into a statistical map. The `"active"` contrast tests, at
 # every voxel, whether the stimulation regressor has a non-zero effect, and returns a
 # z-score map. We display it over a range of atlas slices with the region boundaries
 # drawn on top for anatomical context.
@@ -374,6 +386,8 @@ slice_coords = resampled_average_in_atlas.z[
     (resampled_average_in_atlas.z > 5) & (resampled_average_in_atlas.z < 9)
 ][::4]
 
+is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
+cmap = "berlin" if is_dark_theme else None
 vmax = 10
 fig = cf.plotting.plot_stat_map(
     z_score,
@@ -381,8 +395,9 @@ fig = cf.plotting.plot_stat_map(
     nrows=2,
     vmax=vmax,
     bg_color=bg_color,
+    cmap=cmap,
 )
-fig.add_contours(
+_ = fig.add_contours(
     atlas.annotation,
     linewidths=0.6,
     slice_coords=slice_coords,
@@ -392,24 +407,38 @@ fig.add_contours(
 # %% [markdown]
 # ## Threshold for statistical significance
 #
-# The raw z-map shows an effect at every voxel; we need to keep only those that are
+# The raw z-map shows the effect at every voxel; we might want to keep only those that are
 # statistically significant while controlling for the many thousands of simultaneous
-# tests. [`apply_statistical_threshold`][confusius.glm.apply_statistical_threshold]
-# applies a multiple-comparison correction — here Holm family-wise-error control at
-# `alpha=0.01` — followed by a cluster-extent threshold that drops surviving clusters
-# smaller than 50 voxels. We then set the zeroed-out voxels to `NaN` so they render
-# transparently when overlaid.
+# tests. [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold]
+# applies a multiple-comparison correction (here Holm family-wise-error control at
+# `alpha=0.01`, restricted to the whole-brain `"root"` mask from the atlas), followed by
+# a cluster-extent threshold that drops surviving clusters smaller than 30 voxels. It
+# returns the map with the non-surviving voxels zeroed out, along with the z-value at
+# which the correction cut.
+#
+# A hard threshold is not the only way to show significance. Rather than hiding the
+# sub-threshold voxels outright, we can let significance drive the *opacity* of the
+# overlay, which keeps the sub-threshold structure visible while still making the
+# significant clusters stand out. For that we convert the z-scores into two-sided
+# p-values and correct them with the same Holm procedure via
+# [`adjust_pvalues`][confusius.stats.adjust_pvalues], which sets untested voxels (those
+# outside the mask) to `1.0`. `1 - adjusted_p_values` then reads as a per-voxel
+# confidence that we can hand to the plot as an alpha map.
 
 # %%
 thresholded_zscore, threshold = cf.stats.apply_statistical_threshold(
     z_score,
-    mask=atlas.get_masks("root")[0],
+    mask=atlas.atlas.get_masks("root")[0],
     alpha=0.01,
     method="holm",
-    cluster_threshold=50,
+    cluster_threshold=30,
 )
 
-thresholded_zscore = thresholded_zscore.where(thresholded_zscore != 0, np.nan)
+p_values = z_score.copy(deep=True)
+p_values.values = np.clip(2.0 * sps.norm.sf(np.abs(z_score)), 0.0, 1.0)
+adjusted_p_values = cf.stats.adjust_pvalues(
+    p_values, mask=atlas.atlas.get_masks("root")[0], method="holm"
+)
 
 # %% [markdown]
 # !!! tip "Explore the result interactively"
@@ -419,33 +448,29 @@ thresholded_zscore = thresholded_zscore.where(thresholded_zscore != 0, np.nan)
 #     ```python
 #     viewer, _ = resampled_average_in_atlas.fusi.plot()
 #     viewer, _ = thresholded_zscore.fusi.plot(
-#         viewer=viewer, contrast_limits=(-vmax, vmax)
+#         viewer=viewer, contrast_limits=(-10, 10)
 #     )
 #     cf.plotting.plot_napari(atlas.annotation, viewer=viewer, layer_type="labels")
 #     ```
 
 # %% [markdown]
-# Finally, we overlay the significant activation on the mean power-Doppler image (in
-# decibels) with the atlas contours, giving a single figure that places the
-# statistically significant odour response in its anatomical context.
+# Finally, we overlay the z-map on the mean power Doppler image (in dB) with the
+# atlas contours, giving a single figure that places the odour response in its
+# anatomical context.
 
 # %% tags=["thumbnail"]
-fig = cf.plotting.plot_volume(
-    resampled_average_in_atlas.fusi.scale.db(),
+
+fig = cf.plotting.plot_stat_map(
+    z_score,
+    bg_volume=resampled_average_in_atlas.fusi.scale.db(),
     slice_coords=slice_coords,
-    nrows=3,
-    vmin=-20,
-    vmax=0,
+    nrows=2,
+    bg_kwargs={"vmin": -20, "vmax": 0},
     bg_color=bg_color,
+    alpha=1 - adjusted_p_values,
+    cmap=cmap,
 )
-fig.add_volume(
-    thresholded_zscore,
-    slice_coords=slice_coords,
-    alpha=None,
-    vmin=-vmax,
-    vmax=vmax,
-)
-fig.add_contours(
+_ = fig.add_contours(
     atlas.annotation,
     linewidths=0.6,
     slice_coords=slice_coords,
