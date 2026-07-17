@@ -185,7 +185,7 @@ from confusius.validation import validate_iq_dataarray
 from scipy.io import loadmat
 
 # Replace this with your file format loader.
-raw_iq = loadmat("path/to/iq.mat")  # complex array, (x, y, z, time)
+raw_iq = loadmat("path/to/iq.mat")["iq"]  # replace "iq" with the variable name; array shape e.g. (x, y, z, time)
 
 iq = cf.create_fusi_dataarray(
     raw_iq,
