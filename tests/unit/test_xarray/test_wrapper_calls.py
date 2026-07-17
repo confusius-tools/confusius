@@ -121,11 +121,7 @@ def test_iq_wrappers_forward_calls(monkeypatch, sample_3dt_volume_complex):
     monkeypatch.setattr("confusius.xarray.iq.process_iq_to_axial_velocity", _vel)
     monkeypatch.setattr("confusius.xarray.iq.process_iq_to_bmode", _bmode)
 
-    mask = xr.DataArray(
-        np.ones(sample_3dt_volume_complex.shape[1:], dtype=bool),
-        dims=["z", "y", "x"],
-        coords={k: sample_3dt_volume_complex.coords[k] for k in ("z", "y", "x")},
-    )
+    mask = xr.ones_like(sample_3dt_volume_complex.isel(time=0), dtype=bool)
 
     assert (
         sample_3dt_volume_complex.fusi.iq.process_to_power_doppler(

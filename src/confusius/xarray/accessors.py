@@ -211,13 +211,16 @@ class FUSIAccessor:
             return get_coordinate_spacings(self._obj)
 
         voxel_spacing = get_voxel_affine_spacing(self._obj)
-        regular_spacing = get_coordinate_spacings(self._obj)
+        missing_dims = [
+            str(dim) for dim in self._obj.dims if str(dim) not in voxel_spacing
+        ]
+        regular_spacing = (
+            get_coordinate_spacings(self._obj[missing_dims]) if missing_dims else {}
+        )
         return {
-            dim_str: (
-                voxel_spacing[dim_str]
-                if dim_str in voxel_spacing
-                else regular_spacing[dim_str]
-            )
+            dim_str: voxel_spacing[dim_str]
+            if dim_str in voxel_spacing
+            else regular_spacing[dim_str]
             for dim_str in (str(dim) for dim in self._obj.dims)
         }
 
