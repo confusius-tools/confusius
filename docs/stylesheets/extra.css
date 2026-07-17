@@ -443,11 +443,46 @@
 
 .grid.cards.examples-cards > ul > li {
   max-width: 14.5rem;
+  /* Positioning context and clip for the hover overlay below. */
+  position: relative;
+  overflow: hidden;
 }
 
 .grid.cards.examples-cards img {
   aspect-ratio: 4 / 3;
   object-fit: cover;
+}
+
+/* Hover overlay carrying the example's first paragraph, mirroring sphinx-gallery's
+   thumbnail tooltip: the card blurs away behind a near-opaque tint while the summary
+   fades in. `pointer-events: none` keeps the thumbnail and title links underneath
+   clickable through the overlay. Tint values are sphinx-gallery's `--sg-tooltip-*`. */
+.examples-card-summary {
+  position: absolute;
+  inset: 0;
+  padding: 0.6rem;
+  font-size: 0.62rem;
+  line-height: 1.5;
+  color: var(--md-default-fg-color);
+  background-color: rgba(250, 250, 250, 0.92);
+  backdrop-filter: blur(3px);
+  opacity: 0;
+  transition: opacity 300ms ease;
+  pointer-events: none;
+  /* Ellipsize a long first paragraph rather than cutting it mid-line. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 10;
+  overflow: hidden;
+}
+
+[data-md-color-scheme="slate"] .examples-card-summary {
+  background-color: rgba(10, 10, 10, 0.92);
+}
+
+.grid.cards.examples-cards > ul > li:hover .examples-card-summary,
+.grid.cards.examples-cards > ul > li:focus-within .examples-card-summary {
+  opacity: 1;
 }
 
 /* Rich-rendered text (e.g. the dataset citation banner the fetchers print) embeds
