@@ -443,9 +443,6 @@
 
 .grid.cards.examples-cards > ul > li {
   max-width: 14.5rem;
-  /* Positioning context and clip for the hover overlay below. */
-  position: relative;
-  overflow: hidden;
 }
 
 .grid.cards.examples-cards img {
@@ -453,15 +450,27 @@
   object-fit: cover;
 }
 
+/* The thumbnail's paragraph is the positioning context for the hover overlay below.
+   `line-height: 0` collapses the descender gap under the inline thumbnail, which the
+   overlay would otherwise cover; the overlay sets its own line height. Note the
+   thumbnail cannot simply be `display: block`, as that outranks the
+   `img[src$="#only-dark"]` theme rules above and would show both thumbnails. */
+.grid.cards.examples-cards > ul > li > p:first-child {
+  position: relative;
+  line-height: 0;
+}
+
 /* Hover overlay carrying the example's first paragraph, mirroring sphinx-gallery's
-   thumbnail tooltip: the card blurs away behind a near-opaque tint while the summary
-   fades in. `pointer-events: none` keeps the thumbnail and title links underneath
+   thumbnail tooltip: the thumbnail blurs away behind a near-opaque tint while the
+   summary fades in. `pointer-events: none` keeps the thumbnail link underneath
    clickable through the overlay. Tint values are sphinx-gallery's `--sg-tooltip-*`. */
 .examples-card-summary {
   position: absolute;
   inset: 0;
-  padding: 0.6rem;
-  font-size: 0.62rem;
+  display: flex;
+  align-items: center;
+  padding: 0.9rem;
+  font-size: 0.8rem;
   line-height: 1.5;
   color: var(--md-default-fg-color);
   background-color: rgba(250, 250, 250, 0.92);
@@ -469,10 +478,16 @@
   opacity: 0;
   transition: opacity 300ms ease;
   pointer-events: none;
-  /* Ellipsize a long first paragraph rather than cutting it mid-line. */
+}
+
+/* Ellipsize a long first paragraph rather than cutting it mid-line. The clamp needs
+   the legacy `-webkit-box`, which ignores the centring above, so it lives on an inner
+   span that the outer flex box centres. Without the clamp, an overflowing summary
+   would be centred and so clipped at the top too, starting mid-sentence. */
+.examples-card-summary > span {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 10;
+  -webkit-line-clamp: 6;
   overflow: hidden;
 }
 
@@ -480,6 +495,7 @@
   background-color: rgba(10, 10, 10, 0.92);
 }
 
+/* Hovering anywhere on the card, title included, reveals the thumbnail's overlay. */
 .grid.cards.examples-cards > ul > li:hover .examples-card-summary,
 .grid.cards.examples-cards > ul > li:focus-within .examples-card-summary {
   opacity: 1;

@@ -68,8 +68,8 @@ def test_build_index_groups_cards_by_section(tmp_path: Path) -> None:
     assert "_assets/default_thumb_dark.svg#only-dark" in index_md
     # The summary rides along as a hover overlay, only where there is one.
     assert (
-        '<span class="examples-card-summary" aria-hidden="true">Quick AUTC demo.</span>'
-        in index_md
+        '<span class="examples-card-summary" aria-hidden="true">'
+        "<span>Quick AUTC demo.</span></span>" in index_md
     )
     assert index_md.count("examples-card-summary") == 2
 
@@ -132,7 +132,7 @@ def test_build_index_flattens_links_in_card_overlays(tmp_path: Path) -> None:
     ]
     md = build_index(rendered, root=tmp_path)
     assert "](pca_single_recording.md)" not in md
-    assert "Complements the PCA example.</span>" in md
+    assert "<span>Complements the PCA example.</span>" in md
 
 
 def test_build_index_escapes_html_in_card_overlays(tmp_path: Path) -> None:
@@ -151,7 +151,7 @@ def test_build_index_escapes_html_in_card_overlays(tmp_path: Path) -> None:
         ),
     ]
     md = build_index(rendered, root=tmp_path)
-    assert "Uses &lt;div&gt; &amp; &quot;quotes&quot;.</span>" in md
+    assert "<span>Uses &lt;div&gt; &amp; &quot;quotes&quot;.</span>" in md
 
 
 def test_build_index_demotes_h1_section_intros(tmp_path: Path) -> None:

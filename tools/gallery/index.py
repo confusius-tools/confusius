@@ -65,9 +65,10 @@ def _card_image_markdown(rex: RenderedExample, *, root: Path, href: str) -> str:
 def _card_overlay_markdown(rex: RenderedExample) -> str:
     """Return the hover-overlay markup carrying an example's summary.
 
-    The span is absolutely positioned over the whole card by `extra.css` and revealed on
-    hover, mirroring sphinx-gallery's thumbnail tooltip. It stays in the thumbnail's
-    paragraph so it adds no vertical space to the card.
+    The outer span is absolutely positioned over the card's thumbnail by `extra.css` and
+    revealed on hover, mirroring sphinx-gallery's thumbnail tooltip; the inner span
+    carries the line clamp, which cannot share an element with the centring. The markup
+    stays in the thumbnail's paragraph so it adds no vertical space to the card.
 
     Parameters
     ----------
@@ -82,7 +83,10 @@ def _card_overlay_markdown(rex: RenderedExample) -> str:
     if not rex.summary:
         return ""
     summary = html_lib.escape(_flatten_links(rex.summary))
-    return f'<span class="examples-card-summary" aria-hidden="true">{summary}</span>'
+    return (
+        f'<span class="examples-card-summary" aria-hidden="true">'
+        f"<span>{summary}</span></span>"
+    )
 
 
 def build_index(rendered: list[RenderedExample], *, root: Path) -> str:
