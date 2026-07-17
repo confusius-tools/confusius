@@ -24,6 +24,7 @@ from confusius.plotting._utils import (
     _resolve_font_sizes,
     _style_colorbar,
     coerce_complex_to_magnitude,
+    convert_axis_aligned_voxel_affine_to_physical_grid,
     resample_voxel_affine_to_physical_grid as _shared_resample_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
 )
@@ -232,6 +233,7 @@ def _resample_voxel_affine_to_physical_grid(
     if slice_mode not in physical_dims:
         return data
 
+    data = convert_axis_aligned_voxel_affine_to_physical_grid(data)
     return _shared_resample_voxel_affine_to_physical_grid(data, reference=reference)
 
 

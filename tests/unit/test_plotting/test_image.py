@@ -553,11 +553,13 @@ class TestPlotVolume:
         result = _resample_voxel_affine_to_physical_grid(data, "z")
 
         for dim in ("z", "y", "x"):
-            spacing = float(np.diff(np.asarray(result.coords[dim].values, dtype=float))[0])
+            spacing = float(
+                np.diff(np.asarray(result.coords[dim].values, dtype=float))[0]
+            )
             assert spacing == pytest.approx(float(data.coords[dim].attrs["voxdim"]))
 
-    def test_axis_aligned_voxel_affine_physical_slice_skips_resampling(self):
-        """Axis-aligned CTI can use its existing physical grid directly."""
+    def test_axis_aligned_voxel_affine_physical_slice_promotes_physical_dims(self):
+        """Axis-aligned CTI uses physical dims directly for physical slicing."""
         from confusius.plotting.image import _resample_voxel_affine_to_physical_grid
 
         data = xr.DataArray(
@@ -570,12 +572,17 @@ class TestPlotVolume:
             np.diag([0.4, 0.3, 0.25, 1.0]),
             voxel_dims=("k", "j", "i"),
             physical_coord_names=("z", "y", "x"),
-            physical_coord_attrs={"z": {"units": "mm"}, "y": {"units": "mm"}, "x": {"units": "mm"}},
+            physical_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
         )
 
         result = _resample_voxel_affine_to_physical_grid(data, "z")
 
-        assert result is data
+        assert result.dims == ("z", "y", "x")
+        assert "voxel_to_physical" not in result.attrs
 
 
 class TestCentersToEdges:
