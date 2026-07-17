@@ -135,7 +135,7 @@ Current development version for the next ConfUSIus release.
   ([#309](https://github.com/confusius-tools/confusius/pull/309)).
 - [Example Gallery]: Hovering a gallery card reveals the example's first paragraph as
   an overlay over the card
-  ([#325](https://github.com/confusius-tools/confusius/pull/325)).
+  ([#327](https://github.com/confusius-tools/confusius/pull/327)).
 
 ## 0.5.2
 
