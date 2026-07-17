@@ -142,7 +142,7 @@ def _prefetch_khallaf() -> None:
     # example. Warming the brainglobe atlas here keeps its download progress out of
     # the parity-sensitive gallery render.
     fetch_template_pepe_mariani_2026()
-    Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
+    fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 
 
 def main() -> None:
