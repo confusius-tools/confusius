@@ -14,7 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from sklearn.base import BaseEstimator
-from sklearn.cluster import KMeans
+from sklearn.cluster import KMeans, MiniBatchKMeans
 from sklearn.metrics import (
     calinski_harabasz_score,
     davies_bouldin_score,
@@ -27,6 +27,30 @@ from confusius.validation import validate_time_series
 _ALLOWED_METRICS = ("correlation", "cosine", "euclidean")
 _ALLOWED_UPDATE_RULES = ("mean", "weighted")
 _ALLOWED_SELECTION_METHODS = ("elbow", "silhouette", "davies_bouldin", "variance_ratio")
+
+
+def _maybe_track(iterable: object, *, description: str, total: int, enabled: bool) -> object:
+    """Wrap `iterable` in a progress iterator when requested."""
+    if not enabled:
+        return iterable
+    try:
+        from rich.progress import track
+
+        return track(iterable, description=description, total=total)
+    except Exception:
+        return iterable
+
+
+def _progress(enabled: bool):
+    """Return a `rich` progress context manager or `None`."""
+    if not enabled:
+        return None
+    try:
+        from rich.progress import Progress
+
+        return Progress()
+    except Exception:
+        return None
 
 
 def _resolve_n_init(n_init: int | Literal["auto"]) -> int:
@@ -319,6 +343,225 @@ def _run_multi_cosine_kmeans(
     return best_centers, best_labels
 
 
+def _preprocess_array(
+    X: npt.NDArray[np.floating],
+    metric: Literal["correlation", "cosine", "euclidean"],
+    in_place: bool = False,
+) -> npt.NDArray[np.floating]:
+    """Apply metric-specific normalization to a `(n_samples, n_features)` array."""
+    if metric == "correlation":
+        if not in_place:
+            X = X.copy()
+        X -= X.mean(axis=1, keepdims=True)
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        X /= np.where(norms == 0.0, 1.0, norms)
+    elif metric == "cosine":
+        if not in_place:
+            X = X.copy()
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        X /= np.where(norms == 0.0, 1.0, norms)
+    return X
+
+
+def _assign_batch(
+    X: npt.NDArray[np.floating],
+    centers: npt.NDArray[np.floating],
+    metric: Literal["correlation", "cosine", "euclidean"],
+) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.floating]]:
+    """Return nearest-center labels and assignment scores for one batch."""
+    if metric in ("correlation", "cosine"):
+        similarities = X @ centers.T
+        labels = similarities.argmax(axis=1).astype(np.intp)
+        scores = similarities[np.arange(X.shape[0]), labels]
+    else:
+        cross = X @ centers.T
+        X_sq = np.einsum("ij,ij->i", X, X)
+        centers_sq = np.einsum("ij,ij->i", centers, centers)
+        sq_dists = X_sq[:, np.newaxis] + centers_sq[np.newaxis, :] - 2.0 * cross
+        labels = sq_dists.argmin(axis=1).astype(np.intp)
+        scores = -np.sqrt(np.maximum(sq_dists[np.arange(X.shape[0]), labels], 0.0))
+    return labels, scores.astype(float)
+
+
+def _count_batches(recordings: list[xr.DataArray], batch_size: int) -> int:
+    """Return the number of time batches across all recordings."""
+    return sum((rec.sizes["time"] + batch_size - 1) // batch_size for rec in recordings)
+
+
+def _iter_preprocessed_batches(
+    recordings: list[xr.DataArray],
+    spatial_dims: list[str],
+    batch_size: int,
+    metric: Literal["correlation", "cosine", "euclidean"],
+) -> tuple[str, npt.NDArray[np.float32]]:
+    """Yield preprocessed `(time, space)` batches as float32 arrays."""
+    for rec_idx, rec in enumerate(recordings):
+        stacked = rec.transpose("time", *spatial_dims).stack(space=spatial_dims)
+        n_time = stacked.sizes["time"]
+        for start in range(0, n_time, batch_size):
+            stop = min(start + batch_size, n_time)
+            X_raw = np.asarray(
+                stacked.isel(time=slice(start, stop)).values, dtype=np.float32
+            )
+            if np.isnan(X_raw).any():
+                raise ValueError(
+                    "Input data contains NaN values. A common cause is z-score "
+                    "standardization of constant (zero-variance) voxels outside a brain "
+                    "mask. Fill or mask background voxels before calling fit(), e.g. "
+                    "`data.fillna(0)` or `data.where(mask > 0, 0)`."
+                )
+            yield f"{rec_idx}:{start}", _preprocess_array(X_raw, metric, in_place=True)
+
+
+def _run_single_cosine_kmeans_streaming(
+    recordings: list[xr.DataArray],
+    spatial_dims: list[str],
+    batch_size: int,
+    n_clusters: int,
+    max_iter: int,
+    n_local_trials: int | None,
+    update_rule: Literal["mean", "weighted"],
+    rng: np.random.Generator,
+    metric: Literal["correlation", "cosine"],
+    show_progress: bool,
+) -> tuple[npt.NDArray[np.floating], float]:
+    """Chunked cosine k-means without materializing all volumes at once."""
+    init_batches: list[npt.NDArray[np.float32]] = []
+    init_size = max(batch_size, 10 * n_clusters)
+    n_init_samples = 0
+    for _, batch in _iter_preprocessed_batches(recordings, spatial_dims, batch_size, metric):
+        init_batches.append(batch)
+        n_init_samples += batch.shape[0]
+        if n_init_samples >= init_size:
+            break
+    if n_init_samples < n_clusters:
+        raise ValueError(
+            f"Need at least {n_clusters} samples to initialize {n_clusters} clusters."
+        )
+    X_init = np.concatenate(init_batches, axis=0)[:init_size]
+    centers = _cosine_kmeans_init(X_init, n_clusters, n_local_trials, rng)
+    norms = np.linalg.norm(centers, axis=1, keepdims=True)
+    centers = centers / np.where(norms == 0.0, 1.0, norms)
+
+    n_batches = _count_batches(recordings, batch_size)
+    progress = _progress(show_progress)
+    task_id = None
+    if progress is not None:
+        progress.start()
+        task_id = progress.add_task("CAP fit", total=max_iter * n_batches + n_batches)
+    for _ in range(max_iter):
+        sums = np.zeros_like(centers)
+        counts = np.zeros(n_clusters, dtype=np.int64)
+
+        for _, batch in _iter_preprocessed_batches(recordings, spatial_dims, batch_size, metric):
+            similarities = batch @ centers.T
+            labels = similarities.argmax(axis=1).astype(np.intp)
+            if update_rule == "weighted":
+                weights = similarities * (
+                    similarities >= similarities.max(axis=1, keepdims=True) - 1e-6
+                )
+                sums += weights.T @ batch
+                counts += np.count_nonzero(weights, axis=0)
+            else:
+                assignment = np.eye(n_clusters, dtype=batch.dtype)[labels]
+                sums += assignment.T @ batch
+                counts += np.bincount(labels, minlength=n_clusters)
+            if progress is not None and task_id is not None:
+                progress.advance(task_id)
+
+        new_centers = sums.copy()
+        nonempty = counts > 0
+        if update_rule == "mean":
+            new_centers[nonempty] /= counts[nonempty, np.newaxis]
+        norms = np.linalg.norm(new_centers, axis=1, keepdims=True)
+        new_centers = new_centers / np.where(norms == 0.0, 1.0, norms)
+        new_centers[~nonempty] = 0.0
+
+        if np.allclose(new_centers, centers):
+            centers = new_centers
+            break
+        centers = new_centers
+
+    inertia = 0.0
+    n_samples = 0
+    valid = np.linalg.norm(centers, axis=1) > 0.0
+    centers_for_score = centers[valid]
+    for _, batch in _iter_preprocessed_batches(recordings, spatial_dims, batch_size, metric):
+        similarities = batch @ centers_for_score.T
+        inertia += float(batch.shape[0] - similarities.max(axis=1).sum())
+        n_samples += batch.shape[0]
+        if progress is not None and task_id is not None:
+            progress.advance(task_id)
+    if progress is not None:
+        progress.stop()
+    return centers, inertia
+
+
+def _run_multi_cosine_kmeans_streaming(
+    recordings: list[xr.DataArray],
+    spatial_dims: list[str],
+    batch_size: int,
+    n_clusters: int,
+    max_iter: int,
+    n_local_trials: int | None,
+    update_rule: Literal["mean", "weighted"],
+    n_init: int,
+    random_state: int | None,
+    metric: Literal["correlation", "cosine"],
+    show_progress: bool,
+) -> npt.NDArray[np.floating]:
+    """Chunked multi-restart cosine k-means."""
+    seeds = np.random.default_rng(random_state).integers(
+        0, np.iinfo(np.int64).max, size=n_init
+    )
+    best_centers, best_inertia = _run_single_cosine_kmeans_streaming(
+        recordings,
+        spatial_dims,
+        batch_size,
+        n_clusters,
+        max_iter,
+        n_local_trials,
+        update_rule,
+        np.random.default_rng(int(seeds[0])),
+        metric,
+        show_progress,
+    )
+    restarts = _maybe_track(
+        seeds[1:],
+        description="CAP restarts...",
+        total=max(n_init - 1, 0),
+        enabled=show_progress and n_init > 1,
+    )
+    for seed in restarts:
+        centers, inertia = _run_single_cosine_kmeans_streaming(
+            recordings,
+            spatial_dims,
+            batch_size,
+            n_clusters,
+            max_iter,
+            n_local_trials,
+            update_rule,
+            np.random.default_rng(int(seed)),
+            metric,
+            show_progress,
+        )
+        if inertia < best_inertia:
+            best_centers, best_inertia = centers, inertia
+
+    valid = np.linalg.norm(best_centers, axis=1) > 0.0
+    if not valid.all():
+        n_empty = int((~valid).sum())
+        warnings.warn(
+            f"{n_empty} empty cluster(s) removed after k-means convergence. "
+            f"'caps_' will have {int(valid.sum())} CAPs instead of "
+            f"{n_clusters}. Consider reducing 'n_clusters'.",
+            stacklevel=find_stack_level(),
+        )
+        best_centers = best_centers[valid]
+
+    return best_centers
+
+
 def _find_elbow(cluster_range: list[int], scores: list[float]) -> int:
     """Find the elbow of a score curve using maximum perpendicular distance.
 
@@ -469,6 +712,13 @@ class CAP(BaseEstimator):
         Applies to all metrics.
     random_state : int or None, default: 0
         Seed for the random number generator.
+    batch_size : int or None, default: None
+        If set, fit CAPs in float32 batches instead of concatenating all volumes into
+        one in-memory array. For `"correlation"` and `"cosine"`, this uses a chunked
+        multi-pass k-means update. For `"euclidean"`, sklearn's
+        [`MiniBatchKMeans`][sklearn.cluster.MiniBatchKMeans] is used.
+    show_progress : bool, default: False
+        Show simple progress bars during batched fitting.
 
     Attributes
     ----------
@@ -538,6 +788,8 @@ class CAP(BaseEstimator):
         n_local_trials: int | None = None,
         n_init: int | Literal["auto"] = "auto",
         random_state: int | None = 0,
+        batch_size: int | None = None,
+        show_progress: bool = False,
     ) -> None:
         self.n_clusters = n_clusters
         self.metric = metric
@@ -546,6 +798,8 @@ class CAP(BaseEstimator):
         self.n_local_trials = n_local_trials
         self.n_init = n_init
         self.random_state = random_state
+        self.batch_size = batch_size
+        self.show_progress = show_progress
 
     def fit(self, X: list[xr.DataArray] | xr.DataArray, y: None = None) -> "CAP":
         """Fit co-activation patterns by clustering volumes across all recordings.
@@ -586,50 +840,96 @@ class CAP(BaseEstimator):
         if not recordings:
             raise ValueError("X must contain at least one recording.")
         for rec in recordings:
-            validate_time_series(rec, operation_name="CAP.fit")
+            validate_time_series(
+                rec, operation_name="CAP.fit", check_time_chunks=False
+            )
 
-        # Stack spatial dims to (time, space) and concatenate across recordings.
-        # Using np.concatenate instead of xr.concat avoids a redundant full-data
-        # copy: np.concatenate always allocates fresh memory, so the subsequent
-        # in-place preprocessing step requires no additional allocation.
         spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
-        stacks = [rec.stack(space=spatial_dims) for rec in recordings]
-        space_coords = stacks[0].coords["space"]
-        X_raw = np.concatenate([s.values for s in stacks], axis=0)
-        del stacks
+        first_stacked = recordings[0].transpose("time", *spatial_dims).stack(
+            space=spatial_dims
+        )
+        space_coords = first_stacked.coords["space"]
 
-        if np.isnan(X_raw).any():
-            raise ValueError(
-                "Input data contains NaN values. A common cause is z-score "
-                "standardization of constant (zero-variance) voxels outside a brain "
-                "mask. Fill or mask background voxels before calling fit(), e.g. "
-                "`data.fillna(0)` or `data.where(mask > 0, 0)`."
+        if self.batch_size is None:
+            # Stack spatial dims to (time, space) and concatenate across recordings.
+            # Using float32 here cuts peak RAM roughly in half versus float64.
+            stacks = [rec.stack(space=spatial_dims) for rec in recordings]
+            X_raw = np.concatenate(
+                [np.asarray(s.values, dtype=np.float32) for s in stacks], axis=0
             )
+            del stacks
 
-        X_proc = self._preprocess(X_raw, in_place=True)
+            if np.isnan(X_raw).any():
+                raise ValueError(
+                    "Input data contains NaN values. A common cause is z-score "
+                    "standardization of constant (zero-variance) voxels outside a brain "
+                    "mask. Fill or mask background voxels before calling fit(), e.g. "
+                    "`data.fillna(0)` or `data.where(mask > 0, 0)`."
+                )
 
-        if self.metric in ("correlation", "cosine"):
-            n_init = _resolve_n_init(self.n_init)
-            centers, labels = _run_multi_cosine_kmeans(
-                X_proc,
-                self.n_clusters,
-                self.max_iter,
-                self.n_local_trials,
-                self.update_rule,
-                n_init,
-                self.random_state,
-            )
+            X_proc = self._preprocess(X_raw, in_place=True)
+
+            if self.metric in ("correlation", "cosine"):
+                n_init = _resolve_n_init(self.n_init)
+                centers, labels = _run_multi_cosine_kmeans(
+                    X_proc,
+                    self.n_clusters,
+                    self.max_iter,
+                    self.n_local_trials,
+                    self.update_rule,
+                    n_init,
+                    self.random_state,
+                )
+            else:
+                km = KMeans(
+                    n_clusters=self.n_clusters,
+                    max_iter=self.max_iter,
+                    n_init=self.n_init,
+                    random_state=self.random_state,
+                )
+                km.fit(X_proc)
+                centers = km.cluster_centers_
+                assert km.labels_ is not None
+                labels = km.labels_
         else:
-            km = KMeans(
-                n_clusters=self.n_clusters,
-                max_iter=self.max_iter,
-                n_init=self.n_init,
-                random_state=self.random_state,
-            )
-            km.fit(X_proc)
-            centers = km.cluster_centers_
-            assert km.labels_ is not None
-            labels = km.labels_
+            if self.batch_size <= 0:
+                raise ValueError(
+                    f"batch_size must be a positive int or None, got {self.batch_size!r}."
+                )
+            if self.metric in ("correlation", "cosine"):
+                centers = _run_multi_cosine_kmeans_streaming(
+                    recordings,
+                    spatial_dims,
+                    self.batch_size,
+                    self.n_clusters,
+                    self.max_iter,
+                    self.n_local_trials,
+                    self.update_rule,
+                    _resolve_n_init(self.n_init),
+                    self.random_state,
+                    self.metric,
+                    self.show_progress,
+                )
+            else:
+                km = MiniBatchKMeans(
+                    n_clusters=self.n_clusters,
+                    max_iter=self.max_iter,
+                    n_init=self.n_init,
+                    random_state=self.random_state,
+                    batch_size=self.batch_size,
+                )
+                batches = _maybe_track(
+                    _iter_preprocessed_batches(
+                        recordings, spatial_dims, self.batch_size, self.metric
+                    ),
+                    description="CAP minibatch fit",
+                    total=_count_batches(recordings, self.batch_size),
+                    enabled=self.show_progress,
+                )
+                for _, batch in batches:
+                    km.partial_fit(batch)
+                centers = km.cluster_centers_
+            labels = None
 
         n_caps = len(centers)
         caps_stacked = xr.DataArray(
@@ -646,6 +946,10 @@ class CAP(BaseEstimator):
         self._spatial_dims: tuple[str, ...] = tuple(
             str(d) for d in caps.dims if d != "cap"
         )
+
+        if labels is None:
+            self.labels_, self.scores_ = self._assign_samples(recordings)
+            return self
 
         # Compute per-volume quality scores (higher = stronger assignment).
         n_total = X_proc.shape[0]
@@ -703,40 +1007,7 @@ class CAP(BaseEstimator):
         ValueError
             If any recording has no `time` dimension or fewer than 2 timepoints.
         """
-        check_is_fitted(self)
-
-        recordings = [X] if isinstance(X, xr.DataArray) else list(X)
-
-        caps_flat = self.caps_.stack(
-            space=list(self._spatial_dims)
-        ).values  # (cap, space)
-
-        result = []
-        for rec in recordings:
-            validate_time_series(rec, operation_name="CAP.predict")
-            # Ensure spatial dims match the order used during fit so that
-            # the flattened feature vectors align with caps_flat.
-            rec = rec.transpose("time", *self._spatial_dims)
-            X_proc, _ = self._prepare_data(rec)
-
-            if self.metric in ("correlation", "cosine"):
-                labels = (X_proc @ caps_flat.T).argmax(axis=1).astype(np.intp)
-            else:
-                # ||x - c||² = ||x||² + ||c||² - 2x·c avoids allocating an
-                # (n_samples × n_caps × n_features) tensor.
-                cross = X_proc @ caps_flat.T
-                X_sq = np.einsum("ij,ij->i", X_proc, X_proc)
-                caps_sq = np.einsum("ij,ij->i", caps_flat, caps_flat)
-                labels = (
-                    (X_sq[:, np.newaxis] + caps_sq[np.newaxis, :] - 2.0 * cross)
-                    .argmin(axis=1)
-                    .astype(np.intp)
-                )
-
-            time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
-            result.append(xr.DataArray(labels, dims=["time"], coords=time_coords))
-
-        return result
+        return self._assign_samples(X)[0]
 
     def score_samples(self, X: list[xr.DataArray] | xr.DataArray) -> list[xr.DataArray]:
         """Compute per-volume quality scores for recordings.
@@ -769,40 +1040,68 @@ class CAP(BaseEstimator):
         ValueError
             If any recording has no `time` dimension or fewer than 2 timepoints.
         """
+        return self._assign_samples(X)[1]
+
+    def _assign_samples(
+        self, X: list[xr.DataArray] | xr.DataArray
+    ) -> tuple[list[xr.DataArray], list[xr.DataArray]]:
+        """Assign CAP labels and scores, batching when configured.
+
+        Parameters
+        ----------
+        X : list[xarray.DataArray] or xarray.DataArray
+            One or more recordings with the spatial dimensions used during fitting.
+
+        Returns
+        -------
+        labels : list[xarray.DataArray]
+            Per-recording `(time,)` CAP labels.
+        scores : list[xarray.DataArray]
+            Per-recording `(time,)` assignment scores.
+
+        Raises
+        ------
+        sklearn.exceptions.NotFittedError
+            If the estimator has not been fitted.
+        ValueError
+            If a recording is not a valid time series.
+        """
         check_is_fitted(self)
-
         recordings = [X] if isinstance(X, xr.DataArray) else list(X)
+        centers = self.caps_.stack(space=list(self._spatial_dims)).values
+        labels_result = []
+        scores_result = []
 
-        caps_flat = self.caps_.stack(
-            space=list(self._spatial_dims)
-        ).values  # (cap, space)
-
-        result = []
         for rec in recordings:
-            validate_time_series(rec, operation_name="CAP.score_samples")
+            validate_time_series(
+                rec, operation_name="CAP assignment", check_time_chunks=False
+            )
             rec = rec.transpose("time", *self._spatial_dims)
-            X_proc, _ = self._prepare_data(rec)
-            n_samples = X_proc.shape[0]
-
-            if self.metric in ("correlation", "cosine"):
-                similarities = X_proc @ caps_flat.T  # (n_samples, n_caps)
-                labels = similarities.argmax(axis=1).astype(np.intp)
-                scores = similarities[np.arange(n_samples), labels].astype(float)
-            else:
-                # ||x - c||² = ||x||² + ||c||² - 2x·c
-                cross = X_proc @ caps_flat.T
-                X_sq = np.einsum("ij,ij->i", X_proc, X_proc)
-                caps_sq = np.einsum("ij,ij->i", caps_flat, caps_flat)
-                sq_dists = X_sq[:, np.newaxis] + caps_sq[np.newaxis, :] - 2.0 * cross
-                labels = sq_dists.argmin(axis=1).astype(np.intp)
-                scores = -np.sqrt(
-                    np.maximum(sq_dists[np.arange(n_samples), labels], 0.0)
-                ).astype(float)
-
             time_coords = {"time": rec.coords["time"]} if "time" in rec.coords else {}
-            result.append(xr.DataArray(scores, dims=["time"], coords=time_coords))
 
-        return result
+            if self.batch_size is None:
+                X_proc, _ = self._prepare_data(rec)
+                labels, scores = _assign_batch(X_proc, centers, self.metric)
+            else:
+                labels_parts = []
+                scores_parts = []
+                for _, batch in _iter_preprocessed_batches(
+                    [rec], list(self._spatial_dims), self.batch_size, self.metric
+                ):
+                    labels, scores = _assign_batch(batch, centers, self.metric)
+                    labels_parts.append(labels)
+                    scores_parts.append(scores)
+                labels = np.concatenate(labels_parts)
+                scores = np.concatenate(scores_parts)
+
+            labels_result.append(
+                xr.DataArray(labels, dims=["time"], coords=time_coords)
+            )
+            scores_result.append(
+                xr.DataArray(scores, dims=["time"], coords=time_coords)
+            )
+
+        return labels_result, scores_result
 
     def compute_temporal_metrics(
         self, score_threshold: float | None = None
@@ -972,18 +1271,7 @@ class CAP(BaseEstimator):
         (n_samples, n_features) numpy.ndarray
             Normalized volumes. Same object as `X` when `in_place=True`.
         """
-        if self.metric == "correlation":
-            if not in_place:
-                X = X.copy()
-            X -= X.mean(axis=1, keepdims=True)
-            norms = np.linalg.norm(X, axis=1, keepdims=True)
-            X /= np.where(norms == 0.0, 1.0, norms)
-        elif self.metric == "cosine":
-            if not in_place:
-                X = X.copy()
-            norms = np.linalg.norm(X, axis=1, keepdims=True)
-            X /= np.where(norms == 0.0, 1.0, norms)
-        return X
+        return _preprocess_array(X, self.metric, in_place=in_place)
 
     def _prepare_data(
         self, X: xr.DataArray
@@ -1005,7 +1293,7 @@ class CAP(BaseEstimator):
         """
         spatial_dims = [str(d) for d in X.dims if d != "time"]
         X_stacked = X.stack(space=spatial_dims)
-        X_raw = X_stacked.values
+        X_raw = np.asarray(X_stacked.values, dtype=np.float32)
 
         if np.isnan(X_raw).any():
             raise ValueError(
@@ -1107,7 +1395,9 @@ class CAP(BaseEstimator):
         if not recordings:
             raise ValueError("X must contain at least one recording.")
         for rec in recordings:
-            validate_time_series(rec, operation_name="CAP.select_n_clusters")
+            validate_time_series(
+                rec, operation_name="CAP.select_n_clusters", check_time_chunks=False
+            )
 
         spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
         stacks = [rec.stack(space=spatial_dims) for rec in recordings]

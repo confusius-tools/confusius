@@ -195,6 +195,26 @@ class TestFit:
         cap2 = CAP(n_clusters=4, random_state=42).fit([sample_3dt_volume])
         npt.assert_array_equal(cap1.labels_[0].values, cap2.labels_[0].values)
 
+    def test_streaming_fit_cosine(self, clustered_recording):
+        cap = CAP(n_clusters=2, metric="cosine", random_state=0, batch_size=2)
+        cap.fit([clustered_recording])
+        labels = cap.labels_[0].values
+        assert labels[0] == labels[2] == labels[4] == labels[6]
+        assert labels[1] == labels[3] == labels[5] == labels[7]
+        assert labels[0] != labels[1]
+
+    def test_streaming_fit_accepts_time_chunks(self, clustered_recording):
+        cap = CAP(n_clusters=2, metric="cosine", random_state=0, batch_size=2)
+        chunked = clustered_recording.chunk({"time": 2})
+        cap.fit([chunked])
+        assert cap.labels_[0].sizes["time"] == clustered_recording.sizes["time"]
+        npt.assert_array_equal(cap.predict(chunked)[0].values, cap.labels_[0].values)
+        assert cap.score_samples(chunked)[0].sizes["time"] == chunked.sizes["time"]
+
+    def test_invalid_batch_size_raises(self, sample_3dt_volume):
+        with pytest.raises(ValueError, match="batch_size"):
+            CAP(n_clusters=2, batch_size=0).fit([sample_3dt_volume])
+
 
 # ---------------------------------------------------------------------------
 # predict()
