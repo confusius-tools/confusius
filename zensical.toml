@@ -86,7 +86,7 @@ nav = [
         ]},
         { "GLM" = [
             { "First-level GLM analysis of fUSI data" = "examples/_built/glm/first_level.md" },
-            { "First-level GLM with a continuous variable of interest" = "examples/_built/glm/first_level_continuous.md" },
+            { "First-level lagged GLM analysis of fUSI data with a continuous variable of interest" = "examples/_built/glm/first_level_continuous.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },

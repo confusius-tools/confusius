@@ -1,5 +1,5 @@
 # %% [markdown]
-# # First-level GLM analysis of fUSI data with a continuous variable of interest
+# # First-level lagged GLM analysis of fUSI data with a continuous regressor
 #
 # This example reproduces the lagged-GLM analysis of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), functional ultrasound of a
@@ -7,15 +7,15 @@
 # Unlike the block-design task in the [First-level GLM analysis of fUSI
 # data](first_level.md) example, the regressor of interest is a *continuous* variable
 # measured throughout the recording, the animal's locomotion speed, and we ask at every
-# voxel how much of the power Doppler time course tracks it.
+# voxel how much of the power Doppler time course tracks it at different lags.
 #
 # Rather than convolving the speed regressor with a hemodynamic response function, the
-# analysis shifts it across a range of temporal lags and fits one model per lag, much like
-# a voxel-wise cross-correlation between speed and the vascular signal. The notebook goes
-# through:
+# analysis shifts it across a range of temporal lags and fits one model per lag, much
+# like a voxel-wise cross-correlation between speed and the vascular signal. The
+# notebook goes through:
 #
 # 1. **Fetch and load** one open-field recording and its motion track.
-# 2. **Build a speed regressor** from the tracked body position.
+# 2. **Build an animal speed regressor** from the animal's pose estimation.
 # 3. **Encode speed** as a per-volume parametric modulator and **extract CompCor** noise
 #    regressors.
 # 4. **Fit** a [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] at a range of
@@ -24,15 +24,16 @@
 #
 # ## Fetch the recording
 #
-# [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026] downloads the
-# fUSI-BIDS dataset. We take subject `rat75`, session `20220524`, acquisition `slice32` of
-# the `openfield` task, which gives one power Doppler recording together with its motion
-# track.
+# [`fetch_cybis_pereira_2026`][confusius.datasets.fetch_cybis_pereira_2026] downloads
+# the fUSI-BIDS dataset. We take subject `rat75`, session `20220524`, acquisition
+# `slice32` of the `openfield` task, which gives one power Doppler recording together
+# with its motion track.
 
 # %%
 from pathlib import Path
 
 import matplotlib as mpl
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -77,8 +78,9 @@ motion_path = (
 # %% [markdown]
 # ## Load the recording
 #
-# `cf.load` reads the power Doppler NIfTI into an `xarray.DataArray`. We call `.compute()`
-# to pull it fully into memory, since it is reused across many model fits below.
+# `cf.load` reads the power Doppler NIfTI into an `xarray.DataArray`. We call
+# `.compute()` to pull it fully into memory, since it is reused across many model fits
+# below.
 
 # %%
 data = cf.load(pwd_path).compute()
@@ -93,23 +95,24 @@ data
 #
 # !!! note "Recommended in a real analysis"
 #     Register every volume to a reference frame with
-#     [`register_volumewise`][confusius.registration.register_volumewise] before building
-#     the regressors, then continue with the corrected `data`. Removing motion-driven
-#     variance sharpens the speed maps and their statistics. See the [Motion correction of
-#     a single recording](../registration/volumewise_motion_correction.md) example for the
-#     full workflow and diagnostics.
+#     [`register_volumewise`][confusius.registration.register_volumewise] before
+#     building the regressors, then continue with the corrected `data`. Removing
+#     motion-driven variance sharpens the speed maps and their statistics. See the
+#     [Motion correction of a single
+#     recording](../registration/volumewise_motion_correction.md) example for the full
+#     workflow and diagnostics.
 #
 #     ```python
 #     data = cf.registration.register_volumewise(data, learning_rate=1)
 #     ```
 
 # %% [markdown]
-# ## Build the speed regressor from the motion track
+# ## Build the animal speed regressor from the pose estimation
 #
 # The motion `.tsv` holds the body position (`body_x`, `body_y`) tracked with
 # [DeepLabCut](https://www.deeplabcut.org/) at 50 fps. We take the frame-to-frame
-# Euclidean displacement, scale it by the frame rate to obtain speed, smooth it with a 1 s
-# centered rolling mean, and resample it onto the fUSI volume times.
+# Euclidean displacement, scale it by the frame rate to obtain speed, smooth it with a 1
+# s centered rolling mean, and resample it onto the fUSI volume times.
 
 # %%
 fps = 50
@@ -129,14 +132,16 @@ speed = (
 )
 speed = speed.interp(time=data.time, method="linear").ffill("time")
 
+fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
+ax.plot(speed.time, speed, color="#d93a54")
+ax.set_xlabel("Time (s)")
+_ = ax.set_ylabel("Animal speed (m/s)")
+
 # %% [markdown]
 # ## Encode speed as a parametric modulator
 #
 # We build an `events` table with one entry per fUSI volume, each carrying the speed at
 # that volume as its `modulation`, which turns speed into a single continuous regressor.
-# The model's HRF is left unset, so the regressor enters the design without convolution;
-# following the original study, the delay between behavior and signal is recovered by the
-# lag sweep below rather than by an assumed response shape.
 
 # %%
 events = pd.DataFrame(
@@ -152,8 +157,8 @@ events = pd.DataFrame(
 # ## Model physiological noise with CompCor
 #
 # [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] extracts the
-# three leading principal components of the highest-variance voxels (the top 5%) to add as
-# nuisance regressors (temporal CompCor).
+# three leading principal components of the highest-variance voxels (the top 5%) to add
+# as nuisance regressors (temporal CompCor).
 
 # %%
 confounds = cf.signal.compute_compcor_confounds(
@@ -165,15 +170,15 @@ confounds = cf.signal.compute_compcor_confounds(
 # %% [markdown]
 # ## Build the model and design matrix
 #
-# We instantiate the [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] with a
-# light 0.3 mm Gaussian spatial smoothing (the default AR(1) noise model handles temporal
-# autocorrelation) and build the design matrix with
+# We instantiate the [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel] with
+# a light 0.3 mm Gaussian spatial smoothing (the default AR(1) noise model handles
+# temporal autocorrelation) and build the design matrix with
 # [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix]: the
-# speed regressor, the CompCor confounds, a `"cosine"` drift basis that high-pass filters
-# drifts below `0.01` Hz, and a constant.
+# speed regressor, the CompCor confounds, a `"cosine"` drift basis that high-pass
+# filters drifts below `0.01` Hz, and a constant.
 
 # %%
-glm = cf.glm.FirstLevelModel(smoothing_fwhm={"z": 0.3, "y": 0.3, "x": 0.3})
+glm = cf.glm.FirstLevelModel(smoothing_fwhm=0.3)
 design_matrix = cf.glm.make_first_level_design_matrix(
     data.time.values,
     events=events,
@@ -186,15 +191,15 @@ design_matrix = cf.glm.make_first_level_design_matrix(
 # ## Fit the GLM across temporal lags
 #
 # The vascular response follows a change in speed with a delay. Instead of fixing that
-# delay with an HRF, we sweep it: for each integer-volume lag we shift *only* the speed
-# regressor, leaving the confounds, drift, and data window fixed, fit the model, and
-# compute the `"speed"` contrast. This yields one z-map per lag, like a cross-correlation
-# between speed and the signal. Holding the window fixed across lags keeps the maps
-# comparable, and a positive lag means the signal responds after the change in speed.
-# `run_lagged_glm` returns the per-lag maps, which we stack along a `lag` dimension whose
-# coordinate is the delay in seconds (one volume per lag). The original study sweeps a
-# wider window (about -2 to 10 s); here we use a short positive range to keep the example
-# quick.
+# delay with an HRF, we sweep it: for each temporal lag we shift *only* the speed
+# regressor, leaving the confounds, drift, and data window fixed. We fit the model, and
+# compute the `"speed"` contrast. This yields one z-map per lag, like a
+# cross-correlation between speed and the signal of each voxel. Holding the window fixed
+# across lags keeps the maps comparable, and a positive lag means the signal responds
+# after the change in speed. `run_lagged_glm` returns the per-lag maps, which we stack
+# along a `lag` dimension whose coordinate is the delay in seconds (one volume per lag).
+# The original study sweeps a wider window (about -2 to 10 s); here we use a short
+# positive range to keep the example quick.
 
 
 # %%
@@ -204,14 +209,7 @@ def run_lagged_glm(
     design_matrix: pd.DataFrame,
     lags: range,
 ) -> list[xr.DataArray]:
-    """Fit the GLM at a range of lags, shifting only the speed regressor.
-
-    For each lag, the ``speed`` column is shifted by that many volumes while the
-    confound and drift regressors stay time-locked to the data. Every lag is fit on
-    the same data window (the first ``max(lags)`` volumes are dropped) so the
-    resulting z-scores are directly comparable. A positive lag models the fUSI signal
-    responding ``lag`` volumes after the change in speed.
-    """
+    """Fit the GLM at a range of lags, shifting only the speed regressor."""
     max_lag = max(lags)
     n = len(design_matrix)
 
@@ -231,7 +229,7 @@ def run_lagged_glm(
     return z_scores
 
 
-lags = range(10)
+lags = range(9)
 z_scores = run_lagged_glm(data, glm, design_matrix, lags=lags)
 z_score = xr.concat(z_scores, dim="lag").assign_coords(
     lag=data.fusi.spacing["time"] * np.asarray(lags)
@@ -242,9 +240,9 @@ z_score.lag.attrs["units"] = data.time.units
 # ## Threshold and display the maps
 #
 # [`apply_statistical_threshold`][confusius.stats.apply_statistical_threshold] applies a
-# Bonferroni correction at `alpha=0.001` followed by a 30-voxel cluster-extent threshold,
-# zeroing the voxels that do not survive. We plot the thresholded z-map at each lag over
-# the mean power Doppler image (in dB).
+# Bonferroni correction at `alpha=0.001` followed by a 30-voxel cluster-extent
+# threshold, zeroing the voxels that do not survive. We plot the thresholded z-map at
+# each lag over the mean power Doppler image (in dB).
 
 # %%
 thresholded_zscore, threshold = cf.stats.apply_statistical_threshold(
@@ -258,8 +256,8 @@ cmap = "berlin" if is_dark_theme else None
 thresholded_zscore.fusi.plot.stat_map(
     bg_volume=data.mean("time").fusi.scale.db().expand_dims(lag=z_score.lag),
     slice_mode="lag",
-    nrows=2,
+    nrows=3,
     cmap=cmap,
     threshold=threshold,
     bg_color=bg_color,
-).show()
+)
