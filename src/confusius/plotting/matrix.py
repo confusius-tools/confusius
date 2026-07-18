@@ -690,7 +690,7 @@ def plot_contrast_matrix(
     Visualizes the same `contrast_def` you would pass to
     [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast],
     laid out under `design_matrix`'s regressor columns. Each contrast is drawn as one
-    column of a heatmap on a symmetric range `[-m, m]` (`m = max(|weights|)`), so
+    row of a heatmap on a symmetric range `[-m, m]` (`m = max(|weights|)`), so
     positive and negative weights read symmetrically.
 
     Parameters
