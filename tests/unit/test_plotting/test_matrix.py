@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
+from matplotlib.figure import Figure
 
 from confusius.plotting import plot_contrast_matrix, plot_design_matrix, plot_matrix
 
@@ -405,12 +406,14 @@ class TestPlotDesignMatrix:
     def test_width_scales_with_column_count(self, matplotlib_pyplot):
         """The auto-sized figure width grows with the number of regressors."""
         narrow, _ = plot_design_matrix(_design_matrix(n_columns=12), column_width=1.0)
+        assert isinstance(narrow, Figure)
         # 12 regressors * 1.0 in each == 12 in.
         assert narrow.get_figwidth() == pytest.approx(12.0)
 
     def test_width_floored_for_few_columns(self, matplotlib_pyplot):
         """A few-regressor design is floored at 4 inches, not a sliver."""
         fig, _ = plot_design_matrix(_design_matrix(n_columns=2), column_width=1.0)
+        assert isinstance(fig, Figure)
         assert fig.get_figwidth() == pytest.approx(4.0)
 
     def test_time_index_labels_y_axis_with_seconds(self, matplotlib_pyplot):
@@ -465,7 +468,9 @@ class TestPlotContrastMatrix:
         """A 2D F-contrast draws one heatmap row per contrast, with a row axis."""
         f_contrast = np.array([[1.0, -1.0, 0.0, 0.0], [0.0, 0.0, 1.0, -1.0]])
         _, ax = plot_contrast_matrix(f_contrast, _design_matrix())
-        assert ax.images[0].get_array().shape == (2, 4)
+        array = ax.images[0].get_array()
+        assert array is not None
+        assert array.shape == (2, 4)
         assert ax.get_yticks().size == 2
 
     def test_short_vector_is_zero_padded_to_design_width(self, matplotlib_pyplot):
