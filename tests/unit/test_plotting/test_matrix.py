@@ -445,6 +445,16 @@ class TestPlotDesignMatrix:
         )
         assert ax.get_ylabel() == "Frame"
 
+    def test_reuses_provided_axes_and_sets_title(self, matplotlib_pyplot):
+        """Draws on a caller-provided Axes and sets the title on it."""
+        fig, ax = matplotlib_pyplot.subplots()
+        returned_fig, returned_ax = plot_design_matrix(
+            _design_matrix(), title="design", ax=ax
+        )
+        assert returned_ax is ax
+        assert returned_fig is fig
+        assert ax.get_title() == "design"
+
 
 class TestPlotContrastMatrix:
     """Behaviour of plot_contrast_matrix."""
@@ -491,3 +501,20 @@ class TestPlotContrastMatrix:
         cbar_ax = next(axis for axis in fig.axes if axis is not ax)
         fig.canvas.draw()  # constrained layout finalizes positions only on draw.
         assert cbar_ax.get_position().x0 >= ax.get_position().x1
+
+    def test_reuses_provided_axes_and_sets_title(self, matplotlib_pyplot):
+        """Draws on a caller-provided Axes and sets the title on it."""
+        fig, ax = matplotlib_pyplot.subplots()
+        returned_fig, returned_ax = plot_contrast_matrix(
+            np.array([1.0, -1.0, 0.0, 0.0]), _design_matrix(), title="A vs B", ax=ax
+        )
+        assert returned_ax is ax
+        assert returned_fig is fig
+        assert ax.get_title() == "A vs B"
+
+    def test_all_zero_contrast_uses_symmetric_unit_range(self, matplotlib_pyplot):
+        """An all-zero contrast falls back to a symmetric [-1, 1] range, not vmin==vmax."""
+        _, ax = plot_contrast_matrix(np.zeros(4), _design_matrix())
+        image = ax.images[0]
+        assert image.norm.vmin == pytest.approx(-1.0)
+        assert image.norm.vmax == pytest.approx(1.0)
