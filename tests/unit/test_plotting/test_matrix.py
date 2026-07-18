@@ -4,10 +4,26 @@ See conftest.py for the matplotlib_pyplot fixture setup.
 """
 
 import numpy as np
+import pandas as pd
 import pytest
 import xarray as xr
 
-from confusius.plotting import plot_matrix
+from confusius.plotting import plot_contrast_matrix, plot_design_matrix, plot_matrix
+
+
+def _design_matrix(
+    n_columns: int = 4,
+    n_volumes: int = 20,
+    names: list[str] | None = None,
+    volume_times: np.ndarray | None = None,
+) -> pd.DataFrame:
+    columns = names if names is not None else [f"reg_{i}" for i in range(n_columns)]
+    rng = np.random.default_rng(0)
+    return pd.DataFrame(
+        rng.standard_normal((n_volumes, len(columns))),
+        columns=columns,
+        index=volume_times,
+    )
 
 
 def _correlation_matrix(size: int = 6) -> np.ndarray:
@@ -365,3 +381,108 @@ class TestPlotMatrixVisualRegression:
             show_colorbar=False,
         )
         return fig
+
+
+class TestPlotDesignMatrix:
+    """Behaviour of plot_design_matrix."""
+
+    def test_non_2d_input_raises(self, matplotlib_pyplot):
+        """A design matrix that is not 2D raises ValueError."""
+        with pytest.raises(ValueError, match="2D design matrix"):
+            plot_design_matrix(np.zeros(5))
+
+    def test_dataframe_columns_become_xticklabels(self, matplotlib_pyplot):
+        """A DataFrame's column names label the regressor ticks, in order."""
+        names = ["active", "drift", "constant"]
+        _, ax = plot_design_matrix(_design_matrix(names=names))
+        assert [t.get_text() for t in ax.get_xticklabels()] == names
+
+    def test_ndarray_input_gets_one_tick_per_column(self, matplotlib_pyplot):
+        """A bare array (no column names) still gets one x-tick per regressor."""
+        _, ax = plot_design_matrix(np.zeros((20, 5)))
+        assert ax.get_xticks().size == 5
+
+    def test_width_scales_with_column_count(self, matplotlib_pyplot):
+        """The auto-sized figure width grows with the number of regressors."""
+        narrow, _ = plot_design_matrix(_design_matrix(n_columns=12), column_width=1.0)
+        # 12 regressors * 1.0 in each == 12 in.
+        assert narrow.get_figwidth() == pytest.approx(12.0)
+
+    def test_width_floored_for_few_columns(self, matplotlib_pyplot):
+        """A few-regressor design is floored at 4 inches, not a sliver."""
+        fig, _ = plot_design_matrix(_design_matrix(n_columns=2), column_width=1.0)
+        assert fig.get_figwidth() == pytest.approx(4.0)
+
+    def test_time_index_labels_y_axis_with_seconds(self, matplotlib_pyplot):
+        """index_yaxis=True relabels the y-axis with the DataFrame's acquisition times."""
+        times = np.arange(20) * 2.0  # 2 s TR.
+        _, ax = plot_design_matrix(_design_matrix(volume_times=times), index_yaxis=True)
+        assert ax.get_ylabel() == "Time (s)"
+        # Row position 3 maps to its acquisition time (3 * 2 s), not the raw index.
+        assert ax.yaxis.get_major_formatter()(3, None) == "6"
+
+    def test_rangeindex_falls_back_to_volume_index(self, matplotlib_pyplot):
+        """A trivial RangeIndex has no time index, so index_yaxis=True still shows volumes."""
+        _, ax = plot_design_matrix(_design_matrix(), index_yaxis=True)
+        assert ax.get_ylabel() == "Volume"
+
+    def test_index_yaxis_false_forces_volume_axis(self, matplotlib_pyplot):
+        """index_yaxis=False shows the volume index even when a time index exists."""
+        times = np.arange(20) * 2.0
+        _, ax = plot_design_matrix(
+            _design_matrix(volume_times=times), index_yaxis=False
+        )
+        assert ax.get_ylabel() == "Volume"
+
+    def test_yaxis_label_overrides_default(self, matplotlib_pyplot):
+        """yaxis_label replaces the automatic "Time (s)"/"Volume" label."""
+        times = np.arange(20) * 2.0
+        _, ax = plot_design_matrix(
+            _design_matrix(volume_times=times), index_yaxis=True, yaxis_label="Frame"
+        )
+        assert ax.get_ylabel() == "Frame"
+
+
+class TestPlotContrastMatrix:
+    """Behaviour of plot_contrast_matrix."""
+
+    def test_string_expression_resolves_against_columns(self, matplotlib_pyplot):
+        """A string contrast resolves to weights over the DataFrame's columns."""
+        design = _design_matrix(names=["stim_A", "stim_B", "drift", "constant"])
+        _, ax = plot_contrast_matrix("stim_A - stim_B", design)
+        np.testing.assert_array_equal(ax.images[0].get_array(), [[1.0, -1.0, 0.0, 0.0]])
+        assert [t.get_text() for t in ax.get_xticklabels()] == list(design.columns)
+
+    def test_gray_cmap_with_symmetric_range_around_zero(self, matplotlib_pyplot):
+        """Weights use a gray cmap on a symmetric [-max|w|, max|w|] range."""
+        _, ax = plot_contrast_matrix(np.array([2.0, -1.0, 0.0, 0.0]), _design_matrix())
+        image = ax.images[0]
+        assert image.cmap.name == "gray"
+        assert image.norm.vmin == pytest.approx(-2.0)
+        assert image.norm.vmax == pytest.approx(2.0)
+
+    def test_f_contrast_matrix_gets_one_row_each(self, matplotlib_pyplot):
+        """A 2D F-contrast draws one heatmap row per contrast, with a row axis."""
+        f_contrast = np.array([[1.0, -1.0, 0.0, 0.0], [0.0, 0.0, 1.0, -1.0]])
+        _, ax = plot_contrast_matrix(f_contrast, _design_matrix())
+        assert ax.images[0].get_array().shape == (2, 4)
+        assert ax.get_yticks().size == 2
+
+    def test_short_vector_is_zero_padded_to_design_width(self, matplotlib_pyplot):
+        """A contrast narrower than the design is zero-padded on the right."""
+        _, ax = plot_contrast_matrix(np.array([1.0, -1.0]), _design_matrix(n_columns=4))
+        np.testing.assert_array_equal(ax.images[0].get_array(), [[1.0, -1.0, 0.0, 0.0]])
+
+    def test_string_contrast_with_bare_array_raises(self, matplotlib_pyplot):
+        """A string contrast needs named columns; a bare array design raises."""
+        with pytest.raises(ValueError, match="named columns"):
+            plot_contrast_matrix("a - b", np.zeros((20, 4)))
+
+    def test_colorbar_sits_beside_the_strip(self, matplotlib_pyplot):
+        """show_colorbar places the colorbar next to the strip, not on top of it."""
+        fig, ax = plot_contrast_matrix(
+            np.array([1.0, -1.0, 0.0, 0.0]), _design_matrix(), show_colorbar=True
+        )
+        cbar_ax = next(axis for axis in fig.axes if axis is not ax)
+        fig.canvas.draw()  # constrained layout finalizes positions only on draw.
+        assert cbar_ax.get_position().x0 >= ax.get_position().x1

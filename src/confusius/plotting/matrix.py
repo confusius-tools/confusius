@@ -1,8 +1,8 @@
 """2D matrix visualization utilities.
 
-`plot_matrix` is inspired by `nilearn.plotting.plot_matrix` (BSD-3-Clause License; see
-`NOTICE` for details). The `groups` colored-rectangle annotation has no Nilearn
-equivalent.
+Several functions (`plot_matrix`, `plot_design_matrix`, `plot_contrast_matrix`) in this
+module are inspired by `nilearn.plotting.plot_matrix` (BSD-3-Clause License; see
+`NOTICE` for details).
 """
 
 from collections.abc import Hashable
@@ -10,8 +10,10 @@ from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 import xarray as xr
 
+from confusius.glm._utils import resolve_contrast_vector
 from confusius.plotting._utils import (
     _auto_fg_color,
     _get_distinct_colors,
@@ -662,6 +664,361 @@ def plot_matrix(
             label=cbar_label,
             label_fontsize=label_fontsize,
         )
+
+    if title:
+        ax.set_title(title, color=text_color, fontsize=title_fontsize)
+
+    return figure, ax
+
+
+def plot_contrast_matrix(
+    contrast_def: "str | npt.NDArray[Any]",
+    design_matrix: "pd.DataFrame | npt.NDArray[Any]",
+    *,
+    cmap: "str | Colormap | None" = "gray",
+    title: str | None = None,
+    bg_color: str = "white",
+    fg_color: str | None = None,
+    fontsize: float | None = None,
+    show_colorbar: bool = False,
+    row_height: float = 0.5,
+    column_width: float = 0.6,
+    ax: "Axes | None" = None,
+) -> tuple["Figure | SubFigure", "Axes"]:
+    """Plot a GLM contrast as a strip of weights aligned with the design regressors.
+
+    Visualizes the same `contrast_def` you would pass to
+    [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast],
+    laid out under `design_matrix`'s regressor columns. Each contrast is drawn as one row
+    of a heatmap on a symmetric range `[-m, m]` (`m = max(|weights|)`), so positive and
+    negative weights read symmetrically.
+
+    Parameters
+    ----------
+    contrast_def : str or numpy.ndarray
+        Contrast definition. A string is parsed as an expression over the design-matrix
+        column names (e.g. `"stim_A - stim_B"`); a 1D `(n_columns,)` array is a *t*-contrast
+        (one row) and a 2D `(q, n_columns)` array an *F*-contrast (`q` rows). Arrays
+        narrower than the design are zero-padded on the right, mirroring `compute_contrast`.
+    design_matrix : (n_volumes, n_regressors) pandas.DataFrame or numpy.ndarray
+        Design matrix the contrast applies to, used for its regressor count and column
+        labels. When a DataFrame is passed, its column names label the regressors. A bare
+        array has no column names, so a string `contrast_def` cannot be resolved against it
+        and raises.
+    cmap : str or matplotlib.colors.Colormap, default: "gray"
+        Colormap for the weights.
+    title : str, optional
+        Plot title.
+    bg_color : str, default: "white"
+        Background color for the figure and axes. Any matplotlib-compatible color string
+        (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived automatically
+        from `bg_color` using the WCAG relative luminance formula (white on dark
+        backgrounds, black on light ones).
+    fontsize : float, optional
+        Base font size for text elements. Title uses `fontsize` directly; the y-axis label
+        uses `0.9 * fontsize` and the tick labels use `0.85 * fontsize`. If not provided,
+        uses the active Matplotlib defaults.
+    show_colorbar : bool, default: False
+        Whether to add a colorbar for the weights to the figure.
+    row_height : float, default: 0.5
+        Figure height contributed per contrast row, in inches, used only when `ax` is not
+        provided. The height is `1.5 + row_height * n_contrasts` (the 1.5 in base leaves
+        room for the rotated regressor labels and a colorbar taller than the strip),
+        floored at 2 inches.
+    column_width : float, default: 0.6
+        Figure width contributed per regressor, in inches, used only when `ax` is not
+        provided. The width is `column_width * n_regressors`, floored at 4 inches so a
+        few-column design does not render as a sliver.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If not provided, creates a new figure and axes sized from
+        `row_height` and `column_width`.
+
+    Returns
+    -------
+    figure : matplotlib.figure.Figure or matplotlib.figure.SubFigure
+        Figure object containing the contrast plot.
+    axes : matplotlib.axes.Axes
+        Axes object with the contrast plot.
+
+    Raises
+    ------
+    ValueError
+        If `contrast_def` is a string but `design_matrix` is a bare array with no column
+        names to resolve it against.
+    """
+    import matplotlib.pyplot as plt
+
+    values, labels, _ = _design_matrix_values_and_labels(design_matrix)
+    n_columns = values.shape[1]
+    if isinstance(contrast_def, str) and labels is None:
+        raise ValueError(
+            "A string contrast_def needs a pandas.DataFrame design_matrix with named "
+            "columns to resolve against; got a bare array."
+        )
+
+    columns = labels if labels is not None else [str(i) for i in range(n_columns)]
+    contrast = np.atleast_2d(resolve_contrast_vector(contrast_def, columns))
+    n_contrasts = contrast.shape[0]
+
+    maxval = float(np.abs(contrast).max())
+    if maxval == 0.0:
+        maxval = 1.0  # All-zero contrast: keep a neutral mid-gray, avoid vmin == vmax.
+
+    text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+
+    if ax is None:
+        # Floor both dims so a single-row, few-column contrast is not a sliver. The
+        # 1.5 in base leaves room for the rotated regressor labels below the strip and
+        # a colorbar taller than the (equal-aspect) strip itself.
+        width = max(4.0, column_width * n_columns)
+        height = max(2.0, 1.5 + row_height * n_contrasts)
+        figure, ax = plt.subplots(figsize=(width, height), layout="constrained")
+        figure.patch.set_facecolor(bg_color)
+    else:
+        figure = ax.figure
+    ax.set_facecolor(bg_color)
+
+    # Equal aspect keeps each weight a square cell, so the strip stays a thin band and a
+    # colorbar spanning the axes reads taller than it.
+    image = ax.imshow(
+        contrast,
+        aspect="equal",
+        interpolation="nearest",
+        cmap=cmap,
+        vmin=-maxval,
+        vmax=maxval,
+    )
+
+    ax.set_xticks(range(n_columns))
+    ax.xaxis.tick_top()  # Regressor names above the strip.
+    if labels is not None:
+        ax.set_xticklabels(
+            labels,
+            rotation=45,
+            ha="left",
+            rotation_mode="anchor",
+            fontsize=tick_fontsize,
+            color=text_color,
+        )
+    # A single-row t-contrast needs no row axis; label the rows only for F-contrasts.
+    if n_contrasts > 1:
+        ax.set_yticks(range(n_contrasts))
+        ax.set_yticklabels(
+            [str(i) for i in range(n_contrasts)],
+            fontsize=tick_fontsize,
+            color=text_color,
+        )
+        ax.set_ylabel("Contrast", color=text_color, fontsize=label_fontsize)
+    else:
+        ax.set_yticks([])
+    ax.tick_params(colors=text_color)
+    for spine in ax.spines.values():
+        spine.set_color(text_color)
+
+    if show_colorbar:
+        # Let the colorbar steal space from `ax` via figure.colorbar rather than
+        # mpl_toolkits' make_axes_locatable: the latter fights layout="constrained"
+        # and lands the colorbar on top of the strip. A lower-than-default aspect
+        # widens the bar a little.
+        cbar = figure.colorbar(image, ax=ax, aspect=12)
+        _style_colorbar(
+            cbar,
+            text_color,
+            tick_fontsize,
+            bg_color=bg_color,
+            label=None,
+            label_fontsize=label_fontsize,
+        )
+
+    if title:
+        ax.set_title(title, color=text_color, fontsize=title_fontsize)
+
+    return figure, ax
+
+
+def _design_matrix_values_and_labels(
+    design_matrix: "pd.DataFrame | npt.NDArray[Any]",
+) -> tuple[npt.NDArray[Any], list[str] | None, npt.NDArray[Any] | None]:
+    """Extract the plottable array, regressor labels, and frame times from a design matrix.
+
+    Parameters
+    ----------
+    design_matrix : pandas.DataFrame or numpy.ndarray
+        Design matrix with volumes along the rows and regressors along the columns.
+
+    Returns
+    -------
+    values : (n_volumes, n_regressors) numpy.ndarray
+        Design matrix values.
+    labels : list[str] or None
+        Regressor names when `design_matrix` is a DataFrame, otherwise None.
+    frame_times : (n_volumes,) numpy.ndarray or None
+        Row index values (the per-volume acquisition times, in seconds) when
+        `design_matrix` is a DataFrame with a meaningful index, as produced by
+        [`make_first_level_design_matrix`][confusius.glm.make_first_level_design_matrix].
+        A DataFrame carrying only a trivial `pandas.RangeIndex`, or a bare array, yields
+        None.
+
+    Raises
+    ------
+    ValueError
+        If `design_matrix` is not 2D.
+    """
+    if isinstance(design_matrix, pd.DataFrame):
+        values = design_matrix.to_numpy()
+        labels = [str(column) for column in design_matrix.columns]
+        frame_times = (
+            None
+            if isinstance(design_matrix.index, pd.RangeIndex)
+            else design_matrix.index.to_numpy()
+        )
+    else:
+        values = np.asarray(design_matrix)
+        labels = None
+        frame_times = None
+    if values.ndim != 2:
+        raise ValueError(
+            f"Expected a 2D design matrix, got array of shape {values.shape}."
+        )
+    return values, labels, frame_times
+
+
+def plot_design_matrix(
+    design_matrix: "pd.DataFrame | npt.NDArray[Any]",
+    *,
+    cmap: "str | Colormap | None" = None,
+    title: str | None = None,
+    index_yaxis: bool = False,
+    yaxis_label: str | None = None,
+    bg_color: str = "white",
+    fg_color: str | None = None,
+    fontsize: float | None = None,
+    height: float = 5.0,
+    column_width: float = 0.6,
+    ax: "Axes | None" = None,
+) -> tuple["Figure | SubFigure", "Axes"]:
+    """Plot a first-level GLM design matrix as a heatmap.
+
+    Renders each regressor (column) against acquisition time (row). Values are shown on a
+    norm centered at zero, so positive and negative regressor weights read symmetrically.
+    When `ax` is not provided, the figure width scales with the number of regressors so
+    wide designs stay legible.
+
+    Parameters
+    ----------
+    design_matrix : (n_volumes, n_regressors) pandas.DataFrame or numpy.ndarray
+        Design matrix to plot, e.g. an entry of the `design_matrices_` attribute of a
+        fitted [`FirstLevelModel`][confusius.glm.first_level.FirstLevelModel]. Volumes run
+        along the rows (top to bottom) and regressors along the columns. When a DataFrame
+        is passed, its column names label the regressors and its index (the per-volume
+        acquisition times, in seconds) labels the y-axis (see `index_yaxis`).
+    cmap : str or matplotlib.colors.Colormap, optional
+        Colormap for the design matrix. If not provided, the active Matplotlib default is
+        used.
+    title : str, optional
+        Plot title.
+    index_yaxis : bool, default: False
+        Whether to label the y-axis with the design matrix's index (the per-volume
+        acquisition times, in seconds), titled "Time (s)". When False, the y-axis instead
+        shows the integer volume index titled "Volume". A bare array, or a DataFrame with a
+        trivial `pandas.RangeIndex`, has no meaningful index and always uses the volume
+        index regardless of this flag.
+    yaxis_label : str, optional
+        Override for the y-axis label. If not provided, the label is "Time (s)" when
+        `index_yaxis` selects the acquisition-time index and "Volume" otherwise.
+    bg_color : str, default: "white"
+        Background color for the figure and axes. Any matplotlib-compatible color string
+        (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
+    fg_color : str, optional
+        Color for text, labels, ticks, and spines. If not provided, derived automatically
+        from `bg_color` using the WCAG relative luminance formula (white on dark
+        backgrounds, black on light ones).
+    fontsize : float, optional
+        Base font size for text elements. Title uses `fontsize` directly; the y-axis label
+        uses `0.9 * fontsize` and the regressor tick labels use `0.85 * fontsize`. If not
+        provided, uses the active Matplotlib defaults.
+    height : float, default: 5.0
+        Figure height in inches, used only when `ax` is not provided.
+    column_width : float, default: 0.6
+        Figure width contributed per regressor, in inches, used only when `ax` is not
+        provided. The width is `column_width * n_regressors`, floored at 4 inches so a
+        few-column design does not render as a sliver.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If not provided, creates a new figure and axes sized from
+        `height` and `column_width`.
+
+    Returns
+    -------
+    figure : matplotlib.figure.Figure or matplotlib.figure.SubFigure
+        Figure object containing the design matrix plot.
+    axes : matplotlib.axes.Axes
+        Axes object with the design matrix plot.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import CenteredNorm
+
+    values, labels, frame_times = _design_matrix_values_and_labels(design_matrix)
+    n_columns = values.shape[1]
+
+    text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+
+    if ax is None:
+        # Floor the width so a few-regressor design does not render as a sliver.
+        width = max(4.0, column_width * n_columns)
+        figure, ax = plt.subplots(figsize=(width, height), layout="constrained")
+        figure.patch.set_facecolor(bg_color)
+    else:
+        figure = ax.figure
+    ax.set_facecolor(bg_color)
+
+    ax.imshow(
+        values,
+        aspect="auto",
+        interpolation="nearest",
+        cmap=cmap,
+        norm=CenteredNorm(),
+    )
+
+    ax.set_xticks(range(n_columns))
+    ax.xaxis.tick_top()  # Regressor names above the matrix.
+    if labels is not None:
+        ax.set_xticklabels(
+            labels,
+            rotation=45,
+            ha="left",
+            rotation_mode="anchor",
+            fontsize=tick_fontsize,
+            color=text_color,
+        )
+    if index_yaxis and frame_times is not None:
+        # Rows are drawn at integer positions 0..n-1; relabel the auto-placed y ticks
+        # with the corresponding acquisition time rather than the raw volume index.
+        from matplotlib.ticker import FuncFormatter
+
+        default_ylabel = "Time (s)"
+        ax.yaxis.set_major_formatter(
+            FuncFormatter(
+                lambda pos, _: (
+                    f"{frame_times[round(pos)]:g}"
+                    if 0 <= round(pos) < len(frame_times)
+                    else ""
+                )
+            )
+        )
+    else:
+        default_ylabel = "Volume"
+    ax.set_ylabel(
+        yaxis_label if yaxis_label is not None else default_ylabel,
+        color=text_color,
+        fontsize=label_fontsize,
+    )
+    ax.tick_params(colors=text_color)
+    for spine in ax.spines.values():
+        spine.set_color(text_color)
 
     if title:
         ax.set_title(title, color=text_color, fontsize=title_fontsize)
