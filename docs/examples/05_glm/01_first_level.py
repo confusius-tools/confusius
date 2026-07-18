@@ -387,7 +387,7 @@ _ = ax.set_title("Design matrix (run 1)")
 z_score = glm.compute_contrast("active")
 
 slice_coords = resampled_average_in_atlas.z[
-    (resampled_average_in_atlas.z > 5) & (resampled_average_in_atlas.z < 9)
+    (resampled_average_in_atlas.z > 5.5) & (resampled_average_in_atlas.z < 9)
 ][::4]
 
 cmap = "berlin" if is_dark_theme else None
@@ -395,7 +395,7 @@ vmax = 10
 fig = cf.plotting.plot_stat_map(
     z_score,
     slice_coords=slice_coords,
-    nrows=2,
+    nrows=3,
     vmax=vmax,
     bg_color=bg_color,
     cmap=cmap,
@@ -406,6 +406,7 @@ _ = fig.add_contours(
     slice_coords=slice_coords,
     alpha=0.4,
 )
+fig.show()
 
 # %% [markdown]
 # ## Threshold for statistical significance
@@ -467,7 +468,7 @@ fig = cf.plotting.plot_stat_map(
     z_score,
     bg_volume=resampled_average_in_atlas.fusi.scale.db(),
     slice_coords=slice_coords,
-    nrows=2,
+    nrows=3,
     bg_kwargs={"vmin": -20, "vmax": 0},
     bg_color=bg_color,
     alpha=1 - adjusted_p_values,
