@@ -244,7 +244,7 @@ z_score.lag.attrs["units"] = data.time.units
 # threshold, zeroing the voxels that do not survive. We plot the thresholded z-map at
 # each lag over the mean power Doppler image (in dB).
 
-# %%
+# %% tags=["thumbnail"]
 thresholded_zscore, threshold = cf.stats.apply_statistical_threshold(
     z_score,
     alpha=0.001,
