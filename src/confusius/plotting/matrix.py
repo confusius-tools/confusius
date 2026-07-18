@@ -685,13 +685,13 @@ def plot_contrast_matrix(
     column_width: float = 0.6,
     ax: "Axes | None" = None,
 ) -> tuple["Figure | SubFigure", "Axes"]:
-    """Plot a GLM contrast as a strip of weights aligned with the design regressors.
+    """Plot a GLM contrast as an array of weights aligned with the design regressors.
 
     Visualizes the same `contrast_def` you would pass to
     [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast],
-    laid out under `design_matrix`'s regressor columns. Each contrast is drawn as one row
-    of a heatmap on a symmetric range `[-m, m]` (`m = max(|weights|)`), so positive and
-    negative weights read symmetrically.
+    laid out under `design_matrix`'s regressor columns. Each contrast is drawn as one
+    column of a heatmap on a symmetric range `[-m, m]` (`m = max(|weights|)`), so
+    positive and negative weights read symmetrically.
 
     Parameters
     ----------
@@ -729,8 +729,7 @@ def plot_contrast_matrix(
         floored at 2 inches.
     column_width : float, default: 0.6
         Figure width contributed per regressor, in inches, used only when `ax` is not
-        provided. The width is `column_width * n_regressors`, floored at 4 inches so a
-        few-column design does not render as a sliver.
+        provided. The width is `column_width * n_regressors`, floored at 4 inches.
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If not provided, creates a new figure and axes sized from
         `row_height` and `column_width`.
@@ -770,7 +769,7 @@ def plot_contrast_matrix(
     title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
     if ax is None:
-        # Floor both dims so a single-row, few-column contrast is not a sliver. The
+        # Floor both dims so a single-row, few-column contrast is not too thin. The
         # 1.5 in base leaves room for the rotated regressor labels below the strip and
         # a colorbar taller than the (equal-aspect) strip itself.
         width = max(4.0, column_width * n_columns)
@@ -902,7 +901,7 @@ def plot_design_matrix(
 ) -> tuple["Figure | SubFigure", "Axes"]:
     """Plot a first-level GLM design matrix as a heatmap.
 
-    Renders each regressor (column) against acquisition time (row). Values are shown on a
+    Renders each regressor (column) against acquisition volumes (row). Values are shown on a
     norm centered at zero, so positive and negative regressor weights read symmetrically.
     When `ax` is not provided, the figure width scales with the number of regressors so
     wide designs stay legible.
@@ -944,8 +943,7 @@ def plot_design_matrix(
         Figure height in inches, used only when `ax` is not provided.
     column_width : float, default: 0.6
         Figure width contributed per regressor, in inches, used only when `ax` is not
-        provided. The width is `column_width * n_regressors`, floored at 4 inches so a
-        few-column design does not render as a sliver.
+        provided. The width is `column_width * n_regressors`, floored at 4 inches.
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If not provided, creates a new figure and axes sized from
         `height` and `column_width`.
