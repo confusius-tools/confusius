@@ -141,6 +141,9 @@ Current development version for the next ConfUSIus release.
   `collapse` cell tag, with optional custom title and type (`collapse[<type>]:
   <title>`), i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
   ([#309](https://github.com/confusius-tools/confusius/pull/309)).
+- [Example Gallery]: Hovering a gallery card reveals the example's first paragraph as
+  an overlay over the card
+  ([#327](https://github.com/confusius-tools/confusius/pull/327)).
 
 ## 0.5.2
 
