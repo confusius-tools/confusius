@@ -6,11 +6,23 @@ licensed under the BSD-3-Clause License. See `NOTICE` for details.
 
 import warnings
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 from joblib import Parallel, delayed, effective_n_jobs
+from rich.progress import (
+    BarColumn,
+    MofNCompleteColumn,
+    Progress,
+    SpinnerColumn,
+    TaskID,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from scipy.spatial import KDTree
 from sklearn.base import BaseEstimator, clone, is_classifier
 from sklearn.model_selection import (
@@ -233,12 +245,13 @@ def _run_searchlight(
     scoring: str | Callable | None,
     groups: npt.NDArray | None,
     n_jobs: int,
+    show_progress: bool,
 ) -> npt.NDArray[np.float64]:
     """Score every neighbourhood, parallelising over batches of centres.
 
-    Centres are split into one contiguous batch per worker rather than one joblib task
-    each, because a whole-brain searchlight has far more centres than the dispatch
-    overhead can absorb.
+    Centres are split into contiguous batches rather than one joblib task each, because
+    a whole-brain searchlight has far more centres than the dispatch overhead can
+    absorb.
 
     Parameters
     ----------
@@ -259,24 +272,61 @@ def _run_searchlight(
         Group labels forwarded to the splitter.
     n_jobs : int
         Number of joblib workers.
+    show_progress : bool
+        Whether to display a progress bar counting completed centre voxels.
 
     Returns
     -------
     numpy.ndarray
         `(n_centres,)` array of mean scores, in centre order.
     """
-    n_batches = max(1, min(len(neighborhoods), effective_n_jobs(n_jobs)))
+    # One batch per worker would minimise dispatch overhead but leaves the progress bar
+    # with only `n_jobs` steps, which tells the user nothing during a run that takes
+    # minutes. Several batches per worker cost a handful of extra dispatches, negligible
+    # next to a batch of cross-validations, and also balance the load better.
+    n_batches = max(1, min(len(neighborhoods), effective_n_jobs(n_jobs) * 8))
     batches = [
         [neighborhoods[index] for index in batch_indices]
         for batch_indices in np.array_split(np.arange(len(neighborhoods)), n_batches)
     ]
 
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
-        for batch in batches
-    )
+    progress_context: AbstractContextManager = nullcontext()
+    progress: Progress | None = None
+    task_id: TaskID | None = None
+    if show_progress:
+        # The bar is driven directly rather than through `joblib_progress`, which
+        # patches `Parallel.print_progress` process-wide. The inner `cross_val_score`
+        # builds its own `Parallel`, so its folds would advance this bar too.
+        progress = Progress(
+            SpinnerColumn(),
+            TaskProgressColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            MofNCompleteColumn(),
+            TimeElapsedColumn(),
+            "<",
+            TimeRemainingColumn(),
+        )
+        task_id = progress.add_task(
+            "[cyan]Scoring searchlights...", total=len(neighborhoods)
+        )
+        progress_context = progress
 
-    return np.concatenate([np.asarray(result, dtype=np.float64) for result in results])
+    results: list[npt.NDArray[np.float64]] = []
+    with progress_context:
+        # `return_as="generator"` keeps results in batch order, so concatenating them
+        # still maps scores back onto centres. The unordered variant would scramble the
+        # map.
+        stream = Parallel(n_jobs=n_jobs, return_as="generator")(
+            delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
+            for batch in batches
+        )
+        for batch, result in zip(batches, stream, strict=True):
+            results.append(np.asarray(result, dtype=np.float64))
+            if progress is not None and task_id is not None:
+                progress.advance(task_id, len(batch))
+
+    return np.concatenate(results)
 
 
 class SearchLight(BaseEstimator):
@@ -328,6 +378,8 @@ class SearchLight(BaseEstimator):
     n_jobs : int, default: 1
         Number of joblib workers. Centres are dispatched in batches, not one task
         each.
+    show_progress : bool, default: True
+        Whether to display a progress bar while scoring centre voxels.
 
     Attributes
     ----------
@@ -377,7 +429,9 @@ class SearchLight(BaseEstimator):
     ... )
     >>> speed = rng.standard_normal(40)
     >>>
-    >>> searchlight = SearchLight(estimator=Ridge(), radius=0.25, cv=3)
+    >>> searchlight = SearchLight(
+    ...     estimator=Ridge(), radius=0.25, cv=3, show_progress=False
+    ... )
     >>> searchlight.fit(data, speed).scores_.dims
     ('z', 'y', 'x')
     """
@@ -392,6 +446,7 @@ class SearchLight(BaseEstimator):
         cv: int | BaseCrossValidator = 5,
         scoring: str | Callable | None = None,
         n_jobs: int = 1,
+        show_progress: bool = True,
     ) -> None:
         self.estimator = estimator
         self.mask = mask
@@ -400,6 +455,7 @@ class SearchLight(BaseEstimator):
         self.cv = cv
         self.scoring = scoring
         self.n_jobs = n_jobs
+        self.show_progress = show_progress
 
     def fit(
         self,
@@ -519,6 +575,7 @@ class SearchLight(BaseEstimator):
             self.scoring,
             groups_array,
             self.n_jobs,
+            self.show_progress,
         )
 
         self.scores_: xr.DataArray = unmask(

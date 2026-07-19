@@ -477,3 +477,24 @@ def test_parallel_matches_serial(decoding_volume, full_mask, rng):
     ).fit(decoding_volume, y)
 
     xr.testing.assert_identical(serial.scores_, parallel.scores_)
+
+
+def test_progress_bar_does_not_change_scores(decoding_volume, full_mask, rng):
+    """Streaming results to drive the progress bar keeps centres and scores aligned."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    quiet = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=3, show_progress=False
+    ).fit(decoding_volume, y)
+    noisy = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=3, show_progress=True
+    ).fit(decoding_volume, y)
+
+    xr.testing.assert_identical(quiet.scores_, noisy.scores_)
+
+
+def test_show_progress_is_a_constructor_param():
+    """`show_progress` is exposed through `get_params`, so `clone` preserves it."""
+    assert SearchLight(estimator=Ridge(), show_progress=False).get_params()[
+        "show_progress"
+    ] is False
