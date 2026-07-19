@@ -10,6 +10,7 @@ from collections.abc import Callable
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from joblib import Parallel, delayed, effective_n_jobs
 from scipy.spatial import KDTree
 from sklearn.base import BaseEstimator, clone, is_classifier
 from sklearn.model_selection import (
@@ -221,6 +222,64 @@ def _score_batch(
         )
         for indices in neighborhoods
     ]
+
+
+def _run_searchlight(
+    estimator: BaseEstimator,
+    features: npt.NDArray[np.float64],
+    y: npt.NDArray,
+    neighborhoods: list[npt.NDArray[np.intp]],
+    cv: BaseCrossValidator,
+    scoring: str | Callable | None,
+    groups: npt.NDArray | None,
+    n_jobs: int,
+) -> npt.NDArray[np.float64]:
+    """Score every neighbourhood, parallelising over batches of centres.
+
+    Centres are split into one contiguous batch per worker rather than one joblib task
+    each, because a whole-brain searchlight has far more centres than the dispatch
+    overhead can absorb.
+
+    Parameters
+    ----------
+    estimator : sklearn.base.BaseEstimator
+        Estimator cloned into each neighbourhood.
+    features : numpy.ndarray
+        `(n_samples, n_features)` masked data.
+    y : numpy.ndarray
+        `(n_samples,)` targets.
+    neighborhoods : list[numpy.ndarray]
+        Feature index arrays, one per centre.
+    cv : sklearn.model_selection.BaseCrossValidator
+        Cross-validation splitter.
+    scoring : str, callable, or None
+        Scorer passed to
+        [`cross_val_score`][sklearn.model_selection.cross_val_score].
+    groups : numpy.ndarray, optional
+        Group labels forwarded to the splitter.
+    n_jobs : int
+        Number of joblib workers.
+
+    Returns
+    -------
+    numpy.ndarray
+        `(n_centres,)` array of mean scores, in centre order.
+    """
+    from joblib_progress import joblib_progress
+
+    n_batches = max(1, min(len(neighborhoods), effective_n_jobs(n_jobs)))
+    batches = [
+        [neighborhoods[index] for index in batch_indices]
+        for batch_indices in np.array_split(np.arange(len(neighborhoods)), n_batches)
+    ]
+
+    with joblib_progress("Running searchlight...", total=n_batches):
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
+            for batch in batches
+        )
+
+    return np.concatenate([np.asarray(result, dtype=np.float64) for result in results])
 
 
 class SearchLight(BaseEstimator):
@@ -441,17 +500,15 @@ class SearchLight(BaseEstimator):
 
         cv = _resolve_cv(self.cv, classifier=is_classifier(self.estimator))
 
-        scores = np.asarray(
-            _score_batch(
-                self.estimator,
-                features,
-                y_array,
-                neighborhoods,
-                cv,
-                self.scoring,
-                groups_array,
-            ),
-            dtype=np.float64,
+        scores = _run_searchlight(
+            self.estimator,
+            features,
+            y_array,
+            neighborhoods,
+            cv,
+            self.scoring,
+            groups_array,
+            self.n_jobs,
         )
 
         self.scores_: xr.DataArray = unmask(

@@ -349,3 +349,17 @@ def test_classifier_selects_stratified_folds(decoding_volume, full_mask, rng):
     # Accuracy is bounded to [0, 1]; R-squared is not, so this pins the scorer family.
     finite = searchlight.scores_.values[np.isfinite(searchlight.scores_.values)]
     assert ((finite >= 0.0) & (finite <= 1.0)).all()
+
+
+def test_parallel_matches_serial(decoding_volume, full_mask, rng):
+    """Parallel execution produces exactly the same map as serial execution."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    serial = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=3, n_jobs=1
+    ).fit(decoding_volume, y)
+    parallel = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=3, n_jobs=2
+    ).fit(decoding_volume, y)
+
+    xr.testing.assert_identical(serial.scores_, parallel.scores_)
