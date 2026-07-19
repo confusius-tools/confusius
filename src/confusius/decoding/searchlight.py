@@ -6,6 +6,7 @@ licensed under the BSD-3-Clause License. See `NOTICE` for details.
 
 import warnings
 from collections.abc import Callable
+from contextlib import nullcontext
 
 import numpy as np
 import numpy.typing as npt
@@ -233,6 +234,7 @@ def _run_searchlight(
     scoring: str | Callable | None,
     groups: npt.NDArray | None,
     n_jobs: int,
+    show_progress: bool,
 ) -> npt.NDArray[np.float64]:
     """Score every neighbourhood, parallelising over batches of centres.
 
@@ -259,21 +261,27 @@ def _run_searchlight(
         Group labels forwarded to the splitter.
     n_jobs : int
         Number of joblib workers.
+    show_progress : bool
+        Whether to display a joblib progress bar over the batches of centres.
 
     Returns
     -------
     numpy.ndarray
         `(n_centres,)` array of mean scores, in centre order.
     """
-    from joblib_progress import joblib_progress
-
     n_batches = max(1, min(len(neighborhoods), effective_n_jobs(n_jobs)))
     batches = [
         [neighborhoods[index] for index in batch_indices]
         for batch_indices in np.array_split(np.arange(len(neighborhoods)), n_batches)
     ]
 
-    with joblib_progress("Running searchlight...", total=n_batches):
+    progress_context = nullcontext()
+    if show_progress:
+        from joblib_progress import joblib_progress
+
+        progress_context = joblib_progress("Running searchlight...", total=n_batches)
+
+    with progress_context:
         results = Parallel(n_jobs=n_jobs)(
             delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
             for batch in batches
@@ -330,6 +338,11 @@ class SearchLight(BaseEstimator):
     n_jobs : int, default: 1
         Number of joblib workers. Centres are dispatched in batches, not one task
         each.
+    show_progress : bool, default: False
+        Whether to display a joblib progress bar over the searchlight centres. Off by
+        default so that a fit nested inside a
+        [`Pipeline`][sklearn.pipeline.Pipeline] or
+        [`GridSearchCV`][sklearn.model_selection.GridSearchCV] stays silent.
 
     Attributes
     ----------
@@ -394,6 +407,7 @@ class SearchLight(BaseEstimator):
         cv: int | BaseCrossValidator = 5,
         scoring: str | Callable | None = None,
         n_jobs: int = 1,
+        show_progress: bool = False,
     ) -> None:
         self.mask = mask
         self.estimator = estimator
@@ -402,6 +416,7 @@ class SearchLight(BaseEstimator):
         self.cv = cv
         self.scoring = scoring
         self.n_jobs = n_jobs
+        self.show_progress = show_progress
 
     def fit(
         self,
@@ -509,6 +524,7 @@ class SearchLight(BaseEstimator):
             self.scoring,
             groups_array,
             self.n_jobs,
+            self.show_progress,
         )
 
         self.scores_: xr.DataArray = unmask(
