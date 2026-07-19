@@ -29,7 +29,6 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from sklearn.linear_model import RidgeCV
-from sklearn.model_selection import KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -120,13 +119,14 @@ log_speed = np.log1p(speed).rename("log_speed")
 #   builds contiguous temporal folds by default, which is what we rely on here.
 #
 # The estimator is a `RidgeCV`: ridge regression that selects its own penalty from a
-# grid, by an inner cross-validation run within each neighbourhood's training folds.
-# Neighbouring fUSI voxels are highly correlated, and the right amount of regularisation
-# varies across the plane, so fixing a single penalty by hand would favour some regions
-# arbitrarily. We pass an explicit non-shuffled `KFold` as the inner splitter for the
-# same reason the outer folds are contiguous: the default leave-one-out generalised
-# cross-validation would score each volume against a model trained on its immediate
-# temporal neighbours.
+# grid. Neighbouring fUSI voxels are highly correlated, and the right amount of
+# regularisation varies across the plane, so fixing a single penalty by hand would favour
+# some regions arbitrarily. By default `RidgeCV` picks the penalty by leave-one-out
+# generalised cross-validation, which does put temporally adjacent volumes in its train
+# and test sets, unlike the contiguous folds we insist on for the outer searchlight
+# cross-validation. That cannot inflate the reported scores: the penalty search runs
+# entirely inside each outer training fold and never sees the outer test fold, so it only
+# affects which penalty is chosen.
 
 # %%
 mean_image = data.mean("time")
@@ -135,7 +135,7 @@ mask = mask.drop_vars("quantile")
 
 estimator = make_pipeline(
     StandardScaler(),
-    RidgeCV(alphas=np.logspace(0, 4, 9), cv=KFold(n_splits=5, shuffle=False)),
+    RidgeCV(alphas=np.logspace(0, 4, 9)),
 )
 
 searchlight = cf.decoding.SearchLight(
