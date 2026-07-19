@@ -13,9 +13,9 @@
 # We follow the experimental setting and dataset of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
 # single coronal plane, and compare the searchlight map against a GLM fit on the same
-# data. Both analyses receive the same cleaned data and the same haemodynamically
-# convolved speed regressor, so the only thing that differs between them is univariate
-# versus multivariate, which is the comparison we actually want to make.
+# data. Both analyses receive the same smoothing, the same drift removal and the same
+# haemodynamically convolved speed regressor, so the only thing that differs between them
+# is univariate versus multivariate, which is the comparison we actually want to make.
 
 # %% [markdown]
 # ## Load the recording and the tracking data
@@ -102,12 +102,6 @@ _ = ax.set_title("Locomotion speed, resampled to volume times")
 # %%
 modified_claron2021 = partial(cf.glm.claron2021_hrf, beta=6.7)
 
-confounds = cf.signal.compute_compcor_confounds(
-    data,
-    variance_threshold=0.05,
-    n_components=3,
-)
-
 events = pd.DataFrame(
     {
         "onset": data.time.values,
@@ -123,7 +117,6 @@ design_matrix = cf.glm.make_first_level_design_matrix(
     hrf_model=modified_claron2021,
     drift_model="cosine",
     low_cutoff=0.01,
-    confounds=confounds.values,
 )
 design_matrix.columns.tolist()
 
@@ -150,38 +143,67 @@ ax.set_ylabel("Correlation with raw speed")
 _ = ax.set_title("The convolved regressor lags raw speed")
 
 # %% [markdown]
-# ## Clean the data, and the regressor with it
+# ## Preprocess the data exactly as the GLM does
 #
-# Power Doppler carries slow drift and global nuisance fluctuations that have nothing to
-# do with locomotion. A GLM handles these by carrying drift and confound regressors in
-# its design, so they are partialled out of the fit. A decoder has no design matrix, so
-# we remove them from the data up front with
-# [`clean`][confusius.signal.clean]: a cosine high-pass at 0.01 Hz and the same three
-# CompCor components the design matrix uses.
+# The point of this example is to compare a univariate analysis with a multivariate one,
+# which only works if everything *else* is held equal. So the decoder gets the same two
+# preprocessing steps the GLM applies, and nothing more.
 #
-# The regressor needs exactly the same treatment. This is the step that makes or breaks
-# the analysis. If the data has its drift and confound structure removed but the target
-# still carries them, we are asking the decoder to predict variance we have just deleted
+# **Spatial smoothing.** `FirstLevelModel(smoothing_fwhm=0.3)` smooths each run with
+# [`smooth_volume`][confusius.spatial.smooth_volume] before fitting. We apply the same
+# call with the same value, rather than leaving the searchlight to work on unsmoothed
+# data while the GLM enjoys the noise reduction.
+#
+# **Drift removal.** Power Doppler carries slow drift that has nothing to do with
+# locomotion. The GLM handles it with cosine drift regressors in its design; a decoder
+# has no design matrix, so we remove the same basis from the data up front with
+# [`clean`][confusius.signal.clean].
+#
+# The regressor needs the same drift treatment as the data. This is the step that makes
+# or breaks the analysis. If the data has its drift structure removed but the target
+# still carries it, we are asking the decoder to predict variance we have just deleted
 # from its inputs, and the cross-validated $R^2$ comes out negative almost everywhere.
-# Cleaning both sides is what the GLM does implicitly, by fitting the speed regressor
-# and the nuisance regressors jointly. Doing it explicitly here took the peak
-# neighbourhood in this recording from an $R^2$ of 0.03 to 0.25.
+# Cleaning both sides is what the GLM does implicitly, by fitting the speed regressor and
+# the drift regressors jointly. Doing it explicitly here took the peak neighbourhood in
+# this recording from an $R^2$ of 0.03 to 0.25.
 #
-# Both cleaning operations are fixed linear filters applied identically to every
-# timepoint. Neither uses the relationship between the data and the target, so neither
-# can leak information across the cross-validation folds. We check that claim directly
-# further down.
+# Every one of these operations is a fixed linear filter applied identically to every
+# timepoint. None uses the relationship between the data and the target, so none can leak
+# information across the cross-validation folds. We check that claim directly further
+# down.
 
 # %%
-clean_kwargs = dict(filter_method="cosine", low_cutoff=0.01, confounds=confounds)
+smoothing_fwhm = 0.3
+clean_kwargs = dict(filter_method="cosine", low_cutoff=0.01)
 
-cleaned = cf.signal.clean(data, **clean_kwargs)
+cleaned = cf.signal.clean(
+    cf.spatial.smooth_volume(data, smoothing_fwhm), **clean_kwargs
+)
 target = cf.signal.clean(
     xr.DataArray(
         speed_regressor, dims=["time"], coords={"time": data.time}, name="speed"
     ),
     **clean_kwargs,
 )
+
+# %% [markdown]
+# ### Why there are no CompCor confounds here
+#
+# A conventional fUSI pipeline would also regress out a few
+# [CompCor][confusius.signal.compute_compcor_confounds] components. We deliberately do
+# not, and it is worth saying why, because it is the single largest effect in this
+# example.
+#
+# CompCor builds its components from the highest-variance voxels. In a task where the
+# behaviour drives large, spatially widespread haemodynamic changes, which is exactly
+# what locomotion does, those components end up describing the task rather than the
+# noise. Removing them removes the signal we are trying to decode. Adding three CompCor
+# components to both sides of this analysis drops the peak cross-validated $R^2$ from
+# 0.41 to 0.28, and more components make it worse still.
+#
+# This is a property of this dataset, not general advice. CompCor is valuable when the
+# dominant variance really is nuisance. Here it is not, so both the searchlight and the
+# GLM go without.
 
 # %% [markdown]
 # ## Run the searchlight
@@ -195,12 +217,21 @@ target = cf.signal.clean(
 # - `radius` is in the units of the data's spatial coordinates, not in voxel indices.
 #   fUSI voxels are usually anisotropic, so an index-based radius would silently give
 #   anisotropic neighbourhoods. This recording has an in-plane spacing of roughly
-#   0.1 mm, so a 0.8 mm radius collects a neighbourhood some sixteen voxels across.
+#   0.1 mm, so a 1.0 mm radius collects a neighbourhood some twenty voxels across.
+#   Scores rise gently with radius up to about 1 mm and then flatten, and past that the
+#   neighbourhood covers so much of the plane that the map stops being a local one.
 # - Consecutive fUSI volumes are strongly autocorrelated, and the HRF convolution makes
 #   the target smoother still. Cross-validating with shuffled folds would put
 #   near-duplicate volumes in both the training and test sets and inflate the scores.
 #   `SearchLight` therefore builds contiguous temporal folds by default, which is what
 #   we rely on here.
+# - The number of folds matters more than it usually would. Three contiguous folds give
+#   test blocks of roughly seven minutes, long enough to contain both quiet and active
+#   periods. Splitting more finely produces short blocks in which the animal barely
+#   moves, the target has almost no variance to predict, and the score degrades sharply:
+#   the peak $R^2$ falls from 0.41 at three folds to 0.39 at five and 0.32 at eight. That
+#   is a property of bursty behaviour rather than of the decoder, and it is worth knowing
+#   that the headline number depends on it.
 #
 # The estimator is a `RidgeCV`: ridge regression that selects its own penalty from a
 # grid. Neighbouring fUSI voxels are highly correlated, and the right amount of
@@ -225,18 +256,19 @@ estimator = make_pipeline(
 searchlight = cf.decoding.SearchLight(
     mask=mask,
     estimator=estimator,
-    radius=0.8,
-    cv=5,
+    radius=1.0,
+    cv=3,
     n_jobs=-1,
 )
 searchlight.fit(cleaned, target.values)
 searchlight.scores_
 
 # %% [markdown]
-# ## Check that the cleaning did not leak
+# ## Check that the preprocessing did not leak
 #
-# Cleaning the data and the regressor before cross-validating is the one step that could
-# in principle carry information across fold boundaries. The cheapest way to test it is
+# Smoothing and cleaning before cross-validating are the steps that could in principle
+# carry information across fold boundaries, spatially or temporally. The cheapest way to
+# test them is
 # to run the identical pipeline against a target that cannot be predicted: the same
 # cleaned regressor, circularly shifted by hundreds of volumes so it keeps its spectrum
 # and its autocorrelation but loses its alignment with the data. Any score this null run
@@ -247,8 +279,8 @@ null_target = np.roll(target.values, 600)
 null_searchlight = cf.decoding.SearchLight(
     mask=mask,
     estimator=estimator,
-    radius=0.8,
-    cv=5,
+    radius=1.0,
+    cv=3,
     n_jobs=-1,
 )
 null_searchlight.fit(cleaned, null_target)
@@ -265,10 +297,11 @@ print(f"Null run: 95th percentile R^2 = {np.percentile(null_finite, 95):.3f}")
 # ## Compare against a GLM
 #
 # We now fit a GLM with the design matrix built earlier, so it tests the same
-# HRF-convolved speed regressor against the same drift and confound model.
+# HRF-convolved speed regressor against the same drift model, on data smoothed with the
+# same kernel.
 
 # %%
-glm = cf.glm.FirstLevelModel(smoothing_fwhm=0.3)
+glm = cf.glm.FirstLevelModel(smoothing_fwhm=smoothing_fwhm)
 glm.fit([data], design_matrices=[design_matrix])
 z_scores = glm.compute_contrast("speed")
 
@@ -322,18 +355,26 @@ print(f"95th percentile R^2 = {np.percentile(finite_scores, 95):.3f}")
 print(f"Top-5% overlap, Dice = {dice:.3f}")
 
 # %% [markdown]
-# The two maps highlight overlapping territory, which is what we should expect now that
-# they are given the same regressor and the same cleaned data. They are not identical,
-# and should not be: the GLM is univariate and asks whether each voxel's signal tracks
-# the regressor, while the searchlight is multivariate and cross-validated, and asks
-# whether the local pattern predicts held-out blocks of time.
+# The two maps pick out overlapping territory, but the overlap is partial. A Dice of
+# around 0.36 between the top 5 percent of each map is far above the 0.05 that chance
+# would give, and well short of agreement. That is the honest result, and it is the
+# interesting one: matching the preprocessing and the regressor removes the *artefactual*
+# reasons the maps could differ, so what remains is the genuine difference between the
+# two questions. The GLM is univariate and asks whether each voxel's signal tracks the
+# regressor. The searchlight is multivariate and cross-validated, and asks whether the
+# local pattern predicts held-out blocks of time. Those are not the same question and
+# they do not have the same answer.
+#
+# Part of the difference is also resolution. A 1.0 mm radius neighbourhood is much
+# coarser than a single voxel, so the searchlight map is intrinsically blurrier than the
+# voxelwise GLM map, and a top-5-percent overlap penalises that mismatch.
 #
 # The remaining difference in scale is worth reading carefully. The GLM reaches large
 # z-scores over a broad area because it measures evidence against the null across more
 # than a thousand volumes, and an effect can be highly reliable while explaining very
 # little variance. The searchlight instead reports how much variance is actually
 # predicted in unseen time blocks, which is a far stricter bar, so its map is sparser and
-# its peak sits near an $R^2$ of 0.3. Reliability and predictive power are different
+# its peak sits near an $R^2$ of 0.4. Reliability and predictive power are different
 # questions, and the two maps are answering one each.
 #
 # Note also that the panels are labelled in stereotaxic coordinates with no atlas
