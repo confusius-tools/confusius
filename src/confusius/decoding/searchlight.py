@@ -6,7 +6,6 @@ licensed under the BSD-3-Clause License. See `NOTICE` for details.
 
 import warnings
 from collections.abc import Callable
-from contextlib import nullcontext
 
 import numpy as np
 import numpy.typing as npt
@@ -234,7 +233,6 @@ def _run_searchlight(
     scoring: str | Callable | None,
     groups: npt.NDArray | None,
     n_jobs: int,
-    show_progress: bool,
 ) -> npt.NDArray[np.float64]:
     """Score every neighbourhood, parallelising over batches of centres.
 
@@ -261,8 +259,6 @@ def _run_searchlight(
         Group labels forwarded to the splitter.
     n_jobs : int
         Number of joblib workers.
-    show_progress : bool
-        Whether to display a joblib progress bar over the batches of centres.
 
     Returns
     -------
@@ -275,17 +271,10 @@ def _run_searchlight(
         for batch_indices in np.array_split(np.arange(len(neighborhoods)), n_batches)
     ]
 
-    progress_context = nullcontext()
-    if show_progress:
-        from joblib_progress import joblib_progress
-
-        progress_context = joblib_progress("Running searchlight...", total=n_batches)
-
-    with progress_context:
-        results = Parallel(n_jobs=n_jobs)(
-            delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
-            for batch in batches
-        )
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
+        for batch in batches
+    )
 
     return np.concatenate([np.asarray(result, dtype=np.float64) for result in results])
 
@@ -338,11 +327,6 @@ class SearchLight(BaseEstimator):
     n_jobs : int, default: 1
         Number of joblib workers. Centres are dispatched in batches, not one task
         each.
-    show_progress : bool, default: False
-        Whether to display a joblib progress bar over the searchlight centres. Off by
-        default so that a fit nested inside a
-        [`Pipeline`][sklearn.pipeline.Pipeline] or
-        [`GridSearchCV`][sklearn.model_selection.GridSearchCV] stays silent.
 
     Attributes
     ----------
@@ -355,7 +339,8 @@ class SearchLight(BaseEstimator):
     UserWarning
         If `radius` is small enough that the median neighbourhood holds a single voxel.
         The run still produces a valid map, but it has silently become a univariate
-        analysis rather than a multivariate one.
+        analysis rather than a multivariate one. Also if `process_mask` selects no
+        voxels at all, which yields an entirely NaN map.
 
     Notes
     -----
@@ -407,7 +392,6 @@ class SearchLight(BaseEstimator):
         cv: int | BaseCrossValidator = 5,
         scoring: str | Callable | None = None,
         n_jobs: int = 1,
-        show_progress: bool = False,
     ) -> None:
         self.mask = mask
         self.estimator = estimator
@@ -416,7 +400,6 @@ class SearchLight(BaseEstimator):
         self.cv = cv
         self.scoring = scoring
         self.n_jobs = n_jobs
-        self.show_progress = show_progress
 
     def fit(
         self,
@@ -454,7 +437,8 @@ class SearchLight(BaseEstimator):
             If the median neighbourhood holds a single voxel, either because `radius`
             is below the voxel spacing or because `mask` is very sparse. The run still
             produces a valid map, but it has silently become a univariate analysis
-            rather than a multivariate one.
+            rather than a multivariate one. Also if `process_mask` selects no voxels at
+            all, which yields an entirely NaN map.
         """
         if is_h5py_backed(X):
             raise ValueError(
@@ -502,7 +486,14 @@ class SearchLight(BaseEstimator):
 
         sizes = np.array([len(indices) for indices in neighborhoods])
         median_size = float(np.median(sizes)) if sizes.size else 0.0
-        if sizes.size and median_size <= 1.0:
+        if not sizes.size:
+            warnings.warn(
+                "process_mask selects no voxels, so the score map is entirely NaN. "
+                "Check that `process_mask` overlaps `mask` and is not all `False`.",
+                UserWarning,
+                stacklevel=find_stack_level(),
+            )
+        elif median_size <= 1.0:
             warnings.warn(
                 f"radius={self.radius} produces single-voxel searchlight "
                 f"neighbourhoods (median size {median_size:.0f}). The result is a "
@@ -524,7 +515,6 @@ class SearchLight(BaseEstimator):
             self.scoring,
             groups_array,
             self.n_jobs,
-            self.show_progress,
         )
 
         self.scores_: xr.DataArray = unmask(
@@ -534,16 +524,6 @@ class SearchLight(BaseEstimator):
             fill_value=np.nan,
         )
         return self
-
-    def __sklearn_is_fitted__(self) -> bool:
-        """Whether `fit` has completed.
-
-        Returns
-        -------
-        bool
-            Whether `scores_` has been assigned.
-        """
-        return hasattr(self, "scores_")
 
     def score(self, X: xr.DataArray, y: npt.ArrayLike) -> float:
         """Refuse to produce a single score.
