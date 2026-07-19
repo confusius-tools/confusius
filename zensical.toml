@@ -86,6 +86,9 @@ nav = [
             { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
             { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
+        { "Decoding" = [
+            { "Searchlight decoding of locomotion speed" = "examples/_built/decoding/searchlight_speed.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },
