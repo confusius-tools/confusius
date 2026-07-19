@@ -81,6 +81,51 @@ def test_matches_brute_force_reference(decoding_volume, full_mask, rng):
     np.testing.assert_allclose(actual, expected)
 
 
+def test_matches_brute_force_reference_sparse_mask(decoding_volume, rng):
+    """SearchLight matches the reference under a sparse mask.
+
+    The all-`True` variant of this comparison cannot see a feature-ordering bug: with
+    every voxel retained, the boolean indexing is a no-op on both sides, so
+    `extract_with_mask` (xarray `stack` plus boolean `isel`) and `_masked_coordinates`
+    (numpy `ravel` plus boolean index) agree trivially. A sparse mask makes that
+    indexing load-bearing, so any disagreement between the two flattening orders
+    mis-assigns every neighbourhood and shows up here.
+
+    Parameters
+    ----------
+    decoding_volume : xarray.DataArray
+        Random `(time, z, y, x)` volume from the shared fixtures.
+    rng : numpy.random.Generator
+        Seeded generator from the shared test fixtures.
+    """
+    spatial = decoding_volume.isel(time=0, drop=True)
+    mask = xr.DataArray(
+        rng.random(spatial.shape) < 0.65,
+        dims=spatial.dims,
+        coords=spatial.coords,
+    )
+    # Every centre is itself a feature, so no neighbourhood can be empty at any radius.
+    assert mask.values.any()
+
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    searchlight = SearchLight(mask=mask, estimator=Ridge(alpha=1.0), radius=0.25, cv=3)
+    searchlight.fit(decoding_volume, y)
+
+    expected = _reference_scores(
+        decoding_volume,
+        mask,
+        y,
+        radius=0.25,
+        estimator=Ridge(alpha=1.0),
+        cv=KFold(n_splits=3, shuffle=False),
+    )
+    actual = searchlight.scores_.values[mask.values]
+
+    np.testing.assert_allclose(actual, expected)
+    assert np.isnan(searchlight.scores_.values[~mask.values]).all()
+
+
 def test_recovers_planted_signal(decoding_volume, full_mask, rng):
     """The score map peaks where a decodable signal was planted."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
