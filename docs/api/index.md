@@ -97,6 +97,12 @@ guide](../user-guide/getting-started.md) for more detailed explanations and usag
 
     Matrix decomposition algorithms for fUSI time series (e.g. PCA, NMF, ICA).
 
+- **[:lucide-scan-search: Decoding](decoding.md)**
+
+    ---
+
+    Multivariate pattern decoding for fUSI data, including searchlight mapping.
+
 - **[:lucide-brain-circuit: Functional Connectivity](connectivity.md)**
 
     ---
