@@ -1,10 +1,16 @@
 """Tests for `confusius.decoding.SearchLight`."""
 
+import warnings
+
 import numpy as np
 import pytest
 import xarray as xr
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import KFold, cross_val_score
+from sklearn.model_selection import (
+    KFold,
+    LeaveOneGroupOut,
+    cross_val_score,
+)
 from sklearn.utils.validation import check_is_fitted
 
 from confusius.decoding import SearchLight
@@ -301,22 +307,48 @@ def test_warns_on_degenerate_neighborhoods(decoding_volume, full_mask, rng):
 def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
     """Radius uses physical coordinates, so the anisotropic z axis is excluded.
 
-    `z` voxels are 1.0 apart while `y` and `x` are 0.2 apart. A radius of 0.25 must
-    therefore select in-plane neighbours only, giving each interior voxel exactly 5
-    neighbours (itself plus 4 in-plane), never 6 or 7.
+    `z` voxels are 1.0 apart while `y` and `x` are 0.2 apart, so a radius of 0.25 must
+    select in-plane neighbours only: each interior voxel gets itself plus its 4 in-plane
+    neighbours, never the 2 voxels one z step away. Both interpretations of `radius` are
+    pinned through the public API:
+
+    - It is more than one voxel, otherwise the degenerate-neighbourhood warning fires.
+      An index-based radius of 0.25 would select the centre alone.
+    - It reaches no further than the plane, checked by planting a strong signal in the
+      `z = 0` plane and requiring the `z = 1` scores to stay bit-identical to a run on
+      the unplanted volume. A radius of 1.05 does span the z gap, so there the same
+      planting must move the `z = 1` scores.
     """
     y = rng.standard_normal(decoding_volume.sizes["time"])
-    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
-        decoding_volume, y
-    )
 
-    reference = SearchLight(mask=full_mask, estimator=Ridge(), radius=1.05, cv=3).fit(
-        decoding_volume, y
-    )
+    # Index positionally: `y`/`x` coordinates are `np.arange(n) * 0.2`, so label lookups
+    # of the floating-point values are unreliable.
+    planted = decoding_volume.copy(deep=True)
+    planted.values[:, 0, :, :] += 3.0 * y[:, None, None]
 
-    # A radius spanning the z gap must change the result; if radius were interpreted
-    # in voxel indices, both runs would give identical maps.
-    assert not np.allclose(searchlight.scores_.values, reference.scores_.values)
+    def fit_scores(volume, radius):
+        return (
+            SearchLight(mask=full_mask, estimator=Ridge(), radius=radius, cv=3)
+            .fit(volume, y)
+            .scores_
+        )
+
+    with warnings.catch_warnings():
+        # A single-voxel neighbourhood would mean the radius was read as voxel indices.
+        warnings.simplefilter("error", UserWarning)
+        in_plane_baseline = fit_scores(decoding_volume, 0.25)
+
+    in_plane_planted = fit_scores(planted, 0.25)
+    np.testing.assert_array_equal(
+        in_plane_planted.isel(z=1).values, in_plane_baseline.isel(z=1).values
+    )
+    assert (in_plane_planted.isel(z=0).values > in_plane_baseline.isel(z=0).values).all()
+
+    across_planes_baseline = fit_scores(decoding_volume, 1.05)
+    across_planes_planted = fit_scores(planted, 1.05)
+    assert not np.allclose(
+        across_planes_planted.isel(z=1).values, across_planes_baseline.isel(z=1).values
+    )
 
 
 def test_process_mask_restricts_centres(decoding_volume, full_mask, rng):
@@ -337,8 +369,8 @@ def test_process_mask_restricts_centres(decoding_volume, full_mask, rng):
     assert np.isnan(searchlight.scores_.sel(z=1.0).values).all()
 
 
-def test_classifier_selects_stratified_folds(decoding_volume, full_mask, rng):
-    """A classifier estimator drives StratifiedKFold, a regressor drives KFold."""
+def test_classifier_selects_accuracy_scorer(decoding_volume, full_mask, rng):
+    """A classifier estimator scores with accuracy rather than R-squared."""
     from sklearn.linear_model import LogisticRegression
 
     labels = np.tile([0, 1], decoding_volume.sizes["time"] // 2)
@@ -349,6 +381,52 @@ def test_classifier_selects_stratified_folds(decoding_volume, full_mask, rng):
     # Accuracy is bounded to [0, 1]; R-squared is not, so this pins the scorer family.
     finite = searchlight.scores_.values[np.isfinite(searchlight.scores_.values)]
     assert ((finite >= 0.0) & (finite <= 1.0)).all()
+
+
+def test_accepts_splitter_object_as_cv(decoding_volume, full_mask, rng):
+    """A ready-made splitter passed as `cv` is used instead of being rebuilt."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    splitter = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=KFold(n_splits=3)
+    ).fit(decoding_volume, y)
+    integer = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
+        decoding_volume, y
+    )
+
+    # An integer `cv` builds exactly `KFold(n_splits=3, shuffle=False)`, so the two maps
+    # must agree; a discarded splitter would fall back to the default `cv=5`.
+    xr.testing.assert_identical(splitter.scores_, integer.scores_)
+
+
+def test_accepts_groups_with_leave_one_group_out(decoding_volume, full_mask, rng):
+    """`groups` reaches the splitter, so LeaveOneGroupOut produces a finite map."""
+    n_time = decoding_volume.sizes["time"]
+    y = rng.standard_normal(n_time)
+    groups = np.repeat([0, 1, 2, 3], n_time // 4)
+
+    searchlight = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=LeaveOneGroupOut()
+    ).fit(decoding_volume, y, groups=groups)
+
+    assert searchlight.scores_.dims == ("z", "y", "x")
+    assert np.isfinite(searchlight.scores_.values).all()
+
+
+def test_warns_when_process_mask_is_empty(decoding_volume, full_mask, rng):
+    """An empty process_mask warns rather than silently returning an all-NaN map."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    searchlight = SearchLight(
+        mask=full_mask,
+        estimator=Ridge(),
+        radius=0.25,
+        process_mask=xr.zeros_like(full_mask, dtype=bool),
+        cv=3,
+    )
+    with pytest.warns(UserWarning, match="selects no voxels"):
+        searchlight.fit(decoding_volume, y)
+
+    assert np.isnan(searchlight.scores_.values).all()
 
 
 def test_parallel_matches_serial(decoding_volume, full_mask, rng):
