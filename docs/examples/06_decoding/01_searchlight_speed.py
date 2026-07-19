@@ -10,10 +10,13 @@
 # pattern around this voxel predict the regressor?", which picks up information carried
 # jointly by neighbouring voxels rather than by any one of them alone.
 #
-# We reproduce the setting of [Cybis Pereira et al.
+# We follow the experimental setting and dataset of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
 # single coronal plane, and compare the searchlight map against a lagged GLM fit on the
-# same data.
+# same data. The target we actually decode is `log1p(speed)` rather than raw speed. That
+# transform is an expository choice made for this example, to stabilise a strongly
+# right-skewed target under a squared-error score; it is not necessarily the analysis
+# the paper performs.
 
 # %% [markdown]
 # ## Load the recording and the tracking data
@@ -26,6 +29,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from sklearn.linear_model import RidgeCV
+from sklearn.model_selection import KFold
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -115,18 +119,24 @@ log_speed = np.log1p(speed).rename("log_speed")
 #   both the training and test sets and inflate the scores. `SearchLight` therefore
 #   builds contiguous temporal folds by default, which is what we rely on here.
 #
-# The estimator is a ridge regression wrapped in a `RidgeCV`, so the penalty is chosen
-# by an inner cross-validation within each neighbourhood's training folds. Neighbouring
-# fUSI voxels are highly correlated, and the right amount of regularisation varies
-# across the plane, so fixing a single penalty by hand would favour some regions
-# arbitrarily.
+# The estimator is a `RidgeCV`: ridge regression that selects its own penalty from a
+# grid, by an inner cross-validation run within each neighbourhood's training folds.
+# Neighbouring fUSI voxels are highly correlated, and the right amount of regularisation
+# varies across the plane, so fixing a single penalty by hand would favour some regions
+# arbitrarily. We pass an explicit non-shuffled `KFold` as the inner splitter for the
+# same reason the outer folds are contiguous: the default leave-one-out generalised
+# cross-validation would score each volume against a model trained on its immediate
+# temporal neighbours.
 
 # %%
 mean_image = data.mean("time")
 mask = mean_image > mean_image.quantile(0.5)
 mask = mask.drop_vars("quantile")
 
-estimator = make_pipeline(StandardScaler(), RidgeCV(alphas=np.logspace(0, 4, 9)))
+estimator = make_pipeline(
+    StandardScaler(),
+    RidgeCV(alphas=np.logspace(0, 4, 9), cv=KFold(n_splits=5, shuffle=False)),
+)
 
 searchlight = cf.decoding.SearchLight(
     mask=mask,
@@ -141,8 +151,8 @@ searchlight.scores_
 # %% [markdown]
 # ## Compare against a lagged GLM
 #
-# We fit the same regressor with a GLM, sweeping a few temporal lags and keeping the
-# best z-score per voxel, so that the two maps are comparable.
+# We fit the same `log_speed` regressor the searchlight decoded, this time with a GLM,
+# sweeping a few temporal lags and keeping the best z-score per voxel.
 
 # %%
 confounds = cf.signal.compute_compcor_confounds(
@@ -187,12 +197,32 @@ for lag in lags:
 best_z = xr.concat(z_scores, dim="lag").max("lag")
 
 # %% [markdown]
+# ### The two analyses are not given the same information
+#
+# Before comparing the maps, it is worth being explicit that this is not a controlled
+# comparison. The GLM above is a conventional fUSI activation analysis and the
+# searchlight is a plain decoder, and they differ in three ways:
+#
+# - **Denoising.** The GLM design carries cosine drift regressors below 0.01 Hz and
+#   three CompCor confound components. The searchlight sees the raw, unfiltered signal.
+# - **Haemodynamic model.** The GLM regressor is convolved with an HRF. The searchlight
+#   target is the resampled `log_speed` trace itself.
+# - **Lag.** The GLM keeps the best of nine lags per voxel. The searchlight uses a
+#   single zero-lag target.
+#
+# We leave the asymmetry in place rather than equalising it, because each side is shown
+# in its usual form. It does mean any difference between the maps mixes "univariate
+# versus multivariate" with "denoised and lag-optimised versus not". For what it is
+# worth, applying the same cosine high-pass to the searchlight input makes its scores
+# strictly worse: locomotion bouts are slow events, so the filter removes much of the
+# signal being decoded along with the drift.
+#
 # ## Compare the two maps
 #
 # The searchlight reports a cross-validated coefficient of determination, so values at
-# or below zero mean the local neighbourhood predicts speed no better than the fold
-# mean. We show only positive scores. The GLM map is restricted to the same mask, so
-# the two panels cover the same voxels.
+# or below zero mean the local neighbourhood predicts `log1p(speed)` no better than the
+# fold mean. We show only positive scores. The GLM map is restricted to the same mask,
+# so the two panels cover the same voxels.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(11, 4), constrained_layout=True)
@@ -203,7 +233,7 @@ plane_mask = mask.squeeze(drop=True)
 scores.where(scores > 0).plot(
     ax=axes[0], cmap="inferno", cbar_kwargs={"label": "Cross-validated $R^2$"}
 )
-axes[0].set_title("Searchlight decoding of speed")
+axes[0].set_title("Searchlight decoding of log speed")
 
 best_z.squeeze(drop=True).where(plane_mask).plot(
     ax=axes[1], cmap="coolwarm", center=0, cbar_kwargs={"label": "z-score"}
@@ -215,16 +245,44 @@ for ax in axes:
     ax.invert_yaxis()
 
 # %% [markdown]
+# To put a number on the agreement, we take the top 5 percent of voxels in each map,
+# within the shared mask, and measure their Dice overlap.
+
+# %%
+top_scores = scores.where(plane_mask)
+top_z = best_z.squeeze(drop=True).where(plane_mask)
+
+selected_scores = top_scores >= top_scores.quantile(0.95)
+selected_z = top_z >= top_z.quantile(0.95)
+dice = float(
+    2
+    * (selected_scores & selected_z).sum()
+    / (selected_scores.sum() + selected_z.sum())
+)
+print(f"Top-5% overlap, Dice = {dice:.3f}")
+
+# %% [markdown]
 # The two maps highlight overlapping territory: the strongest searchlight cluster sits
-# on the same dorsal structures the GLM flags most strongly. They are not identical,
-# and should not be. The GLM is univariate and tests a linear relationship at a fixed
-# lag, while the searchlight is multivariate, cross-validated, and rewards any locally
-# distributed pattern that generalises to held-out time blocks.
+# on top of one of the clusters the GLM flags most strongly, left of the midline. They
+# are not identical, and should not be. The GLM is univariate and tests a linear
+# relationship at a fixed lag, while the searchlight is multivariate, cross-validated,
+# and rewards any locally distributed pattern that generalises to held-out time blocks.
+#
+# They also disagree somewhere specific. The GLM lights up a large territory on the
+# right of the plane, roughly 2 to 7 mm lateral, where the searchlight has essentially
+# no surviving voxels at all. A voxel-wise linear relationship can be highly reliable
+# there without the local pattern carrying enough information to predict held-out time
+# blocks, and the GLM's extra advantages listed above (denoising, HRF, lag selection)
+# apply to that territory too.
+#
+# Note also that the panels are labelled in stereotaxic coordinates with no atlas
+# overlay, so we describe clusters by position rather than by anatomical name.
 #
 # The difference in scale is worth noting. The GLM reaches large z-scores over a broad
 # area because it measures evidence against the null across more than a thousand
 # volumes, and an effect can be highly reliable while still explaining little variance.
-# The searchlight instead reports how much variance is actually predicted in unseen
-# time blocks, which is a much stricter bar, so its map is sparser and its peak sits
-# near an $R^2$ of 0.12. Reliability and predictive power are different questions, and
-# the two maps are answering one each.
+# Those z-scores are also inflated by the per-voxel maximum over nine lags, which is a
+# selection we do not correct for. The searchlight instead reports how much variance is
+# actually predicted in unseen time blocks, which is a much stricter bar, so its map is
+# sparser and its peak sits near an $R^2$ of 0.12. Reliability and predictive power are
+# different questions, and the two maps are answering one each.
