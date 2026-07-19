@@ -112,7 +112,8 @@ log_speed = np.log1p(speed).rename("log_speed")
 # - `radius` is in the units of the data's spatial coordinates, not in voxel indices.
 #   fUSI voxels are usually anisotropic, so an index-based radius would silently give
 #   anisotropic neighbourhoods. This recording has an in-plane spacing of roughly
-#   0.1 mm, so a 0.3 mm radius collects a neighbourhood about three voxels wide.
+#   0.1 mm, so a 0.3 mm radius is a three-voxel radius, collecting a neighbourhood
+#   roughly seven voxels across.
 # - Consecutive fUSI volumes are strongly autocorrelated, and consecutive speed values
 #   are too. Cross-validating with shuffled folds would put near-duplicate volumes in
 #   both the training and test sets and inflate the scores. `SearchLight` therefore
