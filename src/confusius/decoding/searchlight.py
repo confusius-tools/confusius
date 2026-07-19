@@ -296,18 +296,19 @@ class SearchLight(BaseEstimator):
 
     Parameters
     ----------
-    mask : xarray.DataArray
-        Boolean spatial mask selecting the voxels that may act as *features*. Every
-        spatial dimension must carry a numeric coordinate, because `radius` is measured
-        in coordinate units.
     estimator : sklearn.base.BaseEstimator
         Estimator or [`Pipeline`][sklearn.pipeline.Pipeline] cloned into each
         neighbourhood. Required. Whether it is a classifier or a regressor is detected
         with [`is_classifier`][sklearn.base.is_classifier], and that choice drives both
         the default cross-validator and the default scorer.
+    mask : xarray.DataArray, optional
+        Boolean spatial mask selecting the voxels that may act as *features*. If not
+        provided, every voxel of the input data is used as a feature voxel. Every
+        spatial dimension must carry a numeric coordinate, because `radius` is measured
+        in coordinate units.
     radius : float, default: 1.0
-        Neighbourhood radius, in the units of the mask's spatial coordinates. Check
-        `mask[dim].attrs.get("units")` if unsure. Radii are measured in physical
+        Neighbourhood radius, in the units of the data's spatial coordinates. Check
+        `X[dim].attrs.get("units")` if unsure. Radii are measured in physical
         coordinates rather than voxel indices, so anisotropic voxels behave correctly.
     process_mask : xarray.DataArray, optional
         Boolean mask selecting the voxels that act as neighbourhood *centres*. Must be
@@ -374,10 +375,9 @@ class SearchLight(BaseEstimator):
     ...         "x": np.arange(5) * 0.2,
     ...     },
     ... )
-    >>> mask = xr.ones_like(data.isel(time=0, drop=True), dtype=bool)
     >>> speed = rng.standard_normal(40)
     >>>
-    >>> searchlight = SearchLight(mask=mask, estimator=Ridge(), radius=0.25, cv=3)
+    >>> searchlight = SearchLight(estimator=Ridge(), radius=0.25, cv=3)
     >>> searchlight.fit(data, speed).scores_.dims
     ('z', 'y', 'x')
     """
@@ -385,16 +385,16 @@ class SearchLight(BaseEstimator):
     def __init__(
         self,
         *,
-        mask: xr.DataArray,
         estimator: BaseEstimator,
+        mask: xr.DataArray | None = None,
         radius: float = 1.0,
         process_mask: xr.DataArray | None = None,
         cv: int | BaseCrossValidator = 5,
         scoring: str | Callable | None = None,
         n_jobs: int = 1,
     ) -> None:
-        self.mask = mask
         self.estimator = estimator
+        self.mask = mask
         self.radius = radius
         self.process_mask = process_mask
         self.cv = cv
@@ -453,7 +453,11 @@ class SearchLight(BaseEstimator):
         spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
         X_ordered = X.transpose("time", *spatial_dims)
 
-        mask = validate_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
+        if self.mask is None:
+            mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
+        else:
+            mask = validate_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
+
         if self.process_mask is None:
             process_mask = mask
         else:

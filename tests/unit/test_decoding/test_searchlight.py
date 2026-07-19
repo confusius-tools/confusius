@@ -429,6 +429,42 @@ def test_warns_when_process_mask_is_empty(decoding_volume, full_mask, rng):
     assert np.isnan(searchlight.scores_.values).all()
 
 
+def test_omitted_mask_matches_explicit_full_mask(decoding_volume, full_mask, rng):
+    """Omitting `mask` uses every voxel, exactly as an explicit all-`True` mask does."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    explicit = SearchLight(
+        estimator=Ridge(), mask=full_mask, radius=0.25, cv=3
+    ).fit(decoding_volume, y)
+    default = SearchLight(estimator=Ridge(), radius=0.25, cv=3).fit(decoding_volume, y)
+
+    xr.testing.assert_identical(default.scores_, explicit.scores_)
+
+
+def test_process_mask_restricts_centres_without_mask(decoding_volume, full_mask, rng):
+    """`process_mask` still restricts the centres when `mask` is omitted."""
+    process_mask = xr.zeros_like(full_mask, dtype=bool)
+    process_mask.loc[dict(z=0.0)] = True
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    searchlight = SearchLight(
+        estimator=Ridge(), radius=0.25, process_mask=process_mask, cv=3
+    ).fit(decoding_volume, y)
+
+    assert np.isfinite(searchlight.scores_.sel(z=0.0).values).all()
+    assert np.isnan(searchlight.scores_.sel(z=1.0).values).all()
+
+
+def test_raises_on_missing_coordinate_without_mask(decoding_volume, rng):
+    """The missing-coordinate error still fires for an internally built mask."""
+    volume = decoding_volume.drop_vars("y")
+    y = rng.standard_normal(volume.sizes["time"])
+
+    searchlight = SearchLight(estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="lack a numeric coordinate"):
+        searchlight.fit(volume, y)
+
+
 def test_parallel_matches_serial(decoding_volume, full_mask, rng):
     """Parallel execution produces exactly the same map as serial execution."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
