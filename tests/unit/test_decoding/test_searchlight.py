@@ -281,7 +281,7 @@ def test_raises_on_groups_length_mismatch(decoding_volume, full_mask, rng):
 
 
 def test_raises_on_h5py_backed_data(scan_2d, rng):
-    """h5py-backed data is rejected, because joblib workers cannot pickle it."""
+    """h5py-backed data is rejected, because fitting would materialise it all."""
     mask = xr.ones_like(scan_2d.isel(time=0, drop=True), dtype=bool)
     y = rng.standard_normal(scan_2d.sizes["time"])
 

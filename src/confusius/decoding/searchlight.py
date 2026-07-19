@@ -373,11 +373,21 @@ class SearchLight(BaseEstimator):
             If `X` is h5py-backed, if `process_mask` is not a subset of `mask`, if `y`
             or `groups` do not align with `X`, or if a spatial dimension lacks a
             numeric coordinate.
+
+        Warns
+        -----
+        UserWarning
+            If the median neighbourhood holds a single voxel, either because `radius`
+            is below the voxel spacing or because `mask` is very sparse. The run still
+            produces a valid map, but it has silently become a univariate analysis
+            rather than a multivariate one.
         """
         if is_h5py_backed(X):
             raise ValueError(
-                "SearchLight cannot run on h5py-backed data, because joblib workers "
-                "cannot pickle h5py datasets. Call `.compute()` on the data first."
+                "SearchLight cannot run on h5py-backed data. Fitting materialises the "
+                "whole masked time series into memory at once, which would silently "
+                "pull the entire lazy recording into RAM. Call `.compute()` on the "
+                "data first."
             )
 
         validate_time_series(X, operation_name="SearchLight.fit")
@@ -417,12 +427,14 @@ class SearchLight(BaseEstimator):
         neighborhoods = _neighborhood_indices(mask, process_mask, self.radius)
 
         sizes = np.array([len(indices) for indices in neighborhoods])
-        if sizes.size and float(np.median(sizes)) <= 1.0:
+        median_size = float(np.median(sizes)) if sizes.size else 0.0
+        if sizes.size and median_size <= 1.0:
             warnings.warn(
                 f"radius={self.radius} produces single-voxel searchlight "
-                f"neighbourhoods (median size {float(np.median(sizes)):.0f}). The "
-                "result is a univariate analysis rather than a multivariate one. "
-                "Increase `radius` past the voxel spacing.",
+                f"neighbourhoods (median size {median_size:.0f}). The result is a "
+                "univariate analysis rather than a multivariate one. Increase "
+                "`radius` past the voxel spacing, or check that `mask` is not too "
+                "sparse.",
                 UserWarning,
                 stacklevel=find_stack_level(),
             )
