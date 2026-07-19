@@ -4,6 +4,7 @@ Portions of this module are inspired by `nilearn.decoding.searchlight`, which is
 licensed under the BSD-3-Clause License. See `NOTICE` for details.
 """
 
+import warnings
 from collections.abc import Callable
 
 import numpy as np
@@ -18,6 +19,8 @@ from sklearn.model_selection import (
     cross_val_score,
 )
 
+from confusius._utils.io import is_h5py_backed
+from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
 from confusius.validation import validate_mask, validate_time_series
 
@@ -367,9 +370,16 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `process_mask` is not a subset of `mask`, if `y` or `groups` do not
-            align with `X`, or if a spatial dimension lacks a numeric coordinate.
+            If `X` is h5py-backed, if `process_mask` is not a subset of `mask`, if `y`
+            or `groups` do not align with `X`, or if a spatial dimension lacks a
+            numeric coordinate.
         """
+        if is_h5py_backed(X):
+            raise ValueError(
+                "SearchLight cannot run on h5py-backed data, because joblib workers "
+                "cannot pickle h5py datasets. Call `.compute()` on the data first."
+            )
+
         validate_time_series(X, operation_name="SearchLight.fit")
 
         spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
@@ -405,6 +415,18 @@ class SearchLight(BaseEstimator):
 
         features = np.asarray(extract_with_mask(X_ordered, mask).values)
         neighborhoods = _neighborhood_indices(mask, process_mask, self.radius)
+
+        sizes = np.array([len(indices) for indices in neighborhoods])
+        if sizes.size and float(np.median(sizes)) <= 1.0:
+            warnings.warn(
+                f"radius={self.radius} produces single-voxel searchlight "
+                f"neighbourhoods (median size {float(np.median(sizes)):.0f}). The "
+                "result is a univariate analysis rather than a multivariate one. "
+                "Increase `radius` past the voxel spacing.",
+                UserWarning,
+                stacklevel=find_stack_level(),
+            )
+
         cv = _resolve_cv(self.cv, classifier=is_classifier(self.estimator))
 
         scores = np.asarray(

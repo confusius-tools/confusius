@@ -211,3 +211,141 @@ def test_single_slice_volume(decoding_volume, rng):
     assert searchlight.scores_.dims == ("z", "y", "x")
     assert searchlight.scores_.shape == (1, 5, 6)
     assert np.isfinite(searchlight.scores_.values).all()
+
+
+def test_raises_on_missing_coordinate(decoding_volume, rng):
+    """A spatial dimension without a coordinate is an error, not a silent fallback."""
+    volume = decoding_volume.drop_vars("y")
+    mask = xr.ones_like(volume.isel(time=0, drop=True), dtype=bool)
+    y = rng.standard_normal(volume.sizes["time"])
+
+    searchlight = SearchLight(mask=mask, estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="lack a numeric coordinate"):
+        searchlight.fit(volume, y)
+
+
+def test_raises_when_process_mask_not_subset(decoding_volume, full_mask, rng):
+    """A process_mask reaching outside mask is rejected."""
+    mask = full_mask.copy(deep=True)
+    mask.loc[dict(z=0.0)] = False
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    searchlight = SearchLight(
+        mask=mask,
+        estimator=Ridge(),
+        radius=0.25,
+        process_mask=full_mask,
+        cv=3,
+    )
+    with pytest.raises(ValueError, match="must be a subset of mask"):
+        searchlight.fit(decoding_volume, y)
+
+
+def test_raises_on_y_length_mismatch(decoding_volume, full_mask, rng):
+    """A y of the wrong length is rejected."""
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="but X has 40 time points"):
+        searchlight.fit(decoding_volume, rng.standard_normal(39))
+
+
+def test_raises_on_misaligned_y_dataarray(decoding_volume, full_mask, rng):
+    """A DataArray y whose time coordinate disagrees with X is rejected."""
+    y = xr.DataArray(
+        rng.standard_normal(decoding_volume.sizes["time"]),
+        dims=["time"],
+        coords={"time": decoding_volume.time.values + 0.1},
+    )
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="does not match X"):
+        searchlight.fit(decoding_volume, y)
+
+
+def test_accepts_aligned_y_dataarray(decoding_volume, full_mask, rng):
+    """A DataArray y sharing X's time coordinate is accepted."""
+    y = xr.DataArray(
+        rng.standard_normal(decoding_volume.sizes["time"]),
+        dims=["time"],
+        coords={"time": decoding_volume.time.values},
+    )
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3)
+    searchlight.fit(decoding_volume, y)
+    assert searchlight.scores_.dims == ("z", "y", "x")
+
+
+def test_raises_on_groups_length_mismatch(decoding_volume, full_mask, rng):
+    """A groups array of the wrong length is rejected."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="groups has 39 entries"):
+        searchlight.fit(decoding_volume, y, groups=np.zeros(39))
+
+
+def test_raises_on_h5py_backed_data(scan_2d, rng):
+    """h5py-backed data is rejected, because joblib workers cannot pickle it."""
+    mask = xr.ones_like(scan_2d.isel(time=0, drop=True), dtype=bool)
+    y = rng.standard_normal(scan_2d.sizes["time"])
+
+    searchlight = SearchLight(mask=mask, estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="h5py-backed"):
+        searchlight.fit(scan_2d, y)
+
+
+def test_warns_on_degenerate_neighborhoods(decoding_volume, full_mask, rng):
+    """A radius below the voxel spacing warns that the analysis became univariate."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.01, cv=3)
+    with pytest.warns(UserWarning, match="single-voxel"):
+        searchlight.fit(decoding_volume, y)
+
+
+def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
+    """Radius uses physical coordinates, so the anisotropic z axis is excluded.
+
+    `z` voxels are 1.0 apart while `y` and `x` are 0.2 apart. A radius of 0.25 must
+    therefore select in-plane neighbours only, giving each interior voxel exactly 5
+    neighbours (itself plus 4 in-plane), never 6 or 7.
+    """
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
+        decoding_volume, y
+    )
+
+    reference = SearchLight(mask=full_mask, estimator=Ridge(), radius=1.05, cv=3).fit(
+        decoding_volume, y
+    )
+
+    # A radius spanning the z gap must change the result; if radius were interpreted
+    # in voxel indices, both runs would give identical maps.
+    assert not np.allclose(searchlight.scores_.values, reference.scores_.values)
+
+
+def test_process_mask_restricts_centres(decoding_volume, full_mask, rng):
+    """Only process_mask voxels get a score; the rest are NaN."""
+    process_mask = xr.zeros_like(full_mask, dtype=bool)
+    process_mask.loc[dict(z=0.0)] = True
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    searchlight = SearchLight(
+        mask=full_mask,
+        estimator=Ridge(),
+        radius=0.25,
+        process_mask=process_mask,
+        cv=3,
+    ).fit(decoding_volume, y)
+
+    assert np.isfinite(searchlight.scores_.sel(z=0.0).values).all()
+    assert np.isnan(searchlight.scores_.sel(z=1.0).values).all()
+
+
+def test_classifier_selects_stratified_folds(decoding_volume, full_mask, rng):
+    """A classifier estimator drives StratifiedKFold, a regressor drives KFold."""
+    from sklearn.linear_model import LogisticRegression
+
+    labels = np.tile([0, 1], decoding_volume.sizes["time"] // 2)
+    searchlight = SearchLight(
+        mask=full_mask, estimator=LogisticRegression(max_iter=1000), radius=0.25, cv=2
+    ).fit(decoding_volume, labels)
+
+    # Accuracy is bounded to [0, 1]; R-squared is not, so this pins the scorer family.
+    finite = searchlight.scores_.values[np.isfinite(searchlight.scores_.values)]
+    assert ((finite >= 0.0) & (finite <= 1.0)).all()
