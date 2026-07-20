@@ -365,23 +365,29 @@ glm.fit(resampled_fusi_list, events=events, confounds=confounds)
 # %%
 design_matrix = glm.design_matrices_[0]
 
-fig, ax = plt.subplots(figsize=(6, 5), facecolor=bg_color)
-norm = mpl.colors.CenteredNorm()
-ax.imshow(design_matrix.values, aspect="auto", norm=norm, interpolation="nearest")
-ax.set_xticks(range(design_matrix.shape[1]))
-ax.set_xticklabels([str(c) for c in design_matrix.columns], rotation=90, fontsize=8)
-ax.set_ylabel("Volume")
-_ = ax.set_title("Design matrix (run 1)")
-
+_ = cf.plotting.plot_design_matrix(
+    design_matrix, title="Design matrix (first run)", index_yaxis=True
+)
 
 # %% [markdown]
 # ## Compute and display the activation map
 #
 # [`compute_contrast`][confusius.glm.first_level.FirstLevelModel.compute_contrast] turns
-# the fitted model into a statistical map. The `"active"` contrast tests, at
-# every voxel, whether the stimulation regressor has a non-zero effect, and returns a
-# z-score map. We display it over a range of atlas slices with the region boundaries
-# drawn on top for anatomical context.
+# the fitted model into a statistical map from a *contrast*: a weight vector over the
+# design-matrix columns. Before computing it, we can look at the contrast itself with
+# [`plot_contrast_matrix`][confusius.plotting.plot_contrast_matrix], which lays the
+# weights over the design regressors and makes explicit that the `"active"` contrast
+# simply selects the stimulation regressor while ignoring the CompCor, drift, and constant
+# nuisance columns.
+
+# %%
+
+_ = cf.plotting.plot_contrast_matrix("active", design_matrix, cmap="coolwarm")
+
+# %% [markdown]
+# The `"active"` contrast then tests, at every voxel, whether that stimulation regressor
+# has a non-zero effect, and returns a z-score map. We display it over a range of atlas
+# slices with the region boundaries drawn on top for anatomical context.
 
 # %%
 z_score = glm.compute_contrast("active")
@@ -406,7 +412,6 @@ _ = fig.add_contours(
     slice_coords=slice_coords,
     alpha=0.4,
 )
-fig.show()
 
 # %% [markdown]
 # ## Threshold for statistical significance
