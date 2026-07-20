@@ -122,6 +122,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     4. Shift the origin of the coordinates to the corner of the volume (nice to have).
     5. Convert the coordinates units to millimeter (nice to have).
     6. Flip the "y" axis to have a depth direction "away" from the transducer.
+    7. Flip the "z" axis to match the atlas orientation.
 
     """
     # 1. Transpose "z" and "y" and rename the coordinates accordingly.
@@ -170,6 +171,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     da.fusi.affine.apply(flip_y, inplace=True)
     da = da.isel(y=slice(None, None, -1))
 
+    # 7. Flip the "z" axis to match the atlas orientation.
     flip_z = np.eye(4)
     flip_z[0, 0] = -1
     flip_z[0, 3] = da.z.max().item() + da.z.min().item()
@@ -431,8 +433,8 @@ _ = fig.add_contours(
 # significant clusters stand out. For that we convert the z-scores into two-sided
 # p-values and correct them with the same Holm procedure via
 # [`adjust_pvalues`][confusius.stats.adjust_pvalues], which sets untested voxels (those
-# outside the mask) to `1.0`. `1 - adjusted_p_values` then reads as a per-voxel
-# confidence that we can hand to the plot as an alpha map.
+# outside the mask) to `1.0`. `1 - adjusted_p_values` then gives an opacity scale
+# that we can hand to the plot as an alpha map.
 
 # %%
 thresholded_zscore, threshold = cf.stats.apply_statistical_threshold(

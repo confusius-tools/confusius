@@ -129,6 +129,14 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
+    # docs/examples/05_glm/02_first_level_continuous.py
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220524",
+        acqs="slice32",
+    )
+
 
 def _prefetch_khallaf() -> None:
     # docs/examples/glm/first_level.py
