@@ -22,6 +22,7 @@
 from functools import partial
 from pathlib import Path
 
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -30,11 +31,15 @@ from sklearn.linear_model import RidgeCV
 
 import confusius as cf
 
+# Adapt background color to the current Matplotlib style.
+bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
+
+xr.set_options(display_expand_data=False)
+
 subject = "rat75"
 session = "20220524"
 acq = "slice32"
 
-xr.set_options(display_expand_data=False)
 
 bids_root = cf.datasets.fetch_cybis_pereira_2026(
     datasets="rawdata",
@@ -50,10 +55,28 @@ pwd_path = session_dir / "fusi" / f"{stem}_acq-{acq}_pwd.nii.gz"
 motion_path = session_dir / "motion" / f"{stem}_tracksys-DLC_acq-{acq}_motion.tsv"
 
 data = cf.load(pwd_path).compute()
-data = cf.registration.register_volumewise(data, learning_rate=1)
 data
 
 # %% [markdown]
+# ## Correct for motion
+#
+# The rat moves freely, so a real analysis should first correct volume-to-volume brain
+# motion. We skip it here to keep the example fast to build, at the cost of a little
+# statistical robustness in the maps below.
+#
+# !!! note "Recommended in a real analysis"
+#     Register every volume to a reference frame with
+#     [`register_volumewise`][confusius.registration.register_volumewise] before
+#     building the regressors, then continue with the corrected `data`. Removing
+#     motion-driven variance sharpens the speed maps and their statistics. See the
+#     [Motion correction of a single
+#     recording](../registration/volumewise_motion_correction.md) example for the full
+#     workflow and diagnostics.
+#
+#     ```python
+#     data = cf.registration.register_volumewise(data, learning_rate=1)
+#     ```
+#
 # ## Build the speed regressor
 #
 # The animal is tracked with DeepLabCut at 50 frames per second. We take the
@@ -175,41 +198,37 @@ target = cf.signal.clean(
 # %% [markdown]
 # ## Run the searchlight
 #
-# Z-scoring during cleaning sets any zero-variance voxel, such as the corners outside the
-# imaged plane, to NaN, and a neighborhood that includes one cannot be fit. We therefore
-# pass a `mask` selecting the voxels that stayed finite through preprocessing; without it
-# `SearchLight` would try to use every voxel and refuse to run. A real region-of-interest
-# mask, such as an intensity-thresholded brain mask, would go here just the same.
+# Running searchlight through the entire field of view is costly because this means
+# fitting a few tens of thousands of models. Here we will create a mask to only run the
+# searchlight algorithm in the top half of the field of view. A real region-of-interest
+# mask, such as an intensity-thresholded brain mask, or an anatomical brain region mask,
+# would be of good use here just the same.
 #
 # Two details matter for fUSI data:
 #
 # - `radius` is in the units of the data's spatial coordinates, not in voxel indices.
-#   fUSI voxels are usually anisotropic, so an index-based radius would silently give
-#   anisotropic neighborhoods. Each neighborhood is the set of voxels within `radius`
-#   millimeters of the center.
-# - Consecutive fUSI volumes are strongly autocorrelated, and the HRF convolution makes
-#   the target smoother still. Cross-validating with shuffled folds would put
-#   near-duplicate volumes in both the training and test sets and inflate the scores.
-#   `SearchLight` therefore builds contiguous temporal folds by default. Each fold also
-#   needs to be long enough to contain both quiet and active periods, since the animal
-#   moves in bursts, which is why we keep the fold count low.
+#   Each neighborhood is the set of voxels within `radius` millimeters of the center.
+# - Consecutive fUSI volumes are strongly autocorrelated. Cross-validating with shuffled
+#   folds would put near-duplicate volumes in both the training and test sets and
+#   inflate the scores. `SearchLight` therefore builds contiguous temporal folds by
+#   default. Each fold also needs to be long enough to contain both quiet and active
+#   periods, since the animal moves in bursts, which is why we keep the fold count low.
 #
-# The estimator is a `RidgeCV`: ridge regression that selects its own penalty from a
-# grid. Neighboring fUSI voxels are highly correlated, and the right amount of
-# regularization varies across the plane, so fixing a single penalty by hand would favor
-# some regions arbitrarily. By default `RidgeCV` picks the penalty by leave-one-out
-# generalized cross-validation, which does put temporally adjacent volumes in its train
-# and test sets, unlike the contiguous folds we use for the outer searchlight
-# cross-validation. That is not a problem: the penalty search runs entirely inside each
-# outer training fold and never sees the outer test fold, so it only affects which
-# penalty is chosen.
+# The estimator is a [`RidgeCV`][sklearn.linear_model.RidgeCV]: ridge regression that
+# selects its own penalty from a grid. Neighboring fUSI voxels are highly correlated,
+# and the right amount of regularization varies across the plane. By default `RidgeCV`
+# picks the penalty by leave-one-out generalized cross-validation, which does put
+# temporally adjacent volumes in its train and test sets, unlike the contiguous folds we
+# use for the outer searchlight cross-validation. That is not a problem: the penalty
+# search runs entirely inside each outer training fold and never sees the outer test
+# fold, so it only affects which penalty is chosen.
 
 # %%
-estimator = RidgeCV(alphas=np.logspace(0, 4, 9))
-feature_mask = cleaned.notnull().all("time")
+estimator = RidgeCV(alphas=np.logspace(0, 10, 5))
+mask = xr.ones_like(cleaned.isel(time=0), dtype=bool).where(cleaned.y < 10, False)
 
 searchlight = cf.decoding.SearchLight(
-    estimator=estimator, mask=feature_mask, radius=0.6, cv=2, n_jobs=-1
+    estimator=estimator, mask=mask, radius=0.6, cv=3, n_jobs=-1
 )
 searchlight.fit(cleaned, target.values)
 searchlight.scores_
@@ -235,19 +254,33 @@ z_scores = glm.compute_contrast("speed")
 # contrast. Both maps cover the whole plane.
 
 # %%
+is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
+searchlight_cmap = "inferno" if is_dark_theme else "cet_CET_L17"
+glm_cmap = "berlin" if is_dark_theme else "coolwarm"
+
+background_data = data.mean("time").fusi.scale.db()
+
 fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
 
+background_data.fusi.plot.volume(axes=axes[0], show_colorbar=False, bg_color=bg_color)
 searchlight.scores_.plot(
-    ax=axes[0], cmap="inferno", vmin=0, cbar_kwargs={"label": "Cross-validated $R^2$"}
+    ax=axes[0],
+    cmap=searchlight_cmap,
+    vmin=0,
+    cbar_kwargs={"label": "Cross-validated $R^2$"},
 )
 axes[0].set_title("Searchlight decoding of speed")
 
-z_scores.plot(ax=axes[1], cmap="coolwarm", center=0, cbar_kwargs={"label": "z-score"})
+background_data.fusi.plot.volume(axes=axes[1], show_colorbar=False, bg_color=bg_color)
+z_scores.where(mask).plot(
+    ax=axes[1], cmap=glm_cmap, center=0, cbar_kwargs={"label": "z-score"}
+)
 axes[1].set_title("GLM, same regressor")
 
 for ax in axes:
     ax.set_aspect("equal")
     ax.invert_yaxis()
+
 
 # %% [markdown]
 # We quantify the spatial agreement between the two maps by the Dice overlap of their top
@@ -267,9 +300,7 @@ dice = float(
 print(f"Top-5% overlap, Dice = {dice:.3f}")
 
 # %% [markdown]
-# The overlap is partial: the two maps answer related but different questions. The GLM is univariate and asks, at
-# each voxel, whether that voxel's signal tracks the speed regressor. The searchlight is
-# multivariate and cross-validated, and asks whether the local pattern around each voxel
-# predicts the regressor in held-out blocks of time. Matching the preprocessing and the
-# regressor removes the reasons the two maps could differ artifactually, leaving the
-# genuine difference between a univariate and a multivariate question.
+# The overlap is partial: the two maps answer related but different questions. The GLM
+# is univariate and asks, at each voxel, whether that voxel's signal tracks the speed
+# regressor. The searchlight is multivariate and cross-validated, and asks whether the
+# local pattern around each voxel predicts the regressor in held-out blocks of time.
