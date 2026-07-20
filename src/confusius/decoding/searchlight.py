@@ -362,8 +362,7 @@ class SearchLight(BaseEstimator):
 
     For every voxel of `process_mask`, `fit` gathers the `mask` voxels lying within
     `radius`, cross-validates `estimator` on that neighborhood, and stores the mean
-    score. The result is a brain map answering "which regions carry information about
-    `y`?".
+    score.
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
