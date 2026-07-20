@@ -778,6 +778,7 @@ def plot_contrast_matrix(
         figure.patch.set_facecolor(bg_color)
     else:
         figure = ax.figure
+        ax.clear()
     ax.set_facecolor(bg_color)
 
     # Equal aspect keeps each weight a square cell, so the strip stays a thin band and a
@@ -971,6 +972,7 @@ def plot_design_matrix(
         figure.patch.set_facecolor(bg_color)
     else:
         figure = ax.figure
+        ax.clear()
     ax.set_facecolor(bg_color)
 
     ax.imshow(

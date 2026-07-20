@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 import xarray as xr
 from matplotlib.figure import Figure
+from matplotlib.ticker import ScalarFormatter
 
 from confusius.plotting import plot_contrast_matrix, plot_design_matrix, plot_matrix
 
@@ -456,6 +457,19 @@ class TestPlotDesignMatrix:
         assert returned_fig is fig
         assert ax.get_title() == "design"
 
+    def test_reused_axes_do_not_keep_stale_ticks(self, matplotlib_pyplot):
+        """A second plot on the same Axes resets labels and formatters."""
+        fig, ax = matplotlib_pyplot.subplots()
+        times = np.arange(20) * 2.0
+        plot_design_matrix(_design_matrix(volume_times=times), index_yaxis=True, ax=ax)
+
+        plot_design_matrix(np.zeros((20, 2)), ax=ax)
+        fig.canvas.draw()
+
+        assert isinstance(ax.yaxis.get_major_formatter(), ScalarFormatter)
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["0", "1"]
+        assert len(ax.images) == 1
+
 
 class TestPlotContrastMatrix:
     """Behaviour of plot_contrast_matrix."""
@@ -512,6 +526,17 @@ class TestPlotContrastMatrix:
         assert returned_ax is ax
         assert returned_fig is fig
         assert ax.get_title() == "A vs B"
+
+    def test_reused_axes_do_not_keep_stale_ticks(self, matplotlib_pyplot):
+        """A second contrast plot on the same Axes resets labels and images."""
+        fig, ax = matplotlib_pyplot.subplots()
+        plot_contrast_matrix(np.array([1.0, 0.0, 0.0]), _design_matrix(n_columns=3), ax=ax)
+
+        plot_contrast_matrix(np.array([1.0, 0.0]), np.zeros((20, 2)), ax=ax)
+        fig.canvas.draw()
+
+        assert [t.get_text() for t in ax.get_xticklabels()] == ["0", "1"]
+        assert len(ax.images) == 1
 
     def test_all_zero_contrast_uses_symmetric_unit_range(self, matplotlib_pyplot):
         """An all-zero contrast falls back to a symmetric [-1, 1] range, not vmin==vmax."""
