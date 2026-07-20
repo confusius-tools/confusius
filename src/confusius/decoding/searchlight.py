@@ -139,6 +139,33 @@ def _resolve_cv(
     return cv
 
 
+def _score_units(scoring: str | Callable | None, *, classifier: bool) -> str | None:
+    """Name of the metric a searchlight score is measured in, from the scorer.
+
+    Parameters
+    ----------
+    scoring : str, callable, or None
+        The `scoring` passed to
+        [`cross_val_score`][sklearn.model_selection.cross_val_score]. A string names the
+        metric directly. If not provided, the estimator's own `score` is used, which is
+        accuracy for classifiers and the coefficient of determination for regressors.
+    classifier : bool
+        Whether the estimator is a classifier, which selects the default metric when
+        `scoring` is not provided.
+
+    Returns
+    -------
+    str or None
+        The metric name to store as the `units` attribute of `scores_`, or `None` when
+        it cannot be determined, as for a callable scorer.
+    """
+    if scoring is None:
+        return "accuracy" if classifier else "R²"
+    if isinstance(scoring, str):
+        return scoring
+    return None
+
+
 def _check_targets(y: npt.ArrayLike | xr.DataArray, data: xr.DataArray) -> npt.NDArray:
     """Validate targets against the sample axis of the data.
 
@@ -385,7 +412,12 @@ class SearchLight(BaseEstimator):
     ----------
     scores_ : (...) xarray.DataArray
         Mean cross-validation score at each `process_mask` center, in the spatial
-        geometry of `process_mask`. Voxels outside `process_mask` are `numpy.nan`.
+        geometry of `process_mask`. Voxels outside `process_mask` are `numpy.nan`. The
+        input's attributes are carried over, including any `affines`, so the map stays in
+        the same physical space. `long_name` is set to `"Searchlight CV score"` and
+        `units` to the metric implied by `scoring`: the scorer string when one is given,
+        otherwise `"accuracy"` for a classifier or `"R²"` for a regressor. A callable
+        scorer leaves `units` unset.
 
     Warns
     -----
@@ -579,7 +611,8 @@ class SearchLight(BaseEstimator):
                 stacklevel=find_stack_level(),
             )
 
-        cv = _resolve_cv(self.cv, classifier=is_classifier(self.estimator))
+        classifier = is_classifier(self.estimator)
+        cv = _resolve_cv(self.cv, classifier=classifier)
 
         scores = _run_searchlight(
             self.estimator,
@@ -593,10 +626,20 @@ class SearchLight(BaseEstimator):
             self.show_progress,
         )
 
+        # Carry the input's attributes over, notably any `affines`, so the score map
+        # stays in the same physical space. Override the semantic attributes to describe
+        # the score itself rather than the input signal.
+        attrs = {**dict(X_ordered.attrs), "long_name": "Searchlight CV score"}
+        units = _score_units(self.scoring, classifier=classifier)
+        if units is not None:
+            attrs["units"] = units
+        else:
+            attrs.pop("units", None)
+
         self.scores_: xr.DataArray = unmask(
             scores,
             process_mask,
-            attrs={"long_name": "Searchlight CV score"},
+            attrs=attrs,
             fill_value=np.nan,
         )
         return self

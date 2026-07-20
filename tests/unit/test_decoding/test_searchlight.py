@@ -175,6 +175,62 @@ def test_scores_geometry_and_metadata(decoding_volume, full_mask, rng):
     assert searchlight.scores_.attrs["long_name"] == "Searchlight CV score"
 
 
+def test_scores_preserve_input_attrs_and_affines(decoding_volume, full_mask, rng):
+    """`scores_` keeps the input's attrs, notably affines, so it stays in physical space."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    affine = np.diag([0.2, 0.2, 1.0, 1.0])
+    data = decoding_volume.copy()
+    data.attrs = {**data.attrs, "affines": {"physical_to_brain": affine}}
+
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
+        data, y
+    )
+
+    np.testing.assert_array_equal(
+        searchlight.scores_.attrs["affines"]["physical_to_brain"], affine
+    )
+    # The score map describes the score, not the input signal.
+    assert searchlight.scores_.attrs["long_name"] == "Searchlight CV score"
+
+
+def test_scores_units_from_scoring(decoding_volume, full_mask, rng):
+    """The `units` attr names the metric: R-squared by default, the string when given."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    default = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
+        decoding_volume, y
+    )
+    assert default.scores_.attrs["units"] == "R²"
+
+    explicit = SearchLight(
+        mask=full_mask,
+        estimator=Ridge(),
+        radius=0.25,
+        cv=3,
+        scoring="neg_mean_squared_error",
+    ).fit(decoding_volume, y)
+    assert explicit.scores_.attrs["units"] == "neg_mean_squared_error"
+
+
+def test_scores_units_dropped_for_callable_scorer(decoding_volume, full_mask, rng):
+    """A callable scorer leaves `units` unset rather than inheriting the input's units."""
+    from sklearn.metrics import make_scorer, r2_score
+
+    # decoding_volume carries units="a.u."; it must not leak onto the score map.
+    assert decoding_volume.attrs["units"] == "a.u."
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+
+    searchlight = SearchLight(
+        mask=full_mask,
+        estimator=Ridge(),
+        radius=0.25,
+        cv=3,
+        scoring=make_scorer(r2_score),
+    ).fit(decoding_volume, y)
+
+    assert "units" not in searchlight.scores_.attrs
+
+
 def test_is_fitted_protocol(decoding_volume, full_mask, rng):
     """`check_is_fitted` fails before `fit` and passes after."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
@@ -430,6 +486,7 @@ def test_classifier_selects_accuracy_scorer(decoding_volume, full_mask, rng):
     # R-squared, which pins the classifier default rather than merely checking a range.
     xr.testing.assert_identical(default.scores_, explicit_accuracy.scores_)
     assert not np.allclose(default.scores_.values, explicit_r2.scores_.values)
+    assert default.scores_.attrs["units"] == "accuracy"
 
 
 def test_accepts_splitter_object_as_cv(decoding_volume, full_mask, rng):
