@@ -8,18 +8,113 @@ from typing import Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
+from confusius._dims import POSE_DIM, TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+    has_voxel_affine_geometry,
+)
 
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
 
-_ALLOWED_CORE_DIMS = CORE_DIMS
-"""Core dimension names recognized by ConfUSIus fUSI validators."""
+_PHYSICAL_CORE_DIMS = (TIME_DIM, POSE_DIM, "z", "y", "x")
+"""Physical-grid dimension names recognized by ConfUSIus fUSI validators."""
+
+_VOXEL_CORE_DIMS = (TIME_DIM, POSE_DIM, "k", "j", "i")
+"""Voxel-affine dimension names recognized by ConfUSIus fUSI validators."""
+
+_VOXEL_SPATIAL_DIMS = ("k", "j", "i")
+"""Voxel-space spatial dimension names used by ConfUSIus geometry."""
+
+_PHYSICAL_SPATIAL_DIMS = ("z", "y", "x")
+"""Physical-grid spatial dimension names used by ConfUSIus geometry."""
+
+
+def _get_allowed_core_dims(da: xr.DataArray) -> tuple[str, ...]:
+    """Return the core dimension names valid for a DataArray.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Allowed core dimensions for `da`.
+    """
+    return _VOXEL_CORE_DIMS if has_voxel_affine_geometry(da) else _PHYSICAL_CORE_DIMS
+
+
+def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
+    """Return the spatial dimensions to validate for a DataArray.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    tuple[str, ...]
+        Spatial dimensions for `da`, using `k/j/i` for voxel-affine geometry and
+        `z/y/x` otherwise.
+    """
+    spatial_dims = (
+        _VOXEL_SPATIAL_DIMS if has_voxel_affine_geometry(da) else _PHYSICAL_SPATIAL_DIMS
+    )
+    return tuple(dim for dim in spatial_dims if dim in da.dims)
+
+
+def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
+    """Validate voxel-affine metadata when present.
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        DataArray to validate.
+
+    Raises
+    ------
+    ValueError
+        If stored voxel-affine metadata is incomplete or inconsistent with the DataArray
+        shape.
+    """
+    if not has_voxel_affine_geometry(da):
+        return
+
+    voxel_dims = get_voxel_affine_spatial_dims(da)
+    expected_shape = (len(voxel_dims) + 1, len(voxel_dims) + 1)
+    affine = np.asarray(da.attrs["voxel_to_physical"])
+    if affine.shape != expected_shape:
+        raise ValueError(
+            "voxel_to_physical must have shape "
+            f"{expected_shape} for voxel-affine dimensions {voxel_dims!r}, got "
+            f"{affine.shape}."
+        )
+
+    physical_coord_names = get_voxel_affine_physical_coord_names(da)
+    for name, dim in zip(physical_coord_names, voxel_dims, strict=True):
+        if name not in da.coords:
+            raise ValueError(
+                f"Voxel-affine data is missing physical coordinate {name!r}."
+            )
+        coord = da.coords[name]
+        if coord.dims not in {voxel_dims, (dim,)}:
+            raise ValueError(
+                f"Voxel-affine coordinate {name!r} must have dims {voxel_dims!r} "
+                f"or {(dim,)!r}, got {coord.dims!r}."
+            )
 
 
 def _validate_dimension_coordinate(
-    da: xr.DataArray, dim: Hashable, *, require_numeric: bool
+    da: xr.DataArray,
+    dim: Hashable,
+    *,
+    require_numeric: bool,
+    allowed_core_dims: tuple[str, ...],
 ) -> None:
     """Validate a single dimension coordinate.
 
@@ -31,6 +126,8 @@ def _validate_dimension_coordinate(
         Dimension name whose matching coordinate is required.
     require_numeric : bool
         Whether the coordinate must be numeric, finite, and strictly increasing.
+    allowed_core_dims : tuple[str, ...]
+        Core dimensions whose matching coordinates are required.
 
     Raises
     ------
@@ -40,7 +137,7 @@ def _validate_dimension_coordinate(
         increasing.
     """
     if dim not in da.coords:
-        if dim in _ALLOWED_CORE_DIMS:
+        if dim in allowed_core_dims:
             raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
         return
 
@@ -64,7 +161,11 @@ def _validate_dimension_coordinate(
             )
 
 
-def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> None:
+def _validate_core_dimension_names(
+    da: xr.DataArray,
+    allow_extra_dims: bool,
+    allowed_core_dims: tuple[str, ...],
+) -> None:
     """Validate that core ConfUSIus dimensions are named consistently.
 
     Parameters
@@ -73,6 +174,8 @@ def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> 
         DataArray whose dimensions should be checked.
     allow_extra_dims : bool
         Whether dimensions outside the ConfUSIus core set are allowed.
+    allowed_core_dims : tuple[str, ...]
+        Core dimensions valid for the current geometry model.
 
     Raises
     ------
@@ -87,15 +190,17 @@ def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> 
         )
 
     if not allow_extra_dims:
-        unexpected_dims = [dim for dim in da.dims if dim not in _ALLOWED_CORE_DIMS]
+        unexpected_dims = [dim for dim in da.dims if dim not in allowed_core_dims]
         if unexpected_dims:
             raise ValueError(
                 f"Unexpected dimensions {unexpected_dims!r}. ConfUSIus fUSI DataArrays "
-                f"may only use dimensions {_ALLOWED_CORE_DIMS!r}."
+                f"may only use dimensions {allowed_core_dims!r}."
             )
 
 
-def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
+def _validate_canonical_core_dim_order(
+    da: xr.DataArray, allowed_core_dims: tuple[str, ...]
+) -> None:
     """Validate the relative order of ConfUSIus core dimensions.
 
     Extra dimensions are ignored. Only the subsequence formed by the ConfUSIus core
@@ -105,6 +210,8 @@ def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
     ----------
     da : xarray.DataArray
         DataArray whose dimension order should be checked.
+    allowed_core_dims : tuple[str, ...]
+        Core dimensions valid for the current geometry model.
 
     Raises
     ------
@@ -112,8 +219,8 @@ def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
         If the relative order of the present core dimensions differs from the canonical
         ConfUSIus order.
     """
-    present_core_dims = tuple(dim for dim in da.dims if dim in _ALLOWED_CORE_DIMS)
-    expected_order = tuple(dim for dim in _ALLOWED_CORE_DIMS if dim in da.dims)
+    present_core_dims = tuple(dim for dim in da.dims if dim in allowed_core_dims)
+    expected_order = tuple(dim for dim in allowed_core_dims if dim in da.dims)
     if present_core_dims != expected_order:
         raise ValueError(
             f"Core dimensions {present_core_dims!r} are not in canonical ConfUSIus "
@@ -153,6 +260,7 @@ def _validate_regular_spacing(
     da: xr.DataArray,
     regular_spacing_tolerance: float,
     regular_spacing_dims: RegularSpacingDims,
+    spatial_dims: tuple[str, ...],
 ) -> None:
     """Validate that selected numeric coordinates have regular spacing.
 
@@ -164,10 +272,11 @@ def _validate_regular_spacing(
         Relative tolerance used to assess regularity.
     regular_spacing_dims : {"space", "core", "all"} or str or sequence[str]
         Dimensions to validate. `"space"` checks present spatial dimensions, `"core"`
-        checks present core dimensions (`time`, `pose`, `z`, `y`, `x`), and `"all"`
-        checks all present dimensions. Any other string is treated as a single
-        dimension name. A sequence checks only listed dimensions. Non-numeric
-        dimensions are ignored.
+        checks present core dimensions, and `"all"` checks all present dimensions. Any
+        other string is treated as a single dimension name. A sequence checks only
+        listed dimensions. Non-numeric dimensions are ignored.
+    spatial_dims : tuple[str, ...]
+        Spatial dimensions for the current geometry model.
 
     Raises
     ------
@@ -176,9 +285,9 @@ def _validate_regular_spacing(
         selected numeric coordinate has non-uniform or undefined spacing.
     """
     if regular_spacing_dims == "space":
-        dims_to_check = [dim for dim in SPATIAL_DIMS if dim in da.dims]
+        dims_to_check = list(spatial_dims)
     elif regular_spacing_dims == "core":
-        dims_to_check = [dim for dim in _ALLOWED_CORE_DIMS if dim in da.dims]
+        dims_to_check = [dim for dim in _get_allowed_core_dims(da) if dim in da.dims]
     elif regular_spacing_dims == "all":
         dims_to_check = [str(dim) for dim in da.dims]
     elif isinstance(regular_spacing_dims, str):
@@ -229,13 +338,14 @@ def validate_fusi_dataarray(
 
     A valid fUSI DataArray must:
 
-    - Have dimension names from the set `(time, pose, z, y, x)`, with optional extra
-      dimensions if `allow_extra_dims` is `True` (e.g., `region`, `component`, `mask`,
-      etc.).
-    - Have matching 1D coordinates for all core dimensions (`time`, `pose`, `z`, `y`,
-      `x`). Extra-dimension coordinates are optional.
-    - Have numeric, finite, and strictly increasing core dimension coordinates (`time`,
-      `pose`, `z`, `y`, `x`).
+    - Use ConfUSIus native voxel dimensions drawn from `(time, pose, k, j, i)`, with
+      optional extra dimensions if `allow_extra_dims` is `True` (e.g., `region`,
+      `component`, `mask`, etc.).
+    - Store linked physical coordinates through a `voxel_to_physical` affine and the
+      corresponding physical `z/y/x` coordinates.
+    - Have matching 1D coordinates for all core dimensions. Extra-dimension
+      coordinates are optional.
+    - Have numeric, finite, and strictly increasing core dimension coordinates.
 
     Additional requirements can be enforced using the function parameters.
 
@@ -248,25 +358,25 @@ def validate_fusi_dataarray(
     allow_pose : bool, default: True
         Whether to allow a `pose` dimension.
     allow_extra_dims : bool, default: True
-        Whether dimensions outside the ConfUSIus core set (`time`, `pose`, `z`, `y`,
-        `x`) are allowed.
+        Whether dimensions outside the ConfUSIus core set (`time`, `pose`, `k`, `j`,
+        `i`) are allowed.
     minimum_spatial_dims : int, default: 2
-        Minimum number of spatial dimensions from `("z", "y", "x")` required in the
-        DataArray.
+        Minimum number of voxel spatial dimensions required in the DataArray. This
+        counts present dimensions from `k/j/i`.
     require_regular_spacing : bool, default: False
         Whether numeric dimension coordinates must have regular spacing.
     regular_spacing_tolerance : float, default: 1e-2
         Relative tolerance used to assess coordinate regularity.
     regular_spacing_dims : {"space", "core", "all"} or str or sequence[str], default: "space"
         Dimensions that must satisfy regular-spacing checks when
-        `require_regular_spacing=True`. Use `"space"` for present `z`, `y`, `x`
-        dimensions, `"core"` for present core dimensions (`time`, `pose`, `z`, `y`,
-        `x`), `"all"` for all present dimensions, a string for one explicit dimension
+        `require_regular_spacing=True`. Use `"space"` for present `k`, `j`, `i`
+        dimensions, `"core"` for present core dimensions (`time`, `pose`, `k`, `j`,
+        `i`), `"all"` for all present dimensions, a string for one explicit dimension
         name, or a sequence for multiple explicit dimension names. Non-numeric
         coordinates are ignored.
     require_canonical_dim_order : bool, default: False
         Whether the ConfUSIus core dimensions present in the DataArray must appear in
-        canonical relative order `(time, pose, z, y, x)`.
+        canonical relative order `(time, pose, k, j, i)`.
     require_spatial_voxdim : bool, default: False
         Whether present spatial coordinates must define a `voxdim` attribute.
     require_spatial_units : bool, default: False
@@ -286,13 +396,22 @@ def validate_fusi_dataarray(
     if not isinstance(data, xr.DataArray):
         raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
 
-    if minimum_spatial_dims < 0 or minimum_spatial_dims > len(SPATIAL_DIMS):
+    if minimum_spatial_dims < 0 or minimum_spatial_dims > len(_VOXEL_SPATIAL_DIMS):
         raise ValueError(
             "minimum_spatial_dims must be between 0 and 3 inclusive, got "
             f"{minimum_spatial_dims}."
         )
 
-    _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
+    allowed_core_dims = _get_allowed_core_dims(data)
+    spatial_dims = _get_spatial_dims(data)
+
+    _validate_core_dimension_names(
+        data,
+        allow_extra_dims=allow_extra_dims,
+        allowed_core_dims=allowed_core_dims,
+    )
+
+    _validate_voxel_affine_geometry(data)
 
     if require_time and TIME_DIM not in data.dims:
         raise ValueError("DataArray must have a 'time' dimension.")
@@ -300,29 +419,38 @@ def validate_fusi_dataarray(
     if not allow_pose and POSE_DIM in data.dims:
         raise ValueError("DataArray must not have a 'pose' dimension.")
 
-    spatial_dims_present = [dim for dim in SPATIAL_DIMS if dim in data.dims]
+    spatial_dims_present = list(spatial_dims)
     if len(spatial_dims_present) < minimum_spatial_dims:
         raise ValueError(
             f"DataArray must have at least {minimum_spatial_dims} spatial dimensions "
-            f"from {SPATIAL_DIMS!r}, got {tuple(spatial_dims_present)!r}."
+            f"from {_VOXEL_SPATIAL_DIMS!r}, got {tuple(spatial_dims_present)!r}."
         )
 
     for dim in data.dims:
         _validate_dimension_coordinate(
-            data, dim, require_numeric=dim in _ALLOWED_CORE_DIMS
+            data,
+            dim,
+            require_numeric=dim in allowed_core_dims,
+            allowed_core_dims=allowed_core_dims,
         )
 
     if require_regular_spacing:
-        _validate_regular_spacing(data, regular_spacing_tolerance, regular_spacing_dims)
+        _validate_regular_spacing(
+            data,
+            regular_spacing_tolerance,
+            regular_spacing_dims,
+            spatial_dims,
+        )
 
     if require_canonical_dim_order:
-        _validate_canonical_core_dim_order(data)
+        _validate_canonical_core_dim_order(data, allowed_core_dims)
 
     if require_spatial_voxdim:
-        _validate_required_coordinate_attrs(data, SPATIAL_DIMS, "voxdim")
+        _validate_required_coordinate_attrs(data, spatial_dims, "voxdim")
 
     if require_spatial_units:
-        _validate_required_coordinate_attrs(data, SPATIAL_DIMS, "units")
+        spatial_unit_coords = get_voxel_affine_physical_coord_names(data)
+        _validate_required_coordinate_attrs(data, spatial_unit_coords, "units")
 
     if require_time_units and TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")

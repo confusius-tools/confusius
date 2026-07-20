@@ -115,7 +115,9 @@ def _get_or_compute_dataarray_from_layer(
     xarray.DataArray
         DataArray ready for saving.
     """
-    da: xr.DataArray | None = meta.get("metadata", {}).get("xarray")
+    da: xr.DataArray | None = meta.get("metadata", {}).get("source_xarray")
+    if da is None:
+        da = meta.get("metadata", {}).get("xarray")
     if da is not None:
         return da
     return _compute_dataarray_from_layer(data, meta)

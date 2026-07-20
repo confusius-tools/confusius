@@ -7,6 +7,38 @@ import pytest
 import xarray as xr
 
 import confusius  # noqa: F401  # Import to register accessor.
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
+
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small voxel-affine volume for accessor tests."""
+    base = xr.DataArray(
+        np.zeros((2, 3, 4)),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 2.0, 4.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.array(
+            [
+                [2.0, 1.0, 0.0, 10.0],
+                [0.0, 3.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
 
 
 class TestFUSIAccessor:
@@ -209,6 +241,48 @@ class TestOrigin:
         )
         assert data.fusi.origin["z"] == pytest.approx(3.5)
 
+    def test_voxel_affine_origin_uses_first_sampled_voxel(self):
+        """Voxel-affine origin is the physical location of array index zero."""
+        data = _make_voxel_affine_volume().expand_dims(time=[0.0, 0.5])
+
+        assert data.fusi.origin == {
+            "time": pytest.approx(0.0),
+            "z": pytest.approx(10.0),
+            "y": pytest.approx(20.0),
+            "x": pytest.approx(30.0),
+        }
+
+    def test_voxel_affine_origin_respects_nonzero_voxel_coords(self):
+        """Voxel-affine origin uses the first sampled voxel coords, not affine translation."""
+        base = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={
+                "k": [10.0, 11.0],
+                "j": [5.0, 7.0, 9.0],
+                "i": [100.0, 101.0, 102.0, 103.0],
+            },
+        )
+        data = add_physical_coords_from_voxel_affine(
+            base,
+            np.array(
+                [
+                    [2.0, 0.0, 0.0, 10.0],
+                    [0.0, 3.0, 0.0, 20.0],
+                    [0.0, 0.0, 4.0, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+        )
+
+        assert data.fusi.origin == {
+            "z": pytest.approx(30.0),
+            "y": pytest.approx(35.0),
+            "x": pytest.approx(430.0),
+        }
+
     """Tests for fusi.spacing."""
 
     @pytest.fixture
@@ -283,6 +357,32 @@ class TestOrigin:
             },
         )
         assert list(data.fusi.spacing.keys()) == ["z", "y", "x"]
+
+    def test_voxel_affine_spacing_uses_physical_step_lengths(self):
+        """Voxel-affine spacing comes from voxel steps and affine column norms."""
+        data = _make_voxel_affine_volume().expand_dims(time=[0.0, 0.5])
+
+        assert data.fusi.spacing == {
+            "time": pytest.approx(0.5),
+            "k": pytest.approx(2.0),
+            "j": pytest.approx(2.0 * np.sqrt(10.0)),
+            "i": pytest.approx(4.0),
+        }
+
+    def test_voxel_affine_direction_returns_orientation_matrix(self):
+        """Voxel-affine direction is the normalized affine linear part."""
+        data = _make_voxel_affine_volume()
+
+        np.testing.assert_allclose(
+            data.fusi.direction,
+            np.array(
+                [
+                    [1.0, 1.0 / np.sqrt(10.0), 0.0],
+                    [0.0, 3.0 / np.sqrt(10.0), 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+        )
 
 
 class TestAffineToMethod:
@@ -618,6 +718,50 @@ class TestAffineApplyMethod:
             result.coords["y"].values, da.coords["y"].values + 5.0
         )
         assert "x" not in result.coords
+
+    def test_voxel_affine_accepts_matching_2d_affine_shape(self):
+        """Voxel-affine 2D scans accept 3x3 physical-space transforms."""
+        base = xr.DataArray(
+            np.zeros((3, 4)),
+            dims=["j", "i"],
+            coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            attrs={"affines": {"physical_to_lab": np.eye(3)}},
+        )
+        da = add_physical_coords_from_voxel_affine(
+            base,
+            np.array(
+                [
+                    [0.2, 0.05, 10.0],
+                    [0.08, 0.18, 20.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
+        )
+        shift = np.array(
+            [
+                [1.0, 0.0, 3.0],
+                [0.0, 1.0, -4.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+
+        result, orientation = da.fusi.affine.apply(shift)
+
+        np.testing.assert_allclose(
+            result.attrs["voxel_to_physical"], shift @ da.attrs["voxel_to_physical"]
+        )
+        np.testing.assert_allclose(orientation, np.eye(3))
+        np.testing.assert_allclose(
+            result.attrs["affines"]["physical_to_lab"], np.linalg.inv(shift)
+        )
+        np.testing.assert_allclose(
+            result.coords["y"].values, da.coords["y"].values + 3.0
+        )
+        np.testing.assert_allclose(
+            result.coords["x"].values, da.coords["x"].values - 4.0
+        )
 
     def test_unexpected_affine_shape_is_passed_through(self):
         """Unexpected stored affine shapes are kept unchanged."""

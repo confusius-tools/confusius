@@ -7,10 +7,14 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    has_voxel_affine_geometry,
+)
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
-    replace_affines_attr,
+    get_defined_spatial_spacing,
+    replace_spatial_geometry_attrs,
     set_sitk_thread_count,
 )
 from confusius.registration.bspline import (
@@ -33,6 +37,7 @@ def resample_volume(
     dims: Sequence[str],
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
+    direction: npt.ArrayLike | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
@@ -78,6 +83,9 @@ def resample_volume(
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity).
+    direction : array-like, optional
+        Spatial direction matrix for the output grid, in DataArray spatial-dimension
+        order. If not provided, the output grid is treated as axis-aligned.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -191,6 +199,7 @@ def resample_like(
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
+    default_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto the grid of a reference DataArray.
@@ -229,6 +238,9 @@ def resample_like(
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity).
+    default_value : float, optional
+        Alias for `fill_value` kept for compatibility with older branch code. If both
+        values are provided, `fill_value` takes precedence.
     sitk_threads : int, default: os.cpu_count() or 1
         Number of threads SimpleITK may use for the `Resample` call.
         Defaults to all available CPUs.
@@ -271,15 +283,27 @@ def resample_like(
             (("transform", transform), ("reference", reference))
         )
 
-    grid = get_grid_kwargs_from_dataarray(reference)
-    dims = grid["dims"]
+    dims, spacing = get_defined_spatial_spacing(reference)
+    shape = [int(reference.sizes[dim]) for dim in dims]
+    origin_dict = reference.fusi.origin
+    origin_names = (
+        get_voxel_affine_physical_coord_names(reference)
+        if has_voxel_affine_geometry(reference)
+        else dims
+    )
+    origin = [origin_dict[dim] for dim in origin_names]
+    direction = reference.fusi.direction
 
     result = resample_volume(
         moving,
         transform,
-        **grid,
+        shape=shape,
+        spacing=spacing,
+        origin=origin,
+        dims=dims,
+        direction=direction,
         interpolation=interpolation,
-        fill_value=fill_value,
+        fill_value=fill_value if fill_value is not None else default_value,
         sitk_threads=sitk_threads,
     )
 
@@ -291,5 +315,4 @@ def resample_like(
     result = result.assign_coords(
         {d: reference.coords[d] for d in dims if d in reference.coords}
     )
-    replace_affines_attr(result, reference)
-    return result
+    return replace_spatial_geometry_attrs(result, reference)

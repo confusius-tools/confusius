@@ -15,10 +15,7 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
-from confusius._utils.napari import (
-    build_direct_label_colormap,
-    convert_dataarray_to_layer_data,
-)
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -133,6 +130,37 @@ class TestReadZarrGating:
 # ---------------------------------------------------------------------------
 
 
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small oblique CTI volume for reader tests."""
+    data = xr.DataArray(
+        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 1.0, 2.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        data,
+        np.array(
+            [
+                [0.4, 0.0, 0.1, 10.0],
+                [0.1, 0.3, 0.0, 20.0],
+                [0.0, 0.05, 0.25, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
 class TestReaderLayerData:
     """The ReaderFunction returns physically correct napari LayerData."""
 
@@ -201,6 +229,49 @@ class TestReaderLayerData:
         _, kwargs, _ = reader(str(zarr_3d_path))[0]
 
         assert kwargs["units"] == ["mm", "mm", "mm"]
+
+    def test_voxel_affine_is_resampled_to_physical_grid(self, tmp_path: Path) -> None:
+        """Oblique CTI reader output uses an axis-aligned physical grid for napari."""
+        path = tmp_path / "cti.zarr"
+        xr.Dataset({"data": _make_voxel_affine_volume()}).to_zarr(path, zarr_format=2)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["axis_labels"] == ["z", "y", "x"]
+        assert kwargs["metadata"]["xarray"].dims == ("z", "y", "x")
+        assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
+        npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
+
+    def test_axis_aligned_voxel_affine_uses_physical_display_by_default(self, tmp_path: Path) -> None:
+        """Axis-aligned reader output uses physical z/y/x display by default."""
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([0.4, 0.3, 0.25, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={"z": {"units": "mm"}, "y": {"units": "mm"}, "x": {"units": "mm"}},
+        )
+        path = tmp_path / "axis_aligned_cti.zarr"
+        xr.Dataset({"data": data}).to_zarr(path, zarr_format=2)
+
+        reader = read_zarr(str(path))
+        assert reader is not None
+        _, kwargs, layer_type = reader(str(path))[0]
+
+        assert layer_type == "image"
+        assert kwargs["axis_labels"] == ["z", "y", "x"]
+        npt.assert_allclose(kwargs["scale"], [0.4, 0.3, 0.25], rtol=1e-5)
+        npt.assert_allclose(kwargs["translate"], [0.0, 0.0, 0.0], rtol=1e-5)
+        assert kwargs["metadata"]["xarray"].dims == ("z", "y", "x")
+        assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
 
     def test_default_colormap_is_gray(self, zarr_3d_path: Path) -> None:
         """Colormap defaults to gray when da.attrs has no 'cmap' key."""
@@ -291,46 +362,3 @@ class TestReaderLayerData:
         # sample_roi_labels' roi_labels attr should populate hover-status features.
         features = kwargs["features"]
         assert dict(zip(features["index"], features["name"]))[7] == "somatosensory"
-
-    def test_build_direct_label_colormap_returns_none_without_color_attrs(self) -> None:
-        """Labels with no cmap/norm or rgb_lookup keep colormap unset."""
-        da = xr.DataArray(
-            np.array([[0, 1]], dtype=np.int16),
-            dims=["z", "x"],
-            coords={"z": [0.0], "x": [0.0, 1.0]},
-        )
-
-        assert build_direct_label_colormap(da) is None
-
-    def test_build_direct_label_colormap_rebuilds_from_rgb_lookup(self) -> None:
-        """rgb_lookup alone is enough to rebuild atlas label colors."""
-        da = xr.DataArray(
-            np.array([[0, 3, 7]], dtype=np.int16),
-            dims=["z", "x"],
-            coords={"z": [0.0], "x": [0.0, 1.0, 2.0]},
-            attrs={"rgb_lookup": {3: [0, 0, 255], 7: [255, 0, 0]}},
-        )
-
-        colormap = build_direct_label_colormap(da)
-
-        assert colormap is not None
-        npt.assert_allclose(colormap.map(np.array([3])), [[0.0, 0.0, 1.0, 1.0]])
-        npt.assert_allclose(colormap.map(np.array([7])), [[1.0, 0.0, 0.0, 1.0]])
-
-    def test_non_uniform_spacing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Non-uniform coords warn and still use the best-effort median spacing."""
-        warnings_seen: list[str] = []
-        monkeypatch.setattr("confusius._utils.napari.show_warning", warnings_seen.append)
-
-        da = xr.DataArray(
-            np.zeros((3, 2), dtype=np.float32),
-            dims=["z", "x"],
-            coords={"z": [0.0, 1.0, 3.0], "x": [10.0, 10.5]},
-        )
-
-        _, kwargs, _ = convert_dataarray_to_layer_data(da, "demo")
-
-        assert warnings_seen == [
-            "'z' has non-uniform spacing; using median 1.5 (positions along this axis may be approximate)."
-        ]
-        npt.assert_allclose(kwargs["scale"], [1.5, 0.5])

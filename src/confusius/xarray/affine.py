@@ -7,6 +7,10 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS
 from confusius._utils.coordinates import get_affine_in_axis_aligned_space
+from confusius._utils.geometry import (
+    has_voxel_affine_geometry,
+    restore_physical_coords_from_voxel_affine,
+)
 from confusius.registration.affines import decompose_affine
 
 if TYPE_CHECKING:
@@ -140,6 +144,39 @@ def apply_affine(
             raise KeyError(f"'{affine}' not found in da.attrs['affines'].")
         affine = da.attrs["affines"][affine]
     affine = np.asarray(affine, dtype=np.float64)
+
+    if has_voxel_affine_geometry(da):
+        voxel_to_physical = np.asarray(da.attrs["voxel_to_physical"], dtype=np.float64)
+        if affine.shape != voxel_to_physical.shape:
+            raise ValueError(
+                "voxel-affine data requires an affine with shape matching "
+                f"voxel_to_physical {voxel_to_physical.shape}, got {affine.shape}."
+            )
+
+        stored = da.attrs.get("affines", {})
+        new_affines: dict[str, "npt.NDArray[np.float64]"] = {}
+        inv_affine = np.linalg.inv(affine)
+        for stored_key, val in stored.items():
+            arr = np.asarray(val, dtype=np.float64)
+            if arr.ndim in (2, 3):
+                new_affines[stored_key] = arr @ inv_affine
+            else:
+                new_affines[stored_key] = arr
+
+        new_attrs = dict(da.attrs)
+        new_attrs["voxel_to_physical"] = affine @ voxel_to_physical
+        if "affines" in da.attrs:
+            new_attrs["affines"] = new_affines
+
+        result = restore_physical_coords_from_voxel_affine(da.assign_attrs(new_attrs))
+        orientation = np.eye(affine.shape[0], dtype=np.float64)
+        if inplace:
+            da.coords.update(result.coords)
+            da.attrs.clear()
+            da.attrs.update(result.attrs)
+            return da, orientation
+        return result, orientation
+
     if affine.shape != (4, 4):
         raise ValueError(f"affine must have shape (4, 4), got {affine.shape}.")
 

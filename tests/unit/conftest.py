@@ -659,37 +659,39 @@ def sample_2dt_volume(sample_3dt_volume):
 
 @pytest.fixture
 def sample_3dt_volume_complex(rng):
-    """Complex-valued 3D+t volume (time, z, y, x) for IQ processing tests.
+    """Complex-valued 3D+t volume (time, k, j, i) for IQ processing tests.
 
     Shape: (10, 4, 6, 8) - matches sample_3dt_volume spatial dimensions. Includes name
     and metadata attributes for testing labels and units.
     """
+    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
     shape = (10, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
     da = xr.DataArray(
         data,
         name="iq",
-        dims=["time", "z", "y", "x"],
+        dims=["time", "k", "j", "i"],
         coords={
             "time": xr.DataArray(
                 np.arange(10) * 0.1,
                 dims=["time"],
                 attrs={"units": "s"},
             ),
-            "z": xr.DataArray(
-                np.arange(4) * 0.1,
-                dims=["z"],
-                attrs={"units": "mm", "voxdim": 0.1},
+            "k": xr.DataArray(
+                np.arange(4),
+                dims=["k"],
+                attrs={"voxdim": 1.0},
             ),
-            "y": xr.DataArray(
-                np.arange(6) * 0.05,
-                dims=["y"],
-                attrs={"units": "mm", "voxdim": 0.05},
+            "j": xr.DataArray(
+                np.arange(6),
+                dims=["j"],
+                attrs={"voxdim": 1.0},
             ),
-            "x": xr.DataArray(
-                np.arange(8) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm", "voxdim": 0.05},
+            "i": xr.DataArray(
+                np.arange(8),
+                dims=["i"],
+                attrs={"voxdim": 1.0},
             ),
         },
         attrs={
@@ -697,7 +699,17 @@ def sample_3dt_volume_complex(rng):
             "units": "a.u.",
         },
     )
-    return da
+    return add_physical_coords_from_voxel_affine(
+        da,
+        np.diag([0.1, 0.05, 0.05, 1.0]),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm", "voxdim": 0.1},
+            "y": {"units": "mm", "voxdim": 0.05},
+            "x": {"units": "mm", "voxdim": 0.05},
+        },
+    )
 
 
 @pytest.fixture

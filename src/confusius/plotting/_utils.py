@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    has_axis_aligned_voxel_affine_geometry,
+    has_voxel_affine_geometry,
+)
 from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
@@ -176,6 +181,125 @@ def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray
         )
         return xr.ufuncs.abs(data)
     return data
+
+
+def convert_axis_aligned_voxel_affine_to_physical_grid(
+    data: xr.DataArray,
+) -> xr.DataArray:
+    """Expose axis-aligned voxel-affine data on plain physical `z/y/x` dims.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Axis-aligned voxel-affine DataArray.
+
+    Returns
+    -------
+    xarray.DataArray
+        DataArray whose spatial dimensions are renamed from voxel `k/j/i` to physical
+        `z/y/x`, with the linked physical coordinates promoted to dimension
+        coordinates and `voxel_to_physical` removed from attrs.
+    """
+    if not has_axis_aligned_voxel_affine_geometry(data):
+        return data
+
+    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    physical_dims = get_voxel_affine_physical_coord_names(data)
+    dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+    result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)
+
+    result = xr.DataArray(
+        data=data.data,
+        dims=result_dims,
+        coords={
+            dim_map.get(str(dim), str(dim)): (
+                dim_map.get(str(dim), str(dim)),
+                data.coords[dim_map.get(str(dim), str(dim))].values
+                if str(dim) in dim_map
+                else data.coords[str(dim)].values,
+            )
+            for dim in data.dims
+            if (str(dim) in dim_map) or (str(dim) in data.coords)
+        },
+        name=data.name,
+        attrs=data.attrs.copy(),
+    )
+    for dim in data.dims:
+        result_dim = dim_map.get(str(dim), str(dim))
+        source_coord = (
+            data.coords[result_dim] if str(dim) in dim_map else data.coords[str(dim)]
+        )
+        result.coords[result_dim].attrs = dict(source_coord.attrs)
+    result.attrs.pop("voxel_to_physical", None)
+    return result
+
+
+def resample_voxel_affine_to_physical_grid(
+    data: xr.DataArray,
+    *,
+    reference: xr.DataArray | None = None,
+) -> xr.DataArray:
+    """Resample voxel-affine data onto an axis-aligned physical grid for display.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Three-dimensional or three-dimensional-plus-time voxel-affine DataArray.
+    reference : xarray.DataArray, optional
+        Axis-aligned physical-grid DataArray to reuse as the resampling target.
+        If not provided, a new plotting grid is synthesized from `data`'s physical
+        bounds and per-axis physical spacing.
+
+    Returns
+    -------
+    xarray.DataArray
+        Axis-aligned physical-grid DataArray when `data` has voxel-affine geometry;
+        otherwise the original input.
+    """
+    if not has_voxel_affine_geometry(data) or has_axis_aligned_voxel_affine_geometry(
+        data
+    ):
+        return data
+
+    from confusius.registration import resample_like, resample_volume
+
+    physical_dims = get_voxel_affine_physical_coord_names(data)
+    if reference is not None:
+        result = resample_like(
+            data,
+            reference,
+            np.eye(len(physical_dims) + 1, dtype=np.float64),
+        )
+    else:
+        spacing: list[float] = []
+        origin: list[float] = []
+        shape: list[int] = []
+        for dim in physical_dims:
+            values = np.asarray(data.coords[dim].values, dtype=np.float64)
+            lower = float(np.min(values))
+            upper = float(np.max(values))
+            dim_spacing = data.coords[dim].attrs.get("voxdim")
+            if dim_spacing is None:
+                dim_spacing = float(np.median(np.abs(np.diff(values))))
+            dim_spacing = float(dim_spacing)
+            origin.append(lower)
+            spacing.append(dim_spacing)
+            shape.append(int(np.ceil((upper - lower) / dim_spacing)) + 1)
+
+        result = resample_volume(
+            data,
+            np.eye(len(physical_dims) + 1, dtype=np.float64),
+            shape=shape,
+            spacing=spacing,
+            origin=origin,
+            dims=physical_dims,
+            direction=np.eye(len(physical_dims), dtype=np.float64),
+        )
+
+    result.attrs.pop("voxel_to_physical", None)
+    for dim in physical_dims:
+        result.coords[dim].attrs = data.coords[dim].attrs.copy()
+    return result
 
 
 def sort_coords_for_plot(

@@ -74,7 +74,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("y", "x")
+        assert da.dims == ("j", "i")
         assert da.shape == (6, 8)
         assert da.dtype == np.float32
         np.testing.assert_array_equal(da.values, expected_data.T)
@@ -85,7 +85,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("z", "y", "x")
+        assert da.dims == ("k", "j", "i")
         assert da.shape == (6, 8, 10)
         assert da.dtype == np.float32
         np.testing.assert_array_equal(da.values, expected_data.transpose(2, 1, 0))
@@ -96,7 +96,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         assert da.shape == (6, 8, 10, 12)
         assert da.dtype == np.float64
         np.testing.assert_array_equal(
@@ -112,13 +112,12 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("dim4", "time", "z", "y", "x")
+        assert da.dims == ("dim4", "time", "k", "j", "i")
         assert da.shape == (6, 5, 4, 3, 2)
         np.testing.assert_array_equal(da.values, data.transpose(4, 3, 2, 1, 0))
 
     def test_load_5d_nifti_with_dim4_sidecar_renames_axis(self, tmp_path: Path) -> None:
         """A 5D NIfTI with a degenerate time slot and `ConfUSIusDim4Name` loads with that dim name."""
-        # 5D NIfTI shape: (x, y, z, time=1, component=3)
         data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
         nifti_path = tmp_path / "bspline.nii.gz"
         nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
@@ -134,7 +133,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
+        assert da.dims == ("component", "k", "j", "i")
         assert da.shape == (3, 4, 5, 6)
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
@@ -157,7 +156,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("blahblah", "z", "y", "x")
+        assert da.dims == ("blahblah", "k", "j", "i")
         assert da.sizes["blahblah"] == 2
 
     def test_load_4d_nifti_without_dim4_sidecar_keeps_time(
@@ -170,7 +169,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         assert "time" in da.coords
 
     def test_load_6d_nifti_with_dim5_sidecar(self, tmp_path: Path) -> None:
@@ -192,8 +191,10 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("echo", "channel", "time", "z", "y", "x")
-        np.testing.assert_array_equal(da.coords["channel"].values, np.array([0.0, 1.0]))
+        assert da.dims == ("echo", "channel", "time", "k", "j", "i")
+        np.testing.assert_array_equal(
+            da.coords["channel"].values, np.array([0.0, 1.0])
+        )
         np.testing.assert_array_equal(
             da.coords["echo"].values, np.array([10.0, 20.0, 30.0])
         )
@@ -209,9 +210,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
-        # pixdim[4] defaults to 1.0 in this NIfTI, so the fallback coord is
-        # `1.0 * arange(3) = [0.0, 1.0, 2.0]`.
+        assert da.dims == ("component", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
@@ -222,7 +221,6 @@ class TestLoadNifti:
         """When `pixdim[N]` is 0 and no sidecar coords exist, the fallback uses `arange`."""
         data = np.zeros((6, 5, 4, 1, 3), dtype=np.float32)
         img = nib.Nifti1Image(data, np.eye(4))
-        # Set pixdim[4] (5th NIfTI axis) to 0.
         zooms = list(img.header.get_zooms())
         zooms[4] = 0.0
         img.header.set_zooms(zooms)
@@ -234,7 +232,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
+        assert da.dims == ("component", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, 1.0, 2.0])
         )
@@ -248,8 +246,6 @@ class TestLoadNifti:
         nifti_path = tmp_path / "neg_pixdim.nii.gz"
         img.to_filename(nifti_path)
 
-        # Patch the saved header directly to set pixdim[5] (the 5th NIfTI axis)
-        # to -2.0 (bypasses nibabel's `set_zooms` positivity check).
         loaded = nib.nifti1.Nifti1Image.from_filename(nifti_path)
         loaded.header.structarr["pixdim"][5] = np.float32(-2.0)
         loaded.to_filename(nifti_path)
@@ -259,9 +255,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("component", "z", "y", "x")
-        # The fallback coord is `step * arange(3)` with step = -2.0, so the
-        # values are `[0.0, -2.0, -4.0]`.
+        assert da.dims == ("component", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["component"].values, np.array([0.0, -2.0, -4.0])
         )
@@ -272,7 +266,6 @@ class TestLoadNifti:
         """When `pixdim[4]` is 0 (no TR), the time coord falls back to `arange`."""
         data = np.zeros((4, 6, 4, 5), dtype=np.float32)
         img = nib.Nifti1Image(data, np.eye(4))
-        # Set pixdim[4] (the 4th NIfTI axis) to 0 to indicate "no TR set".
         zooms = list(img.header.get_zooms())
         zooms[3] = 0.0
         img.header.set_zooms(zooms)
@@ -281,7 +274,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         np.testing.assert_array_equal(
             da.coords["time"].values, np.arange(5, dtype=np.float64)
         )
@@ -354,7 +347,7 @@ class TestLoadNifti:
 
         loaded = load_nifti(path)
 
-        assert loaded.coords["slice_time"].dims == ("time", "z")
+        assert loaded.coords["slice_time"].dims == ("time", "k")
         np.testing.assert_allclose(
             loaded.coords["slice_time"].values,
             loaded.coords["time"].values[:, np.newaxis]
@@ -391,7 +384,7 @@ class TestLoadNifti:
         assert "volume_timing" not in loaded.attrs
         assert "volume_acquisition_duration" not in loaded.attrs
 
-        assert loaded.coords["slice_time"].dims == ("z",)
+        assert loaded.coords["slice_time"].dims == ("k",)
         np.testing.assert_allclose(
             loaded.coords["slice_time"].values,
             np.array([2.05, 2.15, 2.25]),
@@ -841,6 +834,42 @@ class TestLoadNifti:
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" not in da.attrs["affines"]
 
+    def test_load_nifti_coordinate_affine_sform_forces_sform(self, tmp_path: Path) -> None:
+        """`coordinate_affine="sform"` makes sform define CTI geometry."""
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        qform = np.diag([5.0, 6.0, 7.0, 1.0])
+        data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
+        img = nib.Nifti1Image(data, sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(qform, code=1)
+        nifti_path = tmp_path / "prefer_sform.nii.gz"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path, coordinate_affine="sform")
+
+        np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
+        np.testing.assert_allclose(da.attrs["voxel_to_physical"][:3, :3], np.diag([4.0, 3.0, 2.0]))
+        assert "physical_to_sform" in da.attrs["affines"]
+        assert "physical_to_qform" in da.attrs["affines"]
+
+    def test_load_nifti_coordinate_affine_qform_forces_qform(self, tmp_path: Path) -> None:
+        """`coordinate_affine="qform"` makes qform define CTI geometry."""
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        qform = np.diag([5.0, 6.0, 7.0, 1.0])
+        data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
+        img = nib.Nifti1Image(data, sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(qform, code=1)
+        nifti_path = tmp_path / "prefer_qform.nii.gz"
+        img.to_filename(nifti_path)
+
+        da = load_nifti(nifti_path, coordinate_affine="qform")
+
+        np.testing.assert_allclose(da.coords["z"].values, [0.0, 7.0])
+        np.testing.assert_allclose(da.attrs["voxel_to_physical"][:3, :3], np.diag([7.0, 6.0, 5.0]))
+        assert "physical_to_qform" in da.attrs["affines"]
+        assert "physical_to_sform" in da.attrs["affines"]
+
     def test_load_nifti_rotated_affine_probe_relative_coords(
         self, tmp_path: Path
     ) -> None:
@@ -987,7 +1016,7 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
             da = load_nifti(nifti_path)
 
-        assert da.dims == ("y", "x")
+        assert da.dims == ("j", "i")
         assert "z" not in da.coords
         assert da.coords["x"].attrs["units"] == "mm"
         assert da.coords["y"].attrs["units"] == "mm"
@@ -1161,7 +1190,7 @@ class TestSaveNifti:
         )
 
         roundtripped = load_nifti(output_path)
-        assert roundtripped.dims == ("channel", "time", "z", "y", "x")
+        assert roundtripped.dims == ("channel", "time", "k", "j", "i")
         np.testing.assert_array_equal(roundtripped.values, data)
 
     def test_save_4d_no_time_writes_dim4_sidecar(self, tmp_path) -> None:
@@ -1219,12 +1248,12 @@ class TestSaveNifti:
         # `y` was missing on save; NIfTI requires a length-1 `y` slot, so the
         # roundtrip exposes it as a singleton axis (the loader cannot tell it
         # apart from a genuine unitary `y`).
-        assert roundtripped.dims == ("component", "z", "y", "x")
-        assert roundtripped.sizes == {"component": 3, "z": 4, "y": 1, "x": 6}
+        assert roundtripped.dims == ("component", "k", "j", "i")
+        assert roundtripped.sizes == {"component": 3, "k": 4, "j": 1, "i": 6}
         np.testing.assert_array_equal(
             roundtripped.coords["component"].values, [0, 1, 2]
         )
-        np.testing.assert_array_equal(roundtripped.squeeze("y", drop=True).values, data)
+        np.testing.assert_array_equal(roundtripped.squeeze("j", drop=True).values, data)
 
     def test_save_string_extra_coord_roundtrips_through_sidecar(self, tmp_path) -> None:
         """String-valued extra-dim coordinates roundtrip through the JSON sidecar."""
@@ -1321,7 +1350,7 @@ class TestSaveNifti:
         save_nifti(da, output_path)
 
         roundtripped = load_nifti(output_path)
-        assert roundtripped.dims == ("component", "z", "y", "x")
+        assert roundtripped.dims == ("component", "k", "j", "i")
         assert roundtripped.sizes["component"] == 1
         np.testing.assert_array_equal(roundtripped.coords["component"].values, [0.0])
 
@@ -2421,6 +2450,43 @@ class TestSaveNifti:
         np.testing.assert_allclose(
             loaded.header.get_qform()[:3, :3], np.diag([3.0, 3.0, 3.0]), atol=1e-6
         )
+
+    def test_sheared_coordinate_defining_affine_is_written_to_sform(self, tmp_path):
+        """A sheared coordinate-defining affine is written to sform and preserves pixdim."""
+        data = np.zeros((4, 3, 2), dtype=np.float32)
+        sheared_affine = np.array(
+            [
+                [1.0, 0.25, 0.0, 4.0],
+                [0.0, 1.0, 0.0, 5.0],
+                [0.0, 0.0, 1.0, 6.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        da = xr.DataArray(
+            data,
+            dims=["z", "y", "x"],
+            coords={
+                "z": np.arange(4) * 1.0,
+                "y": np.arange(3) * 1.0,
+                "x": np.arange(2) * 1.0,
+            },
+            attrs={"affines": {"physical_to_qform": sheared_affine}},
+        )
+        output_path = tmp_path / "sheared_qform_promoted.nii.gz"
+        with pytest.warns(UserWarning, match="coordinate-defining affine contains shear"):
+            save_nifti(da, output_path)
+
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
+        assert loaded.header.get_qform(coded=True)[1] == 0
+        assert loaded.header.get_sform(coded=True)[1] == 1
+        expected_sform = sheared_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+        np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
+        np.testing.assert_allclose(loaded.header.structarr["pixdim"][1:4], [1.0, 1.0, 1.0])
+
+        sidecar_path = tmp_path / "sheared_qform_promoted.json"
+        with open(sidecar_path) as f:
+            sidecar = json.load(f)
+        assert "ConfUSIusAffines" not in sidecar
 
     def test_named_sform_sets_sform_code(self, tmp_path):
         """Providing `sform=` writes a sform with code=1 by default."""

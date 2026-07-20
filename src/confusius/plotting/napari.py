@@ -1,4 +1,11 @@
-"""Napari-based visualization utilities for fUSI data."""
+"""Napari-based visualization utilities for fUSI data.
+
+ConfUSIus loads SCAN and NIfTI volumes with native voxel dimensions such as `k/j/i`
+and linked physical coordinates such as `z/y/x`, defined by a voxel-to-physical
+ affine. Napari display uses physical `z/y/x` axes: axis-aligned data is promoted
+to a plain physical grid without interpolation, while oblique/sheared data is
+resampled to an axis-aligned physical display grid.
+"""
 
 import warnings
 from typing import TYPE_CHECKING, Literal, cast
@@ -15,12 +22,40 @@ from confusius._utils.napari import (
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
+    convert_axis_aligned_voxel_affine_to_physical_grid,
+    resample_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
 )
 
 if TYPE_CHECKING:
     from napari import Viewer
     from napari.layers import Image, Labels
+
+
+def _get_napari_scale_translate_units(
+    data: xr.DataArray,
+) -> tuple[list[float], list[float], list[str | None], list[str], dict[str, float]]:
+    """Return napari layer geometry metadata for `data`."""
+    all_dims = list(data.dims)
+
+    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    origin = data.fusi.origin
+    scale = [spacing[str(dim)] for dim in all_dims]
+    translate = [
+        origin[dim]
+        if dim in origin
+        else (
+            float(np.asarray(data.coords[dim].values, dtype=float)[0])
+            if dim in data.coords
+            else 0.0
+        )
+        for dim in all_dims
+    ]
+    units = [
+        data.coords[dim].attrs.get("units") if dim in data.coords else None
+        for dim in all_dims
+    ]
+    return scale, translate, units, non_uniform, spacing
 
 
 def plot_napari(
@@ -37,10 +72,12 @@ def plot_napari(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array to visualize. Expected dimensions are (time, z, y, x) where
-        z is the elevation/stacking axis, y is depth, and x is lateral. Use
-        `dim_order` to specify a different dimension ordering. Can be image data
-        or label/mask data (e.g., ROIs, segmentations).
+        Input data array to visualize. Standard physical-grid arrays typically use
+        dimensions such as `(time, z, y, x)`. ConfUSIus-loaded arrays may instead
+        carry native voxel dimensions such as `(time, k, j, i)` together with linked
+        physical `z/y/x` coordinates and `attrs["voxel_to_physical"]`. Use
+        `dim_order` to specify a different displayed spatial ordering. Can be image
+        data or label/mask data (e.g., ROIs, segmentations).
     show_colorbar : bool, default: True
         Whether to show the colorbar. Only applies to image layers.
     show_scale_bar : bool, default: True
@@ -74,10 +111,16 @@ def plot_napari(
     -----
     Complex-valued data is converted to magnitude (`abs(data)`) before display.
 
-    If all spatial dimensions have coordinates, their spacing is used as the scale
-    parameter for napari to ensure correct physical scaling. If any spatial dimension is
-    missing coordinates, no scaling is applied. The spacing is computed as the median
-    difference between consecutive coordinate values.
+    ConfUSIus uses an in-memory geometry model with native voxel dimensions and
+    linked physical coordinates. Napari display always uses physical `z/y/x` axes.
+    Axis-aligned data is promoted to a plain physical grid without interpolation.
+    Oblique or sheared data is resampled to an axis-aligned physical grid because
+    napari's simple `scale`/`translate` model cannot represent cross-axis mixing.
+
+    If all displayed dimensions have coordinates, their spacing is used as the scale
+    parameter for napari to ensure correct physical scaling. If any displayed dimension
+    is missing coordinates, no scaling is applied for that dimension. The spacing is
+    computed as the median difference between consecutive coordinate values.
 
     When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list is
     forwarded to napari as the `units` layer parameter, which populates the status bar
@@ -90,18 +133,23 @@ def plot_napari(
     (`data.coords[dim].attrs["voxdim"]`) and uses it as the spacing. If no such
     attribute is found, unit spacing is assumed and a warning is emitted.
 
-    The first coordinate value of each spatial dimension is used as the `translate`
+    The first coordinate value of each displayed dimension is used as the `translate`
     parameter so that the image is positioned at its correct physical origin. For
     dimensions without coordinates, a translate of `0.0` is used. This ensures that
-    multiple datasets with different fields of view overlay correctly when added to the
-    same viewer.
+    multiple datasets with different fields of view overlay correctly when added to
+    the same viewer.
 
     Examples
     --------
+    >>> import confusius as cf
     >>> import xarray as xr
     >>> from confusius.plotting import plot_napari
     >>> data = xr.open_zarr("output.zarr")["iq"]
     >>> viewer, layer = plot_napari(data)
+
+    >>> # ConfUSIus-loaded arrays can be plotted directly.
+    >>> cti_data = cf.load("output.nii.gz")
+    >>> viewer, layer = plot_napari(cti_data)
 
     >>> # Custom contrast limits
     >>> viewer, layer = plot_napari(data, contrast_limits=(0, 100))
@@ -126,6 +174,10 @@ def plot_napari(
             f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
         )
 
+    source_data = data
+    data = convert_axis_aligned_voxel_affine_to_physical_grid(data)
+    data = resample_voxel_affine_to_physical_grid(data)
+
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
@@ -138,26 +190,15 @@ def plot_napari(
             "Ensure 'dim_order' contains all spatial dimension names."
         )
 
-    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    scale, coord_translates, all_units, non_uniform, spacing = (
+        _get_napari_scale_translate_units(data)
+    )
     for dim in non_uniform:
         warnings.warn(
             f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
             "(positions along this axis may be approximate).",
             stacklevel=find_stack_level(),
         )
-    scale = [spacing[str(dim)] for dim in all_dims]
-
-    # .origin falls back to 0.0 for dimensions without coordinates.
-    origin = data.fusi.origin
-    coord_translates = [origin[dim] for dim in all_dims]
-
-    # napari requires units to cover ALL dims. Build in all_dims order so each
-    # unit aligns with the correct dimension; passing None is accepted for
-    # unlabelled axes.
-    all_units: list[str | None] = [
-        data.coords[dim].attrs.get("units") if dim in data.coords else None
-        for dim in all_dims
-    ]
 
     layer_kwargs.setdefault("name", data.name)
     if any(u is not None for u in all_units):
@@ -193,6 +234,7 @@ def plot_napari(
         # rendering loop adds overhead on every frame when given an xarray DataArray,
         # making time scrubbing noticeably slow for lazy (Dask-backed) data.
         layer_kwargs.setdefault("metadata", {})["xarray"] = data
+        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
         viewer, layer = napari.imshow(
             plot_data.data,
             scale=scale,
@@ -220,6 +262,7 @@ def plot_napari(
     elif layer_type == "labels":
         layer_kwargs.setdefault("translate", coord_translates)
         layer_kwargs.setdefault("metadata", {})["xarray"] = data
+        layer_kwargs["metadata"].setdefault("source_xarray", source_data)
         if viewer is None:
             viewer = napari.Viewer()
         values = data.values

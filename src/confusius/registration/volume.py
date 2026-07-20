@@ -11,7 +11,7 @@ from confusius.registration._utils import (
     abort_on_sigint,
     dataarray_to_sitk_image,
     expand_thin_dims,
-    replace_affines_attr,
+    replace_spatial_geometry_attrs,
     set_sitk_thread_count,
 )
 from confusius.registration.affines import (
@@ -711,7 +711,7 @@ def register_volume(
         )
     else:
         if transform_type == "translation":
-            sitk_centering_transform: sitk.Transform = sitk.TranslationTransform(ndim)
+            sitk_centering_transform = sitk.TranslationTransform(ndim)
         elif transform_type == "rigid":
             sitk_centering_transform = (
                 sitk.Euler2DTransform() if ndim == 2 else sitk.Euler3DTransform()
@@ -719,10 +719,26 @@ def register_volume(
         else:
             sitk_centering_transform = sitk.AffineTransform(ndim)
 
-        # CenteredTransformInitializer requires a transform with a center parameter
-        # (e.g. Euler, Affine). TranslationTransform has no center, so centering
-        # initialization is always skipped for translation.
-        if initialization_mode == "center_geometry" and transform_type != "translation":
+        # When a precomputed affine initialization is supplied, place the transform
+        # centre at the fixed image centre so rigid/affine refinement rotates around
+        # a sensible pivot. Centering modes (center_geometry/center_moments) are
+        # skipped in that case, since the affine is treated as the full starting
+        # alignment.
+        if affine_initialization is not None and isinstance(
+            sitk_centering_transform,
+            (sitk.Euler2DTransform, sitk.Euler3DTransform, sitk.AffineTransform),
+        ):
+            fixed_center_index = [0.5 * (size - 1) for size in fixed_reg.GetSize()]
+            fixed_center = fixed_reg.TransformContinuousIndexToPhysicalPoint(
+                fixed_center_index
+            )
+            sitk_centering_transform.SetCenter(fixed_center)
+        elif (
+            initialization_mode == "center_geometry" and transform_type != "translation"
+        ):
+            # CenteredTransformInitializer requires a transform with a center
+            # parameter (e.g. Euler, Affine). TranslationTransform has no center, so
+            # centering initialization is always skipped for translation.
             sitk_centering_transform = sitk.CenteredTransformInitializer(
                 fixed_reg,
                 moving_reg,
@@ -863,7 +879,7 @@ def register_volume(
         attrs=moving.attrs.copy(),
     )
     if resample:
-        replace_affines_attr(result, fixed)
+        result = replace_spatial_geometry_attrs(result, fixed)
 
     if transform_type == "bspline":
         from confusius.registration.bspline import sitk_bspline_to_dataarray

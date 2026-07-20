@@ -9,12 +9,45 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.plotting import (
     VolumePlotter,
     plot_carpet,
     plot_contours,
     plot_volume,
 )
+
+
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small voxel-affine test volume with an oblique slice geometry."""
+    data = xr.DataArray(
+        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 1.0, 2.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    voxel_to_physical = np.array(
+        [
+            [0.4, 0.0, 0.1, 10.0],
+            [0.1, 0.3, 0.0, 20.0],
+            [0.0, 0.05, 0.25, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    return add_physical_coords_from_voxel_affine(
+        data,
+        voxel_to_physical,
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
 
 
 def _axes(plotter):
@@ -455,6 +488,102 @@ class TestPlotVolume:
             (y_sorted[-1] + dy / 2, y_sorted[0] - dy / 2)
         )
 
+    def test_voxel_affine_slice_geometry_returns_2d_meshes(self):
+        """Voxel-affine slice geometry is projected to 2D corner meshes."""
+        from confusius.plotting.image import _slice_edges_and_centers
+
+        data = _make_voxel_affine_volume().isel(k=0)
+        x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
+            data, "j", "i"
+        )
+
+        assert x_edges.shape == (data.sizes["j"] + 1, data.sizes["i"] + 1)
+        assert y_edges.shape == (data.sizes["j"] + 1, data.sizes["i"] + 1)
+        assert x_centers.shape == (data.sizes["j"], data.sizes["i"])
+        assert y_centers.shape == (data.sizes["j"], data.sizes["i"])
+
+    def test_voxel_affine_volume_uses_projected_plane_coordinates(
+        self, matplotlib_pyplot
+    ):
+        """Voxel-affine volumes plot native planes in projected in-plane coords."""
+        data = _make_voxel_affine_volume()
+        plotter = plot_volume(
+            data,
+            slice_mode="k",
+            slice_coords=[0.0],
+            show_colorbar=False,
+        )
+
+        ax = _axes(plotter)[0, 0]
+        quadmesh = ax.collections[0]
+        assert quadmesh.get_coordinates().shape == (
+            data.sizes["j"] + 1,
+            data.sizes["i"] + 1,
+            2,
+        )
+        assert ax.get_xlabel() == "i in-plane (mm)"
+        assert ax.get_ylabel() == "j in-plane (mm)"
+
+    def test_voxel_affine_volume_resamples_for_physical_slice_mode(
+        self, matplotlib_pyplot
+    ):
+        """Voxel-affine volumes plot physical z-slices after axis-aligned resampling."""
+        data = _make_voxel_affine_volume()
+        z_coord = float(np.asarray(data.coords["z"].values, dtype=float).mean())
+
+        plotter = plot_volume(
+            data,
+            slice_mode="z",
+            slice_coords=[z_coord],
+            show_colorbar=False,
+        )
+
+        ax = _axes(plotter)[0, 0]
+        quadmesh = ax.collections[0]
+        assert quadmesh.get_coordinates().ndim == 3
+        assert ax.get_xlabel() == "x (mm)"
+        assert ax.get_ylabel() == "y (mm)"
+
+    def test_voxel_affine_physical_resampling_preserves_per_axis_spacing(self):
+        """The first physical display grid keeps each axis's own physical spacing."""
+        from confusius.plotting.image import _resample_voxel_affine_to_physical_grid
+
+        data = _make_voxel_affine_volume()
+
+        result = _resample_voxel_affine_to_physical_grid(data, "z")
+
+        for dim in ("z", "y", "x"):
+            spacing = float(
+                np.diff(np.asarray(result.coords[dim].values, dtype=float))[0]
+            )
+            assert spacing == pytest.approx(float(data.coords[dim].attrs["voxdim"]))
+
+    def test_axis_aligned_voxel_affine_physical_slice_promotes_physical_dims(self):
+        """Axis-aligned CTI uses physical dims directly for physical slicing."""
+        from confusius.plotting.image import _resample_voxel_affine_to_physical_grid
+
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([0.4, 0.3, 0.25, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
+
+        result = _resample_voxel_affine_to_physical_grid(data, "z")
+
+        assert result.dims == ("z", "y", "x")
+        assert "voxel_to_physical" not in result.attrs
+
 
 class TestCentersToEdges:
     """Tests for _centers_to_edges helper function."""
@@ -518,6 +647,52 @@ class TestVolumePlotterAddVolume:
                 sample_3d_volume.sel(z=z_vals[[0, 1, 3]], method="nearest"),
                 cmap="viridis",
             )
+
+    def test_voxel_affine_physical_overlay_reuses_first_display_grid(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Physical CTI overlays resample onto the first plotted physical grid."""
+        overlay = add_physical_coords_from_voxel_affine(
+            sample_3d_volume.rename(z="k", y="j", x="i").assign_coords(
+                k=sample_3d_volume.coords["z"].values,
+                j=sample_3d_volume.coords["y"].values,
+                i=sample_3d_volume.coords["x"].values,
+            ),
+            np.array(
+                [
+                    [0.9, -0.1, 0.0, 0.2],
+                    [0.1, 0.9, 0.0, -0.1],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": dict(sample_3d_volume.coords["z"].attrs),
+                "y": dict(sample_3d_volume.coords["y"].attrs),
+                "x": dict(sample_3d_volume.coords["x"].attrs),
+            },
+        )
+        z_coords = list(sample_3d_volume.coords["z"].values[:2])
+
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=z_coords,
+            show_colorbar=False,
+        )
+        plotter.add_volume(
+            overlay,
+            slice_coords=z_coords,
+            cmap="hot",
+            alpha=0.5,
+            show_colorbar=False,
+        )
+
+        axes_flat = _axes(plotter).ravel()
+        assert len(axes_flat[0].collections) == 2
+        assert len(axes_flat[1].collections) == 2
 
     def test_dataarray_alpha_applies_independently_per_slice(
         self, sample_3d_volume, matplotlib_pyplot

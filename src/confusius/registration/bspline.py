@@ -37,7 +37,7 @@ attributes:
 - **dims**: `("component", <spatial dims>)`.
 - **coords**: `component` is labeled by the spatial dim names, and each
   spatial axis stores the physical mm positions of every voxel.
-- **attrs**: `{"type": "displacement_field_transform"}`.
+- **attrs**: `{"type": "displacement_field_transform", "direction": [[...], ...]}`.
 
 Unlike the sparse B-spline coefficient lattice, a displacement field stores one
 displacement vector per voxel of an explicit grid. It is produced by sampling a B-spline
@@ -56,8 +56,12 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
-from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
+from confusius._utils.geometry import has_voxel_affine_geometry
+from confusius.registration._utils import (
+    expand_thin_dims,
+    get_defined_spatial_spacing,
+    set_sitk_thread_count,
+)
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
     validate_fusi_dataarray,
@@ -128,6 +132,7 @@ def sitk_bspline_to_dataarray(
         coords[dim] = origin[i] + np.arange(grid_shape[i]) * spacing[i]
 
     attrs: dict[str, object] = {
+        "type": "bspline_transform",
         "transform_type": "bspline_transform",
         "order": order,
         "direction": direction.tolist(),
@@ -272,7 +277,7 @@ def validate_bspline_dataarray(da: xr.DataArray) -> None:
         If `da.attrs["transform_type"] != "bspline_transform"` or required attrs are
         missing.
     """
-    transform_type = da.attrs.get("transform_type")
+    transform_type = da.attrs.get("transform_type", da.attrs.get("type"))
     if transform_type != "bspline_transform":
         raise ValueError(
             "Expected a DataArray with attrs['transform_type'] == "
@@ -298,6 +303,7 @@ def sample_displacement_field(
     spacing: Sequence[float],
     origin: Sequence[float],
     dims: Sequence[str],
+    direction: npt.ArrayLike | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Sample a registration transform onto an explicit output grid.
@@ -322,6 +328,9 @@ def sample_displacement_field(
         dimension order.
     dims : sequence of str
         Dimension names of the output displacement field.
+    direction : array-like, optional
+        Spatial direction matrix for the output grid, in DataArray spatial-dimension
+        order. If not provided, the output grid is treated as axis-aligned.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -341,6 +350,15 @@ def sample_displacement_field(
     ref = sitk.Image(list(shape), sitk.sitkFloat32)
     ref.SetSpacing(list(spacing))
     ref.SetOrigin(list(origin))
+    if direction is None:
+        ref.SetDirection(np.eye(len(dims), dtype=np.float64).flatten().tolist())
+    else:
+        direction_array = np.asarray(direction, dtype=np.float64)
+        if direction_array.shape != (len(dims), len(dims)):
+            raise ValueError(
+                f"direction must have shape {(len(dims), len(dims))}, got {direction_array.shape}."
+            )
+        ref.SetDirection(direction_array.flatten().tolist())
 
     field_filter = sitk.TransformToDisplacementFieldFilter()
     field_filter.SetReferenceImage(ref)
@@ -348,7 +366,7 @@ def sample_displacement_field(
         field_sitk = field_filter.Execute(tx)
 
     return _sitk_displacement_field_to_dataarray(
-        field_sitk, shape, spacing, origin, dims
+        field_sitk, shape, spacing, origin, dims, ref.GetDirection()
     )
 
 
@@ -402,9 +420,19 @@ def sample_displacement_field_like(
         (("transform", transform), ("reference", reference))
     )
 
+    dims, spacing = get_defined_spatial_spacing(reference)
+    origin_dict = reference.fusi.origin
     result = sample_displacement_field(
         transform,
-        **get_grid_kwargs_from_dataarray(reference),
+        shape=[int(reference.sizes[dim]) for dim in dims],
+        spacing=spacing,
+        origin=(
+            [origin_dict[dim] for dim in dims]
+            if not has_voxel_affine_geometry(reference)
+            else [o for d, o in origin_dict.items() if d != "time"]
+        ),
+        dims=dims,
+        direction=reference.fusi.direction,
         sitk_threads=sitk_threads,
     )
     return result.assign_coords(
@@ -491,12 +519,14 @@ def invert_displacement_field(
             inverted_expanded, size=shape, index=index
         )
 
-    spacing_dict = field.fusi.spacing
-    origin_dict = field.fusi.origin
-    spacing = [spacing_dict[d] if spacing_dict[d] is not None else 1.0 for d in dims]
-    origin = [origin_dict[d] for d in dims]
+    field_grid = field.isel(component=0, drop=True)
+    _, spacing = get_defined_spatial_spacing(field_grid)
+    origin = [field_grid.fusi.origin[d] for d in dims]
+    direction = np.asarray(
+        field.attrs.get("direction", np.eye(len(dims))), dtype=np.float64
+    )
     return _sitk_displacement_field_to_dataarray(
-        inverted_expanded, shape, spacing, origin, dims
+        inverted_expanded, shape, spacing, origin, dims, direction.tolist()
     )
 
 
@@ -506,6 +536,7 @@ def _sitk_displacement_field_to_dataarray(
     spacing: Sequence[float],
     origin: Sequence[float],
     dims: Sequence[str],
+    direction: Sequence[float],
 ) -> xr.DataArray:
     """Wrap a SimpleITK vector displacement field image as a DataArray.
 
@@ -523,6 +554,8 @@ def _sitk_displacement_field_to_dataarray(
         dimension order.
     dims : sequence of str
         Dimension names of the output DataArray.
+    direction : sequence of float
+        Spatial direction matrix in row-major order.
 
     Returns
     -------
@@ -555,7 +588,12 @@ def _sitk_displacement_field_to_dataarray(
         array,
         dims=["component", *dims],
         coords=coords,
-        attrs={"type": "displacement_field_transform"},
+        attrs={
+            "type": "displacement_field_transform",
+            "direction": np.asarray(direction, dtype=np.float64)
+            .reshape(len(dims), len(dims))
+            .tolist(),
+        },
     )
 
 
@@ -583,23 +621,21 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
 
     _validate_displacement_field_dataarray(da)
 
-    spatial_dims = list(da.dims[1:])
-    # da.fusi.spacing falls back to the 'voxdim' coordinate attribute for singleton
-    # spatial dims (e.g. a single 2D slice stored as a (1, y, x) array), where
-    # coords[dim].diff(dim) is empty and .mean() would silently return NaN.
-    spacing_dict = da.fusi.spacing
-    origin_dict = da.fusi.origin
-    spacing = [
-        spacing_dict[dim] if spacing_dict[dim] is not None else 1.0
-        for dim in spatial_dims
-    ]
-    origin = [origin_dict[dim] for dim in spatial_dims]
+    field_grid = da.isel(component=0, drop=True)
+    spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
+    origin = [field_grid.fusi.origin[dim] for dim in spatial_dims]
+    direction = np.asarray(
+        da.attrs.get("direction", np.eye(len(spatial_dims))), dtype=np.float64
+    )
+    if direction.shape != (len(spatial_dims), len(spatial_dims)):
+        direction = np.eye(len(spatial_dims), dtype=np.float64)
 
     # .T maps the first DataArray axis to SimpleITK's physical x-axis, matching the
     # convention used throughout confusius.registration (see dataarray_to_sitk_image).
     field = sitk.GetImageFromArray(da.values.T, isVector=True)
     field.SetSpacing(spacing)
     field.SetOrigin(origin)
+    field.SetDirection(direction.flatten().tolist())
     return field
 
 

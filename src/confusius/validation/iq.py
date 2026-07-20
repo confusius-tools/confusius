@@ -3,10 +3,10 @@
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._dims import TIME_DIM
 from confusius.validation.fusi import validate_fusi_dataarray
 
-_REQUIRED_DIMS = (TIME_DIM, *SPATIAL_DIMS)
+_REQUIRED_DIMS = (TIME_DIM, "k", "j", "i")
 """Required dimensions and coordinates that all IQ data must have."""
 
 _AXIAL_VELOCITY_REQUIRED_ATTRS = (
@@ -23,7 +23,7 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     requirements for processing with ConfUSIus functions. Validation checks include:
 
     1. **Dimensions**: The IQ DataArray must have exactly 4 dimensions in the
-       order: `(time, z, y, x)`.
+       order: `(time, k, j, i)`.
     2. **Coordinates**: All dimensions must have corresponding coordinates.
     3. **Data type**: The data must be complex-valued (`complex64` or `complex128`).
     4. **Attributes** (optional): If `require_attrs` is `True`, the DataArray must have
@@ -36,8 +36,8 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     Parameters
     ----------
     iq : xarray.DataArray
-        Input DataArray to validate. Must have dimensions `(time, z, y, x)` and the
-        required structure and attributes.
+        Input DataArray to validate. Must have dimensions `(time, k, j, i)`, linked
+        physical `z/y/x` coordinates, and the required structure and attributes.
     require_attrs : bool, default: False
         Whether to validate that all required attributes (`transmit_frequency`,
         `beamforming_sound_velocity`) are present in the DataArray attributes.
@@ -45,7 +45,7 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     Raises
     ------
     ValueError
-        If the DataArray does not have dimensions `(time, z, y, x)`, if required
+        If the DataArray does not have dimensions `(time, k, j, i)`, if required
         coordinates are missing, or if required attributes are missing when
         `require_attrs=True`.
     TypeError
@@ -59,14 +59,18 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     >>> import xarray as xr
     >>> iq = xr.DataArray(
     ...     np.ones((10, 4, 6, 8), dtype=np.complex64),
-    ...     dims=("time", "z", "y", "x"),
+    ...     dims=("time", "k", "j", "i"),
     ...     coords={
     ...         "time": np.arange(10),
-    ...         "z": np.arange(4),
-    ...         "y": np.arange(6),
-    ...         "x": np.arange(8),
+    ...         "k": np.arange(4),
+    ...         "j": np.arange(6),
+    ...         "i": np.arange(8),
+    ...         "z": ("k", np.arange(4) * 0.1),
+    ...         "y": ("j", np.arange(6) * 0.05),
+    ...         "x": ("i", np.arange(8) * 0.05),
     ...     },
     ...     attrs={
+    ...         "voxel_to_physical": np.diag([0.1, 0.05, 0.05, 1.0]),
     ...         "transmit_frequency": 15e6,
     ...         "beamforming_sound_velocity": 1540.0,
     ...     },
@@ -77,13 +81,17 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
 
     >>> iq_no_attrs = xr.DataArray(
     ...     np.ones((10, 4, 6, 8), dtype=np.complex64),
-    ...     dims=("time", "z", "y", "x"),
+    ...     dims=("time", "k", "j", "i"),
     ...     coords={
     ...         "time": np.arange(10),
-    ...         "z": np.arange(4),
-    ...         "y": np.arange(6),
-    ...         "x": np.arange(8),
+    ...         "k": np.arange(4),
+    ...         "j": np.arange(6),
+    ...         "i": np.arange(8),
+    ...         "z": ("k", np.arange(4) * 0.1),
+    ...         "y": ("j", np.arange(6) * 0.05),
+    ...         "x": ("i", np.arange(8) * 0.05),
     ...     },
+    ...     attrs={"voxel_to_physical": np.diag([0.1, 0.05, 0.05, 1.0])},
     ... )
     >>> validate_iq_dataarray(iq_no_attrs, require_attrs=False)
     """

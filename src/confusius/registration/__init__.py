@@ -1,5 +1,6 @@
 """Registration module for fUSI data."""
 
+from confusius.registration._utils import build_voxel_affine_plane_initial_transform
 from confusius.registration.affines import compose_affine, decompose_affine
 from confusius.registration.progress import (
     MatplotlibRegistrationProgressPlotter,
@@ -32,6 +33,7 @@ __all__ = [
     "MatplotlibRegistrationProgressPlotter",
     "compose_affine",
     "decompose_affine",
+    "build_voxel_affine_plane_initial_transform",
     "invert_displacement_field",
     "sample_displacement_field",
     "sample_displacement_field_like",
