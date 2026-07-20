@@ -43,6 +43,7 @@ generate-doc-images:
     uv run docs/images/gui/generate.py
     uv run docs/images/qc/generate.py
     uv run docs/images/visualization/generate.py
+    uv run docs/images/atlas/generate.py
 
 # Run all tests.
 test:

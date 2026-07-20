@@ -16,6 +16,7 @@ import pytest
 
 from confusius._napari._video._video_panel import (
     VideoPanel,
+    _IRREGULAR_TIME_WARNING,
     _VideoArray,
     _VideoEntry,
 )
@@ -53,7 +54,7 @@ def _inject_fake_video(panel, fv, *, frame_step=1, name="Video: test"):
     entry = _VideoEntry(
         path=Path(f"{name}.mp4"),
         video=fv,
-        frame_dtype=np.uint8,
+        frame_dtype=np.dtype(np.uint8),
         frame_shape=fv.frame_shape,
         video_h=fv.frame_shape[0],
         video_w=fv.frame_shape[1],
@@ -66,6 +67,15 @@ def _inject_fake_video(panel, fv, *, frame_step=1, name="Video: test"):
     return entry
 
 
+def _video_array(fv, *, dtype, frame_shape, **kwargs):
+    return _VideoArray(
+        fv,
+        dtype=np.dtype(dtype),
+        frame_shape=frame_shape,
+        **kwargs,
+    )
+
+
 # ---------------------------------------------------------------------------
 # _VideoArray
 # ---------------------------------------------------------------------------
@@ -74,25 +84,25 @@ def _inject_fake_video(panel, fv, *, frame_step=1, name="Video: test"):
 class TestVideoArray:
     def test_integer_index(self):
         fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
         np.testing.assert_array_equal(arr[2], fv[2])
 
     def test_slice_index(self):
         fv = _FakeVideo(n_frames=10, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
         frames = arr[2:5]
         assert frames.shape == (3, 4, 6)
         np.testing.assert_array_equal(frames[0], fv[2])
 
     def test_tuple_index_with_spatial_slice(self):
         fv = _FakeVideo(n_frames=5, h=8, w=10)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(8, 10))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(8, 10))
         result = arr[1, :4, :5]
         np.testing.assert_array_equal(result, fv[1][:4, :5])
 
     def test_shape_dtype_len(self):
         fv = _FakeVideo(n_frames=8, h=16, w=32)
-        arr = _VideoArray(fv, dtype=np.float32, frame_shape=(16, 32))
+        arr = _video_array(fv, dtype=np.float32, frame_shape=(16, 32))
         assert arr.shape == (8, 16, 32)
         assert arr.dtype == np.float32
         assert len(arr) == 8
@@ -100,39 +110,39 @@ class TestVideoArray:
 
     def test_unsupported_index_raises(self):
         fv = _FakeVideo(n_frames=3, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
         with pytest.raises(IndexError, match="Unsupported time index type"):
             arr[[0, 1]]
 
     def test_dimension_padding(self):
         fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6), n_pad=1)
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6), n_pad=1)
         assert arr.shape == (5, 1, 4, 6)
         # Integer index on pad dim should return the frame.
         np.testing.assert_array_equal(arr[2, 0], fv[2])
 
     def test_rgb_shape(self):
         fv = _FakeVideo(n_frames=5, h=4, w=6, rgb=True)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6, 3))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6, 3))
         assert arr.shape == (5, 4, 6, 3)
         np.testing.assert_array_equal(arr[1], fv[1])
 
     def test_rgb_with_padding(self):
         fv = _FakeVideo(n_frames=5, h=4, w=6, rgb=True)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6, 3), n_pad=1)
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6, 3), n_pad=1)
         assert arr.shape == (5, 1, 4, 6, 3)
         np.testing.assert_array_equal(arr[2, 0], fv[2])
 
     def test_empty_slice(self):
         fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
         result = arr[3:3]
         assert result.shape == (0, 4, 6)
 
     def test_explicit_h_before_w(self):
         """VideoArray with H at dim 1, W at dim 3 (e.g. displaying z x)."""
         fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _VideoArray(
+        arr = _video_array(
             fv,
             dtype=np.uint8,
             frame_shape=(4, 6),
@@ -149,7 +159,7 @@ class TestVideoArray:
     def test_explicit_w_before_h(self):
         """VideoArray with W at dim 1, H at dim 3 (e.g. displaying x z)."""
         fv = _FakeVideo(n_frames=5, h=4, w=6)
-        arr = _VideoArray(
+        arr = _video_array(
             fv,
             dtype=np.uint8,
             frame_shape=(4, 6),
@@ -166,7 +176,7 @@ class TestVideoArray:
     def test_explicit_dims_rgb_with_transpose(self):
         """RGB video with W before H in layout."""
         fv = _FakeVideo(n_frames=5, h=4, w=6, rgb=True)
-        arr = _VideoArray(
+        arr = _video_array(
             fv,
             dtype=np.uint8,
             frame_shape=(4, 6, 3),
@@ -188,7 +198,7 @@ class TestVideoArray:
         fixes it, but _update_layers fires first with slice(None)).
         """
         fv = _FakeVideo(n_frames=1000, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
         result = arr[slice(None), :, :]
         assert result.shape == (1, 4, 6)
         np.testing.assert_array_equal(result[0], fv[0])
@@ -196,7 +206,7 @@ class TestVideoArray:
     def test_bounded_time_slice_still_works(self):
         """Bounded slices (thick slicing / projections) decode normally."""
         fv = _FakeVideo(n_frames=20, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6))
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6))
         result = arr[5:10]
         assert result.shape == (5, 4, 6)
         np.testing.assert_array_equal(result[0], fv[5])
@@ -328,6 +338,75 @@ def loaded_panel(panel, viewer):
     return panel
 
 
+class TestReferenceWarning:
+    def test_regular_reference_does_not_warn(self, panel, monkeypatch):
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_warning",
+            warnings_seen.append,
+        )
+
+        panel._warn_if_irregular_reference(panel._ref_layer)
+
+        assert warnings_seen == []
+
+    def test_irregular_reference_warns(
+        self, panel, viewer, sample_3dt_volume, monkeypatch
+    ):
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_warning",
+            warnings_seen.append,
+        )
+        time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
+        time_values[2:] += 0.02
+        irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
+        with pytest.warns(UserWarning, match="non-uniform spacing"):
+            _, irregular_layer = plot_napari(
+                irregular,
+                viewer=viewer,
+                show_colorbar=False,
+                show_scale_bar=False,
+            )
+
+        panel._warn_if_irregular_reference(irregular_layer)
+
+        assert warnings_seen == [_IRREGULAR_TIME_WARNING]
+
+    def test_add_video_warns_for_irregular_reference(
+        self, panel, viewer, sample_3dt_volume, monkeypatch, tmp_path
+    ):
+        warnings_seen: list[str] = []
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_warning",
+            warnings_seen.append,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.show_info",
+            lambda *_args, **_kwargs: None,
+        )
+        monkeypatch.setattr(
+            "confusius._napari._video._video_panel.VideoReaderNP",
+            lambda *_args, **_kwargs: _FakeVideo(n_frames=10, h=48, w=64, rgb=True),
+        )
+        time_values = sample_3dt_volume.coords["time"].values.astype(np.float64).copy()
+        time_values[2:] += 0.02
+        irregular = sample_3dt_volume.assign_coords(time=("time", time_values))
+        with pytest.warns(UserWarning, match="non-uniform spacing"):
+            _, irregular_layer = plot_napari(
+                irregular,
+                viewer=viewer,
+                show_colorbar=False,
+                show_scale_bar=False,
+            )
+
+        video_path = tmp_path / "video.mp4"
+        video_path.touch()
+        panel._add_video(video_path, irregular_layer)
+
+        assert warnings_seen == [_IRREGULAR_TIME_WARNING]
+
+
 # ---------------------------------------------------------------------------
 # Dimension reorder integration (real viewer)
 # ---------------------------------------------------------------------------
@@ -394,7 +473,7 @@ class TestFrameStep:
     def test_frame_step_reduces_time_shape(self):
         """With step=3, time dimension is len(range(0, n_frames, step))."""
         fv = _FakeVideo(n_frames=12, h=4, w=6)
-        arr = _VideoArray(fv, dtype=np.uint8, frame_shape=(4, 6), step=3)
+        arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6), step=3)
         # 12 frames with step 3: indices 0, 3, 6, 9 -> 4 logical frames.
         assert arr.shape == (4, 4, 6)
         # Logical frame 0 -> physical frame 0.

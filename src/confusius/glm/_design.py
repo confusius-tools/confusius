@@ -20,6 +20,7 @@ from scipy.interpolate import interp1d
 
 from confusius._utils.bids import DEFAULT_TRIAL_TYPE
 from confusius._utils.coordinates import get_representative_step
+from confusius._utils.filtering import make_cosine_drift_regressors
 from confusius._utils.stack import find_stack_level
 from confusius.glm._hrf_models import HRFModel, _hrf_kernel
 
@@ -147,26 +148,7 @@ def _make_drift_regressors(
     if drift_model is None:
         return np.ones((n_volumes, 1)), ["constant"]
     elif drift_model == "cosine":
-        if low_cutoff * dt >= 0.5:
-            warnings.warn(
-                "High-pass filter will span all accessible frequencies and saturate "
-                f"the design matrix. The provided value is {low_cutoff} Hz.",
-                stacklevel=find_stack_level(),
-            )
-
-        order = min(n_volumes - 1, int(np.floor(2 * n_volumes * low_cutoff * dt)))
-        drift_regressors = np.zeros((n_volumes, order + 1))
-        normalizer = np.sqrt(2.0 / n_volumes)
-        n_times = np.arange(n_volumes, dtype=np.float64)
-
-        for k in range(1, order + 1):
-            drift_regressors[:, k - 1] = normalizer * np.cos(
-                (np.pi / n_volumes) * (n_times + 0.5) * k
-            )
-
-        drift_regressors[:, -1] = 1.0
-        drift_names = [f"cosine_{k}" for k in range(1, order + 1)] + ["constant"]
-        return drift_regressors, drift_names
+        return make_cosine_drift_regressors(n_volumes, low_cutoff, dt)
     elif drift_model == "polynomial":
         drift_order = int(drift_order)
         if drift_order < 0:

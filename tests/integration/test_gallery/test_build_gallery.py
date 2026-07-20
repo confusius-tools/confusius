@@ -101,6 +101,66 @@ def test_build_gallery_prints_progress_when_non_interactive(
 
 
 @pytest.mark.slow
+def test_build_gallery_runs_only_selected_and_stubs_the_rest(
+    gallery_paths: GalleryPaths,
+) -> None:
+    examples_root, built_dir, cache_root = gallery_paths
+
+    wanted = _seed_example(
+        examples_root,
+        "io",
+        "hello",
+        "# %% [markdown]\n# # Hello\n\n# %%\nprint('hi')\n",
+    )
+    _seed_example(
+        examples_root,
+        "misc",
+        "skipme",
+        "# %% [markdown]\n# # Skip\n\n# %%\nprint('bye')\n",
+    )
+
+    build_gallery(
+        examples_root=examples_root,
+        built_dir=built_dir,
+        cache_root=cache_root,
+        deps_fingerprint="testdeps==1.0",
+        only=[wanted],
+    )
+
+    # The selected example is executed: its output is rendered.
+    hello = (built_dir / "io" / "hello.md").read_text()
+    assert '<div class="gallery-output" markdown>' in hello
+    # The rest are rendered without running: the source is there, but no outputs.
+    skip = (built_dir / "misc" / "skipme.md").read_text()
+    assert "print('bye')" in skip
+    assert "gallery-output" not in skip
+    # It is not cached, so a later run would still execute it.
+    assert not list(cache_root.glob("**/misc/skipme"))
+    # The index still lists the full gallery.
+    index_md = (examples_root / "index.md").read_text()
+    assert "Hello" in index_md
+    assert "Skip" in index_md
+
+
+def test_build_gallery_raises_for_unknown_only_path(
+    gallery_paths: GalleryPaths,
+) -> None:
+    examples_root, built_dir, cache_root = gallery_paths
+    _seed_example(
+        examples_root, "io", "hello", "# %% [markdown]\n# # Hi\n\n# %%\nx = 1\n"
+    )
+
+    with pytest.raises(ValueError, match="Not discoverable"):
+        build_gallery(
+            examples_root=examples_root,
+            built_dir=built_dir,
+            cache_root=cache_root,
+            deps_fingerprint="testdeps==1.0",
+            only=[examples_root / "io" / "ghost.py"],
+        )
+
+
+@pytest.mark.slow
 def test_build_gallery_embeds_binder_launch_url(gallery_paths: GalleryPaths) -> None:
     examples_root, built_dir, cache_root = gallery_paths
     repo_root = examples_root.parent.parent

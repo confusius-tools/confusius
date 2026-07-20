@@ -200,7 +200,7 @@ def test_regress_confounds_invalid_type(sample_timeseries):
     signals = sample_timeseries()
 
     with pytest.raises(TypeError, match="must be an xarray.DataArray"):
-        regress_confounds(signals, "invalid")  # type: ignore[arg-type]
+        regress_confounds(signals, "invalid")  # ty: ignore[invalid-argument-type]
 
 
 def test_regress_confounds_confounds_missing_time_dimension(sample_timeseries):

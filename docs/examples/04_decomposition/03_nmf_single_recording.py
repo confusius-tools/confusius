@@ -47,6 +47,7 @@ bids_root = cf.datasets.fetch_nunez_elizalde_2022(
     acqs="slice03",
 )
 
+# %%
 pwd_path = (
     Path(bids_root)
     / "sub-CR022"

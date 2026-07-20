@@ -8,6 +8,8 @@ from ._cybis_pereira_2026 import _BIDS_ROOT as _cybis_pereira_2026_bids_root
 from ._cybis_pereira_2026 import _TOTAL_SIZE_BYTES as _cybis_pereira_2026_size
 from ._huang_2025 import _TEMPLATE_ROOT as _huang_2025_template_root
 from ._huang_2025 import _TOTAL_SIZE_BYTES as _huang_2025_size
+from ._khallaf_2026 import _BIDS_ROOT as _khallaf_2026_bids_root
+from ._khallaf_2026 import _TOTAL_SIZE_BYTES as _khallaf_2026_size
 from ._landemard_2026 import _BIDS_ROOT as _landemard_2026_bids_root
 from ._landemard_2026 import _TOTAL_SIZE_BYTES as _landemard_2026_size
 from ._nunez_elizalde_2022 import _BIDS_ROOT as _nunez_elizalde_2022_bids_root
@@ -25,6 +27,11 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         "fetch_cybis_pereira_2026",
         _cybis_pereira_2026_size,
         _cybis_pereira_2026_bids_root,
+    ),
+    (
+        "fetch_khallaf_2026",
+        _khallaf_2026_size,
+        _khallaf_2026_bids_root,
     ),
     (
         "fetch_landemard_2026",

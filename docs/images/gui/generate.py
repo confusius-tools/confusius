@@ -26,6 +26,8 @@ Outputs (all saved to docs/images/gui/):
 - `plugin-events-create.gif` — GIF of creating events with the Start/End workflow.
 - `plugin-qc.png` — QC panel with DVARS, carpet, and CV computed.
 - `plugin-video.gif` — Video panel with video synced to the fUSI acquisition.
+- `plugin-registration.gif` — Registration panel during a rigid between-session angiography run.
+- `plugin-registration-volumewise.gif` — Registration panel during within-scan motion correction.
 
 Notes
 -----
@@ -55,6 +57,14 @@ _SUBJECT = "CR022"
 _SESSION = "20201011"
 _TASK = "spontaneous"
 _ACQ_SLICE = "slice04"
+
+_REGISTRATION_SUBJECT = "CR022"
+_REGISTRATION_FIXED_SESSION = "20201007"
+_REGISTRATION_MOVING_SESSION = "20201011"
+
+_VOLUMEWISE_SUBJECT = "rat75"
+_VOLUMEWISE_SESSION = "20220523"
+_VOLUMEWISE_ACQ_SLICE = "slice32"
 
 _SLICE_INDEX = int(_ACQ_SLICE.replace("slice", ""))
 
@@ -233,8 +243,8 @@ def _best_matching_z_coordinate(reference_2d, volume_3d) -> float:
 _section("Load Data")
 console.print("Fetching Nunez-Elizalde 2022 dataset")
 bids_root = fetch_nunez_elizalde_2022(
-    subjects=[_SUBJECT],
-    sessions=[_SESSION],
+    subjects=[_SUBJECT, _REGISTRATION_SUBJECT],
+    sessions=[_SESSION, _REGISTRATION_FIXED_SESSION, _REGISTRATION_MOVING_SESSION],
     tasks=[_TASK],
     acqs=[_ACQ_SLICE],
 )
@@ -323,12 +333,12 @@ _VIDEO_SUBJECT = "rat75"
 _VIDEO_SESSION = "20220525"
 _VIDEO_ACQ_SLICE = "slice37"
 
-console.print("Fetching Cybis-Pereira 2026 dataset (for video GIF)")
+console.print("Fetching Cybis-Pereira 2026 dataset (for video and registration GIFs)")
 video_bids_root = fetch_cybis_pereira_2026(
     datasets=_VIDEO_DATASETS,
-    subjects=[_VIDEO_SUBJECT],
-    sessions=[_VIDEO_SESSION],
-    acqs=[_VIDEO_ACQ_SLICE],
+    subjects=[_VIDEO_SUBJECT, _VOLUMEWISE_SUBJECT],
+    sessions=[_VIDEO_SESSION, _VOLUMEWISE_SESSION],
+    acqs=[_VIDEO_ACQ_SLICE, _VOLUMEWISE_ACQ_SLICE],
 )
 
 _VIDEO_FUSI_PATH = (
@@ -368,7 +378,7 @@ def _napari_screenshot(viewer: napari.Viewer, path: str) -> None:
     sees or resizes it.
     """
     win = viewer.window._qt_window
-    win.setAttribute(Qt.WA_DontShowOnScreen)
+    win.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win.show()
     win.resize(1400, 900)
     get_qapp().processEvents()
@@ -415,13 +425,17 @@ def _open_accordion(widget, idx: int) -> None:
     get_qapp().processEvents()
 
 
-def _accordion_index(widget, title: str) -> int:
-    """Return the accordion position of the section with the given title.
+def _open_accordion_panel(widget, title: str):
+    """Open accordion panel *title* and return its widget.
 
-    Resolving the index from the section title keeps the screenshot code robust
-    to accordion reordering or the insertion of new sections.
+    This avoids hard-coding panel indices in the screenshot script, which is
+    brittle when the plugin adds or reorders sections.
     """
-    return list(widget._accordion_panels).index(title)
+    for idx, (btn, _) in enumerate(widget._accordion_btns):
+        if btn.text() == title:
+            _open_accordion(widget, idx)
+            return widget._accordion_panels[title]
+    raise KeyError(f"Accordion panel not found: {title}")
 
 
 # ---------------------------------------------------------------------------
@@ -472,12 +486,7 @@ try:
     viewer2.window.add_dock_widget(widget2, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 2).
-    _open_accordion(widget2, 2)
-
-    # Retrieve the Signals panel from the accordion container layout.
-    _container2 = widget2._accordion_btns[0][0].parent()
-    ts_panel = _container2.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel = _open_accordion_panel(widget2, "Signals")
 
     # Open the bottom dock with the signals plotter.
     plotter = ts_panel._ensure_plotter()
@@ -521,10 +530,7 @@ try:
     viewer3.window.add_dock_widget(widget3, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open the Quality Control panel, resolving its position by name so the
-    # screenshot does not break when sections are reordered or inserted.
-    _open_accordion(widget3, _accordion_index(widget3, "Quality Control"))
-    qc_panel = widget3._accordion_panels["Quality Control"]
+    qc_panel = _open_accordion_panel(widget3, "Quality Control")
 
     # Select the layer in the QC panel.
     idx = qc_panel._layer_combo.findText(layer_name)
@@ -574,10 +580,7 @@ try:
     viewer4.window.add_dock_widget(widget4, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 2).
-    _open_accordion(widget4, 2)
-    _container4 = widget4._accordion_btns[0][0].parent()
-    ts_panel4 = _container4.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel4 = _open_accordion_panel(widget4, "Signals")
 
     layer4 = viewer4.layers[0]
     shape4 = layer4.data.shape[1:]  # (z, y, x)
@@ -587,7 +590,7 @@ try:
     # Place points at the centroids of the two atlas-derived cortical ROIs.
     pt_red = GUI_POINT_LEFT
     pt_teal = GUI_POINT_RIGHT
-    pts_layer4 = viewer4.add_points(
+    pts_layer4 = getattr(viewer4, "add_points")(
         np.array([pt_red, pt_teal]),
         name="ROI Points",
         scale=scale_3d4,
@@ -598,7 +601,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter4 = ts_panel4._ensure_plotter()
+    plotter4 = getattr(ts_panel4, "_ensure_plotter")()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -610,7 +613,7 @@ try:
     # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
     # on the plotter automatically.
-    ts_panel4._radio_points.setChecked(True)
+    getattr(ts_panel4, "_radio_points").setChecked(True)
     get_qapp().processEvents()
 
     viewer4.window._qt_window.resize(1400, 1050)
@@ -640,10 +643,7 @@ try:
     viewer5.window.add_dock_widget(widget5, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
-    # Open Signals panel (index 2).
-    _open_accordion(widget5, 2)
-    _container5 = widget5._accordion_btns[0][0].parent()
-    ts_panel5 = _container5.layout().itemAt(2 * 2 + 1).widget()
+    ts_panel5 = _open_accordion_panel(widget5, "Signals")
 
     layer5 = viewer5.layers[0]
     shape5 = layer5.data.shape[1:]  # (z, y, x)
@@ -655,7 +655,7 @@ try:
     labels_data[0, GUI_LEFT_ROI] = 1
     labels_data[0, GUI_RIGHT_ROI] = 2
 
-    labels_layer5 = viewer5.add_labels(
+    labels_layer5 = getattr(viewer5, "add_labels")(
         labels_data,
         name="Brain Regions",
         scale=scale_3d5,
@@ -663,7 +663,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter5 = ts_panel5._ensure_plotter()
+    plotter5 = getattr(ts_panel5, "_ensure_plotter")()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -674,7 +674,7 @@ try:
     # Select the Labels radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter automatically.
-    ts_panel5._radio_labels.setChecked(True)
+    getattr(ts_panel5, "_radio_labels").setChecked(True)
     get_qapp().processEvents()
 
     viewer5.window._qt_window.resize(1400, 1050)
@@ -729,12 +729,17 @@ try:
     video_panel._load_from_path()
     _qt_sleep(200)
 
-    # Open the Video accordion section (index 1).
-    _open_accordion(widget6, 1)
+    video_layer = next(
+        layer
+        for layer in viewer6.layers
+        if layer is not fusi_layer and layer.name.startswith("Video:")
+    )
+
+    _open_accordion_panel(widget6, "Video")
 
     # Size the window, then refit camera to layers (napari "home" button).
     win6 = viewer6.window._qt_window
-    win6.setAttribute(Qt.WA_DontShowOnScreen)
+    win6.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
     win6.show()
     win6.resize(1400, 900)
     get_qapp().processEvents()
@@ -747,18 +752,26 @@ try:
     N_GIF_FRAMES = 60
     GIF_FPS = 12
     GIF_WIDTH = 1100
-    # Scrub from 2 s to 17 s of scan world time. Use `set_point` (world
-    # coordinate) instead of `set_current_step` (index), because fUSI and
-    # video layers have different time scales in the shared grid.
-    GIF_T_START_S, GIF_T_STOP_S = 2.0, 17.0
-    step_times = np.linspace(GIF_T_START_S, GIF_T_STOP_S, N_GIF_FRAMES)
+    # Scrub inside the actual time overlap between the fUSI and video layers.
+    # Use `set_point` (world coordinate) instead of `set_current_step` (index),
+    # because the layers have different time scales in the shared grid.
+    fusi_min, fusi_max = fusi_layer.extent.world[:, VIDEO_TIME_AXIS]
+    video_min, video_max = video_layer.extent.world[:, VIDEO_TIME_AXIS]
+    gif_t_start_s = max(float(fusi_min), float(video_min)) + 0.5
+    gif_t_stop_s = min(float(fusi_max), float(video_max)) - 0.5
+    if gif_t_stop_s <= gif_t_start_s:
+        raise RuntimeError("No overlapping fUSI/video time range available for GIF")
+    step_times = np.linspace(gif_t_start_s, gif_t_stop_s, N_GIF_FRAMES)
 
     frames_pil: list = []
     for t in step_times:
         viewer6.dims.set_point(VIDEO_TIME_AXIS, float(t))
         get_qapp().processEvents()
         get_qapp().processEvents()
-        raw = viewer6.screenshot(canvas_only=False)[..., :3]
+        raw = viewer6.screenshot(canvas_only=False)
+        if raw.size == 0:
+            raise RuntimeError("napari returned an empty screenshot frame")
+        raw = raw[..., :3]
         h, w = raw.shape[:2]
         scale = GIF_WIDTH / w
         frames_pil.append(
@@ -784,7 +797,345 @@ except Exception as exc:
     _warn(f"plugin-video.gif failed: {exc}")
 
 # ---------------------------------------------------------------------------
-# 7. Events panel — GIF of creating events with the Start/End workflow
+# 7. Registration panel — rigid between-session GIF via the plugin
+# ---------------------------------------------------------------------------
+
+try:
+    from PIL import Image as _PILImage
+
+    from confusius._napari._registration._panel import RegistrationPanel
+    from confusius.plotting.napari import plot_napari
+
+    fixed_path = (
+        bids_root
+        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_FIXED_SESSION}/angio"
+        / f"sub-{_REGISTRATION_SUBJECT}_ses-{_REGISTRATION_FIXED_SESSION}_pwd.nii.gz"
+    )
+    moving_path = (
+        bids_root
+        / f"sub-{_REGISTRATION_SUBJECT}/ses-{_REGISTRATION_MOVING_SESSION}/angio"
+        / f"sub-{_REGISTRATION_SUBJECT}_ses-{_REGISTRATION_MOVING_SESSION}_pwd.nii.gz"
+    )
+
+    fixed_da = cf.load(fixed_path)
+    moving_da = cf.load(moving_path)
+    registration_contrast = (
+        min(float(fixed_da.min()), float(moving_da.min())),
+        max(float(fixed_da.quantile(0.9995)), float(moving_da.quantile(0.9995))),
+    )
+
+    viewer7 = napari.Viewer(show=False)
+    _viewer7, fixed_layer7 = plot_napari(
+        fixed_da,
+        viewer=viewer7,
+        name=f"Fixed angio ({_REGISTRATION_FIXED_SESSION})",
+        gamma=0.4,
+        colormap="red",
+        contrast_limits=registration_contrast,
+    )
+    _viewer7, moving_layer7 = plot_napari(
+        moving_da,
+        viewer=viewer7,
+        name=f"Moving angio ({_REGISTRATION_MOVING_SESSION})",
+        gamma=0.4,
+        colormap="cyan",
+        blending="additive",
+        contrast_limits=registration_contrast,
+    )
+
+    widget7 = ConfUSIusWidget(viewer7)
+    viewer7.window.add_dock_widget(widget7, name="ConfUSIus", area="right")
+    _qt_sleep(250)
+
+    registration_panel = widget7.findChild(RegistrationPanel)
+    if registration_panel is None:
+        raise RuntimeError("RegistrationPanel not found in ConfUSIusWidget")
+
+    _open_accordion_panel(widget7, "Registration")
+
+    moving_idx = registration_panel._moving_combo.findText(moving_layer7.name)
+    if moving_idx >= 0:
+        registration_panel._moving_combo.setCurrentIndex(moving_idx)
+    fixed_idx = registration_panel._fixed_combo.findText(fixed_layer7.name)
+    if fixed_idx >= 0:
+        registration_panel._fixed_combo.setCurrentIndex(fixed_idx)
+    registration_panel._single_volume_radio.setChecked(True)
+    registration_panel._transform_combo.setCurrentText("rigid")
+    registration_panel._metric_combo.setCurrentText("correlation")
+    scale_idx = registration_panel._scale_combo.findData("off")
+    if scale_idx >= 0:
+        registration_panel._scale_combo.setCurrentIndex(scale_idx)
+    registration_panel._learning_rate_auto_check.setChecked(False)
+    registration_panel._learning_rate_edit.setValue(0.01)
+    registration_panel._iterations_spin.setValue(500)
+    registration_panel._validate_registration_selection()
+    _qt_sleep(100)
+
+    win7 = viewer7.window._qt_window
+    win7.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    win7.show()
+    win7.resize(1500, 950)
+    get_qapp().processEvents()
+    viewer7.reset_view()
+    if fixed_da.sizes.get("z", 1) > 1:
+        viewer7.dims.set_point(0, fixed_da.sizes["z"] // 2)
+    _qt_sleep(100)
+
+    frames_pil: list = []
+
+    def _capture_registration_frame() -> None:
+        raw = viewer7.screenshot(canvas_only=False)
+        if raw.size == 0:
+            raise RuntimeError("napari returned an empty registration GIF frame")
+        raw = raw[..., :3]
+        h, w = raw.shape[:2]
+        gif_width = 1200
+        scale = gif_width / w
+        frames_pil.append(
+            _PILImage.fromarray(raw).resize(
+                (gif_width, int(h * scale)), _PILImage.Resampling.LANCZOS
+            )
+        )
+
+    def _capture_z_sweep(n_frames: int = 20) -> None:
+        if fixed_da.sizes.get("z", 1) <= 1:
+            return
+        z_mid = fixed_da.sizes["z"] // 2
+        z_max = fixed_da.sizes["z"] - 1
+        segments = [
+            np.linspace(z_mid, z_max, n_frames),
+            np.linspace(z_max, z_mid, n_frames)[1:],
+            np.linspace(z_mid, 0, n_frames)[1:],
+            np.linspace(0, z_mid, n_frames)[1:],
+        ]
+        for z in np.concatenate(segments):
+            viewer7.dims.set_current_step(0, int(round(float(z))))
+            get_qapp().processEvents()
+            _qt_sleep(180)
+            _capture_registration_frame()
+
+    _capture_z_sweep()
+    if fixed_da.sizes.get("z", 1) > 1:
+        viewer7.dims.set_current_step(0, fixed_da.sizes["z"] // 2)
+    for _ in range(6):
+        get_qapp().processEvents()
+        _qt_sleep(120)
+        _capture_registration_frame()
+
+    registration_panel._run_registration()
+    if registration_panel._worker is None:
+        raise RuntimeError("Registration worker did not start")
+
+    while registration_panel._worker is not None and len(frames_pil) < 96:
+        if fixed_da.sizes.get("z", 1) > 1:
+            viewer7.dims.set_current_step(0, fixed_da.sizes["z"] // 2)
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_registration_frame()
+
+    while registration_panel._worker is not None:
+        get_qapp().processEvents()
+        _qt_sleep(120)
+
+    fixed_layer7.visible = False
+    moving_layer7.visible = False
+    get_qapp().processEvents()
+
+    if fixed_da.sizes.get("z", 1) > 1:
+        viewer7.dims.set_current_step(0, fixed_da.sizes["z"] // 2)
+    for _ in range(8):
+        get_qapp().processEvents()
+        _qt_sleep(120)
+        _capture_registration_frame()
+
+    _capture_z_sweep()
+    if fixed_da.sizes.get("z", 1) > 1:
+        viewer7.dims.set_current_step(0, fixed_da.sizes["z"] // 2)
+    for _ in range(6):
+        get_qapp().processEvents()
+        _qt_sleep(120)
+        _capture_registration_frame()
+
+    palette_src = frames_pil[0].quantize(colors=256, dither=0)
+    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
+
+    gif_path = str(HERE / "plugin-registration.gif")
+    quantized[0].save(
+        gif_path,
+        save_all=True,
+        append_images=quantized[1:],
+        duration=1000 // 16,
+        loop=0,
+    )
+    viewer7.close()
+    _ok("Saved plugin-registration.gif")
+except Exception as exc:
+    _warn(f"plugin-registration.gif failed: {exc}")
+
+# ---------------------------------------------------------------------------
+# 8. Registration panel — within-scan motion-correction GIF via the plugin
+# ---------------------------------------------------------------------------
+
+try:
+    from PIL import Image as _PILImage
+
+    from confusius._napari._registration._panel import RegistrationPanel
+    from confusius.plotting.napari import plot_napari
+
+    volumewise_path = (
+        video_bids_root
+        / f"sub-{_VOLUMEWISE_SUBJECT}/ses-{_VOLUMEWISE_SESSION}/fusi"
+        / f"sub-{_VOLUMEWISE_SUBJECT}_ses-{_VOLUMEWISE_SESSION}_task-openfield_acq-{_VOLUMEWISE_ACQ_SLICE}_pwd.nii.gz"
+    )
+
+    volumewise_da = cf.load(volumewise_path).isel(time=slice(220, 340)).compute()
+    volumewise_contrast = (
+        float(volumewise_da.min()),
+        float(volumewise_da.quantile(0.9995)),
+    )
+    n_frames = volumewise_da.sizes["time"]
+
+    viewer8 = napari.Viewer(show=False)
+    _viewer8, moving_layer8 = plot_napari(
+        volumewise_da,
+        viewer=viewer8,
+        name=f"Open field ({_VOLUMEWISE_SESSION})",
+        gamma=0.4,
+        contrast_limits=volumewise_contrast,
+    )
+
+    widget8 = ConfUSIusWidget(viewer8)
+    viewer8.window.add_dock_widget(widget8, name="ConfUSIus", area="right")
+    _qt_sleep(250)
+
+    registration_panel8 = widget8.findChild(RegistrationPanel)
+    if registration_panel8 is None:
+        raise RuntimeError("RegistrationPanel not found in ConfUSIusWidget")
+
+    _open_accordion_panel(widget8, "Registration")
+
+    moving_idx = registration_panel8._moving_combo.findText(moving_layer8.name)
+    if moving_idx >= 0:
+        registration_panel8._moving_combo.setCurrentIndex(moving_idx)
+    registration_panel8._time_series_radio.setChecked(True)
+    registration_panel8._transform_combo.setCurrentText("rigid")
+    registration_panel8._metric_combo.setCurrentText("correlation")
+    scale_idx = registration_panel8._scale_combo.findData("off")
+    if scale_idx >= 0:
+        registration_panel8._scale_combo.setCurrentIndex(scale_idx)
+    registration_panel8._reference_time_spin.setValue(n_frames // 2)
+    registration_panel8._learning_rate_auto_check.setChecked(False)
+    registration_panel8._learning_rate_edit.setValue(1.0)
+    registration_panel8._n_jobs_spin.setValue(-1)
+    registration_panel8._keep_diagnostics_check.setChecked(False)
+    registration_panel8._validate_registration_selection()
+    _qt_sleep(100)
+
+    win8 = viewer8.window._qt_window
+    win8.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    win8.show()
+    win8.resize(1500, 950)
+    get_qapp().processEvents()
+    viewer8.reset_view()
+    viewer8.dims.set_current_step(0, 0)
+    _qt_sleep(100)
+
+    frames_pil: list = []
+
+    def _capture_volumewise_frame() -> None:
+        raw = viewer8.screenshot(canvas_only=False)
+        if raw.size == 0:
+            raise RuntimeError(
+                "napari returned an empty volumewise registration GIF frame"
+            )
+        raw = raw[..., :3]
+        h, w = raw.shape[:2]
+        gif_width = 1200
+        scale = gif_width / w
+        frames_pil.append(
+            _PILImage.fromarray(raw).resize(
+                (gif_width, int(h * scale)), _PILImage.Resampling.LANCZOS
+            )
+        )
+
+    def _capture_time_sweep(n_frames_sweep: int = 18) -> None:
+        forward = np.linspace(0, n_frames - 1, n_frames_sweep)
+        backward = np.linspace(n_frames - 1, 0, n_frames_sweep)[1:]
+        for t in np.concatenate([forward, backward]):
+            viewer8.dims.set_current_step(0, int(round(float(t))))
+            get_qapp().processEvents()
+            _qt_sleep(70)
+            _capture_volumewise_frame()
+
+    _capture_time_sweep()
+    viewer8.dims.set_current_step(0, 0)
+    for _ in range(4):
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_volumewise_frame()
+
+    registration_panel8._run_registration()
+    if registration_panel8._worker is None:
+        raise RuntimeError("Volumewise registration worker did not start")
+
+    registration_start_frames = len(frames_pil)
+    while (
+        registration_panel8._worker is not None
+        and len(frames_pil) - registration_start_frames < 140
+    ):
+        viewer8.dims.set_current_step(0, 0)
+        get_qapp().processEvents()
+        _qt_sleep(100)
+        _capture_volumewise_frame()
+
+    while registration_panel8._worker is not None:
+        get_qapp().processEvents()
+        _qt_sleep(100)
+
+    moving_layer8.visible = False
+    try:
+        viewer8.layers["Moving"].visible = False
+    except KeyError:
+        pass
+    try:
+        motion_corrected_layer = viewer8.layers["Motion corrected"]
+    except KeyError:
+        pass
+    else:
+        motion_corrected_layer.colormap = "gray"
+        motion_corrected_layer.blending = "translucent_no_depth"
+    get_qapp().processEvents()
+
+    viewer8.dims.set_current_step(0, n_frames // 2)
+    for _ in range(4):
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_volumewise_frame()
+
+    _capture_time_sweep()
+    viewer8.dims.set_current_step(0, n_frames // 2)
+    for _ in range(4):
+        get_qapp().processEvents()
+        _qt_sleep(90)
+        _capture_volumewise_frame()
+
+    palette_src = frames_pil[0].quantize(colors=256, dither=0)
+    quantized = [frame.quantize(palette=palette_src, dither=0) for frame in frames_pil]
+
+    gif_path = str(HERE / "plugin-registration-volumewise.gif")
+    quantized[0].save(
+        gif_path,
+        save_all=True,
+        append_images=quantized[1:],
+        duration=1000 // 16,
+        loop=0,
+    )
+    viewer8.close()
+    _ok("Saved plugin-registration-volumewise.gif")
+except Exception as exc:
+    _warn(f"plugin-registration-volumewise.gif failed: {exc}")
+# ---------------------------------------------------------------------------
+# 9. Events panel — GIF of creating events with the Start/End workflow
 # ---------------------------------------------------------------------------
 
 try:
@@ -798,15 +1149,15 @@ try:
 
     da_gif = cf.load(_VIDEO_FUSI_PATH)
 
-    viewer8 = napari.Viewer(show=False)
-    _viewer8, fusi8 = plot_napari(
+    viewer9 = napari.Viewer(show=False)
+    _viewer9, fusi9 = plot_napari(
         da_gif,
-        viewer=viewer8,
+        viewer=viewer9,
         gamma=DISPLAY_GAMMA,
         contrast_limits=VIDEO_DISPLAY_CONTRAST,
     )
-    widget8 = ConfUSIusWidget(viewer8)
-    viewer8.window.add_dock_widget(widget8, name="ConfUSIus", area="right")
+    widget9 = ConfUSIusWidget(viewer9)
+    viewer9.window.add_dock_widget(widget9, name="ConfUSIus", area="right")
     _qt_sleep(200)
 
     # Two behavioural events to annotate, with absolute world-time onsets and
@@ -818,93 +1169,93 @@ try:
     settle_t = grooming_onset + grooming_duration
 
     # --- Labels layer aligned to the fUSI spatial axes, two painted regions. ---
-    da_meta8 = fusi8.metadata["xarray"]
-    spatial8 = [i for i, d in enumerate(da_meta8.dims) if d in ("pose", "z", "y", "x")]
-    spatial_shape8 = tuple(da_meta8.shape[i] for i in spatial8)
-    spatial_scale8 = tuple(float(fusi8.scale[i]) for i in spatial8)
-    spatial_translate8 = tuple(float(fusi8.translate[i]) for i in spatial8)
-    _ny8, _nx8 = spatial_shape8[-2], spatial_shape8[-1]
-    _yy8, _xx8 = np.ogrid[:_ny8, :_nx8]
-    _r8 = 0.05 * min(_ny8, _nx8)
-    _blob1 = ((_yy8 - 0.10 * _ny8) ** 2 + (_xx8 - 0.63 * _nx8) ** 2) < _r8**2
-    _blob2 = ((_yy8 - 0.35 * _ny8) ** 2 + (_xx8 - 0.73 * _nx8) ** 2) < _r8**2
-    _label_data8 = np.zeros(spatial_shape8, dtype=np.int32)
-    _label_data8[0][_blob1] = 1
-    _label_data8[0][_blob2] = 2
-    labels8 = viewer8.add_labels(
-        _label_data8,
+    da_meta9 = fusi9.metadata["xarray"]
+    spatial9 = [i for i, d in enumerate(da_meta9.dims) if d in ("pose", "z", "y", "x")]
+    spatial_shape9 = tuple(da_meta9.shape[i] for i in spatial9)
+    spatial_scale9 = tuple(float(fusi9.scale[i]) for i in spatial9)
+    spatial_translate9 = tuple(float(fusi9.translate[i]) for i in spatial9)
+    _ny9, _nx9 = spatial_shape9[-2], spatial_shape9[-1]
+    _yy9, _xx9 = np.ogrid[:_ny9, :_nx9]
+    _r9 = 0.05 * min(_ny9, _nx9)
+    _blob1 = ((_yy9 - 0.10 * _ny9) ** 2 + (_xx9 - 0.63 * _nx9) ** 2) < _r9**2
+    _blob2 = ((_yy9 - 0.35 * _ny9) ** 2 + (_xx9 - 0.73 * _nx9) ** 2) < _r9**2
+    _label_data9 = np.zeros(spatial_shape9, dtype=np.int32)
+    _label_data9[0][_blob1] = 1
+    _label_data9[0][_blob2] = 2
+    labels9 = viewer9.add_labels(
+        _label_data9,
         name="Labels (3D)",
-        scale=spatial_scale8,
-        translate=spatial_translate8,
+        scale=spatial_scale9,
+        translate=spatial_translate9,
         opacity=0.7,
     )
 
     # --- Behavioural video via the Video panel; group fUSI + labels in one cell. ---
-    video_panel8 = widget8.findChild(VideoPanel)
-    _ref_idx8 = video_panel8._ref_combo.findText(fusi8.name)
-    if _ref_idx8 >= 0:
-        video_panel8._ref_combo.setCurrentIndex(_ref_idx8)
-    video_panel8._path_edit.setText(str(_VIDEO_MP4_PATH))
-    video_panel8._load_from_path()
+    video_panel9 = widget9.findChild(VideoPanel)
+    _ref_idx9 = video_panel9._ref_combo.findText(fusi9.name)
+    if _ref_idx9 >= 0:
+        video_panel9._ref_combo.setCurrentIndex(_ref_idx9)
+    video_panel9._path_edit.setText(str(_VIDEO_MP4_PATH))
+    video_panel9._load_from_path()
     _qt_sleep(300)
     # stride=2 keeps [fUSI, Labels] overlaid in one grid cell; the video gets its own.
-    viewer8.grid.stride = 2
+    viewer9.grid.stride = 2
     get_qapp().processEvents()
 
-    events_panel8 = widget8._accordion_panels["Events"]
+    events_panel9 = widget9._accordion_panels["Events"]
 
     # --- Signals plotter in Labels mode (mean signal per region) with the cursor. ---
-    signals_panel8 = widget8._accordion_panels["Signals"]
-    plotter8 = signals_panel8._ensure_plotter()
+    signals_panel9 = widget9._accordion_panels["Signals"]
+    plotter9 = signals_panel9._ensure_plotter()
     _qt_sleep(350)
-    plotter8.set_source_mode("labels")
-    plotter8.set_labels_layer(labels8)
-    plotter8.set_ref_layers([fusi8])
-    plotter8._cursor_world = rearing_onset
-    plotter8.set_show_cursor(True)
-    plotter8._update_plot_from_labels()
+    plotter9.set_source_mode("labels")
+    plotter9.set_labels_layer(labels9)
+    plotter9.set_ref_layers([fusi9])
+    plotter9._cursor_world = rearing_onset
+    plotter9.set_show_cursor(True)
+    plotter9._update_plot_from_labels()
 
     # Select the fUSI so events and the overlay read its true time coordinate, then
     # put the slider at the first onset and activate the overlay.
-    viewer8.layers.selection = {fusi8}
-    viewer8.dims.set_point(VIDEO_TIME_AXIS, rearing_onset)
-    widget8._time_overlay.check()
+    viewer9.layers.selection = {fusi9}
+    viewer9.dims.set_point(VIDEO_TIME_AXIS, rearing_onset)
+    widget9._time_overlay.check()
 
     # Open the Events accordion and show the window so the geometry is final.
-    _open_accordion(widget8, _accordion_index(widget8, "Events"))
-    win8 = viewer8.window._qt_window
-    win8.setAttribute(Qt.WA_DontShowOnScreen)
-    win8.show()
-    win8.resize(1400, 1050)
+    _open_accordion_panel(widget9, "Events")
+    win9 = viewer9.window._qt_window
+    win9.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+    win9.show()
+    win9.resize(1400, 1050)
     get_qapp().processEvents()
-    viewer8.reset_view()
+    viewer9.reset_view()
     get_qapp().processEvents()
 
     # Scroll the sidebar down so the Events panel is fully visible.
-    scroll8 = widget8.findChild(QScrollArea)
-    if scroll8 is not None and scroll8.widget() is not None:
-        first_btn8 = widget8._accordion_btns[0][0]
-        scroll8.verticalScrollBar().setValue(
-            first_btn8.mapTo(scroll8.widget(), QPoint(0, 0)).y()
+    scroll9 = widget9.findChild(QScrollArea)
+    if scroll9 is not None and scroll9.widget() is not None:
+        first_btn9 = widget9._accordion_btns[0][0]
+        scroll9.verticalScrollBar().setValue(
+            first_btn9.mapTo(scroll9.widget(), QPoint(0, 0)).y()
         )
     get_qapp().processEvents()
 
     # --- GIF frame capture --------------------------------------------------
-    GIF_WIDTH8 = 1100
-    GIF_FPS8 = 12
-    frames8: list = []
+    GIF_WIDTH9 = 1100
+    GIF_FPS9 = 12
+    frames9: list = []
 
     try:
         badge_font = ImageFont.truetype(font_manager.findfont("DejaVu Sans:bold"), 30)
     except (OSError, ValueError):
         badge_font = ImageFont.load_default()
 
-    def _grab8(badge_text: str | None = None, repeat: int = 1) -> None:
-        raw = viewer8.screenshot(canvas_only=False)[..., :3]
+    def _grab9(badge_text: str | None = None, repeat: int = 1) -> None:
+        raw = viewer9.screenshot(canvas_only=False)[..., :3]
         h, w = raw.shape[:2]
-        scale = GIF_WIDTH8 / w
+        scale = GIF_WIDTH9 / w
         frame = _PILImage.fromarray(raw).resize(
-            (GIF_WIDTH8, int(h * scale)), _PILImage.Resampling.LANCZOS
+            (GIF_WIDTH9, int(h * scale)), _PILImage.Resampling.LANCZOS
         )
         if badge_text is not None:
             draw = ImageDraw.Draw(frame, "RGBA")
@@ -925,75 +1276,75 @@ try:
                 fill=(233, 75, 95, 255),
             )
         for _ in range(repeat):
-            frames8.append(frame)
+            frames9.append(frame)
 
-    def _set_cursor8(t: float) -> None:
-        viewer8.dims.set_point(VIDEO_TIME_AXIS, t)
-        plotter8._cursor_world = t
+    def _set_cursor9(t: float) -> None:
+        viewer9.dims.set_point(VIDEO_TIME_AXIS, t)
+        plotter9._cursor_world = t
         # Re-render the labels-mode plot so the cursor line moves to the new time
         # (the video frame in the grid also updates to this time step).
-        plotter8.set_show_cursor(True)
-        plotter8._update_plot_from_labels()
-        widget8._time_overlay.update()
+        plotter9.set_show_cursor(True)
+        plotter9._update_plot_from_labels()
+        widget9._time_overlay.update()
         get_qapp().processEvents()
         get_qapp().processEvents()
 
-    def _type_name8(name: str) -> None:
+    def _type_name9(name: str) -> None:
         """Type *name* into the event-name field one character at a time."""
-        events_panel8._name_edit.setText("")
+        events_panel9._name_edit.setText("")
         get_qapp().processEvents()
-        _grab8(repeat=2)
+        _grab9(repeat=2)
         for i in range(1, len(name) + 1):
-            events_panel8._name_edit.setText(name[:i])
+            events_panel9._name_edit.setText(name[:i])
             get_qapp().processEvents()
-            _grab8()
-        _grab8(repeat=2)
+            _grab9()
+        _grab9(repeat=2)
 
-    def _annotate8(name: str, onset: float, duration: float) -> None:
+    def _annotate9(name: str, onset: float, duration: float) -> None:
         """Drive the full type → Start → scrub → End workflow for one event."""
-        _set_cursor8(onset)
-        _type_name8(name)
+        _set_cursor9(onset)
+        _type_name9(name)
         # Start (S) marks the onset at the current time.
-        events_panel8._on_start()
+        events_panel9._on_start()
         get_qapp().processEvents()
-        _grab8(badge_text="S  ·  Start", repeat=7)
+        _grab9(badge_text="S  ·  Start", repeat=7)
         # Scrub the time slider forward to the offset.
         for t in np.linspace(onset, onset + duration, 12):
-            _set_cursor8(float(t))
-            _grab8()
+            _set_cursor9(float(t))
+            _grab9()
         # End (E) creates the event, shading the plot and filling the table.
-        events_panel8._on_end()
+        events_panel9._on_end()
         get_qapp().processEvents()
         get_qapp().processEvents()
-        _grab8(badge_text="E  ·  End", repeat=7)
+        _grab9(badge_text="E  ·  End", repeat=7)
 
     # 1. Annotate the "rearing" event.
-    _annotate8("rearing", rearing_onset, rearing_duration)
+    _annotate9("rearing", rearing_onset, rearing_duration)
 
     # 2. Travel forward (no recording) to the "grooming" onset.
     for t in np.linspace(rearing_onset + rearing_duration, grooming_onset, 14):
-        _set_cursor8(float(t))
-        _grab8()
+        _set_cursor9(float(t))
+        _grab9()
 
     # 3. Annotate the "grooming" event.
-    _annotate8("grooming", grooming_onset, grooming_duration)
+    _annotate9("grooming", grooming_onset, grooming_duration)
 
     # 4. Settle inside the rearing event so the overlay names the active event.
-    _set_cursor8(settle_t)
-    _grab8(repeat=12)
+    _set_cursor9(settle_t)
+    _grab9(repeat=12)
 
     # --- Assemble the GIF (shared-palette quantize, like the video GIF). ---
-    palette_src8 = frames8[0].quantize(colors=256, dither=0)
-    quantized8 = [frame.quantize(palette=palette_src8, dither=0) for frame in frames8]
-    gif_path8 = str(HERE / "plugin-events-create.gif")
-    quantized8[0].save(
-        gif_path8,
+    palette_src9 = frames9[0].quantize(colors=256, dither=0)
+    quantized9 = [frame.quantize(palette=palette_src9, dither=0) for frame in frames9]
+    gif_path9 = str(HERE / "plugin-events-create.gif")
+    quantized9[0].save(
+        gif_path9,
         save_all=True,
-        append_images=quantized8[1:],
-        duration=1000 // GIF_FPS8,
+        append_images=quantized9[1:],
+        duration=1000 // GIF_FPS9,
         loop=0,
     )
-    viewer8.close()
+    viewer9.close()
     _ok("Saved plugin-events-create.gif")
 except Exception as exc:
     _warn(f"plugin-events-create.gif failed: {exc}")

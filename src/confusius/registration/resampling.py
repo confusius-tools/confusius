@@ -7,13 +7,20 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
     replace_affines_attr,
     set_sitk_thread_count,
 )
-from confusius.registration.bspline import _dataarray_to_sitk_bspline
-from confusius.validation import validate_fusi_dataarray
+from confusius.registration.bspline import (
+    _dataarray_to_sitk_bspline,
+    _dataarray_to_sitk_displacement_field,
+)
+from confusius.validation import (
+    validate_fusi_dataarray,
+    validate_matching_spatial_units,
+)
 
 
 def resample_volume(
@@ -25,7 +32,7 @@ def resample_volume(
     origin: Sequence[float],
     dims: Sequence[str],
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float | None = None,
+    fill_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
@@ -47,8 +54,14 @@ def resample_volume(
         - **Affine** (`numpy.ndarray`): homogeneous matrix of shape `(N+1, N+1)`
           mapping output (fixed) physical coordinates to moving physical coordinates
           (pull/inverse convention).
-        - **B-spline** (`xarray.DataArray`): control-point DataArray as returned by
-          `register_volume(transform="bspline")`.
+        - **B-spline** (`xarray.DataArray`): control-point DataArray with `attrs["type"]
+          == "bspline_transform"` as returned by `register_volume(transform="bspline")`.
+        - **Displacement field** (`xarray.DataArray`): dense field with
+          `attrs["type"] == "displacement_field_transform"`, as returned by
+          [`sample_displacement_field`][confusius.registration.sample_displacement_field]
+          or
+          [`invert_displacement_field`][confusius.registration.invert_displacement_field].
+
     shape : sequence of int
         Number of voxels along each output axis, in DataArray dimension order.
     spacing : sequence of float
@@ -60,7 +73,7 @@ def resample_volume(
         Dimension names of the output DataArray.
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, optional
+    fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
@@ -115,12 +128,16 @@ def resample_volume(
         tx: sitk.Transform = sitk.AffineTransform(ndim)
         tx.SetMatrix(transform[:ndim, :ndim].flatten().tolist())
         tx.SetTranslation(transform[:ndim, ndim].tolist())
+    elif transform.attrs.get("type") == "displacement_field_transform":
+        tx = sitk.DisplacementFieldTransform(
+            _dataarray_to_sitk_displacement_field(transform)
+        )
     else:
         tx = _dataarray_to_sitk_bspline(transform)
 
     moving_sitk = dataarray_to_sitk_image(moving)
 
-    _default_value = default_value if default_value is not None else float(moving.min())
+    resolved_fill_value = fill_value if fill_value is not None else float(moving.min())
 
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.
@@ -143,7 +160,7 @@ def resample_volume(
             ref,
             tx,
             sitk_interpolation,
-            _default_value,
+            resolved_fill_value,
             moving_sitk.GetPixelID(),
         )
         # .T restores DataArray axis order, inverse of the .T used to build the SITK
@@ -173,7 +190,7 @@ def resample_like(
     reference: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
-    default_value: float | None = None,
+    fill_value: float | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto the grid of a reference DataArray.
@@ -189,16 +206,25 @@ def resample_like(
         If a time dimension is present, the same transform is applied to all time points.
     reference : xarray.DataArray
         DataArray defining the output grid. Must be 2D or 3D spatial (no time dimension).
+        When spatial coordinate `units` metadata is present on both `moving` and
+        `reference`, they must match.
     transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
-        [`register_volume`][confusius.registration.register_volume].  Maps points from
+        [`register_volume`][confusius.registration.register_volume]. Maps points from
         the reference physical space to moving physical space (pull/inverse convention).
 
-        - **Affine** (`numpy.ndarray`): homogeneous matrix.
+        - **Affine** (`numpy.ndarray`): homogeneous matrix whose translation entries
+          are expressed in the same physical units as `moving` and `reference`.
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
+        - **Displacement field** (`xarray.DataArray`): dense field with `attrs["type"]
+          == "displacement_field_transform"`.
+
+        When `transform` is a DataArray and spatial coordinate `units` metadata is
+        present on both it and `reference`, those units must also match.
+
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
-    default_value : float, optional
+    fill_value : float, optional
         Value assigned to voxels that fall outside the moving image's field of view
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
@@ -239,21 +265,21 @@ def resample_like(
         allow_extra_dims=False,
         minimum_spatial_dims=2,
     )
+    validate_matching_spatial_units((("moving", moving), ("reference", reference)))
+    if isinstance(transform, xr.DataArray):
+        validate_matching_spatial_units(
+            (("transform", transform), ("reference", reference))
+        )
 
-    shape = list(reference.sizes[str(d)] for d in reference.dims)
-    spacing = [s if s is not None else 1.0 for s in reference.fusi.spacing.values()]
-    origin = list(reference.fusi.origin.values())
-    dims = [str(d) for d in reference.dims]
+    grid = get_grid_kwargs_from_dataarray(reference)
+    dims = grid["dims"]
 
     result = resample_volume(
         moving,
         transform,
-        shape=shape,
-        spacing=spacing,
-        origin=origin,
-        dims=dims,
+        **grid,
         interpolation=interpolation,
-        default_value=default_value,
+        fill_value=fill_value,
         sitk_threads=sitk_threads,
     )
 

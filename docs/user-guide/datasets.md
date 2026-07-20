@@ -9,7 +9,7 @@ available atlases, templates, and fUSI datasets distributed in
 [fUSI-BIDS](https://bids.neuroimaging.io/) format. Each fetcher downloads the dataset
 on first call, caches it locally for offline reuse, and returns either the path to the
 root directory, or a more specific object (e.g., a DataArray for templates or an
-[`Atlas`][confusius.atlas.Atlas] instance for atlases]).
+[atlas Dataset][confusius.atlas] for atlases]).
 
 !!! tip "Try before you buy"
     Fetchers generally accept filters (subjects, sessions, tasks, derivatives, etc.) so
@@ -80,11 +80,12 @@ list_datasets()
 ```
 
 ```text
-                Available Datasets
+                   Available Datasets
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
 ┃ Fetch function                   ┃     Size ┃ On disk ┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━╇━━━━━━━━━┩
 │ fetch_cybis_pereira_2026         │ 12.88 GB │    ✗    │
+│ fetch_khallaf_2026               │ 19.49 GB │    ✗    │
 │ fetch_landemard_2026             │ 42.04 GB │    ✗    │
 │ fetch_nunez_elizalde_2022        │ 6.983 GB │    ✗    │
 │ fetch_template_huang_2025        │ 16.34 MB │    ✗    │
@@ -189,7 +190,7 @@ confusius datasets --list
     Functional ultrasound imaging recordings from awake, head-fixed,
     freely-running mice, from Landemard et al. (2026)[^landemard2026],
     re-exported to fUSI-BIDS format and hosted on
-    [OSF (dkseb)](https://osf.io/dkseb/overview).
+    [OSF (7cf9g)](https://osf.io/7cf9g/overview).
     Total size: **~42 GB**.
 
     Use [`fetch_landemard_2026`][confusius.datasets.fetch_landemard_2026] to
@@ -230,6 +231,65 @@ confusius datasets --list
     )
     ```
 
+=== "Khallaf 2026"
+
+    Functional ultrasound imaging data from naked mole-rats exposed to olfactory
+    stimulation, from Khallaf et al. (2026)[^khallaf2026], organised following BIDS and
+    the proposed fUSI extension BEP-040 and hosted on
+    [Edmond (10.17617/3.7QCU1F)](https://doi.org/10.17617/3.7QCU1F).
+    Total size: **~19.5 GB**.
+
+    Unlike the OSF-hosted datasets above, this one is distributed as a single ~19.5 GB
+    zip archive. ConfUSIus streams the requested members out of it individually by HTTP
+    range request, so a filtered fetch never downloads the whole archive.
+
+    Use [`fetch_khallaf_2026`][confusius.datasets.fetch_khallaf_2026] to download the
+    dataset. Six filters narrow the download:
+
+    | Filter           | BIDS entity / scope | Example                          |
+    |------------------|---------------------|----------------------------------|
+    | `datasets`       | dataset name        | `"glm"`, `["rawdata", "bootstrapping"]` |
+    | `subjects`       | `sub-`              | `"5622"`, `["5622", "6036"]`     |
+    | `sessions`       | `ses-`              | `"IPM"`, `["Air", "Etoh"]`       |
+    | `runs`           | `run-`              | `"1"`, `["1", "2"]`              |
+    | `reconstruction` | `rec-`              | `"raw"`, `"resampled"`, `"both"` |
+    | `sourcedata`     | `sourcedata/` tree  | `True`                           |
+
+    Files that lack a subject, session, or run entity (e.g. `participants.tsv`, or
+    group-level GLM maps) are kept regardless of those filters, since they aggregate
+    across entities. `subjects` and `runs` also accept integers (`subjects=5622`).
+
+    The `datasets` filter accepts:
+
+    | Name             | Contents                                            |
+    |------------------|-----------------------------------------------------|
+    | `rawdata`        | Raw fUSI acquisitions per subject                   |
+    | `glm`            | GLM outputs, per-subject and group-level            |
+    | `bootstrapping`  | Bootstrapping derivative                            |
+
+    The `reconstruction` filter applies only to rawdata `fusi/` volumes: `"raw"` keeps
+    the unregistered volumes (no `rec-` entity), `"resampled"` keeps the registered
+    `rec-resampled` ones, and `"both"` (the default) keeps each.
+
+    The raw Iconeus acquisitions under `sourcedata/` (~7.8 GB) are excluded by default.
+    Set `sourcedata=True` to include the whole tree; it is never entity-filtered.
+
+    ```python
+    from confusius.datasets import fetch_khallaf_2026
+
+    # All subjects, GLM derivative only.
+    bids_root = fetch_khallaf_2026(datasets="glm")
+
+    # Or the resampled raw data for a single subject, session, and run.
+    bids_root = fetch_khallaf_2026(
+        datasets="rawdata",
+        subjects="5622",
+        sessions="IPM",
+        runs="1",
+        reconstruction="resampled",
+    )
+    ```
+
 ## Working with fUSI-BIDS Datasets
 
 fUSI-BIDS dataset fetchers return a [`pathlib.Path`][pathlib.Path] to the dataset's root
@@ -263,19 +323,18 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
 === "Huang 2025"
 
     A vascular mouse fUSI template derived from Huang et al. (2025)[^huang2025] and
-    distributed as a single ConfUSIus-compatible NIfTI on
-    [OSF (am3jw)](https://osf.io/am3jw/). Total size: **~16.3 MB**.
+    distributed as a single NIfTI on [OSF (am3jw)](https://osf.io/am3jw/). Total size:
+    **~16.3 MB**.
 
     Use [`fetch_template_huang_2025`][confusius.datasets.fetch_template_huang_2025] to
     download and load the template directly:
 
     ```python
-    from confusius.atlas import Atlas
-    from confusius.datasets import fetch_template_huang_2025
+    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_huang_2025
 
     template = fetch_template_huang_2025()
-    atlas = Atlas.from_brainglobe("allen_mouse_50um")
-    resampled_atlas = atlas.resample_like(
+    atlas = fetch_brainglobe_atlas("allen_mouse_50um")
+    resampled_atlas = atlas.atlas.resample_like(
         template,
         template.attrs["affines"]["physical_to_sform"],
     )
@@ -284,23 +343,43 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
 === "Pepe Mariani 2026"
 
     A mouse fUSI template derived from Pepe, Mariani et al. (2026)[^pepe_mariani2026] and
-    distributed as a single ConfUSIus-compatible NIfTI on
-    [OSF (43tu9)](https://osf.io/43tu9/). Total size: **~5.5 MB**.
+    distributed as a single NIfTI on [OSF (43tu9)](https://osf.io/43tu9/). Total size:
+    **~5.5 MB**.
 
     Use [`fetch_template_pepe_mariani_2026`][confusius.datasets.fetch_template_pepe_mariani_2026] to
     download and load the template directly:
 
     ```python
-    from confusius.atlas import Atlas
-    from confusius.datasets import fetch_template_pepe_mariani_2026
+    from confusius.datasets import fetch_brainglobe_atlas, fetch_template_pepe_mariani_2026
 
     template = fetch_template_pepe_mariani_2026()
-    atlas = Atlas.from_brainglobe("allen_mouse_100um")
-    resampled_atlas = atlas.resample_like(
+    atlas = fetch_brainglobe_atlas("allen_mouse_100um")
+    resampled_atlas = atlas.atlas.resample_like(
         template,
         template.attrs["affines"]["physical_to_sform"],
     )
     ```
+
+## Available Brain Atlases
+
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] fetches any
+[BrainGlobe](https://brainglobe.info/) atlas by name and returns it as an atlas
+[`xarray.Dataset`][xarray.Dataset]. ConfUSIus provides the
+[`.atlas`][confusius.atlas.AtlasAccessor] accessor for common atlas operations like
+resampling, masking, and region lookups:
+
+```python
+from confusius.datasets import fetch_brainglobe_atlas
+
+atlas = fetch_brainglobe_atlas("allen_mouse_100um")
+masks = atlas.atlas.get_masks("VISp")
+```
+
+Unlike the fUSI-BIDS datasets above, BrainGlobe atlases are cached in BrainGlobe's own
+atlas directory (`~/.brainglobe`, shared with other BrainGlobe tools), so they do not
+appear in [`list_datasets`][confusius.datasets.list_datasets]. Use `data_dir` to
+override the cache location.
+
 
 ## API Reference
 
@@ -321,6 +400,11 @@ parameters and return types.
     Landemard, A., Krumin, M., Harris, K. D., & Carandini, M. (2026). Brainwide
     blood volume reflects opposing neural populations. *Nature*.
     <https://doi.org/10.1038/s41586-026-10350-9>
+
+[^khallaf2026]:
+    Khallaf, M. A. et al. (2026). A queen odour mediates reproductive suppression in a
+    eusocial mammal. *Nature*.
+    <https://doi.org/10.1038/s41586-026-10772-5>
 
 [^huang2025]:
     Huang, Y.-A. et al. (2025). OfUSA: OpenfUS Analyzer, a versatile open-source

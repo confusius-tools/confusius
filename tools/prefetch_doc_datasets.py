@@ -19,8 +19,8 @@ files.
 
 from __future__ import annotations
 
-from confusius.atlas import Atlas
 from confusius.datasets import (
+    fetch_brainglobe_atlas,
     fetch_cybis_pereira_2026,
     fetch_nunez_elizalde_2022,
     fetch_template_pepe_mariani_2026,
@@ -47,7 +47,7 @@ def _prefetch_nunez_elizalde() -> None:
     # docs/images/gui/generate.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
-        sessions="20201011",
+        sessions=["20201007", "20201011"],
         tasks="spontaneous",
         acqs="slice04",
     )
@@ -60,7 +60,7 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice04",
     )
 
-    # docs/examples/io/confusius_xarray_101.py
+    # docs/examples/01_io/01_confusius_xarray_101.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
         sessions="20201011",
@@ -68,8 +68,9 @@ def _prefetch_nunez_elizalde() -> None:
         acqs="slice03",
     )
 
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/connectivity/02_atlas_seed_map.py
+    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/04_connectivity/02_atlas_seed_map.py,
+    # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_nunez_elizalde_2022(
         subjects="CR022",
         sessions="20201007",
@@ -79,15 +80,17 @@ def _prefetch_nunez_elizalde() -> None:
 
 
 def _prefetch_pepe_mariani_template() -> None:
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/connectivity/02_atlas_seed_map.py
+    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/04_connectivity/02_atlas_seed_map.py,
+    # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
     fetch_template_pepe_mariani_2026()
 
 
 def _prefetch_allen_atlas() -> None:
-    # docs/examples/connectivity/01_atlas_correlation_matrix.py,
-    # docs/examples/connectivity/02_atlas_seed_map.py
-    Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
+    # docs/examples/04_connectivity/01_atlas_correlation_matrix.py,
+    # docs/examples/04_connectivity/02_atlas_seed_map.py,
+    # docs/examples/05_atlases_and_templates/01_saving_resampled_atlas.py
+    fetch_brainglobe_atlas("allen_mouse_100um")
 
 
 def _prefetch_cybis_pereira() -> None:
@@ -99,12 +102,29 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice37",
     )
 
-    # docs/examples/registration/register_volume_same_subject.py
+    # docs/images/gui/generate.py (within-scan registration GIF)
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220523",
+        acqs="slice32",
+    )
+
+    # docs/examples/02_registration/01_register_volume_same_subject.py
     fetch_cybis_pereira_2026(
         datasets="rawdata",
         subjects="rat75",
         sessions=["20220523", "20220524"],
         datatypes="angio",
+        acqs="slice32",
+    )
+
+    # docs/examples/02_registration/02_volumewise_motion_correction.py
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220523",
+        datatypes="fusi",
         acqs="slice32",
     )
 

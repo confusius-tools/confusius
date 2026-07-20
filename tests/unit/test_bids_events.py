@@ -10,8 +10,8 @@ from confusius.bids.events import (
     DURATION_COLUMN,
     ONSET_COLUMN,
     TRIAL_TYPE_COLUMN,
-    read_events,
-    write_events,
+    load_events,
+    save_events,
 )
 
 
@@ -30,7 +30,7 @@ class TestReadEvents:
         path = tmp_path / "events.tsv"
         path.write_text("onset\tduration\ttrial_type\n1.0\t2.0\tstim\n4.5\t0.5\tcue\n")
 
-        events = read_events(path)
+        events = load_events(path)
 
         expected = pd.DataFrame(
             {
@@ -46,7 +46,7 @@ class TestReadEvents:
         path = tmp_path / "events.tsv"
         path.write_text("onset\tduration\n0.0\t1.0\n")
 
-        events = read_events(path)
+        events = load_events(path)
 
         assert list(events["trial_type"]) == [DEFAULT_TRIAL_TYPE]
 
@@ -55,7 +55,7 @@ class TestReadEvents:
         path = tmp_path / "events.tsv"
         path.write_text("onset\tduration\ttrial_type\n0.0\t1.0\tn/a\n2.0\t1.0\t\n")
 
-        events = read_events(path)
+        events = load_events(path)
 
         assert list(events["trial_type"]) == [DEFAULT_TRIAL_TYPE, DEFAULT_TRIAL_TYPE]
 
@@ -66,7 +66,7 @@ class TestReadEvents:
             "onset\tduration\ttrial_type\tresponse_time\n1.0\t2.0\tstim\t0.42\n"
         )
 
-        events = read_events(path)
+        events = load_events(path)
 
         assert list(events.columns) == [
             "onset",
@@ -82,7 +82,7 @@ class TestReadEvents:
         path.write_text("onset\ttrial_type\n0.0\tstim\n")
 
         with pytest.raises(ValueError, match="duration"):
-            read_events(path)
+            load_events(path)
 
     def test_non_numeric_onset_raises(self, tmp_path):
         """A non-numeric onset value is rejected."""
@@ -90,7 +90,7 @@ class TestReadEvents:
         path.write_text("onset\tduration\nstart\t1.0\n")
 
         with pytest.raises(ValueError, match="numeric"):
-            read_events(path)
+            load_events(path)
 
     def test_negative_duration_raises(self, tmp_path):
         """A negative duration value is rejected."""
@@ -98,7 +98,7 @@ class TestReadEvents:
         path.write_text("onset\tduration\n0.0\t-1.0\n")
 
         with pytest.raises(ValueError, match="non-negative"):
-            read_events(path)
+            load_events(path)
 
 
 class TestWriteEvents:
@@ -115,7 +115,7 @@ class TestWriteEvents:
             }
         )
 
-        write_events(path, events)
+        save_events(path, events)
 
         lines = path.read_text().splitlines()
         assert lines[0] == "onset\tduration\ttrial_type"
@@ -135,8 +135,8 @@ class TestWriteEvents:
             }
         )
 
-        write_events(path, events)
-        loaded = read_events(path)
+        save_events(path, events)
+        loaded = load_events(path)
 
         expected = pd.DataFrame(
             {
@@ -153,7 +153,7 @@ class TestWriteEvents:
         path = tmp_path / "events.tsv"
         events = pd.DataFrame({"onset": [], "duration": [], "trial_type": []})
 
-        write_events(path, events)
+        save_events(path, events)
 
         assert path.read_text().splitlines() == ["onset\tduration\ttrial_type"]
 
@@ -161,11 +161,11 @@ class TestWriteEvents:
         """A non-DataFrame events argument is rejected."""
         path = tmp_path / "events.tsv"
         with pytest.raises(TypeError, match="DataFrame"):
-            write_events(path, [(0.0, 1.0, "stim")])
+            save_events(path, [(0.0, 1.0, "stim")])  # ty: ignore[invalid-argument-type]
 
     def test_rejects_missing_required_column(self, tmp_path):
         """A DataFrame without a duration column is rejected."""
         path = tmp_path / "events.tsv"
         events = pd.DataFrame({"onset": [0.0], "trial_type": ["stim"]})
         with pytest.raises(ValueError, match="duration"):
-            write_events(path, events)
+            save_events(path, events)

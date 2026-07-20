@@ -121,6 +121,7 @@ jobs:
           xvfb-run -a uv run docs/images/gui/generate.py
           xvfb-run -a uv run docs/images/qc/generate.py
           xvfb-run -a uv run docs/images/visualization/generate.py
+          xvfb-run -a uv run docs/images/atlas/generate.py
           xvfb-run -a uv run docs/images/home/generate.py
 
       - name: Ensure gallery cache directory exists

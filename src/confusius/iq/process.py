@@ -66,6 +66,56 @@ def _format_clutter_filter_spec(
     return f"{label} [{low}, {high}{closing}"
 
 
+def _normalize_spatial_kernel(
+    spatial_kernel: int | tuple[int, int, int] | list[int],
+    spatial_shape: tuple[int, int, int] | None = None,
+) -> tuple[int, int, int]:
+    """Return a validated `(z, y, x)` median-filter kernel.
+
+    Parameters
+    ----------
+    spatial_kernel : int or tuple[int, int, int] or list[int]
+        Median-filter kernel size as a scalar or explicit `(z, y, x)` sizes.
+    spatial_shape : tuple[int, int, int], optional
+        Spatial data shape used to clip each kernel axis to the available size.
+
+    Returns
+    -------
+    tuple[int, int, int]
+        Validated odd kernel sizes for `(z, y, x)`.
+
+    Raises
+    ------
+    ValueError
+        If `spatial_kernel` is not a positive int or a length-3 sequence of positive
+        ints.
+    """
+    if isinstance(spatial_kernel, int):
+        kernel = (spatial_kernel, spatial_kernel, spatial_kernel)
+    elif len(spatial_kernel) == 3 and all(
+        isinstance(size, int) for size in spatial_kernel
+    ):
+        kernel = tuple(spatial_kernel)
+    else:
+        raise ValueError(
+            "`spatial_kernel` must be a positive int or a length-3 sequence of positive ints."
+        )
+
+    if any(size < 1 for size in kernel):
+        raise ValueError("`spatial_kernel` values must be positive.")
+
+    if spatial_shape is not None:
+        kernel = tuple(
+            min(size, dim) for size, dim in zip(kernel, spatial_shape, strict=True)
+        )
+
+    return (
+        kernel[0] + 1 if kernel[0] % 2 == 0 else kernel[0],
+        kernel[1] + 1 if kernel[1] % 2 == 0 else kernel[1],
+        kernel[2] + 1 if kernel[2] % 2 == 0 else kernel[2],
+    )
+
+
 def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
     """Return the input IQ volume acquisition duration in coordinate units.
 
@@ -798,11 +848,9 @@ def compute_axial_velocity_volume(
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
     lag: int = 1,
-    absolute_velocity: bool = False,
-    spatial_kernel: int = 1,
+    spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
     transmit_frequency: float = 15.625e6,
     beamforming_sound_velocity: float = 1540,
-    estimation_method: Literal["average_angle", "angle_average"] = "average_angle",
 ) -> npt.NDArray:
     """Compute axial velocity volumes from beamformed IQ data.
 
@@ -848,23 +896,16 @@ def compute_axial_velocity_volume(
         `velocity_window_width`.
     lag : int, default: 1
         Temporal lag in volumes for autocorrelation computation. Must be positive.
-    absolute_velocity : bool, default: False
-        If `True`, compute absolute velocity values. If `False`, preserve sign
-        information.
-    spatial_kernel : int, default: 1
-        Size of the median filter kernel applied spatially to denoise. Must be
-        positive and odd. If `1`, no spatial filtering is applied.
+    spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
+        Size of the median filter kernel applied spatially to denoise. A scalar uses
+        the same kernel size on all spatial axes; a length-3 sequence specifies
+        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
+        applied.
     transmit_frequency : float, default: 15.625e6
         Ultrasound transmit frequency in hertz.
     beamforming_sound_velocity : float, default: 1540
         Speed of sound assumed during beamforming, in meters per second.
-    estimation_method : {"average_angle", "angle_average"}, default: "average_angle"
-        Method for computing the velocity estimate.
-
-        - `"average_angle"`: Compute the angle of the autocorrelation, then average
-          (i.e., average of angles).
-        - `"angle_average"`: Average the autocorrelation, then compute the angle
-          (i.e., angle of average).
 
     Returns
     -------
@@ -876,18 +917,16 @@ def compute_axial_velocity_volume(
     Notes
     -----
     The Kasai estimator computes velocity from the phase shift of the autocorrelation
-    function between consecutive IQ volumes.
+    function between IQ volumes separated by `lag` volumes.
     """
 
     def process_block_func(
         block: npt.NDArray,
-        spatial_kernel: int,
+        spatial_kernel: int | tuple[int, int, int] | list[int],
         lag: int,
-        absolute_velocity: bool,
         fs: float,
         transmit_frequency: float,
         beamforming_sound_velocity: float,
-        estimation_method: Literal["average_angle", "angle_average"],
         **_,
     ) -> npt.NDArray:
         """Compute the Kasai estimator from an array of IQ data.
@@ -896,22 +935,18 @@ def compute_axial_velocity_volume(
         ----------
         block : (time, z, y, x) numpy.ndarray
             Complex IQ data.
-        spatial_kernel : int
-            Size of the median filter kernel applied spatially to denoise. Must be
-            positive and odd.
+        spatial_kernel : int or tuple[int, int, int] or list[int]
+            Size of the median filter kernel applied spatially to denoise. A scalar
+            uses the same size on all spatial axes; a length-3 sequence specifies
+            `(z, y, x)` sizes directly.
         lag : int
             Temporal lag in volumes for autocorrelation computation.
-        absolute_velocity : bool
-            If `True`, compute absolute velocity values. If `False`, preserve sign
-            information.
         fs : float
             Volume sampling frequency in hertz.
         transmit_frequency : float
             Ultrasound transmit frequency in hertz.
         beamforming_sound_velocity : float
             Speed of sound in the imaged medium, in meters per second.
-        estimation_method : {"average_angle", "angle_average"}
-            Method for computing the velocity estimate.
         **_
             Additional unused keyword arguments (absorbed and ignored).
 
@@ -920,31 +955,13 @@ def compute_axial_velocity_volume(
         (z, y, x) numpy.ndarray
             Axial velocity volume in meters per second.
         """
-        block_rolled_conjugate = np.roll(block, lag, axis=0).conj()
-        block_rolled_conjugate[:lag, ...] = 0
-        autocorrelation = cast("npt.NDArray", block * block_rolled_conjugate)[lag:]
+        autocorrelation = cast("npt.NDArray", block[lag:] * np.conj(block[:-lag]))
+        average_autocorrelation_phase = np.angle(autocorrelation.mean(axis=0))
 
-        if estimation_method == "average_angle":
-            autocorrelation_phase = np.angle(autocorrelation)
-            if absolute_velocity:
-                autocorrelation_phase = np.abs(autocorrelation_phase)
-            average_autocorrelation_phase = autocorrelation_phase.mean(0)
-        elif estimation_method == "angle_average":
-            average_autocorrelation_phase = np.angle(autocorrelation.mean(0))
-            if absolute_velocity:
-                average_autocorrelation_phase = np.abs(average_autocorrelation_phase)
-        else:
-            raise ValueError(
-                f"Unknown estimation method: {estimation_method}. "
-                "Must be 'average_angle' or 'angle_average'."
-            )
-
-        if spatial_kernel > 1:
+        kernel_size = _normalize_spatial_kernel(spatial_kernel, block.shape[1:])
+        if any(size > 1 for size in kernel_size):
             import scipy.signal as sp_signal
 
-            kernel_size = [min(spatial_kernel, s) for s in block.shape[1:]]
-            # Median filter requires odd kernel sizes.
-            kernel_size = [s + 1 if s % 2 == 0 else s for s in kernel_size]
             average_autocorrelation_phase = sp_signal.medfilt(
                 average_autocorrelation_phase, kernel_size
             )
@@ -953,7 +970,7 @@ def compute_axial_velocity_volume(
             average_autocorrelation_phase
             * fs
             * beamforming_sound_velocity
-            / (4 * np.pi * transmit_frequency)
+            / (4 * np.pi * transmit_frequency * lag)
         )
 
     return process_iq_block_with_clutter_filter(
@@ -970,9 +987,7 @@ def compute_axial_velocity_volume(
         transmit_frequency=transmit_frequency,
         spatial_kernel=spatial_kernel,
         lag=lag,
-        absolute_velocity=absolute_velocity,
         beamforming_sound_velocity=beamforming_sound_velocity,
-        estimation_method=estimation_method,
     )
 
 
@@ -1284,7 +1299,7 @@ def process_iq_to_power_doppler(
         dask_iq = da.from_array(dask_iq)
 
     if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])
+        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if clutter_window_stride is None:
         clutter_window_stride = clutter_window_width
     if doppler_window_width is None:
@@ -1417,7 +1432,7 @@ def process_iq_to_bmode(
         dask_iq = da.from_array(dask_iq)
 
     if bmode_window_width is None:
-        bmode_window_width = cast(int, dask_iq.chunksize[0])
+        bmode_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if bmode_window_stride is None:
         bmode_window_stride = bmode_window_width
 
@@ -1496,9 +1511,7 @@ def process_iq_to_axial_velocity(
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
     lag: int = 1,
-    absolute_velocity: bool = False,
-    spatial_kernel: int = 1,
-    estimation_method: Literal["average_angle", "angle_average"] = "average_angle",
+    spatial_kernel: int | tuple[int, int, int] | list[int] = 3,
 ) -> xr.DataArray:
     """Process blocks of beamformed IQ into axial velocity volumes using sliding windows.
 
@@ -1556,19 +1569,12 @@ def process_iq_to_axial_velocity(
         If not provided, equals `velocity_window_width`.
     lag : int, default: 1
         Temporal lag in volumes for autocorrelation computation. Must be positive.
-    absolute_velocity : bool, default: False
-        If `True`, compute absolute velocity values. If `False`, preserve sign
-        information.
-    spatial_kernel : int, default: 1
-        Size of the median filter kernel applied spatially to denoise. Must be
-        positive and odd. If `1`, no spatial filtering is applied.
-    estimation_method : {"average_angle", "angle_average"}, default: "average_angle"
-        Method for computing the velocity estimate.
-
-        - `"average_angle"`: Compute the angle of the autocorrelation, then average
-          (i.e., average of angles).
-        - `"angle_average"`: Average the autocorrelation, then compute the angle
-          (i.e., angle of average).
+    spatial_kernel : int or tuple[int, int, int] or list[int], default: 3
+        Size of the median filter kernel applied spatially to denoise. A scalar uses
+        the same kernel size on all spatial axes; a length-3 sequence specifies
+        `(z, y, x)` sizes directly. Values must be positive. Any even sizes are
+        rounded up to the next odd size. If all sizes are `1`, no spatial filtering is
+        applied.
 
     Returns
     -------
@@ -1633,7 +1639,7 @@ def process_iq_to_axial_velocity(
         dask_iq = da.from_array(dask_iq)
 
     if clutter_window_width is None:
-        clutter_window_width = cast(int, dask_iq.chunksize[0])
+        clutter_window_width = cast(int, dask_iq.chunksize[0])  # type: ignore
     if clutter_window_stride is None:
         clutter_window_stride = clutter_window_width
     if velocity_window_width is None:
@@ -1661,11 +1667,9 @@ def process_iq_to_axial_velocity(
         velocity_window_width=velocity_window_width,
         velocity_window_stride=velocity_window_stride,
         lag=lag,
-        absolute_velocity=absolute_velocity,
         spatial_kernel=spatial_kernel,
         transmit_frequency=transmit_frequency,
         beamforming_sound_velocity=beamforming_sound_velocity,
-        estimation_method=estimation_method,
     )
 
     output_times_values, velocity_window_durations = compute_processed_volume_timings(
@@ -1710,22 +1714,19 @@ def process_iq_to_axial_velocity(
         },
     )
 
-    velocity_cmap = "viridis" if absolute_velocity else "coolwarm"
     output_attrs = {
         "units": "m/s",
         "long_name": "Axial velocity",
-        "cmap": velocity_cmap,
+        "cmap": "coolwarm",
         "clutter_filters": _format_clutter_filter_spec(
             filter_method, low_cutoff, high_cutoff
         ),
         "clutter_filter_window_duration": clutter_window_duration,
         "clutter_filter_window_stride": clutter_window_stride_duration,
         "axial_velocity_lag": lag,
-        "axial_velocity_absolute": absolute_velocity,
         "axial_velocity_spatial_kernel": spatial_kernel,
         "transmit_frequency": transmit_frequency,
         "beamforming_sound_velocity": beamforming_sound_velocity,
-        "axial_velocity_estimation_method": estimation_method,
         "axial_velocity_integration_duration": velocity_window_duration,
         "axial_velocity_integration_stride": velocity_window_stride_duration,
     }

@@ -32,6 +32,7 @@ from qtpy.QtWidgets import (
 from confusius._napari._events._store import EventStore
 from confusius._napari._theme import make_lucide_icon
 from confusius._napari._time_overlay import _TimeOverlay
+from confusius._utils.colors import RED, RED_DARK
 
 if TYPE_CHECKING:
     import napari
@@ -49,8 +50,8 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
     group_title_bg = napari_bg or ("#1c1c27" if is_dark else "#f0f0e8")
     if is_dark:
         header_bg = napari_bg or "#1c1c27"
-        header_border = "#e94b5f"
-        accent = "#e94b5f"
+        header_border = RED
+        accent = RED
         accent_hover = "#f5728a"
         accent_fg = "#ffffff"
         tab_bg = "#2d2d3a"
@@ -69,8 +70,8 @@ def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # no
         status_err = "#e05555"
     else:
         header_bg = napari_bg or "#f0f0e8"
-        header_border = "#d93a54"
-        accent = "#d93a54"
+        header_border = RED_DARK
+        accent = RED_DARK
         accent_hover = "#c02845"
         accent_fg = "#ffffff"
         tab_bg = "#e0e0e8"
@@ -244,7 +245,7 @@ class ConfUSIusWidget(QWidget):
     def __init__(self, napari_viewer: napari.Viewer) -> None:
         super().__init__()
         self.viewer = napari_viewer
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(430)
         self.setSizePolicy(
             QSizePolicy.Policy.MinimumExpanding,
             QSizePolicy.Policy.Expanding,
@@ -320,7 +321,7 @@ class ConfUSIusWidget(QWidget):
 
     def _on_theme_changed(self) -> None:
         self._apply_theme()
-        accent = "#e94b5f" if self._is_dark() else "#d93a54"
+        accent = RED if self._is_dark() else RED_DARK
         for btn, icon_name in getattr(self, "_accordion_btns", []):
             btn.setIcon(make_lucide_icon(icon_name, accent))
 
@@ -377,8 +378,8 @@ class ConfUSIusWidget(QWidget):
         header.setObjectName("confusius_header")
 
         layout = QVBoxLayout(header)
-        layout.setContentsMargins(4, 6, 12, 14)
-        layout.setSpacing(2)
+        layout.setContentsMargins(4, 12, 12, 14)
+        layout.setSpacing(0)
 
         tour_btn = QPushButton("Take a Tour")
         tour_btn.setObjectName("tour_btn")
@@ -388,11 +389,11 @@ class ConfUSIusWidget(QWidget):
         tour_btn.adjustSize()
 
         logo_widget = self._load_logo()
-        logo_row = QHBoxLayout()
-        logo_row.setContentsMargins(0, 0, 0, 6)
-        logo_row.setSpacing(10)
+        header_row = QHBoxLayout()
+        header_row.setContentsMargins(0, 0, 0, 6)
+        header_row.setSpacing(10)
         if logo_widget is not None:
-            logo_row.addWidget(logo_widget)
+            header_row.addWidget(logo_widget, alignment=Qt.AlignmentFlag.AlignTop)
 
         title = QLabel("ConfUSIus")
         title.setObjectName("confusius_title")
@@ -402,24 +403,18 @@ class ConfUSIusWidget(QWidget):
         subtitle.setObjectName("confusius_subtitle")
         subtitle.setIndent(0)
 
-        tour_btn_title_and_subtitle = QWidget()
-        tour_btn_title_and_subtitle_layout = QVBoxLayout(tour_btn_title_and_subtitle)
-        tour_btn_title_and_subtitle_layout.setContentsMargins(0, 0, 0, 0)
-        tour_btn_title_and_subtitle_layout.setSpacing(0)
+        title_block = QWidget()
+        title_block_layout = QVBoxLayout(title_block)
+        title_block_layout.setContentsMargins(0, 4, 0, 0)
+        title_block_layout.setSpacing(0)
+        title_block_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignLeft)
+        title_block_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignLeft)
+        title_block_layout.addStretch()
 
-        tour_btn_title_and_subtitle_layout.addStretch()
-        tour_btn_title_and_subtitle_layout.addWidget(
-            tour_btn, alignment=Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight
-        )
-        tour_btn_title_and_subtitle_layout.addWidget(
-            title, alignment=Qt.AlignmentFlag.AlignLeft
-        )
-        tour_btn_title_and_subtitle_layout.addWidget(
-            subtitle, alignment=Qt.AlignmentFlag.AlignLeft
-        )
-
-        logo_row.addWidget(tour_btn_title_and_subtitle)
-        layout.addLayout(logo_row)
+        header_row.addWidget(title_block, alignment=Qt.AlignmentFlag.AlignTop)
+        header_row.addStretch()
+        header_row.addWidget(tour_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(header_row)
 
         return header
 
@@ -471,7 +466,7 @@ class ConfUSIusWidget(QWidget):
         aspect = vb.width() / vb.height() if vb.height() > 0 else 1.0
         target_width = round(target_height * aspect)
 
-        dpr = QApplication.instance().devicePixelRatio()  # type: ignore[union-attr]
+        dpr = QApplication.instance().devicePixelRatio()  # type: ignore
         px_w, px_h = round(target_width * dpr), round(target_height * dpr)
 
         image = QImage(px_w, px_h, QImage.Format.Format_ARGB32_Premultiplied)
@@ -496,6 +491,7 @@ class ConfUSIusWidget(QWidget):
         from confusius._napari._data._save_panel import SavePanel
         from confusius._napari._events._panel import EventPanel
         from confusius._napari._qc._panel import QCPanel
+        from confusius._napari._registration._panel import RegistrationPanel
         from confusius._napari._signals._panel import SignalPanel
         from confusius._napari._video._video_panel import VideoPanel
 
@@ -516,11 +512,12 @@ class ConfUSIusWidget(QWidget):
         # Video panel (own section).
         video_panel = VideoPanel(self.viewer)
 
-        accent = "#e94b5f" if self._is_dark() else "#d93a54"
+        accent = RED if self._is_dark() else RED_DARK
         tab_entries = [
             ("Data I/O", "file-input"),
             ("Video", "video"),
             ("Signals", "chart-line"),
+            ("Registration", "images"),
             ("Events", "calendar-clock"),
             ("Quality Control", "clipboard-check"),
         ]
@@ -528,6 +525,7 @@ class ConfUSIusWidget(QWidget):
             data_panel,
             video_panel,
             SignalPanel(self.viewer, event_store=self._event_store),
+            RegistrationPanel(self.viewer),
             EventPanel(self.viewer, self._event_store),
             QCPanel(self.viewer),
         ]

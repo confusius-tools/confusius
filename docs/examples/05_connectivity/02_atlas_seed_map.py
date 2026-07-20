@@ -2,20 +2,27 @@
 # # Atlas-based seed connectivity maps
 #
 # This example computes voxel-wise seed-based functional connectivity maps: register a
-# single-slice fUSI recording to an Allen-space template, bring an
-# [Allen Mouse Brain Atlas][confusius.atlas.Atlas] into the recording's native space,
-# pick four atlas regions of interest as seeds, and correlate each seed's signal
-# against every voxel with [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each
-# resulting map is displayed with
-# [`plot_stat_map`][confusius.plotting.plot_stat_map], using the resampled Allen
-# reference volume as background.
+# single-slice fUSI recording to an Allen-space template, bring an [Allen Mouse Brain
+# Atlas][confusius.atlas] into the recording's native space, pick four atlas regions of
+# interest as seeds, and correlate each seed's signal against every voxel with
+# [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Each resulting map is
+# displayed with [`plot_stat_map`][confusius.plotting.plot_stat_map], using the
+# resampled Allen reference volume as background.
 #
-# We reuse the same recording, template, and registration workflow as the
-# [Atlas-based region correlation matrix](atlas_correlation_matrix.md) example—see it
-# for a detailed walkthrough of the registration steps condensed here.
+# We use an awake freely-running acquisition from subject `CR022`, session `20201007`,
+# in the [Nunez-Elizalde 2022 dataset][confusius.datasets.fetch_nunez_elizalde_2022],
+# and the [Pepe, Mariani 2026 fUSI
+# template][confusius.datasets.fetch_template_pepe_mariani_2026], which carries the
+# affine transform required to bring it into Allen Common Coordinate Framework (CCF)
+# space. For the full registration workflow, see [Register a recording to an Allen fUSI
+# template](../registration/register_to_allen_fusi_template.md).
 
 # %% [markdown]
 # ## Fetch the recording and register to the Allen atlas
+#
+# The recording is a single coronal slice imaged for approximately 4 minutes at 3.33 Hz.
+# Registration works on a static anatomical image, so we use the temporal mean,
+# converted to decibels for a more stable dynamic range.
 
 # %%
 from pathlib import Path
@@ -32,13 +39,13 @@ bg_color = mpl.colors.to_hex(mpl.rcParams["figure.facecolor"])
 
 xr.set_options(display_expand_data=False)
 
+template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
+
 bids_root = cf.datasets.fetch_nunez_elizalde_2022(
-    subjects="CR022",
-    sessions="20201007",
-    tasks="spontaneous",
-    acqs="slice02",
+    subjects="CR022", sessions="20201007", tasks="spontaneous", acqs="slice02"
 )
 
+# %%
 data_path = (
     Path(bids_root)
     / "sub-CR022"
@@ -46,20 +53,25 @@ data_path = (
     / "fusi"
     / "sub-CR022_ses-20201007_task-spontaneous_acq-slice02_pwd.nii.gz"
 )
-# The recording's timepoints are not perfectly uniformly spaced, so we resample to a
-# uniform grid before any time-domain processing.
+# The recording's timepoints are not perfectly uniformly spaced so we resample to a
+# uniform grid before any time-domain processing (filtering below requires it).
 data = cf.timing.resample_to_uniform_time(cf.load(data_path))
 moving = data.mean(dim="time").fusi.scale.db().compute()
 
-template = cf.datasets.fetch_template_pepe_mariani_2026().compute()
-
 # %% [markdown]
-# As in the correlation-matrix example, we initialize registration with an affine
-# measured once in Napari's registration widget, inverted so it maps template physical
-# coordinates to recording physical coordinates, and crop the template to a thin band
-# around the recording's expected location.
+# We don't describe the registration process here to keep the notebook focused on
+# seed-based connectivity, but the key steps are:
+#
+# - Get an initial affine transform using napari's "Transform" tool.
+# - Use [`register_volume`][confusius.registration.register_volume] to refine the
+#   alignment.
+# - Resample the Allen atlas into the recording's native space with
+#   [`resample_like`][confusius.atlas.Atlas.resample_like].
+#
+# For the full walkthrough, see [Register a recording to an Allen fUSI
+# template](../registration/register_to_allen_fusi_template.md).
 
-# %%
+# %% tags=["collapse: Registration and atlas resampling"]
 napari_affine = np.array(
     [
         [1.0, 0.0, 0.0, 5.594638656430411],
@@ -82,29 +94,14 @@ registered, affine, diagnostics = cf.registration.register_volume(
     number_of_iterations=500,
     learning_rate=1,
     initialization=initialization,
-    show_progress=True,
+    show_progress=False,
 )
 
-print(f"Initial metric: {diagnostics.metric_values[0]:.4f}")
-print(f"Final metric: {diagnostics.final_metric_value:.4f}")
-
-# %% [markdown]
-# ## Resample the Allen atlas onto the recording's native grid
-#
-# Composing the template's `physical_to_sform` affine with the inverse of the estimated
-# registration affine gives a single transform from the recording's native coordinates
-# directly to Allen atlas coordinates.
-# [`Atlas.resample_like`][confusius.atlas.Atlas.resample_like] resamples the atlas'
-# reference volume, annotations, and hemisphere map onto that grid in one call, so
-# `atlas_native.reference` can be used directly as the anatomical background for our
-# stat maps below.
-
-# %%
 physical_to_sform = template.attrs["affines"]["physical_to_sform"]
 subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
 
-atlas = cf.atlas.Atlas.from_brainglobe("allen_mouse_100um", check_latest=False)
-atlas_native = atlas.resample_like(moving, subject_to_atlas)
+atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
+atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 
 # %% [markdown]
 # ## Choose seed regions
@@ -117,19 +114,20 @@ atlas_native = atlas.resample_like(moving, subject_to_atlas)
 # hippocampus (`"HIP"`), which should instead correlate with a more localized,
 # hippocampal-formation-restricted network; and the ventral posteromedial thalamic
 # nucleus (`"VPM"`), a somatosensory relay nucleus expected to correlate with
-# `"SSp-bfd"` through the thalamocortical pathway. All seeds are taken from the left
-# hemisphere only, so that any right-hemisphere correlation in the resulting maps
+# `"SSp-bfd"` through the thalamocortical pathway. All seeds are taken from the right
+# hemisphere only, so that any left-hemisphere correlation in the resulting maps
 # reflects genuine interhemispheric connectivity rather than the seed leaking into its
 # own mask.
 #
-# [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] returns a stacked
-# `(mask, z, y, x)` integer DataArray — one layer per requested region — which
+# [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] returns a stacked
+# `(mask, z, y, x)` integer DataArray—one layer per requested region—which
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] accepts directly as
 # `seed_masks`.
 
 # %%
-seed_regions = ["SSp-bfd", "RSP", "HIP", "VPM"]
-seed_masks = atlas_native.get_masks(seed_regions, sides="left")
+seed_masks = atlas_native.atlas.get_masks(
+    ["SSp-bfd", "RSP", "HIP", "VPM"], sides="right"
+)
 
 # %% [markdown]
 # ## Smooth and compute nuisance regressors
@@ -141,14 +139,15 @@ seed_masks = atlas_native.get_masks(seed_regions, sides="left")
 # As in the correlation-matrix example, we regress out an
 # [aCompCor][confusius.signal.compute_compcor_confounds] component extracted from
 # white-matter voxels (the Allen ontology's `"fiber tracts"` division) together with a
-# `low_cutoff` high-pass filter for slow drift. Both are passed to `SeedBasedMaps` via
-# `clean_kwargs`, which cleans the full voxel-wise recording *before* extracting the
-# seed signals, so seeds and voxels are preprocessed consistently.
+# `low_cutoff` high-pass cosine filter for slow drift. Both are passed to
+# `SeedBasedMaps` via `clean_kwargs`, which cleans the full voxel-wise recording
+# *before* extracting the seed signals, so seeds and voxels are preprocessed
+# consistently.
 
 # %%
 data = cf.spatial.smooth_volume(data, fwhm=0.1)
 
-white_matter = atlas_native.get_masks("fiber tracts").isel(mask=0)
+white_matter = atlas_native.atlas.get_masks("fiber tracts").isel(mask=0)
 acompcor = cf.signal.compute_compcor_confounds(
     data, noise_mask=white_matter, n_components=1, variance_threshold=0.95
 )
@@ -162,7 +161,8 @@ acompcor = cf.signal.compute_compcor_confounds(
 
 # %%
 mapper = cf.connectivity.SeedBasedMaps(
-    seed_masks=seed_masks, clean_kwargs={"low_cutoff": 0.01, "confounds": acompcor}
+    seed_masks=seed_masks,
+    clean_kwargs={"low_cutoff": 0.01, "filter_method": "cosine", "confounds": acompcor},
 )
 mapper.fit(data)
 mapper.maps_
@@ -179,7 +179,7 @@ mapper.maps_
 # [`VolumePlotter.add_contours`][confusius.plotting.VolumePlotter.add_contours], leaving
 # `colors` unset so each region is drawn in its canonical Allen color (read from the
 # atlas mask's `attrs["cmap"]`/`attrs["norm"]`, the same convention used by
-# [`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] elsewhere).
+# [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] elsewhere).
 
 # %% tags=["thumbnail"]
 # coolwarm's white midpoint reads as a washed-out hole on a dark background, so switch
@@ -201,16 +201,13 @@ plotter = cf.plotting.plot_stat_map(
     slice_mode="region",
     cmap=cmap,
     vmax=0.8,
-    threshold=0.20,
+    threshold=0.2,
     cbar_label="Pearson correlation",
-    show_titles=False,
     show_axes=False,
     figure=fig,
     axes=axes,
     bg_color=bg_color,
 )
 plotter.add_contours(seed_masks.rename(mask="region"), linewidths=1.5)
-for ax, region in zip(axes.ravel(), seed_regions):
-    ax.set_title(region)
 
 _ = fig.suptitle("Seed-based connectivity maps", fontsize=16)

@@ -8,6 +8,11 @@ import xarray as xr
 from confusius.plotting import VolumePlotter, plot_composite
 
 
+def _axes(plotter):
+    assert plotter.axes is not None
+    return plotter.axes
+
+
 def _shifted_volume(template: xr.DataArray, shift: float = 0.07) -> xr.DataArray:
     """Return a second volume on the same grid as `template` with shifted values."""
     return xr.DataArray(
@@ -39,7 +44,7 @@ class TestAddCompositeChannels:
             lo, hi = arr.min(), arr.max()
             return (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
 
-        rgb = plotter.axes[0, 0].collections[0].get_array()
+        rgb = _axes(plotter)[0, 0].collections[0].get_array()
         assert rgb.shape == (data1.sizes["y"], data1.sizes["x"], 3)
         npt.assert_allclose(rgb[..., 0], _norm(slice1), atol=1e-6)
         npt.assert_allclose(rgb[..., 1], _norm(slice2), atol=1e-6)
@@ -66,10 +71,10 @@ class TestAddCompositeResample:
         )
 
         # All panels should be rendered at data1's (y, x) shape.
-        rgb0 = plotter.axes[0, 0].collections[0].get_array()
+        rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
         assert rgb0.shape == (data1.sizes["y"], data1.sizes["x"], 3)
         # And we should get one panel per data1 z-slice.
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == data1.sizes["z"]
 
     def test_resample_false_shape_mismatch_raises(
@@ -107,7 +112,7 @@ class TestAddCompositeResample:
         )
 
         # The rendered xlim should sit on data1's coordinate centre.
-        x_min, x_max = plotter.axes.ravel()[0].get_xlim()
+        x_min, x_max = _axes(plotter).ravel()[0].get_xlim()
         xlim_mid = 0.5 * (x_min + x_max)
         data1_mid = 0.5 * (float(x_coords.min()) + float(x_coords.max()))
         assert abs(xlim_mid - data1_mid) < 1e-6
@@ -126,7 +131,7 @@ class TestAddCompositeResample:
             sample_3d_volume, data2, resample=False, atol=1.0
         )
 
-        x_min, x_max = plotter.axes.ravel()[0].get_xlim()
+        x_min, x_max = _axes(plotter).ravel()[0].get_xlim()
         xlim_mid = 0.5 * (x_min + x_max)
         data1_mid = 0.5 * (float(x_coords.min()) + float(x_coords.max()))
         data2_mid = data1_mid + x_shift
@@ -167,20 +172,20 @@ class TestAddCompositeResampleKwargs:
         # Under shared normalisation the range spans [data1.min(), 5.0]; the
         # fill value 5.0 normalises to 1.0, so no cyan voxel should exceed the
         # cyan contribution from in-FOV data2 voxels.
-        rgb0 = plotter.axes[0, 0].collections[0].get_array()
+        rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
         # Cyan channel (G == B). All voxels in data2 have the same value (5.0),
         # so after normalisation the cyan channel should be uniform at 1.0.
         npt.assert_allclose(rgb0[..., 1], 1.0, atol=1e-5)
 
     def test_explicit_fill_value_overrides_default(self, narrow_data2, matplotlib_pyplot):
-        """Explicit default_value in resample_kwargs is respected."""
+        """Explicit fill_value in resample_kwargs is respected."""
         data1, data2 = narrow_data2
-        # Passing default_value=0.0 explicitly should fill out-of-FOV with 0.0.
+        # Passing fill_value=0.0 explicitly should fill out-of-FOV with 0.0.
         plotter = VolumePlotter(slice_mode="z").add_composite(
             data1, data2, resample=True, normalize_strategy="shared",
-            resample_kwargs={"default_value": 0.0},
+            resample_kwargs={"fill_value": 0.0},
         )
-        rgb0 = plotter.axes[0, 0].collections[0].get_array()
+        rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
         # range is [min(data1), 5.0]. fill=0.0 normalises to something < in-FOV.
         # At least some out-of-FOV cyan voxels should be < 1.0 (since fill < max).
         assert float(rgb0[..., 1].min()) < 1.0
@@ -210,11 +215,11 @@ class TestAddCompositeNormalize:
         # The dim slices share the same volume-wide normalisation, so their max
         # in the red channel should stay well below 1.0.
         dim_max = max(
-            float(plotter.axes.ravel()[i].collections[0].get_array()[..., 0].max())
+            float(_axes(plotter).ravel()[i].collections[0].get_array()[..., 0].max())
             for i in range(data1.sizes["z"] - 1)
         )
         bright_max = float(
-            plotter.axes.ravel()[data1.sizes["z"] - 1]
+            _axes(plotter).ravel()[data1.sizes["z"] - 1]
             .collections[0]
             .get_array()[..., 0]
             .max()
@@ -228,7 +233,7 @@ class TestAddCompositeNormalize:
             data1, data2, resample=False, normalize_strategy="per_slice"
         )
         for i in range(data1.sizes["z"]):
-            rgb = plotter.axes.ravel()[i].collections[0].get_array()
+            rgb = _axes(plotter).ravel()[i].collections[0].get_array()
             assert float(rgb[..., 0].max()) == pytest.approx(1.0, abs=1e-6)
 
     def test_shared_uses_one_range(self, sample_3d_volume, matplotlib_pyplot):
@@ -249,11 +254,11 @@ class TestAddCompositeNormalize:
             data1, data2, resample=False, normalize_strategy="shared"
         )
         red_max = max(
-            float(plotter.axes.ravel()[i].collections[0].get_array()[..., 0].max())
+            float(_axes(plotter).ravel()[i].collections[0].get_array()[..., 0].max())
             for i in range(data1.sizes["z"])
         )
         cyan_max = max(
-            float(plotter.axes.ravel()[i].collections[0].get_array()[..., 1].max())
+            float(_axes(plotter).ravel()[i].collections[0].get_array()[..., 1].max())
             for i in range(data1.sizes["z"])
         )
         assert red_max == pytest.approx(0.25, abs=1e-6)
@@ -280,7 +285,7 @@ class TestAddCompositeValidation:
                 sample_3d_volume,
                 sample_3d_volume,
                 resample=False,
-                normalize_strategy="foo",  # type: ignore[arg-type]
+                normalize_strategy="foo",  # ty: ignore[invalid-argument-type]
             )
 
 
@@ -331,7 +336,7 @@ class TestPlotComposite:
     ):
         plotter = plot_composite(sample_3d_volume, sample_3d_volume, resample=False)
         assert isinstance(plotter, VolumePlotter)
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["z"]
 
     def test_forwards_slice_mode_to_volume_plotter(
@@ -341,7 +346,7 @@ class TestPlotComposite:
             sample_3d_volume, sample_3d_volume, resample=False, slice_mode="y"
         )
         assert plotter.slice_mode == "y"
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["y"]
 
     def test_rejects_time_dim(self, sample_3dt_volume, matplotlib_pyplot):
@@ -402,7 +407,7 @@ class TestCompositeAccessor:
 
         plotter = sample_3d_volume.fusi.plot.composite(sample_3d_volume, resample=False)
         assert isinstance(plotter, VolumePlotter)
-        rendered = [ax for ax in plotter.axes.ravel() if ax.collections]
+        rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == sample_3d_volume.sizes["z"]
 
     def test_accessor_shared_normalize(self, sample_3d_volume, matplotlib_pyplot):
@@ -412,5 +417,5 @@ class TestCompositeAccessor:
             sample_3d_volume, resample=False, normalize_strategy="shared"
         )
         # data1 == data2, so red and cyan channels must be pointwise equal.
-        rgb = plotter.axes.ravel()[0].collections[0].get_array()
+        rgb = _axes(plotter).ravel()[0].collections[0].get_array()
         npt.assert_allclose(rgb[..., 0], rgb[..., 1])

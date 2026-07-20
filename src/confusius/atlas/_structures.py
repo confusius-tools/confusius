@@ -1,10 +1,7 @@
 """Helpers for BrainGlobe structure trees and colormap construction."""
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-import numpy as np
-import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -73,20 +70,17 @@ def _resolve_region_id(structures: "StructuresDict", region: int | str) -> int:
         If `region` is a string or integer not found in the structures dictionary.
     """
     if isinstance(region, str):
-        acronym_map: dict[str, int] = {
-            info["acronym"]: sid for sid, info in structures.items()
-        }
-        if region not in acronym_map:
+        if region not in structures.acronym_to_id_map:
             raise KeyError(
                 f"Acronym '{region}' not found in atlas. "
-                f"Use atlas.search() to find the correct acronym."
+                f"Use atlas.search('{region}') to find the correct acronym."
             )
-        return acronym_map[region]
+        return int(structures.acronym_to_id_map[region])
 
     if region not in structures:
         raise KeyError(
             f"Structure id {region} not found in atlas. "
-            f"Use atlas.search() to browse available structures."
+            f"Use atlas.search({region}) to browse available structures."
         )
     return int(region)
 
@@ -106,44 +100,5 @@ def _get_descendant_ids(structures: "StructuresDict", region_id: int) -> list[in
     list[int]
         All ids in the subtree rooted at `region_id`, inclusive.
     """
-    subtree = structures.tree.subtree(region_id)
+    subtree = structures.tree.subtree(region_id)  # type: ignore
     return list(subtree.nodes.keys())
-
-
-def _load_obj(
-    path: Path,
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.int32]]:
-    """Parse an OBJ file and return vertices and triangular faces.
-
-    Only triangular faces are supported; polygons with more than three vertices are
-    skipped silently. Vertex/texture/normal notation (`v/t/n`) is handled by taking only
-    the vertex index.
-
-    Parameters
-    ----------
-    path : pathlib.Path
-        Path to the `.obj` file.
-
-    Returns
-    -------
-    vertices : numpy.ndarray, shape (N, 3)
-        Vertex coordinates as float64.
-    faces : numpy.ndarray, shape (M, 3)
-        Zero-indexed triangle face indices as int32.
-    """
-    vertices = []
-    faces = []
-    with open(path) as fh:
-        for line in fh:
-            if line.startswith("v "):
-                parts = line.split()
-                vertices.append((float(parts[1]), float(parts[2]), float(parts[3])))
-            elif line.startswith("f "):
-                parts = line.split()[1:]
-                if len(parts) != 3:
-                    # Skip non-triangular faces.
-                    continue
-                # OBJ uses 1-indexed vertices; split on "/" to handle v/t/n notation.
-                idx = [int(p.split("/")[0]) - 1 for p in parts]
-                faces.append(idx)
-    return np.array(vertices, dtype=np.float64), np.array(faces, dtype=np.int32)

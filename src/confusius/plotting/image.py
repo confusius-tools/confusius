@@ -1,5 +1,6 @@
 """Image visualization utilities for fUSI data."""
 
+import math
 import numbers
 import warnings
 from collections.abc import Hashable
@@ -226,7 +227,7 @@ def _threshold_slices(
     slices: list[xr.DataArray],
     threshold: float | None,
     threshold_mode: Literal["lower", "upper"],
-) -> list[np.ndarray]:
+) -> list[xr.DataArray | np.ndarray]:
     """Apply thresholding to a list of slices, returning masked arrays."""
     if threshold is None:
         return [s.values for s in slices]
@@ -252,9 +253,25 @@ def _resolve_cmap(
 
     For `threshold_mode='lower'`: gray between `[-threshold, threshold]`.
     For `threshold_mode='upper'`: gray outside `[-threshold, threshold]`.
+
+    Raises
+    ------
+    ValueError
+        If `norm.vmin` or `norm.vmax` is not finite.
     """
     import matplotlib.colors as mcolors
     import matplotlib.pyplot as plt
+
+    if (
+        norm.vmin is None
+        or norm.vmax is None
+        or not math.isfinite(norm.vmin)
+        or not math.isfinite(norm.vmax)
+    ):
+        raise ValueError(
+            "norm.vmin and norm.vmax must be finite, got "
+            f"vmin={norm.vmin!r}, vmax={norm.vmax!r}."
+        )
 
     cmap = (
         cmap
@@ -299,20 +316,33 @@ def _resolve_cmap(
             gray_band_high = []
         new_colors = gray_band_low + colors_middle + gray_band_high
 
+    # Matplotlib 3.11+ requires (value, color) pairs passed to `from_list` to be
+    # strictly monotonically increasing in value. Our boundary points can collide
+    # with neighboring cmap entries (e.g. when `gray_low == 0` the first
+    # `colors_before` entry shares its value with the start of `gray_band`).
+    # Collapse duplicates by value, keeping the later entry so gray-band
+    # boundaries take precedence over the underlying cmap at the same value.
+    deduped: dict[float, "str | tuple[float, ...] | list[float]"] = {}
+    for value, color in new_colors:
+        deduped[value] = color
+    new_colors = list(deduped.items())
+
     # Preserve the source colormap's resolution. The default N=256 of
     # `LinearSegmentedColormap.from_list` collapses larger discrete cmaps such as
     # the atlas `ListedColormap` (N == number of regions, often >256), aliasing
-    # high indices to wrong (or out-of-range) colours.
-    new_cmap = mcolors.LinearSegmentedColormap.from_list(
-        f"{cmap.name}_thresholded", new_colors, N=cmap.N
+    # high indices to wrong (or out-of-range) colours. Propagate under/over/bad
+    # colours so the atlas's transparent under-colour for label 0 (background)
+    # survives the rebuild. Cast to tuple because the getters return numpy arrays
+    # but the kwargs expect a color-like. `from_list` accepts these kwargs since
+    # matplotlib 3.11, no need for a separate `with_extremes` round-trip.
+    return mcolors.LinearSegmentedColormap.from_list(
+        f"{cmap.name}_thresholded",
+        new_colors,
+        N=cmap.N,
+        under=tuple(cmap.get_under()),
+        over=tuple(cmap.get_over()),
+        bad=tuple(cmap.get_bad()),
     )
-    # Propagate under/over/bad colours so the atlas's transparent under-colour
-    # for label 0 (background) survives the rebuild. Cast to tuple because the
-    # getters return numpy arrays but the setters expect a color-like.
-    new_cmap.set_under(tuple(cmap.get_under()))
-    new_cmap.set_over(tuple(cmap.get_over()))
-    new_cmap.set_bad(tuple(cmap.get_bad()))
-    return new_cmap
 
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
@@ -330,6 +360,28 @@ def _format_coord(coord: Hashable) -> str:
     if isinstance(coord, numbers.Real):
         return f"{coord:.3g}"
     return str(coord)
+
+
+def _is_scalar_coord(data: xr.DataArray, name: Hashable) -> bool:
+    """Whether `name` is a scalar (0-dimensional) coordinate of `data`.
+
+    This is the state left after selecting a single index along a dimension
+    (e.g. `data.sel(z=6)`): the dimension is dropped and its coordinate becomes
+    scalar, so it can be promoted back to a size-1 dimension with `expand_dims`.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        The DataArray whose coordinates are inspected.
+    name : hashable
+        The candidate coordinate name.
+
+    Returns
+    -------
+    bool
+        Whether `name` is a coordinate of `data` with zero dimensions.
+    """
+    return name in data.coords and data.coords[name].ndim == 0
 
 
 def _coords_match(
@@ -617,8 +669,12 @@ class VolumePlotter:
         return [(idx, idx) for idx in range(len(actual_coords))]
 
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
-        """Coerce complex, squeeze, validate `slice_mode`/3D, and sort coords."""
+        """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
+        # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
+        # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
+        if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
+            data = data.expand_dims(self.slice_mode)
         squeeze_dims = [
             d for d in data.dims if d != self.slice_mode and data.sizes[d] == 1
         ]
@@ -634,7 +690,11 @@ class VolumePlotter:
                 f"Data must be 3D, but got shape {data.shape} with dims "
                 f"{list(data.dims)}."
             )
-        return sort_coords_for_plot(data, data.dims)
+        # Only the two display dims need sorting for pcolormesh/contour geometry;
+        # sorting slice_mode itself would silently reorder panels (e.g. non-monotonic
+        # z, or a "region" dim built from an arbitrary list of acronyms).
+        display_dims = [d for d in data.dims if d != self.slice_mode]
+        return sort_coords_for_plot(data, display_dims)
 
     def _resolve_axes_layout(
         self,
@@ -1457,6 +1517,11 @@ class VolumePlotter:
                 )
             return self
 
+        # A single-index selection (e.g. mask.sel(z=6)) drops slice_mode to a scalar
+        # coordinate; promote it back to a size-1 dimension so it plots like mask.sel(z=[6]).
+        if self.slice_mode not in mask.dims and _is_scalar_coord(mask, self.slice_mode):
+            mask = mask.expand_dims(self.slice_mode)
+
         squeeze_dims = [
             d for d in mask.dims if d != self.slice_mode and mask.sizes[d] == 1
         ]
@@ -1469,7 +1534,10 @@ class VolumePlotter:
         if mask.ndim != 3:
             raise ValueError(f"mask must be 3D, got shape {mask.shape}")
 
-        mask = sort_coords_for_plot(mask, mask.dims)
+        # Only sort the display dims: sorting slice_mode itself would silently
+        # reorder panels (e.g. non-monotonic z, or an arbitrary "region" order).
+        display_dims = [str(d) for d in mask.dims if d != self.slice_mode]
+        mask = sort_coords_for_plot(mask, display_dims)
 
         unique_labels = sorted(
             [label for label in np.unique(mask.values) if label != 0]
@@ -1501,7 +1569,6 @@ class VolumePlotter:
         else:
             color_map = colors
 
-        display_dims = [str(d) for d in mask.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
 
         if slice_coords is None:

@@ -393,63 +393,85 @@ Pass any keyword argument accepted by
 
 ## Statistical Maps
 
-[`plot_stat_map`][confusius.plotting.plot_stat_map] (also available as the
-`data.fusi.plot.stat_map` accessor) wraps the
-[`plot_volume`][confusius.plotting.plot_volume] +
-[`add_volume`][confusius.plotting.VolumePlotter.add_volume] pattern used above for
-statistical overlays: a background anatomical volume, an overlay that is fully opaque
-by default, and a colormap + range picked automatically from the sign of the
-statistical map:
+[`plot_stat_map`][confusius.plotting.plot_stat_map] is the convenience helper for the
+common statistical-overlay pattern: draw an anatomical/background volume first, then
+overlay a statistical map with a colormap and value range picked automatically from the
+statistic's sign.
 
-```python
-plotter = t_map.fusi.plot.stat_map(pwd, slice_mode="z", threshold=3.0)
-```
+### Basic Usage
 
-`bg_volume` is optional—call `t_map.fusi.plot.stat_map(slice_mode="z")` to plot the
-statistical map on its own. When `alpha` is not provided, `t_map` fully covers `pwd`
-wherever it has a value; `pwd` only shows through where `t_map` is masked out by
-`threshold`. `vmin`/`vmax` default to the actual min/max of `t_map`, and
-`auto_range=True` (default) picks the colormap layout from `t_map`'s sign:
+=== "Xarray accessor"
+
+    ```python
+    plotter = t_map.fusi.plot.stat_map(bg_volume=pwd, slice_mode="z", threshold=3.0)
+    ```
+
+=== "Function API"
+
+    ```python
+    plotter = cf.plotting.plot_stat_map(
+        t_map, bg_volume=pwd, slice_mode="z", threshold=3.0
+    )
+    ```
+
+`bg_volume` is optional. Omit it to plot the statistical map on its own. When `alpha` is
+not provided, the statistical layer is fully opaque wherever it has a value, and the
+background only shows through where the statistical map has been masked out (typically
+with `threshold`). If you want the background to remain visible throughout, pass
+`alpha < 1`.
+
+### Automatic Range and Colormap Selection
+
+By default, `vmin` and `vmax` are taken from the full `stat_map`, and `auto_range=True`
+picks a suitable range + default colormap automatically:
 
 - Both positive and negative values: diverging, symmetric `[-m, m]` range
-  (`m = max(|vmin|, |vmax|)`), `cmap` defaulting to `"coolwarm"`.
-- Only non-negative values (e.g. R², F-statistics): sequential `[0, vmax]` range,
-  `cmap` defaulting to `"viridis"`.
-- Only non-positive values: sequential `[vmin, 0]` range, `cmap` defaulting to
-  `"viridis_r"` (so values near zero map to the same end of the colormap in both
-  the non-negative and non-positive cases).
+  (`m = max(|vmin|, |vmax|)`), with `cmap="coolwarm"` by default.
+- Only non-negative values (for example R² or F-statistics): sequential `[0, vmax]`
+  range, with `cmap="viridis"` by default.
+- Only non-positive values: sequential `[vmin, 0]` range, with `cmap="viridis_r"`
+  by default.
 
-Pass `vmax` explicitly for a fixed range across figures, `alpha` to blend the overlay
-with the background instead of fully covering it, and `bg_kwargs` to customize the
-background layer's own colormap/range:
+### Customizing the Overlay and Background
 
-```python
-plotter = t_map.fusi.plot.stat_map(
-    pwd,
-    slice_mode="z",
-    threshold=3.0,
-    vmax=6.0,
-    alpha=0.6,
-    cbar_label="t-statistic",
-    bg_kwargs={"cmap": "gray", "vmin": -20, "vmax": 0},
-)
-```
+Pass `vmin`/`vmax` explicitly to define a custom range, `alpha` or `threshold` to blend
+the overlay with the background, and `bg_kwargs` to style the background volume itself:
 
-A non-diverging statistic (e.g. R²) needs no extra arguments — the sequential range and
-colormap are picked up automatically since the data has only non-negative values:
+=== "Xarray accessor"
 
-```python
-plotter = r2_map.fusi.plot.stat_map(pwd)
-```
+    ```python
+    plotter = t_map.fusi.plot.stat_map(
+        bg_volume=pwd.fusi.scale.db(),
+        slice_mode="z",
+        threshold=3.0,
+        vmax=6.0,
+        cbar_label="t-statistic",
+        bg_kwargs={"cmap": "gray", "vmin": -20, "vmax": 0},
+    )
+    ```
+
+=== "Function API"
+
+    ```python
+    plotter = cf.plotting.plot_stat_map(
+        t_map,
+        bg_volume=pwd.fusi.scale.db(),
+        slice_mode="z",
+        threshold=3.0,
+        vmax=6.0,
+        cbar_label="t-statistic",
+        bg_kwargs={"cmap": "gray", "vmin": -20, "vmax": 0},
+    )
+    ```
 
 Pass an explicit `cmap` to override the automatic choice, `auto_range=False` to use
-`vmin`/`vmax` directly with no zero-anchoring (e.g. a custom, asymmetric range), or a
-[`matplotlib.colors.Normalize`][matplotlib.colors.Normalize] instance as `norm` (e.g.
-`TwoSlopeNorm`, `BoundaryNorm`, `LogNorm`) for ranges the other three can't express —
-`norm`, when provided, overrides `vmin`, `vmax`, and `auto_range` entirely. For
-anything `plot_stat_map` still doesn't expose (e.g. `roi_labels` hover names), call
-`plot_volume` and `add_volume` directly instead, as shown in the
-[Thresholding](#thresholding) section above.
+`vmin`/`vmax` directly with no zero-anchoring, or a
+[`matplotlib.colors.Normalize`][matplotlib.colors.Normalize] instance as `norm` (for
+example `TwoSlopeNorm`, `BoundaryNorm`, or `LogNorm`) when you need a custom mapping.
+When `norm` is provided, it overrides `vmin`, `vmax`, and `auto_range` entirely.
+
+If you need lower-level control beyond `plot_stat_map`, call
+[`plot_volume`][confusius.plotting.plot_volume] directly instead.
 
 ![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_light.png#only-light)
 ![Seed-based connectivity maps](../examples/_built/connectivity/atlas_seed_map_thumb_dark.png#only-dark)
@@ -457,8 +479,8 @@ anything `plot_stat_map` still doesn't expose (e.g. `roi_labels` hover names), c
 This figure is generated in the [atlas-based seed connectivity maps
 example](../examples/_built/connectivity/atlas_seed_map.md), which walks through
 registering a recording to an Allen-space template, resampling the [Allen Mouse Brain
-Atlas][confusius.atlas.Atlas] onto the recording's native grid, and computing
-voxel-wise seed-based correlation maps with
+Atlas][confusius.datasets.fetch_brainglobe_atlas] onto the recording's native grid, and
+computing voxel-wise seed-based correlation maps with
 [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps].
 
 ## Overlaying Contours
@@ -476,21 +498,21 @@ The most common use case is to draw atlas outlines on top of a fUSI volume.
 coordinate-to-axis mapping; calling
 [`add_contours`][confusius.plotting.VolumePlotter.add_contours] on it draws outlines
 on the matching panels. Masks produced by
-[`Atlas.get_masks`][confusius.atlas.Atlas.get_masks] carry Allen colors in their
+[`get_masks`][confusius.atlas.AtlasAccessor.get_masks] carry Allen colors in their
 `attrs["rgb_lookup"]`, so no explicit color argument is needed:
 
 !!! question "Registering your data to an atlas"
     This example assumes your fUSI data has already been registered to the Allen Mouse
     Brain atlas. See the [Atlases](atlas.md) guide for loading and working with brain
     atlases, and the [Registration](registration.md) guide for how to obtain the `transform`
-    used in `atlas.resample_like`.
+    used in `atlas.atlas.resample_like`.
 
 ```python
-from confusius.atlas import Atlas
+from confusius.datasets import fetch_brainglobe_atlas
 
-# Load Atlas and resample to fUSI space (see Registration guide).
-atlas = Atlas.from_brainglobe("allen_mouse_100um")
-atlas_fusi = atlas.resample_like(mean_vol, transform)
+# Load atlas and resample to fUSI space (see Registration guide).
+atlas = fetch_brainglobe_atlas("allen_mouse_100um")
+atlas_fusi = atlas.atlas.resample_like(mean_vol, transform)
 
 # Step 1: display an average power Doppler volume.
 plotter = cf.plotting.plot_volume(
@@ -683,7 +705,7 @@ fig, ax = cf.plotting.plot_matrix(
 This figure is generated in the [atlas-based region correlation matrix
 example](../examples/_built/connectivity/atlas_correlation_matrix.md), which walks
 through registering a recording to an Allen-space template, resampling the [Allen
-Mouse Brain Atlas][confusius.atlas.Atlas] onto the recording's native grid, and
+Mouse Brain Atlas][confusius.atlas] onto the recording's native grid, and
 extracting region signals—including `group_colors`, sourced directly from the atlas
 so each area is colored with its official Allen color.
 

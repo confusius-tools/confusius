@@ -816,6 +816,20 @@ class TestImportedSignalIntegration:
             ["1", "3"],
         ]
 
+    def test_imported_only_plot_shows_cursor_when_enabled(
+        self, plotter_with_store, store, tmp_path
+    ):
+        path = tmp_path / "imported.tsv"
+        path.write_text("time\tbaseline\n0\t1.0\n1\t2.0\n2\t3.0\n")
+        store.import_file(path)
+
+        plotter_with_store.set_show_cursor(True)
+        plotter_with_store._cursor_world = 1.5
+        plotter_with_store._refresh_plot()
+
+        assert plotter_with_store._vline is not None
+        assert plotter_with_store._vline.get_xdata()[0] == pytest.approx(1.5)
+
     def test_hidden_imported_signal_is_excluded_from_export(
         self, plotter_with_store, store, tmp_path
     ):
