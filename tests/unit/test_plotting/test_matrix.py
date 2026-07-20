@@ -528,15 +528,21 @@ class TestPlotContrastMatrix:
         assert ax.get_title() == "A vs B"
 
     def test_reused_axes_do_not_keep_stale_ticks(self, matplotlib_pyplot):
-        """A second contrast plot on the same Axes resets labels and images."""
+        """A second contrast plot on the same Axes resets labels, images, and colorbar."""
         fig, ax = matplotlib_pyplot.subplots()
-        plot_contrast_matrix(np.array([1.0, 0.0, 0.0]), _design_matrix(n_columns=3), ax=ax)
+        plot_contrast_matrix(
+            np.array([1.0, 0.0, 0.0]),
+            _design_matrix(n_columns=3),
+            ax=ax,
+            show_colorbar=True,
+        )
 
         plot_contrast_matrix(np.array([1.0, 0.0]), np.zeros((20, 2)), ax=ax)
         fig.canvas.draw()
 
         assert [t.get_text() for t in ax.get_xticklabels()] == ["0", "1"]
         assert len(ax.images) == 1
+        assert fig.axes == [ax]
 
     def test_all_zero_contrast_uses_symmetric_unit_range(self, matplotlib_pyplot):
         """An all-zero contrast falls back to a symmetric [-1, 1] range, not vmin==vmax."""

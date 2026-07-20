@@ -671,6 +671,26 @@ def plot_matrix(
     return figure, ax
 
 
+def _clear_matrix_plot_axes(ax: "Axes") -> None:
+    """Clear an Axes and remove any colorbar attached by this module.
+
+    Parameters
+    ----------
+    ax : matplotlib.axes.Axes
+        Axes to clear.
+
+    Returns
+    -------
+    None
+        The Axes is cleared in place.
+    """
+    colorbar = getattr(ax, "_confusius_matrix_colorbar", None)
+    if colorbar is not None:
+        colorbar.remove()
+        delattr(ax, "_confusius_matrix_colorbar")
+    ax.clear()
+
+
 def plot_contrast_matrix(
     contrast_def: "str | npt.NDArray[Any]",
     design_matrix: "pd.DataFrame | npt.NDArray[Any]",
@@ -732,7 +752,7 @@ def plot_contrast_matrix(
         provided. The width is `column_width * n_regressors`, floored at 4 inches.
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If not provided, creates a new figure and axes sized from
-        `row_height` and `column_width`.
+        `row_height` and `column_width`. If provided, the Axes is cleared before plotting.
 
     Returns
     -------
@@ -778,7 +798,7 @@ def plot_contrast_matrix(
         figure.patch.set_facecolor(bg_color)
     else:
         figure = ax.figure
-        ax.clear()
+        _clear_matrix_plot_axes(ax)
     ax.set_facecolor(bg_color)
 
     # Equal aspect keeps each weight a square cell, so the strip stays a thin band and a
@@ -824,6 +844,7 @@ def plot_contrast_matrix(
         # and lands the colorbar on top of the strip. A lower-than-default aspect
         # widens the bar a little.
         cbar = figure.colorbar(image, ax=ax, aspect=12)
+        ax.__dict__["_confusius_matrix_colorbar"] = cbar
         _style_colorbar(
             cbar,
             text_color,
@@ -947,7 +968,7 @@ def plot_design_matrix(
         provided. The width is `column_width * n_regressors`, floored at 4 inches.
     ax : matplotlib.axes.Axes, optional
         Axes to plot on. If not provided, creates a new figure and axes sized from
-        `height` and `column_width`.
+        `height` and `column_width`. If provided, the Axes is cleared before plotting.
 
     Returns
     -------
@@ -972,7 +993,7 @@ def plot_design_matrix(
         figure.patch.set_facecolor(bg_color)
     else:
         figure = ax.figure
-        ax.clear()
+        _clear_matrix_plot_axes(ax)
     ax.set_facecolor(bg_color)
 
     ax.imshow(
