@@ -22,6 +22,7 @@
 from functools import partial
 from pathlib import Path
 
+import colorcet as cc
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -255,7 +256,7 @@ z_scores = glm.compute_contrast("speed")
 
 # %%
 is_dark_theme = sum(mpl.colors.to_rgb(bg_color)) / 3 < 0.5
-searchlight_cmap = "inferno" if is_dark_theme else "cet_CET_L17"
+searchlight_cmap = "inferno" if is_dark_theme else cc.cm.CET_L17
 glm_cmap = "berlin" if is_dark_theme else "coolwarm"
 
 background_data = data.mean("time").fusi.scale.db()
