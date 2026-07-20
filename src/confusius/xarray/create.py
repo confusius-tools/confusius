@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
 import xarray as xr
@@ -33,6 +33,37 @@ _VOLUME_ACQUISITION_REFERENCES = ("start", "center", "end")
 """Accepted values for `volume_acquisition_reference`."""
 
 
+def _require_positive_finite(
+    value: str | SupportsFloat | SupportsIndex, name: str
+) -> float:
+    """Return a finite positive numeric value.
+
+    Parameters
+    ----------
+    value : str or typing.SupportsFloat or typing.SupportsIndex
+        Candidate value.
+    name : str
+        Name used in the validation error.
+
+    Returns
+    -------
+    float
+        Validated value.
+
+    Raises
+    ------
+    ValueError
+        If `value` is not numeric, finite, and positive.
+    """
+    try:
+        result = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be positive and finite.") from exc
+    if not np.isfinite(result) or result <= 0:
+        raise ValueError(f"{name} must be positive and finite.")
+    return result
+
+
 def _require_spacing(dim: str, spacing: float | None) -> float:
     """Return a finite positive coordinate spacing.
 
@@ -58,10 +89,7 @@ def _require_spacing(dim: str, spacing: float | None) -> float:
             f"Spacing for dimension {dim!r} is required. Provide d{dim} or an "
             f"explicit {dim!r} coordinate with enough information to infer spacing."
         )
-    value = float(spacing)
-    if not np.isfinite(value) or value <= 0:
-        raise ValueError(f"Spacing for dimension {dim!r} must be positive and finite.")
-    return value
+    return _require_positive_finite(spacing, f"Spacing for dimension {dim!r}")
 
 
 def _regular_step(values: np.ndarray) -> float | None:
@@ -162,8 +190,10 @@ def _coordinate_dataarray(
         duration = volume_acquisition_duration
         if duration is None:
             duration = _require_spacing(dim, step)
+        else:
+            duration = _require_positive_finite(duration, "volume_acquisition_duration")
         attrs["volume_acquisition_reference"] = volume_acquisition_reference
-        attrs["volume_acquisition_duration"] = float(duration)
+        attrs["volume_acquisition_duration"] = duration
     elif dim in _SPATIAL_DIMS:
         if "units" not in attrs:
             attrs["units"] = _SPATIAL_UNITS
@@ -174,6 +204,10 @@ def _coordinate_dataarray(
             if step is None:
                 step = spacings[dim]
             attrs["voxdim"] = _require_spacing(dim, step)
+        else:
+            attrs["voxdim"] = _require_positive_finite(
+                attrs["voxdim"], f"voxdim for dimension {dim!r}"
+            )
 
     return xr.DataArray(coord_values, dims=(dim,), attrs=attrs)
 

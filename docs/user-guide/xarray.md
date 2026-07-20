@@ -317,9 +317,9 @@ function for motion correction.
 registered = pwd.fusi.register.volumewise(reference_time=0)
 ```
 
-By default, both translation and rotation are allowed (with a penalty to keep
-rotations small). Pass `allow_rotation=False` for translation-only correction, or
-increase `rotation_penalty` to constrain rotations more strongly.
+By default, rigid registration allows translation and rotation. Pass
+`transform="translation"` for translation-only correction. For rigid registration,
+set the first three `optimizer_weights` values to `0` to freeze rotation.
 
 ### Signal Extraction ([`.fusi.extract`][confusius.xarray.FUSIExtractAccessor])
 

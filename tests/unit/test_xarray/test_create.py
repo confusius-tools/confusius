@@ -144,6 +144,19 @@ def test_create_fusi_dataarray_rejects_invalid_spacing(bad_dx: float):
         )
 
 
+@pytest.mark.parametrize("bad_voxdim", [0.0, -0.1, np.nan])
+def test_create_fusi_dataarray_rejects_invalid_explicit_voxdim(bad_voxdim: float):
+    """Explicit `voxdim` metadata must be positive and finite."""
+    with pytest.raises(ValueError, match="voxdim for dimension 'z'"):
+        create_fusi_dataarray(
+            np.zeros((1, 4, 6)),
+            dims=("z", "y", "x"),
+            coords={"z": xr.DataArray([0.0], dims="z", attrs={"voxdim": bad_voxdim})},
+            dy=0.1,
+            dx=0.2,
+        )
+
+
 def test_create_fusi_dataarray_rejects_singleton_explicit_coord_without_voxdim():
     """A length-1 coordinate needs spacing metadata or a spacing argument."""
     with pytest.raises(ValueError, match="Spacing for dimension 'z' is required"):
@@ -276,6 +289,23 @@ def test_create_fusi_dataarray_acquisition_metadata_defaults_to_time_spacing():
     time_attrs = result.coords["time"].attrs
     assert time_attrs["volume_acquisition_reference"] == "start"
     assert time_attrs["volume_acquisition_duration"] == 0.5
+
+
+@pytest.mark.parametrize("bad_duration", [0.0, -0.1, np.nan])
+def test_create_fusi_dataarray_rejects_invalid_acquisition_duration(
+    bad_duration: float,
+):
+    """Acquisition duration metadata must be positive and finite."""
+    with pytest.raises(ValueError, match="volume_acquisition_duration"):
+        create_fusi_dataarray(
+            np.zeros((5, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            dt=0.5,
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+            volume_acquisition_duration=bad_duration,
+        )
 
 
 def test_create_fusi_dataarray_rejects_invalid_reference():
