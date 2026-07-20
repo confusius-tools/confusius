@@ -1,5 +1,5 @@
 # %% [markdown]
-# # First-level lagged GLM analysis of fUSI data with a continuous regressor
+# # Lagged first-level GLM analysis of fUSI data with a continuous regressor
 #
 # This example reproduces the lagged-GLM analysis of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), functional ultrasound of a
