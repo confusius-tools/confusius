@@ -1,5 +1,7 @@
 """Tests for confusius.glm._utils."""
 
+import warnings
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -70,3 +72,27 @@ def test_estimate_ar_coeffs_invalid_ndim_raises():
     """3D inputs are rejected at the API boundary."""
     with pytest.raises(ValueError, match="Expected 1D or 2D"):
         estimate_ar_coeffs(np.zeros((5, 5, 5)))
+
+
+def test_estimate_ar_coeffs_zero_variance_voxel_is_silent():
+    """A constant voxel does not make the batched solve singular.
+
+    Zero-variance voxels (e.g. the constant background outside a beamforming grid)
+    give an all-zero Toeplitz block. They must not trigger the pseudoinverse fallback
+    or its singularity warning; their coefficients are undefined and returned as zero,
+    with sigma as NaN, while the remaining voxels are estimated normally.
+    """
+    rng = np.random.default_rng(0)
+    signals = rng.standard_normal((200, 10))
+    signals[:, 3] = 0.0  # zero-variance voxel
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        rho, sigma = estimate_ar_coeffs(signals, order=1)
+
+    sigma = np.asarray(sigma)  # 2D input always yields an array, not a scalar.
+    assert rho.shape == (1, 10)
+    assert rho[0, 3] == 0.0
+    assert np.isnan(sigma[3])
+    other = np.arange(10) != 3
+    assert np.all(np.isfinite(sigma[other]))
