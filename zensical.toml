@@ -87,7 +87,7 @@ nav = [
             { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
         { "Decoding" = [
-            { "Searchlight decoding of locomotion speed" = "examples/_built/decoding/searchlight_speed.md" },
+            { "Searchlight decoding of a continuous variable" = "examples/_built/decoding/searchlight_speed.md" },
         ]},
     ]},
     { "Changelog" = "changelog.md" },

@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Searchlight decoding of locomotion speed
+# # Searchlight decoding of a continuous variable
 #
 # This example maps which parts of a fUSI plane carry information about how fast the
 # animal is moving, using a searchlight: a small cross-validated model run over the
@@ -12,10 +12,10 @@
 #
 # We follow the experimental setting and dataset of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
-# single coronal plane, and compare the searchlight map against a GLM fit on the same
-# data. Both analyses receive the same smoothing, the same nuisance removal and the same
-# hemodynamically convolved speed regressor, so the only thing that differs between them
-# is univariate versus multivariate, which is the comparison we actually want to make.
+# single sagittal plane, and compare the searchlight map against a GLM fit on the same
+# data. Both analyses receive the same preprocessing steps, so the only thing that
+# differs between them is univariate versus multivariate, which is the comparison we
+# actually want to make.
 
 # %% [markdown]
 # ## Load the recording and the tracking data
@@ -83,11 +83,11 @@ speed = speed.interp(time=data.time, method="linear").ffill("time")
 # %% [markdown]
 # ## What the searchlight should actually predict
 #
-# The speed signal above is an instantaneous behavioral variable, but the power Doppler
-# signal is hemodynamic: it lags the behavior and smooths it over several seconds.
-# Asking a decoder to predict the instantaneous trace from that signal sets it an
-# impossible target. We therefore decode the *hemodynamically convolved* speed
-# regressor, which is the same quantity a GLM tests against.
+# The speed signal above is an instantaneous behavioral variable, and the power Doppler
+# signal contains a proxy of the neural signal encoding the speed signal through the
+# neurovascular coupling. With the neurovascular coupling inherent delay, asking a
+# decoder to predict the instantaneous trace from that signal sets it an impossible
+# target. We therefore decode an *hemodynamically convolved* speed regressor.
 #
 # We build it with the modified Claron 2021 HRF, a rodent fUSI response function, and
 # read it straight off a first-level design matrix. Building the design matrix here
@@ -148,13 +148,9 @@ speed_regressor = design_matrix["speed"].to_numpy()
 # with [`clean`][confusius.signal.clean], reusing the design matrix's own nuisance
 # columns.
 #
-# The target is cleaned with the same regressors as the data, so both sides have the same
-# nuisance structure removed. This mirrors what the GLM does implicitly when it fits the
-# speed regressor and the nuisance regressors jointly.
-#
-# Every one of these operations is a fixed linear filter applied identically to every
-# timepoint. None uses the relationship between the data and the target, so none can leak
-# information across the cross-validation folds.
+# The target is cleaned with the same regressors as the data, so both sides have the
+# same nuisance structure removed. This mirrors what the GLM does implicitly when it
+# fits the speed regressor and the nuisance regressors jointly.
 
 # %%
 smoothing_fwhm = 0.3
@@ -206,9 +202,9 @@ target = cf.signal.clean(
 # some regions arbitrarily. By default `RidgeCV` picks the penalty by leave-one-out
 # generalized cross-validation, which does put temporally adjacent volumes in its train
 # and test sets, unlike the contiguous folds we use for the outer searchlight
-# cross-validation. That cannot leak: the penalty search runs entirely inside each outer
-# training fold and never sees the outer test fold, so it only affects which penalty is
-# chosen.
+# cross-validation. That is not a problem: the penalty search runs entirely inside each
+# outer training fold and never sees the outer test fold, so it only affects which
+# penalty is chosen.
 
 # %%
 estimator = RidgeCV(alphas=np.logspace(0, 4, 9))
