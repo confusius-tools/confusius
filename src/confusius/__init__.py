@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 __all__ = [
     "atlas",
     "connectivity",
+    "decoding",
     "decomposition",
     "datasets",
     "extract",
@@ -36,6 +37,7 @@ from confusius import atlas, xarray
 _SUBMODULES = {
     "atlas",
     "connectivity",
+    "decoding",
     "decomposition",
     "datasets",
     "extract",
@@ -85,6 +87,7 @@ if TYPE_CHECKING:
         atlas,
         connectivity,
         datasets,
+        decoding,
         decomposition,
         extract,
         glm,
