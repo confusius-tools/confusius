@@ -1,14 +1,12 @@
 # %% [markdown]
 # # Searchlight decoding of a continuous variable
 #
-# This example maps which parts of a fUSI plane carry information about how fast the
-# animal is moving, using a searchlight: a small cross-validated model run over the
-# local neighborhood of every voxel.
-#
-# A searchlight complements the general linear model. The GLM asks, voxel by voxel,
-# "does this voxel's signal track the regressor?". The searchlight asks "can the local
-# pattern around this voxel predict the regressor?", which picks up information carried
-# jointly by neighboring voxels rather than by any one of them alone.
+# This example maps which parts of a fUSI recording carry information about how fast a
+# rat is moving with a searchlight: a small cross-validated model run over the local
+# neighborhood of every voxel. Unlike a GLM, which asks voxel by voxel whether one
+# voxel's signal tracks the regressor, the searchlight asks whether the local pattern
+# around each voxel can predict it, picking up information carried jointly by neighboring
+# voxels rather than by any one alone.
 #
 # We follow the experimental setting and dataset of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
