@@ -51,7 +51,8 @@ Current development version for the next ConfUSIus release.
 - New `confusius.decoding` module with
   [`SearchLight`][confusius.decoding.SearchLight], which maps how well a
   cross-validated scikit-learn estimator predicts a target from the local
-  neighborhood of each voxel.
+  neighborhood of each voxel
+  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
@@ -127,6 +128,10 @@ Current development version for the next ConfUSIus release.
 - Fixed velocity sign interpretation in [Beamformed IQ user
   guide](user-guide/beamformed-iq.md)
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+- Added a [searchlight decoding example](examples/_built/decoding/searchlight_speed.md)
+  that decodes locomotion speed from a single fUSI plane and compares the searchlight map
+  against a matched GLM
+  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 
 ### :wrench: Maintenance
 
