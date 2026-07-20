@@ -348,10 +348,7 @@ class SearchLight(BaseEstimator):
     Parameters
     ----------
     estimator : sklearn.base.BaseEstimator
-        Estimator or [`Pipeline`][sklearn.pipeline.Pipeline] cloned into each
-        neighborhood. Required. Whether it is a classifier or a regressor is detected
-        with [`is_classifier`][sklearn.base.is_classifier], and that choice drives both
-        the default cross-validator and the default scorer.
+        Estimator or [`Pipeline`][sklearn.pipeline.Pipeline].
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting the voxels that may act as *features*. If not
         provided, every voxel of the input data is used as a feature voxel. Every
@@ -382,7 +379,7 @@ class SearchLight(BaseEstimator):
         Number of joblib workers. Centers are dispatched in batches, not one task
         each.
     show_progress : bool, default: True
-        Whether to display a progress bar while scoring center voxels.
+        Whether to display a progress bar during fit.
 
     Attributes
     ----------
