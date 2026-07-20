@@ -7,6 +7,7 @@ import napari
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
+from napari.utils import Colormap
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
 from confusius._utils.napari import (
@@ -251,44 +252,54 @@ def plot_napari(
 
 
 def plot_surface(
-    mesh: tuple[npt.NDArray[np.floating], npt.NDArray[np.integer]],
+    atlas: xr.Dataset,
+    region: int | str,
+    side: Literal["left", "right", "both"] = "both",
     values: npt.NDArray[np.floating] | None = None,
     viewer: "Viewer | None" = None,
     show_scale_bar: bool = True,
-    units: str = "mm",
+    *,
+    clip: bool = True,
     **layer_kwargs,
 ) -> "tuple[Viewer, Surface]":
-    """Display a triangular mesh as a napari surface layer.
+    """Display an atlas region's surface mesh as a napari surface layer.
 
-    Adds the mesh as a napari `Surface` layer. This is the
-    counterpart to [`plot_napari`][confusius.plotting.plot_napari] for meshes,
-    such as the region surfaces returned by
-    [`Atlas.get_mesh`][confusius.atlas.Atlas.get_mesh]. Because atlas mesh
-    vertices and image layers both live in the same physical space, a surface
-    overlaid on a viewer that already holds the reference template or a
-    registered fUSI volume aligns without any extra scaling.
+    The mesh counterpart to [`plot_napari`][confusius.plotting.plot_napari]: pass an
+    atlas Dataset and a region, and the layer's mesh, name, and default color are all
+    pulled from the atlas. The mesh comes from
+    [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh], the layer name from the
+    region's acronym, the surface color from the region's Allen color, and the scale
+    bar unit from the reference coordinates. Because atlas mesh vertices and image
+    layers share the same physical space, a surface overlaid on a viewer that already
+    holds the reference template or a registered fUSI volume aligns without any extra
+    scaling.
 
     Parameters
     ----------
-    mesh : tuple[(N, 3) numpy.ndarray, (M, 3) numpy.ndarray]
-        A `(vertices, faces)` pair as returned by
-        [`Atlas.get_mesh`][confusius.atlas.Atlas.get_mesh]. `vertices` holds the
-        vertex coordinates and `faces` holds zero-indexed triangle vertex
-        indices.
+    atlas : xarray.Dataset
+        Atlas Dataset with an `.atlas` accessor, as returned by
+        [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] or
+        [`load_atlas`][confusius.io.load_atlas].
+    region : int or str
+        Structure index or acronym of the region to display.
+    side : {"left", "right", "both"}, default: "both"
+        Hemisphere to include, forwarded to
+        [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh].
     values : (N,) or (N, T) numpy.ndarray, optional
         Per-vertex scalar values used to color the surface through the layer's
-        colormap. If not provided, the surface is rendered as a flat color.
+        colormap. If not provided, the surface is drawn in the region's Allen color.
     viewer : napari.Viewer, optional
         Existing napari viewer to add the layer to. If not provided, a new viewer
         is created.
     show_scale_bar : bool, default: True
         Whether to show the scale bar.
-    units : str, default: "mm"
-        Physical unit of the vertex coordinates, used as the scale bar unit.
-        Atlas meshes are in millimetres.
+    clip : bool, default: True
+        Whether to clip the mesh to the reference grid, forwarded to
+        [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh].
     **layer_kwargs
         Additional keyword arguments passed to `napari.Viewer.add_surface`
-        (e.g. `colormap`, `name`, `opacity`, `shading`).
+        (e.g. `colormap`, `name`, `opacity`, `shading`). An explicit `colormap`,
+        `name`, or `units` overrides the value derived from the atlas.
 
     Returns
     -------
@@ -307,21 +318,45 @@ def plot_surface(
     Examples
     --------
     >>> import confusius as cf
-    >>> from confusius.atlas import Atlas
-    >>> atlas = Atlas.from_brainglobe("allen_mouse_25um")
-    >>> # Overlay a region mesh on the reference template.
-    >>> viewer, _ = cf.plotting.plot_napari(atlas.reference)
-    >>> viewer, layer = cf.plotting.plot_surface(
-    ...     atlas.get_mesh("VISp"), viewer=viewer, colormap="magenta"
-    ... )
+    >>> atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_25um")
+    >>> # Overlay a region mesh, in its Allen color, on the reference template.
+    >>> viewer, _ = cf.plotting.plot_napari(atlas.atlas.reference)
+    >>> viewer, layer = cf.plotting.plot_surface(atlas, "VISp", viewer=viewer)
     """
-    vertices, faces = mesh
+    vertices, faces = atlas.atlas.get_mesh(region, side, clip=clip)
     surface_data = (vertices, faces) if values is None else (vertices, faces, values)
+
+    # Pull the region's acronym and Allen color from the atlas lookup so the layer
+    # names and colors itself, mirroring how plot_napari reads metadata off the data.
+    lookup = atlas.atlas.lookup
+    info = (
+        lookup[lookup["acronym"] == region].iloc[0]
+        if isinstance(region, str)
+        else lookup.loc[region]
+    )
+    layer_kwargs.setdefault("name", str(info["acronym"]))
+    if "units" not in layer_kwargs:
+        ref = atlas.atlas.reference
+        # napari reads the scale bar unit and status-bar coordinates off the layer
+        # units, as plot_napari does; the mesh shares the reference's physical space.
+        layer_kwargs["units"] = next(
+            (
+                u
+                for d in ref.dims
+                if d in ref.coords and (u := ref.coords[d].attrs.get("units"))
+            ),
+            "mm",
+        )
+    if "colormap" not in layer_kwargs and values is None:
+        # A napari Surface colors its vertices through a colormap; a two-stop map
+        # of a single color renders the whole mesh in the region's Allen color.
+        rgba = [c / 255 for c in info["rgb_triplet"]] + [1.0]
+        layer_kwargs["colormap"] = Colormap([rgba, rgba], name=str(info["acronym"]))
 
     if viewer is None:
         viewer = napari.Viewer()
 
-    layer = viewer.add_surface(surface_data, **layer_kwargs)
+    layer = viewer.add_surface(surface_data, **layer_kwargs)  # type: ignore
 
     # napari opens in 2D, where a Surface layer is drawn only as its cross-section
     # with the current slice plane — a 3D mesh is then all but invisible. Switch to
@@ -330,9 +365,7 @@ def plot_surface(
         viewer.dims.ndisplay = 3
         viewer.reset_view()
 
-    if show_scale_bar:
-        viewer.scale_bar.visible = True
-        viewer.scale_bar.unit = units
+    viewer.scale_bar.visible = show_scale_bar
 
     return viewer, layer
 
