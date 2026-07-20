@@ -128,7 +128,7 @@ _section("napari mesh")
 
 try:
     viewer = napari.Viewer(ndisplay=3, show=False)
-    cf.plotting.plot_surface(atlas, _MESH_REGION, viewer=viewer, colormap="gray")
+    atlas.atlas.plot.mesh(_MESH_REGION, viewer=viewer, colormap="gray")
     _napari_screenshot(viewer, str(HERE / "atlas-mesh-root.png"))
     viewer.close()
     _ok("Saved atlas-mesh-root.png")
