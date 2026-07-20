@@ -6,7 +6,7 @@ licensed under the BSD-3-Clause License. See `NOTICE` for details.
 
 import warnings
 from collections.abc import Callable
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import nullcontext
 
 import numpy as np
 import numpy.typing as npt
@@ -38,7 +38,7 @@ from confusius.extract import extract_with_mask, unmask
 from confusius.validation import validate_mask, validate_time_series
 
 
-def _masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
+def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     """Physical coordinates of the `True` voxels of a mask.
 
     Parameters
@@ -80,31 +80,31 @@ def _masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     return flat[np.asarray(mask.values).ravel()]
 
 
-def _neighborhood_indices(
+def _find_neighborhood_indices(
     mask: xr.DataArray, process_mask: xr.DataArray, radius: float
 ) -> list[npt.NDArray[np.intp]]:
-    """Feature indices falling within `radius` of every centre voxel.
+    """Feature indices falling within `radius` of every center voxel.
 
     Parameters
     ----------
     mask : xarray.DataArray
         Boolean mask defining which voxels may act as features.
     process_mask : xarray.DataArray
-        Boolean mask defining which voxels act as neighbourhood centres.
+        Boolean mask defining which voxels act as neighborhood centers.
     radius : float
-        Neighbourhood radius, in the units of the mask coordinates.
+        Neighborhood radius, in the units of the mask coordinates.
 
     Returns
     -------
     list[numpy.ndarray]
-        One integer index array per centre, indexing into the masked feature axis.
+        One integer index array per center, indexing into the masked feature axis.
     """
-    feature_coords = _masked_coordinates(mask)
-    centre_coords = _masked_coordinates(process_mask)
+    feature_coords = _get_masked_coordinates(mask)
+    center_coords = _get_masked_coordinates(process_mask)
     tree = KDTree(feature_coords)
     return [
         np.asarray(sorted(indices), dtype=np.intp)
-        for indices in tree.query_ball_point(centre_coords, r=radius)
+        for indices in tree.query_ball_point(center_coords, r=radius)
     ]
 
 
@@ -113,9 +113,12 @@ def _resolve_cv(
 ) -> BaseCrossValidator:
     """Turn the `cv` argument into a scikit-learn splitter.
 
-    An integer becomes a splitter with `shuffle=False`, so folds are contiguous blocks
-    of time. Shuffling would place temporally adjacent, and therefore highly
-    correlated, fUSI volumes in both the training and test sets.
+    An integer becomes a splitter with `shuffle=False`. For a regressor that is `KFold`,
+    whose folds are contiguous blocks of time; shuffling would place temporally adjacent,
+    and therefore highly correlated, fUSI volumes in both the training and test sets. For
+    a classifier it is `StratifiedKFold`, which keeps each fold class-balanced but
+    interleaves time rather than cutting contiguous blocks, so autocorrelated volumes can
+    still straddle the split.
 
     Parameters
     ----------
@@ -190,21 +193,21 @@ def _score_batch(
     scoring: str | Callable | None,
     groups: npt.NDArray | None,
 ) -> list[float]:
-    """Mean cross-validation score for a batch of neighbourhoods.
+    """Mean cross-validation score for a batch of neighborhoods.
 
-    The estimator is cloned per neighbourhood so that each fit is independent and the
+    The estimator is cloned per neighborhood so that each fit is independent and the
     joblib worker holds no shared state.
 
     Parameters
     ----------
     estimator : sklearn.base.BaseEstimator
-        Estimator to clone into each neighbourhood.
+        Estimator to clone into each neighborhood.
     features : numpy.ndarray
         `(n_samples, n_features)` masked data.
     y : numpy.ndarray
         `(n_samples,)` targets.
     neighborhoods : list[numpy.ndarray]
-        Feature index arrays, one per centre in this batch.
+        Feature index arrays, one per center in this batch.
     cv : sklearn.model_selection.BaseCrossValidator
         Cross-validation splitter.
     scoring : str, callable, or None
@@ -216,7 +219,7 @@ def _score_batch(
     Returns
     -------
     list[float]
-        One mean score per neighbourhood, in input order.
+        One mean score per neighborhood, in input order.
     """
     return [
         float(
@@ -247,22 +250,22 @@ def _run_searchlight(
     n_jobs: int,
     show_progress: bool,
 ) -> npt.NDArray[np.float64]:
-    """Score every neighbourhood, parallelising over batches of centres.
+    """Score every neighborhood, parallelizing over batches of centers.
 
-    Centres are split into contiguous batches rather than one joblib task each, because
-    a whole-brain searchlight has far more centres than the dispatch overhead can
+    Centers are split into contiguous batches rather than one joblib task each, because
+    a whole-brain searchlight has far more centers than the dispatch overhead can
     absorb.
 
     Parameters
     ----------
     estimator : sklearn.base.BaseEstimator
-        Estimator cloned into each neighbourhood.
+        Estimator cloned into each neighborhood.
     features : numpy.ndarray
         `(n_samples, n_features)` masked data.
     y : numpy.ndarray
         `(n_samples,)` targets.
     neighborhoods : list[numpy.ndarray]
-        Feature index arrays, one per centre.
+        Feature index arrays, one per center.
     cv : sklearn.model_selection.BaseCrossValidator
         Cross-validation splitter.
     scoring : str, callable, or None
@@ -273,12 +276,12 @@ def _run_searchlight(
     n_jobs : int
         Number of joblib workers.
     show_progress : bool
-        Whether to display a progress bar counting completed centre voxels.
+        Whether to display a progress bar counting completed center voxels.
 
     Returns
     -------
     numpy.ndarray
-        `(n_centres,)` array of mean scores, in centre order.
+        `(n_centers,)` array of mean scores, in center order.
     """
     # One batch per worker would minimise dispatch overhead but leaves the progress bar
     # with only `n_jobs` steps, which tells the user nothing during a run that takes
@@ -290,7 +293,6 @@ def _run_searchlight(
         for batch_indices in np.array_split(np.arange(len(neighborhoods)), n_batches)
     ]
 
-    progress_context: AbstractContextManager = nullcontext()
     progress: Progress | None = None
     task_id: TaskID | None = None
     if show_progress:
@@ -310,12 +312,11 @@ def _run_searchlight(
         task_id = progress.add_task(
             "[cyan]Scoring searchlights...", total=len(neighborhoods)
         )
-        progress_context = progress
 
     results: list[npt.NDArray[np.float64]] = []
-    with progress_context:
+    with progress or nullcontext():
         # `return_as="generator"` keeps results in batch order, so concatenating them
-        # still maps scores back onto centres. The unordered variant would scramble the
+        # still maps scores back onto centers. The unordered variant would scramble the
         # map.
         stream = Parallel(n_jobs=n_jobs, return_as="generator")(
             delayed(_score_batch)(estimator, features, y, batch, cv, scoring, groups)
@@ -333,7 +334,7 @@ class SearchLight(BaseEstimator):
     """Searchlight decoder for fUSI data.
 
     For every voxel of `process_mask`, `fit` gathers the `mask` voxels lying within
-    `radius`, cross-validates `estimator` on that neighbourhood, and stores the mean
+    `radius`, cross-validates `estimator` on that neighborhood, and stores the mean
     score. The result is a brain map answering "which regions carry information about
     `y`?".
 
@@ -348,7 +349,7 @@ class SearchLight(BaseEstimator):
     ----------
     estimator : sklearn.base.BaseEstimator
         Estimator or [`Pipeline`][sklearn.pipeline.Pipeline] cloned into each
-        neighbourhood. Required. Whether it is a classifier or a regressor is detected
+        neighborhood. Required. Whether it is a classifier or a regressor is detected
         with [`is_classifier`][sklearn.base.is_classifier], and that choice drives both
         the default cross-validator and the default scorer.
     mask : xarray.DataArray, optional
@@ -357,40 +358,42 @@ class SearchLight(BaseEstimator):
         spatial dimension must carry a numeric coordinate, because `radius` is measured
         in coordinate units.
     radius : float, default: 1.0
-        Neighbourhood radius, in the units of the data's spatial coordinates. Check
+        Neighborhood radius, in the units of the data's spatial coordinates. Check
         `X[dim].attrs.get("units")` if unsure. Radii are measured in physical
         coordinates rather than voxel indices, so anisotropic voxels behave correctly.
     process_mask : xarray.DataArray, optional
-        Boolean mask selecting the voxels that act as neighbourhood *centres*. Must be
+        Boolean mask selecting the voxels that act as neighborhood *centers*. Must be
         a subset of `mask`. If not provided, a score is computed at every `mask` voxel.
         Use it to restrict the searchlight to a region of interest while still drawing
         features from the surrounding tissue.
     cv : int or sklearn.model_selection.BaseCrossValidator, default: 5
         Cross-validation strategy. An integer builds a
-        [`StratifiedKFold`][sklearn.model_selection.StratifiedKFold] or
-        [`KFold`][sklearn.model_selection.KFold] with `shuffle=False`, so folds are
-        contiguous blocks of time. Any scikit-learn splitter is accepted.
+        [`KFold`][sklearn.model_selection.KFold] for regressors, whose folds are
+        contiguous blocks of time, or a
+        [`StratifiedKFold`][sklearn.model_selection.StratifiedKFold] for classifiers,
+        which keeps folds class-balanced but interleaves time. Both use `shuffle=False`.
+        Any scikit-learn splitter is accepted.
     scoring : str or callable, optional
         Scorer passed to
         [`cross_val_score`][sklearn.model_selection.cross_val_score]. If not provided,
         the estimator's own `score` is used, which is accuracy for classifiers and the
         coefficient of determination for regressors.
     n_jobs : int, default: 1
-        Number of joblib workers. Centres are dispatched in batches, not one task
+        Number of joblib workers. Centers are dispatched in batches, not one task
         each.
     show_progress : bool, default: True
-        Whether to display a progress bar while scoring centre voxels.
+        Whether to display a progress bar while scoring center voxels.
 
     Attributes
     ----------
     scores_ : (...) xarray.DataArray
-        Mean cross-validation score at each `process_mask` centre, in the spatial
+        Mean cross-validation score at each `process_mask` center, in the spatial
         geometry of `process_mask`. Voxels outside `process_mask` are `numpy.nan`.
 
     Warns
     -----
     UserWarning
-        If `radius` is small enough that the median neighbourhood holds a single voxel.
+        If `radius` is small enough that the median neighborhood holds a single voxel.
         The run still produces a valid map, but it has silently become a univariate
         analysis rather than a multivariate one. Also if `process_mask` selects no
         voxels at all, which yields an entirely NaN map.
@@ -398,9 +401,12 @@ class SearchLight(BaseEstimator):
     Notes
     -----
     Consecutive fUSI volumes are strongly autocorrelated. Passing a splitter with
-    `shuffle=True` places near-duplicate neighbouring volumes in both the training and
-    test sets, which inflates scores. This is why an integer `cv` builds contiguous
-    folds. For data with a run or block structure, prefer
+    `shuffle=True` places near-duplicate neighboring volumes in both the training and
+    test sets, which inflates scores. This is why an integer `cv` builds `KFold` folds
+    with `shuffle=False` for regressors. Classifiers instead get `StratifiedKFold`, which
+    balances classes across folds but interleaves time rather than keeping contiguous
+    blocks, so on its own it does not prevent this leakage. For data with a run or block
+    structure, or to keep classification folds contiguous, prefer
     [`LeaveOneGroupOut`][sklearn.model_selection.LeaveOneGroupOut] with `groups`.
 
     References
@@ -483,14 +489,15 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `X` is h5py-backed, if `process_mask` is not a subset of `mask`, if `y`
-            or `groups` do not align with `X`, or if a spatial dimension lacks a
-            numeric coordinate.
+            If `X` is h5py-backed, if `radius` is negative, if `process_mask` is not a
+            subset of `mask`, if `y` or `groups` do not align with `X`, if a spatial
+            dimension lacks a numeric coordinate, or if the masked data contains
+            non-finite values.
 
         Warns
         -----
         UserWarning
-            If the median neighbourhood holds a single voxel, either because `radius`
+            If the median neighborhood holds a single voxel, either because `radius`
             is below the voxel spacing or because `mask` is very sparse. The run still
             produces a valid map, but it has silently become a univariate analysis
             rather than a multivariate one. Also if `process_mask` selects no voxels at
@@ -498,13 +505,16 @@ class SearchLight(BaseEstimator):
         """
         if is_h5py_backed(X):
             raise ValueError(
-                "SearchLight cannot run on h5py-backed data. Fitting materialises the "
+                "SearchLight cannot run on h5py-backed data. Fitting materializes the "
                 "whole masked time series into memory at once, which would silently "
                 "pull the entire lazy recording into RAM. Call `.compute()` on the "
                 "data first."
             )
 
         validate_time_series(X, operation_name="SearchLight.fit")
+
+        if self.radius < 0:
+            raise ValueError(f"radius must be non-negative, got {self.radius}.")
 
         spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
         X_ordered = X.transpose("time", *spatial_dims)
@@ -542,7 +552,15 @@ class SearchLight(BaseEstimator):
                 )
 
         features = np.asarray(extract_with_mask(X_ordered, mask).values)
-        neighborhoods = _neighborhood_indices(mask, process_mask, self.radius)
+        if not np.isfinite(features).all():
+            raise ValueError(
+                "The masked data contains non-finite values (NaN or inf), so every "
+                "cross-validation fit over a neighborhood that touches one fails and "
+                "`scores_` would silently fill with NaN. This commonly comes from "
+                "z-scoring background or zero-variance voxels. Restrict `mask` to the "
+                "finite voxels, for example `mask=X.notnull().all('time')`."
+            )
+        neighborhoods = _find_neighborhood_indices(mask, process_mask, self.radius)
 
         sizes = np.array([len(indices) for indices in neighborhoods])
         median_size = float(np.median(sizes)) if sizes.size else 0.0
@@ -556,7 +574,7 @@ class SearchLight(BaseEstimator):
         elif median_size <= 1.0:
             warnings.warn(
                 f"radius={self.radius} produces single-voxel searchlight "
-                f"neighbourhoods (median size {median_size:.0f}). The result is a "
+                f"neighborhoods (median size {median_size:.0f}). The result is a "
                 "univariate analysis rather than a multivariate one. Increase "
                 "`radius` past the voxel spacing, or check that `mask` is not too "
                 "sparse.",

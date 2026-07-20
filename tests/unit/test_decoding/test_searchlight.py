@@ -20,7 +20,7 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
     """Brute-force searchlight, used as the correctness reference.
 
     Loops over every masked voxel in Python, computes Euclidean distances to every
-    other masked voxel directly, and cross-validates on the resulting neighbourhood.
+    other masked voxel directly, and cross-validates on the resulting neighborhood.
 
     Parameters
     ----------
@@ -31,9 +31,9 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
     y : numpy.ndarray
         Targets aligned with `data`'s time axis.
     radius : float
-        Neighbourhood radius in coordinate units.
+        Neighborhood radius in coordinate units.
     estimator : sklearn.base.BaseEstimator
-        Estimator cloned into each neighbourhood.
+        Estimator cloned into each neighborhood.
     cv : sklearn.model_selection.BaseCrossValidator
         Cross-validation splitter.
 
@@ -55,11 +55,11 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
     )[:, flat_mask]
 
     scores = []
-    for centre in coords:
-        distances = np.sqrt(((coords - centre) ** 2).sum(axis=1))
-        neighbours = np.flatnonzero(distances <= radius)
+    for center in coords:
+        distances = np.sqrt(((coords - center) ** 2).sum(axis=1))
+        neighbors = np.flatnonzero(distances <= radius)
         fold_scores = cross_val_score(
-            clone(estimator), features[:, neighbours], y, cv=cv, n_jobs=1
+            clone(estimator), features[:, neighbors], y, cv=cv, n_jobs=1
         )
         scores.append(float(np.mean(fold_scores)))
     return np.asarray(scores)
@@ -92,10 +92,10 @@ def test_matches_brute_force_reference_sparse_mask(decoding_volume, rng):
 
     The all-`True` variant of this comparison cannot see a feature-ordering bug: with
     every voxel retained, the boolean indexing is a no-op on both sides, so
-    `extract_with_mask` (xarray `stack` plus boolean `isel`) and `_masked_coordinates`
+    `extract_with_mask` (xarray `stack` plus boolean `isel`) and `_get_masked_coordinates`
     (numpy `ravel` plus boolean index) agree trivially. A sparse mask makes that
     indexing load-bearing, so any disagreement between the two flattening orders
-    mis-assigns every neighbourhood and shows up here.
+    mis-assigns every neighborhood and shows up here.
 
     Parameters
     ----------
@@ -110,7 +110,7 @@ def test_matches_brute_force_reference_sparse_mask(decoding_volume, rng):
         dims=spatial.dims,
         coords=spatial.coords,
     )
-    # Every centre is itself a feature, so no neighbourhood can be empty at any radius.
+    # Every center is itself a feature, so no neighborhood can be empty at any radius.
     assert mask.values.any()
 
     y = rng.standard_normal(decoding_volume.sizes["time"])
@@ -137,7 +137,7 @@ def test_recovers_planted_signal(decoding_volume, full_mask, rng):
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     # Plant y into a 2x2 in-plane patch at z index 0, y indices 2:4, x indices 2:4.
-    # Voxels centred on that patch see a strongly predictive neighbourhood; every
+    # Voxels centered on that patch see a strongly predictive neighborhood; every
     # other voxel sees noise.
     #
     # Index positionally, not by label. The y and x coordinates are built with
@@ -214,9 +214,18 @@ def test_single_slice_volume(decoding_volume, rng):
         mask=mask, estimator=Ridge(alpha=1.0), radius=0.25, cv=3
     ).fit(volume, y)
 
+    expected = _reference_scores(
+        volume,
+        mask,
+        y,
+        radius=0.25,
+        estimator=Ridge(alpha=1.0),
+        cv=KFold(n_splits=3, shuffle=False),
+    )
+
     assert searchlight.scores_.dims == ("z", "y", "x")
     assert searchlight.scores_.shape == (1, 5, 6)
-    assert np.isfinite(searchlight.scores_.values).all()
+    np.testing.assert_allclose(searchlight.scores_.values.ravel(), expected)
 
 
 def test_raises_on_missing_coordinate(decoding_volume, rng):
@@ -267,15 +276,23 @@ def test_raises_on_misaligned_y_dataarray(decoding_volume, full_mask, rng):
 
 
 def test_accepts_aligned_y_dataarray(decoding_volume, full_mask, rng):
-    """A DataArray y sharing X's time coordinate is accepted."""
+    """A DataArray y scores identically to the same values as a plain array."""
+    values = rng.standard_normal(decoding_volume.sizes["time"])
     y = xr.DataArray(
-        rng.standard_normal(decoding_volume.sizes["time"]),
+        values,
         dims=["time"],
         coords={"time": decoding_volume.time.values},
     )
-    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3)
-    searchlight.fit(decoding_volume, y)
-    assert searchlight.scores_.dims == ("z", "y", "x")
+    from_dataarray = SearchLight(
+        mask=full_mask, estimator=Ridge(), radius=0.25, cv=3
+    ).fit(decoding_volume, y)
+    from_array = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
+        decoding_volume, values
+    )
+
+    # The DataArray branch of _check_targets must not change the numbers, only validate
+    # the time coordinate, so the two maps must be bit-identical.
+    xr.testing.assert_identical(from_dataarray.scores_, from_array.scores_)
 
 
 def test_raises_on_groups_length_mismatch(decoding_volume, full_mask, rng):
@@ -287,13 +304,32 @@ def test_raises_on_groups_length_mismatch(decoding_volume, full_mask, rng):
 
 
 def test_raises_on_h5py_backed_data(scan_2d, rng):
-    """h5py-backed data is rejected, because fitting would materialise it all."""
+    """h5py-backed data is rejected, because fitting would materialize it all."""
     mask = xr.ones_like(scan_2d.isel(time=0, drop=True), dtype=bool)
     y = rng.standard_normal(scan_2d.sizes["time"])
 
     searchlight = SearchLight(mask=mask, estimator=Ridge(), radius=0.25, cv=3)
     with pytest.raises(ValueError, match="h5py-backed"):
         searchlight.fit(scan_2d, y)
+
+
+def test_raises_on_non_finite_features(decoding_volume, full_mask, rng):
+    """NaN feature voxels are rejected instead of silently producing a NaN map."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    data = decoding_volume.copy(deep=True)
+    data.values[:, 0, 0, 0] = np.nan
+
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3)
+    with pytest.raises(ValueError, match="non-finite"):
+        searchlight.fit(data, y)
+
+
+def test_raises_on_negative_radius(decoding_volume, full_mask, rng):
+    """A negative radius is rejected rather than yielding empty neighborhoods."""
+    y = rng.standard_normal(decoding_volume.sizes["time"])
+    searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=-0.1, cv=3)
+    with pytest.raises(ValueError, match="radius must be non-negative"):
+        searchlight.fit(decoding_volume, y)
 
 
 def test_warns_on_degenerate_neighborhoods(decoding_volume, full_mask, rng):
@@ -308,12 +344,12 @@ def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
     """Radius uses physical coordinates, so the anisotropic z axis is excluded.
 
     `z` voxels are 1.0 apart while `y` and `x` are 0.2 apart, so a radius of 0.25 must
-    select in-plane neighbours only: each interior voxel gets itself plus its 4 in-plane
-    neighbours, never the 2 voxels one z step away. Both interpretations of `radius` are
+    select in-plane neighbors only: each interior voxel gets itself plus its 4 in-plane
+    neighbors, never the 2 voxels one z step away. Both interpretations of `radius` are
     pinned through the public API:
 
-    - It is more than one voxel, otherwise the degenerate-neighbourhood warning fires.
-      An index-based radius of 0.25 would select the centre alone.
+    - It is more than one voxel, otherwise the degenerate-neighborhood warning fires.
+      An index-based radius of 0.25 would select the center alone.
     - It reaches no further than the plane, checked by planting a strong signal in the
       `z = 0` plane and requiring the `z = 1` scores to stay bit-identical to a run on
       the unplanted volume. A radius of 1.05 does span the z gap, so there the same
@@ -334,7 +370,7 @@ def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
         )
 
     with warnings.catch_warnings():
-        # A single-voxel neighbourhood would mean the radius was read as voxel indices.
+        # A single-voxel neighborhood would mean the radius was read as voxel indices.
         warnings.simplefilter("error", UserWarning)
         in_plane_baseline = fit_scores(decoding_volume, 0.25)
 
@@ -342,7 +378,9 @@ def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
     np.testing.assert_array_equal(
         in_plane_planted.isel(z=1).values, in_plane_baseline.isel(z=1).values
     )
-    assert (in_plane_planted.isel(z=0).values > in_plane_baseline.isel(z=0).values).all()
+    assert (
+        in_plane_planted.isel(z=0).values > in_plane_baseline.isel(z=0).values
+    ).all()
 
     across_planes_baseline = fit_scores(decoding_volume, 1.05)
     across_planes_planted = fit_scores(planted, 1.05)
@@ -351,7 +389,7 @@ def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
     )
 
 
-def test_process_mask_restricts_centres(decoding_volume, full_mask, rng):
+def test_process_mask_restricts_centers(decoding_volume, full_mask, rng):
     """Only process_mask voxels get a score; the rest are NaN."""
     process_mask = xr.zeros_like(full_mask, dtype=bool)
     process_mask.loc[dict(z=0.0)] = True
@@ -370,17 +408,28 @@ def test_process_mask_restricts_centres(decoding_volume, full_mask, rng):
 
 
 def test_classifier_selects_accuracy_scorer(decoding_volume, full_mask, rng):
-    """A classifier estimator scores with accuracy rather than R-squared."""
+    """A classifier defaults to the accuracy scorer, not R-squared."""
     from sklearn.linear_model import LogisticRegression
 
     labels = np.tile([0, 1], decoding_volume.sizes["time"] // 2)
-    searchlight = SearchLight(
-        mask=full_mask, estimator=LogisticRegression(max_iter=1000), radius=0.25, cv=2
-    ).fit(decoding_volume, labels)
 
-    # Accuracy is bounded to [0, 1]; R-squared is not, so this pins the scorer family.
-    finite = searchlight.scores_.values[np.isfinite(searchlight.scores_.values)]
-    assert ((finite >= 0.0) & (finite <= 1.0)).all()
+    def fit(scoring):
+        return SearchLight(
+            mask=full_mask,
+            estimator=LogisticRegression(max_iter=1000),
+            radius=0.25,
+            cv=2,
+            scoring=scoring,
+        ).fit(decoding_volume, labels)
+
+    default = fit(None)
+    explicit_accuracy = fit("accuracy")
+    explicit_r2 = fit("r2")
+
+    # The default must reproduce the explicit accuracy scorer exactly and differ from
+    # R-squared, which pins the classifier default rather than merely checking a range.
+    xr.testing.assert_identical(default.scores_, explicit_accuracy.scores_)
+    assert not np.allclose(default.scores_.values, explicit_r2.scores_.values)
 
 
 def test_accepts_splitter_object_as_cv(decoding_volume, full_mask, rng):
@@ -433,16 +482,16 @@ def test_omitted_mask_matches_explicit_full_mask(decoding_volume, full_mask, rng
     """Omitting `mask` uses every voxel, exactly as an explicit all-`True` mask does."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
-    explicit = SearchLight(
-        estimator=Ridge(), mask=full_mask, radius=0.25, cv=3
-    ).fit(decoding_volume, y)
+    explicit = SearchLight(estimator=Ridge(), mask=full_mask, radius=0.25, cv=3).fit(
+        decoding_volume, y
+    )
     default = SearchLight(estimator=Ridge(), radius=0.25, cv=3).fit(decoding_volume, y)
 
     xr.testing.assert_identical(default.scores_, explicit.scores_)
 
 
-def test_process_mask_restricts_centres_without_mask(decoding_volume, full_mask, rng):
-    """`process_mask` still restricts the centres when `mask` is omitted."""
+def test_process_mask_restricts_centers_without_mask(decoding_volume, full_mask, rng):
+    """`process_mask` still restricts the centers when `mask` is omitted."""
     process_mask = xr.zeros_like(full_mask, dtype=bool)
     process_mask.loc[dict(z=0.0)] = True
     y = rng.standard_normal(decoding_volume.sizes["time"])
@@ -480,7 +529,7 @@ def test_parallel_matches_serial(decoding_volume, full_mask, rng):
 
 
 def test_progress_bar_does_not_change_scores(decoding_volume, full_mask, rng):
-    """Streaming results to drive the progress bar keeps centres and scores aligned."""
+    """Streaming results to drive the progress bar keeps centers and scores aligned."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     quiet = SearchLight(
@@ -495,6 +544,9 @@ def test_progress_bar_does_not_change_scores(decoding_volume, full_mask, rng):
 
 def test_show_progress_is_a_constructor_param():
     """`show_progress` is exposed through `get_params`, so `clone` preserves it."""
-    assert SearchLight(estimator=Ridge(), show_progress=False).get_params()[
-        "show_progress"
-    ] is False
+    assert (
+        SearchLight(estimator=Ridge(), show_progress=False).get_params()[
+            "show_progress"
+        ]
+        is False
+    )

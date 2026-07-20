@@ -8,7 +8,7 @@
 # A searchlight complements the general linear model. The GLM asks, voxel by voxel,
 # "does this voxel's signal track the regressor?". The searchlight asks "can the local
 # pattern around this voxel predict the regressor?", which picks up information carried
-# jointly by neighbouring voxels rather than by any one of them alone.
+# jointly by neighboring voxels rather than by any one of them alone.
 #
 # We follow the experimental setting and dataset of [Cybis Pereira et al.
 # 2026](https://doi.org/10.1016/j.celrep.2025.116791), decoding locomotion speed from a
@@ -65,7 +65,7 @@ data
 # %%
 fps = 50
 motion_df = pd.read_csv(motion_path, sep="\t")
-squared_diff = motion_df.diff() ** 2
+squared_diff = motion_df[["body_x", "body_y"]].diff() ** 2
 speed_df = fps * (squared_diff["body_x"] + squared_diff["body_y"]) ** 0.5
 speed_df[0] = 0
 speed = (
@@ -181,9 +181,11 @@ target = cf.signal.clean(
 # %% [markdown]
 # ## Run the searchlight
 #
-# By default `SearchLight` uses every voxel as a feature. Passing a `mask` would restrict
-# the features to a region of interest, such as an intensity-thresholded brain mask; here
-# we leave it out and run the searchlight over the whole plane.
+# Z-scoring during cleaning sets any zero-variance voxel, such as the corners outside the
+# imaged plane, to NaN, and a neighborhood that includes one cannot be fit. We therefore
+# pass a `mask` selecting the voxels that stayed finite through preprocessing; without it
+# `SearchLight` would try to use every voxel and refuse to run. A real region-of-interest
+# mask, such as an intensity-thresholded brain mask, would go here just the same.
 #
 # Two details matter for fUSI data:
 #
@@ -199,7 +201,7 @@ target = cf.signal.clean(
 #   moves in bursts, which is why we keep the fold count low.
 #
 # The estimator is a `RidgeCV`: ridge regression that selects its own penalty from a
-# grid. Neighbouring fUSI voxels are highly correlated, and the right amount of
+# grid. Neighboring fUSI voxels are highly correlated, and the right amount of
 # regularization varies across the plane, so fixing a single penalty by hand would favor
 # some regions arbitrarily. By default `RidgeCV` picks the penalty by leave-one-out
 # generalized cross-validation, which does put temporally adjacent volumes in its train
@@ -210,8 +212,11 @@ target = cf.signal.clean(
 
 # %%
 estimator = RidgeCV(alphas=np.logspace(0, 4, 9))
+feature_mask = cleaned.notnull().all("time")
 
-searchlight = cf.decoding.SearchLight(estimator=estimator, radius=0.6, cv=2, n_jobs=-1)
+searchlight = cf.decoding.SearchLight(
+    estimator=estimator, mask=feature_mask, radius=0.6, cv=2, n_jobs=-1
+)
 searchlight.fit(cleaned, target.values)
 searchlight.scores_
 

@@ -11,7 +11,7 @@ def decoding_volume(rng):
 
     Shape is `(40, 2, 5, 6)`. Spatial coordinates are deliberately anisotropic: `z` is
     spaced 1.0 apart while `y` and `x` are spaced 0.2 apart, so a radius between those
-    two values selects in-plane neighbours only.
+    two values selects in-plane neighbors only.
 
     Parameters
     ----------
@@ -21,7 +21,7 @@ def decoding_volume(rng):
     Returns
     -------
     xarray.DataArray
-        Random `(time, z, y, x)` volume with millimetre coordinates.
+        Random `(time, z, y, x)` volume with millimeter coordinates.
     """
     n_time = 40
     return xr.DataArray(

@@ -51,7 +51,7 @@ Current development version for the next ConfUSIus release.
 - New `confusius.decoding` module with
   [`SearchLight`][confusius.decoding.SearchLight], which maps how well a
   cross-validated scikit-learn estimator predicts a target from the local
-  neighbourhood of each voxel.
+  neighborhood of each voxel.
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
