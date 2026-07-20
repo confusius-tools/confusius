@@ -993,16 +993,17 @@ def plot_design_matrix(
             color=text_color,
         )
     if index_yaxis and frame_times is not None:
-        # Rows are drawn at integer positions 0..n-1; relabel the auto-placed y ticks
-        # with the corresponding acquisition time rather than the raw volume index.
+        # Rows are drawn at integer positions 0..n-1; relabel auto-placed y ticks by
+        # interpolating between acquisition times rather than rounding half-row ticks.
         from matplotlib.ticker import FuncFormatter
 
+        row_positions = np.arange(len(frame_times))
         default_ylabel = "Time (s)"
         ax.yaxis.set_major_formatter(
             FuncFormatter(
                 lambda pos, _: (
-                    f"{frame_times[round(pos)]:g}"
-                    if 0 <= round(pos) < len(frame_times)
+                    f"{np.interp(pos, row_positions, frame_times):g}"
+                    if 0 <= pos <= row_positions[-1]
                     else ""
                 )
             )

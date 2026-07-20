@@ -421,8 +421,9 @@ class TestPlotDesignMatrix:
         times = np.arange(20) * 2.0  # 2 s TR.
         _, ax = plot_design_matrix(_design_matrix(volume_times=times), index_yaxis=True)
         assert ax.get_ylabel() == "Time (s)"
-        # Row position 3 maps to its acquisition time (3 * 2 s), not the raw index.
+        # Row positions map to acquisition time, including auto-placed half-row ticks.
         assert ax.yaxis.get_major_formatter()(3, None) == "6"
+        assert ax.yaxis.get_major_formatter()(2.5, None) == "5"
 
     def test_rangeindex_falls_back_to_volume_index(self, matplotlib_pyplot):
         """A trivial RangeIndex has no time index, so index_yaxis=True still shows volumes."""
