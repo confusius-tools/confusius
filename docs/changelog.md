@@ -75,6 +75,14 @@ Current development version for the next ConfUSIus release.
   visualize motion-correction summaries from `motion_params` tables returned by
   [`register_volumewise`][confusius.registration.register_volumewise]
   ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Added [`plot_design_matrix`][confusius.plotting.plot_design_matrix] to visualize a
+  first-level GLM design matrix as a heatmap, with regressor names along the top and an
+  optional acquisition-time y-axis (`index_yaxis`)
+  ([#331](https://github.com/confusius-tools/confusius/pull/331)).
+- Added [`plot_contrast_matrix`][confusius.plotting.plot_contrast_matrix] to visualize a
+  GLM contrast, given as a string expression or a numeric vector/matrix, as a weight strip
+  aligned with the design regressors
+  ([#331](https://github.com/confusius-tools/confusius/pull/331)).
 - [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always
   reports all named rotation / translation axes exposed by the affine dimensionality,
   even when one spatial axis is singleton
