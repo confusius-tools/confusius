@@ -29,7 +29,9 @@ _ALLOWED_UPDATE_RULES = ("mean", "weighted")
 _ALLOWED_SELECTION_METHODS = ("elbow", "silhouette", "davies_bouldin", "variance_ratio")
 
 
-def _maybe_track(iterable: object, *, description: str, total: int, enabled: bool) -> object:
+def _maybe_track(
+    iterable: object, *, description: str, total: int, enabled: bool
+) -> object:
     """Wrap `iterable` in a progress iterator when requested."""
     if not enabled:
         return iterable
@@ -413,6 +415,58 @@ def _iter_preprocessed_batches(
             yield f"{rec_idx}:{start}", _preprocess_array(X_raw, metric, in_place=True)
 
 
+def _reservoir_sample(
+    recordings: list[xr.DataArray],
+    spatial_dims: list[str],
+    batch_size: int,
+    metric: Literal["correlation", "cosine"],
+    n_samples: int,
+    rng: np.random.Generator,
+) -> npt.NDArray[np.float32]:
+    """Uniformly sample preprocessed volumes from a recording stream.
+
+    Parameters
+    ----------
+    recordings : list[xarray.DataArray]
+        Recordings to sample.
+    spatial_dims : list[str]
+        Spatial dimensions in flattening order.
+    batch_size : int
+        Number of volumes loaded at once.
+    metric : {"correlation", "cosine"}
+        Preprocessing geometry.
+    n_samples : int
+        Maximum number of volumes retained.
+    rng : numpy.random.Generator
+        Random number generator.
+
+    Returns
+    -------
+    numpy.ndarray
+        At most `n_samples` uniformly sampled preprocessed volumes.
+    """
+    sample = np.empty((0, 0), dtype=np.float32)
+    priorities = np.empty(0)
+    for _, batch in _iter_preprocessed_batches(
+        recordings, spatial_dims, batch_size, metric
+    ):
+        batch_priorities = rng.random(batch.shape[0])
+        if sample.size == 0:
+            candidates = batch
+            candidate_priorities = batch_priorities
+        else:
+            candidates = np.concatenate((sample, batch))
+            candidate_priorities = np.concatenate((priorities, batch_priorities))
+        if len(candidate_priorities) > n_samples:
+            indices = np.argpartition(candidate_priorities, -n_samples)[-n_samples:]
+            sample = candidates[indices]
+            priorities = candidate_priorities[indices]
+        else:
+            sample = candidates
+            priorities = candidate_priorities
+    return sample
+
+
 def _run_single_cosine_kmeans_streaming(
     recordings: list[xr.DataArray],
     spatial_dims: list[str],
@@ -426,19 +480,18 @@ def _run_single_cosine_kmeans_streaming(
     show_progress: bool,
 ) -> tuple[npt.NDArray[np.floating], float]:
     """Chunked cosine k-means without materializing all volumes at once."""
-    init_batches: list[npt.NDArray[np.float32]] = []
-    init_size = max(batch_size, 10 * n_clusters)
-    n_init_samples = 0
-    for _, batch in _iter_preprocessed_batches(recordings, spatial_dims, batch_size, metric):
-        init_batches.append(batch)
-        n_init_samples += batch.shape[0]
-        if n_init_samples >= init_size:
-            break
-    if n_init_samples < n_clusters:
+    X_init = _reservoir_sample(
+        recordings,
+        spatial_dims,
+        batch_size,
+        metric,
+        max(batch_size, 10 * n_clusters),
+        rng,
+    )
+    if X_init.shape[0] < n_clusters:
         raise ValueError(
             f"Need at least {n_clusters} samples to initialize {n_clusters} clusters."
         )
-    X_init = np.concatenate(init_batches, axis=0)[:init_size]
     centers = _cosine_kmeans_init(X_init, n_clusters, n_local_trials, rng)
     norms = np.linalg.norm(centers, axis=1, keepdims=True)
     centers = centers / np.where(norms == 0.0, 1.0, norms)
@@ -453,7 +506,9 @@ def _run_single_cosine_kmeans_streaming(
         sums = np.zeros_like(centers)
         counts = np.zeros(n_clusters, dtype=np.int64)
 
-        for _, batch in _iter_preprocessed_batches(recordings, spatial_dims, batch_size, metric):
+        for _, batch in _iter_preprocessed_batches(
+            recordings, spatial_dims, batch_size, metric
+        ):
             similarities = batch @ centers.T
             labels = similarities.argmax(axis=1).astype(np.intp)
             if update_rule == "weighted":
@@ -486,7 +541,9 @@ def _run_single_cosine_kmeans_streaming(
     n_samples = 0
     valid = np.linalg.norm(centers, axis=1) > 0.0
     centers_for_score = centers[valid]
-    for _, batch in _iter_preprocessed_batches(recordings, spatial_dims, batch_size, metric):
+    for _, batch in _iter_preprocessed_batches(
+        recordings, spatial_dims, batch_size, metric
+    ):
         similarities = batch @ centers_for_score.T
         inertia += float(batch.shape[0] - similarities.max(axis=1).sum())
         n_samples += batch.shape[0]
@@ -713,8 +770,9 @@ class CAP(BaseEstimator):
     random_state : int or None, default: 0
         Seed for the random number generator.
     batch_size : int or None, default: None
-        If set, fit CAPs in float32 batches instead of concatenating all volumes into
-        one in-memory array. For `"correlation"` and `"cosine"`, this uses a chunked
+        If set, fit, prediction, and scoring process float32 batches instead of
+        concatenating all volumes into one in-memory array. For `"correlation"` and
+        `"cosine"`, this uses a chunked
         multi-pass k-means update. For `"euclidean"`, sklearn's
         [`MiniBatchKMeans`][sklearn.cluster.MiniBatchKMeans] is used.
     show_progress : bool, default: False
@@ -840,13 +898,11 @@ class CAP(BaseEstimator):
         if not recordings:
             raise ValueError("X must contain at least one recording.")
         for rec in recordings:
-            validate_time_series(
-                rec, operation_name="CAP.fit", check_time_chunks=False
-            )
+            validate_time_series(rec, operation_name="CAP.fit", check_time_chunks=False)
 
         spatial_dims = [str(d) for d in recordings[0].dims if d != "time"]
-        first_stacked = recordings[0].transpose("time", *spatial_dims).stack(
-            space=spatial_dims
+        first_stacked = (
+            recordings[0].transpose("time", *spatial_dims).stack(space=spatial_dims)
         )
         space_coords = first_stacked.coords["space"]
 
