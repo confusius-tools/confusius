@@ -77,12 +77,9 @@ contain layers. [`show_tree`][confusius.atlas.AtlasAccessor.show_tree] prints th
 hierarchy, and its `nid` argument restricts the printout to one branch, which is handy
 since the full Allen tree has well over a thousand nodes:
 
-```python
-# Print just the hippocampus (HIP, id 1080) subtree.
-atlas.atlas.show_tree(nid=1080)
-```
-
-```text
+```pycon
+>>> # Print just the hippocampus (HIP, id 1080) subtree.
+>>> atlas.atlas.show_tree(nid=1080)
 HIP (1080)
 ├── CA (375)
 │   ├── CA1 (382)
