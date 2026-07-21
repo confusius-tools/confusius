@@ -1059,12 +1059,12 @@ def load_nifti(
     attrs = extractor.to_attrs()
     attrs.update(_load_nifti_sidecar(path))
 
-    # We use np.asanyarray to get the memory-mapped array behind Nibabel's proxy. This
-    # will allow Dask to create a lazy array without loading the entire dataset into
-    # memory.
-    # NIfTI stores data with shape (x, y, z, time) in column-major order; transposing
-    # to row-major gives ConfUSIus order (time, z, y, x) without copying data.
-    dask_arr = da.from_array(np.asanyarray(img.dataobj).T, chunks=chunks, asarray=False)
+    # Keep Nibabel's proxy as the Dask source. `np.asanyarray(img.dataobj)` materializes
+    # each recording during `load_nifti`, defeating lazy loading across many recordings.
+    # NIfTI stores data as (x, y, z, time); reverse tuple chunks before transposing to
+    # ConfUSIus order (time, z, y, x).
+    source_chunks = tuple(reversed(chunks)) if isinstance(chunks, tuple) else chunks
+    dask_arr = da.from_array(img.dataobj, chunks=source_chunks, asarray=False).T
 
     # NIfTI dim order is (x, y, z, time, ...); ConfUSIus order is the reverse.
     nifti_dims = _NIFTI_DIM_ORDER[: dask_arr.ndim]
