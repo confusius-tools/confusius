@@ -84,6 +84,10 @@ nav = [
             { "Atlas-based region correlation matrix" = "examples/_built/connectivity/atlas_correlation_matrix.md" },
             { "Atlas-based seed connectivity maps" = "examples/_built/connectivity/atlas_seed_map.md" },
         ]},
+        { "GLM" = [
+            { "First-level GLM analysis of fUSI data" = "examples/_built/glm/first_level.md" },
+            { "Lagged first-level GLM analysis of fUSI data with a continuous regressor" = "examples/_built/glm/first_level_continuous.md" },
+        ]},
     ]},
     { "Changelog" = "changelog.md" },
     { "Community" = "contributing.md" },

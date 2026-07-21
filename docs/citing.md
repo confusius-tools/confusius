@@ -63,7 +63,7 @@ Or in BibTeX format:
 
 ### Napari
 
-The [ConfUSIus GUI](../gui/overview.md) is built on top of [napari](https://napari.org),
+The [ConfUSIus GUI](../gui/overview) is built on top of [napari](https://napari.org),
 a powerful multi-dimensional image viewer for Python. If you use the ConfUSIus GUI in
 your research, please also cite napari:
 

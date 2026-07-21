@@ -53,14 +53,10 @@ elevation slices per pose—translated across multiple regularly spaced position
 
 === "3Dscan (anatomical)"
 
-    ```python
-    from confusius.io import load_scan
-
-    anat = load_scan("sub-01_acq-anat_pwd.scan")
-    print(anat)
-    ```
-
-    ```text
+    ```pycon
+    >>> from confusius.io import load_scan
+    >>> anat = load_scan("sub-01_acq-anat_pwd.scan")
+    >>> anat
     <xarray.DataArray 'scan_data' (pose: 15, z: 4, y: 72, x: 64)> Size: 2MB
     dask.array<transpose, shape=(15, 4, 72, 64), dtype=float64, chunksize=(15, 4, 72, 64), chunktype=numpy.ndarray>
     Coordinates:
@@ -79,14 +75,10 @@ elevation slices per pose—translated across multiple regularly spaced position
 
 === "4Dscan (functional)"
 
-    ```python
-    from confusius.io import load_scan
-
-    fus = load_scan("sub-01_task-awake_pwd.scan")
-    print(fus)
-    ```
-
-    ```text
+    ```pycon
+    >>> from confusius.io import load_scan
+    >>> fus = load_scan("sub-01_task-awake_pwd.scan")
+    >>> fus
     <xarray.DataArray 'scan_data' (time: 750, pose: 4, z: 4, y: 72, x: 64)> Size: 442MB
     dask.array<transpose, shape=(750, 4, 4, 72, 64), dtype=float64, chunksize=(227, 4, 4, 72, 64), chunktype=numpy.ndarray>
     Coordinates:
@@ -152,15 +144,11 @@ steps:
 
 === "3Dscan (anatomical)"
 
-    ```python
-    import confusius as cf
-
-    anat = cf.load("sub-01_acq-anat_pwd.scan")
-    volume = cf.multipose.consolidate_poses(anat)
-    print(volume)
-    ```
-
-    ```text
+    ```pycon
+    >>> import confusius as cf
+    >>> anat = cf.load("sub-01_acq-anat_pwd.scan")
+    >>> volume = cf.multipose.consolidate_poses(anat)
+    >>> volume
     <xarray.DataArray 'scan_data' (z: 60, y: 72, x: 64)> Size: 2MB
     array([...])
     Coordinates:
@@ -178,15 +166,11 @@ steps:
 
 === "4Dscan (functional)"
 
-    ```python
-    import confusius as cf
-
-    fus = cf.load("sub-01_task-awake_pwd.scan")
-    volume = cf.multipose.consolidate_poses(fus)
-    print(volume)
-    ```
-
-    ```text
+    ```pycon
+    >>> import confusius as cf
+    >>> fus = cf.load("sub-01_task-awake_pwd.scan")
+    >>> volume = cf.multipose.consolidate_poses(fus)
+    >>> volume
     <xarray.DataArray 'scan_data' (time: 750, z: 16, y: 72, x: 64)> Size: 442MB
     array([...])
     Coordinates:

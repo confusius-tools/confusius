@@ -21,28 +21,28 @@ root directory, or a more specific object (e.g., a DataArray for templates or an
 The fastest way to get started is to fetch a single subject from the Nunez-Elizalde
 2022 dataset[^nunez2022] and load one of its NIfTI files:
 
-```python
-import confusius as cf
-from confusius.datasets import fetch_nunez_elizalde_2022
-
-# Download data for one mouse, one task, one brain slice (~30 MB).
-root = fetch_nunez_elizalde_2022(
-    subjects=["CR020"],
-    sessions=["20191122"],
-    tasks=["spontaneous"], 
-    acqs=["slice03"],
-)
-
-# Load a power Doppler acquisition from the returned BIDS tree.
-pwd = cf.load(
-   root 
-    / "sub-CR020"
-    / "ses-20191122"
-    / "fusi"
-    / "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz"
-)
-print(pwd.dims)
-# Output: ('time', 'z', 'y', 'x')
+```pycon
+>>> import confusius as cf
+>>> from confusius.datasets import fetch_nunez_elizalde_2022
+>>>
+>>> # Download data for one mouse, one task, one brain slice (~30 MB).
+>>> root = fetch_nunez_elizalde_2022(
+...     subjects=["CR020"],
+...     sessions=["20191122"],
+...     tasks=["spontaneous"],
+...     acqs=["slice03"],
+... )
+>>>
+>>> # Load a power Doppler acquisition from the returned BIDS tree.
+>>> pwd = cf.load(
+...    root
+...     / "sub-CR020"
+...     / "ses-20191122"
+...     / "fusi"
+...     / "sub-CR020_ses-20191122_task-spontaneous_acq-slice03_pwd.nii.gz"
+... )
+>>> pwd.dims
+('time', 'z', 'y', 'x')
 ```
 
 
@@ -58,11 +58,10 @@ ConfUSIus resolves the cache directory using the following priority chain:
 You can inspect the resolved directory at any time with
 [`get_datasets_dir`][confusius.datasets.get_datasets_dir]:
 
-```python
-from confusius.datasets import get_datasets_dir
-
-print(get_datasets_dir())
-# /home/alice/.cache/confusius
+```pycon
+>>> from confusius.datasets import get_datasets_dir
+>>> get_datasets_dir()
+PosixPath('/home/alice/.cache/confusius')
 ```
 
 Each fetcher creates its own BIDS-root subdirectory under this path (e.g.
@@ -73,13 +72,10 @@ Each fetcher creates its own BIDS-root subdirectory under this path (e.g.
 Use [`list_datasets`][confusius.datasets.list_datasets] to print a table of available
 fetchers and their full download sizes:
 
-```python
-from confusius.datasets import list_datasets
-
-list_datasets()
-```
-
-```text
+```pycon
+>>> from confusius.datasets import list_datasets
+>>>
+>>> list_datasets()
                    Available Datasets
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━┓
 ┃ Fetch function                   ┃     Size ┃ On disk ┃
