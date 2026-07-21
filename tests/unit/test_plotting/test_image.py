@@ -237,6 +237,25 @@ class TestPlotVolume:
 
         assert labels_to_position["background"].x1 < labels_to_position["statistic"].x0
 
+    def test_wide_colorbar_ticks_expand_figure(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Wide colorbar tick labels expand the figure instead of being clipped."""
+        data = sample_3d_volume * 1e12
+        default_plotter = plot_volume(
+            data, slice_mode="z", cbar_kwargs={"format": "%.2e"}
+        )
+        wide_tick_plotter = plot_volume(
+            data,
+            slice_mode="z",
+            cbar_kwargs={"format": "%.16e"},
+        )
+
+        assert (
+            _figure(wide_tick_plotter).get_size_inches()[0]
+            > _figure(default_plotter).get_size_inches()[0]
+        )
+
     def test_no_colorbar_when_disabled(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume skips colorbar when show_colorbar=False."""
         z_coord = sample_3d_volume.coords["z"].values[0]
