@@ -1187,6 +1187,10 @@ class TestLoadNifti:
         result = load_nifti(nifti_path)
 
         assert isinstance(result.data, dask_array.Array)
+        assert any(
+            isinstance(value, nib.arrayproxy.ArrayProxy)
+            for value in result.data.__dask_graph__().values()
+        )
 
     def test_load_nifti_does_not_materialize_array_proxy(self, tmp_path: Path) -> None:
         """Loading never eagerly reads nibabel's ArrayProxy into memory (issue #329).
