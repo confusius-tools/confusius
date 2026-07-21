@@ -410,7 +410,7 @@ fig = cf.plotting.plot_stat_map(
     vmax=vmax,
     bg_color=bg_color,
     cmap=cmap,
-    fontsize=22,
+    fontsize=20,
 )
 _ = fig.add_contours(
     atlas.annotation,
@@ -484,7 +484,7 @@ fig = cf.plotting.plot_stat_map(
     bg_color=bg_color,
     alpha=1 - adjusted_p_values,
     cmap=cmap,
-    fontsize=22,
+    fontsize=20,
 )
 _ = fig.add_contours(
     atlas.annotation,
