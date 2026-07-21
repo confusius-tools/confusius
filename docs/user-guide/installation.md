@@ -32,7 +32,7 @@ snippet in a Python environment:
 ```pycon
 >>> import confusius as cf
 >>> print(cf.__version__)
-'0.6.0.dev0'
+'0.7.0.dev0'
 ```
 
 If the installation was successful, this code will print the installed version of
