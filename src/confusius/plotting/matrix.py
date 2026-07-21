@@ -518,7 +518,7 @@ def plot_matrix(
     fontsize : float, optional
         Base font size for text elements. Title uses `fontsize` directly; the colorbar
         label and group labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`.
-        If not provided, uses the active Matplotlib defaults.
+        If not provided, it is inferred heuristically from the figure size.
     bg_color : str, default: "white"
         Background color for the figure and axes. Any matplotlib-compatible color
         string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
@@ -575,13 +575,17 @@ def plot_matrix(
     vmin, vmax, cmap = _resolve_matrix_style(values, vmin, vmax, cmap, auto_range)
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
-    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
     if ax is None:
         figure, ax = plt.subplots(figsize=figsize, layout="constrained")
         figure.patch.set_facecolor(bg_color)
     else:
         figure = ax.figure
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+        fontsize,
+        figure=figure,
+        axes=ax,
+    )
     ax.set_facecolor(bg_color)
 
     divider = make_axes_locatable(ax)
@@ -739,7 +743,7 @@ def plot_contrast_matrix(
     fontsize : float, optional
         Base font size for text elements. Title uses `fontsize` directly; the y-axis label
         uses `0.9 * fontsize` and the tick labels use `0.85 * fontsize`. If not provided,
-        uses the active Matplotlib defaults.
+        it is inferred heuristically from the figure size.
     show_colorbar : bool, default: False
         Whether to add a colorbar for the weights to the figure.
     row_height : float, default: 0.5
@@ -786,7 +790,6 @@ def plot_contrast_matrix(
         maxval = 1.0  # All-zero contrast: keep a neutral mid-gray, avoid vmin == vmax.
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
-    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
     if ax is None:
         # Floor both dims so a single-row, few-column contrast is not too thin. The
@@ -799,6 +802,11 @@ def plot_contrast_matrix(
     else:
         figure = ax.figure
         _clear_matrix_plot_axes(ax)
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+        fontsize,
+        figure=figure,
+        axes=ax,
+    )
     ax.set_facecolor(bg_color)
 
     # Equal aspect keeps each weight a square cell, so the strip stays a thin band and a
@@ -960,7 +968,7 @@ def plot_design_matrix(
     fontsize : float, optional
         Base font size for text elements. Title uses `fontsize` directly; the y-axis label
         uses `0.9 * fontsize` and the regressor tick labels use `0.85 * fontsize`. If not
-        provided, uses the active Matplotlib defaults.
+        provided, it is inferred heuristically from the figure size.
     height : float, default: 5.0
         Figure height in inches, used only when `ax` is not provided.
     column_width : float, default: 0.6
@@ -984,7 +992,6 @@ def plot_design_matrix(
     n_columns = values.shape[1]
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
-    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
     if ax is None:
         # Floor the width so a few-regressor design does not render as a sliver.
@@ -994,6 +1001,11 @@ def plot_design_matrix(
     else:
         figure = ax.figure
         _clear_matrix_plot_axes(ax)
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+        fontsize,
+        figure=figure,
+        axes=ax,
+    )
     ax.set_facecolor(bg_color)
 
     ax.imshow(

@@ -171,6 +171,19 @@ class TestPlotMatrixBehaviour:
         assert len(cbar_axes) == 1
         assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(15.3)
 
+    def test_auto_fontsize_scales_with_figure_size(self, matplotlib_pyplot):
+        """Automatic fontsize grows with figure size for matrix plots."""
+        _, small_ax = plot_matrix(_correlation_matrix(4), figsize=(4, 4), title="Small")
+        _, large_ax = plot_matrix(
+            _correlation_matrix(4), figsize=(10, 10), title="Large"
+        )
+
+        small_fontsize = float(small_ax.title.get_fontsize())
+        large_fontsize = float(large_ax.title.get_fontsize())
+
+        assert large_fontsize > small_fontsize
+        assert small_fontsize >= 8
+
     def test_groups_adds_side_axes(self, matplotlib_pyplot):
         """Passing groups appends the row/column group-color strip axes."""
         matrix = _correlation_matrix(6)

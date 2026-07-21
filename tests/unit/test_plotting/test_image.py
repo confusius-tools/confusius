@@ -196,6 +196,47 @@ class TestPlotVolume:
         extra_axes = [ax for ax in _figure(plotter).axes if ax not in plot_axes]
         assert len(extra_axes) == 1
 
+    def test_colorbar_spans_visible_axes(self, sample_3d_volume, matplotlib_pyplot):
+        """plot_volume colorbar spans the visible image axes, not titles or labels."""
+        plotter = plot_volume(sample_3d_volume, slice_mode="z")
+        figure = _figure(plotter)
+        figure.canvas.draw()
+
+        visible_axes = [ax for ax in _axes(plotter).ravel() if ax.get_visible()]
+        plot_axes = set(visible_axes)
+        (cbar_ax,) = [ax for ax in figure.axes if ax not in plot_axes]
+        bottom = min(ax.get_position().y0 for ax in visible_axes)
+        top = max(ax.get_position().y1 for ax in visible_axes)
+
+        assert cbar_ax.get_position().y0 == pytest.approx(bottom)
+        assert cbar_ax.get_position().y1 == pytest.approx(top)
+
+    def test_multiple_colorbars_are_added_outward(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Additional colorbars appear to the right of existing colorbars."""
+        plotter = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            cbar_label="background",
+        )
+        plotter.add_volume(
+            sample_3d_volume * 2,
+            match_coordinates=True,
+            show_colorbar=True,
+            cbar_label="statistic",
+        )
+        figure = _figure(plotter)
+        figure.canvas.draw()
+
+        plot_axes = set(_axes(plotter).ravel())
+        colorbar_axes = [ax for ax in figure.axes if ax not in plot_axes]
+        labels_to_position = {
+            ax.yaxis.label.get_text(): ax.get_position() for ax in colorbar_axes
+        }
+
+        assert labels_to_position["background"].x1 < labels_to_position["statistic"].x0
+
     def test_no_colorbar_when_disabled(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume skips colorbar when show_colorbar=False."""
         z_coord = sample_3d_volume.coords["z"].values[0]
@@ -249,6 +290,24 @@ class TestPlotVolume:
         assert len(cbar_axes) == 1
         assert cbar_axes[0].yaxis.label.get_fontsize() == pytest.approx(18)
         assert cbar_axes[0].get_yticklabels()[0].get_fontsize() == pytest.approx(17)
+
+    def test_auto_fontsize_scales_down_for_multi_panel_volume(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Automatic fontsize shrinks when the same figure area is split across panels."""
+        one_slice = plot_volume(
+            sample_3d_volume,
+            slice_mode="z",
+            slice_coords=[sample_3d_volume.coords["z"].values[0]],
+        )
+        four_slices = plot_volume(sample_3d_volume, slice_mode="z")
+
+        one_slice_title = _axes(one_slice)[0, 0].title.get_fontsize()
+        four_slice_title = _axes(four_slices)[0, 0].title.get_fontsize()
+
+        assert one_slice_title > four_slice_title
+        assert one_slice_title >= 8
+        assert four_slice_title >= 8
 
     def test_existing_axes_used(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume uses provided axes without creating new ones."""

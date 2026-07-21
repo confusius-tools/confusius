@@ -2,7 +2,7 @@
 
 import warnings
 from collections.abc import Hashable, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import xarray as xr
@@ -59,25 +59,40 @@ def _auto_fg_color(bg_color: str) -> str:
 
 def _resolve_font_sizes(
     fontsize: float | None,
-) -> tuple[float | None, float | None, float | None]:
+    *,
+    figure: Any | None = None,
+    axes: Any | None = None,
+) -> tuple[float, float, float]:
     """Resolve title, label, and tick font sizes from a base size.
 
     Parameters
     ----------
     fontsize : float, optional
-        Base font size for plot text elements.
+        Base font size for plot text elements. If not provided, a base size is
+        estimated from the figure size and the number of plotted axes.
+    figure : object, optional
+        Matplotlib figure used for the size heuristic.
+    axes : object, optional
+        Matplotlib axes (or array of axes) used to estimate how many panels share
+        the available figure area.
 
     Returns
     -------
-    title_fontsize : float, optional
+    title_fontsize : float
         Font size for subplot titles.
-    label_fontsize : float, optional
+    label_fontsize : float
         Font size for axis and colorbar labels.
-    tick_fontsize : float, optional
+    tick_fontsize : float
         Font size for tick labels.
     """
     if fontsize is None:
-        return None, None, None
+        base_fontsize = 12.0
+        if figure is not None and hasattr(figure, "get_size_inches"):
+            width, height = figure.get_size_inches()
+            n_axes = max(1, int(np.size(axes)) if axes is not None else 1)
+            panel_area = max(float(width) * float(height) / n_axes, 1.0)
+            base_fontsize = float(np.clip(6.5 + 1.1 * np.sqrt(panel_area), 8.0, 18.0))
+        fontsize = base_fontsize
     return fontsize, fontsize * 0.9, fontsize * 0.85
 
 

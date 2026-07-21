@@ -4,7 +4,7 @@ import math
 import numbers
 import warnings
 from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import numpy as np
 import xarray as xr
@@ -34,12 +34,11 @@ if TYPE_CHECKING:
     from matplotlib.colors import Colormap, Normalize
     from matplotlib.figure import Figure, SubFigure
 
-_BASE_SIZE = 4.0
-"""Base subplot size for VolumePlotter when creating new figures.
+_BASE_WIDTH = 4.0
+"""Base subplot width for VolumePlotter when creating new figures."""
 
-Actual figure size is computed as `(subplot_size * ncols + 1 inch for colorbar,
-subplot_size * nrows)` and then constrained to a maximum size.
-"""
+_BASE_HEIGHT = 3.6
+"""Base subplot height for VolumePlotter when creating new figures."""
 
 
 def _compute_grid_dims(
@@ -55,6 +54,125 @@ def _compute_grid_dims(
     elif nrows is None:
         nrows = int(np.ceil(n_slices / ncols))
     return nrows, ncols
+
+
+def _add_spanning_colorbar(
+    figure: "Figure",
+    mappable: Any,
+    axes: Sequence["Axes"],
+    cbar_kwargs: dict[str, Any] | None = None,
+):
+    """Add a vertical colorbar spanning the visible plot axes.
+
+    Parameters
+    ----------
+    figure : matplotlib.figure.Figure or matplotlib.figure.SubFigure
+        Figure containing the plotted axes.
+    mappable : object
+        Matplotlib mappable used to construct the colorbar.
+    axes : sequence of matplotlib.axes.Axes
+        Axes that the colorbar should span.
+    cbar_kwargs : dict, optional
+        Additional keyword arguments for `Figure.colorbar`. When not provided,
+        stable defaults are used for spacing and width.
+
+    Returns
+    -------
+    matplotlib.colorbar.Colorbar
+        The created colorbar.
+    """
+    visible_axes = [ax for ax in axes if ax.get_visible()]
+    if not visible_axes:
+        raise ValueError("Need at least one visible axes to place a colorbar.")
+
+    figure.canvas.draw()
+    figure.set_layout_engine(None)
+
+    existing_colorbar_axes = [
+        ax for ax in figure.axes if ax.get_label() == "<colorbar>"
+    ]
+    cax = figure.add_axes((0.0, 0.0, 0.01, 0.01), label="<colorbar>")
+    cbar = figure.colorbar(mappable, cax=cax, **(cbar_kwargs or {}))
+    colorbar_axes = [*existing_colorbar_axes, cbar.ax]
+
+    figure_width_inches, figure_height_inches = figure.get_size_inches()
+    axes_bounds_inches = {
+        ax: (
+            ax.get_position().x0 * figure_width_inches,
+            ax.get_position().y0 * figure_height_inches,
+            ax.get_position().width * figure_width_inches,
+            ax.get_position().height * figure_height_inches,
+        )
+        for ax in visible_axes
+    }
+    right_inches = max(x0 + width for x0, _, width, _ in axes_bounds_inches.values())
+    bottom = min(ax.get_position().y0 for ax in visible_axes)
+    top = max(ax.get_position().y1 for ax in visible_axes)
+
+    axes_gap_inches = 0.15
+    colorbar_width_inches = 0.25
+    colorbar_gap_inches = 0.75
+    label_margin_inches = 0.9
+    needed_width_inches = (
+        right_inches
+        + axes_gap_inches
+        + len(colorbar_axes) * colorbar_width_inches
+        + (len(colorbar_axes) - 1) * colorbar_gap_inches
+        + label_margin_inches
+    )
+    if needed_width_inches > figure_width_inches:
+        figure_width_inches = needed_width_inches
+        figure.set_size_inches(figure_width_inches, figure_height_inches, forward=True)
+        for ax, (x0, y0, width, height) in axes_bounds_inches.items():
+            ax.set_position(
+                (
+                    x0 / figure_width_inches,
+                    y0 / figure_height_inches,
+                    width / figure_width_inches,
+                    height / figure_height_inches,
+                )
+            )
+
+    for idx, cbar_ax in enumerate(colorbar_axes):
+        x0 = (
+            right_inches
+            + axes_gap_inches
+            + idx * (colorbar_width_inches + colorbar_gap_inches)
+        ) / figure_width_inches
+        width = colorbar_width_inches / figure_width_inches
+        cbar_ax.set_in_layout(False)
+        cbar_ax.set_box_aspect(None)
+        cbar_ax.set_position((x0, bottom, width, top - bottom))
+
+    right_padding_inches = 0.1
+    for _ in range(2):
+        figure.canvas.draw()
+        renderer = cast(Any, figure.canvas).get_renderer()
+        tight_bboxes = [ax.get_tightbbox(renderer) for ax in colorbar_axes]
+        rightmost_label = max(
+            bbox.transformed(figure.dpi_scale_trans.inverted()).x1
+            for bbox in tight_bboxes
+            if bbox is not None
+        )
+        overflow_inches = rightmost_label + right_padding_inches - figure_width_inches
+        if overflow_inches <= 0:
+            break
+        old_width_inches = figure_width_inches
+        figure_width_inches += overflow_inches
+        figure.set_size_inches(figure_width_inches, figure_height_inches, forward=True)
+        scale = old_width_inches / figure_width_inches
+        for ax in [*visible_axes, *colorbar_axes]:
+            pos = ax.get_position()
+            ax.set_position((pos.x0 * scale, pos.y0, pos.width * scale, pos.height))
+
+    figure.canvas.draw()
+    bottom = min(ax.get_position().y0 for ax in visible_axes)
+    top = max(ax.get_position().y1 for ax in visible_axes)
+    for cbar_ax in colorbar_axes:
+        pos = cbar_ax.get_position()
+        cbar_ax.set_position((pos.x0, bottom, pos.width, top - bottom))
+
+    return cbar
 
 
 def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
@@ -528,13 +646,14 @@ class VolumePlotter:
         if self.figure is None:
             if x_range is not None and y_range is not None and y_range > 0:
                 aspect = x_range / y_range
-                subplot_width = _BASE_SIZE * max(1.0, aspect)
-                subplot_height = _BASE_SIZE * max(1.0, 1.0 / aspect)
+                subplot_width = _BASE_WIDTH * max(1.0, aspect)
+                subplot_height = _BASE_HEIGHT * max(1.0, 1.0 / aspect)
             else:
-                subplot_width = subplot_height = _BASE_SIZE
+                subplot_width = _BASE_WIDTH
+                subplot_height = _BASE_HEIGHT
 
-            fig_width = max(8.0, min(20.0, _ncols * subplot_width + 1.0))
-            fig_height = min(16.0, _nrows * subplot_height)
+            fig_width = _ncols * subplot_width + 1.0
+            fig_height = _nrows * subplot_height
 
             self.figure, axes_array = plt.subplots(
                 _nrows,
@@ -542,7 +661,7 @@ class VolumePlotter:
                 figsize=(fig_width, fig_height),
                 dpi=dpi,
                 squeeze=False,
-                layout="constrained",
+                layout="compressed",
             )
         else:
             axes_array = self.figure.subplots(_nrows, _ncols, squeeze=False)
@@ -1024,7 +1143,11 @@ class VolumePlotter:
         assert (self.axes is not None) and (self.figure is not None)
 
         text_color = self._text_color
-        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+            fontsize,
+            figure=self.figure,
+            axes=self.axes,
+        )
         plotted_quadmesh = None
 
         axes_flat = self.axes.ravel()
@@ -1081,10 +1204,15 @@ class VolumePlotter:
 
         if show_colorbar and plotted_quadmesh is not None:
             non_cbar_axes = [
-                ax for ax in self.figure.axes if not hasattr(ax, "_colorbar")
+                ax
+                for ax in self.figure.axes
+                if (not hasattr(ax, "_colorbar")) and ax in axes_flat
             ]
-            cbar = self.figure.colorbar(
-                plotted_quadmesh, ax=non_cbar_axes, **(cbar_kwargs or {})
+            cbar = _add_spanning_colorbar(
+                self.figure,
+                plotted_quadmesh,
+                non_cbar_axes,
+                cbar_kwargs=cbar_kwargs,
             )
             if cbar_label is None:
                 long_name = data.attrs.get("long_name")
@@ -1330,7 +1458,11 @@ class VolumePlotter:
 
         assert (self.axes is not None) and (self.figure is not None)
 
-        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+            fontsize,
+            figure=self.figure,
+            axes=self.axes,
+        )
         axes_flat = self.axes.ravel()
 
         for axis_idx, slice_idx in plot_indices:
@@ -1442,7 +1574,8 @@ class VolumePlotter:
             Base font size for text elements when a standalone contour figure is created
             (`match_coordinates=False`). Subplot titles use `fontsize` directly;
             axis labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`.
-            If not provided, uses the active Matplotlib defaults.
+            If not provided, it is inferred heuristically from the figure size and
+            number of panels.
         roi_labels : dict[int, str], optional
             Mapping from integer label to display name. When provided (or when
             `mask.attrs["roi_labels"]` is populated), hovering the cursor over a
@@ -1613,11 +1746,15 @@ class VolumePlotter:
 
             plot_indices = self._init_sequential_layout(actual_coords)
 
-        if self.axes is None:
+        if self.axes is None or self.figure is None:
             raise RuntimeError("No axes available")
 
         axes_flat = self.axes.ravel()
-        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
+        title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+            fontsize,
+            figure=self.figure,
+            axes=self.axes,
+        )
 
         for axis_idx, slice_idx in plot_indices:
             ax = axes_flat[axis_idx]
@@ -1818,7 +1955,7 @@ def plot_contours(
     fontsize : float, optional
         Base font size for text elements. Subplot titles use `fontsize` directly; axis
         labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not provided,
-        uses the active Matplotlib defaults.
+        it is inferred heuristically from the figure size and number of panels.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
@@ -2012,7 +2149,8 @@ def plot_volume(
     fontsize : float, optional
         Base font size for all text elements. Subplot titles use `fontsize` directly;
         axis labels and the colorbar label use `0.9 * fontsize`; tick labels use `0.85 *
-        fontsize`. If not provided, uses the active Matplotlib defaults.
+        fontsize`. If not provided, it is inferred heuristically from the figure size
+        and number of panels.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
@@ -2073,10 +2211,11 @@ def plot_volume(
     NaN and Inf values (including those introduced by `threshold`) are rendered
     transparently via a masked array.
 
-    When the figure is created internally, `layout="constrained"` is used so
+    When the figure is created internally, `layout="compressed"` is used so
     that subplot titles, axis labels, tick labels, and the colorbar are spaced
-    automatically without overlapping. When an external `figure` or `axes`
-    is provided, layout management is left to the caller.
+    automatically without overlapping while reducing excess gaps between the
+    fixed-aspect slice axes. When an external `figure` or `axes` is provided,
+    layout management is left to the caller.
 
     Examples
     --------
@@ -2229,7 +2368,8 @@ def plot_composite(
     fontsize : float, optional
         Base font size for all text elements. Subplot titles use `fontsize` directly;
         axis labels use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If not
-        provided, uses the active Matplotlib defaults.
+        provided, it is inferred heuristically from the figure size and number of
+        panels.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
@@ -2475,7 +2615,8 @@ def plot_stat_map(
     fontsize : float, optional
         Base font size for all text elements. Subplot titles use `fontsize` directly;
         axis labels and the colorbar label use `0.9 * fontsize`; tick labels use `0.85 *
-        fontsize`. If not provided, uses the active Matplotlib defaults.
+        fontsize`. If not provided, it is inferred heuristically from the figure size
+        and number of panels.
     yincrease : bool, default: False
         Whether the y-axis increases upward (`True`) or downward (`False`).
     xincrease : bool, default: True
@@ -2728,7 +2869,7 @@ def _draw_carpet(
     fontsize : float, optional
         Base font size for text elements. Title uses `fontsize` directly; axis labels
         and colorbar label use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If
-        not provided, uses the active Matplotlib defaults.
+        not provided, it is inferred heuristically from the figure size.
     bg_color : str, default: "white"
         Background color for the figure and axes. Any matplotlib-compatible color
         string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
@@ -2753,7 +2894,6 @@ def _draw_carpet(
     xlabel = prep["xlabel"]
 
     text_color = fg_color if fg_color is not None else _auto_fg_color(bg_color)
-    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(fontsize)
 
     if ax is None:
         figure, ax = plt.subplots(figsize=figsize)
@@ -2761,6 +2901,11 @@ def _draw_carpet(
     else:
         figure = ax.figure
 
+    title_fontsize, label_fontsize, tick_fontsize = _resolve_font_sizes(
+        fontsize,
+        figure=figure,
+        axes=ax,
+    )
     ax.set_facecolor(bg_color)
 
     plotted_quadmesh = signals.T.plot(
@@ -2855,7 +3000,7 @@ def plot_carpet(
     fontsize : float, optional
         Base font size for text elements. Title uses `fontsize` directly; axis labels
         and colorbar label use `0.9 * fontsize`; tick labels use `0.85 * fontsize`. If
-        not provided, uses the active Matplotlib defaults.
+        not provided, it is inferred heuristically from the figure size.
     bg_color : str, default: "white"
         Background color for the figure and axes. Any matplotlib-compatible color
         string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
