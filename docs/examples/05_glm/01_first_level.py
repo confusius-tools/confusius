@@ -92,11 +92,9 @@ events
 # This dataset is stored with a spatial convention that differs from the [spatial
 # convention that ConfUSIus assumes](../../../user-guide/spatial-conventions/) (the axes
 # are labelled differently, the depth direction is flipped, and the stored
-# physical-space affine is not metric). None of this is exactly a problem or specific to
-# the GLM, but we need to force some changes to make the example run smoothly after
-# that. The `_load_and_prepare_fusi` helper that we are using is described in the
-# collapsed admonition. Feel free to go through it if you are interested (the docstring
-# explains each step), otherwise jump to the next cell.
+# physical-space affine is not metric). We correct these differences so the data conform
+# to ConfUSIus's spatial convention. The collapsed `_load_and_prepare_fusi` helper
+# explains each step; otherwise, continue to the next cell.
 
 
 # %% tags=["collapse: Code for `_load_and_prepare_fusi` helper"]
@@ -110,9 +108,9 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     - The axial/depth axis is the "z" axis in the dataset, not "y".
     - The axial/depth direction goes "towards" the transducer, not "away" from it,
       which is the default in ConfUSIus.
-    - The `sform` of the files point to a physical space that is not metric and cannot
-      be currently used (but the `sform_code` is valid, making the coordinates on
-      loading to be at this space).
+    - The files' `sform` points to a non-metric physical space and cannot currently be
+      used. Because its `sform_code` is valid, loaded coordinates are nevertheless
+      expressed in that space.
 
     In this function, we prepare the data as follows:
 
@@ -290,7 +288,7 @@ for fusi in fusi_list:
 # them originally proposed for fMRI analysis. Here we use
 # [`claron2021_hrf`][confusius.glm.claron2021_hrf], an inverse-gamma HRF proposed for
 # functional ultrasound, rather than a canonical BOLD HRF. We tune its `beta` scale
-# parameter to `6.7` to find a faster peak response (around 2~3 seconds).
+# parameter to `6.7` to obtain a faster peak response (around 2–3 seconds).
 
 # %%
 modified_claron2021 = partial(cf.glm.claron2021_hrf, beta=6.7)
@@ -311,7 +309,7 @@ _ = ax.set_title("Claron et al. 2021 fUSI HRF (beta=6.7)")
 # Beyond the stimulus response, the signal contains structured nuisance fluctuations.
 # [`compute_compcor_confounds`][confusius.signal.compute_compcor_confounds] extracts the
 # leading principal components from a noise region—here the atlas `"fiber tracts"`, that
-# ideally carries little task signal and some amount of global vascular fluctuations—and
+# ideally carries little task signal and global vascular fluctuations—and
 # we add them to the design as nuisance regressors (anatomical CompCor). We take three
 # components per run.
 
@@ -407,6 +405,7 @@ fig = cf.plotting.plot_stat_map(
     vmax=vmax,
     bg_color=bg_color,
     cmap=cmap,
+    fontsize=14,
 )
 _ = fig.add_contours(
     atlas.annotation,
@@ -480,6 +479,7 @@ fig = cf.plotting.plot_stat_map(
     bg_color=bg_color,
     alpha=1 - adjusted_p_values,
     cmap=cmap,
+    fontsize=14,
 )
 _ = fig.add_contours(
     atlas.annotation,

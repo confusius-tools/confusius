@@ -1,9 +1,10 @@
 # %% [markdown]
 # # Lagged first-level GLM analysis of fUSI data with a continuous regressor
 #
-# This example reproduces the lagged-GLM analysis of [Cybis Pereira et al.
-# 2026](https://doi.org/10.1016/j.celrep.2025.116791), functional ultrasound of a
-# freely-moving rat exploring an open field with its body position tracked from video.
+# This example reproduces the lagged-GLM analysis reported by [Cybis Pereira *et al.*
+# 2026](https://doi.org/10.1016/j.celrep.2025.116791), which uses functional ultrasound
+# imaging of a freely moving rat exploring an open field with its body position tracked
+# from video.
 # Unlike the block-design task in the [First-level GLM analysis of fUSI
 # data](first_level.md) example, the regressor of interest is a *continuous* variable
 # measured throughout the recording, the animal's locomotion speed, and we ask at every
