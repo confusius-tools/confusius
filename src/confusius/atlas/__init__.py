@@ -20,9 +20,11 @@ from confusius.atlas._accessor import (
     get_atlas_mesh,
     search_atlas,
 )
+from confusius.atlas._plot import AtlasPlotAccessor
 
 __all__ = [
     "AtlasAccessor",
+    "AtlasPlotAccessor",
     "get_atlas_masks",
     "get_atlas_mesh",
     "search_atlas",
