@@ -261,4 +261,5 @@ _ = thresholded_zscore.fusi.plot.stat_map(
     cmap=cmap,
     threshold=threshold,
     bg_color=bg_color,
+    fontsize=22,
 )

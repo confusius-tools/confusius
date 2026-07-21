@@ -366,7 +366,10 @@ glm.fit(resampled_fusi_list, events=events, confounds=confounds)
 design_matrix = glm.design_matrices_[0]
 
 _ = cf.plotting.plot_design_matrix(
-    design_matrix, title="Design matrix (first run)", index_yaxis=True
+    design_matrix,
+    title="Design matrix (first run)",
+    index_yaxis=True,
+    bg_color=bg_color,
 )
 
 # %% [markdown]
@@ -382,7 +385,9 @@ _ = cf.plotting.plot_design_matrix(
 
 # %%
 
-_ = cf.plotting.plot_contrast_matrix("active", design_matrix, cmap="coolwarm")
+_ = cf.plotting.plot_contrast_matrix(
+    "active", design_matrix, cmap="coolwarm", bg_color=bg_color
+)
 
 # %% [markdown]
 # The `"active"` contrast then tests, at every voxel, whether that stimulation regressor
@@ -405,7 +410,7 @@ fig = cf.plotting.plot_stat_map(
     vmax=vmax,
     bg_color=bg_color,
     cmap=cmap,
-    fontsize=14,
+    fontsize=22,
 )
 _ = fig.add_contours(
     atlas.annotation,
@@ -479,7 +484,7 @@ fig = cf.plotting.plot_stat_map(
     bg_color=bg_color,
     alpha=1 - adjusted_p_values,
     cmap=cmap,
-    fontsize=14,
+    fontsize=22,
 )
 _ = fig.add_contours(
     atlas.annotation,
