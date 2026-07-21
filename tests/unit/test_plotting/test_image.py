@@ -256,6 +256,25 @@ class TestPlotVolume:
             > _figure(default_plotter).get_size_inches()[0]
         )
 
+    def test_suptitle_does_not_overlap_volume_titles(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        """Adding a suptitle after plot_volume still triggers compressed layout."""
+        plotter = plot_volume(sample_3d_volume, slice_mode="z")
+        figure = _figure(plotter)
+        suptitle = figure.suptitle("Seed-based connectivity maps", fontsize=16)
+        figure.canvas.draw()
+        renderer = figure.canvas.get_renderer()
+        suptitle_bbox = suptitle.get_window_extent(renderer).transformed(
+            figure.transFigure.inverted()
+        )
+        axes_top = max(
+            ax.get_tightbbox(renderer).transformed(figure.transFigure.inverted()).y1
+            for ax in _axes(plotter).ravel()
+        )
+
+        assert axes_top < suptitle_bbox.y0
+
     def test_no_colorbar_when_disabled(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume skips colorbar when show_colorbar=False."""
         z_coord = sample_3d_volume.coords["z"].values[0]

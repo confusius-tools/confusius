@@ -82,11 +82,8 @@ def _add_spanning_colorbar(
         The created colorbar.
     """
     visible_axes = [ax for ax in axes if ax.get_visible()]
-    if not visible_axes:
-        raise ValueError("Need at least one visible axes to place a colorbar.")
 
     figure.canvas.draw()
-    figure.set_layout_engine(None)
 
     existing_colorbar_axes = [
         ax for ax in figure.axes if ax.get_label() == "<colorbar>"
@@ -123,15 +120,6 @@ def _add_spanning_colorbar(
     if needed_width_inches > figure_width_inches:
         figure_width_inches = needed_width_inches
         figure.set_size_inches(figure_width_inches, figure_height_inches, forward=True)
-        for ax, (x0, y0, width, height) in axes_bounds_inches.items():
-            ax.set_position(
-                (
-                    x0 / figure_width_inches,
-                    y0 / figure_height_inches,
-                    width / figure_width_inches,
-                    height / figure_height_inches,
-                )
-            )
 
     for idx, cbar_ax in enumerate(colorbar_axes):
         x0 = (
@@ -161,7 +149,7 @@ def _add_spanning_colorbar(
         figure_width_inches += overflow_inches
         figure.set_size_inches(figure_width_inches, figure_height_inches, forward=True)
         scale = old_width_inches / figure_width_inches
-        for ax in [*visible_axes, *colorbar_axes]:
+        for ax in colorbar_axes:
             pos = ax.get_position()
             ax.set_position((pos.x0 * scale, pos.y0, pos.width * scale, pos.height))
 

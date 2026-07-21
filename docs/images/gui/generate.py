@@ -39,6 +39,7 @@ Notes
 """
 
 import csv
+import warnings
 from pathlib import Path
 
 import napari
@@ -90,6 +91,12 @@ _ANGIO_REL_PATH = (
 )
 
 console = Console()
+
+warnings.filterwarnings(
+    "ignore",
+    message="'time' has non-uniform spacing.*",
+    category=UserWarning,
+)
 
 
 def _section(title: str) -> None:
