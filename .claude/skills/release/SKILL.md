@@ -272,6 +272,14 @@ Current development version for the next ConfUSIus release.
 
 - Place it above the most recent released version section.
 
+### `docs/user-guide/installation.md`
+Replace the confusius release version with the new development version. Example
+
+```
+>>> print(cf.__version__)
+0.7.0.dev0
+```
+
 ### `CITATION.cff`
 - **Do not modify.** Citation metadata must keep pointing at the last tagged release so
   users cite the released version, not an unreleased development snapshot. `CITATION.cff`
