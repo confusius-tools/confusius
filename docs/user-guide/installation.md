@@ -29,10 +29,10 @@ Please find all development installation instructions on the
 To verify that ConfUSIus has been installed correctly, you may run the following code
 snippet in a Python environment:
 
-```python
-import confusius as cf
-
-print(cf.__version__)
+```pycon
+>>> import confusius as cf
+>>> print(cf.__version__)
+'0.6.0.dev0'
 ```
 
 If the installation was successful, this code will print the installed version of
