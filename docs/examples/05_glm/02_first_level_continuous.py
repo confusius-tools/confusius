@@ -257,7 +257,7 @@ cmap = "berlin" if is_dark_theme else None
 _ = thresholded_zscore.fusi.plot.stat_map(
     bg_volume=data.mean("time").fusi.scale.db().expand_dims(lag=z_score.lag),
     slice_mode="lag",
-    nrows=3,
+    nrows=2,
     cmap=cmap,
     threshold=threshold,
     bg_color=bg_color,
