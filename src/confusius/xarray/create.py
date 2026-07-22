@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Literal, SupportsFloat, SupportsIndex
+from typing import Literal, SupportsFloat, SupportsIndex, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -21,7 +21,7 @@ _TIME_UNITS = "s"
 VolumeAcquisitionReference = Literal["start", "center", "end"]
 """Where within its acquisition window each frame's `time` coordinate is anchored."""
 
-_VOLUME_ACQUISITION_REFERENCES = ("start", "center", "end")
+_VOLUME_ACQUISITION_REFERENCES = get_args(VolumeAcquisitionReference)
 """Accepted values for `volume_acquisition_reference`."""
 
 
