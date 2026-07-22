@@ -69,7 +69,7 @@ nav = [
         { "Overview" = "examples/index.md" },
         { "Getting Started" = [
             { "ConfUSIus and Xarray 101" = "examples/_built/io/confusius_xarray_101.md" },
-            { "Create a custom fUSI DataArray" = "examples/_built/io/create_custom_fusi_dataarray.md" },
+            { "Create a fUSI DataArray from a MAT file" = "examples/_built/io/create_fusi_dataarray_from_mat.md" },
         ]},
         { "Registration" = [
             { "Registration of two sessions from the same subject" = "examples/_built/registration/register_volume_same_subject.md" },

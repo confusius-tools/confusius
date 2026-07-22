@@ -1,5 +1,5 @@
 # %% [markdown]
-# # Create a custom fUSI DataArray from a MAT file
+# # Create a fUSI DataArray from a MAT file
 #
 # This example downloads one human Doppler MAT-file from the public dataset
 # accompanying [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1]
