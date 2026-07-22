@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
+import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 from scipy.spatial.transform import Rotation
 
@@ -186,6 +187,17 @@ class TestComputeFramewiseDisplacement:
         with pytest.raises(ValueError, match=r"\(4, 4\)"):
             compute_framewise_displacement([np.eye(3)], sample_3d_dataarray_spatial)
 
+    def test_rejects_time_dimension(self):
+        """A reference with a `time` dimension is rejected with a clear error."""
+        ref = xr.DataArray(
+            np.zeros((2, 4, 6), dtype=np.float32),
+            dims=("time", "y", "x"),
+            coords={"time": np.arange(2) * 0.1},
+        )
+
+        with pytest.raises(ValueError, match="must not have a time dimension"):
+            compute_framewise_displacement([np.eye(4), np.eye(4)], ref)
+
 
 class TestCreateMotionDataframe:
     """Tests for create_motion_dataframe function."""
@@ -237,6 +249,54 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
+
+    def test_accepts_scalar_indexed_reference(self):
+        """A scalar-indexed reference (`.isel(z=0)`) is canonicalized once and reused
+        for both the framewise-displacement grid and the motion-parameter column
+        mapping, instead of the latter seeing the pre-canonicalization dims.
+        """
+        vol = np.zeros((2, 4, 6), dtype=np.float32)
+        ref = xr.DataArray(
+            vol,
+            dims=("z", "y", "x"),
+            coords={
+                "z": xr.DataArray(np.arange(2) * 1.0, dims="z", attrs={"voxdim": 1.0}),
+                "y": xr.DataArray(np.arange(4) * 1.0, dims="y", attrs={"voxdim": 1.0}),
+                "x": xr.DataArray(np.arange(6) * 1.0, dims="x", attrs={"voxdim": 1.0}),
+            },
+        )
+        scalar_ref = ref.isel(z=0)
+        assert "z" not in scalar_ref.dims
+
+        df = create_motion_dataframe(
+            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], scalar_ref
+        )
+
+        assert list(df.columns) == [
+            "rot_x",
+            "rot_y",
+            "rot_z",
+            "trans_x",
+            "trans_y",
+            "trans_z",
+            "mean_fd",
+            "max_fd",
+            "rms_fd",
+        ]
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
+
+    def test_rejects_time_dimension(self):
+        """A reference with a `time` dimension is rejected with a clear error."""
+        ref = xr.DataArray(
+            np.zeros((2, 4, 6), dtype=np.float32),
+            dims=("time", "y", "x"),
+            coords={"time": np.arange(2) * 0.1},
+        )
+
+        with pytest.raises(ValueError, match="must not have a time dimension"):
+            create_motion_dataframe([np.eye(4), np.eye(4)], ref)
 
     def test_3d_dataframe_columns(self, sample_3d_dataarray_spatial):
         """3D affines produce DataFrame with correct columns."""

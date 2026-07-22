@@ -34,7 +34,7 @@ class TestRegisterVolumeSigint:
     """Ctrl+C handling exposed through the public `register_volume` API."""
 
     def test_first_ctrl_c_returns_aborted_result_and_restores_handler(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """First Ctrl+C sets the cooperative abort event and restores SIGINT afterwards."""
         import SimpleITK as sitk
@@ -51,8 +51,8 @@ class TestRegisterVolumeSigint:
         monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
 
         _result, _transform, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
         )
 
@@ -60,7 +60,7 @@ class TestRegisterVolumeSigint:
         assert signal.getsignal(signal.SIGINT) is previous_handler
 
     def test_second_ctrl_c_raises_keyboardinterrupt(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """Second Ctrl+C falls back to the previous default SIGINT handler."""
         import SimpleITK as sitk
@@ -79,15 +79,15 @@ class TestRegisterVolumeSigint:
 
         with pytest.raises(KeyboardInterrupt):
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="translation",
             )
 
         assert signal.getsignal(signal.SIGINT) is previous_handler
 
     def test_second_ctrl_c_ignores_when_previous_handler_ignores(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """Second Ctrl+C is ignored when the previous SIGINT handler ignored it."""
         import SimpleITK as sitk
@@ -107,8 +107,8 @@ class TestRegisterVolumeSigint:
 
         try:
             _result, _transform, diagnostics = register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="translation",
             )
         finally:
@@ -117,7 +117,7 @@ class TestRegisterVolumeSigint:
         assert diagnostics.status == "aborted"
 
     def test_second_ctrl_c_calls_previous_custom_handler(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """Second Ctrl+C delegates to a previous custom handler when one is installed."""
         import SimpleITK as sitk
@@ -142,8 +142,8 @@ class TestRegisterVolumeSigint:
 
         try:
             _result, _transform, diagnostics = register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="translation",
             )
         finally:
@@ -157,27 +157,31 @@ class TestRegisterVolumeSigint:
 class TestRegisterVolumeValidation:
     """Input validation for register_volume."""
 
-    def test_time_dimension_raises(self, sample_2d_dataarray):
+    def test_time_dimension_raises(self, sample_singleton_z_dataarray):
         """DataArray with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="spatial-only"):
-            register_volume(sample_2d_dataarray, sample_2d_dataarray)
+            register_volume(sample_singleton_z_dataarray, sample_singleton_z_dataarray)
 
-    def test_nan_in_moving_raises(self, sample_2d_dataarray_spatial):
+    def test_nan_in_moving_raises(self, sample_singleton_z_dataarray_spatial):
         """moving with NaN values raises ValueError."""
-        moving = sample_2d_dataarray_spatial.copy()
+        moving = sample_singleton_z_dataarray_spatial.copy()
         moving.values[0, 0] = float("nan")
         with pytest.raises(ValueError, match="NaN"):
             register_volume(
-                moving, sample_2d_dataarray_spatial, transform_type="translation"
+                moving,
+                sample_singleton_z_dataarray_spatial,
+                transform_type="translation",
             )
 
-    def test_nan_in_fixed_raises(self, sample_2d_dataarray_spatial):
+    def test_nan_in_fixed_raises(self, sample_singleton_z_dataarray_spatial):
         """fixed with NaN values raises ValueError."""
-        fixed = sample_2d_dataarray_spatial.copy()
+        fixed = sample_singleton_z_dataarray_spatial.copy()
         fixed.values[0, 0] = float("nan")
         with pytest.raises(ValueError, match="NaN"):
             register_volume(
-                sample_2d_dataarray_spatial, fixed, transform_type="translation"
+                sample_singleton_z_dataarray_spatial,
+                fixed,
+                transform_type="translation",
             )
 
     def test_wrong_ndim_1d_raises(self):
@@ -192,57 +196,59 @@ class TestRegisterVolumeValidation:
         with pytest.raises(ValueError, match="Unexpected dimensions"):
             register_volume(da, da)
 
-    def test_invalid_initialization_raises(self, sample_2d_dataarray_spatial):
+    def test_invalid_initialization_raises(self, sample_singleton_z_dataarray_spatial):
         """Unknown initialization mode raises ValueError."""
         with pytest.raises(ValueError, match="Invalid initialization"):
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 initialization="moments",  # ty: ignore[invalid-argument-type]
             )
 
     def test_non_array_initialization_raises_value_error(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """A non-ndarray sequence raises ValueError, not an unhashable TypeError."""
         with pytest.raises(ValueError, match="Invalid initialization"):
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
             )
 
     def test_shape_mismatch_no_error(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """Different shapes do not raise an error."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_singleton_z_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result, _, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             resample=False,
         )
         assert result.shape == moving.shape
 
-    def test_abort_event_returns_partial_result(self, sample_2d_dataarray_spatial):
+    def test_abort_event_returns_partial_result(
+        self, sample_singleton_z_dataarray_spatial
+    ):
         """A pre-set abort event returns an aborted diagnostics record."""
         abort_event = Event()
         abort_event.set()
 
         result, _transform, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             abort_event=abort_event,
         )
 
-        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert result.shape == sample_singleton_z_dataarray_spatial.shape
         assert diagnostics.status == "aborted"
         assert diagnostics.n_iterations == 0
 
     def test_unknown_runtime_error_is_passed_through(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """Unknown SimpleITK runtime errors are re-raised unchanged."""
         import SimpleITK as sitk
@@ -257,15 +263,15 @@ class TestRegisterVolumeValidation:
 
         with pytest.raises(RuntimeError) as excinfo:
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="translation",
             )
 
         assert excinfo.value is error
 
     def test_bspline_scale_error_raises_clearer_message(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """Known SimpleITK scale failures are rewritten to actionable errors."""
         import SimpleITK as sitk
@@ -284,14 +290,14 @@ class TestRegisterVolumeValidation:
             RuntimeError, match="could not compute valid optimizer scales"
         ):
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="bspline",
                 learning_rate=1.0,
             )
 
     def test_bspline_scale_error_with_auto_learning_rate_suggests_fixed_rate(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """Auto-learning-rate scale failures suggest retrying with a fixed rate."""
         import SimpleITK as sitk
@@ -311,16 +317,16 @@ class TestRegisterVolumeValidation:
             match="Retry with a fixed `learning_rate` such as `0.1` or `0.01`",
         ):
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="bspline",
                 learning_rate="auto",
             )
 
-    def test_mismatched_spatial_units_raise(self, sample_2d_dataarray_spatial):
+    def test_mismatched_spatial_units_raise(self, sample_singleton_z_dataarray_spatial):
         """moving and fixed must agree on spatial coordinate units when declared."""
-        moving = sample_2d_dataarray_spatial.copy()
-        fixed = sample_2d_dataarray_spatial.copy()
+        moving = sample_singleton_z_dataarray_spatial.copy()
+        fixed = sample_singleton_z_dataarray_spatial.copy()
         moving.coords["y"].attrs["units"] = "mm"
         moving.coords["x"].attrs["units"] = "mm"
         fixed.coords["y"].attrs["units"] = "um"
@@ -351,21 +357,23 @@ class TestRegisterVolumeOutput:
             with pytest.raises(ValueError, match="SimpleITK image.*z"):
                 register_volume(da, da, transform_type="translation")
 
-    def test_returns_affine_matrix(self, sample_2d_dataarray_spatial):
+    def test_returns_affine_matrix(self, sample_singleton_z_dataarray_spatial):
         """register_volume returns a (4, 4) numpy affine matrix for single-slice input."""
         _, affine, _ = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
         )
         assert isinstance(affine, np.ndarray)
         assert affine.shape == (4, 4)
 
-    def test_bspline_returns_dataarray_transform(self, sample_2d_dataarray_spatial):
+    def test_bspline_returns_dataarray_transform(
+        self, sample_singleton_z_dataarray_spatial
+    ):
         """register_volume with bspline returns a DataArray for the transform."""
         _, bspline_tx, _ = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -421,27 +429,33 @@ class TestRegisterVolumeOutput:
         assert y_span / x_span == pytest.approx(9.5 / 3.9, rel=0.3)
 
     def test_resample_true_coords_match_fixed(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample=True output coordinates match the fixed volume, not moving."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_singleton_z_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result, _, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             resample=True,
         )
         assert_allclose(
-            result.coords["y"].values, sample_2d_dataarray_spatial.coords["y"].values
+            result.coords["y"].values,
+            sample_singleton_z_dataarray_spatial.coords["y"].values,
         )
         assert_allclose(
-            result.coords["x"].values, sample_2d_dataarray_spatial.coords["x"].values
+            result.coords["x"].values,
+            sample_singleton_z_dataarray_spatial.coords["x"].values,
         )
 
-    def test_resample_true_inherits_fixed_affines(self, sample_2d_dataarray_spatial):
+    def test_resample_true_inherits_fixed_affines(
+        self, sample_singleton_z_dataarray_spatial
+    ):
         """resample=True output inherits physical-space affines from `fixed`."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16)).copy()
-        fixed = sample_2d_dataarray_spatial.copy()
+        moving = sample_singleton_z_dataarray_spatial.isel(
+            y=slice(16), x=slice(16)
+        ).copy()
+        fixed = sample_singleton_z_dataarray_spatial.copy()
         moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
         fixed.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
 
@@ -463,7 +477,7 @@ class TestRegisterVolumeMask:
     """Metric masks for register_volume."""
 
     def test_integer_label_mask_matches_boolean_mask(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """A single-label integer mask registers identically to its boolean form.
 
@@ -474,7 +488,7 @@ class TestRegisterVolumeMask:
         """
         shift = 2
         shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
-        fixed = sample_2d_dataarray_spatial
+        fixed = sample_singleton_z_dataarray_spatial
         moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
 
         region = np.zeros(fixed.shape, dtype=bool)
@@ -506,12 +520,12 @@ class TestRegisterVolumeMask:
         assert_allclose(affine_int, affine_bool)
 
     def test_both_masks_coerced_to_bool(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """Both fixed_mask and moving_mask are coerced to boolean."""
         shift = 2
         shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
-        fixed = sample_2d_dataarray_spatial
+        fixed = sample_singleton_z_dataarray_spatial
         moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
 
         region = np.zeros(fixed.shape, dtype=bool)
@@ -534,7 +548,7 @@ class TestRegisterVolumeResample:
     """Behaviour of the resample parameter."""
 
     def test_no_resample_returns_moving_values_unchanged(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample=False returns moving values without modification."""
         rng = np.random.default_rng(0)
@@ -544,19 +558,19 @@ class TestRegisterVolumeResample:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         result, _, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             resample=False,
         )
         assert_array_equal(result.values, moving.values)
 
     def test_resample_true_aligns_to_fixed(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample=True produces output close to fixed (the registration target)."""
         # Use a fixed shift of 2 pixels to avoid wrap-around contamination from np.roll.
@@ -564,12 +578,12 @@ class TestRegisterVolumeResample:
         shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         result, _, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             learning_rate=1.0,
             number_of_iterations=200,
@@ -579,7 +593,7 @@ class TestRegisterVolumeResample:
         margin = shift + 1
         assert_allclose(
             result.values[margin:-margin, margin:-margin],
-            sample_2d_dataarray_spatial.values[margin:-margin, margin:-margin],
+            sample_singleton_z_dataarray_spatial.values[margin:-margin, margin:-margin],
             atol=10.0,
         )
 
@@ -587,15 +601,17 @@ class TestRegisterVolumeResample:
 class TestRegisterVolumeAccuracy:
     """Registration accuracy for register_volume."""
 
-    def test_identical_volumes_unchanged_2d(self, sample_2d_dataarray_spatial):
+    def test_identical_volumes_unchanged_2d(self, sample_singleton_z_dataarray_spatial):
         """Registering identical 2D volumes produces nearly identical output."""
         result, _, _ = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             resample=True,
         )
-        assert_allclose(result.values, sample_2d_dataarray_spatial.values, atol=1e-3)
+        assert_allclose(
+            result.values, sample_singleton_z_dataarray_spatial.values, atol=1e-3
+        )
 
     def test_identical_volumes_unchanged_3d(self, sample_3d_dataarray_spatial):
         """Registering identical 3D volumes produces nearly identical output."""
@@ -636,9 +652,11 @@ class TestRegisterVolumeAccuracy:
             atol=10.0,
         )
 
-    def test_optimizer_weights_freezes_rotation(self, sample_2d_dataarray_spatial):
+    def test_optimizer_weights_freezes_rotation(
+        self, sample_singleton_z_dataarray_spatial
+    ):
         """Setting rotation weight to 0 produces the same result as translation-only."""
-        da = sample_2d_dataarray_spatial
+        da = sample_singleton_z_dataarray_spatial
         _, affine_translation, _ = register_volume(da, da, transform_type="translation")
         # 3D rigid with rotations frozen: [rot_x, rot_y, rot_z, tx, ty, tz] with
         # weight [0, 0, 0, 1, 1, 1].
@@ -690,7 +708,7 @@ class TestRegisterVolumeThinDims:
         assert result.shape == da.shape
 
     def test_float32_moving_float64_fixed_does_not_crash(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """float32 moving and float64 fixed register without a dtype mismatch error.
 
@@ -698,8 +716,8 @@ class TestRegisterVolumeThinDims:
         same pixel type. Mixed dtypes (e.g. float32 template vs. float64 mean of NIfTI
         data) previously raised a RuntimeError.
         """
-        moving = sample_2d_dataarray_spatial  # float32
-        fixed = sample_2d_dataarray_spatial.astype(np.float64)
+        moving = sample_singleton_z_dataarray_spatial  # float32
+        fixed = sample_singleton_z_dataarray_spatial.astype(np.float64)
         result, _, _ = register_volume(moving, fixed, transform_type="translation")
         assert result.shape == fixed.shape
 
@@ -724,18 +742,22 @@ class TestResampleVolume:
     """Unit tests for the low-level resample_volume."""
 
     def test_time_dimension_moving_works(
-        self, sample_2d_image, sample_2d_dataarray, sample_2d_dataarray_spatial
+        self,
+        sample_2d_image,
+        sample_singleton_z_dataarray,
+        sample_singleton_z_dataarray_spatial,
     ):
         """moving with a time dimension resamples each frame with the same transform."""
         result = resample_volume(
-            sample_2d_dataarray,
+            sample_singleton_z_dataarray,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert "time" in result.dims
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_singleton_z_dataarray.shape
         assert_allclose(
-            result.coords["time"].values, sample_2d_dataarray.coords["time"].values
+            result.coords["time"].values,
+            sample_singleton_z_dataarray.coords["time"].values,
         )
 
     def test_3d_time_dimension_moving_works(
@@ -761,41 +783,43 @@ class TestResampleVolume:
                 da, np.eye(2), shape=[10], spacing=[1.0], origin=[0.0], dims=["x"]
             )
 
-    def test_affine_shape_mismatch_raises(self, sample_2d_dataarray_spatial):
+    def test_affine_shape_mismatch_raises(self, sample_singleton_z_dataarray_spatial):
         """Affine with wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="affine shape"):
             resample_volume(
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 np.eye(3),  # wrong: 2D affine for a 3D single-slice volume
-                **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+                **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
             )
 
     def test_output_shape_matches_requested_shape(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """Output shape matches the requested shape, not the moving shape."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_singleton_z_dataarray_spatial.isel(y=slice(16), x=slice(16))
         result = resample_volume(
             moving,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
-        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert result.shape == sample_singleton_z_dataarray_spatial.shape
 
     def test_coords_reconstructed_from_origin_and_spacing(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """Output coordinates are reconstructed from origin and spacing, not copied."""
-        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
-        result = resample_volume(sample_2d_dataarray_spatial, np.eye(4), **grid)
-        for i, d in enumerate(sample_2d_dataarray_spatial.dims):
+        grid = get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial)
+        result = resample_volume(
+            sample_singleton_z_dataarray_spatial, np.eye(4), **grid
+        )
+        for i, d in enumerate(sample_singleton_z_dataarray_spatial.dims):
             expected = (
                 grid["origin"][i] + np.arange(grid["shape"][i]) * grid["spacing"][i]
             )
             assert_allclose(result.coords[d].values, expected)
 
     def test_matches_register_volume_resample(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_volume matches register_volume(resample=True) on a shifted image."""
         rng = np.random.default_rng(42)
@@ -805,19 +829,19 @@ class TestResampleVolume:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             resample=True,
         )
         result = resample_volume(
             moving,
             affine,
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
@@ -825,24 +849,24 @@ class TestResampleVolume:
 class TestInitialization:
     """Tests for the initialization parameter of register_volume."""
 
-    def test_wrong_shape_raises(self, sample_2d_dataarray_spatial):
+    def test_wrong_shape_raises(self, sample_singleton_z_dataarray_spatial):
         """Affine initialization with wrong shape raises ValueError."""
         with pytest.raises(ValueError, match="initialization shape"):
             register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="bspline",
                 initialization=np.eye(3),  # wrong: 2D affine for 3D single-slice images
             )
 
     def test_bspline_with_affine_initialization_stores_pre_affine(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """B-spline result stores the pre-affine when affine initialization is given."""
         pre_affine = np.eye(4)
         _, bspline_tx, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
             initialization=pre_affine,
             mesh_size=(1, 1, 1),
@@ -855,12 +879,12 @@ class TestInitialization:
         assert "bspline_initialization" in bspline_tx.attrs["affines"]
 
     def test_bspline_without_affine_initialization_has_no_pre_affine(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """B-spline result without affine initialization has no bspline_initialization key."""
         _, bspline_tx, _ = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
         assert isinstance(bspline_tx, xr.DataArray)
@@ -868,7 +892,7 @@ class TestInitialization:
         assert "bspline_initialization" not in affines
 
     def test_center_moments_uses_moments_initializer(
-        self, sample_2d_dataarray_spatial, monkeypatch
+        self, sample_singleton_z_dataarray_spatial, monkeypatch
     ):
         """center_moments uses SimpleITK's moments-based centering initializer."""
         import SimpleITK as sitk
@@ -883,8 +907,8 @@ class TestInitialization:
         monkeypatch.setattr(sitk, "CenteredTransformInitializer", wrapped_initializer)
 
         register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="affine",
             initialization="center_moments",
         )
@@ -896,7 +920,7 @@ class TestResampleVolumeWithBspline:
     """Tests for resample_volume and resample_like with a B-spline DataArray transform."""
 
     def test_resample_like_with_bspline_matches_direct_resample(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_like with a B-spline DataArray matches register_volume(resample=True)."""
         rng = np.random.default_rng(0)
@@ -906,23 +930,23 @@ class TestResampleVolumeWithBspline:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
             resample=True,
             mesh_size=(1, 1, 1),
             learning_rate=0.1,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
+        result = resample_like(moving, sample_singleton_z_dataarray_spatial, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_resample_like_with_composite_bspline_matches_direct_resample(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_like with composite B-spline matches register_volume(resample=True)."""
         rng = np.random.default_rng(1)
@@ -932,19 +956,19 @@ class TestResampleVolumeWithBspline:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         # First pass: affine registration.
         _, affine_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="affine",
         )
         # Second pass: B-spline refinement on top of the affine.
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
             initialization=affine_tx,
             resample=True,
@@ -952,7 +976,7 @@ class TestResampleVolumeWithBspline:
             learning_rate=0.1,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
+        result = resample_like(moving, sample_singleton_z_dataarray_spatial, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
@@ -1026,7 +1050,7 @@ class TestDisplacementField:
             )
 
     def test_sample_displacement_field_like_time_reference_raises(
-        self, sample_2d_dataarray
+        self, sample_singleton_z_dataarray
     ):
         """The `_like` wrapper rejects references with a time dimension."""
         transform = xr.DataArray(
@@ -1040,7 +1064,7 @@ class TestDisplacementField:
             },
         )
         with pytest.raises(ValueError, match="time dimension"):
-            sample_displacement_field_like(transform, sample_2d_dataarray)
+            sample_displacement_field_like(transform, sample_singleton_z_dataarray)
 
     def test_invert_displacement_field_wrong_type_attr_raises(self):
         """A DataArray with the wrong `type` attr is rejected."""
@@ -1117,49 +1141,50 @@ class TestDisplacementField:
                 )
 
     def test_sample_displacement_field_returns_valid_dataarray(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """Sampling an identity B-spline transform yields a near-zero dense field."""
         _, bspline_tx, _ = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        grid = get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
         np.testing.assert_array_equal(field.coords["component"].values, ["z", "y", "x"])
-        assert field.shape == (3, *sample_2d_dataarray_spatial.shape)
+        assert field.shape == (3, *sample_singleton_z_dataarray_spatial.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
 
     def test_sample_displacement_field_like_matches_explicit_grid(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """The `_like` wrapper matches explicit-grid sampling."""
         _, bspline_tx, _ = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
 
         by_grid = sample_displacement_field(
-            bspline_tx, **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+            bspline_tx,
+            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         by_reference = sample_displacement_field_like(
-            bspline_tx, sample_2d_dataarray_spatial
+            bspline_tx, sample_singleton_z_dataarray_spatial
         )
 
         assert_array_equal(by_reference.coords["component"].values, ["z", "y", "x"])
         assert_allclose(by_reference.values, by_grid.values, atol=1e-6)
         assert_allclose(
             by_reference.coords["y"].values,
-            sample_2d_dataarray_spatial.coords["y"].values,
+            sample_singleton_z_dataarray_spatial.coords["y"].values,
         )
         assert_allclose(
             by_reference.coords["x"].values,
-            sample_2d_dataarray_spatial.coords["x"].values,
+            sample_singleton_z_dataarray_spatial.coords["x"].values,
         )
 
     def test_invert_displacement_field_undoes_translation(self):
@@ -1193,7 +1218,7 @@ class TestDisplacementField:
         assert_allclose(inverted.values[interior], -array[interior], atol=1e-2)
 
     def test_resample_volume_with_displacement_field_matches_bspline(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_volume with a displacement field matches the equivalent B-spline resample."""
         rng = np.random.default_rng(2)
@@ -1203,15 +1228,15 @@ class TestDisplacementField:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         _, bspline_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        grid = get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
         result_bspline = resample_volume(moving, bspline_tx, **grid)
@@ -1220,7 +1245,7 @@ class TestDisplacementField:
         assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
 
     def test_matches_bspline_with_singleton_spatial_dim(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """A singleton spatial dim (a single 2D slice stored as (1, y, x)) must not
         produce NaN spacing anywhere in the field round trip.
@@ -1231,7 +1256,7 @@ class TestDisplacementField:
         `resample_volume`'s own grid handling already does.
         """
         # The fixture is already a single-slice (1, y, x) volume with a singleton z.
-        fixed = sample_2d_dataarray_spatial.copy()
+        fixed = sample_singleton_z_dataarray_spatial.copy()
         fixed.coords["z"].attrs["voxdim"] = 0.5
 
         rng = np.random.default_rng(3)
@@ -1254,7 +1279,7 @@ class TestDisplacementField:
         assert not np.isnan(inverse_field.values).any()
 
     def test_invert_displacement_field_with_singleton_spatial_dim_is_nonzero(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """Inverting a field with a singleton spatial axis must not silently no-op.
 
@@ -1266,7 +1291,7 @@ class TestDisplacementField:
         rather than passing the degenerate field straight to the filter.
         """
         # The fixture is already a single-slice (1, y, x) volume with a singleton z.
-        fixed = sample_2d_dataarray_spatial.copy()
+        fixed = sample_singleton_z_dataarray_spatial.copy()
         fixed.coords["z"].attrs["voxdim"] = 0.5
 
         rng = np.random.default_rng(4)
@@ -1293,31 +1318,38 @@ class TestResampleLike:
     """Unit tests for resample_like."""
 
     def test_time_dimension_moving_works(
-        self, sample_2d_dataarray, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray, sample_singleton_z_dataarray_spatial
     ):
         """moving with a time dimension resamples each frame with the same transform."""
         result = resample_like(
-            sample_2d_dataarray, sample_2d_dataarray_spatial, np.eye(4)
+            sample_singleton_z_dataarray,
+            sample_singleton_z_dataarray_spatial,
+            np.eye(4),
         )
         assert "time" in result.dims
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_singleton_z_dataarray.shape
         assert_allclose(
-            result.coords["time"].values, sample_2d_dataarray.coords["time"].values
+            result.coords["time"].values,
+            sample_singleton_z_dataarray.coords["time"].values,
         )
 
     def test_time_dimension_reference_raises(
-        self, sample_2d_dataarray, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray, sample_singleton_z_dataarray_spatial
     ):
         """reference with a time dimension raises ValueError."""
         with pytest.raises(ValueError, match="time"):
-            resample_like(sample_2d_dataarray_spatial, sample_2d_dataarray, np.eye(4))
+            resample_like(
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray,
+                np.eye(4),
+            )
 
     def test_mismatched_units_between_moving_and_reference_raise(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """moving and reference must agree on spatial coordinate units when declared."""
-        moving = sample_2d_dataarray_spatial.copy()
-        reference = sample_2d_dataarray_spatial.copy()
+        moving = sample_singleton_z_dataarray_spatial.copy()
+        reference = sample_singleton_z_dataarray_spatial.copy()
         moving.coords["y"].attrs["units"] = "mm"
         moving.coords["x"].attrs["units"] = "mm"
         reference.coords["y"].attrs["units"] = "um"
@@ -1327,10 +1359,10 @@ class TestResampleLike:
             resample_like(moving, reference, np.eye(4))
 
     def test_mismatched_units_between_transform_and_reference_raise(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """DataArray transforms must agree with the reference units when declared."""
-        reference = sample_2d_dataarray_spatial.copy()
+        reference = sample_singleton_z_dataarray_spatial.copy()
         reference.coords["y"].attrs["units"] = "mm"
         reference.coords["x"].attrs["units"] = "mm"
         transform = xr.DataArray(
@@ -1353,53 +1385,57 @@ class TestResampleLike:
         with pytest.raises(ValueError, match="must contain all spatial dimensions"):
             resample_like(da, da, np.eye(2))
 
-    def test_default_fill_is_moving_min(self, sample_2d_dataarray_spatial):
+    def test_default_fill_is_moving_min(self, sample_singleton_z_dataarray_spatial):
         """Out-of-FOV voxels default to moving.min(), not 0.0."""
         moving = xr.DataArray(
             np.ones((1, 8, 8), dtype=np.float32) * 5.0,
             dims=("z", "y", "x"),
             coords={
-                "z": sample_2d_dataarray_spatial.coords["z"],
-                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
-                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
+                "z": sample_singleton_z_dataarray_spatial.coords["z"],
+                "y": sample_singleton_z_dataarray_spatial.coords["y"].values[:8],
+                "x": sample_singleton_z_dataarray_spatial.coords["x"].values[:8],
             },
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(4))
+        result = resample_like(moving, sample_singleton_z_dataarray_spatial, np.eye(4))
         assert float(result.values[0, -1, -1]) == pytest.approx(5.0, abs=1e-5)
 
-    def test_explicit_fill_value_overrides(self, sample_2d_dataarray_spatial):
+    def test_explicit_fill_value_overrides(self, sample_singleton_z_dataarray_spatial):
         """Explicit fill_value overrides the auto-default."""
         moving = xr.DataArray(
             np.ones((1, 8, 8), dtype=np.float32) * 5.0,
             dims=("z", "y", "x"),
             coords={
-                "z": sample_2d_dataarray_spatial.coords["z"],
-                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
-                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
+                "z": sample_singleton_z_dataarray_spatial.coords["z"],
+                "y": sample_singleton_z_dataarray_spatial.coords["y"].values[:8],
+                "x": sample_singleton_z_dataarray_spatial.coords["x"].values[:8],
             },
         )
         result = resample_like(
-            moving, sample_2d_dataarray_spatial, np.eye(4), fill_value=0.0
+            moving, sample_singleton_z_dataarray_spatial, np.eye(4), fill_value=0.0
         )
         assert float(result.values[0, -1, -1]) == pytest.approx(0.0, abs=1e-5)
 
     def test_output_coords_match_reference(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """Output coordinates match reference, not moving."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
-        result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(4))
+        moving = sample_singleton_z_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        result = resample_like(moving, sample_singleton_z_dataarray_spatial, np.eye(4))
         assert_allclose(
-            result.coords["y"].values, sample_2d_dataarray_spatial.coords["y"].values
+            result.coords["y"].values,
+            sample_singleton_z_dataarray_spatial.coords["y"].values,
         )
         assert_allclose(
-            result.coords["x"].values, sample_2d_dataarray_spatial.coords["x"].values
+            result.coords["x"].values,
+            sample_singleton_z_dataarray_spatial.coords["x"].values,
         )
 
-    def test_inherits_reference_affines(self, sample_2d_dataarray_spatial):
+    def test_inherits_reference_affines(self, sample_singleton_z_dataarray_spatial):
         """resample_like output inherits physical-space affines from `reference`."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16)).copy()
-        reference = sample_2d_dataarray_spatial.copy()
+        moving = sample_singleton_z_dataarray_spatial.isel(
+            y=slice(16), x=slice(16)
+        ).copy()
+        reference = sample_singleton_z_dataarray_spatial.copy()
         moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
         reference.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
 
@@ -1412,7 +1448,7 @@ class TestResampleLike:
         )
 
     def test_matches_register_volume_resample_2d(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_like matches register_volume(resample=True) on a shifted 2D image."""
         rng = np.random.default_rng(42)
@@ -1422,16 +1458,16 @@ class TestResampleLike:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             resample=True,
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, affine)
+        result = resample_like(moving, sample_singleton_z_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_matches_register_volume_resample_3d(
@@ -1456,7 +1492,7 @@ class TestResampleLike:
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_matches_register_volume_with_affine_initialization(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_like matches register_volume(resample=True) when affine initialization is used.
 
@@ -1472,33 +1508,35 @@ class TestResampleLike:
         )
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
         _, affine_init, _ = register_volume(
-            moving, sample_2d_dataarray_spatial, transform_type="translation"
+            moving, sample_singleton_z_dataarray_spatial, transform_type="translation"
         )
         resampled_direct, affine, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="affine",
             initialization=affine_init,
             resample=True,
         )
-        result = resample_like(moving, sample_2d_dataarray_spatial, affine)
+        result = resample_like(moving, sample_singleton_z_dataarray_spatial, affine)
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_matches_resample_volume(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """resample_like and resample_volume produce identical results."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_singleton_z_dataarray_spatial.isel(y=slice(16), x=slice(16))
         affine = np.eye(4)
-        result_like = resample_like(moving, sample_2d_dataarray_spatial, affine)
+        result_like = resample_like(
+            moving, sample_singleton_z_dataarray_spatial, affine
+        )
         result_vol = resample_volume(
             moving,
             affine,
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert_allclose(result_like.values, result_vol.values, atol=1e-10)
 
@@ -1507,20 +1545,20 @@ class TestRegisterVolumeDiagnostics:
     """Diagnostics object returned by register_volume."""
 
     def test_returns_diagnostics_with_consistent_fields(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):
         """register_volume returns a fully populated RegistrationDiagnostics."""
         shifted = np.roll(np.roll(sample_2d_image, 2, axis=0), 2, axis=1)
         moving = xr.DataArray(
             shifted[np.newaxis],
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
+            dims=sample_singleton_z_dataarray_spatial.dims,
+            coords=sample_singleton_z_dataarray_spatial.coords,
         )
 
         max_iters = 50
         _, _, diagnostics = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             number_of_iterations=max_iters,
         )
@@ -1542,11 +1580,11 @@ class TestRegisterVolumeDiagnostics:
         assert isinstance(diagnostics.stop_condition, str)
         assert diagnostics.stop_condition != ""
 
-    def test_metric_field_echoes_argument(self, sample_2d_dataarray_spatial):
+    def test_metric_field_echoes_argument(self, sample_singleton_z_dataarray_spatial):
         """The `metric` field on diagnostics matches the metric argument."""
         _, _, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             metric="mattes_mi",
         )
@@ -1624,15 +1662,15 @@ class TestRegisterVolumePreSetAbort:
     """Pre-set abort_event short-circuits before SimpleITK Execute is called."""
 
     def test_bspline_abort_returns_initial_bspline_transform(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """Pre-aborted bspline returns a DataArray without forcing a bspline fit."""
         abort_event = Event()
         abort_event.set()
 
         _, transform, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
             abort_event=abort_event,
         )
@@ -1649,7 +1687,7 @@ class TestRegisterVolumePreSetAbort:
         assert transform.attrs.get("transform_type") == "bspline_transform"
 
     def test_affine_initialization_abort_returns_initialization_affine(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """Pre-aborted linear registration returns the provided affine initialization.
 
@@ -1670,8 +1708,8 @@ class TestRegisterVolumePreSetAbort:
         abort_event.set()
 
         _, transform, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="rigid",
             initialization=pre_affine,
             abort_event=abort_event,
@@ -1686,7 +1724,7 @@ class TestRegisterVolumeConvergesBeforeFirstIteration:
     """`final_metric_value` falls back to the optimizer's metric when no iteration event fires."""
 
     def test_final_metric_value_pulled_from_optimizer_when_no_iterations(
-        self, sample_2d_dataarray_spatial
+        self, sample_singleton_z_dataarray_spatial
     ):
         """When SimpleITK converges before any iteration event, final_metric_value is
         the optimizer's current metric, not NaN.
@@ -1696,8 +1734,8 @@ class TestRegisterVolumeConvergesBeforeFirstIteration:
         iteration 0 before any iteration event fires.
         """
         _, _, diagnostics = register_volume(
-            sample_2d_dataarray_spatial,
-            sample_2d_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
+            sample_singleton_z_dataarray_spatial,
             transform_type="translation",
             number_of_iterations=100,
             convergence_minimum_value=1.0,
@@ -1713,7 +1751,9 @@ class TestRegisterVolumeConvergesBeforeFirstIteration:
 class TestRegisterVolumeFromWorkerThread:
     """`register_volume` works when called from a non-main thread."""
 
-    def test_register_volume_runs_in_non_main_thread(self, sample_2d_dataarray_spatial):
+    def test_register_volume_runs_in_non_main_thread(
+        self, sample_singleton_z_dataarray_spatial
+    ):
         """Calling `register_volume` from a worker thread bypasses SIGINT wiring.
 
         The non-main-thread branch of `abort_on_sigint` skips installing a SIGINT
@@ -1729,8 +1769,8 @@ class TestRegisterVolumeFromWorkerThread:
         def worker() -> None:
             assert threading.current_thread() is not threading.main_thread()
             result, transform, diagnostics = register_volume(
-                sample_2d_dataarray_spatial,
-                sample_2d_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
+                sample_singleton_z_dataarray_spatial,
                 transform_type="translation",
                 number_of_iterations=2,
             )
@@ -1746,5 +1786,5 @@ class TestRegisterVolumeFromWorkerThread:
         diagnostics = result_holder["diagnostics"]
         assert isinstance(result, xr.DataArray)
         assert isinstance(diagnostics, RegistrationDiagnostics)
-        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert result.shape == sample_singleton_z_dataarray_spatial.shape
         assert diagnostics.status == "completed"

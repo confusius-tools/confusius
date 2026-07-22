@@ -164,7 +164,7 @@ def _prefetch_khallaf() -> None:
 
 
 def _prefetch_rabut_2024_human_glm() -> None:
-    # docs/examples/01_io/02_create_custom_fusi_dataarray.py
+    # docs/examples/01_io/02_create_fusi_dataarray_from_mat.py
     cache_dir = Path(pooch.os_cache("confusius")) / "rabut_2024_human_glm"
     cache_dir.mkdir(parents=True, exist_ok=True)
     with RemoteZip(_RABUT_2024_RECORD_URL) as archive:

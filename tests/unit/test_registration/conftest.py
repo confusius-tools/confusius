@@ -23,7 +23,7 @@ def sample_3d_array():
 
 
 @pytest.fixture
-def sample_2d_dataarray_spatial(sample_2d_image):
+def sample_singleton_z_dataarray_spatial(sample_2d_image):
     """Single-slice spatial (1, y, x) DataArray wrapping sample_2d_image.
 
     Single-slice fUSI data is represented as 3D with a singleton `z` axis (0.2 mm
@@ -55,7 +55,7 @@ def sample_3d_dataarray_spatial(sample_3d_array):
 
 
 @pytest.fixture
-def sample_2d_dataarray(sample_2d_image):
+def sample_singleton_z_dataarray(sample_2d_image):
     """Single-slice time-varying (time, 1, y, x) DataArray (5 frames).
 
     Single-slice fUSI recordings are represented as 3D+time data with a singleton

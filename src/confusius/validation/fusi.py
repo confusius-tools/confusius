@@ -10,6 +10,7 @@ import xarray as xr
 
 from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
+from confusius._utils.validation import require_dataarray
 
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
@@ -232,8 +233,7 @@ def canonicalize_fusi_dataarray(data: xr.DataArray) -> xr.DataArray:
     ValueError
         If a missing spatial dimension has no scalar coordinate to restore from.
     """
-    if not isinstance(data, xr.DataArray):
-        raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
+    require_dataarray(data)
 
     result = data
     for dim in SPATIAL_DIMS:
@@ -286,8 +286,7 @@ def ensure_fusi_dataarray(data: xr.DataArray, **validate_kwargs: Any) -> xr.Data
     ValueError
         If canonicalization or validation fails.
     """
-    if not isinstance(data, xr.DataArray):
-        raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
+    require_dataarray(data)
 
     _validate_core_dimension_names(
         data,
@@ -375,8 +374,7 @@ def validate_fusi_dataarray(
         there are too few spatial dimensions, core numeric coordinate constraints fail,
         optional stricter checks fail, or required metadata is missing.
     """
-    if not isinstance(data, xr.DataArray):
-        raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
+    require_dataarray(data)
 
     _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
 

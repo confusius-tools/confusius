@@ -214,8 +214,9 @@ def compute_framewise_displacement(
     Raises
     ------
     ValueError
-        If `reference` fails fUSI validation, or if `affines` is empty or contains an
-        array that is not a `(4, 4)` homogeneous 3D affine.
+        If `reference` contains a `time` dimension, fails fUSI validation, or if
+        `affines` is empty or contains an array that is not a `(4, 4)` homogeneous 3D
+        affine.
     TypeError
         If any affine entry is not a `numpy.ndarray`.
 
@@ -228,6 +229,11 @@ def compute_framewise_displacement(
     """
     from confusius.validation import ensure_fusi_dataarray
 
+    if "time" in reference.dims:
+        raise ValueError(
+            f"'reference' must not have a time dimension; got dims {reference.dims}."
+        )
+
     reference = ensure_fusi_dataarray(
         reference,
         require_time=False,
@@ -239,7 +245,8 @@ def compute_framewise_displacement(
 
     affines_validated = _validate_affines(affines)
     n_frames = len(affines_validated)
-    # fUSI references and affines are both 3D after validation.
+    # fUSI references and affines are both 3D after validation; the 'time' check above
+    # rules out the only allowed core dim that could otherwise make reference.ndim != 3.
     ndim = 3
 
     coords_1d = [
@@ -321,12 +328,32 @@ def create_motion_dataframe(
     Raises
     ------
     ValueError
-        If `reference` fails fUSI validation, or if `affines` is empty or contains an
-        array that is not a `(4, 4)` homogeneous 3D affine.
+        If `reference` contains a `time` dimension, fails fUSI validation, or if
+        `affines` is empty or contains an array that is not a `(4, 4)` homogeneous 3D
+        affine.
     TypeError
         If any affine entry is not a `numpy.ndarray`.
     """
     import pandas as pd
+
+    from confusius.validation import ensure_fusi_dataarray
+
+    if "time" in reference.dims:
+        raise ValueError(
+            f"'reference' must not have a time dimension; got dims {reference.dims}."
+        )
+
+    # Canonicalize once so a scalar-indexed reference (e.g. `.isel(z=0)`) has its
+    # singleton spatial dim restored before compute_framewise_displacement and
+    # _get_motion_parameter_columns both consult reference.dims.
+    reference = ensure_fusi_dataarray(
+        reference,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+        require_regular_spacing=True,
+        regular_spacing_dims="space",
+    )
 
     params = extract_motion_parameters(affines)
     fd_dict = compute_framewise_displacement(affines, reference, mask)

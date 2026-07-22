@@ -48,22 +48,22 @@ class TestRegisterVolumewise:
         result = register_volumewise(scan_2d, n_jobs=1, transform="translation")
         assert result.shape == scan_2d.shape
 
-    def test_non_h5py_dask_backed_does_not_raise(self, sample_2d_dataarray):
+    def test_non_h5py_dask_backed_does_not_raise(self, sample_singleton_z_dataarray):
         """Dask-backed (non-h5py) DataArray with n_jobs != 1 does not raise TypeError."""
         import dask.array as da
 
         # Build a dask-backed DataArray that is NOT backed by h5py; is_h5py_backed
         # should return False and registration should proceed normally.
         dask_data = xr.DataArray(
-            da.from_array(sample_2d_dataarray.values),
-            dims=sample_2d_dataarray.dims,
-            coords=sample_2d_dataarray.coords,
+            da.from_array(sample_singleton_z_dataarray.values),
+            dims=sample_singleton_z_dataarray.dims,
+            coords=sample_singleton_z_dataarray.coords,
         )
         result = register_volumewise(dask_data, n_jobs=2, transform="translation")
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_singleton_z_dataarray.shape
 
     def test_show_progress_false_skips_joblib_progress_import(
-        self, sample_2d_dataarray, monkeypatch
+        self, sample_singleton_z_dataarray, monkeypatch
     ):
         """show_progress=False does not import joblib_progress."""
         import builtins
@@ -80,35 +80,38 @@ class TestRegisterVolumewise:
         monkeypatch.setattr(builtins, "__import__", _guarded_import)
 
         result = register_volumewise(
-            sample_2d_dataarray,
+            sample_singleton_z_dataarray,
             n_jobs=1,
             transform="translation",
             show_progress=False,
         )
 
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_singleton_z_dataarray.shape
 
-    def test_abort_event_returns_partial_dataset(self, sample_2d_dataarray):
+    def test_abort_event_returns_partial_dataset(self, sample_singleton_z_dataarray):
         """A pre-set abort event returns an aborted partial dataset."""
         abort_event = Event()
         abort_event.set()
 
         result = register_volumewise(
-            sample_2d_dataarray,
+            sample_singleton_z_dataarray,
             n_jobs=2,
             transform="translation",
             abort_event=abort_event,
         )
 
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_singleton_z_dataarray.shape
         assert set(result.attrs["motion_params"]["status"]) == {"aborted"}
         assert_allclose(
             result.values,
-            np.full_like(sample_2d_dataarray.values, sample_2d_dataarray.values.min()),
+            np.full_like(
+                sample_singleton_z_dataarray.values,
+                sample_singleton_z_dataarray.values.min(),
+            ),
         )
 
     def test_progress_reporter_receives_frame_updates(
-        self, sample_2d_dataarray, monkeypatch
+        self, sample_singleton_z_dataarray, monkeypatch
     ):
         reporter = _FakeVolumewiseProgressReporter()
 
@@ -129,21 +132,21 @@ class TestRegisterVolumewise:
         )
 
         result = register_volumewise(
-            sample_2d_dataarray,
+            sample_singleton_z_dataarray,
             n_jobs=1,
             transform="translation",
             show_progress=False,
             progress_reporter=reporter,
         )
 
-        assert result.shape == sample_2d_dataarray.shape
+        assert result.shape == sample_singleton_z_dataarray.shape
         assert sorted(reporter.completed_frames) == list(
-            range(sample_2d_dataarray.sizes["time"])
+            range(sample_singleton_z_dataarray.sizes["time"])
         )
         assert reporter.closed
 
     def test_abort_during_run_skips_not_yet_started_frames(
-        self, sample_2d_dataarray, monkeypatch
+        self, sample_singleton_z_dataarray, monkeypatch
     ):
         """Already-scheduled frames hit the cheap aborted-frame fast path."""
         import joblib
@@ -192,7 +195,7 @@ class TestRegisterVolumewise:
         monkeypatch.setattr(joblib, "delayed", _fake_delayed)
 
         result = register_volumewise(
-            sample_2d_dataarray,
+            sample_singleton_z_dataarray,
             n_jobs=2,
             transform="translation",
             show_progress=False,
@@ -204,7 +207,7 @@ class TestRegisterVolumewise:
         assert all(status == "aborted" for status in statuses[1:])
         assert calls["count"] == 1
 
-        background = sample_2d_dataarray.values.min()
+        background = sample_singleton_z_dataarray.values.min()
         assert np.all(result.values[1:] == background)
 
     def test_wrong_dimensionality_raises(self):
@@ -217,7 +220,7 @@ class TestRegisterVolumewise:
     @pytest.mark.parametrize(
         ("data_fixture", "dims"),
         [
-            ("sample_2d_dataarray", ("time", "z", "y", "x")),
+            ("sample_singleton_z_dataarray", ("time", "z", "y", "x")),
             ("sample_3d_dataarray", ("time", "z", "y", "x")),
         ],
     )
@@ -265,50 +268,55 @@ class TestRegisterVolumewise:
         assert_allclose(motion_df.loc[motion_df.index[1], "trans_x"], shift_x, atol=0.2)
         assert_allclose(motion_df.loc[motion_df.index[1], "trans_y"], shift_y, atol=0.2)
 
-    def test_output_has_motion_metadata_attributes(self, sample_2d_dataarray):
+    def test_output_has_motion_metadata_attributes(self, sample_singleton_z_dataarray):
         """Output has motion metadata attributes."""
-        result = register_volumewise(sample_2d_dataarray, reference_time=2, n_jobs=1)
+        result = register_volumewise(
+            sample_singleton_z_dataarray, reference_time=2, n_jobs=1
+        )
 
         assert "registration" not in result.attrs
         assert result.attrs["reference_time"] == 2
         assert "motion_params" in result.attrs
 
-    def test_preserves_input_attributes(self, sample_2d_dataarray):
+    def test_preserves_input_attributes(self, sample_singleton_z_dataarray):
         """Input attributes are preserved in output."""
-        sample_2d_dataarray.attrs["custom_attr"] = "test_value"
+        sample_singleton_z_dataarray.attrs["custom_attr"] = "test_value"
 
-        result = register_volumewise(sample_2d_dataarray, n_jobs=1)
+        result = register_volumewise(sample_singleton_z_dataarray, n_jobs=1)
 
         assert result.attrs["custom_attr"] == "test_value"
 
-    def test_preserves_coordinates(self, sample_2d_dataarray):
+    def test_preserves_coordinates(self, sample_singleton_z_dataarray):
         """Coordinates are preserved in output."""
-        result = register_volumewise(sample_2d_dataarray, n_jobs=1)
+        result = register_volumewise(sample_singleton_z_dataarray, n_jobs=1)
 
         assert_allclose(
-            result.coords["time"].values, sample_2d_dataarray.coords["time"].values
+            result.coords["time"].values,
+            sample_singleton_z_dataarray.coords["time"].values,
         )
         assert_allclose(
-            result.coords["y"].values, sample_2d_dataarray.coords["y"].values
+            result.coords["y"].values, sample_singleton_z_dataarray.coords["y"].values
         )
         assert_allclose(
-            result.coords["x"].values, sample_2d_dataarray.coords["x"].values
+            result.coords["x"].values, sample_singleton_z_dataarray.coords["x"].values
         )
 
-    def test_different_reference_time(self, sample_2d_dataarray):
+    def test_different_reference_time(self, sample_singleton_z_dataarray):
         """Can use different reference time indices."""
-        result = register_volumewise(sample_2d_dataarray, reference_time=2, n_jobs=1)
+        result = register_volumewise(
+            sample_singleton_z_dataarray, reference_time=2, n_jobs=1
+        )
 
         assert result.attrs["reference_time"] == 2
 
-    def test_transform_option(self, sample_2d_dataarray):
+    def test_transform_option(self, sample_singleton_z_dataarray):
         """transform parameter changes registration behavior."""
         # Both should work without error.
         result_no_rot = register_volumewise(
-            sample_2d_dataarray, n_jobs=1, transform="translation"
+            sample_singleton_z_dataarray, n_jobs=1, transform="translation"
         )
         result_with_rot = register_volumewise(
-            sample_2d_dataarray, n_jobs=1, transform="rigid"
+            sample_singleton_z_dataarray, n_jobs=1, transform="rigid"
         )
 
         # Motion params should have 3D rotation columns in both cases.
@@ -373,7 +381,7 @@ class TestRegisterVolumewise:
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, sample_3d_dataarray.values, atol=1e-3)
 
-    def test_keep_diagnostics_toggles_full_trace(self, sample_2d_dataarray):
+    def test_keep_diagnostics_toggles_full_trace(self, sample_singleton_z_dataarray):
         """`keep_diagnostics` gates only the full diagnostics list.
 
         The cheap per-frame summaries (`final_metric_value`, `n_iterations`)
@@ -381,7 +389,7 @@ class TestRegisterVolumewise:
         memory-hungry trace list is opt-in.
         """
         # Default (False): summary columns yes, full diagnostics list no.
-        result_off = register_volumewise(sample_2d_dataarray, n_jobs=1)
+        result_off = register_volumewise(sample_singleton_z_dataarray, n_jobs=1)
         assert "registration_diagnostics" not in result_off.attrs
         motion_df_off = result_off.attrs["motion_params"]
         assert "final_metric_value" in motion_df_off.columns
@@ -389,8 +397,8 @@ class TestRegisterVolumewise:
 
         # Opt-in: full diagnostics list is also attached.
         result_on = register_volumewise(
-            sample_2d_dataarray, n_jobs=1, keep_diagnostics=True
+            sample_singleton_z_dataarray, n_jobs=1, keep_diagnostics=True
         )
         diagnostics = result_on.attrs["registration_diagnostics"]
-        assert len(diagnostics) == sample_2d_dataarray.sizes["time"]
+        assert len(diagnostics) == sample_singleton_z_dataarray.sizes["time"]
         assert all(isinstance(d, RegistrationDiagnostics) for d in diagnostics)

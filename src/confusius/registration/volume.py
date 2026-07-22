@@ -620,9 +620,10 @@ def register_volume(
     moving_sitk = dataarray_to_sitk_image(moving)
 
     # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
-    # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with a
-    # 1-voxel depth). We thus expand thin dimensions before registration; the originals are kept
-    # as the resample source/reference so the output grid is never affected.
+    # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with
+    # a 1-voxel depth). We thus expand thin dimensions before registration; the
+    # originals are kept as the resample source/reference so the output grid is never
+    # affected.
     fixed_reg = expand_thin_dims(fixed_sitk)
     moving_reg = expand_thin_dims(moving_sitk)
 

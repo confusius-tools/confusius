@@ -1,7 +1,7 @@
 """Coordinate spacing and origin helpers shared across modules."""
 
 import warnings
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -324,10 +324,9 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
             f"{missing_spacing!r}. Provide regular coordinates or `voxdim` metadata "
             "for singleton coordinates."
         )
-    spacing_values = [spacings[dim] for dim in dims]
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],
-        "spacing": [float(s) for s in spacing_values if s is not None],
+        "spacing": [cast(float, spacings[dim]) for dim in dims],
         "origin": [float(o) for o in origins.values()],
         "dims": dims,
     }
