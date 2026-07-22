@@ -66,13 +66,14 @@ data
 # volume (or frame in this case) is registered to the first acquired volume. You may
 # choose any other reference timepoint using the `reference_time`. Here, we're trying to
 # correct for rigid motion—that is, translation and rotations. The default learning rate
-# is conservative; increase it only when real inter-frame shifts are not recovered.
+# is conservative; for this recording, `1.0` recovers the inter-frame shifts better.
 
 # %%
 registered = cf.registration.register_volumewise(
     data,
     transform="rigid",
     metric="correlation",
+    learning_rate=1.0,
 )
 
 # %% [markdown]
