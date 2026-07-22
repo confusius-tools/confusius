@@ -1,7 +1,7 @@
 """Timing utilities for ConfUSIus."""
 
 import warnings
-from typing import Literal, get_args
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -15,9 +15,6 @@ from confusius.validation.time_series import validate_time_series
 
 VolumeAcquisitionReference = Literal["start", "center", "end"]
 """Where within an acquisition window a timestamp is anchored."""
-
-VOLUME_ACQUISITION_REFERENCES = get_args(VolumeAcquisitionReference)
-"""Accepted volume-acquisition timing reference names."""
 
 TIMING_REFERENCE_FACTORS: dict[VolumeAcquisitionReference, float] = {
     "start": 0.0,

@@ -10,7 +10,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM
-from confusius.timing import VOLUME_ACQUISITION_REFERENCES, VolumeAcquisitionReference
+from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
 from confusius.validation import validate_fusi_dataarray
 
 _SPATIAL_UNITS = "mm"
@@ -410,10 +410,10 @@ def create_fusi_dataarray(
             f"dimensions ({len(shape)})."
         )
 
-    if volume_acquisition_reference not in VOLUME_ACQUISITION_REFERENCES:
+    if volume_acquisition_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"volume_acquisition_reference must be one of "
-            f"{VOLUME_ACQUISITION_REFERENCES!r}, got {volume_acquisition_reference!r}."
+            f"{tuple(TIMING_REFERENCE_FACTORS)!r}, got {volume_acquisition_reference!r}."
         )
 
     if TIME_DIM not in dims and volume_acquisition_duration is not None:

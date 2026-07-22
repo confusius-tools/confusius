@@ -15,7 +15,7 @@ from confusius.iq.clutter_filters import (
     clutter_filter_svd_from_indices,
 )
 from confusius.timing import (
-    VOLUME_ACQUISITION_REFERENCES,
+    TIMING_REFERENCE_FACTORS,
     VolumeAcquisitionReference,
     convert_time_reference,
     get_representative_time_step,
@@ -277,7 +277,7 @@ def _compute_clutter_filter_window_metadata(
     iq_time_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
-    if iq_time_reference not in VOLUME_ACQUISITION_REFERENCES:
+    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown volume_acquisition_reference: {iq_time_reference!r}. Must be "
             "'start', 'center', or 'end'."
@@ -366,7 +366,7 @@ def _compute_inner_window_metadata(
     output_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
-    if output_reference not in VOLUME_ACQUISITION_REFERENCES:
+    if output_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown volume_acquisition_reference: {output_reference!r}. Must be "
             "'start', 'center', or 'end'."
@@ -507,11 +507,11 @@ def compute_processed_volume_timings(
     iq_volume_duration = _get_volume_acquisition_duration(iq)
     iq_volume_timings = np.asarray(iq.coords["time"].values)
 
-    if iq_time_reference not in VOLUME_ACQUISITION_REFERENCES:
+    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown iq_time_reference: {iq_time_reference!r}. Must be 'start', 'center', or 'end'."
         )
-    if processed_time_reference not in VOLUME_ACQUISITION_REFERENCES:
+    if processed_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             "Unknown processed_time_reference: "
             f"{processed_time_reference!r}. Must be 'start', 'center', or 'end'."

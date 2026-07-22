@@ -36,7 +36,7 @@ from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
 from confusius.registration.affines import decompose_affine
 from confusius.timing import (
-    VOLUME_ACQUISITION_REFERENCES,
+    TIMING_REFERENCE_FACTORS,
     VolumeAcquisitionReference,
     convert_time_reference,
     convert_time_units,
@@ -800,7 +800,7 @@ def _get_volume_acquisition_reference(
             )
         return "start"
 
-    if reference not in VOLUME_ACQUISITION_REFERENCES:
+    if reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown {coord_name} volume_acquisition_reference: {reference!r}. "
             "Must be 'start', 'center', or 'end'."
