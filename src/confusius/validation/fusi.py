@@ -15,9 +15,6 @@ from confusius._utils.validation import require_dataarray
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
 
-_ALLOWED_CORE_DIMS = CORE_DIMS
-"""Core dimension names recognized by ConfUSIus fUSI validators."""
-
 
 def _validate_dimension_coordinate(
     da: xr.DataArray, dim: Hashable, *, require_numeric: bool
@@ -41,7 +38,7 @@ def _validate_dimension_coordinate(
         increasing.
     """
     if dim not in da.coords:
-        if dim in _ALLOWED_CORE_DIMS:
+        if dim in CORE_DIMS:
             raise ValueError(f"Missing required coordinate for dimension {dim!r}.")
         return
 
@@ -88,11 +85,11 @@ def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> 
         )
 
     if not allow_extra_dims:
-        unexpected_dims = [dim for dim in da.dims if dim not in _ALLOWED_CORE_DIMS]
+        unexpected_dims = [dim for dim in da.dims if dim not in CORE_DIMS]
         if unexpected_dims:
             raise ValueError(
                 f"Unexpected dimensions {unexpected_dims!r}. ConfUSIus fUSI DataArrays "
-                f"may only use dimensions {_ALLOWED_CORE_DIMS!r}."
+                f"may only use dimensions {CORE_DIMS!r}."
             )
 
 
@@ -113,8 +110,8 @@ def _validate_canonical_core_dim_order(da: xr.DataArray) -> None:
         If the relative order of the present core dimensions differs from the canonical
         ConfUSIus order.
     """
-    present_core_dims = tuple(dim for dim in da.dims if dim in _ALLOWED_CORE_DIMS)
-    expected_order = tuple(dim for dim in _ALLOWED_CORE_DIMS if dim in da.dims)
+    present_core_dims = tuple(dim for dim in da.dims if dim in CORE_DIMS)
+    expected_order = tuple(dim for dim in CORE_DIMS if dim in da.dims)
     if present_core_dims != expected_order:
         raise ValueError(
             f"Core dimensions {present_core_dims!r} are not in canonical ConfUSIus "
@@ -179,7 +176,7 @@ def _validate_regular_spacing(
     if regular_spacing_dims == "space":
         dims_to_check = [dim for dim in SPATIAL_DIMS if dim in da.dims]
     elif regular_spacing_dims == "core":
-        dims_to_check = [dim for dim in _ALLOWED_CORE_DIMS if dim in da.dims]
+        dims_to_check = [dim for dim in CORE_DIMS if dim in da.dims]
     elif regular_spacing_dims == "all":
         dims_to_check = [str(dim) for dim in da.dims]
     elif isinstance(regular_spacing_dims, str):
@@ -394,9 +391,7 @@ def validate_fusi_dataarray(
         )
 
     for dim in data.dims:
-        _validate_dimension_coordinate(
-            data, dim, require_numeric=dim in _ALLOWED_CORE_DIMS
-        )
+        _validate_dimension_coordinate(data, dim, require_numeric=dim in CORE_DIMS)
 
     if require_regular_spacing:
         _validate_regular_spacing(data, regular_spacing_tolerance, regular_spacing_dims)

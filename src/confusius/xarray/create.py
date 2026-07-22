@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Literal, SupportsFloat, SupportsIndex, get_args
+from typing import SupportsFloat, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM
+from confusius.timing import VOLUME_ACQUISITION_REFERENCES, VolumeAcquisitionReference
 from confusius.validation import validate_fusi_dataarray
 
 _SPATIAL_UNITS = "mm"
@@ -17,12 +18,6 @@ _SPATIAL_UNITS = "mm"
 
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
-
-VolumeAcquisitionReference = Literal["start", "center", "end"]
-"""Where within its acquisition window each frame's `time` coordinate is anchored."""
-
-_VOLUME_ACQUISITION_REFERENCES = get_args(VolumeAcquisitionReference)
-"""Accepted values for `volume_acquisition_reference`."""
 
 
 def _require_positive_finite(
@@ -415,10 +410,10 @@ def create_fusi_dataarray(
             f"dimensions ({len(shape)})."
         )
 
-    if volume_acquisition_reference not in _VOLUME_ACQUISITION_REFERENCES:
+    if volume_acquisition_reference not in VOLUME_ACQUISITION_REFERENCES:
         raise ValueError(
             f"volume_acquisition_reference must be one of "
-            f"{_VOLUME_ACQUISITION_REFERENCES!r}, got {volume_acquisition_reference!r}."
+            f"{VOLUME_ACQUISITION_REFERENCES!r}, got {volume_acquisition_reference!r}."
         )
 
     if TIME_DIM not in dims and volume_acquisition_duration is not None:

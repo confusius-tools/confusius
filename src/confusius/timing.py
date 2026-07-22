@@ -1,7 +1,7 @@
 """Timing utilities for ConfUSIus."""
 
 import warnings
-from typing import Literal
+from typing import Literal, get_args
 
 import numpy as np
 import numpy.typing as npt
@@ -12,6 +12,19 @@ from confusius._utils.coordinates import get_representative_step
 from confusius._utils.stack import find_stack_level
 from confusius._utils.timing import interpolate_timeseries
 from confusius.validation.time_series import validate_time_series
+
+VolumeAcquisitionReference = Literal["start", "center", "end"]
+"""Where within an acquisition window a timestamp is anchored."""
+
+VOLUME_ACQUISITION_REFERENCES = get_args(VolumeAcquisitionReference)
+"""Accepted volume-acquisition timing reference names."""
+
+TIMING_REFERENCE_FACTORS: dict[VolumeAcquisitionReference, float] = {
+    "start": 0.0,
+    "center": 0.5,
+    "end": 1.0,
+}
+"""Fractional position of each timing reference within an acquisition window."""
 
 _TIME_UNIT_TO_SECONDS: dict[str, float] = {
     "s": 1.0,
@@ -28,9 +41,6 @@ _TIME_UNIT_TO_SECONDS: dict[str, float] = {
     "microseconds": 1e-6,
 }
 """Mapping from common time-unit strings to seconds."""
-
-_TIMING_REF_FACTORS: dict[str, float] = {"start": 0.0, "center": 0.5, "end": 1.0}
-"""Mapping from timing reference name to fractional position within a volume."""
 
 
 def _get_time_unit_to_seconds_factor(
@@ -224,8 +234,8 @@ def get_representative_time_step(
 def convert_time_reference(
     time: npt.ArrayLike,
     volume_duration: float | npt.ArrayLike,
-    from_reference: Literal["start", "center", "end"],
-    to_reference: Literal["start", "center", "end"],
+    from_reference: VolumeAcquisitionReference,
+    to_reference: VolumeAcquisitionReference,
 ) -> npt.NDArray[np.floating]:
     """Convert timings from one volume acquisition reference to another.
 
@@ -251,17 +261,17 @@ def convert_time_reference(
     if from_reference == to_reference:
         return time_values
 
-    if from_reference not in _TIMING_REF_FACTORS:
+    if from_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown from_reference: {from_reference!r}. Must be 'start', 'center', or 'end'."
         )
-    if to_reference not in _TIMING_REF_FACTORS:
+    if to_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown to_reference: {to_reference!r}. Must be 'start', 'center', or 'end'."
         )
 
-    from_factor = _TIMING_REF_FACTORS[from_reference]
-    to_factor = _TIMING_REF_FACTORS[to_reference]
+    from_factor = TIMING_REFERENCE_FACTORS[from_reference]
+    to_factor = TIMING_REFERENCE_FACTORS[to_reference]
     offset = (to_factor - from_factor) * volume_duration_values
 
     return time_values + offset
