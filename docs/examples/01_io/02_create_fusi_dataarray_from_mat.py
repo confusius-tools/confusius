@@ -1,16 +1,14 @@
-# %% [markdown]
 # # Create a fUSI DataArray from a MAT file
 #
-# This example downloads one human Doppler MAT-file from the public dataset
-# accompanying [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1]
-# and wraps it in a ConfUSIus
-# [DataArray][xarray.DataArray] with
+# This example downloads a power Doppler MAT file from the public dataset accompanying
+# [Rabut *et al.* (2024)](https://doi.org/10.1126/scitranslmed.adj3143)[^1] and wraps it
+# in a ConfUSIus [DataArray][xarray.DataArray] with
 # [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray].
 #
-# The MAT-file is not a format ConfUSIus reads directly. The point of this example is
-# to show the shortest path from a lab-specific array plus metadata to the standard
-# ConfUSIus `(time, z, y, x)` DataArray representation, then use ordinary Xarray,
-# ConfUSIus plotting helpers, and a small task GLM similar to the Fig. 4D analysis.
+# Since MAT files can contain any custom data, ConfUSIus cannot read them directly. The
+# point of this example is to show the shortest path from a lab-specific MAT file array
+# plus metadata to the standard ConfUSIus DataArray representation. This example then
+# reproduces figure 4D from Rabut *et al.* (2024) using a simple general linear model.
 
 # %%
 from functools import partial
@@ -37,11 +35,12 @@ stat_cmap = "berlin" if is_dark_theme else None
 _ = xr.set_options(display_expand_attrs=False, display_expand_data=False)
 
 # %% [markdown]
-# ## Download only one member of the ZIP archive
+# ## Download one recording from the Rabut *et al.* (2024) dataset
 #
-# The Caltech record stores all data in a single ZIP archive. Because the server supports
-# HTTP Range requests, [`remotezip.RemoteZip`][remotezip.RemoteZip] can read the central
-# directory and extract just the file we need instead of downloading the full archive.
+# The Caltech record stores all data in a single ZIP archive. We extract a single MAT file
+# from the archive to avoid downloading the full dataset. The MAT file contains a power
+# Doppler recording of a human subject performing a simple task, with accompanying
+# timestamps, task labels, and ultrasound metadata.
 
 # %%
 RECORD_URL = "https://data.caltech.edu/api/records/f3y3k-em558/files/data.zip/content"
@@ -58,10 +57,9 @@ if not mat_path.exists():
             target.write(source.read())
 
 # %% [markdown]
-# ## Load the Doppler array and metadata
+# ## Load the power Doppler array and metadata
 #
-# This MATLAB v7.3 file is HDF5-backed, so we use [`h5py.File`][h5py.File]. It contains
-# a power Doppler movie, task labels, frame timestamps, and ultrasound metadata.
+# This MAT file v7.3 is HDF5-backed, so we use [`h5py.File`][h5py.File] to open it.
 
 # %%
 with h5py.File(mat_path, "r") as mat:
@@ -72,18 +70,17 @@ with h5py.File(mat_path, "r") as mat:
     run_label = "".join(map(chr, mat["run_label"][()].ravel().astype(int))).strip()
 
 print(run_label)
-print(doppler.shape)
+print(f"Data shape: {doppler.shape}")
 
 # %% [markdown]
-# ## Wrap the raw array with `create_fusi_dataarray`
+# ## Wrap the raw array with [`create_fusi_dataarray`][cf.create_fusi_dataarray]
 #
-# After transposing the HDF5-loaded MATLAB array, the Doppler movie is `(time, y, x)`.
-# ConfUSIus adds the missing singleton `z` axis and returns the canonical
-# `(time, z, y, x)` layout. The timestamps have small acquisition jitter, so we pass
-# them as an exact coordinate. Following the authors' analysis code, we use the
-# acoustic wavelength from `UF.Lambda` for axial spacing and the 0.3 mm probe pitch for
-# lateral spacing. We keep depths between 10 and 30 mm to focus on the part of the image
-# with good brain signal-to-noise ratio.
+# After transposing the MATLAB array, the Doppler movie is `(time, y, x)`. ConfUSIus
+# adds the missing singleton `z` axis and returns the canonical `(time, z, y, x)`
+# layout. The timestamps have small acquisition jitter, so we pass them as an exact
+# coordinate. Following the authors' analysis code, we use the acoustic wavelength from
+# `UF.Lambda` for axial spacing and the 0.3 mm probe pitch for lateral spacing. We keep
+# depths between 10 and 30 mm to focus on the part of the image with good SNR.
 
 # %%
 dy = wavelength
@@ -113,7 +110,7 @@ task_da = cf.timing.resample_to_uniform_time(
 power_doppler
 
 # %% [markdown]
-# ## Plot the mean Doppler image
+# ## Plot the mean power Doppler image
 #
 # Once the custom file is represented as a DataArray, ConfUSIus plotting helpers work
 # the same way as they do for built-in loaders.
@@ -128,19 +125,24 @@ plotter = mean_doppler.fusi.plot.volume(
 # %% [markdown]
 # ## Motion-correct, smooth, and fit a simple task GLM
 #
-# The paper reports rigid-body motion correction, 2D Gaussian spatial smoothing, causal
-# temporal smoothing, detrending, and baseline scaling before the GLM. The default
-# registration learning rate is conservative; for this recording, `1.0` recovers the
-# motion better. We handle slow
-# drift in [`FirstLevelModel`][confusius.glm.FirstLevelModel] with a cosine drift model.
-# The task regressor is convolved with the single-gamma human fUSI HRF reported in the
-# paper (`τ = 0.7`, `δ = 3 s`, `n = 3`).
+# The paper reports rigid-body motion correction, 2D Gaussian spatial smoothing,
+# temporal smoothing, detrending, and baseline scaling before the GLM. We reproduce all
+# of these steps with ConfUSIus below.
 
 # %%
+# The default learning rate is conservative; for this recording, 1.0 recovers the motion
+# better.
 registered = power_doppler.fusi.register.volumewise(learning_rate=1.0)
-smoothed = cf.spatial.smooth_volume(registered, fwhm={"y": 0.471, "x": 0.471})
+
+# The paper reports a 2D Gaussian smoothing kernel with FWHM = 0.471 mm in both
+# spatial dimensions.
+smoothed = cf.spatial.smooth_volume(registered, fwhm=0.471)
+
+# The paper reports a simple moving average for temporal smoothing.
 filtered = smoothed.rolling(time=6, min_periods=1).mean()
 
+# The paper reports baseline scaling to percent signal change relative to the mean of
+# the rest blocks.
 baseline = filtered.where(task_da == 0).mean("time")
 scaled = 100 * filtered / baseline
 
@@ -158,6 +160,9 @@ events = pd.DataFrame(
 )
 
 
+# We handle slow drift in FirstLevelModel with a cosine drift model. The task regressor
+# is convolved with the single-gamma human fUSI HRF reported in the paper (`τ = 0.7`, `δ
+# = 3 s`, `n = 3`).
 tau = 0.7
 n = 3
 human_fusi_hrf = partial(
@@ -169,10 +174,7 @@ human_fusi_hrf = partial(
 )
 
 model = FirstLevelModel(
-    hrf_model=human_fusi_hrf,
-    noise_model="ols",
-    drift_model="cosine",
-    low_cutoff=1 / (300 * time_step),
+    hrf_model=human_fusi_hrf, noise_model="ols", drift_model="cosine", low_cutoff=0.002
 )
 model.fit(scaled, events=events)
 
@@ -208,28 +210,25 @@ plotter = z_map.fusi.plot.stat_map(
 # %%
 active_signal = scaled.where(active_voxels).mean(("z", "y", "x"))
 mean_signal = scaled.mean(("z", "y", "x"))
-fig, ax = plt.subplots(figsize=(7, 3), facecolor=bg_color)
-_ = mean_signal.plot(ax=ax, color="#808080", label="Whole-plane mean")
-_ = active_signal.plot(ax=ax, color="#d93a54", label="Top task-positive voxels")
+fig, ax = plt.subplots(figsize=(9, 4), facecolor=bg_color)
+mean_signal.plot(ax=ax, color="#808080", label="Whole-plane mean")
+active_signal.plot(ax=ax, color="#d93a54", label="Top task-positive voxels")
 for idx, event in enumerate(events.itertuples()):
     label = "Task on" if idx == 0 else None
-    _ = ax.axvspan(
+    ax.axvspan(
         event.onset,
         event.onset + event.duration,
         color="#3ad9a4",
         alpha=0.12,
         label=label,
     )
-_ = ax.set_title("Task-positive voxel time course")
-_ = ax.set_xlabel("Time (s)")
-_ = ax.set_ylabel("Signal (% rest baseline)")
+ax.set_title("Task-positive voxel time course")
+ax.set_xlabel("Time (s)")
+ax.set_ylabel("Signal (% rest baseline)")
 
-_ = ax.legend(loc="upper right")
+_ = ax.legend(loc="upper left")
 
 # %% [markdown]
-# The DataArray now carries dimensions, coordinates, units, and provenance metadata, so
-# it can be saved, plotted, subset, or passed to downstream ConfUSIus tools.
-#
 # [^1]: Rabut, Claire, et al. “Functional Ultrasound Imaging of Human Brain Activity
 #       through an Acoustically Transparent Cranial Window.” *Science Translational
 #       Medicine*, vol. 16, no. 749, May 2024, p. eadj3143. DOI.org (Crossref),
