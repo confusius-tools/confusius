@@ -59,11 +59,13 @@ if not mat_path.exists():
 # %% [markdown]
 # ## Load the power Doppler array and metadata
 #
-# This MAT file v7.3 is HDF5-backed, so we use [`h5py.File`][h5py.File] to open it.
+# This MAT file v7.3 is HDF5-backed, so we use [`h5py.File`][h5py.File] to open it. We
+# transpose the Doppler array to `(time, y, x)` and flip the lateral axis to match the
+# orientation of the original paper figures.
 
 # %%
 with h5py.File(mat_path, "r") as mat:
-    doppler = mat["dop"][()].astype("float32").transpose(0, 2, 1)
+    doppler = np.flip(mat["dop"][()].astype("float32").transpose(0, 2, 1), axis=2)
     task = mat["task"][:, 0].astype("float32")
     timestamps = mat["timestamps"][0]
     wavelength = float(mat["UF/Lambda"][0, 0])
