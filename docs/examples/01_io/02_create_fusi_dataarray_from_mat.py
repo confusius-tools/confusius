@@ -1,3 +1,4 @@
+# %% [markdown]
 # # Create a fUSI DataArray from a MAT file
 #
 # This example downloads a power Doppler MAT file from the public dataset accompanying
