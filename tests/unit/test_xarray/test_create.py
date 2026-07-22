@@ -266,6 +266,50 @@ def test_create_fusi_dataarray_uses_dt_for_singleton_time_coordinate():
     assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.5
 
 
+def test_create_fusi_dataarray_accepts_singleton_time_with_explicit_duration():
+    """A singleton explicit time coordinate can use explicit duration metadata."""
+    result = create_fusi_dataarray(
+        np.zeros((1, 1, 4, 6)),
+        dims=("time", "z", "y", "x"),
+        coords={"time": [2.0]},
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+        volume_acquisition_duration=0.4,
+    )
+
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == 0.4
+
+
+def test_create_fusi_dataarray_rejects_decreasing_explicit_time_coordinate():
+    """Explicit time coordinates must be strictly increasing."""
+    with pytest.raises(
+        ValueError, match="Coordinate 'time' must be strictly increasing"
+    ):
+        create_fusi_dataarray(
+            np.zeros((3, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            coords={"time": [0.2, 0.1, 0.0]},
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+        )
+
+
+@pytest.mark.parametrize("bad_dt", [object(), "not-a-number"])
+def test_create_fusi_dataarray_rejects_nonnumeric_spacing(bad_dt: object):
+    """Spacing values must be numeric."""
+    with pytest.raises(ValueError, match="Spacing for dimension 'time'"):
+        create_fusi_dataarray(
+            np.zeros((1, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            dt=bad_dt,  # ty: ignore[invalid-argument-type]
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+        )
+
+
 def test_create_fusi_dataarray_rejects_dims_length_mismatch():
     """The length of `dims` must match the array rank."""
     with pytest.raises(ValueError, match=r"must match the number of array dimensions"):
