@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex
+from typing import Literal, SupportsFloat, SupportsIndex
 
 import numpy as np
+import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM
 from confusius.validation import validate_fusi_dataarray
-
-if TYPE_CHECKING:
-    import numpy.typing as npt
 
 _SPATIAL_UNITS = "mm"
 """Physical units attached to the `z`, `y`, and `x` coordinates."""
