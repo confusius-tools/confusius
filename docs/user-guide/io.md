@@ -176,35 +176,10 @@ Zarr for efficient processing.
 ### Other Systems
 
 For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
-array with the tool appropriate for your file format, then wrap it as an IQ DataArray.
-For example for a MAT-file containing a complex array of shape `(x, y, z, time)`:
-
-```python
-import confusius as cf
-from confusius.validation import validate_iq_dataarray
-from scipy.io import loadmat
-
-# Replace this with your file format loader.
-raw_iq = loadmat("path/to/iq.mat")["iq"]  # replace "iq" with the variable name; array shape e.g. (x, y, z, time)
-
-iq = cf.create_fusi_dataarray(
-    raw_iq,
-    dims=("x", "y", "z", "time"),  # or whatever order your data is in
-    dt=1 / 500,
-    dz=0.4,
-    dy=0.05,
-    dx=0.1,
-    attrs={
-        "compound_sampling_frequency": 500.0,
-        "transmit_frequency": 15.625e6,
-        "beamforming_sound_velocity": 1540.0,
-    },
-)
-validate_iq_dataarray(iq, require_attrs=True)
-```
-
-See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
-required IQ metadata fields and processing assumptions.
+array with the tool appropriate for your file format, then wrap it as an IQ DataArray
+with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]. See [Processing
+Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for a complete example,
+the required dimensions and metadata fields, and processing assumptions.
 
 ## Loading Data
 
@@ -490,13 +465,17 @@ raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (x, y, time)
 power = cf.create_fusi_dataarray(
     raw_power,
     dims=("x", "y", "time"),  # missing z is added as a singleton dimension
-    dt=0.6,   # seconds between volumes
-    dz=0.4,   # spacing for the singleton z dimension in mm
-    dy=0.05,  # axial voxel size in mm
-    dx=0.1,   # lateral voxel size in mm
+    dt=1 / 2.5,  # 2.5 Hz frame rate
+    dz=0.4,      # spacing for the singleton z dimension in mm
+    dy=0.05,     # axial voxel size in mm
+    dx=0.1,      # lateral voxel size in mm
     attrs={"description": "Power Doppler from my system"},
 )
 ```
+
+See the [Create a fUSI DataArray from a MAT
+file](../examples/_built/io/create_fusi_dataarray_from_mat.md) example for a complete
+walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
 
 ## Saving Data
 

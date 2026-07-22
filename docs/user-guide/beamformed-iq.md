@@ -98,8 +98,35 @@ Additionally, ConfUSIus expects certain metadata attributes to be present:
 - `transmit_frequency`: Frequency of the transmitted ultrasound pulse (Hz).
 - `beamforming_sound_velocity`: Speed of sound used for beamforming (m/s).
 
-For unsupported IQ formats, load the complex array with your system-specific loader,
-wrap it as a DataArray, and validate the result before processing:
+Here is what a valid IQ DataArray looks like once loaded:
+
+```pycon
+>>> import confusius as cf
+>>>
+>>> iq = cf.load("sub-01_task-rest_iq.zarr")
+>>> iq
+<xarray.DataArray 'iq' (time: 50000, z: 1, y: 118, x: 52)> Size: 24GB
+dask.array<...>
+Coordinates:
+  * time     (time) float64 400kB 0.0 0.002 0.004 ... 99.994 99.996 99.998
+  * z        (z) float64 8B 0.0
+  * y        (y) float64 944B 4.656 4.705 4.753 ... 10.231 10.279 10.328
+  * x        (x) float64 416B -2.671 -2.57 -2.469 ... 2.268 2.369 2.469
+Attributes:
+    transmit_frequency:           15625000.0
+    compound_sampling_frequency:  500.0
+    pulse_repetition_frequency:   15000.0
+    beamforming_sound_velocity:   1540.0
+```
+
+In this example, the PRF is 15 kHz, but the data uses compound imaging with a
+`compound_sampling_frequency` of 500 Hz. This means each IQ sample (compound volume)
+results from combining 30 individual pulses, giving an effective temporal sampling
+period of 2 ms rather than 67 μs.
+
+If your acquisition system isn't directly supported by ConfUSIus, load the complex
+array with your system-specific loader, wrap it as a DataArray, and validate the
+result before processing:
 
 ```python
 import confusius as cf
@@ -110,7 +137,7 @@ raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
 iq = cf.create_fusi_dataarray(
     raw_iq,
     dims=("time", "z", "y", "x"),
-    dt=1 / 500,
+    dt=1 / 500,  # 500 Hz compound sampling frequency
     dz=0.4,
     dy=0.05,
     dx=0.1,
@@ -134,28 +161,6 @@ validate_iq_dataarray(iq, require_attrs=True)
       high-frequency probes used in small animal imaging.
     - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
       with temperature and tissue type.
-
-```pycon
->>> iq = cf.load("sub-01_task-rest_iq.zarr")
->>> iq
-<xarray.DataArray 'iq' (time: 50000, z: 1, y: 118, x: 52)> Size: 24GB
-dask.array<...>
-Coordinates:
-  * time     (time) float64 400kB 0.0 0.002 0.004 ... 99.994 99.996 99.998
-  * z        (z) float64 8B 0.0
-  * y        (y) float64 944B 4.656 4.705 4.753 ... 10.231 10.279 10.328
-  * x        (x) float64 416B -2.671 -2.57 -2.469 ... 2.268 2.369 2.469
-Attributes:
-    transmit_frequency:           15625000.0
-    compound_sampling_frequency:  500.0
-    pulse_repetition_frequency:   15000.0
-    beamforming_sound_velocity:   1540.0
-```
-
-In this example, the PRF is 15 kHz, but the data uses compound imaging with a
-`compound_sampling_frequency` of 500 Hz. This means each IQ sample (compound volume)
-results from combining 30 individual pulses, giving an effective temporal sampling
-period of 2 ms rather than 67 μs.
 
 ## How ConfUSIus Processes IQ Data
 

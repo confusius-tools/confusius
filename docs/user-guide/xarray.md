@@ -114,7 +114,13 @@ when loading data, or to store multiple related variables together (e.g.,
 `power_doppler` for the power Doppler signals and `brain_mask` for a corresponding brain
 mask).
 
-### Creating fUSI DataArrays from raw arrays
+!!! question "New to Xarray?"
+    If you are not yet familiar with Xarray, the [Xarray quick
+    overview](https://docs.xarray.dev/en/stable/getting-started-guide/quick-overview.html)
+    is the best place to start. Understanding indexing, selection, and broadcasting will
+    make working with ConfUSIus much easier.
+
+### Creating fUSI DataArrays from Raw Arrays
 
 Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
 have a NumPy, Dask, or array-like object and want to attach ConfUSIus-compatible
@@ -155,7 +161,7 @@ Acquisition metadata that describes the whole recording, such as
 `transmit_frequency` or `beamforming_sound_velocity`, belongs in `attrs`. Coordinate
 metadata such as `units` and `voxdim` is added automatically.
 
-### Canonical fUSI dimensions and scalar indexing
+### Canonical fUSI Dimensions and Scalar Indexing
 
 ConfUSIus stores fUSI recordings with the spatial dimensions `z`, `y`, and `x`.
 Single-slice acquisitions still keep a singleton `z` axis, so the canonical shape is
@@ -183,12 +189,6 @@ This recovery only works when the missing spatial dimension is still present as 
 scalar coordinate. A manually constructed bare `(time, y, x)` array with no `z`
 coordinate is rejected because ConfUSIus cannot infer its physical position, units, or
 voxel size.
-
-!!! question "New to Xarray?"
-    If you are not yet familiar with Xarray, the [Xarray quick
-    overview](https://docs.xarray.dev/en/stable/getting-started-guide/quick-overview.html)
-    is the best place to start. Understanding indexing, selection, and broadcasting will
-    make working with ConfUSIus much easier.
 
 ## The `.fusi` Accessor
 
