@@ -225,32 +225,16 @@ an operation requires it.
 
 Once your data is in Zarr format, load it with [`confusius.load`][confusius.load]:
 
-```python
-import confusius as cf
-
-# Load beamformed IQ data (returns the first variable as a DataArray by default).
-iq_data = cf.load("sub-01_task-awake_iq.zarr")
-
-# Or specify the variable name if there are multiple variables in the Zarr store.
-iq_data = cf.load("sub-01_task-awake_iq.zarr", variable="iq")
-
-print(iq_data)
-```
-
-!!! question "Loading a full Dataset"
-    [`confusius.load`][confusius.load] always returns a single DataArray. To load all
-    variables in a Zarr store as a Dataset, use [`xarray.open_zarr`][xarray.open_zarr]
-    directly:
-
-    ```python
-    import xarray as xr
-
-    ds = xr.open_zarr("sub-01_task-awake_iq.zarr")
-    ```
-
-This returns an DataArray lazily loaded from the Zarr store, ready for processing:
-
-```text
+```pycon
+>>> import confusius as cf
+>>>
+>>> # Load beamformed IQ data (returns the first variable as a DataArray by default).
+>>> iq_data = cf.load("sub-01_task-awake_iq.zarr")
+>>>
+>>> # Or specify the variable name if there are multiple variables in the Zarr store.
+>>> iq_data = cf.load("sub-01_task-awake_iq.zarr", variable="iq")
+>>>
+>>> iq_data
 <xarray.DataArray 'iq' (time: 1168500, z: 1, y: 118, x: 52)> Size: 57GB
 dask.array<open_dataset-iq, shape=(1168500, 1, 118, 52), dtype=complex64, chunksize=(300, 1, 118, 52), chunktype=numpy.ndarray>
 Coordinates:
@@ -268,6 +252,17 @@ Attributes:
     pulse_repetition_frequency:     15000.0
     beamforming_method:             Fourier
 ```
+
+!!! question "Loading a full Dataset"
+    [`confusius.load`][confusius.load] always returns a single DataArray. To load all
+    variables in a Zarr store as a Dataset, use [`xarray.open_zarr`][xarray.open_zarr]
+    directly:
+
+    ```python
+    import xarray as xr
+
+    ds = xr.open_zarr("sub-01_task-awake_iq.zarr")
+    ```
 
 Notice that the data remains on disk (shown by `dask.array<...>`) until you explicitly
 compute operations on it.
@@ -294,24 +289,20 @@ All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
 
 === "2Dscan"
 
-    ```python
-    import confusius as cf
-
-    da = cf.load("sub-01_task-awake_pwd.source.scan")
-
-    print(da.dims)
-    # Output: ('time', 'z', 'y', 'x')
+    ```pycon
+    >>> import confusius as cf
+    >>> da = cf.load("sub-01_task-awake_pwd.source.scan")
+    >>> da.dims
+    ('time', 'z', 'y', 'x')
     ```
 
 === "3Dscan"
 
-    ```python
-    import confusius as cf
-
-    da = cf.load("sub-01_acq-anat_pwd.source.scan")
-
-    print(da.dims)
-    # Output: ('pose', 'z', 'y', 'x')
+    ```pycon
+    >>> import confusius as cf
+    >>> da = cf.load("sub-01_acq-anat_pwd.source.scan")
+    >>> da.dims
+    ('pose', 'z', 'y', 'x')
     ```
 
     The `pose` dimension indexes each probe position in the multi-pose acquisition.
@@ -320,13 +311,11 @@ All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
 
 === "4Dscan"
 
-    ```python
-    import confusius as cf
-
-    da = cf.load("sub-01_task-awake_pwd.source.scan")
-
-    print(da.dims)
-    # Output: ('time', 'pose', 'z', 'y', 'x')
+    ```pycon
+    >>> import confusius as cf
+    >>> da = cf.load("sub-01_task-awake_pwd.source.scan")
+    >>> da.dims
+    ('time', 'pose', 'z', 'y', 'x')
     ```
 
     In addition to the `time` coordinate (earliest timestamp per block), a
@@ -470,13 +459,13 @@ saving, or save each pose separately if you want to retain the multi-pose struct
 
 Use [`confusius.load`][confusius.load] to load NIfTI files as lazy Xarray DataArrays:
 
-```python
-import confusius as cf
-
-# Load with automatic fUSI-BIDS sidecar metadata.
-da = cf.load("sub-01_task-awake_pwd.nii.gz")
-print(da.dims)
-# Output: ('time', 'z', 'y', 'x')
+```pycon
+>>> import confusius as cf
+>>>
+>>> # Load with automatic fUSI-BIDS sidecar metadata.
+>>> da = cf.load("sub-01_task-awake_pwd.nii.gz")
+>>> da.dims
+('time', 'z', 'y', 'x')
 ```
 
 ConfUSIus automatically loads a JSON sidecar file with the same basename (e.g.,

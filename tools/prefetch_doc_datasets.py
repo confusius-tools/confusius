@@ -27,6 +27,7 @@ from remotezip import RemoteZip
 from confusius.datasets import (
     fetch_brainglobe_atlas,
     fetch_cybis_pereira_2026,
+    fetch_khallaf_2026,
     fetch_nunez_elizalde_2022,
     fetch_template_pepe_mariani_2026,
 )
@@ -138,6 +139,29 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
+    # docs/examples/05_glm/02_first_level_continuous.py
+    fetch_cybis_pereira_2026(
+        datasets="rawdata",
+        subjects="rat75",
+        sessions="20220524",
+        acqs="slice32",
+    )
+
+
+def _prefetch_khallaf() -> None:
+    # docs/examples/glm/first_level.py
+    fetch_khallaf_2026(
+        datasets="rawdata",
+        subjects="5622",
+        sessions="IPM",
+        reconstruction="resampled",
+    )
+    # Mouse template and Allen atlas used for registration and masks in the same
+    # example. Warming the brainglobe atlas here keeps its download progress out of
+    # the parity-sensitive gallery render.
+    fetch_template_pepe_mariani_2026()
+    fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
+
 
 def _prefetch_rabut_2024_human_glm() -> None:
     # docs/examples/01_io/02_create_custom_fusi_dataarray.py
@@ -157,6 +181,7 @@ def main() -> None:
     _prefetch_rabut_2024_human_glm()
     _prefetch_pepe_mariani_template()
     _prefetch_allen_atlas()
+    _prefetch_khallaf()
 
 
 if __name__ == "__main__":

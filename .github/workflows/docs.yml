@@ -62,7 +62,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cybis-pereira-2026-bids-
 
-      - name: Cache Pepe-Mariani template
+      - name: Cache Khallaf dataset
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/confusius/khallaf-2026-bids
+          key: ${{ runner.os }}-khallaf-2026-bids-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
+          restore-keys: |
+            ${{ runner.os }}-khallaf-2026-bids-
+
+      - name: Cache Pepe Mariani template
         uses: actions/cache@v6
         with:
           path: ~/.cache/confusius/pepe-mariani-2026-template
@@ -74,9 +82,9 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.brainglobe
-          key: ${{ runner.os }}-brainglobe-atlases-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
+          key: ${{ runner.os }}-brainglobe-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
           restore-keys: |
-            ${{ runner.os }}-brainglobe-atlases-
+            ${{ runner.os }}-brainglobe-
 
       - name: Cache Rabut 2024 human GLM example data
         uses: actions/cache@v6

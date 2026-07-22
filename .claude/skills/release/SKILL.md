@@ -90,6 +90,14 @@ Apply the same citation replacements as in `README.md`.
 Update any other release/version/date files only if they actually exist and clearly need to
 track the release version.
 
+### `docs/user-guide/installation.md`
+Replace the confusius development version with the final version. Example
+
+```
+>>> print(cf.__version__)
+0.6.0
+```
+
 ### Step 3 — Sync and verify
 
 Run:
@@ -263,6 +271,14 @@ Current development version for the next ConfUSIus release.
 ```
 
 - Place it above the most recent released version section.
+
+### `docs/user-guide/installation.md`
+Replace the confusius release version with the new development version. Example
+
+```
+>>> print(cf.__version__)
+0.7.0.dev0
+```
 
 ### `CITATION.cff`
 - **Do not modify.** Citation metadata must keep pointing at the last tagged release so

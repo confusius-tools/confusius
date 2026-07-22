@@ -47,15 +47,12 @@ Xarray has two core data structures: Dataset and DataArray.
 A **[Dataset][xarray.Dataset]** is a dictionary-like container of multiple named arrays that share
 the same coordinate system. When you open a Zarr archive, you get a Dataset:
 
-```python
-import xarray as xr
-import confusius
-
-ds = xr.open_zarr("power_doppler.zarr")
-ds
-```
-
-```
+```pycon
+>>> import xarray as xr
+>>> import confusius
+>>> 
+>>> ds = xr.open_zarr("power_doppler.zarr")
+>>> ds
 <xarray.Dataset> Size: 76MB
 Dimensions:        (time: 860, z: 1, y: 128, x: 86)
 Coordinates:
@@ -72,12 +69,9 @@ dimensions, coordinates, and attributes. You would get a DataArray if you opened
 NIfTI file through [`confusius.load`][confusius.load], or if you extract a variable from
 a Dataset:
 
-```python
-pwd = ds["power_doppler"]
-pwd
-```
-
-```
+```pycon
+>>> pwd = ds["power_doppler"]
+>>> pwd
 <xarray.DataArray 'power_doppler' (time: 860, z: 1, y: 128, x: 86)> Size: 76MB
 dask.array<open_dataset-power_doppler, shape=(860, 1, 128, 86), dtype=float64, chunksize=(215, 1, 32, 22), chunktype=numpy.ndarray>
 Coordinates:
@@ -230,23 +224,23 @@ Currently, two global helpers are available:
 - [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing], which returns the step size
   along each dimension as a dictionary:
 
-  ```python
-  pwd.fusi.spacing
-  # {'time': 0.6, 'z': 0.4, 'y': 0.049, 'x': 0.091}
+  ```pycon
+  >>> pwd.fusi.spacing
+  {'time': 0.6, 'z': 0.4, 'y': 0.049, 'x': 0.091}
   ```
 
-    This is particularly useful for sanity-checking voxel sizes or sampling periods
-    before passing data to functions that require regular spacing (e.g., temporal
-    filters, affine registration). `None` is returned with a warning for any dimension
-    where spacing cannot be determined: non-uniform coordinates, a single coordinate
-    point without a `voxdim` attribute, or no coordinate at all.
+  This is particularly useful for sanity-checking voxel sizes or sampling periods
+  before passing data to functions that require regular spacing (e.g., temporal
+  filters, affine registration). `None` is returned with a warning for any dimension
+  where spacing cannot be determined: non-uniform coordinates, a single coordinate
+  point without a `voxdim` attribute, or no coordinate at all.
 
 - [`.fusi.origin`][confusius.xarray.FUSIAccessor.origin], which returns the coordinate
   values at the origin along each dimension as a dictionary:
 
-  ```python
-  pwd.fusi.origin
-  # {'time': 0.299, 'z': 0.0, 'y': 5.664, 'x': -3.583}
+  ```pycon
+  >>> pwd.fusi.origin
+  {'time': 0.299, 'z': 0.0, 'y': 5.664, 'x': -3.583}
   ```
 
   This is typically used for computing the affine transformation corresponding to the

@@ -108,7 +108,7 @@ def _yule_walker_2d(
         )
 
     # Normalize by lag-0 autocorrelation for numerical stability. Zero-variance voxels
-    # are handled after solving.
+    # are neutralized before the solve (below) and overwritten after it.
     zero_var = autocorr[0] == 0
     safe_var = np.where(zero_var, 1.0, autocorr[0])
     autocorr_norm = autocorr / safe_var
@@ -120,6 +120,12 @@ def _yule_walker_2d(
     for i in range(order):
         for j in range(order):
             R[:, i, j] = autocorr_norm[abs(i - j)]
+
+    # A zero-variance voxel (e.g. constant background outside a beamforming grid) gives
+    # an all-zero, singular Toeplitz block. `np.linalg.solve` raises for the whole batch
+    # if any single block is singular, so replace those blocks with the identity to keep
+    # the batched solve well-posed; their coefficients are overwritten with zero below.
+    R[zero_var] = np.eye(order)
 
     try:
         rho = np.linalg.solve(R, r.T[..., np.newaxis])[..., 0].T  # (order, n_voxels)

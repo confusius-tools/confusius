@@ -135,15 +135,9 @@ validate_iq_dataarray(iq, require_attrs=True)
     - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
       with temperature and tissue type.
 
-```python
-import confusius as cf
-
-iq = cf.load("sub-01_task-rest_iq.zarr")
-
-print(iq)
-```
-
-```text
+```pycon
+>>> iq = cf.load("sub-01_task-rest_iq.zarr")
+>>> iq
 <xarray.DataArray 'iq' (time: 50000, z: 1, y: 118, x: 52)> Size: 24GB
 dask.array<...>
 Coordinates:
@@ -573,11 +567,8 @@ function or the corresponding Xarray accessor method.
 The resulting power Doppler DataArray will be backed by a Dask array (even if the input
 wasn't Dask-backed) and rely on lazy evaluation.
 
-```python
-print(pwd)
-```
-
-```text
+```pycon
+>>> pwd
 <xarray.DataArray 'power_doppler' (time: 860, z: 1, y: 128, x: 86)> Size: 76MB
 dask.array<...>
 Coordinates:
@@ -603,12 +594,9 @@ Attributes: (11/16)
 To actually compute the power Doppler values and load them into memory, you must call
 `.compute()`:
 
-```python
-pwd = pwd.compute()
-print(pwd)
-```
-
-```text
+```pycon
+>>> pwd = pwd.compute()
+>>> pwd
 <xarray.DataArray 'power_doppler' (time: 860, z: 1, y: 128, x: 86)> Size: 76MB
 array([[[[74.26474299, 76.99585806, 84.46316397, ..., 79.11284661,
           77.6835962 , 69.19274666],
@@ -684,11 +672,8 @@ function or the corresponding Xarray accessor method.
 The resulting axial velocity DataArray will be backed by a Dask array (even if the input
 wasn't Dask-backed) and rely on lazy evaluation.
 
-```python
-print(velocity)
-```
-
-```text
+```pycon
+>>> velocity
 <xarray.DataArray (time: 1000, z: 1, y: 118, x: 52)> Size: 24MB
 dask.array<...>
 Coordinates:
