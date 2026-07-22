@@ -292,7 +292,8 @@ class FUSIPlotAccessor:
         fontsize : float, optional
             Base font size for text elements. Title uses `fontsize` directly;
             axis labels and colorbar label use `0.9 * fontsize`; tick labels use
-            `0.85 * fontsize`. If not provided, uses the active Matplotlib defaults.
+            `0.85 * fontsize`. If not provided, it is inferred heuristically from the
+            figure size.
         bg_color : str, default: "white"
             Background color for the figure and axes. Any matplotlib-compatible color
             string (e.g. `"black"`, `"white"`, `"#1a1a2e"`).
@@ -584,7 +585,8 @@ class FUSIPlotAccessor:
         fontsize : float, optional
             Base font size for text elements. Subplot titles use `fontsize`
             directly; axis labels use `0.9 * fontsize`; tick labels use
-            `0.85 * fontsize`. If not provided, uses the active Matplotlib defaults.
+            `0.85 * fontsize`. If not provided, it is inferred heuristically from the
+            figure size and number of panels.
         yincrease : bool, default: False
             Whether the y-axis increases upward (`True`) or downward (`False`).
         xincrease : bool, default: True
