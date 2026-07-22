@@ -18,9 +18,6 @@ _SPATIAL_UNITS = "mm"
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
 
-_SPATIAL_DIMS = SPATIAL_DIMS
-"""Spatial dimensions required by canonical ConfUSIus fUSI DataArrays."""
-
 VolumeAcquisitionReference = Literal["start", "center", "end"]
 """Where within its acquisition window each frame's `time` coordinate is anchored."""
 
@@ -219,7 +216,7 @@ def _coordinate_dataarray(
             duration = _require_positive_finite(duration, "volume_acquisition_duration")
         attrs["volume_acquisition_reference"] = volume_acquisition_reference
         attrs["volume_acquisition_duration"] = duration
-    elif dim in _SPATIAL_DIMS:
+    elif dim in SPATIAL_DIMS:
         if "units" not in attrs:
             attrs["units"] = _SPATIAL_UNITS
         if "voxdim" not in attrs:
@@ -271,7 +268,7 @@ def _canonicalize_created_dataarray(
         DataArray with all spatial dimensions present.
     """
     result = data
-    for dim in _SPATIAL_DIMS:
+    for dim in SPATIAL_DIMS:
         if dim in result.dims:
             continue
         coord = _coordinate_dataarray(
