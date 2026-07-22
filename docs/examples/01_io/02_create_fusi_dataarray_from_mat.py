@@ -129,13 +129,15 @@ plotter = mean_doppler.fusi.plot.volume(
 # ## Motion-correct, smooth, and fit a simple task GLM
 #
 # The paper reports rigid-body motion correction, 2D Gaussian spatial smoothing, causal
-# temporal smoothing, detrending, and baseline scaling before the GLM. We handle slow
+# temporal smoothing, detrending, and baseline scaling before the GLM. The default
+# registration learning rate is conservative; for this recording, `1.0` recovers the
+# motion better. We handle slow
 # drift in [`FirstLevelModel`][confusius.glm.FirstLevelModel] with a cosine drift model.
 # The task regressor is convolved with the single-gamma human fUSI HRF reported in the
 # paper (`τ = 0.7`, `δ = 3 s`, `n = 3`).
 
 # %%
-registered = power_doppler.fusi.register.volumewise(learning_rate=0.1)
+registered = power_doppler.fusi.register.volumewise(learning_rate=1.0)
 smoothed = cf.spatial.smooth_volume(registered, fwhm={"y": 0.471, "x": 0.471})
 filtered = smoothed.rolling(time=6, min_periods=1).mean()
 
