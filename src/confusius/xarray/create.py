@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal, SupportsFloat, SupportsIndex
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM
 from confusius.validation import validate_fusi_dataarray
 
 if TYPE_CHECKING:
@@ -22,9 +22,6 @@ _TIME_UNITS = "s"
 
 _SPATIAL_DIMS = SPATIAL_DIMS
 """Spatial dimensions required by canonical ConfUSIus fUSI DataArrays."""
-
-_CORE_DIM_ORDER = (TIME_DIM, *SPATIAL_DIMS)
-"""Canonical output order for single-pose fUSI DataArrays."""
 
 VolumeAcquisitionReference = Literal["start", "center", "end"]
 """Where within its acquisition window each frame's `time` coordinate is anchored."""
@@ -117,6 +114,34 @@ def _regular_step(values: np.ndarray) -> float | None:
     return step
 
 
+def _representative_positive_step(values: np.ndarray, dim: str) -> float | None:
+    """Return the median positive step for an increasing coordinate.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        One-dimensional coordinate values.
+    dim : str
+        Dimension name used in validation errors.
+
+    Returns
+    -------
+    float or None
+        Median positive step, or None when `values` has fewer than two entries.
+
+    Raises
+    ------
+    ValueError
+        If coordinate intervals are not finite and strictly positive.
+    """
+    if values.size < 2:
+        return None
+    diffs = np.diff(values.astype(float))
+    if not np.all(np.isfinite(diffs)) or not np.all(diffs > 0):
+        raise ValueError(f"Coordinate {dim!r} must be strictly increasing.")
+    return float(np.median(diffs))
+
+
 def _coordinate_dataarray(
     dim: str,
     size: int,
@@ -187,6 +212,8 @@ def _coordinate_dataarray(
         step = _regular_step(coord_values)
         if step is None:
             step = spacings[dim]
+        if step is None and dim in coords:
+            step = _representative_positive_step(coord_values, dim)
         duration = volume_acquisition_duration
         if duration is None:
             duration = _require_spacing(dim, step)
@@ -263,8 +290,8 @@ def _canonicalize_created_dataarray(
         result.coords[dim].attrs.update(attrs)
 
     if canonical_order:
-        ordered_core = [dim for dim in _CORE_DIM_ORDER if dim in result.dims]
-        extra_dims = [dim for dim in result.dims if dim not in _CORE_DIM_ORDER]
+        ordered_core = [dim for dim in CORE_DIMS if dim in result.dims]
+        extra_dims = [dim for dim in result.dims if dim not in CORE_DIMS]
         result = result.transpose(*ordered_core, *extra_dims)
 
     return result
@@ -342,9 +369,9 @@ def create_fusi_dataarray(
         helpers. Only applied when a `time` dimension is present.
     volume_acquisition_duration : float, optional
         Duration of a single volume's acquisition window, in seconds. Stored on the
-        `time` coordinate attributes. If not provided, defaults to the inferred or
-        provided time coordinate spacing. Only applied when a `time` dimension is
-        present.
+        `time` coordinate attributes. If not provided, defaults to the inferred,
+        provided, or median exact time-coordinate spacing. Only applied when a `time`
+        dimension is present.
     name : str, optional
         Name assigned to the resulting DataArray.
     attrs : dict, optional
@@ -430,8 +457,10 @@ def create_fusi_dataarray(
 
     regular_spacing_dims = tuple(
         dim
-        for dim in _CORE_DIM_ORDER
-        if dim in result.dims and not (dim == TIME_DIM and result.sizes[dim] == 1)
+        for dim in CORE_DIMS
+        if dim in result.dims
+        and not (dim == TIME_DIM and result.sizes[dim] == 1)
+        and not (dim == TIME_DIM and TIME_DIM in coords)
     )
     validate_fusi_dataarray(
         result,

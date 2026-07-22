@@ -120,6 +120,41 @@ def test_create_fusi_dataarray_accepts_explicit_coordinates():
     assert result.coords["x"].attrs["voxdim"] == pytest.approx(0.2)
 
 
+def test_create_fusi_dataarray_accepts_nonuniform_time_coordinate():
+    """Exact timestamps can represent recordings with nonuniform frame timing."""
+    timestamps = np.array([0.0, 1.0, 2.1, 3.0])
+
+    result = create_fusi_dataarray(
+        np.zeros((4, 2, 3)),
+        dims=("time", "y", "x"),
+        coords={"time": timestamps},
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+    )
+
+    assert_allclose(result.coords["time"], timestamps)
+    assert result.coords["time"].attrs["volume_acquisition_duration"] == pytest.approx(
+        1.0
+    )
+
+
+def test_create_fusi_dataarray_accepts_explicit_pose_coordinate():
+    """Coordinates can be provided for the `pose` dimension."""
+    result = create_fusi_dataarray(
+        np.zeros((2, 4, 1, 3, 5)),
+        dims=("pose", "time", "z", "y", "x"),
+        coords={"pose": [0.0, 15.0]},
+        dt=0.5,
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+    )
+
+    assert result.dims == ("time", "pose", "z", "y", "x")
+    assert_allclose(result.coords["pose"].values, [0.0, 15.0])
+
+
 def test_create_fusi_dataarray_rejects_missing_spacing():
     """ConfUSIus must not guess physical spacing."""
     with pytest.raises(ValueError, match="Spacing for dimension 'z' is required"):
