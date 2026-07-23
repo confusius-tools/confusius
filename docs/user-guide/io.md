@@ -177,9 +177,32 @@ Zarr for efficient processing.
 
 For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
 array with the tool appropriate for your file format, then wrap it as an IQ DataArray
-with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]. See [Processing
-Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for a complete example,
-the required dimensions and metadata fields, and processing assumptions.
+with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]:
+
+```python
+import confusius as cf
+from confusius.validation import validate_iq_dataarray
+
+raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
+
+iq = cf.create_fusi_dataarray(
+    raw_iq,
+    dims=("time", "z", "y", "x"),
+    dt=1 / 500,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+    volume_acquisition_duration=1 / 500,
+    attrs={
+        "transmit_frequency": 15.625e6,
+        "beamforming_sound_velocity": 1540.0,
+    },
+)
+validate_iq_dataarray(iq, require_attrs=True)
+```
+
+See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
+required dimensions, metadata fields, and processing assumptions.
 
 ## Loading Data
 

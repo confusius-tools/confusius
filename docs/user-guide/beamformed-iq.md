@@ -92,9 +92,12 @@ spatial dimensions:
 - `y`: Axial dimension (depth dimension).
 - `x`: Lateral dimension (dimension along the transducer array).
 
-Additionally, ConfUSIus expects certain metadata attributes to be present:
+Additionally, IQ processing needs timing metadata. Prefer storing the acquisition
+window duration on the `time` coordinate as
+`time.attrs["volume_acquisition_duration"]`; legacy datasets may instead provide
+`compound_sampling_frequency` as scanner provenance. Axial velocity estimation also
+requires these DataArray attributes:
 
-- `compound_sampling_frequency`: Effective sampling frequency of the IQ data (Hz).
 - `transmit_frequency`: Frequency of the transmitted ultrasound pulse (Hz).
 - `beamforming_sound_velocity`: Speed of sound used for beamforming (m/s).
 
@@ -124,38 +127,15 @@ In this example, the PRF is 15 kHz, but the data uses compound imaging with a
 results from combining 30 individual pulses, giving an effective temporal sampling
 period of 2 ms rather than 67 μs.
 
-If your acquisition system isn't directly supported by ConfUSIus, load the complex
-array with your system-specific loader, wrap it as a DataArray, and validate the
-result before processing:
+If your acquisition system isn't directly supported by ConfUSIus, see
+[Other Systems](io.md#other-systems) for how to wrap a custom complex array as an IQ
+DataArray.
 
-```python
-import confusius as cf
-from confusius.validation import validate_iq_dataarray
+!!! question "Finding metadata values"
+    If you're unsure about the correct values:
 
-raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
-
-iq = cf.create_fusi_dataarray(
-    raw_iq,
-    dims=("time", "z", "y", "x"),
-    dt=1 / 500,  # 500 Hz compound sampling frequency
-    dz=0.4,
-    dy=0.05,
-    dx=0.1,
-    attrs={
-        "compound_sampling_frequency": 500.0,
-        "transmit_frequency": 15.625e6,
-        "beamforming_sound_velocity": 1540.0,
-    },
-)
-validate_iq_dataarray(iq, require_attrs=True)
-```
-
-!!! question "Finding attribute values"
-    If you're unsure about the correct values for these attributes:
-
-    - `compound_sampling_frequency`: Check your acquisition software settings. The
-      compound sampling frequency is generally around 500-1000 Hz for fUSI acquisitions,
-      but can vary based on the system and settings used.
+    - `volume_acquisition_duration`: Check your acquisition software settings. For
+      regularly sampled IQ, this is usually the inverse effective volume rate.
     - `transmit_frequency`: Found in your probe specifications or acquisition
       settings. Generally around 5-10 MHz for clinical probes, and 12-20 MHz for
       high-frequency probes used in small animal imaging.
