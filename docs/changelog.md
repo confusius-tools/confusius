@@ -10,6 +10,24 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- fUSI DataArrays now require explicit 3D spatial geometry with `z`, `y`, and `x`
+  dimensions. Any singleton spatial dimension must carry `voxdim` metadata because
+  spacing cannot be inferred from a single coordinate point. Scalar-indexed slices are
+  recovered as singleton dimensions at relevant API boundaries; use
+  [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to add singleton
+  axes and coordinate metadata from raw 2D or 2D+t arrays
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+
+### :sparkles: Enhancements
+
+- Added [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] (also exposed
+  as `confusius.create_fusi_dataarray`) to build a canonical fUSI DataArray from a raw
+  array plus higher-level metadata (`dt`, `dz`, `dy`, `dx`, and axis origins). It
+  attaches regularly spaced physical coordinates, `units`/`voxdim` metadata, and
+  validates the result before returning it ([#149](https://github.com/confusius-tools/confusius/issues/149)).
+
 ## 0.6.0
 
 Released 2026-07-18.

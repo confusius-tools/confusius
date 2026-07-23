@@ -19,6 +19,11 @@ files.
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pooch
+from remotezip import RemoteZip
+
 from confusius.datasets import (
     fetch_brainglobe_atlas,
     fetch_cybis_pereira_2026,
@@ -26,6 +31,11 @@ from confusius.datasets import (
     fetch_nunez_elizalde_2022,
     fetch_template_pepe_mariani_2026,
 )
+
+_RABUT_2024_RECORD_URL = (
+    "https://data.caltech.edu/api/records/f3y3k-em558/files/data.zip/content"
+)
+_RABUT_2024_MEMBERS = ("data/human/S2R1.mat",)
 
 
 def _prefetch_nunez_elizalde() -> None:
@@ -153,9 +163,22 @@ def _prefetch_khallaf() -> None:
     fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 
 
+def _prefetch_rabut_2024_human_glm() -> None:
+    # docs/examples/01_io/02_create_fusi_dataarray_from_mat.py
+    cache_dir = Path(pooch.os_cache("confusius")) / "rabut_2024_human_glm"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    with RemoteZip(_RABUT_2024_RECORD_URL) as archive:
+        for member in _RABUT_2024_MEMBERS:
+            path = cache_dir / Path(member).name
+            if not path.exists():
+                with archive.open(member) as source, path.open("wb") as target:
+                    target.write(source.read())
+
+
 def main() -> None:
     _prefetch_nunez_elizalde()
     _prefetch_cybis_pereira()
+    _prefetch_rabut_2024_human_glm()
     _prefetch_pepe_mariani_template()
     _prefetch_allen_atlas()
     _prefetch_khallaf()

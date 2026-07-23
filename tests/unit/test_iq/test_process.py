@@ -579,7 +579,7 @@ class TestProcessIqToPowerDoppler:
                 "y": np.arange(6),
             },
         )
-        with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
             process_iq_to_power_doppler(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -1270,7 +1270,7 @@ class TestProcessIqToBmode:
                 "y": np.arange(6),
             },
         )
-        with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
             process_iq_to_bmode(iq)
 
     def test_non_complex_data_raises(self, rng):

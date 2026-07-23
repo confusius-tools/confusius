@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 __all__ = [
     "atlas",
     "connectivity",
+    "create_fusi_dataarray",
     "decomposition",
     "datasets",
     "extract",
@@ -54,6 +55,7 @@ _SUBMODULES = {
 }
 
 _ATTR_TO_MODULE = {
+    "create_fusi_dataarray": "confusius.xarray.create",
     "load": "confusius.io.loadsave",
     "save": "confusius.io.loadsave",
 }
@@ -102,3 +104,4 @@ if TYPE_CHECKING:
         xarray,
     )
     from confusius.io.loadsave import load, save
+    from confusius.xarray.create import create_fusi_dataarray

@@ -3,8 +3,13 @@
 import numpy as np
 import pytest
 import xarray as xr
+from xarray.testing import assert_identical
 
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import (
+    canonicalize_fusi_dataarray,
+    ensure_fusi_dataarray,
+    validate_fusi_dataarray,
+)
 
 
 def test_validate_fusi_dataarray_accepts_valid_3d(
@@ -14,12 +19,12 @@ def test_validate_fusi_dataarray_accepts_valid_3d(
     validate_fusi_dataarray(sample_3d_volume)
 
 
-def test_validate_fusi_dataarray_accepts_valid_2dt(
+def test_validate_fusi_dataarray_accepts_singleton_z(
     sample_3dt_volume: xr.DataArray,
 ) -> None:
-    """A canonical 2D+t DataArray also validates successfully."""
-    data_2dt = sample_3dt_volume.isel(z=0, drop=True)
-    validate_fusi_dataarray(data_2dt)
+    """A single-slice recording stored with a singleton `z` axis validates."""
+    single_slice = sample_3dt_volume.isel(z=[0])
+    validate_fusi_dataarray(single_slice)
 
 
 def test_validate_fusi_dataarray_accepts_valid_3dt(
@@ -33,6 +38,111 @@ def test_validate_fusi_dataarray_rejects_non_dataarray() -> None:
     """Non-DataArray inputs raise `TypeError`."""
     with pytest.raises(TypeError, match="xarray.DataArray"):
         validate_fusi_dataarray(np.zeros((2, 2)))  # type: ignore
+
+
+def test_canonicalize_fusi_dataarray_rejects_non_dataarray() -> None:
+    """Canonicalization also validates input type."""
+    with pytest.raises(TypeError, match="xarray.DataArray"):
+        canonicalize_fusi_dataarray(np.zeros((2, 2)))  # ty: ignore[invalid-argument-type]
+
+
+def test_ensure_fusi_dataarray_rejects_non_dataarray() -> None:
+    """Ensure validates input type before inspecting dimensions."""
+    with pytest.raises(TypeError, match="xarray.DataArray"):
+        ensure_fusi_dataarray(np.zeros((2, 2)))  # ty: ignore[invalid-argument-type]
+
+
+@pytest.mark.parametrize(("dim", "index"), [("z", 1), ("y", 2), ("x", 3)])
+def test_canonicalize_fusi_dataarray_restores_scalar_indexed_spatial_dim(
+    sample_3dt_volume: xr.DataArray,
+    dim: str,
+    index: int,
+) -> None:
+    """Scalar-indexed spatial coordinates are restored as singleton dimensions."""
+    sliced = sample_3dt_volume.isel({dim: index})
+    expected = sample_3dt_volume.isel({dim: [index]})
+
+    result = canonicalize_fusi_dataarray(sliced)
+
+    assert_identical(result, expected)
+
+
+def test_canonicalize_fusi_dataarray_restores_multiple_spatial_dims_with_extra_dim(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """Multiple scalar spatial coordinates are restored without moving extra dims."""
+    data = sample_3dt_volume.expand_dims(region=["roi"])
+    sliced = data.isel(z=0, x=1)
+    expected = data.isel(z=[0], x=[1])
+
+    result = canonicalize_fusi_dataarray(sliced)
+
+    assert_identical(result, expected)
+
+
+@pytest.mark.parametrize(
+    "coords",
+    [{}, {"z": xr.DataArray(np.arange(2, dtype=float), dims=("time",))}],
+)
+def test_canonicalize_fusi_dataarray_rejects_missing_non_scalar_spatial_coord(
+    coords: dict[str, object],
+) -> None:
+    """Missing spatial dims are only recoverable from scalar coordinates."""
+    data = xr.DataArray(
+        np.zeros((2, 3, 4), dtype=np.float32),
+        dims=("time", "y", "x"),
+        coords={
+            "time": np.arange(2, dtype=float),
+            "y": np.arange(3, dtype=float),
+            "x": np.arange(4, dtype=float),
+            **coords,
+        },
+    )
+
+    with pytest.raises(ValueError, match="missing spatial dimension 'z'"):
+        canonicalize_fusi_dataarray(data)
+
+
+def test_ensure_fusi_dataarray_returns_canonicalized_valid_data(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`ensure_fusi_dataarray` canonicalizes before applying validation options."""
+    sliced = sample_3dt_volume.isel(z=0)
+
+    result = ensure_fusi_dataarray(
+        sliced,
+        require_time=True,
+        require_spatial_voxdim=True,
+        require_spatial_units=True,
+        require_time_units=True,
+    )
+
+    assert_identical(result, sample_3dt_volume.isel(z=[0]))
+
+
+def test_canonicalize_fusi_dataarray_restores_all_spatial_dims_from_scalars() -> None:
+    """A scalar-only spatial coordinate set is restored in append order."""
+    data = xr.DataArray(
+        np.arange(3),
+        dims=("time",),
+        coords={"time": [0.0, 1.0, 2.0], "z": 1.0, "y": 2.0, "x": 3.0},
+    )
+
+    result = canonicalize_fusi_dataarray(data)
+
+    assert result.dims == ("time", "z", "y", "x")
+    assert result.shape == (3, 1, 1, 1)
+
+
+def test_ensure_fusi_dataarray_applies_prevalidation_options(
+    sample_3dt_volume: xr.DataArray,
+) -> None:
+    """`ensure_fusi_dataarray` preserves validator failures before canonicalizing."""
+    with pytest.raises(ValueError, match="must not have a 'pose' dimension"):
+        ensure_fusi_dataarray(sample_3dt_volume.expand_dims(pose=[0]), allow_pose=False)
+
+    with pytest.raises(ValueError, match="must have a 'time' dimension"):
+        ensure_fusi_dataarray(sample_3dt_volume.isel(time=0), require_time=True)
 
 
 def test_validate_fusi_dataarray_allows_extra_dims_by_default(
@@ -92,14 +202,33 @@ def test_validate_fusi_dataarray_can_forbid_extra_dims(
         validate_fusi_dataarray(data, allow_extra_dims=False)
 
 
-def test_validate_fusi_dataarray_requires_minimum_spatial_dims(
+def test_validate_fusi_dataarray_requires_full_spatial_trio(
     sample_3dt_volume: xr.DataArray,
 ) -> None:
-    """At least the configured number of spatial dimensions must be present."""
-    bad = sample_3dt_volume.isel(z=0, y=0, drop=True)
+    """All three spatial dimensions `z`, `y`, `x` must be present."""
+    dropped_z = sample_3dt_volume.isel(z=0, drop=True)
 
-    with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
-        validate_fusi_dataarray(bad)
+    with pytest.raises(ValueError, match=r"must contain all spatial dimensions"):
+        validate_fusi_dataarray(dropped_z)
+
+    dropped_zy = sample_3dt_volume.isel(z=0, y=0, drop=True)
+    with pytest.raises(ValueError, match=r"must contain all spatial dimensions"):
+        validate_fusi_dataarray(dropped_zy)
+
+
+@pytest.mark.parametrize("dims", [("y", "x"), ("time", "y", "x")])
+def test_validate_fusi_dataarray_rejects_2d_spatial_layouts(
+    dims: tuple[str, ...],
+) -> None:
+    """Bare `(y, x)` and `(time, y, x)` layouts are rejected as fUSI data."""
+    data = xr.DataArray(
+        np.zeros((3,) * len(dims), dtype=np.float32),
+        dims=dims,
+        coords={dim: np.arange(3, dtype=float) for dim in dims},
+    )
+
+    with pytest.raises(ValueError, match=r"must contain all spatial dimensions"):
+        validate_fusi_dataarray(data)
 
 
 def test_validate_fusi_dataarray_can_require_time(
@@ -243,10 +372,11 @@ def test_validate_fusi_dataarray_regular_spacing_rejects_missing_single_selected
 def test_validate_fusi_dataarray_space_regular_spacing_excludes_pose() -> None:
     """`space` regular-spacing mode does not include the `pose` dimension."""
     data = xr.DataArray(
-        np.zeros((3, 4, 5), dtype=np.float32),
-        dims=("pose", "y", "x"),
+        np.zeros((3, 2, 4, 5), dtype=np.float32),
+        dims=("pose", "z", "y", "x"),
         coords={
             "pose": [0.0, 1.0, 3.0],
+            "z": np.arange(2, dtype=float),
             "y": np.arange(4, dtype=float),
             "x": np.arange(5, dtype=float),
         },
@@ -370,14 +500,6 @@ def test_validate_fusi_dataarray_rejects_non_string_dimension_names() -> None:
 
     with pytest.raises(ValueError, match="All dimensions must be strings"):
         validate_fusi_dataarray(bad)
-
-
-def test_validate_fusi_dataarray_validates_minimum_spatial_dims_bounds(
-    sample_3dt_volume: xr.DataArray,
-) -> None:
-    """minimum_spatial_dims must be in [0, 3]."""
-    with pytest.raises(ValueError, match="between 0 and 3 inclusive"):
-        validate_fusi_dataarray(sample_3dt_volume, minimum_spatial_dims=4)
 
 
 def test_validate_fusi_dataarray_can_require_spatial_units(

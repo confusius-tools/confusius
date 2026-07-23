@@ -1,7 +1,7 @@
 """Coordinate spacing and origin helpers shared across modules."""
 
 import warnings
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -298,8 +298,9 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
     [`resample_volume`][confusius.registration.resample_volume] and
     [`sample_displacement_field`][confusius.registration.sample_displacement_field].
     Spacing comes from
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings],
-    falling back to `1.0` for dimensions whose spacing is undefined; origin comes from
+    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings].
+    Each dimension must have defined spacing; singleton dimensions require `voxdim`
+    coordinate metadata. Origin comes from
     [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
 
     Parameters
@@ -316,9 +317,16 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
     dims = [str(dim) for dim in data.dims]
     spacings = get_coordinate_spacings(data)
     origins = get_coordinate_origins(data)
+    missing_spacing = [dim for dim, spacing in spacings.items() if spacing is None]
+    if missing_spacing:
+        raise ValueError(
+            "Cannot build grid kwargs because spacing is undefined for dimensions "
+            f"{missing_spacing!r}. Provide regular coordinates or `voxdim` metadata "
+            "for singleton coordinates."
+        )
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],
-        "spacing": [s if s is not None else 1.0 for s in spacings.values()],
+        "spacing": [cast(float, spacings[dim]) for dim in dims],
         "origin": [float(o) for o in origins.values()],
         "dims": dims,
     }

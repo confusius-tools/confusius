@@ -10,27 +10,21 @@ if TYPE_CHECKING:
     import SimpleITK as sitk
     from SimpleITK import (
         AffineTransform,
-        Euler2DTransform,
         Euler3DTransform,
-        Similarity2DTransform,
         Similarity3DTransform,
         VersorRigid3DTransform,
     )
 
     _MatrixTransform = (
         AffineTransform
-        | Euler2DTransform
         | Euler3DTransform
-        | Similarity2DTransform
         | Similarity3DTransform
         | VersorRigid3DTransform
     )
 
 _MATRIX_TRANSFORMS = {
     "AffineTransform",
-    "Euler2DTransform",
     "Euler3DTransform",
-    "Similarity2DTransform",
     "Similarity3DTransform",
     "VersorRigid3DTransform",
 }
@@ -215,9 +209,8 @@ def affine_to_sitk_linear_transform(
 
     Parameters
     ----------
-    affine : (N+1, N+1) numpy.ndarray
-        Homogeneous affine matrix where `N` is the spatial dimensionality (2
-        or 3). The last row is expected to be `[0, …, 0, 1]`.
+    affine : (4, 4) numpy.ndarray
+        Homogeneous 3D affine matrix. The last row is expected to be `[0, 0, 0, 1]`.
 
     Returns
     -------
@@ -239,10 +232,10 @@ def sitk_linear_transform_to_affine(
 ) -> npt.NDArray[np.floating]:
     """Convert a SimpleITK linear transform to a homogeneous affine matrix.
 
-    Handles `TranslationTransform`, `Euler2DTransform`, `Euler3DTransform`,
-    `AffineTransform`, `VersorRigid3DTransform`, and `CompositeTransform`
-    (by composing each sub-transform in order). Non-linear transforms
-    (`BSplineTransform`, `DisplacementField`) are not supported.
+    Handles `TranslationTransform`, `Euler3DTransform`, `AffineTransform`,
+    `VersorRigid3DTransform`, and `CompositeTransform` (by composing each
+    sub-transform in order). Non-linear transforms (`BSplineTransform`,
+    `DisplacementField`) are not supported.
 
     Parameters
     ----------

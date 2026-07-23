@@ -15,6 +15,8 @@ from confusius.iq.clutter_filters import (
     clutter_filter_svd_from_indices,
 )
 from confusius.timing import (
+    TIMING_REFERENCE_FACTORS,
+    VolumeAcquisitionReference,
     convert_time_reference,
     get_representative_time_step,
     get_time_coord_to_seconds_factor,
@@ -275,7 +277,7 @@ def _compute_clutter_filter_window_metadata(
     iq_time_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
-    if iq_time_reference not in {"start", "center", "end"}:
+    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown volume_acquisition_reference: {iq_time_reference!r}. Must be "
             "'start', 'center', or 'end'."
@@ -364,7 +366,7 @@ def _compute_inner_window_metadata(
     output_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
-    if output_reference not in {"start", "center", "end"}:
+    if output_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown volume_acquisition_reference: {output_reference!r}. Must be "
             "'start', 'center', or 'end'."
@@ -413,7 +415,7 @@ def compute_processed_volume_timings(
     clutter_window_stride: int,
     inner_window_width: int,
     inner_window_stride: int,
-    processed_time_reference: Literal["start", "center", "end"] | None = None,
+    processed_time_reference: VolumeAcquisitionReference | None = None,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute timings from processing input IQ volumes with nested sliding windows.
 
@@ -505,11 +507,11 @@ def compute_processed_volume_timings(
     iq_volume_duration = _get_volume_acquisition_duration(iq)
     iq_volume_timings = np.asarray(iq.coords["time"].values)
 
-    if iq_time_reference not in {"start", "center", "end"}:
+    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown iq_time_reference: {iq_time_reference!r}. Must be 'start', 'center', or 'end'."
         )
-    if processed_time_reference not in {"start", "center", "end"}:
+    if processed_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             "Unknown processed_time_reference: "
             f"{processed_time_reference!r}. Must be 'start', 'center', or 'end'."

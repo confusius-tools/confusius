@@ -44,7 +44,7 @@ def _validate_register_volume_inputs(
     shrink_factors: Sequence[int],
     smoothing_sigmas: Sequence[int],
     resample_interpolation: Literal["linear", "bspline"],
-) -> tuple[xr.DataArray | None, xr.DataArray | None]:
+) -> tuple[xr.DataArray, xr.DataArray, xr.DataArray | None, xr.DataArray | None]:
     """Validate all inputs to `register_volume` before any computation.
 
     Parameters
@@ -80,6 +80,10 @@ def _validate_register_volume_inputs(
 
     Returns
     -------
+    moving : xarray.DataArray
+        Canonicalized moving volume.
+    fixed : xarray.DataArray
+        Canonicalized fixed volume.
     fixed_mask : xarray.DataArray or None
         `fixed_mask` coerced to boolean dtype, or None if not provided.
     moving_mask : xarray.DataArray or None
@@ -97,21 +101,19 @@ def _validate_register_volume_inputs(
             "For volume-wise registration, use register_volumewise."
         )
 
-    from confusius.validation import validate_fusi_dataarray
+    from confusius.validation import ensure_fusi_dataarray
 
-    validate_fusi_dataarray(
+    moving = ensure_fusi_dataarray(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
-    validate_fusi_dataarray(
+    fixed = ensure_fusi_dataarray(
         fixed,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))
 
@@ -209,7 +211,7 @@ def _validate_register_volume_inputs(
             f"got {len(shrink_factors)} and {len(smoothing_sigmas)}."
         )
 
-    return fixed_mask, moving_mask
+    return moving, fixed, fixed_mask, moving_mask
 
 
 def _translate_registration_runtime_error(
@@ -400,17 +402,20 @@ def register_volume(
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":  # noqa: E501
-    """Register a single 2D or 3D volume to a fixed reference.
+    """Register a single 3D volume to a fixed reference.
 
     Voxel spacing and origin are automatically extracted from the DataArray coordinates.
-    Both inputs must be spatial-only (no `time` dimension).
+    Both inputs must be spatial-only (no `time` dimension). Single-slice recordings are
+    supported as 3D volumes with a singleton `z` axis.
 
     Parameters
     ----------
     moving : xarray.DataArray
-        Volume to register to `fixed`. Must be 2D or 3D.
+        Volume to register to `fixed`. Must be a 3D volume with dimensions `z`, `y`, `x`
+        (single-slice recordings use a singleton `z` axis).
     fixed : xarray.DataArray
-        Reference volume. Must be 2D or 3D. Need not have the same shape as `moving`.
+        Reference volume. Must be a 3D volume with dimensions `z`, `y`, `x`. Need not
+        have the same shape as `moving`.
         When spatial coordinate `units` metadata is present on both `moving` and
         `fixed`, it must match.
     fixed_mask : xarray.DataArray, optional
@@ -466,8 +471,8 @@ def register_volume(
         Per-parameter weights applied on top of the auto-estimated physical shift
         scales. `None` uses identity weights (all ones). A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of
-        transform parameters (3 for 2D rigid, 6 for 3D rigid, 6 for 2D affine, 12 for 3D
-        affine). The weight for each parameter is multiplied into the effective step
+        transform parameters (6 for rigid, 12 for affine). The weight for each
+        parameter is multiplied into the effective step
         size: `0` freezes a parameter entirely, values in `(0, 1)` slow it down, and
         `1` leaves it unchanged. For the 3D Euler transform the parameter order is
         `[angleX, angleY, angleZ, tx, ty, tz]`; to disable rotations around x and y
@@ -546,16 +551,15 @@ def register_volume(
         coordinates matching `fixed` and physical-space affines inherited from `fixed`.
         When `resample=False`, the original moving volume with its original coordinates
         and attributes.
-    transform : (N+1, N+1) numpy.ndarray or xarray.DataArray or None
+    transform : (4, 4) numpy.ndarray or xarray.DataArray or None
         Estimated registration transform. For linear transforms (`"translation"`,
-        `"rigid"`, `"affine"`), returns a homogeneous affine matrix of shape `(N+1,
-        N+1)` in physical space, where `N` is the spatial dimensionality (2 or 3).
-        Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
+        `"rigid"`, `"affine"`), returns a homogeneous `(4, 4)` affine matrix in physical
+        space. Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
         returns an `xarray.DataArray` containing the B-spline control-point grid, not a
-        dense deformation field. The first dimension is `component` with length `N`,
-        followed by spatial dimensions in ConfUSIus order (`("y", "x")` in 2D or
-        `("z", "y", "x")` in 3D). The coordinate values along each spatial axis are
+        dense deformation field. The first dimension is `component` with length 3,
+        followed by spatial dimensions in ConfUSIus order (`("z", "y", "x")`). The
+        coordinate values along each spatial axis are
         the physical positions of the control points. Attributes include `type =
         "bspline_transform"`, the spline `order`, and the control-grid `direction`
         matrix. When an affine `initialization` was also supplied, the DataArray also
@@ -570,7 +574,8 @@ def register_volume(
     Raises
     ------
     ValueError
-        If either input contains a `time` dimension or is not 2D or 3D.
+        If either input contains a `time` dimension or does not contain the spatial
+        dimensions `z`, `y`, and `x`.
     ValueError
         If `moving` or `fixed` contains NaN values.
     ValueError
@@ -594,7 +599,7 @@ def register_volume(
     """
     import SimpleITK as sitk
 
-    fixed_mask, moving_mask = _validate_register_volume_inputs(
+    moving, fixed, fixed_mask, moving_mask = _validate_register_volume_inputs(
         moving=moving,
         fixed=fixed,
         fixed_mask=fixed_mask,
@@ -615,9 +620,10 @@ def register_volume(
     moving_sitk = dataarray_to_sitk_image(moving)
 
     # SimpleITK's multi-resolution pyramid and interpolation fail when any spatial
-    # dimension is smaller than 4 voxels (common for 2D+t fUSI recordings with a 1-voxel
-    # depth). We thus expand thin dimensions before registration; the originals are kept
-    # as the resample source/reference so the output grid is never affected.
+    # dimension is smaller than 4 voxels (common for single-slice fUSI recordings with
+    # a 1-voxel depth). We thus expand thin dimensions before registration; the
+    # originals are kept as the resample source/reference so the output grid is never
+    # affected.
     fixed_reg = expand_thin_dims(fixed_sitk)
     moving_reg = expand_thin_dims(moving_sitk)
 
@@ -713,9 +719,7 @@ def register_volume(
         if transform_type == "translation":
             sitk_centering_transform: sitk.Transform = sitk.TranslationTransform(ndim)
         elif transform_type == "rigid":
-            sitk_centering_transform = (
-                sitk.Euler2DTransform() if ndim == 2 else sitk.Euler3DTransform()
-            )
+            sitk_centering_transform = sitk.Euler3DTransform()
         else:
             sitk_centering_transform = sitk.AffineTransform(ndim)
 

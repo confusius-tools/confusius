@@ -6,7 +6,7 @@ import numpy as np
 import scipy.ndimage
 import xarray as xr
 
-from confusius.validation import validate_fusi_dataarray
+from confusius._utils.validation import require_dataarray
 
 _FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 """FWM to Gaussian sigma conversion factor."""
@@ -72,6 +72,8 @@ def smooth_volume(
 
     Raises
     ------
+    TypeError
+        If `data` is not an `xarray.DataArray`.
     ValueError
         If `fwhm` is a dict and any key is not present in the DataArray, or if any
         smoothed dimension has non-uniform or undefined coordinate spacing, or is
@@ -124,7 +126,7 @@ def smooth_volume(
 
     >>> smoothed = smooth_volume(data, fwhm=0.3, ensure_finite=True)
     """
-    validate_fusi_dataarray(data, minimum_spatial_dims=1)
+    require_dataarray(data)
 
     all_dims = [str(d) for d in data.dims]
 

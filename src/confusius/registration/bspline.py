@@ -60,7 +60,7 @@ from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
-    validate_fusi_dataarray,
+    ensure_fusi_dataarray,
     validate_matching_spatial_units,
 )
 
@@ -368,9 +368,9 @@ def sample_displacement_field_like(
         control-point DataArrays produced by
         [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be 2D or 3D spatial (no time
-        dimension). When spatial coordinate `units` metadata is present on both
-        `transform` and `reference`, they must match.
+        DataArray defining the output grid. Must be a 3D spatial volume with dimensions
+        `z`, `y`, `x` (no time dimension). When spatial coordinate `units` metadata is
+        present on both `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
@@ -384,19 +384,19 @@ def sample_displacement_field_like(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or is not 2D or 3D.
+        If `reference` contains a `time` dimension or does not contain the spatial
+        dimensions `z`, `y`, and `x`.
     """
     if "time" in reference.dims:
         raise ValueError(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    validate_fusi_dataarray(
+    reference = ensure_fusi_dataarray(
         reference,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_matching_spatial_units(
         (("transform", transform), ("reference", reference))
@@ -493,7 +493,7 @@ def invert_displacement_field(
 
     spacing_dict = field.fusi.spacing
     origin_dict = field.fusi.origin
-    spacing = [spacing_dict[d] if spacing_dict[d] is not None else 1.0 for d in dims]
+    spacing = [cast(float, spacing_dict[d]) for d in dims]
     origin = [origin_dict[d] for d in dims]
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims
@@ -589,10 +589,14 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     # coords[dim].diff(dim) is empty and .mean() would silently return NaN.
     spacing_dict = da.fusi.spacing
     origin_dict = da.fusi.origin
-    spacing = [
-        spacing_dict[dim] if spacing_dict[dim] is not None else 1.0
-        for dim in spatial_dims
-    ]
+    missing_spacing = [dim for dim in spatial_dims if spacing_dict[dim] is None]
+    if missing_spacing:
+        raise ValueError(
+            "Cannot convert displacement field to SimpleITK because spacing is "
+            f"undefined for dimensions {missing_spacing!r}. Provide regular "
+            "coordinates or `voxdim` metadata for singleton coordinates."
+        )
+    spacing = [spacing_dict[dim] for dim in spatial_dims]
     origin = [origin_dict[dim] for dim in spatial_dims]
 
     # .T maps the first DataArray axis to SimpleITK's physical x-axis, matching the

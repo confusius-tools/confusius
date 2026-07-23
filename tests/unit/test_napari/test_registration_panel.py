@@ -234,7 +234,7 @@ class TestOperationMode:
         registration_panel._learning_rate_auto_check.setChecked(False)
         assert registration_panel._learning_rate_edit.isEnabled()
 
-    def test_volumewise_learning_rate_defaults_to_fixed_0_01(self, registration_panel):
+    def test_volumewise_learning_rate_defaults_to_fixed_value(self, registration_panel):
         registration_panel._time_series_radio.setChecked(True)
 
         assert registration_panel._learning_rate_auto_check.isHidden()
@@ -295,7 +295,7 @@ class TestOperationMode:
         assert registration_panel._transform_combo.currentText() == "rigid"
         assert registration_panel._scale_combo.currentText() == "decibel"
         assert registration_panel._learning_rate_edit.minimum() == pytest.approx(1e-10)
-        assert registration_panel._learning_rate_edit.value() == pytest.approx(1.0)
+        assert registration_panel._learning_rate_edit.value() == pytest.approx(0.01)
         assert registration_panel._convergence_min_edit.minimum() == pytest.approx(
             1e-10
         )
@@ -1123,25 +1123,31 @@ class TestTransforms:
         self, viewer, registration_panel, monkeypatch
     ):
         source = xr.DataArray(
-            np.zeros((20, 20), dtype=np.float32),
-            dims=["y", "x"],
+            np.zeros((2, 20, 20), dtype=np.float32),
+            dims=["z", "y", "x"],
             coords={
+                "z": xr.DataArray(np.arange(2) * 0.3, dims=["z"]),
                 "y": xr.DataArray(np.arange(20) * 0.2, dims=["y"]),
                 "x": xr.DataArray(np.arange(20) * 0.1, dims=["x"]),
             },
         )
-        source.values[5:10, 6:11] = 1.0
+        source.values[:, 5:10, 6:11] = 1.0
         affine = np.array(
-            [[1.0, 0.0, -0.4], [0.0, 1.0, 0.3], [0.0, 0.0, 1.0]],
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, -0.4],
+                [0.0, 0.0, 1.0, 0.3],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
             dtype=float,
         )
         target = resample_volume(
             source,
             affine,
-            shape=[source.sizes["y"], source.sizes["x"]],
-            spacing=[0.2, 0.1],
-            origin=[0.0, 0.0],
-            dims=["y", "x"],
+            shape=[source.sizes["z"], source.sizes["y"], source.sizes["x"]],
+            spacing=[0.3, 0.2, 0.1],
+            origin=[0.0, 0.0, 0.0],
+            dims=["z", "y", "x"],
             interpolation="nearest",
         )
         payload = make_affine_transform_payload(
@@ -1173,7 +1179,7 @@ class TestTransforms:
 
         layer = viewer.layers["target → source"]
         result = layer.metadata["xarray"]
-        np.testing.assert_allclose(result.values, source.values)
+        np.testing.assert_allclose(result.values, source.values, atol=1e-6)
         assert tuple(result.dims) == tuple(source.dims)
         np.testing.assert_allclose(result.coords["y"], source.coords["y"])
         np.testing.assert_allclose(result.coords["x"], source.coords["x"])
@@ -1530,24 +1536,30 @@ class TestFinishedCallbacks:
         self, real_viewer, real_registration_panel
     ):
         moving_data = xr.DataArray(
-            np.arange(24, dtype=np.float32).reshape(4, 6),
-            dims=["y", "x"],
+            np.arange(24, dtype=np.float32).reshape(1, 4, 6),
+            dims=["z", "y", "x"],
             coords={
+                "z": xr.DataArray([0.0], dims=["z"], attrs={"voxdim": 0.2}),
                 "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
         fixed = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
+            np.zeros((1, 4, 6), dtype=np.float32),
+            dims=["z", "y", "x"],
             coords=moving_data.coords,
         )
         fixed_layer = real_viewer.add_image(
-            np.zeros((4, 6), dtype=np.float32), name="fixed"
+            np.zeros((1, 4, 6), dtype=np.float32), name="fixed"
         )
         initial_transform = np.array(
-            [[1.0, 0.0, 0.2], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0, 0.2],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
             dtype=float,
         )
 

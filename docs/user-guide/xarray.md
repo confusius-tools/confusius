@@ -120,6 +120,76 @@ mask).
     is the best place to start. Understanding indexing, selection, and broadcasting will
     make working with ConfUSIus much easier.
 
+### Creating fUSI DataArrays from Raw Arrays
+
+Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
+have a NumPy, Dask, or array-like object and want to attach ConfUSIus-compatible
+dimensions, coordinates, and metadata. Dimensions can be supplied in any order; by
+default, the result is transposed to canonical `(time, z, y, x)` order:
+
+```python
+import confusius as cf
+
+recording = cf.create_fusi_dataarray(
+    raw_power,  # shape: (time, z, y, x)
+    dims=("time", "z", "y", "x"),
+    dt=0.6,    # seconds
+    dz=0.4,    # mm
+    dy=0.05,   # mm
+    dx=0.1,    # mm
+    attrs={"description": "Power Doppler from my system"},
+)
+```
+
+Single-slice recordings can omit the singleton spatial axis in the raw array; provide
+its spacing and ConfUSIus adds it for you:
+
+```python
+single_slice = cf.create_fusi_dataarray(
+    raw_power,  # shape: (time, y, x)
+    dims=("time", "y", "x"),
+    dt=0.6,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+)
+```
+
+Pass `canonical_order=False` only when you need to preserve the input dimension order.
+
+Acquisition metadata that describes the whole recording, such as
+`transmit_frequency` or `beamforming_sound_velocity`, belongs in `attrs`. Coordinate
+metadata such as `units` and `voxdim` is added automatically.
+
+### Canonical fUSI Dimensions and Scalar Indexing
+
+ConfUSIus stores fUSI recordings with the spatial dimensions `z`, `y`, and `x`.
+Single-slice acquisitions still keep a singleton `z` axis, so the canonical shape is
+`(time, z, y, x)` with `z=1`, not `(time, y, x)`.
+
+Xarray scalar indexing drops the indexed dimension but usually keeps its coordinate as a
+scalar coordinate:
+
+```python
+slice_movie = pwd.isel(z=0)
+slice_movie.dims
+# ('time', 'y', 'x')
+
+slice_movie.coords['z']
+# scalar coordinate: z = 0.0 mm, with the original coordinate metadata
+```
+
+Most geometry-sensitive ConfUSIus functions automatically restore such scalar-indexed
+spatial coordinates as singleton dimensions before validating the data. For example,
+`slice_movie` is treated as `(time, z, y, x)` with `z=1` when passed to registration or
+resampling APIs. Dimension-generic operations such as smoothing preserve the indexed
+shape.
+
+This recovery only works when the missing spatial dimension is still present as a
+scalar coordinate. A manually constructed bare `(time, y, x)` array with no `z`
+coordinate is rejected because ConfUSIus cannot infer its physical position, units, or
+voxel size.
+
 ## The `.fusi` Accessor
 
 Importing ConfUSIus registers the `.fusi` accessor on every DataArray:
@@ -241,9 +311,9 @@ function for motion correction.
 registered = pwd.fusi.register.volumewise(reference_time=0)
 ```
 
-By default, both translation and rotation are allowed (with a penalty to keep
-rotations small). Pass `allow_rotation=False` for translation-only correction, or
-increase `rotation_penalty` to constrain rotations more strongly.
+By default, rigid registration allows translation and rotation. Pass
+`transform="translation"` for translation-only correction. For rigid registration,
+set the first three `optimizer_weights` values to `0` to freeze rotation.
 
 ### Signal Extraction ([`.fusi.extract`][confusius.xarray.FUSIExtractAccessor])
 

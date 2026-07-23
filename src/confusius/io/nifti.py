@@ -35,7 +35,12 @@ from confusius.bids.mapping import CONFUSIUS_INTERNAL_FIELDS
 from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
 from confusius.registration.affines import decompose_affine
-from confusius.timing import convert_time_reference, convert_time_units
+from confusius.timing import (
+    TIMING_REFERENCE_FACTORS,
+    VolumeAcquisitionReference,
+    convert_time_reference,
+    convert_time_units,
+)
 
 if TYPE_CHECKING:
     import nibabel as nib
@@ -752,7 +757,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
 def _get_volume_acquisition_reference(
     attrs: dict[str, Any], *, coord_name: str, warn_on_missing: bool = False
-) -> Literal["start", "center", "end"]:
+) -> VolumeAcquisitionReference:
     """Return a coordinate timing reference, defaulting to onset timing.
 
     When the reference is missing, ConfUSIus assumes timestamps correspond to the start
@@ -795,7 +800,7 @@ def _get_volume_acquisition_reference(
             )
         return "start"
 
-    if reference not in {"start", "center", "end"}:
+    if reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown {coord_name} volume_acquisition_reference: {reference!r}. "
             "Must be 'start', 'center', or 'end'."

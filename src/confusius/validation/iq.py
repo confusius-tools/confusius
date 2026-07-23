@@ -92,7 +92,6 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
         require_time=True,
         allow_pose=False,
         allow_extra_dims=True,
-        minimum_spatial_dims=3,
         require_canonical_dim_order=True,
     )
 

@@ -23,12 +23,20 @@ def sample_3d_array():
 
 
 @pytest.fixture
-def sample_2d_dataarray_spatial(sample_2d_image):
-    """Spatial (y, x) DataArray wrapping sample_2d_image with 0.1 mm spacing."""
+def sample_singleton_z_dataarray_spatial(sample_2d_image):
+    """Single-slice spatial (1, y, x) DataArray wrapping sample_2d_image.
+
+    Single-slice fUSI data is represented as 3D with a singleton `z` axis (0.2 mm
+    thick) and 0.1 mm in-plane spacing.
+    """
     return xr.DataArray(
-        sample_2d_image,
-        dims=("y", "x"),
-        coords={"y": np.arange(32) * 0.1, "x": np.arange(32) * 0.1},
+        sample_2d_image[np.newaxis, :, :],
+        dims=("z", "y", "x"),
+        coords={
+            "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
+            "y": np.arange(32) * 0.1,
+            "x": np.arange(32) * 0.1,
+        },
     )
 
 
@@ -47,15 +55,20 @@ def sample_3d_dataarray_spatial(sample_3d_array):
 
 
 @pytest.fixture
-def sample_2d_dataarray(sample_2d_image):
-    """2D+time DataArray (5 frames) for volumewise registration tests."""
+def sample_singleton_z_dataarray(sample_2d_image):
+    """Single-slice time-varying (time, 1, y, x) DataArray (5 frames).
+
+    Single-slice fUSI recordings are represented as 3D+time data with a singleton
+    `z` axis (0.2 mm thick) and 0.1 mm in-plane spacing.
+    """
     n_frames = 5
-    data = np.stack([sample_2d_image] * n_frames, axis=0)
+    data = np.stack([sample_2d_image] * n_frames, axis=0)[:, np.newaxis, :, :]
     return xr.DataArray(
         data,
-        dims=("time", "y", "x"),
+        dims=("time", "z", "y", "x"),
         coords={
             "time": np.arange(n_frames) * 0.1,
+            "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
             "y": np.arange(32) * 0.1,
             "x": np.arange(32) * 0.1,
         },
@@ -77,23 +90,6 @@ def sample_3d_dataarray(sample_3d_array):
             "x": np.arange(16) * 1.0,
         },
     )
-
-
-@pytest.fixture
-def translation_transform_2d():
-    """2D translation transform with known offset (tx=2, ty=3)."""
-    t = sitk.TranslationTransform(2)
-    t.SetOffset((2.0, 3.0))
-    return t
-
-
-@pytest.fixture
-def euler_transform_2d():
-    """2D Euler transform with rotation ~5.7° and translation (1.5, 2.5)."""
-    t = sitk.Euler2DTransform()
-    t.SetAngle(0.1)
-    t.SetTranslation((1.5, 2.5))
-    return t
 
 
 @pytest.fixture

@@ -175,46 +175,34 @@ Zarr for efficient processing.
 
 ### Other Systems
 
-If you're working with IQ data from a system other than AUTC or EchoFrame, load it
-using your own loader and use [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] to
-ensure it meets ConfUSIus requirements before processing:
+For beamformed IQ data from a system other than AUTC or EchoFrame, load the complex
+array with the tool appropriate for your file format, then wrap it as an IQ DataArray
+with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]:
 
 ```python
-import xarray as xr
+import confusius as cf
 from confusius.validation import validate_iq_dataarray
 
-# Load IQ data from an unsupported format (example using your own loading function).
-iq = your_loader_function("path/to/iq_data")
+raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
 
-# Validate the IQ data structure and required attributes.
-try:
-    validate_iq_dataarray(iq)
-    print("✓ IQ data is valid and ready for processing")
-except (ValueError, TypeError) as e:
-    print(f"✗ Validation failed: {e}")
+iq = cf.create_fusi_dataarray(
+    raw_iq,
+    dims=("time", "z", "y", "x"),
+    dt=1 / 500,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+    volume_acquisition_duration=1 / 500,
+    attrs={
+        "transmit_frequency": 15.625e6,
+        "beamforming_sound_velocity": 1540.0,
+    },
+)
+validate_iq_dataarray(iq, require_attrs=True)
 ```
 
-The [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] function checks that your data:
-
-- Has the correct dimensions: `(time, z, y, x)`.
-- Is complex-valued ([`numpy.complex64`][numpy.complex64] or
-  [`numpy.complex128`][numpy.complex128]).
-- Contains required attributes:
-    - `compound_sampling_frequency`: Effective IQ sampling frequency in Hz.
-    - `transmit_frequency`: Ultrasound transmit frequency in Hz.
-    - `beamforming_sound_velocity`: Speed of sound in m/s.
-
-!!! question "Finding attribute values"
-    If you're unsure about the correct values for these attributes:
-
-    - `compound_sampling_frequency`: Check your acquisition software settings. The
-      compound sampling frequency is generally around 500-1000 Hz for fUSI acquisitions,
-      but can vary based on the system and settings used.
-    - `transmit_frequency`: Found in your probe specifications or acquisition
-      settings. Generally around 5-10 MHz for clinical probes, and 12-20 MHz for
-      high-frequency probes used in small animal imaging.
-    - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
-      with temperature and tissue type.
+See [Processing Beamformed IQ Data](beamformed-iq.md#expected-data-structure) for the
+required dimensions, metadata fields, and processing assumptions.
 
 ## Loading Data
 
@@ -483,6 +471,34 @@ ConfUSIus automatically loads a JSON sidecar file with the same basename (e.g.,
 fUSI-BIDS naming conventions and converted back to the usual ConfUSIus attribute names
 on the loaded DataArray. Timing metadata in the sidecar takes precedence over the NIfTI
 header when both are available.
+
+### Loading Other Formats
+
+For unsupported derived fUSI formats, such as lab-specific MAT-files containing power
+Doppler or velocity data, load the array with the appropriate Python tool and use
+[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to attach dimensions,
+coordinates, and metadata:
+
+```python
+import confusius as cf
+
+# Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
+raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (x, y, time)
+
+power = cf.create_fusi_dataarray(
+    raw_power,
+    dims=("x", "y", "time"),  # missing z is added as a singleton dimension
+    dt=1 / 2.5,  # 2.5 Hz frame rate
+    dz=0.4,      # spacing for the singleton z dimension in mm
+    dy=0.05,     # axial voxel size in mm
+    dx=0.1,      # lateral voxel size in mm
+    attrs={"description": "Power Doppler from my system"},
+)
+```
+
+See the [Create a fUSI DataArray from a MAT
+file](../examples/_built/io/create_fusi_dataarray_from_mat.md) example for a complete
+walkthrough, from a real lab-specific MAT file to motion correction and a task GLM.
 
 ## Saving Data
 
