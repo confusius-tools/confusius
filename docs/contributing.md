@@ -29,9 +29,10 @@ issues, and connect with the people maintaining the project.
 
 ## Acknowledgments
 
-We thank Mark Blumberg and Brett Dwyer for their feedback on the ConfUSIus GUI plugin
-and for providing an example SCAN v2 file that helped guide the experimental SCAN v2
-loader implementation.
+We gratefully acknowledge Mark S. Blumberg, PhD, and Brett Dwyer, Research Associate, of
+the University of Iowa Department of Psychological and Brain Sciences, for their
+feedback on the ConfUSIus GUI plugin. We also thank them for providing an example SCAN
+v2 file that helped guide the implementation of the experimental SCAN v2 loader.
 
 ## Contributing
 
