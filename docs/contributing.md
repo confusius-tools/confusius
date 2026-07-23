@@ -27,6 +27,12 @@ issues, and connect with the people maintaining the project.
 
 </div>
 
+## Acknowledgments
+
+We thank Mark Blumberg and Brett Dwyer for their feedback on the ConfUSIus GUI plugin
+and for providing an example SCAN v2 file that helped guide the experimental SCAN v2
+loader implementation.
+
 ## Contributing
 
 We welcome contributions to ConfUSIus. This guide will help you get started.
