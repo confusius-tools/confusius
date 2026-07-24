@@ -192,7 +192,7 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
     from brainglobe_atlasapi.structure_class import StructuresDict
 
     if not isinstance(ds.attrs["structures"], StructuresDict):
-        raise TypeError(
+        raise ValueError(  # noqa: TRY004
             "Atlas attribute 'structures' must be a brainglobe StructuresDict (as built "
             "by fetch_brainglobe_atlas or load_atlas), got "
             f"{type(ds.attrs['structures']).__name__}."

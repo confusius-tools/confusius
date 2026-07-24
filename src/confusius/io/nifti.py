@@ -301,7 +301,7 @@ def _load_nifti_with_nibabel(
 
     img = nib.load(path)
     if not isinstance(img, nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image):
-        raise TypeError(
+        raise ValueError(  # noqa: TRY004
             "Only NIfTI-1 and NIfTI-2 formats are supported when loading files with"
             " .nii or .nii.gz suffixes."
         )

@@ -269,7 +269,7 @@ def clutter_filter_svd_from_indices(
         high_cutoff = max_components
 
     if not isinstance(low_cutoff, int) or not isinstance(high_cutoff, int):
-        raise TypeError("Cutoffs must be integers")
+        raise ValueError("Cutoffs must be integers")  # noqa: TRY004
     if not (0 <= low_cutoff < high_cutoff <= max_components):
         raise ValueError(
             f"Cutoffs must satisfy 0 <= low_cutoff ({low_cutoff}) < "

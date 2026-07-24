@@ -438,7 +438,8 @@ def get_bspline_transform_from_payload(payload: Mapping[str, object]) -> xr.Data
 
     bspline = payload.get("bspline")
     if not isinstance(bspline, dict):
-        raise TypeError("B-spline payload must contain a serialized DataArray.")
+        # "not a B-spline transform" check above.
+        raise ValueError("B-spline payload must contain a serialized DataArray.")  # noqa: TRY004
     return _deserialize_bspline_dataarray(cast("BSplineDataArrayPayload", bspline))
 
 
@@ -447,7 +448,7 @@ def _coerce_grid_payload(
 ) -> OutputGridPayload:
     """Return a validated grid payload from a raw mapping field."""
     if not isinstance(grid, dict):
-        raise TypeError(missing_message)
+        raise ValueError(missing_message)  # noqa: TRY004
 
     grid_dict = cast("dict[str, object]", grid)
     dims = grid_dict.get("dims")
@@ -585,7 +586,8 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 cast("str", ds.attrs["confusius_transform_payload_json"])
             )
             if not isinstance(payload_metadata, dict):
-                raise TypeError("Stored transform payload metadata is malformed.")
+                # "does not contain a ConfUSIus transform" checks above.
+                raise ValueError("Stored transform payload metadata is malformed.")  # noqa: TRY004
             transform = ds["bspline_transform"].load()
         finally:
             ds.close()
@@ -604,7 +606,8 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 cast("str", transform.attrs["confusius_transform_metadata_json"])
             )
             if not isinstance(payload_metadata, dict):
-                raise TypeError("Stored transform payload metadata is malformed.")
+                # "does not contain a ConfUSIus transform" checks above.
+                raise ValueError("Stored transform payload metadata is malformed.")
         else:
             payload_metadata = {
                 key: transform.attrs[key]
@@ -698,7 +701,8 @@ def load_transform_payload(path: str | Path) -> TransformPayload:
 
     payload = json.loads(path.read_text())
     if not isinstance(payload, dict):
-        raise TypeError("Transform file must contain a JSON object.")
+        # "not an affine/B-spline transform" checks below.
+        raise ValueError("Transform file must contain a JSON object.")  # noqa: TRY004
 
     kind = payload.get("kind")
     if kind != "affine":
