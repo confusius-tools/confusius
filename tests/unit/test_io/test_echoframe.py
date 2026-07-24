@@ -61,8 +61,8 @@ def _create_echoframe_metadata(
         receive_spec["nRepeats"] = np.array([n_volumes], dtype=np.int32)
         receive_spec["transmitReceiveTimeMus"] = np.array([transmit_receive_time_mus])
 
-        recon_spec["x_axis"] = np.linspace(0, x * 0.1, x)
-        recon_spec["z_axis"] = np.linspace(0, z * 0.05, z)
+        recon_spec["xAxis"] = np.linspace(0, x * 0.1, x)
+        recon_spec["zAxis"] = np.linspace(0, z * 0.05, z)
         recon_spec["c0"] = np.array([1540.0])
         recon_spec["method"] = np.array([ord(c) for c in "DAS"], dtype=np.uint8)
         probe_spec["Fc"] = np.array([15.625e6])

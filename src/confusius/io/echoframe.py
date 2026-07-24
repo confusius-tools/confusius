@@ -101,10 +101,10 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
         )
 
         # Spatial coordinates.
-        # recon_spec["x_axis"] is lateral (x dimension in ConfUSIus).
-        # recon_spec["z_axis"] is depth/axial (y dimension in ConfUSIus).
-        x_axis_full = np.array(recon_spec["x_axis"][:]).flatten()
-        z_axis_full = np.array(recon_spec["z_axis"][:]).flatten()
+        # recon_spec["xAxis"] is lateral (x dimension in ConfUSIus).
+        # recon_spec["zAxis"] is depth/axial (y dimension in ConfUSIus).
+        x_axis_full = np.array(recon_spec["xAxis"][:]).flatten()
+        z_axis_full = np.array(recon_spec["zAxis"][:]).flatten()
 
         if crop:
             # croppingROI is 1-indexed, convert to 0-indexed.
