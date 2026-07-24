@@ -1045,6 +1045,15 @@ class TestLoadNifti:
         assert result.data.chunksize == (2, 3, 4)
         np.testing.assert_allclose(result.data.compute(), data.T)
 
+    def test_load_nifti_mismatched_tuple_chunks_length(self, tmp_path: Path) -> None:
+        """A wrong-length tuple `chunks` is passed through unchanged; Dask errors."""
+        data = np.random.default_rng(0).random((8, 6, 4)).astype(np.float32)
+        nifti_path = tmp_path / "test_bad_chunks.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with pytest.raises(ValueError, match="Chunks and shape must be"):
+            load_nifti(nifti_path, chunks=(2, 3))
+
     def test_load_nifti_rejects_non_nifti_image(
         self, tmp_path: Path, monkeypatch
     ) -> None:
