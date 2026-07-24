@@ -2,9 +2,11 @@
 
 from pathlib import Path
 
+import dask.array as da
 import h5py
 import numpy as np
 import pytest
+import xarray as xr
 
 from confusius.io.echoframe import load_echoframe_dat, load_echoframe_metadata
 
@@ -59,8 +61,8 @@ def _create_echoframe_metadata(
         receive_spec["nRepeats"] = np.array([n_volumes], dtype=np.int32)
         receive_spec["transmitReceiveTimeMus"] = np.array([transmit_receive_time_mus])
 
-        recon_spec["x_axis"] = np.linspace(0, x * 0.1, x)
-        recon_spec["z_axis"] = np.linspace(0, z * 0.05, z)
+        recon_spec["xAxis"] = np.linspace(0, x * 0.1, x)
+        recon_spec["zAxis"] = np.linspace(0, z * 0.05, z)
         recon_spec["c0"] = np.array([1540.0])
         recon_spec["method"] = np.array([ord(c) for c in "DAS"], dtype=np.uint8)
         probe_spec["Fc"] = np.array([15.625e6])
@@ -191,12 +193,16 @@ class TestLoadEchoFrameDat:
 
         data = load_echoframe_dat(dat_path, meta_path)
 
-        assert data.shape == (2, 3, 4, 1, 6)  # (n_blocks, n_volumes, n_x, 1, n_z)
+        assert isinstance(data, xr.DataArray)
+        assert data.dims == ("time", "z", "y", "x")
+        assert data.shape == (6, 1, 6, 4)  # (n_blocks * n_volumes, 1, n_z, n_x)
         assert data.dtype == np.complex64
 
         # Verify values match the known pattern (block_idx+1, 1).
-        assert data[0, 0, 0, 0, 0] == complex(1.0, 1.0), "Block 0 value corrupted"
-        assert data[1, 0, 0, 0, 0] == complex(2.0, 1.0), "Block 1 value corrupted"
+        block_0 = data.isel(time=0, z=0, y=0, x=0).compute().item()
+        block_1 = data.isel(time=3, z=0, y=0, x=0).compute().item()
+        assert block_0 == complex(1.0, 1.0), "Block 0 corrupted"
+        assert block_1 == complex(2.0, 1.0), "Block 1 corrupted"
 
     def test_loads_file_with_padding(self, echoframe_dat_with_padding):
         """`load_echoframe_dat` loads files with padding correctly."""
@@ -204,7 +210,7 @@ class TestLoadEchoFrameDat:
 
         data = load_echoframe_dat(dat_path, meta_path)
 
-        assert data.shape == (2, 3, 4, 1, 6)
+        assert data.shape == (6, 1, 6, 4)
         assert data.dtype == np.complex64
 
         # Verify all blocks have the expected pattern.
@@ -213,9 +219,11 @@ class TestLoadEchoFrameDat:
         expected_block_0 = complex(1.0, 1.0)
         expected_block_1 = complex(2.0, 1.0)
 
-        assert data[0, 0, 0, 0, 0] == expected_block_0, "Block 0 is corrupted"
-        assert data[1, 0, 0, 0, 0] == expected_block_1, (
-            f"Block 1 is corrupted! Got {data[1, 0, 0, 0, 0]}, expected {expected_block_1}. "
+        block_0 = data.isel(time=0, z=0, y=0, x=0).compute().item()
+        block_1 = data.isel(time=3, z=0, y=0, x=0).compute().item()
+        assert block_0 == expected_block_0, "Block 0 is corrupted"
+        assert block_1 == expected_block_1, (
+            f"Block 1 is corrupted! Got {block_1}, expected {expected_block_1}. "
             "This may indicate that padding bytes are not being skipped correctly."
         )
 
@@ -225,8 +233,8 @@ class TestLoadEchoFrameDat:
 
         data = load_echoframe_dat(dat_path, meta_path)
 
-        # With cropping ROI [1, 4, 1, 3]: z=4, x=3.
-        assert data.shape == (1, 3, 3, 1, 4)
+        # With cropping ROI [1, 4, 1, 3]: z=4, x=3; 1 block * 3 volumes = 3 in time.
+        assert data.shape == (3, 1, 4, 3)
 
     def test_missing_dat_file(self, tmp_path, echoframe_meta_file):
         """`load_echoframe_dat` raises `ValueError` for missing DAT file."""
@@ -243,30 +251,69 @@ class TestLoadEchoFrameDat:
         with pytest.raises(ValueError):
             load_echoframe_dat(dat_path, non_existent)
 
-    def test_data_accessible(self, echoframe_dat_no_padding):
-        """`load_echoframe_dat` returns accessible memmap with correct values."""
+    def test_default_meta_path_discovery(self, echoframe_dat_no_padding):
+        """`load_echoframe_dat` finds `ScanParameters.mat` next to `dat_path` by default."""
         dat_path, meta_path = echoframe_dat_no_padding
+        assert meta_path.name == "ScanParameters.mat"
 
-        data = load_echoframe_dat(dat_path, meta_path)
+        data = load_echoframe_dat(dat_path)
 
-        # Block 0 is filled with complex(1, 1) in the known pattern.
-        sample = data[0, 0, 0, 0, 0]
-        assert sample == complex(1.0, 1.0)
+        assert data.shape == (6, 1, 6, 4)
+
+    def test_default_meta_path_missing(self, tmp_path):
+        """`load_echoframe_dat` raises `ValueError` when no default MAT file is found."""
+        dat_path = tmp_path / "fUSi_BF.dat"
+        _create_echoframe_dat_file(dat_path, n_blocks=1, n_x=4, n_z=6, n_volumes=3)
+
+        with pytest.raises(ValueError):
+            load_echoframe_dat(dat_path)
 
     def test_different_blocks_accessible(self, echoframe_dat_no_padding):
         """`load_echoframe_dat` allows accessing different blocks with correct values."""
         dat_path, meta_path = echoframe_dat_no_padding
 
         data = load_echoframe_dat(dat_path, meta_path)
+        n_volumes = data.attrs["n_volumes_per_block"]
 
-        first_block = data[0]
-        last_block = data[-1]
+        first_block = data.isel(time=slice(0, n_volumes))
+        last_block = data.isel(time=slice(-n_volumes, None))
 
-        assert first_block.shape == (3, 4, 1, 6)
-        assert last_block.shape == (3, 4, 1, 6)
+        assert first_block.shape == (3, 1, 6, 4)
+        assert last_block.shape == (3, 1, 6, 4)
         # Known pattern: block 0 → complex(1, 1), block 1 → complex(2, 1).
-        assert first_block[0, 0, 0, 0] == complex(1.0, 1.0)
-        assert last_block[0, 0, 0, 0] == complex(2.0, 1.0)
+        assert first_block.isel(time=0, z=0, y=0, x=0).compute().item() == complex(
+            1.0, 1.0
+        )
+        assert last_block.isel(time=0, z=0, y=0, x=0).compute().item() == complex(
+            2.0, 1.0
+        )
+
+    def test_lazy_dask_array(self, echoframe_dat_no_padding):
+        """`load_echoframe_dat` returns a Dask array chunked one block per chunk."""
+        dat_path, meta_path = echoframe_dat_no_padding
+
+        data = load_echoframe_dat(dat_path, meta_path)
+
+        assert isinstance(data.data, da.Array)
+        assert data.data.chunks[0] == (3, 3)  # One chunk per acquisition block.
+
+    def test_coords_and_attrs(self, echoframe_dat_no_padding):
+        """`load_echoframe_dat` attaches ConfUSIus coordinates and acquisition attrs."""
+        dat_path, meta_path = echoframe_dat_no_padding
+
+        data = load_echoframe_dat(dat_path, meta_path)
+        meta = load_echoframe_metadata(meta_path)
+
+        np.testing.assert_allclose(data.coords["x"].values, meta["lateral_coords"])
+        np.testing.assert_allclose(data.coords["y"].values, meta["axial_coords"])
+        np.testing.assert_allclose(data.coords["z"].values, [0.0])
+        np.testing.assert_allclose(
+            data.coords["time"].values,
+            np.arange(6) / meta["compound_sampling_frequency"],
+        )
+
+        assert data.attrs["transmit_frequency"] == meta["transmit_frequency"]
+        assert data.attrs["n_volumes_per_block"] == meta["n_volumes_per_block"]
 
 
 @pytest.fixture
@@ -320,6 +367,12 @@ class TestLoadEchoFrameMetadata:
         meta = load_echoframe_metadata(echoframe_meta_file_no_crop)
 
         assert meta["beamforming_method"] == "DAS"
+
+    def test_n_volumes_per_block_extracted(self, echoframe_meta_file_no_crop):
+        """`load_echoframe_metadata` extracts the number of volumes per block."""
+        meta = load_echoframe_metadata(echoframe_meta_file_no_crop)
+
+        assert meta["n_volumes_per_block"] == 3
 
     def test_cropping_applied_to_coords(self, echoframe_meta_file_crop):
         """`load_echoframe_metadata` applies the cropping ROI to spatial coordinates."""

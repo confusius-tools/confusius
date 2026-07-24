@@ -5,9 +5,12 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import dask
+import dask.array as da
 import h5py as h5
 import numpy as np
 import numpy.typing as npt
+import xarray as xr
 import zarr
 
 if TYPE_CHECKING:
@@ -45,6 +48,8 @@ class EchoFrameMetadata(TypedDict):
         Single plane wave pulse repetition frequency in hertz.
     beamforming_method : str
         Beamforming method used (e.g. `"DAS"`).
+    n_volumes_per_block : int
+        Number of volumes per acquisition block.
     """
 
     lateral_coords: npt.NDArray[np.float64]
@@ -57,6 +62,7 @@ class EchoFrameMetadata(TypedDict):
     compound_sampling_frequency: float
     pulse_repetition_frequency: float
     beamforming_method: str
+    n_volumes_per_block: int
 
 
 def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
@@ -95,10 +101,10 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
         )
 
         # Spatial coordinates.
-        # recon_spec["x_axis"] is lateral (x dimension in ConfUSIus).
-        # recon_spec["z_axis"] is depth/axial (y dimension in ConfUSIus).
-        x_axis_full = np.array(recon_spec["x_axis"][:]).flatten()
-        z_axis_full = np.array(recon_spec["z_axis"][:]).flatten()
+        # recon_spec["xAxis"] is lateral (x dimension in ConfUSIus).
+        # recon_spec["zAxis"] is depth/axial (y dimension in ConfUSIus).
+        x_axis_full = np.array(recon_spec["xAxis"][:]).flatten()
+        z_axis_full = np.array(recon_spec["zAxis"][:]).flatten()
 
         if crop:
             # croppingROI is 1-indexed, convert to 0-indexed.
@@ -136,6 +142,9 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
         beamforming_method_bytes = np.array(recon_spec["method"][:]).flatten()
         beamforming_method = "".join(chr(int(c)) for c in beamforming_method_bytes)
 
+        # Acquisition block structure.
+        n_volumes_per_block = int(np.array(receive_spec["nRepeats"][:]).item(0))
+
     return EchoFrameMetadata(
         lateral_coords=lateral_coords,
         axial_coords=axial_coords,
@@ -147,31 +156,162 @@ def load_echoframe_metadata(meta_path: str | Path) -> EchoFrameMetadata:
         compound_sampling_frequency=compound_sampling_frequency,
         pulse_repetition_frequency=pulse_repetition_frequency,
         beamforming_method=beamforming_method,
+        n_volumes_per_block=n_volumes_per_block,
     )
 
 
-def load_echoframe_dat(
+def _load_echoframe_block(
     dat_path: str | Path,
-    meta_path: str | Path,
-    dat_dtype: npt.DTypeLike = np.complex64,
-    header_dtype: npt.DTypeLike = np.uint64,
-    n_header_items: int = 5,
-) -> np.memmap:
-    """Load an EchoFrame DAT file containing beamformed IQ data.
+    block_idx: int,
+    header_size: int,
+    n_volumes_per_block: int,
+    x: int,
+    z: int,
+    dat_dtype: npt.DTypeLike,
+    padding_bytes: int,
+) -> np.ndarray:
+    """Load a single EchoFrame acquisition block from a DAT file.
 
-    !!! warning "EchoFrame spatial dimensions"
-        EchoFrame stores data with `(x, y, z)` spatial ordering corresponding to
-        (lateral, elevation, axial) dimensions, which is different from the `(z, y,
-        x)` ordering used in ConfUSIus that corresponds to (elevation, axial, lateral).
-        The returned array maintains the EchoFrame ordering to avoid confusion, but
-        users should be aware of this when processing the data.
+    Opens a fresh, block-scoped `numpy.memmap` and copies the block out of it. Used as
+    the per-chunk loader for the lazy Dask array returned by `load_echoframe_dat`; each
+    block gets its own memory map so no single memmap spanning the whole file needs to
+    be built or transferred across task boundaries.
 
     Parameters
     ----------
     dat_path : str or pathlib.Path
         Path to the EchoFrame DAT file containing beamformed IQ data.
-    meta_path : str or pathlib.Path
-        Path to the EchoFrame sequence parameter file (MAT v7.3 / HDF5 format).
+    block_idx : int
+        Index of the acquisition block to load.
+    header_size : int
+        Size in bytes of the DAT file header, preceding the first block.
+    n_volumes_per_block : int
+        Number of volumes per acquisition block.
+    x : int
+        Lateral dimension size.
+    z : int
+        Axial (depth) dimension size.
+    dat_dtype : dtype_like
+        Data type of the beamformed IQ data in the DAT file.
+    padding_bytes : int
+        Number of padding bytes following each block's data. `0` if blocks are
+        contiguous.
+
+    Returns
+    -------
+    (volumes, x, 1, z) numpy.ndarray
+        Beamformed IQ data for the requested block.
+    """
+    block_shape = (n_volumes_per_block, x, 1, z)
+    if padding_bytes > 0:
+        # Block has trailing padding - use a structured dtype to skip it.
+        block_dtype = np.dtype(
+            [
+                ("data", dat_dtype, block_shape),
+                ("padding", np.uint8, (padding_bytes,)),
+            ]
+        )
+        offset = header_size + block_idx * block_dtype.itemsize
+        memmap = np.memmap(
+            dat_path, dtype=block_dtype, mode="r", offset=offset, shape=(1,)
+        )
+        return np.array(memmap["data"][0])  # type: ignore
+    else:
+        itemsize = np.dtype(dat_dtype).itemsize
+        offset = header_size + block_idx * int(np.prod(block_shape)) * itemsize
+        memmap = np.memmap(
+            dat_path, dtype=dat_dtype, mode="r", offset=offset, shape=block_shape
+        )
+        return np.array(memmap)
+
+
+def _load_echoframe_dat_blocks(
+    dat_path: str | Path,
+    x: int,
+    z: int,
+    n_volumes_per_block: int,
+    dat_dtype: npt.DTypeLike,
+    header_dtype: npt.DTypeLike,
+    n_header_items: int,
+) -> da.Array:
+    """Load all EchoFrame acquisition blocks as a lazy, EchoFrame-ordered Dask array.
+
+    Parameters
+    ----------
+    dat_path : str or pathlib.Path
+        Path to the EchoFrame DAT file containing beamformed IQ data.
+    x : int
+        Lateral dimension size.
+    z : int
+        Axial (depth) dimension size.
+    n_volumes_per_block : int
+        Number of volumes per acquisition block.
+    dat_dtype : dtype_like
+        Data type of the beamformed IQ data in the DAT file.
+    header_dtype : dtype_like
+        Data type of the DAT file header.
+    n_header_items : int
+        Number of items in the DAT file header.
+
+    Returns
+    -------
+    (blocks, volumes, x, y, z) dask.array.Array
+        Lazy array containing the beamformed IQ data, where `blocks` is the number of
+        acquisition blocks, `volumes` is `n_volumes_per_block`, `x` is the lateral
+        dimension, `y` is the elevation dimension (always `1`), and `z` is the axial
+        dimension. Chunked one block per Dask chunk along the leading `blocks` axis;
+        each block is only read from disk once its chunk is computed.
+    """
+    header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
+    _, header_size, n_blocks, data_size, padding_bytes = (int(item) for item in header)
+
+    load = dask.delayed(_load_echoframe_block)
+    block_shape = (n_volumes_per_block, x, 1, z)
+    blocks = [
+        da.from_delayed(
+            load(
+                dat_path,
+                block_idx,
+                header_size,
+                n_volumes_per_block,
+                x,
+                z,
+                dat_dtype,
+                padding_bytes,
+            ),
+            shape=block_shape,
+            dtype=dat_dtype,
+        )
+        for block_idx in range(n_blocks)
+    ]
+    return da.stack(blocks, axis=0)
+
+
+def load_echoframe_dat(
+    dat_path: str | Path,
+    meta_path: str | Path | None = None,
+    dat_dtype: npt.DTypeLike = np.complex64,
+    header_dtype: npt.DTypeLike = np.uint64,
+    n_header_items: int = 5,
+) -> xr.DataArray:
+    """Load an EchoFrame DAT file as a lazy, ConfUSIus-ordered DataArray.
+
+    Beamformed IQ data is loaded as a DataArray with dimensions `(time, z, y, x)`,
+    matching ConfUSIus conventions. Coordinates (`time`, `z`, `y`, `x`) and acquisition
+    metadata (e.g. `transmit_frequency`, `beamforming_sound_velocity`) are attached
+    from the EchoFrame sequence parameter file. The `time` coordinate is computed from
+    frame indices and the compound sampling frequency; callers with acquisition
+    timestamps for each block should override it (e.g. via
+    `data.assign_coords(time=...)`).
+
+    Parameters
+    ----------
+    dat_path : str or pathlib.Path
+        Path to the EchoFrame DAT file containing beamformed IQ data.
+    meta_path : str or pathlib.Path, optional
+        Path to the EchoFrame sequence parameter file (MAT v7.3 / HDF5 format). If not
+        provided, looks for `ScanParameters.mat` next to `dat_path`, matching the
+        filename EchoFrame's storage writer uses by convention.
     dat_dtype : dtype_like, default: numpy.complex64
         Data type of the beamformed IQ data in the DAT file.
     header_dtype : dtype_like, default: numpy.uint64
@@ -181,68 +321,102 @@ def load_echoframe_dat(
 
     Returns
     -------
-    (blocks, volumes, x, y, z) numpy.memmap
-        Memory-mapped array containing the beamformed IQ data, where `blocks` is the
-        number of acquisitions blocks, `volumes` is the number of volumes per block,
-        `x` is the lateral dimension, `y` is the elevation dimension, and `z` is
-        the axial dimension.
+    xarray.DataArray
+        Lazy DataArray with dimensions `(time, z, y, x)`, where `z` is a singleton
+        elevation dimension. Data is wrapped in a Dask array, chunked so that each
+        chunk corresponds to one acquisition block's volumes; individual blocks
+        remain accessible via `data.isel(time=slice(i * n, (i + 1) * n))`, where `n`
+        is `data.attrs["n_volumes_per_block"]`.
+
+    Raises
+    ------
+    ValueError
+        If `meta_path` is not provided and no `ScanParameters.mat` file exists next to
+        `dat_path`.
+
+    Notes
+    -----
+    Acquisition metadata is stored in `da.attrs`, including `n_volumes_per_block`
+    (number of volumes per acquisition block).
     """
     dat_path = check_path(dat_path, label="dat_path", type="file")
-    meta_path = check_path(meta_path, label="meta_path", type="file")
+    if meta_path is None:
+        meta_path = dat_path.parent / "ScanParameters.mat"
 
-    with h5.File(meta_path, "r") as f:
-        recon_spec = f["ReconSpec"]
-        receive_spec = f["ReceiveSpec"]
-        crop = (
-            bool(np.array(recon_spec["cropBF"][()]))
-            if "cropBF" in recon_spec
-            else False
-        )
+    meta = load_echoframe_metadata(meta_path)
+    x, z = len(meta["lateral_coords"]), len(meta["axial_coords"])
+    n_volumes_per_block = meta["n_volumes_per_block"]
 
-        if crop:
-            z = int(
-                np.array(recon_spec["croppingROI"][0, 1])
-                - np.array(recon_spec["croppingROI"][0, 0])
-                + 1
-            )
-            x = int(
-                np.array(recon_spec["croppingROI"][0, 3])
-                - np.array(recon_spec["croppingROI"][0, 2])
-                + 1
-            )
-        else:
-            z = int(recon_spec["nz"][0, 0])
-            x = int(recon_spec["nx"][0, 0])
-        n_volumes_per_block = np.array(receive_spec["nRepeats"][:]).item(0)
+    blocks = _load_echoframe_dat_blocks(
+        dat_path, x, z, n_volumes_per_block, dat_dtype, header_dtype, n_header_items
+    )
+    n_blocks, n_volumes, _, _, _ = blocks.shape
+    # EchoFrame axes are (blocks, volumes, x, y, z); transpose spatial axes to
+    # ConfUSIus (z, y, x) and merge (blocks, volumes) into a single time axis. Each
+    # Dask chunk is exactly one block, so this reshape never splits a chunk.
+    iq = blocks.transpose((0, 1, 4, 3, 2)).reshape(n_blocks * n_volumes, 1, z, x)
 
-    header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
-    _, header_size, n_blocks, data_size, padding_bytes = header
+    n_total_volumes = n_blocks * n_volumes
+    time_values = (
+        np.arange(n_total_volumes, dtype=np.float64)
+        / meta["compound_sampling_frequency"]
+    )
+    volume_acquisition_duration = float(
+        meta["plane_wave_angles"].size / meta["pulse_repetition_frequency"]
+    )
 
-    if padding_bytes > 0:
-        # File has padding between blocks - use structured dtype to skip it.
-        block_dtype = np.dtype(
-            [
-                ("data", dat_dtype, (int(n_volumes_per_block), x, 1, z)),
-                ("padding", np.uint8, (int(padding_bytes),)),
-            ]
-        )
-        memmap = np.memmap(
-            dat_path,
-            dtype=block_dtype,
-            mode="r",
-            offset=header_size,
-            shape=(int(n_blocks),),
-        )
-        return memmap["data"]  # type: ignore
-    else:
-        # No padding - direct memmap.
-        return np.memmap(
-            dat_path,
-            dtype=dat_dtype,
-            mode="r",
-            offset=header_size,
-            shape=(int(n_blocks), int(n_volumes_per_block), x, 1, z),
-        )
+    # TODO: we should compute the actual z-axis voxdim from the elevation beam width,
+    # but we're currently missing some information for that, such as the elevation
+    # aperture and elevation focus.
+    coords = {
+        "time": (
+            "time",
+            time_values,
+            {
+                "units": "s",
+                "long_name": "Time",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": volume_acquisition_duration,
+            },
+        ),
+        "z": (
+            "z",
+            np.array([0.0]),
+            {"units": "mm", "long_name": "Elevation", "voxdim": 0.4},
+        ),
+        "y": (
+            "y",
+            meta["axial_coords"],
+            {
+                "units": "mm",
+                "long_name": "Depth",
+                "voxdim": float(np.diff(meta["axial_coords"]).mean()),
+            },
+        ),
+        "x": (
+            "x",
+            meta["lateral_coords"],
+            {
+                "units": "mm",
+                "long_name": "Lateral",
+                "voxdim": float(np.diff(meta["lateral_coords"]).mean()),
+            },
+        ),
+    }
+    attrs = {
+        "transmit_frequency": meta["transmit_frequency"],
+        "probe_number_of_elements": meta["probe_number_of_elements"],
+        "probe_pitch": meta["probe_pitch"],
+        "beamforming_sound_velocity": meta["beamforming_sound_velocity"],
+        "plane_wave_angles": meta["plane_wave_angles"],
+        "compound_sampling_frequency": meta["compound_sampling_frequency"],
+        "pulse_repetition_frequency": meta["pulse_repetition_frequency"],
+        "beamforming_method": meta["beamforming_method"],
+        "n_volumes_per_block": n_volumes_per_block,
+    }
+    return xr.DataArray(
+        iq, dims=("time", "z", "y", "x"), coords=coords, attrs=attrs, name="iq"
+    )
 
 
 def convert_echoframe_dat_to_zarr(
@@ -352,8 +526,7 @@ def convert_echoframe_dat_to_zarr(
     """
     from rich.progress import track
 
-    meta = load_echoframe_metadata(meta_path)
-    data = load_echoframe_dat(
+    iq_da = load_echoframe_dat(
         dat_path=dat_path,
         meta_path=meta_path,
         dat_dtype=dat_dtype,
@@ -361,7 +534,9 @@ def convert_echoframe_dat_to_zarr(
         n_header_items=n_header_items,
     )
 
-    n_blocks, n_volumes, n_x, n_y, n_z = data.shape
+    n_volumes = iq_da.attrs["n_volumes_per_block"]
+    n_total_volumes_full = iq_da.sizes["time"]
+    n_blocks = n_total_volumes_full // n_volumes
 
     total_skip = skip_first_blocks + skip_last_blocks
     if total_skip >= n_blocks:
@@ -370,8 +545,15 @@ def convert_echoframe_dat_to_zarr(
             f"skip_last_blocks={skip_last_blocks}) from {n_blocks} total blocks."
         )
 
+    iq_da = iq_da.isel(
+        time=slice(
+            skip_first_blocks * n_volumes,
+            n_total_volumes_full - skip_last_blocks * n_volumes,
+        )
+    )
     n_blocks_after_skip = n_blocks - total_skip
-    n_total_volumes = n_blocks_after_skip * n_volumes
+    n_total_volumes = iq_da.sizes["time"]
+    n_z, n_x = iq_da.sizes["y"], iq_da.sizes["x"]
 
     if volumes_per_chunk is None:
         volumes_per_chunk = n_volumes
@@ -403,7 +585,7 @@ def convert_echoframe_dat_to_zarr(
         )
     create_array_kwargs["shape"] = output_shape
     create_array_kwargs["chunks"] = chunks
-    create_array_kwargs["dtype"] = data.dtype
+    create_array_kwargs["dtype"] = iq_da.dtype
     create_array_kwargs["dimension_names"] = dim_names
 
     if shards is not None:
@@ -419,57 +601,26 @@ def convert_echoframe_dat_to_zarr(
 
         time_values = np.concatenate(
             [
-                block_start + np.arange(n_volumes) / meta["compound_sampling_frequency"]
+                block_start
+                + np.arange(n_volumes) / iq_da.attrs["compound_sampling_frequency"]
                 for block_start in block_times_array
             ]
         )
-    else:
-        skipped_volumes = skip_first_blocks * n_volumes
-        time_values = (
-            np.arange(n_total_volumes, dtype=np.float64)
-            / meta["compound_sampling_frequency"]
-            + skipped_volumes / meta["compound_sampling_frequency"]
-        )
+        iq_da = iq_da.assign_coords(time=("time", time_values))
 
     zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
     zarr_iq = zarr_group.create_array("iq", **create_array_kwargs)
 
-    zarr_group.create_array("time", data=time_values, dimension_names=["time"])
-    zarr_group["time"].attrs["units"] = "s"
-    zarr_group["time"].attrs["long_name"] = "Time"
-    zarr_group["time"].attrs["volume_acquisition_reference"] = "start"
-    zarr_group["time"].attrs["volume_acquisition_duration"] = float(
-        meta["plane_wave_angles"].size / meta["pulse_repetition_frequency"]
-    )
+    for dim in ("time", "z", "y", "x"):
+        zarr_group.create_array(
+            dim, data=iq_da.coords[dim].values, dimension_names=[dim]
+        )
+        zarr_group[dim].attrs.update(iq_da.coords[dim].attrs)
 
-    # z coordinate is the stacking dimension (size 1 for 2D data).
-    z_values = np.array([0.0])
-    zarr_group.create_array("z", data=z_values, dimension_names=["z"])
-    zarr_group["z"].attrs["units"] = "mm"
-    zarr_group["z"].attrs["long_name"] = "Elevation"
-
-    zarr_group.create_array("y", data=meta["axial_coords"], dimension_names=["y"])
-    zarr_group["y"].attrs["units"] = "mm"
-    zarr_group["y"].attrs["long_name"] = "Depth"
-
-    zarr_group.create_array("x", data=meta["lateral_coords"], dimension_names=["x"])
-    zarr_group["x"].attrs["units"] = "mm"
-    zarr_group["x"].attrs["long_name"] = "Lateral"
-
-    # TODO: we should compute the actual z-axis voxdim from the elevation beam width,
-    # but we're currently missing some information for that, such as the elevation
-    # aperture and elevation focus.
-    zarr_group["z"].attrs["voxdim"] = 0.4
-    zarr_group["y"].attrs["voxdim"] = float(np.diff(meta["axial_coords"]).mean())
-    zarr_group["x"].attrs["voxdim"] = float(np.diff(meta["lateral_coords"]).mean())
-    zarr_iq.attrs["transmit_frequency"] = meta["transmit_frequency"]
-    zarr_iq.attrs["probe_number_of_elements"] = meta["probe_number_of_elements"]
-    zarr_iq.attrs["probe_pitch"] = meta["probe_pitch"]
-    zarr_iq.attrs["beamforming_sound_velocity"] = meta["beamforming_sound_velocity"]
-    zarr_iq.attrs["plane_wave_angles"] = meta["plane_wave_angles"].tolist()
-    zarr_iq.attrs["compound_sampling_frequency"] = meta["compound_sampling_frequency"]
-    zarr_iq.attrs["pulse_repetition_frequency"] = meta["pulse_repetition_frequency"]
-    zarr_iq.attrs["beamforming_method"] = meta["beamforming_method"]
+    for key, value in iq_da.attrs.items():
+        if key == "n_volumes_per_block":
+            continue
+        zarr_iq.attrs[key] = value.tolist() if isinstance(value, np.ndarray) else value
 
     first_block = skip_first_blocks
     last_block = n_blocks - skip_last_blocks
@@ -494,12 +645,10 @@ def convert_echoframe_dat_to_zarr(
         for idx, start_block in enumerate(iterable):
             end_block = min(start_block + batch_size, last_block)
 
-            batch_data = np.transpose(
-                data[start_block:end_block], axes=(0, 1, 4, 3, 2)
-            ).reshape(-1, 1, n_z, n_x)
-
             output_start = (start_block - skip_first_blocks) * n_volumes
             output_end = (end_block - skip_first_blocks) * n_volumes
+            batch_data = iq_da.data[output_start:output_end].compute()
+
             zarr_iq[output_start:output_end] = batch_data
 
             if progress is not None and task_id is not None:
