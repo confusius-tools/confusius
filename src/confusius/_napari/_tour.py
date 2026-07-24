@@ -263,7 +263,7 @@ class _TourOverlay(QWidget):
         if event is not None:
             event.accept()
 
-    def paintEvent(self, _event: QPaintEvent | None) -> None:  # ty: ignore[invalid-method-override]  # noqa: N802
+    def paintEvent(self, _event: QPaintEvent | None) -> None:  # ty: ignore[invalid-method-override]
         painter = QPainter()
         if not painter.begin(self):
             return
@@ -402,7 +402,7 @@ class GuidedTour(QObject):
 
     # -- Event handling ------------------------------------------------------
 
-    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore  # noqa: N802
+    def eventFilter(self, watched: QObject | None, event: QEvent | None) -> bool:  # type: ignore
         """Reposition the overlay when the watched window is resized.
 
         Parameters

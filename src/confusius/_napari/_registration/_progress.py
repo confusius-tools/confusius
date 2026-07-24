@@ -33,8 +33,9 @@ Connection lifecycle:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 from qtpy.QtCore import QObject, Signal
@@ -109,9 +110,9 @@ class NapariRegistrationProgressPlotter:
     def __init__(
         self,
         bridge: NapariRegistrationProgressPlotterBridge,
-        registration_method: "sitk.ImageRegistrationMethod",
-        fixed_img: "sitk.Image",
-        moving_img: "sitk.Image",
+        registration_method: sitk.ImageRegistrationMethod,
+        fixed_img: sitk.Image,
+        moving_img: sitk.Image,
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
@@ -210,8 +211,8 @@ class NapariRegistrationProgressReporter:
     def frame_completed(
         self,
         frame_index: int,
-        registered_frame: "xr.DataArray",
-        diagnostics: "RegistrationDiagnostics",
+        registered_frame: xr.DataArray,
+        diagnostics: RegistrationDiagnostics,
     ) -> None:
         """Emit one completed frame for GUI-side layer updates.
 
@@ -241,7 +242,7 @@ class NapariRegistrationProgressReporter:
 
 def make_napari_progress_factory(
     bridge: NapariRegistrationProgressPlotterBridge,
-) -> "Callable[..., RegistrationProgress]":
+) -> Callable[..., RegistrationProgress]:
     """Return a progress-plotter factory bound to a bridge.
 
     The returned callable has the signature expected by `register_volume`'s
@@ -263,14 +264,14 @@ def make_napari_progress_factory(
     """
 
     def factory(
-        registration_method: "sitk.ImageRegistrationMethod",
-        fixed_img: "sitk.Image",
-        moving_img: "sitk.Image",
+        registration_method: sitk.ImageRegistrationMethod,
+        fixed_img: sitk.Image,
+        moving_img: sitk.Image,
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
         resample_kwargs: dict[str, Any] | None = None,
-    ) -> "RegistrationProgress":
+    ) -> RegistrationProgress:
         """Build a NapariRegistrationProgressPlotter wrapping the captured bridge.
 
         Parameters

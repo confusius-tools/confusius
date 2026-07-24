@@ -4,27 +4,27 @@ from importlib import import_module, metadata
 from typing import TYPE_CHECKING, Any
 
 __all__ = [
+    "__version__",
     "atlas",
     "connectivity",
-    "decomposition",
     "datasets",
+    "decomposition",
     "extract",
     "glm",
     "io",
     "iq",
     "load",
-    "save",
-    "qc",
     "multipose",
     "plotting",
+    "qc",
     "registration",
+    "save",
     "signal",
     "spatial",
     "stats",
     "timing",
     "validation",
     "xarray",
-    "__version__",
 ]
 
 __version__ = metadata.version("confusius")
