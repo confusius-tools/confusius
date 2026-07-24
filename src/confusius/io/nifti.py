@@ -976,6 +976,37 @@ def _squeeze_synthetic_singleton_dims(
     return data_array.squeeze(dim="time", drop=True)
 
 
+def _reverse_chunk_spec(
+    chunks: int | tuple[int, ...] | str | None, ndim: int
+) -> int | tuple[int, ...] | str | None:
+    """Reverse a per-axis Dask chunk specification to match NIfTI's native axis order.
+
+    `load_nifti`'s `chunks` parameter is documented in ConfUSIus (post-transpose) axis
+    order, but the Dask array is now built directly from the NIfTI `ArrayProxy` in its
+    native (pre-transpose) axis order and transposed afterward. A tuple `chunks`
+    specification must therefore be reversed before being passed to `da.from_array` so
+    that, once transposed, it lines up with the axes the caller intended.
+
+    Parameters
+    ----------
+    chunks : int or tuple[int, ...] or str or None
+        Chunk specification as documented for `load_nifti`, in ConfUSIus axis order.
+    ndim : int
+        Number of dimensions of the array being chunked.
+
+    Returns
+    -------
+    int or tuple[int, ...] or str or None
+        `chunks` unchanged if order-independent (`int`, `str`, or `None`), or with its
+        top-level axis order reversed if given as a tuple.
+    """
+    if not isinstance(chunks, tuple):
+        return chunks
+    if len(chunks) != ndim:
+        return chunks
+    return chunks[::-1]
+
+
 def load_nifti(
     path: str | Path, chunks: int | tuple[int, ...] | str | None = "auto"
 ) -> xr.DataArray:
@@ -1059,12 +1090,25 @@ def load_nifti(
     attrs = extractor.to_attrs()
     attrs.update(_load_nifti_sidecar(path))
 
-    # We use np.asanyarray to get the memory-mapped array behind Nibabel's proxy. This
-    # will allow Dask to create a lazy array without loading the entire dataset into
-    # memory.
-    # NIfTI stores data with shape (x, y, z, time) in column-major order; transposing
-    # to row-major gives ConfUSIus order (time, z, y, x) without copying data.
-    dask_arr = da.from_array(np.asanyarray(img.dataobj).T, chunks=chunks, asarray=False)
+    # img.dataobj is a nibabel ArrayProxy, which already exposes .shape, .dtype, and
+    # numpy-style __getitem__ slicing (applying any slope/intercept scaling lazily per
+    # chunk). Passing it to da.from_array directly keeps the array lazy; converting it
+    # through np.asanyarray first would force it into a concrete numpy.memmap, which
+    # da.from_array then copies while building the graph.
+    # NIfTI stores data with shape (x, y, z, time) in column-major order. ArrayProxy has
+    # no .T, so we build the Dask array in that native order and transpose afterward
+    # (a metadata-only Dask op) to reach ConfUSIus order (time, z, y, x).
+    from nibabel.arrayproxy import ArrayProxy
+
+    proxy = img.dataobj
+    assert isinstance(proxy, ArrayProxy)
+    dask_arr = da.from_array(
+        proxy,
+        chunks=_reverse_chunk_spec(chunks, proxy.ndim),
+        asarray=False,
+        name=False,
+        meta=np.empty((), dtype=proxy.dtype),
+    ).T
 
     # NIfTI dim order is (x, y, z, time, ...); ConfUSIus order is the reverse.
     nifti_dims = _NIFTI_DIM_ORDER[: dask_arr.ndim]

@@ -1006,6 +1006,45 @@ class TestLoadNifti:
 
         assert isinstance(result.data, dask_array.Array)
 
+    def test_load_nifti_does_not_materialize_array_proxy(self, tmp_path: Path) -> None:
+        """Loading never eagerly reads nibabel's ArrayProxy into memory (issue #329).
+
+        Regression test for the bug where `np.asanyarray(img.dataobj)` converted the
+        lazy `ArrayProxy` into a concrete `numpy.memmap` before wrapping it in Dask,
+        which then copied the whole array while building the graph. `ArrayProxy.__array__`
+        is exactly the method that eager conversion goes through, so it must not be
+        called until the resulting Dask array is actually computed.
+        """
+        from nibabel.arrayproxy import ArrayProxy
+
+        data = np.random.default_rng(0).random((8, 6, 4)).astype(np.float32)
+        nifti_path = tmp_path / "test_no_materialize.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with patch.object(
+            ArrayProxy, "__array__", side_effect=AssertionError("proxy materialized")
+        ):
+            result = load_nifti(nifti_path)
+
+        np.testing.assert_allclose(result.data.compute(), data.T)
+
+    def test_load_nifti_explicit_tuple_chunks(self, tmp_path: Path) -> None:
+        """Loading with an explicit tuple `chunks` produces the requested chunk shape.
+
+        `chunks` is documented in ConfUSIus (post-transpose) axis order; internally it
+        must be reversed before being applied to the pre-transpose `ArrayProxy` so
+        the resulting per-axis chunk sizes line up correctly after transposing.
+        """
+        data = np.random.default_rng(0).random((8, 6, 4)).astype(np.float32)
+        nifti_path = tmp_path / "test_tuple_chunks.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        # ConfUSIus order is (z, y, x) = (4, 6, 8); request chunks of (2, 3, 4).
+        result = load_nifti(nifti_path, chunks=(2, 3, 4))
+
+        assert result.data.chunksize == (2, 3, 4)
+        np.testing.assert_allclose(result.data.compute(), data.T)
+
     def test_load_nifti_rejects_non_nifti_image(
         self, tmp_path: Path, monkeypatch
     ) -> None:
