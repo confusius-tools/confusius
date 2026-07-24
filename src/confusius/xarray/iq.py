@@ -42,8 +42,8 @@ class FUSIIQAccessor:
             "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
         ] = "svd_indices",
         clutter_mask: xr.DataArray | None = None,
-        low_cutoff: int | float | None = None,
-        high_cutoff: int | float | None = None,
+        low_cutoff: float | None = None,
+        high_cutoff: float | None = None,
         butterworth_order: int = 4,
         doppler_window_width: int | None = None,
         doppler_window_stride: int | None = None,
@@ -133,8 +133,8 @@ class FUSIIQAccessor:
             "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
         ] = "svd_indices",
         clutter_mask: xr.DataArray | None = None,
-        low_cutoff: int | float | None = None,
-        high_cutoff: int | float | None = None,
+        low_cutoff: float | None = None,
+        high_cutoff: float | None = None,
         butterworth_order: int = 4,
         velocity_window_width: int | None = None,
         velocity_window_stride: int | None = None,

@@ -240,7 +240,7 @@ def _update_progress_dialog(
         raise SampleDownloadCancelledError("Sample download cancelled.")
 
 
-def _load_sample_dataarray(path: Path, affine_key: str | None) -> "xr.DataArray":
+def _load_sample_dataarray(path: Path, affine_key: str | None) -> xr.DataArray:
     """Load one sample file and optionally switch affine spaces.
 
     Parameters
@@ -263,11 +263,11 @@ def _load_sample_dataarray(path: Path, affine_key: str | None) -> "xr.DataArray"
 
 
 def _dataarray_to_layer_data(
-    da: "xr.DataArray",
+    da: xr.DataArray,
     name: str,
     gamma: float | None,
     layer_kwargs: dict[str, object] | None = None,
-) -> "FullLayerData":
+) -> FullLayerData:
     """Convert one loaded sample DataArray to napari layer data.
 
     Parameters

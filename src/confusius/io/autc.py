@@ -460,7 +460,7 @@ class AUTCDATsLoader:
         tuple[int, int, int, int]
             Shape in the format `(n_blocks, n_x, n_z, n_frames)`.
         """
-        first_dat_shape = list(self.dats.values())[0].shape
+        first_dat_shape = next(iter(self.dats.values())).shape
         return (
             len(self.blocks),
             first_dat_shape[1],
@@ -477,7 +477,7 @@ class AUTCDATsLoader:
         numpy.dtype
             Data type of the stored arrays.
         """
-        return list(self.dats.values())[0]._memmap["data"].dtype
+        return next(iter(self.dats.values()))._memmap["data"].dtype
 
 
 def convert_autc_dats_to_zarr(

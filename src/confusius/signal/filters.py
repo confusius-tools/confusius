@@ -53,12 +53,11 @@ def _validate_cutoff_frequencies(
                 f"frequency ({nyquist} Hz)."
             )
 
-    if low_cutoff is not None and high_cutoff is not None:
-        if high_cutoff <= low_cutoff:
-            raise ValueError(
-                f"'high_cutoff' ({high_cutoff} Hz) must be greater than "
-                f"'low_cutoff' ({low_cutoff} Hz) for band-pass filtering."
-            )
+    if low_cutoff is not None and high_cutoff is not None and high_cutoff <= low_cutoff:
+        raise ValueError(
+            f"'high_cutoff' ({high_cutoff} Hz) must be greater than "
+            f"'low_cutoff' ({low_cutoff} Hz) for band-pass filtering."
+        )
 
 
 def _validate_filter_order(n_timepoints: int, order: int) -> None:

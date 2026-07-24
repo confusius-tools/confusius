@@ -42,23 +42,18 @@ from confusius.bids.validation import (
 )
 
 __all__ = [
-    # Mapping functions
-    "to_bids",
-    "from_bids",
-    "FUSI_BIDS_FIELDS",
-    "EXPLICIT_BIDS_FIELD_MAPPINGS",
-    # Validation
-    "FUSIBIDSMetadata",
-    "validate_metadata",
-    # Coordinates
-    "SLICE_ENCODING_DIRECTION_TO_DIM",
+    "DEFAULT_TRIAL_TYPE",
     "DIM_TO_SLICE_ENCODING_DIRECTION",
+    "EXPLICIT_BIDS_FIELD_MAPPINGS",
+    "FUSI_BIDS_FIELDS",
+    "SLICE_ENCODING_DIRECTION_TO_DIM",
+    "FUSIBIDSMetadata",
     "create_bids_slice_timing_from_coordinate",
     "create_slice_time_coordinate_from_bids",
-    # Events
-    "DEFAULT_TRIAL_TYPE",
+    "from_bids",
     "load_events",
-    "save_events",
-    # Physio
     "load_physio",
+    "save_events",
+    "to_bids",
+    "validate_metadata",
 ]

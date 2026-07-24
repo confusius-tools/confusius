@@ -1,6 +1,7 @@
 """Plotting module for fUSI data."""
 
 __all__ = [
+    "VolumePlotter",
     "draw_napari_labels",
     "labels_from_layer",
     "plot_carpet",
@@ -13,7 +14,6 @@ __all__ = [
     "plot_napari",
     "plot_stat_map",
     "plot_volume",
-    "VolumePlotter",
 ]
 
 from confusius.plotting.image import (

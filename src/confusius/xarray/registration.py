@@ -63,7 +63,7 @@ class FUSIRegistrationAccessor:
         plot_composite: bool = True,
         progress_plotter: Callable[..., RegistrationProgress] | None = None,
         abort_event: Event | None = None,
-    ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":  # noqa: E501
+    ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":
         """Register this volume to a fixed reference volume.
 
         Parameters

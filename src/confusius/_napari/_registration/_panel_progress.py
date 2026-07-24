@@ -40,9 +40,9 @@ if TYPE_CHECKING:
 
 
 def setup_volumewise_progress(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     *,
-    moving_layer: "Image",
+    moving_layer: Image,
     moving: xr.DataArray,
     layer_name: str,
     scale_mode: str,
@@ -130,7 +130,7 @@ def setup_volumewise_progress(
                 contrast_limits=contrast_limits,
                 **display_kwargs,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             panel._set_error(f"Could not create progress layer: {exc}")
             raise
     bridge = NapariRegistrationProgressReporterBridge()
@@ -159,7 +159,7 @@ def setup_volumewise_progress(
 
 
 def update_volumewise_progress_bar(
-    panel: "RegistrationPanel", completed_frames: int, total_frames: int
+    panel: RegistrationPanel, completed_frames: int, total_frames: int
 ) -> None:
     """Update the volumewise progress bar from completed-frame counts.
 
@@ -183,7 +183,7 @@ def update_volumewise_progress_bar(
 
 
 def update_volumewise_progress_frame(
-    panel: "RegistrationPanel", frame_index: int, frame_data: object
+    panel: RegistrationPanel, frame_index: int, frame_data: object
 ) -> None:
     """Write a completed frame into the volumewise preview layer.
 
@@ -216,7 +216,7 @@ def update_volumewise_progress_frame(
 
 
 def teardown_volumewise_progress(
-    panel: "RegistrationPanel", *, remove_layer: bool
+    panel: RegistrationPanel, *, remove_layer: bool
 ) -> None:
     """Drop volumewise progress-layer references and optionally remove the layer.
 
@@ -244,16 +244,16 @@ def teardown_volumewise_progress(
 
 
 def create_volume_progress_plotter(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     *,
-    moving_layer: "Image",
-    fixed_layer: "Image",
+    moving_layer: Image,
+    fixed_layer: Image,
     moving: xr.DataArray,
     fixed: xr.DataArray,
     layer_name: str,
-    initial_transform: "npt.NDArray[np.floating] | None" = None,
+    initial_transform: npt.NDArray[np.floating] | None = None,
     scale_mode: str,
-) -> "Callable[..., RegistrationProgress]":
+) -> Callable[..., RegistrationProgress]:
     """Create between-scan preview layers and a progress-plotter factory.
 
     Parameters
@@ -379,7 +379,7 @@ def create_volume_progress_plotter(
                 contrast_limits=preview_contrast_limits,
                 **display_kwargs,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             panel._set_error(f"Could not create progress layer: {exc}")
             raise
 
@@ -399,7 +399,7 @@ def create_volume_progress_plotter(
     return make_napari_progress_factory(bridge)
 
 
-def update_progress_layer(panel: "RegistrationPanel", arr: object) -> None:
+def update_progress_layer(panel: RegistrationPanel, arr: object) -> None:
     """Write an intermediate resampled array into the volume preview layer.
 
     Parameters
@@ -424,7 +424,7 @@ def update_progress_layer(panel: "RegistrationPanel", arr: object) -> None:
     panel._set_image_layer_data(layer, arr)
 
 
-def teardown_volume_progress(panel: "RegistrationPanel") -> None:
+def teardown_volume_progress(panel: RegistrationPanel) -> None:
     """Remove the volume progress preview layer and bridge references.
 
     Parameters
@@ -447,8 +447,8 @@ def teardown_volume_progress(panel: "RegistrationPanel") -> None:
 
 
 def ensure_metric_plotter(
-    panel: "RegistrationPanel",
-) -> "RegistrationMetricPlotter | None":
+    panel: RegistrationPanel,
+) -> RegistrationMetricPlotter | None:
     """Return the right-dock metric plotter, creating it on first use.
 
     Parameters

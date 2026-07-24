@@ -58,7 +58,7 @@ class _HoverManager:
 
     def __init__(self):
         self.roi_labels: dict[int, str] = {}
-        self._ax_layers: dict["Axes", list[_SliceLayer]] = {}
+        self._ax_layers: dict[Axes, list[_SliceLayer]] = {}
         self._attached = False
 
     def clear(self) -> None:
@@ -72,7 +72,7 @@ class _HoverManager:
         """Return `True` if this hover manager is attached to a figure."""
         return self._attached
 
-    def attach_figure(self, figure: "Figure") -> None:
+    def attach_figure(self, figure: Figure) -> None:
         """Attach this hover manager to a figure.
 
         Parameters
@@ -99,7 +99,7 @@ class _HoverManager:
 
     def register_data_to_axis(
         self,
-        ax: "Axes",
+        ax: Axes,
         x_coords: np.ndarray,
         y_coords: np.ndarray,
         data_2d: np.ndarray,
@@ -138,7 +138,7 @@ class _HoverManager:
             )
         )
 
-    def _on_hover(self, event: "Event") -> None:
+    def _on_hover(self, event: Event) -> None:
         """Handle a `motion_notify_event` and rewrite the axes' `format_coord`.
 
         Parameters

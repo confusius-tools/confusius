@@ -1,7 +1,6 @@
 """Coordinate validation utilities."""
 
-from collections.abc import Iterable
-from typing import Hashable
+from collections.abc import Hashable, Iterable
 
 import numpy as np
 import xarray as xr

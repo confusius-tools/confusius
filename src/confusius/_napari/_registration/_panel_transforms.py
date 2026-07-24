@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     )
 
 
-def _get_affine_payload_from_layer(layer: "Layer") -> AffineTransformPayload | None:
+def _get_affine_payload_from_layer(layer: Layer) -> AffineTransformPayload | None:
     """Return the stored affine transform payload for a napari layer.
 
     Parameters
@@ -71,7 +71,7 @@ def _get_affine_payload_from_layer(layer: "Layer") -> AffineTransformPayload | N
 
 
 def _get_spatial_manual_affine_from_layer(
-    layer: "Layer", *, spatial_dims: Sequence[str]
+    layer: Layer, *, spatial_dims: Sequence[str]
 ) -> npt.NDArray[np.float64]:
     """Return the spatial sub-affine from a napari layer's manual transform.
 
@@ -135,7 +135,7 @@ def _get_spatial_manual_affine_from_layer(
     return spatial_affine
 
 
-def _make_manual_transform_payload(layer: "Layer") -> AffineTransformPayload:
+def _make_manual_transform_payload(layer: Layer) -> AffineTransformPayload:
     """Build an affine payload from a layer's manual napari transform.
 
     Parameters
@@ -177,7 +177,7 @@ def _make_manual_transform_payload(layer: "Layer") -> AffineTransformPayload:
     }
 
 
-def get_transform_source_data(value: object) -> "TransformSourceData | None":
+def get_transform_source_data(value: object) -> TransformSourceData | None:
     """Return validated transform-source combo data.
 
     Parameters
@@ -254,7 +254,7 @@ def get_transform_source_label(
 
 
 def get_available_transform_payloads(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
 ) -> list[TransformPayload]:
     """Return all transform payloads currently available in the UI.
 
@@ -280,7 +280,7 @@ def get_available_transform_payloads(
     return payloads
 
 
-def update_apply_transform_button_tooltips(panel: "RegistrationPanel") -> None:
+def update_apply_transform_button_tooltips(panel: RegistrationPanel) -> None:
     """Refresh apply-transform button tooltips for the current transform selection.
 
     Parameters
@@ -306,7 +306,7 @@ def update_apply_transform_button_tooltips(panel: "RegistrationPanel") -> None:
     panel._apply_inverse_transform_btn.setToolTip(inverse_tooltip)
 
 
-def refresh_transform_controls(panel: "RegistrationPanel") -> None:
+def refresh_transform_controls(panel: RegistrationPanel) -> None:
     """Refresh the transform, initialization, and target selectors from the current viewer state.
 
     Parameters
@@ -354,7 +354,7 @@ def refresh_transform_controls(panel: "RegistrationPanel") -> None:
                 layer,
                 spatial_dims=spatial_dims,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S112
             continue
         if np.allclose(manual_affine, np.eye(len(spatial_dims) + 1)):
             continue
@@ -418,7 +418,7 @@ def refresh_transform_controls(panel: "RegistrationPanel") -> None:
 
 
 def get_selected_transform_payload(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
 ) -> TransformPayload | None:
     """Return the currently selected transform payload.
 
@@ -454,7 +454,7 @@ def get_selected_transform_payload(
 
 
 def get_selected_center_initialization(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
 ) -> Literal["center_geometry", "center_moments"] | None:
     """Return the selected built-in centering initialization, if any.
 
@@ -476,7 +476,7 @@ def get_selected_center_initialization(
 
 
 def get_selected_initial_transform_payload(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
 ) -> AffineTransformPayload | None:
     """Return the payload selected for registration initialization, if any.
 
@@ -512,8 +512,8 @@ def get_selected_initial_transform_payload(
 
 
 def get_selected_manual_initialization_layer(
-    panel: "RegistrationPanel",
-) -> "Layer | None":
+    panel: RegistrationPanel,
+) -> Layer | None:
     """Return the layer selected for manual napari initialization, if any.
 
     Parameters
@@ -538,11 +538,11 @@ def get_selected_manual_initialization_layer(
 
 
 def get_selected_initial_transform(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     moving: xr.DataArray,
     *,
-    moving_layer: "Layer | None" = None,
-    fixed_layer: "Layer | None" = None,
+    moving_layer: Layer | None = None,
+    fixed_layer: Layer | None = None,
 ) -> tuple[npt.NDArray[np.float64] | None, str | None]:
     """Return the selected initialization affine and its source label.
 
@@ -603,7 +603,7 @@ def get_selected_initial_transform(
 
 
 def validate_initial_transform_selection(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     *,
     operation: Literal["register_volume", "register_volumewise"],
     moving: xr.DataArray,
@@ -663,7 +663,7 @@ def validate_initial_transform_selection(
     return None
 
 
-def save_selected_transform(panel: "RegistrationPanel") -> None:
+def save_selected_transform(panel: RegistrationPanel) -> None:
     """Prompt for a destination path and save the currently selected transform payload.
 
     Parameters
@@ -694,7 +694,7 @@ def save_selected_transform(panel: "RegistrationPanel") -> None:
     show_info(f"Saved transform: {path_str}")
 
 
-def load_transform(panel: "RegistrationPanel") -> None:
+def load_transform(panel: RegistrationPanel) -> None:
     """Prompt for a transform file, load it into the panel state, and refresh the selectors.
 
     Parameters
@@ -728,7 +728,7 @@ def load_transform(panel: "RegistrationPanel") -> None:
 
 
 def _get_inverse_output_grid(
-    panel: "RegistrationPanel", payload: TransformPayload
+    panel: RegistrationPanel, payload: TransformPayload
 ) -> OutputGridPayload:
     """Return the output grid to use when applying a transform inverse.
 
@@ -765,7 +765,7 @@ def _get_inverse_output_grid(
     return make_output_grid_payload(source)
 
 
-def apply_selected_transform(panel: "RegistrationPanel") -> None:
+def apply_selected_transform(panel: RegistrationPanel) -> None:
     """Start a background resampling worker for the selected transform and target layer.
 
     Parameters
@@ -821,7 +821,7 @@ def apply_selected_transform(panel: "RegistrationPanel") -> None:
     worker.start()
 
 
-def apply_selected_inverse_transform(panel: "RegistrationPanel") -> None:
+def apply_selected_inverse_transform(panel: RegistrationPanel) -> None:
     """Start a background resampling worker for the inverse of the selected transform.
 
     Parameters
@@ -886,7 +886,7 @@ def apply_selected_inverse_transform(panel: "RegistrationPanel") -> None:
 
 
 def on_apply_transform_finished(
-    panel: "RegistrationPanel", payload: "ApplyTransformPayload", result: xr.DataArray
+    panel: RegistrationPanel, payload: ApplyTransformPayload, result: xr.DataArray
 ) -> None:
     """Add the finished transformed layer to the viewer and attach apply-transform metadata.
 

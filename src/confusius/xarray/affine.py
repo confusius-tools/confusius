@@ -55,10 +55,10 @@ def affine_to(
         raise ValueError("self does not have an 'affines' entry in attrs.")
     if "affines" not in other.attrs:
         raise ValueError("other does not have an 'affines' entry in attrs.")
-    self_affine: "npt.NDArray[np.float64]" = np.asarray(
+    self_affine: npt.NDArray[np.float64] = np.asarray(
         da.attrs["affines"][via], dtype=np.float64
     )
-    other_affine: "npt.NDArray[np.float64]" = np.asarray(
+    other_affine: npt.NDArray[np.float64] = np.asarray(
         other.attrs["affines"][via], dtype=np.float64
     )
     return np.linalg.inv(other_affine) @ self_affine
@@ -198,7 +198,7 @@ def apply_affine(
     # Per-pose (npose, 4, 4) stacks are handled via broadcasting in
     # get_affine_in_axis_aligned_space.
     stored = da.attrs.get("affines", {})
-    new_affines: dict[str, "npt.NDArray[np.float64]"] = {}
+    new_affines: dict[str, npt.NDArray[np.float64]] = {}
     for stored_key, val in stored.items():
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):

@@ -216,7 +216,7 @@ def load_echoframe_dat(
         n_volumes_per_block = np.array(receive_spec["nRepeats"][:]).item(0)
 
     header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
-    _, header_size, n_blocks, data_size, padding_bytes = header
+    _, header_size, n_blocks, _data_size, padding_bytes = header
 
     if padding_bytes > 0:
         # File has padding between blocks - use structured dtype to skip it.
@@ -361,7 +361,7 @@ def convert_echoframe_dat_to_zarr(
         n_header_items=n_header_items,
     )
 
-    n_blocks, n_volumes, n_x, n_y, n_z = data.shape
+    n_blocks, n_volumes, n_x, _n_y, n_z = data.shape
 
     total_skip = skip_first_blocks + skip_last_blocks
     if total_skip >= n_blocks:

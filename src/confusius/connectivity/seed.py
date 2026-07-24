@@ -222,7 +222,7 @@ class SeedBasedMaps(BaseEstimator):
         self.clean_kwargs = clean_kwargs
         self.mask = mask
 
-    def fit(self, X: xr.DataArray, y: None = None) -> "SeedBasedMaps":
+    def fit(self, X: xr.DataArray, y: None = None) -> SeedBasedMaps:
         """Compute the seed-based correlation maps.
 
         Parameters

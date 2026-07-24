@@ -45,7 +45,7 @@ ACCORDION_ANIMATION_DURATION_MS = 200
 """Duration of accordion expand/collapse animations, in milliseconds."""
 
 
-def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:  # noqa: C901
+def _build_stylesheet(is_dark: bool, napari_bg: str | None = None) -> str:
     """Return a full QSS stylesheet parametrised by theme brightness."""
     group_title_bg = napari_bg or ("#1c1c27" if is_dark else "#f0f0e8")
     if is_dark:
@@ -283,7 +283,7 @@ class ConfUSIusWidget(QWidget):
             t = get_theme(self.viewer.theme)
             h = t.background.as_hex()
             napari_bg = h[:7]
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
         self.setStyleSheet(_build_stylesheet(is_dark, napari_bg=napari_bg))
 
@@ -316,7 +316,7 @@ class ConfUSIusWidget(QWidget):
                     if callable(set_text):
                         set_text(title)
                 return
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110
             pass
 
     def _on_theme_changed(self) -> None:

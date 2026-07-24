@@ -55,14 +55,14 @@ def _resolve_sitk_interpolation(interpolation: str | None) -> Any:
 
 
 def _resample_intermediate(
-    registration_method: "sitk.ImageRegistrationMethod",
-    moving_img: "sitk.Image",
-    fixed_img: "sitk.Image",
+    registration_method: sitk.ImageRegistrationMethod,
+    moving_img: sitk.Image,
+    fixed_img: sitk.Image,
     *,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float = 0.0,
     sitk_threads: int = -1,
-) -> "sitk.Image":
+) -> sitk.Image:
     """Resample the moving image onto the fixed grid using the current transform.
 
     Shared by the matplotlib and napari progress plotters so the per-iteration
@@ -151,9 +151,9 @@ class MatplotlibRegistrationProgressPlotter:
 
     def __init__(
         self,
-        registration_method: "sitk.ImageRegistrationMethod",
-        fixed_img: "sitk.Image",
-        moving_img: "sitk.Image",
+        registration_method: sitk.ImageRegistrationMethod,
+        fixed_img: sitk.Image,
+        moving_img: sitk.Image,
         *,
         plot_metric: bool = True,
         plot_composite: bool = True,
@@ -336,7 +336,7 @@ class MatplotlibRegistrationProgressPlotter:
         return list(self._metric_values)
 
     @property
-    def figure(self) -> "Figure":
+    def figure(self) -> Figure:
         """The matplotlib figure used for plotting.
 
         Returns

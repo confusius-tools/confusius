@@ -11,15 +11,15 @@ from napari.utils.notifications import show_info
 
 from confusius._napari._registration._panel_progress import teardown_volumewise_progress
 from confusius._napari._registration._panel_transforms import refresh_transform_controls
-from confusius._napari._registration._transform_payloads import (
-    make_affine_transform_payload,
-    make_bspline_transform_payload,
-)
 from confusius._napari._registration._panel_utils import (
     _gamma_needs_reset,
     _get_image_display_kwargs_from_layer,
     _get_source_dataarray,
     _prepare_between_scan_data,
+)
+from confusius._napari._registration._transform_payloads import (
+    make_affine_transform_payload,
+    make_bspline_transform_payload,
 )
 from confusius.plotting.napari import plot_napari
 
@@ -35,8 +35,8 @@ if TYPE_CHECKING:
 
 
 def coerce_volume_registration_payload(
-    payload: dict[str, Any] | "VolumeRegistrationRunPayload",
-) -> "VolumeRegistrationRunPayload":
+    payload: dict[str, Any] | VolumeRegistrationRunPayload,
+) -> VolumeRegistrationRunPayload:
     """Return a typed between-scan registration payload.
 
     Parameters
@@ -60,8 +60,8 @@ def coerce_volume_registration_payload(
 
 
 def coerce_volumewise_registration_payload(
-    payload: dict[str, Any] | "VolumewiseRegistrationRunPayload",
-) -> "VolumewiseRegistrationRunPayload":
+    payload: dict[str, Any] | VolumewiseRegistrationRunPayload,
+) -> VolumewiseRegistrationRunPayload:
     """Return a typed within-scan registration payload.
 
     Parameters
@@ -85,9 +85,9 @@ def coerce_volumewise_registration_payload(
 
 
 def finalize_registration_layer(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     *,
-    payload: "VolumeRegistrationRunPayload | VolumewiseRegistrationRunPayload",
+    payload: VolumeRegistrationRunPayload | VolumewiseRegistrationRunPayload,
     registered: xr.DataArray,
     layer_name: str,
     metadata: dict[str, Any],
@@ -168,7 +168,7 @@ def finalize_registration_layer(
 
 
 def on_registration_finished(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     payload: dict[str, Any],
     result: object,
 ) -> None:
@@ -209,12 +209,12 @@ def on_registration_finished(
 
 
 def on_volume_registration_finished(
-    panel: "RegistrationPanel",
-    payload: "VolumeRegistrationRunPayload",
+    panel: RegistrationPanel,
+    payload: VolumeRegistrationRunPayload,
     result: tuple[
         xr.DataArray,
-        "npt.NDArray[np.floating] | xr.DataArray",
-        "RegistrationDiagnostics",
+        npt.NDArray[np.floating] | xr.DataArray,
+        RegistrationDiagnostics,
     ],
 ) -> None:
     """Add a between-scan registration result back to the viewer.
@@ -290,8 +290,8 @@ def on_volume_registration_finished(
 
 
 def on_volumewise_registration_finished(
-    panel: "RegistrationPanel",
-    payload: "VolumewiseRegistrationRunPayload",
+    panel: RegistrationPanel,
+    payload: VolumewiseRegistrationRunPayload,
     result: xr.DataArray,
 ) -> None:
     """Add a within-scan registration result back to the viewer.

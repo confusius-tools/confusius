@@ -1173,7 +1173,7 @@ def _find_scan_v2_depth_start(header: bytes, size_z: int, dz_mm: float) -> float
 
     expected_span = (size_z - 1) * dz_mm
     tolerance = max(0.1, dz_mm)
-    for offset in range(0, len(header) - 16):
+    for offset in range(len(header) - 16):
         start = _read_f64(header, offset)
         end = _read_f64(header, offset + 8)
         if 0.0 < start < end < 100.0 and abs((end - start) - expected_span) < tolerance:

@@ -75,7 +75,7 @@ def structures_to_json(structures: "StructuresDict") -> str:
         `mesh_filename` (complete path or `None`).
     """
     structures_list = []
-    for _, info in structures.items():
+    for info in structures.values():
         record = {field: info[field] for field in _SERIALIZED_STRUCTURE_FIELDS[:-1]}
         mesh_filename = info.get("mesh_filename")
         record["mesh_filename"] = (
