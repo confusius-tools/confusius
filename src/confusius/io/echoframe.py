@@ -289,7 +289,7 @@ def _load_echoframe_dat_blocks(
 
 def load_echoframe_dat(
     dat_path: str | Path,
-    meta_path: str | Path,
+    meta_path: str | Path | None = None,
     dat_dtype: npt.DTypeLike = np.complex64,
     header_dtype: npt.DTypeLike = np.uint64,
     n_header_items: int = 5,
@@ -308,8 +308,10 @@ def load_echoframe_dat(
     ----------
     dat_path : str or pathlib.Path
         Path to the EchoFrame DAT file containing beamformed IQ data.
-    meta_path : str or pathlib.Path
-        Path to the EchoFrame sequence parameter file (MAT v7.3 / HDF5 format).
+    meta_path : str or pathlib.Path, optional
+        Path to the EchoFrame sequence parameter file (MAT v7.3 / HDF5 format). If not
+        provided, looks for `ScanParameters.mat` next to `dat_path`, matching the
+        filename EchoFrame's storage writer uses by convention.
     dat_dtype : dtype_like, default: numpy.complex64
         Data type of the beamformed IQ data in the DAT file.
     header_dtype : dtype_like, default: numpy.uint64
@@ -326,16 +328,25 @@ def load_echoframe_dat(
         remain accessible via `data.isel(time=slice(i * n, (i + 1) * n))`, where `n`
         is `data.attrs["n_volumes_per_block"]`.
 
+    Raises
+    ------
+    ValueError
+        If `meta_path` is not provided and no `ScanParameters.mat` file exists next to
+        `dat_path`.
+
     Notes
     -----
     Acquisition metadata is stored in `da.attrs`, including `n_volumes_per_block`
     (number of volumes per acquisition block).
     """
+    dat_path = check_path(dat_path, label="dat_path", type="file")
+    if meta_path is None:
+        meta_path = dat_path.parent / "ScanParameters.mat"
+
     meta = load_echoframe_metadata(meta_path)
     x, z = len(meta["lateral_coords"]), len(meta["axial_coords"])
     n_volumes_per_block = meta["n_volumes_per_block"]
 
-    dat_path = check_path(dat_path, label="dat_path", type="file")
     blocks = _load_echoframe_dat_blocks(
         dat_path, x, z, n_volumes_per_block, dat_dtype, header_dtype, n_header_items
     )

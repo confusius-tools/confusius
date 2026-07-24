@@ -251,6 +251,23 @@ class TestLoadEchoFrameDat:
         with pytest.raises(ValueError):
             load_echoframe_dat(dat_path, non_existent)
 
+    def test_default_meta_path_discovery(self, echoframe_dat_no_padding):
+        """`load_echoframe_dat` finds `ScanParameters.mat` next to `dat_path` by default."""
+        dat_path, meta_path = echoframe_dat_no_padding
+        assert meta_path.name == "ScanParameters.mat"
+
+        data = load_echoframe_dat(dat_path)
+
+        assert data.shape == (6, 1, 6, 4)
+
+    def test_default_meta_path_missing(self, tmp_path):
+        """`load_echoframe_dat` raises `ValueError` when no default MAT file is found."""
+        dat_path = tmp_path / "fUSi_BF.dat"
+        _create_echoframe_dat_file(dat_path, n_blocks=1, n_x=4, n_z=6, n_volumes=3)
+
+        with pytest.raises(ValueError):
+            load_echoframe_dat(dat_path)
+
     def test_different_blocks_accessible(self, echoframe_dat_no_padding):
         """`load_echoframe_dat` allows accessing different blocks with correct values."""
         dat_path, meta_path = echoframe_dat_no_padding
