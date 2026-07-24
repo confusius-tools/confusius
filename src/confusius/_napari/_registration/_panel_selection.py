@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     )
 
 
-def refresh_layers(panel: "RegistrationPanel") -> None:
+def refresh_layers(panel: RegistrationPanel) -> None:
     """Repopulate the layer selectors from the viewer.
 
     Parameters
@@ -99,7 +99,7 @@ def refresh_layers(panel: "RegistrationPanel") -> None:
     validate_registration_selection(panel)
 
 
-def get_layer_by_name(panel: "RegistrationPanel", name: str) -> "Layer | None":
+def get_layer_by_name(panel: RegistrationPanel, name: str) -> Layer | None:
     """Return a viewer layer by name, if present.
 
     Parameters
@@ -120,7 +120,7 @@ def get_layer_by_name(panel: "RegistrationPanel", name: str) -> "Layer | None":
         return None
 
 
-def selected_layer(panel: "RegistrationPanel", combo: QComboBox) -> "Layer | None":
+def selected_layer(panel: RegistrationPanel, combo: QComboBox) -> Layer | None:
     """Return the currently selected viewer layer for a combo box.
 
     Parameters
@@ -141,7 +141,7 @@ def selected_layer(panel: "RegistrationPanel", combo: QComboBox) -> "Layer | Non
     return get_layer_by_name(panel, name)
 
 
-def current_scale_mode(panel: "RegistrationPanel") -> "ScaleMode":
+def current_scale_mode(panel: RegistrationPanel) -> ScaleMode:
     """Return the validated registration scale mode from the combo box.
 
     Parameters
@@ -165,7 +165,7 @@ def current_scale_mode(panel: "RegistrationPanel") -> "ScaleMode":
     raise ValueError(f"Unknown registration scale mode: {value!r}.")
 
 
-def current_metric(panel: "RegistrationPanel") -> "MetricName":
+def current_metric(panel: RegistrationPanel) -> MetricName:
     """Return the validated registration metric from the combo box.
 
     Parameters
@@ -192,8 +192,8 @@ def current_metric(panel: "RegistrationPanel") -> "MetricName":
 
 
 def current_resample_interpolation(
-    panel: "RegistrationPanel",
-) -> "ResampleInterpolation":
+    panel: RegistrationPanel,
+) -> ResampleInterpolation:
     """Return the validated resampling interpolation from the combo box.
 
     Parameters
@@ -220,8 +220,8 @@ def current_resample_interpolation(
 
 
 def current_transform_model(
-    panel: "RegistrationPanel",
-) -> "VolumeTransformType | VolumewiseTransformType":
+    panel: RegistrationPanel,
+) -> VolumeTransformType | VolumewiseTransformType:
     """Return the validated transform model for the active mode.
 
     Parameters
@@ -259,7 +259,7 @@ def current_transform_model(
     raise ValueError(f"Unknown transform model: {value!r}.")
 
 
-def update_reference_time_bounds(panel: "RegistrationPanel") -> None:
+def update_reference_time_bounds(panel: RegistrationPanel) -> None:
     """Clamp the volumewise reference-volume widget to the moving layer.
 
     Parameters
@@ -283,7 +283,7 @@ def update_reference_time_bounds(panel: "RegistrationPanel") -> None:
 
 
 def set_layer_validation_style(
-    panel: "RegistrationPanel",
+    panel: RegistrationPanel,
     *,
     moving_invalid: bool = False,
     fixed_invalid: bool = False,
@@ -317,7 +317,7 @@ def set_layer_validation_style(
         panel._layer_validation.clear()
 
 
-def set_run_btn_enabled(panel: "RegistrationPanel", enabled: bool) -> None:
+def set_run_btn_enabled(panel: RegistrationPanel, enabled: bool) -> None:
     """Enable or disable the Run button without changing its busy text.
 
     Parameters
@@ -338,7 +338,7 @@ def set_run_btn_enabled(panel: "RegistrationPanel", enabled: bool) -> None:
     panel._run_btn.setEnabled(enabled)
 
 
-def validate_registration_selection(panel: "RegistrationPanel") -> bool:
+def validate_registration_selection(panel: RegistrationPanel) -> bool:
     """Validate the current registration-layer selection and show inline feedback.
 
     Parameters
@@ -367,7 +367,7 @@ def validate_registration_selection(panel: "RegistrationPanel") -> bool:
 
     try:
         moving = _get_source_dataarray(moving_layer)
-    except Exception:
+    except TypeError:
         set_layer_validation_style(
             panel,
             moving_invalid=True,
@@ -410,7 +410,7 @@ def validate_registration_selection(panel: "RegistrationPanel") -> bool:
 
     try:
         fixed = _get_source_dataarray(fixed_layer)
-    except Exception:
+    except TypeError:
         set_layer_validation_style(
             panel,
             fixed_invalid=True,
@@ -443,7 +443,7 @@ def validate_registration_selection(panel: "RegistrationPanel") -> bool:
     return valid
 
 
-def on_moving_layer_changed(panel: "RegistrationPanel", _name: str) -> None:
+def on_moving_layer_changed(panel: RegistrationPanel, _name: str) -> None:
     """Update dependent widgets when the moving layer changes.
 
     Parameters

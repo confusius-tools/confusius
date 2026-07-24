@@ -57,7 +57,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     path = check_path(path)
     name = path.name
 
-    if name.endswith(".nii") or name.endswith(".nii.gz"):
+    if name.endswith((".nii", ".nii.gz")):
         data_array = _nifti.load_nifti(path, **kwargs)
     elif name.endswith(".scan"):
         data_array = _scan.load_scan(path, **kwargs)
@@ -104,7 +104,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     path = check_path(path)
     name = path.name
 
-    if name.endswith(".nii") or name.endswith(".nii.gz"):
+    if name.endswith((".nii", ".nii.gz")):
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):

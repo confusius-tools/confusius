@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 
 def get_default_registration_parameters(
-    *, mode: "RegistrationParameterMode"
-) -> "ModeParameters":
+    *, mode: RegistrationParameterMode
+) -> ModeParameters:
     """Return the default parameter state for one registration mode.
 
     Parameters
@@ -56,7 +56,7 @@ def get_default_registration_parameters(
     }
 
 
-def get_registration_parameters(panel: "RegistrationPanel") -> "ModeParameters":
+def get_registration_parameters(panel: RegistrationPanel) -> ModeParameters:
     """Return the current parameter state shown in the panel.
 
     Parameters
@@ -102,10 +102,10 @@ def get_registration_parameters(panel: "RegistrationPanel") -> "ModeParameters":
 
 
 def set_registration_parameters(
-    panel: "RegistrationPanel",
-    params: "ModeParameters",
+    panel: RegistrationPanel,
+    params: ModeParameters,
     *,
-    mode: "RegistrationParameterMode",
+    mode: RegistrationParameterMode,
 ) -> None:
     """Restore the parameter state for one registration mode.
 

@@ -269,7 +269,7 @@ def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
                 f"fUSI-BIDS validation warning:\n{format_validation_error(e)}",
                 stacklevel=find_stack_level(),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             warnings.warn(
                 f"fUSI-BIDS validation warning: {e}", stacklevel=find_stack_level()
             )
@@ -301,7 +301,7 @@ def _load_nifti_with_nibabel(
 
     img = nib.load(path)
     if not isinstance(img, nib.nifti1.Nifti1Image | nib.nifti2.Nifti2Image):
-        raise ValueError(
+        raise TypeError(
             "Only NIfTI-1 and NIfTI-2 formats are supported when loading files with"
             " .nii or .nii.gz suffixes."
         )
@@ -368,7 +368,7 @@ def _create_spatial_coords_from_nifti(
             coord_attrs: dict[str, Any] = {}
             if space_unit is not None:
                 coord_attrs["units"] = space_unit
-            step = voxel_sizes[dim] if dim in voxel_sizes else 1.0
+            step = voxel_sizes.get(dim, 1.0)
             if dim in voxel_sizes:
                 coord_attrs["voxdim"] = voxel_sizes[dim]
             coords[dim] = xr.DataArray(
@@ -2296,7 +2296,7 @@ def save_nifti(
                 f"fUSI-BIDS validation warning when saving:\n{format_validation_error(e)}",
                 stacklevel=find_stack_level(),
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             warnings.warn(
                 f"fUSI-BIDS validation warning when saving: {e}",
                 stacklevel=find_stack_level(),

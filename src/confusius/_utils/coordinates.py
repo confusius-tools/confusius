@@ -69,7 +69,7 @@ class CoordinateSpacingInfo:
         Warning message to emit, or `None` if no warning is needed.
     """
 
-    __slots__ = ("value", "median", "warn_msg")
+    __slots__ = ("median", "value", "warn_msg")
 
     def __init__(
         self,

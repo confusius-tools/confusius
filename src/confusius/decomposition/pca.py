@@ -186,7 +186,7 @@ class PCA(_BaseFUSIDecomposer):
     def __init__(
         self,
         *,
-        n_components: int | float | Literal["mle"] | None = None,
+        n_components: float | Literal["mle"] | None = None,
         whiten: bool = False,
         svd_solver: Literal[
             "auto", "full", "covariance_eigh", "arpack", "randomized"

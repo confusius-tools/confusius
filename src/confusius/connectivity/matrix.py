@@ -5,8 +5,9 @@ Adapted from `nilearn.connectome.connectivity_matrices` (BSD-3-Clause License; s
 """
 
 import warnings
+from collections.abc import Callable
 from math import floor, sqrt
-from typing import Callable, Literal
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt

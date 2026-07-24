@@ -5,8 +5,8 @@ module are inspired by `nilearn.plotting.plot_matrix` (BSD-3-Clause License; see
 `NOTICE` for details).
 """
 
-from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence
+from collections.abc import Hashable, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import numpy.typing as npt

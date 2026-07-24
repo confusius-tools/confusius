@@ -4,7 +4,8 @@ Portions of this file are derived from Nilearn, which is licensed under the BSD-
 License. See `NOTICE` file for details.
 """
 
-from typing import Callable, cast
+from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 import scipy.linalg
@@ -351,14 +352,14 @@ def _extract_compcor_components(
 
         svd = cast(
             Callable[..., tuple[np.ndarray, np.ndarray, np.ndarray]],
-            getattr(da.linalg, "svd"),
+            da.linalg.svd,
         )
-        U, s, Vt = svd(noise_signals.data)
+        U, s, _Vt = svd(noise_signals.data)
         components = U[:, :n_components]
         total_variance = (s**2).sum()
         explained_variance_ratio = (s[:n_components] ** 2) / total_variance
     else:
-        U, s, Vt = scipy.linalg.svd(
+        U, s, _Vt = scipy.linalg.svd(
             noise_signals.values, full_matrices=False, check_finite=False
         )
         components = U[:, :n_components]

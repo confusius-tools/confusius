@@ -10,8 +10,9 @@ lightweight validity check, and either returns `None` (cannot read) or a
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from confusius._utils.napari import convert_dataarray_to_layer_data
 from confusius.io import load

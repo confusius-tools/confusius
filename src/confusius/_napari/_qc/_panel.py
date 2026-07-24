@@ -31,8 +31,6 @@ from confusius.qc import compute_cv, compute_dvars, compute_tsnr
 if TYPE_CHECKING:
     import xarray as xr
 
-    from confusius._napari._qc._plots import QCPlotsWidget
-
 
 @thread_worker
 def _compute_qc_metrics(

@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 from napari.utils.notifications import show_error, show_info, show_warning
 from napari_video.napari_video import VideoReaderNP
-
-from confusius.timing import get_representative_time_step
 from qtpy.QtCore import Qt
 from qtpy.QtWidgets import (
     QAbstractItemView,
@@ -27,6 +25,8 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from confusius.timing import get_representative_time_step
 
 if TYPE_CHECKING:
     import napari
@@ -124,10 +124,10 @@ class _VideoArray:
             non_time_shape.append(frame_shape[2])
         self._padded_frame_shape = tuple(non_time_shape)
 
-    def __len__(self) -> int:  # noqa: D105
+    def __len__(self) -> int:
         return self.shape[self._time_dim]
 
-    def __getitem__(self, idx):  # noqa: D105
+    def __getitem__(self, idx):
         if not isinstance(idx, tuple):
             idx = (idx,)
 
@@ -906,6 +906,6 @@ class VideoPanel(QWidget):
         if self._guarding_order:
             try:
                 self._viewer.dims.events.order.disconnect(self._on_dim_order_changed)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001, S110
                 pass
             self._guarding_order = False

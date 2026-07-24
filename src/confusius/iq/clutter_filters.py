@@ -269,7 +269,7 @@ def clutter_filter_svd_from_indices(
         high_cutoff = max_components
 
     if not isinstance(low_cutoff, int) or not isinstance(high_cutoff, int):
-        raise ValueError("Cutoffs must be integers")
+        raise TypeError("Cutoffs must be integers")
     if not (0 <= low_cutoff < high_cutoff <= max_components):
         raise ValueError(
             f"Cutoffs must satisfy 0 <= low_cutoff ({low_cutoff}) < "
@@ -284,7 +284,7 @@ def clutter_filter_svd_from_indices(
     # spatial covariance matrix, which can be very large. Here, the eigenvalues
     # correspond to the squared singular values, that is, the energies of the singular
     # vectors.
-    eigenvalues, eigenvectors = _compute_gram_eigendecomposition(
+    _eigenvalues, eigenvectors = _compute_gram_eigendecomposition(
         # Casting to double-precision for stability.
         masked_signals.astype(np.cdouble, copy=False)
     )
@@ -299,7 +299,7 @@ def clutter_filter_svd_from_indices(
 
 
 def _validate_energy_cutoffs(
-    low_cutoff: int | float | None, high_cutoff: int | float | None
+    low_cutoff: float | None, high_cutoff: float | None
 ) -> tuple[float, float]:
     """Validate and normalize energy-based cutoff parameters.
 
@@ -347,8 +347,8 @@ def _validate_energy_cutoffs(
 def clutter_filter_svd_from_energy(
     block: npt.NDArray,
     mask: npt.NDArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
 ) -> npt.NDArray:
     """Filter IQ data using SVD clutter filtering based on component energies.
 
@@ -445,8 +445,8 @@ def clutter_filter_svd_from_energy(
 def clutter_filter_svd_from_cumulative_energy(
     block: npt.NDArray,
     mask: npt.NDArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
 ) -> npt.NDArray:
     """Filter IQ data using SVD clutter filtering based on cumulative component energies.
 
@@ -646,12 +646,11 @@ def clutter_filter_butterworth(
 
     nyquist = fs / 2
 
-    if low_cutoff is not None and high_cutoff is not None:
-        if high_cutoff <= low_cutoff:
-            raise ValueError(
-                f"High cutoff frequency ({high_cutoff}) must be greater than "
-                f"low cutoff frequency ({low_cutoff})"
-            )
+    if low_cutoff is not None and high_cutoff is not None and high_cutoff <= low_cutoff:
+        raise ValueError(
+            f"High cutoff frequency ({high_cutoff}) must be greater than "
+            f"low cutoff frequency ({low_cutoff})"
+        )
 
     critical_freq = []
     btype = None

@@ -34,11 +34,11 @@ def _attrs_equal(a: Any, b: Any) -> bool:
     if isinstance(a, np.ndarray) or isinstance(b, np.ndarray):
         try:
             return bool(np.array_equal(a, b))
-        except Exception:
+        except Exception:  # noqa: BLE001
             return False
     try:
         result = a == b
-    except Exception:
+    except Exception:  # noqa: BLE001
         return False
     if isinstance(result, np.ndarray):
         return bool(result.all())

@@ -172,7 +172,7 @@ class QCPlotsWidget(QWidget):
 
         try:
             self._write_dvars_delimited(path, delimiter)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
             return
 

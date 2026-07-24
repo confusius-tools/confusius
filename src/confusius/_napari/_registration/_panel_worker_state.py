@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from confusius._napari._registration._panel import RegistrationPanel
 
 
-def on_registration_failed(panel: "RegistrationPanel", exc: BaseException) -> None:
+def on_registration_failed(panel: RegistrationPanel, exc: BaseException) -> None:
     """Handle a failed worker execution.
 
     Parameters
