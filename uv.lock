@@ -643,15 +643,6 @@ wheels = [
 ]
 
 [[package]]
-name = "colorcet"
-version = "3.2.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3f/af/b969f541242b84cbbacabdf20862e487689e352bf0f02f90df2795d29da5/colorcet-3.2.1.tar.gz", hash = "sha256:48d9a67e6e59dc5c0a965aa1b46fe5d59cdc95cc36a95949f29313f950ac59f7", size = 2202958, upload-time = "2026-04-28T16:25:37.43Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1b/24/e95471ae93c08d3606c9c7343cf65d490f154daa88b50581957a0aa780f4/colorcet-3.2.1-py3-none-any.whl", hash = "sha256:3f6fde13cef2169222dd5fe2a2bf847c02d644470fdf167ed566f6421df470f7", size = 262291, upload-time = "2026-04-28T16:25:35.365Z" },
-]
-
-[[package]]
 name = "comm"
 version = "0.2.3"
 source = { registry = "https://pypi.org/simple" }
@@ -666,7 +657,6 @@ version = "0.6.0.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "brainglobe-atlasapi" },
-    { name = "colorcet" },
     { name = "dask", extra = ["complete"] },
     { name = "flox" },
     { name = "h5py" },
@@ -718,7 +708,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "brainglobe-atlasapi", specifier = ">=2.3.0" },
-    { name = "colorcet", specifier = ">=3.2.1" },
     { name = "dask", extras = ["complete"], specifier = ">=2025.9.0" },
     { name = "flox", specifier = ">=0.11.1" },
     { name = "h5py", specifier = ">=3.15.1" },
