@@ -89,6 +89,21 @@ def test_create_fusi_dataarray_can_preserve_input_dim_order():
     validate_fusi_dataarray(result, require_time=True)
 
 
+def test_create_fusi_dataarray_preserved_order_inserts_singleton_at_canonical_slot():
+    """With `canonical_order=False`, added singleton dims keep their canonical slot."""
+    result = create_fusi_dataarray(
+        np.zeros((4, 5, 6)),
+        dims=("time", "y", "x"),
+        dt=0.5,
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+        canonical_order=False,
+    )
+
+    assert result.dims == ("time", "z", "y", "x")
+
+
 def test_create_fusi_dataarray_accepts_explicit_coordinates():
     """Explicit coordinates can replace spacing arguments when spacing is inferable."""
     coords = {

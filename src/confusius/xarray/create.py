@@ -11,7 +11,7 @@ import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import canonicalize_fusi_dataarray, validate_fusi_dataarray
 
 _SPATIAL_UNITS = "mm"
 """Physical units attached to the `z`, `y`, and `x` coordinates."""
@@ -285,9 +285,11 @@ def _canonicalize_created_dataarray(
             volume_acquisition_reference=volume_acquisition_reference,
             volume_acquisition_duration=volume_acquisition_duration,
         )
-        attrs = coord.attrs.copy()
-        result = result.expand_dims({dim: coord.values})
-        result.coords[dim].attrs.update(attrs)
+        # Attach the missing dimension as a scalar coordinate so that
+        # canonicalize_fusi_dataarray restores it at its canonical position
+        # among the present dims instead of prepending it.
+        result = result.assign_coords({dim: coord.isel({dim: 0})})
+    result = canonicalize_fusi_dataarray(result)
 
     if canonical_order:
         ordered_core = [dim for dim in CORE_DIMS if dim in result.dims]
