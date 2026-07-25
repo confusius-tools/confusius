@@ -32,10 +32,6 @@ from qtpy.QtWidgets import (
 )
 
 from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
-from confusius._utils.coordinates import (
-    get_coordinate_origins,
-    get_coordinate_spacings_best_effort,
-)
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -93,6 +89,10 @@ from confusius._napari._registration._progress import (
 from confusius._napari._registration._transform_payloads import (
     OutputGridPayload,
     TransformPayload,
+)
+from confusius._utils.coordinates import (
+    get_coordinate_origins,
+    get_coordinate_spacings_best_effort,
 )
 from confusius.registration import register_volume, register_volumewise
 
@@ -1291,7 +1291,7 @@ class RegistrationPanel(QWidget):
             return None
         try:
             data = _get_source_dataarray(moving_layer)
-        except Exception:
+        except TypeError:
             return None
         if self._operation() == "register_volume":
             data = _prepare_between_scan_data(data)
@@ -1731,7 +1731,7 @@ class RegistrationPanel(QWidget):
                     initial_transform=initial_transform,
                     scale_mode=volume_payload["scale"],
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001
                 return
 
             worker = thread_worker(register_volume)(

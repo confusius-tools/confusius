@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def _preserve_view(viewer: "napari.Viewer") -> Iterator[None]:
+def _preserve_view(viewer: napari.Viewer) -> Iterator[None]:
     """Keep the viewer camera and dims state across a block that adds layers.
 
     Adding image layers makes napari recompute `camera.center` and re-apply
@@ -110,7 +110,7 @@ def _normalize_layer_sequence(values: Any, ndim: int, fill: Any) -> list[Any]:
     return seq
 
 
-def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
+def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
     """Reconstruct a DataArray from the current napari layer state.
 
     Parameters
@@ -162,7 +162,7 @@ def _reconstruct_layer_dataarray(layer: "Layer") -> xr.DataArray:
     return xr.DataArray(data, dims=axis_labels, coords=coords)
 
 
-def _is_registration_source_layer(layer: "Layer") -> bool:
+def _is_registration_source_layer(layer: Layer) -> bool:
     """Return whether `layer` can be converted to a registration source.
 
     ConfUSIus-managed layers carry the original `xarray.DataArray` in metadata. For
@@ -188,7 +188,7 @@ def _is_registration_source_layer(layer: "Layer") -> bool:
     return isinstance(layer.data, np.ndarray)
 
 
-def _get_source_dataarray(layer: "Layer") -> xr.DataArray:
+def _get_source_dataarray(layer: Layer) -> xr.DataArray:
     """Return the stable source DataArray for a napari layer.
 
     Parameters
@@ -280,7 +280,7 @@ def _apply_registration_scale(
     raise ValueError(f"Unknown registration scale mode: {scale_mode}.")
 
 
-def _get_image_display_kwargs_from_layer(layer: "Layer") -> dict[str, Any]:
+def _get_image_display_kwargs_from_layer(layer: Layer) -> dict[str, Any]:
     """Return image-display kwargs copied from an existing napari layer.
 
     Parameters
@@ -339,13 +339,13 @@ def _parse_comma_separated_ints(text: str, expected_len: int = 3) -> tuple[int, 
     """
     parts = [p.strip() for p in text.split(",") if p.strip()]
     if not parts:
-        return tuple()
+        return ()
     try:
         values = tuple(int(float(p)) for p in parts)
     except ValueError:
-        return tuple()
+        return ()
     if len(values) != expected_len:
-        return tuple()
+        return ()
     return values
 
 

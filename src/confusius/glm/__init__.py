@@ -24,17 +24,17 @@ from confusius.glm.first_level import FirstLevelModel
 from confusius.glm.second_level import SecondLevelModel, make_second_level_design_matrix
 
 __all__ = [
+    "Contrast",
     "FirstLevelModel",
+    "RegressionResults",
     "SecondLevelModel",
+    "claron2021_hrf",
+    "gamma_difference_hrf",
+    "gamma_hrf",
+    "glover_hrf",
+    "inverse_gamma_hrf",
     "make_first_level_design_matrix",
     "make_second_level_design_matrix",
-    "RegressionResults",
-    "Contrast",
-    "gamma_difference_hrf",
-    "glover_hrf",
     "spm_hrf",
-    "gamma_hrf",
-    "inverse_gamma_hrf",
     "verhoef2025_hrf",
-    "claron2021_hrf",
 ]

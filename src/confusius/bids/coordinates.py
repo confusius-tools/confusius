@@ -142,7 +142,7 @@ def create_bids_slice_timing_from_coordinate(
             f"slice_time coordinate must include a 'time' dimension, got: {slice_time_coord.dims}"
         )
 
-    spatial_dim = list(set(slice_time_coord.dims) - {"time"})[0]
+    spatial_dim = next(iter(set(slice_time_coord.dims) - {"time"}))
     if spatial_dim not in DIM_TO_SLICE_ENCODING_DIRECTION:
         raise ValueError(
             f"slice_time coordinate must have one of spatial dimensions "

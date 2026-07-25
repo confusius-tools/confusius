@@ -1,7 +1,8 @@
 """Utilities for processing beamformed IQ data."""
 
 import warnings
-from typing import TYPE_CHECKING, Any, Callable, Concatenate, Literal, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Concatenate, Literal, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -31,8 +32,8 @@ def _format_clutter_filter_spec(
     filter_method: Literal[
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ],
-    low_cutoff: int | float | None,
-    high_cutoff: int | float | None,
+    low_cutoff: float | None,
+    high_cutoff: float | None,
 ) -> str:
     """Format a human-readable BIDS clutter filter specification.
 
@@ -574,8 +575,8 @@ def process_iq_block_with_clutter_filter(
     block: npt.NDArray,
     process_block_func: Callable[Concatenate[npt.NDArray, ...], npt.NDArray],
     clutter_mask: npt.NDArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
     window_width: int | None = None,
     window_stride: int | None = None,
     filter_method: Literal[
@@ -724,8 +725,8 @@ def compute_power_doppler_volume(
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
     clutter_mask: npt.NDArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
     fs: float | None = None,
     butterworth_order: int = 4,
     doppler_window_width: int | None = None,
@@ -844,8 +845,8 @@ def compute_axial_velocity_volume(
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
     clutter_mask: npt.NDArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
     butterworth_order: int = 4,
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,
@@ -1180,8 +1181,8 @@ def process_iq_to_power_doppler(
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
     clutter_mask: xr.DataArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
     butterworth_order: int = 4,
     doppler_window_width: int | None = None,
     doppler_window_stride: int | None = None,
@@ -1507,8 +1508,8 @@ def process_iq_to_axial_velocity(
         "svd_indices", "svd_energy", "svd_cumulative_energy", "butterworth"
     ] = "svd_indices",
     clutter_mask: xr.DataArray | None = None,
-    low_cutoff: int | float | None = None,
-    high_cutoff: int | float | None = None,
+    low_cutoff: float | None = None,
+    high_cutoff: float | None = None,
     butterworth_order: int = 4,
     velocity_window_width: int | None = None,
     velocity_window_stride: int | None = None,

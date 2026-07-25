@@ -216,6 +216,15 @@ class TestRegisterVolumeValidation:
                 initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
             )
 
+    def test_invalid_learning_rate_raises(self, sample_2d_dataarray_spatial):
+        """A non-positive learning_rate raises ValueError."""
+        with pytest.raises(ValueError, match="learning_rate must be a positive"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                learning_rate=-1.0,
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_singleton_z_dataarray_spatial
     ):

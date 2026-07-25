@@ -167,16 +167,15 @@ def _validate_register_volume_inputs(
         )
 
     # --- Numeric parameters ---
-    if learning_rate != "auto":
-        if (
-            not isinstance(learning_rate, (int, float))
-            or not np.isfinite(learning_rate)
-            or learning_rate <= 0
-        ):
-            raise ValueError(
-                f"learning_rate must be a positive finite float or 'auto'; "
-                f"got {learning_rate!r}."
-            )
+    if learning_rate != "auto" and (
+        not isinstance(learning_rate, (int, float))
+        or not np.isfinite(learning_rate)
+        or learning_rate <= 0
+    ):
+        raise ValueError(
+            f"learning_rate must be a positive finite float or 'auto'; "
+            f"got {learning_rate!r}."
+        )
 
     if not isinstance(number_of_iterations, int) or number_of_iterations < 1:
         raise ValueError(
@@ -297,7 +296,6 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
-    ...
 
 
 @overload
@@ -333,7 +331,6 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
-    ...
 
 
 @overload
@@ -368,7 +365,6 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
-    ...
 
 
 def register_volume(

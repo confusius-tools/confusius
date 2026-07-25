@@ -200,7 +200,7 @@ class DataPanel(QWidget):
             # them as napari notifications so they appear in the UI.
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                _viewer, layer = plot_napari(
+                _viewer, _layer = plot_napari(
                     da, viewer=self.viewer, layer_type=infer_layer_type(da.dtype)
                 )
             for w in caught:

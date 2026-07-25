@@ -7,16 +7,17 @@ __all__ = [
     "FUSIAccessor",
     "FUSIAffineAccessor",
     "FUSIConnectivityAccessor",
+    "FUSIExtractAccessor",
     "FUSIIQAccessor",
     "FUSIPlotAccessor",
     "FUSIRegistrationAccessor",
     "FUSIScaleAccessor",
     "FUSIExtractAccessor",
     "create_fusi_dataarray",
+    "apply_affine",
     "db_scale",
     "log_scale",
     "power_scale",
-    "apply_affine",
 ]
 
 from confusius.xarray.accessors import FUSIAccessor
