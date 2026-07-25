@@ -241,7 +241,7 @@ searchlight.scores_
 # same kernel.
 
 # %%
-glm = cf.glm.FirstLevelModel(smoothing_fwhm=smoothing_fwhm)
+glm = cf.glm.FirstLevelModel(smoothing_fwhm=smoothing_fwhm, mask=mask)
 glm.fit(data, design_matrices=design_matrix)
 z_scores = glm.compute_contrast("speed")
 
