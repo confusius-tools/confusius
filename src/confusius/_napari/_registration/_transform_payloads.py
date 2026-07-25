@@ -110,7 +110,7 @@ def _make_json_serializable(value: object) -> object:
     return value
 
 
-def make_output_grid_payload(reference: "xr.DataArray") -> OutputGridPayload:
+def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     """Return the resampling grid defined by a reference DataArray.
 
     Parameters
@@ -139,7 +139,7 @@ def make_output_grid_payload(reference: "xr.DataArray") -> OutputGridPayload:
 
 
 def _make_diagnostics_payload(
-    diagnostics: "RegistrationDiagnostics",
+    diagnostics: RegistrationDiagnostics,
 ) -> TransformDiagnosticsPayload:
     """Return a JSON-serializable diagnostics summary.
 
@@ -165,14 +165,14 @@ def _make_diagnostics_payload(
 def make_affine_transform_payload(
     affine: npt.NDArray[np.floating],
     *,
-    reference: "xr.DataArray",
-    source: "xr.DataArray | None" = None,
+    reference: xr.DataArray,
+    source: xr.DataArray | None = None,
     source_layer_name: str,
     target_layer_name: str,
     operation: str,
     transform_model: str,
     metric: str,
-    diagnostics: "RegistrationDiagnostics",
+    diagnostics: RegistrationDiagnostics,
     name: str | None = None,
 ) -> AffineTransformPayload:
     """Build a JSON-serializable payload for a registered affine transform.
@@ -227,7 +227,7 @@ def make_affine_transform_payload(
     return payload
 
 
-def _serialize_bspline_dataarray(transform: "xr.DataArray") -> BSplineDataArrayPayload:
+def _serialize_bspline_dataarray(transform: xr.DataArray) -> BSplineDataArrayPayload:
     """Return a JSON-serializable B-spline DataArray payload.
 
     Parameters
@@ -330,16 +330,16 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
 
 
 def make_bspline_transform_payload(
-    transform: "xr.DataArray",
+    transform: xr.DataArray,
     *,
-    reference: "xr.DataArray",
-    source: "xr.DataArray | None" = None,
+    reference: xr.DataArray,
+    source: xr.DataArray | None = None,
     source_layer_name: str,
     target_layer_name: str,
     operation: str,
     transform_model: str,
     metric: str,
-    diagnostics: "RegistrationDiagnostics",
+    diagnostics: RegistrationDiagnostics,
     name: str | None = None,
 ) -> BSplineTransformPayload:
     """Build a JSON-serializable payload for a registered B-spline transform.
@@ -394,7 +394,7 @@ def make_bspline_transform_payload(
 
 
 def get_affine_transform_from_payload(
-    payload: "Mapping[str, object]",
+    payload: Mapping[str, object],
 ) -> npt.NDArray[np.float64]:
     """Return the affine matrix stored in a payload.
 
@@ -420,7 +420,7 @@ def get_affine_transform_from_payload(
     return affine
 
 
-def get_bspline_transform_from_payload(payload: "Mapping[str, object]") -> xr.DataArray:
+def get_bspline_transform_from_payload(payload: Mapping[str, object]) -> xr.DataArray:
     """Return the B-spline transform stored in a payload.
 
     Parameters
@@ -438,7 +438,8 @@ def get_bspline_transform_from_payload(payload: "Mapping[str, object]") -> xr.Da
 
     bspline = payload.get("bspline")
     if not isinstance(bspline, dict):
-        raise ValueError("B-spline payload must contain a serialized DataArray.")
+        # "not a B-spline transform" check above.
+        raise ValueError("B-spline payload must contain a serialized DataArray.")  # noqa: TRY004
     return _deserialize_bspline_dataarray(cast("BSplineDataArrayPayload", bspline))
 
 
@@ -447,7 +448,7 @@ def _coerce_grid_payload(
 ) -> OutputGridPayload:
     """Return a validated grid payload from a raw mapping field."""
     if not isinstance(grid, dict):
-        raise ValueError(missing_message)
+        raise ValueError(missing_message)  # noqa: TRY004
 
     grid_dict = cast("dict[str, object]", grid)
     dims = grid_dict.get("dims")
@@ -473,7 +474,7 @@ def _coerce_grid_payload(
     }
 
 
-def get_output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridPayload:
+def get_output_grid_from_payload(payload: Mapping[str, object]) -> OutputGridPayload:
     """Return the output grid stored in a transform payload.
 
     Parameters
@@ -494,7 +495,7 @@ def get_output_grid_from_payload(payload: "Mapping[str, object]") -> OutputGridP
 
 
 def get_input_grid_from_payload(
-    payload: "Mapping[str, object]",
+    payload: Mapping[str, object],
 ) -> OutputGridPayload | None:
     """Return the input grid stored in a transform payload, if present.
 
@@ -585,7 +586,8 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 cast("str", ds.attrs["confusius_transform_payload_json"])
             )
             if not isinstance(payload_metadata, dict):
-                raise ValueError("Stored transform payload metadata is malformed.")
+                # "does not contain a ConfUSIus transform" checks above.
+                raise ValueError("Stored transform payload metadata is malformed.")  # noqa: TRY004
             transform = ds["bspline_transform"].load()
         finally:
             ds.close()
@@ -604,6 +606,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 cast("str", transform.attrs["confusius_transform_metadata_json"])
             )
             if not isinstance(payload_metadata, dict):
+                # "does not contain a ConfUSIus transform" checks above.
                 raise ValueError("Stored transform payload metadata is malformed.")
         else:
             payload_metadata = {
@@ -698,7 +701,8 @@ def load_transform_payload(path: str | Path) -> TransformPayload:
 
     payload = json.loads(path.read_text())
     if not isinstance(payload, dict):
-        raise ValueError("Transform file must contain a JSON object.")
+        # "not an affine/B-spline transform" checks below.
+        raise ValueError("Transform file must contain a JSON object.")  # noqa: TRY004
 
     kind = payload.get("kind")
     if kind != "affine":

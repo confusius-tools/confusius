@@ -263,7 +263,7 @@ def _load_echoframe_dat_blocks(
         each block is only read from disk once its chunk is computed.
     """
     header = np.fromfile(dat_path, dtype=header_dtype, count=n_header_items)
-    _, header_size, n_blocks, data_size, padding_bytes = (int(item) for item in header)
+    _, header_size, n_blocks, _data_size, padding_bytes = (int(item) for item in header)
 
     load = dask.delayed(_load_echoframe_block)
     block_shape = (n_volumes_per_block, x, 1, z)

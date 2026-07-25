@@ -385,7 +385,7 @@ class SignalPlotter(QWidget):
         """
         layer = self._current_layer
         if layer is None:
-            return int(round(world_value))
+            return round(world_value)
         world_point = np.array(self._viewer.dims.point)
         xaxis_idx = self._xaxis_dim_index(layer)
         offset = self._viewer.dims.ndim - layer.ndim
@@ -843,9 +843,7 @@ class SignalPlotter(QWidget):
         Always uses the nearest voxel to the cursor position.
         """
         data = layer.data
-        ind: list[int | slice] = [
-            int(round(x)) for x in layer.world_to_data(cursor_pos)
-        ]
+        ind: list[int | slice] = [round(x) for x in layer.world_to_data(cursor_pos)]
 
         xaxis_index = self._xaxis_dim_index(layer)
         # Replace the x-axis index before bounds-checking: the injected x-axis world
@@ -1300,7 +1298,7 @@ class SignalPlotter(QWidget):
                 continue  # Skip the x-axis dimension (signals dimension).
 
             # Get the data index for this dimension.
-            data_index = int(round(data_indices[i]))
+            data_index = round(data_indices[i])
 
             if dim in da.coords and data_index < da.sizes[dim]:
                 coord_val = da.coords[dim].values[data_index]
@@ -1525,7 +1523,7 @@ class SignalPlotter(QWidget):
 
         try:
             self._write_current_plot_delimited(path, delimiter)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             show_error(str(exc))
             return
 
@@ -1623,9 +1621,8 @@ class SignalPlotter(QWidget):
 
     def _on_labels_data_changed(self, event) -> None:
         """Schedule a debounced re-plot when the Labels layer is painted."""
-        if self._source_mode == "labels":
-            if not self._labels_debounce.isActive():
-                self._labels_debounce.start()
+        if self._source_mode == "labels" and not self._labels_debounce.isActive():
+            self._labels_debounce.start()
 
     # ------------------------------------------------------------------
     # Source mode — plot methods
