@@ -3,8 +3,8 @@
 import math
 import numbers
 import warnings
-from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any, Literal, Sequence
+from collections.abc import Hashable, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import xarray as xr
@@ -322,7 +322,7 @@ def _resolve_cmap(
     # `colors_before` entry shares its value with the start of `gray_band`).
     # Collapse duplicates by value, keeping the later entry so gray-band
     # boundaries take precedence over the underlying cmap at the same value.
-    deduped: dict[float, "str | tuple[float, ...] | list[float]"] = {}
+    deduped: dict[float, str | tuple[float, ...] | list[float]] = {}
     for value, color in new_colors:
         deduped[value] = color
     new_colors = list(deduped.items())
@@ -420,7 +420,7 @@ def _extract_slices(
                     f"slice_mode '{slice_mode}' has no coordinates, so slice_coords "
                     f"must be numeric positional indices, got {coord!r}."
                 )
-            idx = int(round(coord))
+            idx = round(coord)
             slice_da = data.isel({slice_mode: idx})
             actual_coord = float(coord)
         slices.append(slice_da)

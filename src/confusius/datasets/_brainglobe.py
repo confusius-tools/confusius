@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from brainglobe_atlasapi.atlas_name import AtlasName
 
 
-def _build_dataset_from_brainglobe(atlas: "BrainGlobeAtlas") -> xr.Dataset:
+def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     """Build an atlas Dataset from a loaded BrainGlobe atlas.
 
     Parameters

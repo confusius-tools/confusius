@@ -25,11 +25,11 @@ from confusius._utils.bids import DEFAULT_TRIAL_TYPE, normalize_trial_type
 
 __all__ = [
     "DEFAULT_TRIAL_TYPE",
-    "normalize_trial_type",
-    "ONSET_COLUMN",
     "DURATION_COLUMN",
+    "ONSET_COLUMN",
     "TRIAL_TYPE_COLUMN",
     "load_events",
+    "normalize_trial_type",
     "save_events",
 ]
 

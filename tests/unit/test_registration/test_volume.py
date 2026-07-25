@@ -212,6 +212,15 @@ class TestRegisterVolumeValidation:
                 initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
             )
 
+    def test_invalid_learning_rate_raises(self, sample_2d_dataarray_spatial):
+        """A non-positive learning_rate raises ValueError."""
+        with pytest.raises(ValueError, match="learning_rate must be a positive"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                learning_rate=-1.0,
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -280,7 +289,9 @@ class TestRegisterVolumeValidation:
 
         monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
 
-        with pytest.raises(RuntimeError, match="could not compute valid optimizer scales"):
+        with pytest.raises(
+            RuntimeError, match="could not compute valid optimizer scales"
+        ):
             register_volume(
                 sample_2d_dataarray_spatial,
                 sample_2d_dataarray_spatial,
@@ -306,7 +317,7 @@ class TestRegisterVolumeValidation:
 
         with pytest.raises(
             RuntimeError,
-            match='Retry with a fixed `learning_rate` such as `0.1` or `0.01`',
+            match="Retry with a fixed `learning_rate` such as `0.1` or `0.01`",
         ):
             register_volume(
                 sample_2d_dataarray_spatial,

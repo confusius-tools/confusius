@@ -251,21 +251,24 @@ The following example uses an axis-aligned `sform`, so `physical_to_sform` is th
 identity. The `qform` is shifted by +10 along `z` and +5 along `y` relative to the
 `sform`, so `physical_to_qform` contains only a translation:
 
-```python
-da.coords["z"].values  # array([0., 1., 2.])
-da.coords["y"].values  # array([0., 1., 2., 3.])
-
-da.attrs["affines"]["physical_to_sform"]  # identity
-# array([[ 1.,  0.,  0.,  0.],
-#        [ 0.,  1.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
-
-da.attrs["affines"]["physical_to_qform"]  # (+10, +5) shift in (z, y):
-# array([[ 1.,  0.,  0., 10.],
-#        [ 0.,  1.,  0.,  5.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
+```pycon
+>>> da.coords["z"].values
+array([0., 1., 2.])
+>>>
+>>> da.coords["y"].values
+array([0., 1., 2., 3.])
+>>>
+>>> da.attrs["affines"]["physical_to_sform"]  # identity
+array([[1., 0., 0., 0.],
+       [0., 1., 0., 0.],
+       [0., 0., 1., 0.],
+       [0., 0., 0., 1.]])
+>>>
+>>> da.attrs["affines"]["physical_to_qform"]  # (+10, +5) shift in (z, y):
+array([[ 1.,  0.,  0., 10.],
+       [ 0.,  1.,  0.,  5.],
+       [ 0.,  0.,  1.,  0.],
+       [ 0.,  0.,  0.,  1.]])
 ```
 
 Applying `physical_to_qform` absorbs the translation into the coordinate arrays. The
@@ -287,22 +290,30 @@ coordinates.
     da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
     ```
 
-```python
-da_q.coords["z"].values  # array([10., 11., 12.])   <- shifted by +10
-da_q.coords["y"].values  # array([5., 6., 7., 8.])  <- shifted by +5
-
-da_q.attrs["affines"]["physical_to_sform"]  # (-10, -5) shift back to sform
-# array([[ 1.,  0.,  0., -10.],
-#        [ 0.,  1.,  0.,  -5.],
-#        [ 0.,  0.,  1.,   0.],
-#        [ 0.,  0.,  0.,   1.]])
-
-da_q.attrs["affines"]["physical_to_qform"]  # identity, the new physical frame
-# array([[ 1.,  0.,  0.,  0.],
-#        [ 0.,  1.,  0.,  0.],
-#        [ 0.,  0.,  1.,  0.],
-#        [ 0.,  0.,  0.,  1.]])
-orientation                                 # identity, nothing left over
+```pycon
+>>> da_q.coords["z"].values
+array([10., 11., 12.])
+>>>
+>>> da_q.coords["y"].values
+array([5., 6., 7., 8.])
+>>>
+>>> da_q.attrs["affines"]["physical_to_sform"]  # (-10, -5) shift back to sform
+array([[  1.,   0.,   0., -10.],
+       [  0.,   1.,   0.,  -5.],
+       [  0.,   0.,   1.,   0.],
+       [  0.,   0.,   0.,   1.]])
+>>>
+>>> da_q.attrs["affines"]["physical_to_qform"]  # identity, the new physical frame
+array([[1., 0., 0., 0.],
+       [0., 1., 0., 0.],
+       [0., 0., 1., 0.],
+       [0., 0., 0., 1.]])
+>>> 
+>>> orientation  # identity, nothing left over
+array([[1., 0., 0., 0.],
+       [0., 1., 0., 0.],
+       [0., 0., 1., 0.],
+       [0., 0., 0., 1.]])
 ```
 
 Because `orientation` is the identity, the change of physical frame is complete.
@@ -313,32 +324,34 @@ Independent one-dimensional coordinate arrays cannot represent a transform that 
 axes. For example, consider a `physical_to_qform` containing a 90° rotation in the
 `(z, y)` plane:
 
-```python
-da.attrs["affines"]["physical_to_qform"]
-# array([[ 0., -1., 0., 0.],
-#        [ 1., 0., 0., 0.],
-#        [ 0., 0., 1., 0.],
-#        [ 0., 0., 0., 1.]])
+```pycon
+>>> da.attrs["affines"]["physical_to_qform"]
+array([[ 0., -1.,  0.,  0.],
+       [ 1.,  0.,  0.,  0.],
+       [ 0.,  0.,  1.,  0.],
+       [ 0.,  0.,  0.,  1.]])
 ```
 
 After calling [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply], the
 coordinate arrays remain unchanged because none of this rotation can be represented as
 independent changes to `z`, `y`, and `x`:
 
-```python
-da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
-da_q.coords["z"].values  # array([0., 1., 2.])
-da_q.coords["y"].values  # array([0., 1., 2., 3.])
+```pycon
+>>> da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
+>>> da_q.coords["z"].values
+array([0., 1., 2.])
+>>> da_q.coords["y"].values
+array([0., 1., 2., 3.])
 ```
 
 The unabsorbed transform is returned as orientation:
 
-```python
-orientation
-# array([[ 0., -1., 0., 0.],
-#        [ 1.,  0., 0., 0.],
-#        [ 0.,  0., 1., 0.],
-#        [ 0.,  0., 0., 1.]])
+```pycon
+>>> orientation
+array([[ 0., -1.,  0.,  0.],
+       [ 1.,  0.,  0.,  0.],
+       [ 0.,  0.,  1.,  0.],
+       [ 0.,  0.,  0.,  1.]])
 ```
 
 Because the residual is non-identity, the DataArray has not been fully re-anchored to

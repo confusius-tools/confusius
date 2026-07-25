@@ -21,8 +21,8 @@ class VolumewiseProgressReporter(Protocol):
     def frame_completed(
         self,
         frame_index: int,
-        registered_frame: "xr.DataArray",
-        diagnostics: "RegistrationDiagnostics",
+        registered_frame: xr.DataArray,
+        diagnostics: RegistrationDiagnostics,
     ) -> None:
         """Report that one frame finished and provide its registered output.
 

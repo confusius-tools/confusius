@@ -8,7 +8,7 @@ icon: lucide/quote
 
 If you use ConfUSIus in your research, please cite it using the following reference:
 
-> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.5.2). Zenodo.
+> Le Meur-Diebolt, S., & Cybis Pereira, F. (2026). ConfUSIus (v0.6.0). Zenodo.
 > https://doi.org/10.5281/zenodo.18611124
 
 Or in BibTeX format:
@@ -19,7 +19,7 @@ Or in BibTeX format:
   title     = {ConfUSIus},
   year      = {2026},
   publisher = {Zenodo},
-  version   = {v0.5.2},
+  version   = {v0.6.0},
   doi       = {10.5281/zenodo.18611124},
   url       = {https://doi.org/10.5281/zenodo.18611124}
 }
@@ -63,7 +63,7 @@ Or in BibTeX format:
 
 ### Napari
 
-The [ConfUSIus GUI](../gui/overview.md) is built on top of [napari](https://napari.org),
+The [ConfUSIus GUI](../gui/overview) is built on top of [napari](https://napari.org),
 a powerful multi-dimensional image viewer for Python. If you use the ConfUSIus GUI in
 your research, please also cite napari:
 

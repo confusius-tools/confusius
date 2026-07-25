@@ -3,11 +3,11 @@
 import os
 import signal
 import threading
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from copy import deepcopy
-from collections.abc import Callable
 from types import FrameType
-from typing import TYPE_CHECKING, Generator, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard
 
 import numpy as np
 import xarray as xr

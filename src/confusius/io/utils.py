@@ -7,7 +7,7 @@ from typing import Any, Literal
 def check_path(
     path: Path | str | Any,
     label: str = "path",
-    type: Literal["file", "dir", None] = None,
+    type: Literal["file", "dir"] | None = None,
 ) -> Path:
     """Resolve full path and check its type.
 

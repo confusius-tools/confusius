@@ -43,7 +43,7 @@ class RegistrationMetricPlotter(QWidget):
         Active napari viewer, used to detect theme changes.
     """
 
-    def __init__(self, viewer: "Viewer") -> None:
+    def __init__(self, viewer: Viewer) -> None:
         super().__init__()
         self._viewer = viewer
         self._metric_values: list[float] = []
