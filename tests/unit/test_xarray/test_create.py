@@ -354,6 +354,66 @@ def test_create_fusi_dataarray_stores_acquisition_metadata_on_time_coord():
     assert time_attrs["units"] == "s"
 
 
+def test_create_fusi_dataarray_preserves_explicit_time_coord_timing_attrs():
+    """Timing metadata carried by an explicit time coordinate is not overwritten."""
+    time = xr.DataArray(
+        np.arange(4) * 0.5 + 0.25,
+        dims=("time",),
+        attrs={
+            "volume_acquisition_reference": "center",
+            "volume_acquisition_duration": 0.2,
+        },
+    )
+
+    result = create_fusi_dataarray(
+        np.zeros((4, 1, 4, 6)),
+        dims=("time", "z", "y", "x"),
+        coords={"time": time},
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+    )
+
+    time_attrs = result.coords["time"].attrs
+    assert time_attrs["volume_acquisition_reference"] == "center"
+    assert time_attrs["volume_acquisition_duration"] == 0.2
+
+
+def test_create_fusi_dataarray_rejects_invalid_time_coord_timing_attrs():
+    """Invalid timing metadata on an explicit time coordinate is rejected."""
+    bad_reference = xr.DataArray(
+        np.arange(4) * 0.5,
+        dims=("time",),
+        attrs={"volume_acquisition_reference": "middle"},
+    )
+    with pytest.raises(
+        ValueError, match=r"volume_acquisition_reference must be one of"
+    ):
+        create_fusi_dataarray(
+            np.zeros((4, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            coords={"time": bad_reference},
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+        )
+
+    bad_duration = xr.DataArray(
+        np.arange(4) * 0.5,
+        dims=("time",),
+        attrs={"volume_acquisition_duration": -0.2},
+    )
+    with pytest.raises(ValueError, match="volume_acquisition_duration"):
+        create_fusi_dataarray(
+            np.zeros((4, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            coords={"time": bad_duration},
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+        )
+
+
 def test_create_fusi_dataarray_acquisition_metadata_defaults_to_time_spacing():
     """`time` duration defaults to the provided or inferred time spacing."""
     result = create_fusi_dataarray(

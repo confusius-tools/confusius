@@ -204,12 +204,22 @@ def _coordinate_dataarray(
             step = spacings[dim]
         if step is None and dim in coords:
             step = _representative_positive_step(coord_values, dim)
-        duration = volume_acquisition_duration
+        if "volume_acquisition_reference" not in attrs:
+            attrs["volume_acquisition_reference"] = volume_acquisition_reference
+        elif attrs["volume_acquisition_reference"] not in TIMING_REFERENCE_FACTORS:
+            raise ValueError(
+                f"volume_acquisition_reference must be one of "
+                f"{tuple(TIMING_REFERENCE_FACTORS)!r}, got "
+                f"{attrs['volume_acquisition_reference']!r}."
+            )
+        if "volume_acquisition_duration" in attrs:
+            duration = attrs["volume_acquisition_duration"]
+        else:
+            duration = volume_acquisition_duration
         if duration is None:
             duration = _require_spacing(dim, step)
         else:
             duration = _require_positive_finite(duration, "volume_acquisition_duration")
-        attrs["volume_acquisition_reference"] = volume_acquisition_reference
         attrs["volume_acquisition_duration"] = duration
     elif dim in SPATIAL_DIMS:
         if "units" not in attrs:
@@ -356,12 +366,14 @@ def create_fusi_dataarray(
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Where within its acquisition window each frame's `time` coordinate is anchored.
         Stored on the `time` coordinate attributes and used by downstream timing
-        helpers. Only applied when a `time` dimension is present.
+        helpers. Only applied when a `time` dimension is present and ignored when an
+        explicit `time` coordinate already carries the attribute.
     volume_acquisition_duration : float, optional
         Duration of a single volume's acquisition window, in seconds. Stored on the
         `time` coordinate attributes. If not provided, defaults to the inferred,
         provided, or median exact time-coordinate spacing. Only applied when a `time`
-        dimension is present.
+        dimension is present and ignored when an explicit `time` coordinate already
+        carries the attribute.
     name : str, optional
         Name assigned to the resulting DataArray.
     attrs : dict, optional
