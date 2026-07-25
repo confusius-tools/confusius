@@ -189,16 +189,19 @@ def _check_targets(y: npt.ArrayLike | xr.DataArray, data: xr.DataArray) -> npt.N
         that does not match `data`'s.
     """
     if isinstance(y, xr.DataArray):
-        if "time" in y.coords and "time" in data.coords:
-            if not np.array_equal(
+        if (
+            "time" in y.coords
+            and "time" in data.coords
+            and not np.array_equal(
                 np.asarray(y.coords["time"].values),
                 np.asarray(data.coords["time"].values),
-            ):
-                raise ValueError(
-                    "y has a 'time' coordinate that does not match X. Resample y onto "
-                    "X's acquisition times before fitting, for example with "
-                    "`y.interp(time=X.time)`."
-                )
+            )
+        ):
+            raise ValueError(
+                "y has a 'time' coordinate that does not match X. Resample y onto "
+                "X's acquisition times before fitting, for example with "
+                "`y.interp(time=X.time)`."
+            )
         y_array = np.asarray(y.values)
     else:
         y_array = np.asarray(y)
