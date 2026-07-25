@@ -26,7 +26,7 @@ Current development version for the next ConfUSIus release.
   as `confusius.create_fusi_dataarray`) to build a canonical fUSI DataArray from a raw
   array plus higher-level metadata (`dt`, `dz`, `dy`, `dx`, and axis origins). It
   attaches regularly spaced physical coordinates, `units`/`voxdim` metadata, and
-  validates the result before returning it ([#149](https://github.com/confusius-tools/confusius/issues/149)).
+  validates the result before returning it ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 
 ## 0.6.0
 
