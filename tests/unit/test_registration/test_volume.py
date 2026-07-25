@@ -598,11 +598,13 @@ class TestRegisterVolumeResample:
             number_of_iterations=200,
             resample=True,
         )
-        # Compare only the interior to avoid boundary wrap-around artifacts.
+        # Compare only the y/x interior to avoid boundary wrap-around artifacts.
         margin = shift + 1
         assert_allclose(
-            result.values[margin:-margin, margin:-margin],
-            sample_singleton_z_dataarray_spatial.values[margin:-margin, margin:-margin],
+            result.values[:, margin:-margin, margin:-margin],
+            sample_singleton_z_dataarray_spatial.values[
+                :, margin:-margin, margin:-margin
+            ],
             atol=10.0,
         )
 
