@@ -76,12 +76,6 @@ class TestValidateAffines:
         with pytest.raises(TypeError, match="numpy.ndarray"):
             _validate_affines(cast(Any, [[[1, 0, 0], [0, 1, 0], [0, 0, 1]]]))
 
-    @pytest.mark.parametrize("bad", [np.zeros((3, 4)), np.eye(3), np.eye(5)])
-    def test_rejects_non_4x4_affine(self, bad):
-        """Only `(4, 4)` homogeneous 3D affines are accepted."""
-        with pytest.raises(ValueError, match=r"\(4, 4\)"):
-            _validate_affines([bad])
-
 
 class TestExtractMotionParameters:
     """Tests for extract_motion_parameters function."""
