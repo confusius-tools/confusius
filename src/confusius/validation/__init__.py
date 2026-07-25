@@ -2,7 +2,6 @@
 
 from confusius.validation.atlas import validate_atlas_dataset
 from confusius.validation.coordinates import validate_matching_coordinates
-from confusius.validation.units import validate_matching_spatial_units
 from confusius.validation.fusi import (
     canonicalize_fusi_dataarray,
     ensure_fusi_dataarray,

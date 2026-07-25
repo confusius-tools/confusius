@@ -397,7 +397,7 @@ def register_volume(
     plot_composite: bool = True,
     progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
-) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":  # noqa: E501
+) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":
     """Register a single 3D volume to a fixed reference.
 
     Voxel spacing and origin are automatically extracted from the DataArray coordinates.
