@@ -200,6 +200,18 @@ def test_create_fusi_dataarray_rejects_missing_spacing():
         )
 
 
+def test_create_fusi_dataarray_missing_time_spacing_names_dt():
+    """The missing-time-spacing error hints at the actual `dt` parameter name."""
+    with pytest.raises(ValueError, match="Provide dt or"):
+        create_fusi_dataarray(
+            np.zeros((3, 1, 4, 6)),
+            dims=("time", "z", "y", "x"),
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+        )
+
+
 @pytest.mark.parametrize("bad_dx", [0.0, np.inf])
 def test_create_fusi_dataarray_rejects_invalid_spacing(bad_dx: float):
     """Spacing values must be positive finite physical distances."""

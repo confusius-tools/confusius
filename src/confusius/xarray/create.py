@@ -72,8 +72,10 @@ def _require_spacing(dim: str, spacing: float | None) -> float:
         If `spacing` is not provided or is not positive and finite.
     """
     if spacing is None:
+        # The time spacing parameter is named dt, not dtime.
+        hint = "dt" if dim == TIME_DIM else f"d{dim}"
         raise ValueError(
-            f"Spacing for dimension {dim!r} is required. Provide d{dim} or an "
+            f"Spacing for dimension {dim!r} is required. Provide {hint} or an "
             f"explicit {dim!r} coordinate with enough information to infer spacing."
         )
     return _require_positive_finite(spacing, f"Spacing for dimension {dim!r}")
