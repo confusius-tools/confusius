@@ -119,7 +119,11 @@ def get_coordinate_spacing_info(
         )
 
     coord = data.coords[dim]
-    if not np.issubdtype(coord.dtype, int) and not np.issubdtype(coord.dtype, float):
+    # Bare int/float map to the exact int64/float64 dtypes, silently excluding
+    # e.g. float32 coordinates; use the abstract numpy supertypes instead.
+    if not np.issubdtype(coord.dtype, np.integer) and not np.issubdtype(
+        coord.dtype, np.floating
+    ):
         return CoordinateSpacingInfo(value=None, median=None, warn_msg=None)
 
     if len(coord) < 2:

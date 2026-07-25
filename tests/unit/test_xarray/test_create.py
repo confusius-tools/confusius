@@ -120,6 +120,25 @@ def test_create_fusi_dataarray_accepts_explicit_coordinates():
     assert result.coords["x"].attrs["voxdim"] == pytest.approx(0.2)
 
 
+def test_create_fusi_dataarray_accepts_float32_coordinates():
+    """Regularly spaced float32 coordinates pass the regular-spacing validation."""
+    result = create_fusi_dataarray(
+        np.zeros((5, 8, 12)),
+        dims=("time", "y", "x"),
+        coords={
+            "y": (np.arange(8) * 0.1).astype(np.float32),
+            "x": (np.arange(12) * 0.3).astype(np.float32),
+        },
+        dt=0.5,
+        dz=0.4,
+        dy=0.1,
+        dx=0.3,
+    )
+
+    assert result.coords["y"].attrs["voxdim"] == pytest.approx(0.1)
+    assert result.coords["x"].attrs["voxdim"] == pytest.approx(0.3)
+
+
 def test_create_fusi_dataarray_accepts_nonuniform_time_coordinate():
     """Exact timestamps can represent recordings with nonuniform frame timing."""
     timestamps = np.array([0.0, 1.0, 2.1, 3.0])
