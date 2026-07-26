@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, TypeGuard
 import numpy as np
 import xarray as xr
 
-from confusius._utils.coordinates import get_spacings_and_origins
+from confusius._utils.coordinates import get_grid_info_from_dataarray
 
 if TYPE_CHECKING:
     from threading import Event
@@ -170,10 +170,10 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     has_time = "time" in da.dims
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-    spacing, origin = get_spacings_and_origins(
+    grid = get_grid_info_from_dataarray(
         da,
         spatial_dims,
-        error_intro=(
+        error_prefix=(
             "Cannot convert DataArray to a SimpleITK image because spatial spacing "
             "is undefined"
         ),
@@ -189,8 +189,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     else:
         image = sitk.GetImageFromArray(da.values.T)
 
-    image.SetSpacing(spacing)
-    image.SetOrigin(origin)
+    image.SetSpacing(grid["spacing"])
+    image.SetOrigin(grid["origin"])
     return image
 
 

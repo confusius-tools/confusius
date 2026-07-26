@@ -56,10 +56,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import (
-    get_grid_kwargs_from_dataarray,
-    get_spacings_and_origins,
-)
+from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
@@ -70,10 +67,10 @@ from confusius.validation import (
 if TYPE_CHECKING:
     import SimpleITK as sitk
 
-_MISSING_FIELD_SPACING_INTRO = (
+_MISSING_FIELD_SPACING_PREFIX = (
     "Cannot convert displacement field to SimpleITK because spacing is undefined"
 )
-"""Error intro used when a displacement field dimension has no defined spacing."""
+"""Error prefix used when a displacement field dimension has no defined spacing."""
 
 
 def sitk_bspline_to_dataarray(
@@ -412,7 +409,7 @@ def sample_displacement_field_like(
 
     result = sample_displacement_field(
         transform,
-        **get_grid_kwargs_from_dataarray(reference),
+        **get_grid_info_from_dataarray(reference),
         sitk_threads=sitk_threads,
     )
     return result.assign_coords(
@@ -499,11 +496,11 @@ def invert_displacement_field(
             inverted_expanded, size=shape, index=index
         )
 
-    spacing, origin = get_spacings_and_origins(
-        field, dims, error_intro=_MISSING_FIELD_SPACING_INTRO
+    grid = get_grid_info_from_dataarray(
+        field, dims, error_prefix=_MISSING_FIELD_SPACING_PREFIX
     )
     return _sitk_displacement_field_to_dataarray(
-        inverted_expanded, shape, spacing, origin, dims
+        inverted_expanded, shape, grid["spacing"], grid["origin"], dims
     )
 
 
@@ -591,20 +588,21 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     _validate_displacement_field_dataarray(da)
 
     spatial_dims = [str(dim) for dim in da.dims[1:]]
-    # get_spacings_and_origins falls back to the 'voxdim' coordinate attribute for
-    # singleton spatial dims (e.g. a single 2D slice stored as a (1, y, x) array),
-    # where coords[dim].diff(dim) is empty and .mean() would silently return NaN.
-    spacing, origin = get_spacings_and_origins(
+    # get_grid_info_from_dataarray falls back to the 'voxdim' coordinate attribute
+    # for singleton spatial dims (e.g. a single 2D slice stored as a (1, y, x)
+    # array), where coords[dim].diff(dim) is empty and .mean() would silently
+    # return NaN.
+    grid = get_grid_info_from_dataarray(
         da,
         spatial_dims,
-        error_intro=_MISSING_FIELD_SPACING_INTRO,
+        error_prefix=_MISSING_FIELD_SPACING_PREFIX,
     )
 
     # .T maps the first DataArray axis to SimpleITK's physical x-axis, matching the
     # convention used throughout confusius.registration (see dataarray_to_sitk_image).
     field = sitk.GetImageFromArray(da.values.T, isVector=True)
-    field.SetSpacing(spacing)
-    field.SetOrigin(origin)
+    field.SetSpacing(grid["spacing"])
+    field.SetOrigin(grid["origin"])
     return field
 
 

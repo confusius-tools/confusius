@@ -7,7 +7,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
+from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
     replace_affines_attr,
@@ -270,7 +270,7 @@ def resample_like(
             (("transform", transform), ("reference", reference))
         )
 
-    grid = get_grid_kwargs_from_dataarray(reference)
+    grid = get_grid_info_from_dataarray(reference)
     dims = grid["dims"]
 
     result = resample_volume(

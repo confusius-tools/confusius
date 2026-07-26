@@ -7,7 +7,7 @@ import xarray as xr
 from confusius._utils.coordinates import (
     get_affine_in_axis_aligned_space,
     get_axis_aligned_affine,
-    get_grid_kwargs_from_dataarray,
+    get_grid_info_from_dataarray,
 )
 
 
@@ -61,7 +61,7 @@ def test_reexpress_affine_maps_reference_frame_to_world():
         np.testing.assert_allclose(re @ (aa @ p), M @ p, atol=1e-10)
 
 
-def test_get_grid_kwargs_requires_singleton_spacing():
+def test_get_grid_info_requires_singleton_spacing():
     """Singleton dimensions need explicit `voxdim` metadata."""
     data = xr.DataArray(
         np.zeros((1, 3, 4)),
@@ -71,7 +71,7 @@ def test_get_grid_kwargs_requires_singleton_spacing():
 
     with pytest.warns(UserWarning, match="spacing is undefined"):
         with pytest.raises(ValueError, match="spacing is undefined.*z"):
-            get_grid_kwargs_from_dataarray(data)
+            get_grid_info_from_dataarray(data)
 
 
 def test_reexpress_affine_broadcasts_over_pose_stack():

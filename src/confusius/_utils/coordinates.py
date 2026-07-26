@@ -282,60 +282,6 @@ def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
     return result
 
 
-def get_spacings_and_origins(
-    data: xr.DataArray,
-    dims: Sequence[str],
-    *,
-    error_intro: str,
-) -> tuple[list[float], list[float]]:
-    """Return coordinate spacing and origin lists for the requested dimensions.
-
-    Spacing comes from
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
-    and origin from
-    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins],
-    both computed over all of `data`'s dimensions so that their warning behaviour is
-    preserved. Every dimension in `dims` must have defined spacing; singleton
-    dimensions require `voxdim` coordinate metadata.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        DataArray whose coordinates to inspect.
-    dims : sequence[str]
-        Dimensions to extract, in the desired output order. Must be a subset of
-        `data`'s dimensions.
-    error_intro : str
-        Start of the error message raised when spacing is undefined for any of
-        `dims`, stating what could not be built, e.g. `"Cannot build grid kwargs
-        because spacing is undefined"`.
-
-    Returns
-    -------
-    spacings : list[float]
-        Spacing per dimension, in `dims` order.
-    origins : list[float]
-        Origin per dimension, in `dims` order.
-
-    Raises
-    ------
-    ValueError
-        If spacing is undefined for any dimension in `dims`.
-    """
-    spacings = get_coordinate_spacings(data)
-    origins = get_coordinate_origins(data)
-    missing_spacing = [dim for dim in dims if spacings[dim] is None]
-    if missing_spacing:
-        raise ValueError(
-            f"{error_intro} for dimensions {missing_spacing!r}. Provide regular "
-            "coordinates or `voxdim` metadata for singleton coordinates."
-        )
-    return (
-        [cast(float, spacings[dim]) for dim in dims],
-        [origins[dim] for dim in dims],
-    )
-
-
 class GridKwargs(TypedDict):
     """Output grid specification for SimpleITK-based resampling.
 
@@ -349,7 +295,12 @@ class GridKwargs(TypedDict):
     dims: list[str]
 
 
-def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
+def get_grid_info_from_dataarray(
+    data: xr.DataArray,
+    dims: Sequence[str] | None = None,
+    *,
+    error_prefix: str = "Cannot build grid kwargs because spacing is undefined",
+) -> GridKwargs:
     """Return the resampling grid specification extracted from a DataArray.
 
     Bundles the `shape`, `spacing`, `origin`, and `dims` that a DataArray defines into
@@ -357,32 +308,48 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
     [`resample_volume`][confusius.registration.resample_volume] and
     [`sample_displacement_field`][confusius.registration.sample_displacement_field].
     Spacing comes from
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings].
-    Each dimension must have defined spacing; singleton dimensions require `voxdim`
-    coordinate metadata. Origin comes from
-    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
+    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
+    and origin from
+    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins],
+    both computed over all of `data`'s dimensions so that their warning behaviour is
+    preserved. Each requested dimension must have defined spacing; singleton
+    dimensions require `voxdim` coordinate metadata.
 
     Parameters
     ----------
     data : xarray.DataArray
         Spatial reference DataArray.
+    dims : sequence[str], optional
+        Dimensions to extract, in the desired output order. Must be a subset of
+        `data`'s dimensions. If not provided, all of `data`'s dimensions are used.
+    error_prefix : str, default: "Cannot build grid kwargs because spacing is undefined"
+        Start of the error message raised when spacing is undefined for any of the
+        requested dimensions, stating what could not be built.
 
     Returns
     -------
     GridKwargs
         Dictionary with `shape`, `spacing`, `origin`, and `dims` keys, each a list in
-        DataArray dimension order.
+        the requested dimension order.
+
+    Raises
+    ------
+    ValueError
+        If spacing is undefined for any requested dimension.
     """
-    dims = [str(dim) for dim in data.dims]
-    spacing, origin = get_spacings_and_origins(
-        data,
-        dims,
-        error_intro="Cannot build grid kwargs because spacing is undefined",
-    )
+    dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
+    spacings = get_coordinate_spacings(data)
+    origins = get_coordinate_origins(data)
+    missing_spacing = [dim for dim in dims if spacings[dim] is None]
+    if missing_spacing:
+        raise ValueError(
+            f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
+            "coordinates or `voxdim` metadata for singleton coordinates."
+        )
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],
-        "spacing": spacing,
-        "origin": origin,
+        "spacing": [cast(float, spacings[dim]) for dim in dims],
+        "origin": [origins[dim] for dim in dims],
         "dims": dims,
     }
 

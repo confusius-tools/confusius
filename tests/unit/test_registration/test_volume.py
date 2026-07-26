@@ -11,7 +11,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
+from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius.registration.bspline import (
     invert_displacement_field,
     sample_displacement_field,
@@ -762,7 +762,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_singleton_z_dataarray,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
+            **get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_singleton_z_dataarray.shape
@@ -778,7 +778,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_3d_dataarray,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_3d_dataarray_spatial),
+            **get_grid_info_from_dataarray(sample_3d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_3d_dataarray.shape
@@ -800,7 +800,7 @@ class TestResampleVolume:
             resample_volume(
                 sample_singleton_z_dataarray_spatial,
                 np.eye(3),  # wrong: 2D affine for a 3D single-slice volume
-                **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
+                **get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial),
             )
 
     def test_output_shape_matches_requested_shape(
@@ -811,7 +811,7 @@ class TestResampleVolume:
         result = resample_volume(
             moving,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
+            **get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert result.shape == sample_singleton_z_dataarray_spatial.shape
 
@@ -819,7 +819,7 @@ class TestResampleVolume:
         self, sample_singleton_z_dataarray_spatial
     ):
         """Output coordinates are reconstructed from origin and spacing, not copied."""
-        grid = get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial)
+        grid = get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial)
         result = resample_volume(
             sample_singleton_z_dataarray_spatial, np.eye(4), **grid
         )
@@ -852,7 +852,7 @@ class TestResampleVolume:
         result = resample_volume(
             moving,
             affine,
-            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
+            **get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
@@ -1160,7 +1160,7 @@ class TestDisplacementField:
             sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial)
+        grid = get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
         assert field.attrs["type"] == "displacement_field_transform"
@@ -1181,7 +1181,7 @@ class TestDisplacementField:
 
         by_grid = sample_displacement_field(
             bspline_tx,
-            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
+            **get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         by_reference = sample_displacement_field_like(
             bspline_tx, sample_singleton_z_dataarray_spatial
@@ -1247,7 +1247,7 @@ class TestDisplacementField:
             sample_singleton_z_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial)
+        grid = get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
         result_bspline = resample_volume(moving, bspline_tx, **grid)
@@ -1278,7 +1278,7 @@ class TestDisplacementField:
         moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
-        grid = get_grid_kwargs_from_dataarray(fixed)
+        grid = get_grid_info_from_dataarray(fixed)
         field = sample_displacement_field(bspline_tx, **grid)
         assert not np.isnan(field.values).any()
 
@@ -1313,7 +1313,7 @@ class TestDisplacementField:
         moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
-        grid = get_grid_kwargs_from_dataarray(fixed)
+        grid = get_grid_info_from_dataarray(fixed)
         field = sample_displacement_field(bspline_tx, **grid)
         inverse_field = invert_displacement_field(field)
 
@@ -1547,7 +1547,7 @@ class TestResampleLike:
         result_vol = resample_volume(
             moving,
             affine,
-            **get_grid_kwargs_from_dataarray(sample_singleton_z_dataarray_spatial),
+            **get_grid_info_from_dataarray(sample_singleton_z_dataarray_spatial),
         )
         assert_allclose(result_like.values, result_vol.values, atol=1e-10)
 
