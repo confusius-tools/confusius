@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, TypeGuard
 import numpy as np
 import xarray as xr
 
+from confusius._utils.coordinates import get_spacings_and_origins
+
 if TYPE_CHECKING:
     from threading import Event
 
@@ -166,23 +168,16 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """
     import SimpleITK as sitk
 
-    spacing_dict = da.fusi.spacing
-    origin_dict = da.fusi.origin
-
     has_time = "time" in da.dims
-    missing_spacing = [
-        str(dim)
-        for dim, spacing in spacing_dict.items()
-        if str(dim) != "time" and spacing is None
-    ]
-    if missing_spacing:
-        raise ValueError(
-            "Cannot convert DataArray to a SimpleITK image because spatial spacing is "
-            f"undefined for dimensions {missing_spacing!r}. Provide regular "
-            "coordinates or `voxdim` metadata for singleton coordinates."
-        )
-    spacing = tuple(s for d, s in spacing_dict.items() if str(d) != "time")
-    origin = tuple(o for d, o in origin_dict.items() if str(d) != "time")
+    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
+    spacing, origin = get_spacings_and_origins(
+        da,
+        spatial_dims,
+        error_intro=(
+            "Cannot convert DataArray to a SimpleITK image because spatial spacing "
+            "is undefined"
+        ),
+    )
 
     if has_time:
         data = da.values
