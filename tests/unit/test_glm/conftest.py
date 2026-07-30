@@ -40,25 +40,16 @@ def fusi_data(rng, frame_times):
         rng.standard_normal((n_time, 2, 3, 4)),
         dims=["time", "z", "y", "x"],
         coords={
-            "time": frame_times,
-            "z": np.arange(2) * 0.5,
-            "y": np.arange(3) * 0.1,
-            "x": np.arange(4) * 0.1,
-        },
-    )
-
-
-@pytest.fixture
-def fusi_data_2d(rng, frame_times):
-    """Small `(time, y, x)` DataArray (no `z` axis)."""
-    n_time = len(frame_times)
-    return xr.DataArray(
-        rng.standard_normal((n_time, 5, 6)),
-        dims=["time", "y", "x"],
-        coords={
-            "time": frame_times,
-            "y": np.arange(5) * 0.1,
-            "x": np.arange(6) * 0.1,
+            "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+            "z": xr.DataArray(
+                np.arange(2) * 0.5, dims="z", attrs={"units": "mm", "voxdim": 0.5}
+            ),
+            "y": xr.DataArray(
+                np.arange(3) * 0.1, dims="y", attrs={"units": "mm", "voxdim": 0.1}
+            ),
+            "x": xr.DataArray(
+                np.arange(4) * 0.1, dims="x", attrs={"units": "mm", "voxdim": 0.1}
+            ),
         },
     )
 
@@ -71,9 +62,9 @@ def spatial_maps(rng):
             rng.standard_normal((2, 3, 4)),
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         for _ in range(10)

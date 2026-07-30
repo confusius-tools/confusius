@@ -268,9 +268,7 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
 class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     """Tests for intermediate-resample settings."""
 
-    def test_none_interpolation_falls_back_to_linear(
-        self, fixed_img_3d, moving_img_3d
-    ):
+    def test_none_interpolation_falls_back_to_linear(self, fixed_img_3d, moving_img_3d):
         """A `None` interpolation override falls back to linear at render time."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -287,9 +285,7 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
         assert plotter._composite_im is not None
         plotter.figure.clf()
 
-    def test_invalid_interpolation_raises_on_update(
-        self, fixed_img_3d, moving_img_3d
-    ):
+    def test_invalid_interpolation_raises_on_update(self, fixed_img_3d, moving_img_3d):
         """Unknown interpolation names raise a clear ValueError during rendering."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -360,9 +356,11 @@ class TestRegisterVolumeShowProgress:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(np.arange(16) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(16) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         result, _, _ = register_volume(

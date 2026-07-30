@@ -33,9 +33,9 @@ def sample_singleton_z_dataarray_spatial(sample_2d_image):
         sample_2d_image[np.newaxis, :, :],
         dims=("z", "y", "x"),
         coords={
-            "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
-            "y": np.arange(32) * 0.1,
-            "x": np.arange(32) * 0.1,
+            "z": xr.DataArray([0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}),
+            "y": xr.DataArray(np.arange(32) * 0.1, dims=("y",), attrs={"units": "mm"}),
+            "x": xr.DataArray(np.arange(32) * 0.1, dims=("x",), attrs={"units": "mm"}),
         },
     )
 
@@ -47,9 +47,9 @@ def sample_3d_dataarray_spatial(sample_3d_array):
         sample_3d_array,
         dims=("z", "y", "x"),
         coords={
-            "z": np.arange(16) * 1.0,
-            "y": np.arange(16) * 1.0,
-            "x": np.arange(16) * 1.0,
+            "z": xr.DataArray(np.arange(16) * 1.0, dims=("z",), attrs={"units": "mm"}),
+            "y": xr.DataArray(np.arange(16) * 1.0, dims=("y",), attrs={"units": "mm"}),
+            "x": xr.DataArray(np.arange(16) * 1.0, dims=("x",), attrs={"units": "mm"}),
         },
     )
 
@@ -67,10 +67,12 @@ def sample_singleton_z_dataarray(sample_2d_image):
         data,
         dims=("time", "z", "y", "x"),
         coords={
-            "time": np.arange(n_frames) * 0.1,
-            "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
-            "y": np.arange(32) * 0.1,
-            "x": np.arange(32) * 0.1,
+            "time": xr.DataArray(
+                np.arange(n_frames) * 0.1, dims=("time",), attrs={"units": "s"}
+            ),
+            "z": xr.DataArray([0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}),
+            "y": xr.DataArray(np.arange(32) * 0.1, dims=("y",), attrs={"units": "mm"}),
+            "x": xr.DataArray(np.arange(32) * 0.1, dims=("x",), attrs={"units": "mm"}),
         },
     )
 
@@ -84,10 +86,12 @@ def sample_3d_dataarray(sample_3d_array):
         data,
         dims=("time", "z", "y", "x"),
         coords={
-            "time": np.arange(n_frames) * 0.1,
-            "z": np.arange(16) * 1.0,
-            "y": np.arange(16) * 1.0,
-            "x": np.arange(16) * 1.0,
+            "time": xr.DataArray(
+                np.arange(n_frames) * 0.1, dims=("time",), attrs={"units": "s"}
+            ),
+            "z": xr.DataArray(np.arange(16) * 1.0, dims=("z",), attrs={"units": "mm"}),
+            "y": xr.DataArray(np.arange(16) * 1.0, dims=("y",), attrs={"units": "mm"}),
+            "x": xr.DataArray(np.arange(16) * 1.0, dims=("x",), attrs={"units": "mm"}),
         },
     )
 

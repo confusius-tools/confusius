@@ -22,7 +22,7 @@ from confusius.atlas._structures import (
     _resolve_region_id,
 )
 from confusius.registration.resampling import resample_like as resample_like_da
-from confusius.validation.atlas import validate_atlas_dataset
+from confusius.validation.atlas import validate_atlas
 
 if TYPE_CHECKING:
     import treelib
@@ -572,7 +572,7 @@ def search_atlas(
     >>> cf.atlas.search_atlas(ds, "visual cortex")
     >>> cf.atlas.search_atlas(ds, "VISp", field="acronym")
     """
-    validate_atlas_dataset(ds)
+    validate_atlas(ds)
     return ds.atlas.search(pattern, field)
 
 
@@ -622,7 +622,7 @@ def get_atlas_masks(
     >>> cf.atlas.get_atlas_masks(ds, "VISp")
     >>> cf.atlas.get_atlas_masks(ds, ["VISp", "AUDp"], sides=["left", "both"])
     """
-    validate_atlas_dataset(ds)
+    validate_atlas(ds)
 
     region_list: list[int | str] = (
         [regions] if isinstance(regions, (int, str)) else list(regions)
@@ -743,7 +743,7 @@ def get_atlas_mesh(
     >>> import confusius as cf
     >>> vertices, faces = cf.atlas.get_atlas_mesh(ds, "root")
     """
-    validate_atlas_dataset(ds, require_mesh_use=True)
+    validate_atlas(ds, require_mesh_use=True)
 
     structures = ds.attrs["structures"]
     reference = ds["reference"]

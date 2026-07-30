@@ -254,9 +254,15 @@ class TestCreateMotionDataframe:
             vol,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray(np.arange(2) * 1.0, dims="z", attrs={"voxdim": 1.0}),
-                "y": xr.DataArray(np.arange(4) * 1.0, dims="y", attrs={"voxdim": 1.0}),
-                "x": xr.DataArray(np.arange(6) * 1.0, dims="x", attrs={"voxdim": 1.0}),
+                "z": xr.DataArray(
+                    np.arange(2) * 1.0, dims="z", attrs={"units": "mm", "voxdim": 1.0}
+                ),
+                "y": xr.DataArray(
+                    np.arange(4) * 1.0, dims="y", attrs={"units": "mm", "voxdim": 1.0}
+                ),
+                "x": xr.DataArray(
+                    np.arange(6) * 1.0, dims="x", attrs={"units": "mm", "voxdim": 1.0}
+                ),
             },
         )
         scalar_ref = ref.isel(z=0)

@@ -37,6 +37,11 @@ class TestRegisterVolumewise:
         with pytest.raises(ValueError, match="Time dimension 'time' not found"):
             register_volumewise(data)
 
+    def test_single_frame_raises(self, sample_singleton_z_dataarray):
+        """Motion registration requires at least two frames."""
+        with pytest.raises(ValueError, match="requires more than 1 timepoint"):
+            register_volumewise(sample_singleton_z_dataarray.isel(time=[0]))
+
     def test_h5py_backed_raises_with_parallel_jobs(self, scan_2d):
         """h5py-backed DataArray (from a .scan file) raises TypeError when n_jobs != 1."""
         with pytest.raises(TypeError, match="h5py dataset"):
@@ -249,10 +254,14 @@ class TestRegisterVolumewise:
             np.stack(frames, axis=0)[:, np.newaxis, :, :],
             dims=("time", "z", "y", "x"),
             coords={
-                "time": np.arange(n_frames) * 0.1,
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 1.0}),
-                "y": np.arange(32) * 1.0,  # 1mm spacing.
-                "x": np.arange(32) * 1.0,
+                "time": xr.DataArray(
+                    np.arange(n_frames) * 0.1, dims="time", attrs={"units": "s"}
+                ),
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 1.0}
+                ),
+                "y": xr.DataArray(np.arange(32) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(32) * 1.0, dims="x", attrs={"units": "mm"}),
             },
         )
 
@@ -328,15 +337,17 @@ class TestRegisterVolumewise:
         # Create data with a singleton z dimension (2D slice in 3D array).
         # The voxdim attribute provides spacing for the singleton z coordinate so
         # that no "spacing is undefined" warning is raised.
-        z_coord = xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2})
+        z_coord = xr.DataArray([0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2})
         data = xr.DataArray(
             sample_2d_image[np.newaxis, np.newaxis, :, :].repeat(3, axis=0),
             dims=("time", "z", "y", "x"),
             coords={
-                "time": np.arange(3) * 0.1,
+                "time": xr.DataArray(
+                    np.arange(3) * 0.1, dims="time", attrs={"units": "s"}
+                ),
                 "z": z_coord,
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
+                "y": xr.DataArray(np.arange(32) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(32) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
 
@@ -356,10 +367,14 @@ class TestRegisterVolumewise:
             np.stack([sample_2d_image] * 3, axis=2)[:, :, np.newaxis, :],
             dims=("y", "x", "z", "time"),
             coords={
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
-                "time": np.arange(3) * 0.1,
+                "y": xr.DataArray(np.arange(32) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(32) * 0.1, dims="x", attrs={"units": "mm"}),
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}
+                ),
+                "time": xr.DataArray(
+                    np.arange(3) * 0.1, dims="time", attrs={"units": "s"}
+                ),
             },
         )
 

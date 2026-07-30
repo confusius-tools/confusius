@@ -1095,30 +1095,28 @@ class TestSaveNifti:
         with pytest.raises(ValueError, match="must have shape"):
             save_nifti(da, tmp_path / "bad_affine.nii.gz")
 
-    def test_save_2d_dataarray(self, tmp_path) -> None:
-        """Saving 2D DataArray inserts only the missing spatial axis."""
-        data = np.random.default_rng(0).random((6, 8)).astype(np.float32)
-        da = xr.DataArray(data, dims=["y", "x"])
+    def test_save_2d_dataarray_is_rejected(self, tmp_path) -> None:
+        """Saving a bare 2D array is rejected at the fUSI volume boundary."""
+        da = xr.DataArray(np.zeros((6, 8), dtype=np.float32), dims=["y", "x"])
 
-        output_path = tmp_path / "output_2d.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
-
-        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
-        # NIfTI order: (x, y, z) — only the missing z slot is inserted.
-        assert loaded.shape == (8, 6, 1)
-        np.testing.assert_array_almost_equal(
-            np.asarray(loaded.dataobj), data.T[..., None]
-        )
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
+            save_nifti(da, tmp_path / "output_2d.nii.gz")
 
     def test_save_3d_dataarray(self, tmp_path):
         """Saving 3D DataArray keeps the payload 3D on disk."""
         data = np.random.default_rng(0).random((6, 8, 10)).astype(np.float32)
-        da = xr.DataArray(data, dims=["z", "y", "x"])
+        da = xr.DataArray(
+            data,
+            dims=["z", "y", "x"],
+            coords={
+                "z": xr.DataArray(np.arange(6.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(8.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(10.0), dims="x", attrs={"units": "mm"}),
+            },
+        )
 
         output_path = tmp_path / "output_3d.nii"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         assert output_path.exists()
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
@@ -1131,11 +1129,19 @@ class TestSaveNifti:
     def test_save_4d_dataarray(self, tmp_path):
         """Saving 4D DataArray creates valid NIfTI file."""
         data = np.random.default_rng(0).random((4, 6, 8, 10)).astype(np.float32)
-        da = xr.DataArray(data, dims=["time", "z", "y", "x"])
+        da = xr.DataArray(
+            data,
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(4.0), dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(6.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(8.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(10.0), dims="x", attrs={"units": "mm"}),
+            },
+        )
 
         output_path = tmp_path / "output_4d.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         assert output_path.exists()
         assert output_path.suffixes == [".nii", ".gz"]
@@ -1148,11 +1154,19 @@ class TestSaveNifti:
     def test_save_5d_dataarray_preserves_extra_dim_order(self, tmp_path) -> None:
         """Saving with an extra non-standard dim keeps it after `time` in NIfTI order."""
         data = np.arange(2 * 4 * 3 * 5 * 6, dtype=np.float32).reshape(2, 4, 3, 5, 6)
-        da = xr.DataArray(data, dims=["channel", "time", "z", "y", "x"])
+        da = xr.DataArray(
+            data,
+            dims=["channel", "time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(np.arange(4.0), dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(3.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(5.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(6.0), dims="x", attrs={"units": "mm"}),
+            },
+        )
 
         output_path = tmp_path / "output_5d.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.shape == (6, 5, 3, 4, 2)
@@ -1172,9 +1186,15 @@ class TestSaveNifti:
             dims=["component", "z", "y", "x"],
             coords={
                 "component": np.arange(3, dtype=np.float64),
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(5, dtype=np.float64),
-                "x": np.arange(6, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(5, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(6, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1196,35 +1216,26 @@ class TestSaveNifti:
         assert sidecar["ConfUSIusDim4Name"] == "component"
         assert "ConfUSIusDim4Coordinates" not in sidecar
 
-    def test_save_non_time_payload_roundtrips_original_dim_layout(
+    def test_save_non_time_payload_missing_spatial_axis_is_rejected(
         self, tmp_path
     ) -> None:
-        """Missing spatial axes are inserted as singletons on save and preserved on load."""
-        data = np.arange(3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6)
+        """Saving a payload missing a spatial axis is rejected."""
         da = xr.DataArray(
-            data,
+            np.zeros((3, 4, 6), dtype=np.float32),
             dims=["component", "z", "x"],
             coords={
                 "component": np.arange(3, dtype=np.float64),
-                "z": np.arange(4, dtype=np.float64),
-                "x": np.arange(6, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(6, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
-        output_path = tmp_path / "component_z_x.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
-
-        roundtripped = load_nifti(output_path)
-        # `y` was missing on save; NIfTI requires a length-1 `y` slot, so the
-        # roundtrip exposes it as a singleton axis (the loader cannot tell it
-        # apart from a genuine unitary `y`).
-        assert roundtripped.dims == ("component", "z", "y", "x")
-        assert roundtripped.sizes == {"component": 3, "z": 4, "y": 1, "x": 6}
-        np.testing.assert_array_equal(
-            roundtripped.coords["component"].values, [0, 1, 2]
-        )
-        np.testing.assert_array_equal(roundtripped.squeeze("y", drop=True).values, data)
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
+            save_nifti(da, tmp_path / "component_z_x.nii.gz")
 
     def test_save_string_extra_coord_roundtrips_through_sidecar(self, tmp_path) -> None:
         """String-valued extra-dim coordinates roundtrip through the JSON sidecar."""
@@ -1234,9 +1245,15 @@ class TestSaveNifti:
             dims=["component", "z", "y", "x"],
             coords={
                 "component": ["z", "y", "x"],
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(6, dtype=np.float64),
-                "x": np.arange(8, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(6, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1257,9 +1274,15 @@ class TestSaveNifti:
             dims=["channel", "z", "y", "x"],
             coords={
                 "channel": [3.5, 7.0],  # not 0-based regular spacing
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1280,9 +1303,15 @@ class TestSaveNifti:
             dims=["component", "z", "y", "x"],
             coords={
                 "component": [0.0, 0.0, 0.0],  # degenerate step = 0
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(6, dtype=np.float64),
-                "x": np.arange(8, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(6, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1311,9 +1340,15 @@ class TestSaveNifti:
             dims=["component", "z", "y", "x"],
             coords={
                 "component": [0.0],
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(6, dtype=np.float64),
-                "x": np.arange(8, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(6, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1337,9 +1372,15 @@ class TestSaveNifti:
             dims=["component", "z", "y", "x"],
             coords={
                 "component": np.array([], dtype=np.float64),
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(6, dtype=np.float64),
-                "x": np.arange(8, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(6, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1368,9 +1409,15 @@ class TestSaveNifti:
                     dims=["channel"],
                     attrs={"units": "a.u.", "long_name": "Channel"},
                 ),
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1398,10 +1445,18 @@ class TestSaveNifti:
             dims=["channel", "time", "z", "y", "x"],
             coords={
                 "channel": np.arange(2, dtype=np.float64),
-                "time": np.arange(6) * 0.1,
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "time": xr.DataArray(
+                    np.arange(6) * 0.1, dims="time", attrs={"units": "s"}
+                ),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1423,9 +1478,15 @@ class TestSaveNifti:
             dims=["channel", "z", "y", "x"],
             coords={
                 "channel": np.array([0.0, -2.0, -4.0]),
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1456,9 +1517,15 @@ class TestSaveNifti:
                     name: np.arange(2, dtype=np.float64)
                     for name in ("a", "b", "c", "d")
                 },
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1473,9 +1540,15 @@ class TestSaveNifti:
             dims=["a", "b", "c", "z", "y", "x"],
             coords={
                 **{name: np.arange(2, dtype=np.float64) for name in ("a", "b", "c")},
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1497,10 +1570,18 @@ class TestSaveNifti:
             dims=["a", "b", "c", "time", "z", "y", "x"],
             coords={
                 **{name: np.arange(2, dtype=np.float64) for name in ("a", "b", "c")},
-                "time": np.arange(6) * 0.1,
-                "z": np.arange(4, dtype=np.float64),
-                "y": np.arange(8, dtype=np.float64),
-                "x": np.arange(10, dtype=np.float64),
+                "time": xr.DataArray(
+                    np.arange(6) * 0.1, dims="time", attrs={"units": "s"}
+                ),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=np.float64), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(8, dtype=np.float64), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(10, dtype=np.float64), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -1514,10 +1595,8 @@ class TestSaveNifti:
         assert sidecar["ConfUSIusDim5Name"] == "b"
         assert sidecar["ConfUSIusDim6Name"] == "c"
 
-    def test_save_negative_spatial_coord_roundtrips_via_signed_affine(
-        self, tmp_path
-    ) -> None:
-        """Regular negative spatial coords round-trip through the NIfTI affine."""
+    def test_save_descending_spatial_coordinate_is_rejected(self, tmp_path) -> None:
+        """Saving rejects spatial coordinates that are not strictly increasing."""
         da = xr.DataArray(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=["z", "y", "x"],
@@ -1528,14 +1607,8 @@ class TestSaveNifti:
             },
         )
 
-        output_path = tmp_path / "negative_x.nii.gz"
-        save_nifti(da, output_path)
-
-        loaded = load_nifti(output_path)
-        np.testing.assert_array_equal(
-            loaded.coords["x"].values, np.array([0.0, -1.0, -2.0, -3.0])
-        )
-        assert loaded.coords["x"].attrs["voxdim"] == pytest.approx(-1.0)
+        with pytest.raises(ValueError, match="strictly monotonic-increasing"):
+            save_nifti(da, tmp_path / "negative_x.nii.gz")
 
     def test_save_non_uniform_coords_warns(self, tmp_path):
         """Saving a DataArray with non-uniform coordinate spacing emits a warning."""
@@ -1543,7 +1616,13 @@ class TestSaveNifti:
         da = xr.DataArray(
             data,
             dims=["z", "y", "x"],
-            coords={"z": [0.0, 1.0, 3.0, 6.0], "y": [0.0, 1.0], "x": [0.0, 1.0, 2.0]},
+            coords={
+                "z": xr.DataArray(
+                    [0.0, 1.0, 3.0, 6.0], dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray([0.0, 1.0], dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray([0.0, 1.0, 2.0], dims="x", attrs={"units": "mm"}),
+            },
         )
 
         output_path = tmp_path / "nonuniform.nii.gz"
@@ -1769,9 +1848,15 @@ class TestSaveNifti:
             np.zeros((4, 3, 2), dtype=np.float32),
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
             },
             attrs={"affines": {"physical_to_qform": qform_affine}},
         )
@@ -1924,13 +2009,15 @@ class TestSaveNifti:
                         "volume_acquisition_reference": "center",
                         "volume_acquisition_duration": 0.5,
                     },
-                )
+                ),
+                "z": xr.DataArray(np.arange(2.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2.0), dims="x", attrs={"units": "mm"}),
             },
         )
 
         nifti_path = tmp_path / "center_reference.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(original, nifti_path)
+        save_nifti(original, nifti_path)
 
         with open(tmp_path / "center_reference.json") as f:
             sidecar = json.load(f)
@@ -1956,9 +2043,9 @@ class TestSaveNifti:
                         "volume_acquisition_duration": 0.4,
                     },
                 ),
-                "z": [0.0, 1.0],
-                "y": [0.0, 1.0],
-                "x": [0.0, 1.0],
+                "z": xr.DataArray([0.0, 1.0], dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray([0.0, 1.0], dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray([0.0, 1.0], dims="x", attrs={"units": "mm"}),
             },
         )
 
@@ -2074,9 +2161,15 @@ class TestSaveNifti:
                     dims=["time"],
                     attrs={"units": "s", "volume_acquisition_reference": "start"},
                 ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     [0.0, 0.1, 0.2, 0.3], dims=["z"], attrs={"units": "s"}
                 ),
@@ -2098,9 +2191,15 @@ class TestSaveNifti:
             np.zeros((4, 3, 2), dtype=np.float32),
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     [0.0, 0.1, 0.2, 0.3], dims=["z"], attrs={"units": "s"}
                 ),
@@ -2123,9 +2222,15 @@ class TestSaveNifti:
             dims=["z", "y", "x"],
             coords={
                 "time": xr.DataArray(10.0, attrs={"units": "s"}),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     [10.0, 10.1, 10.2, 10.3], dims=["z"], attrs={"units": "s"}
                 ),
@@ -2164,9 +2269,15 @@ class TestSaveNifti:
                         "volume_acquisition_reference": "start",
                     },
                 ),
-                "z": np.arange(2, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(2, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     [10.2, 10.3],
                     dims=["z"],
@@ -2202,9 +2313,15 @@ class TestSaveNifti:
                     },
                 ),
                 "channel": [0, 1],
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     [10.0, 10.1], dims=["channel"], attrs={"units": "s"}
                 ),
@@ -2260,9 +2377,15 @@ class TestSaveNifti:
                     dims=["time"],
                     attrs={"units": "s", "volume_acquisition_reference": "start"},
                 ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     np.zeros((2, 2)), dims=("time", "channel"), attrs={"units": "s"}
                 ),
@@ -2277,29 +2400,33 @@ class TestSaveNifti:
 
         assert "SliceTiming" not in sidecar
 
-    def test_save_2d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
-        """A 2D `slice_time` without a `time` coordinate cannot be exported."""
+    def test_save_2d_slice_time_without_time_coordinate_is_rejected(
+        self, tmp_path
+    ) -> None:
+        """A fUSI time axis must have a coordinate before saving."""
         da = xr.DataArray(
             np.zeros((2, 4, 3, 2), dtype=np.float32),
             dims=["time", "z", "y", "x"],
             coords={
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     np.zeros((2, 4)), dims=("time", "z"), attrs={"units": "s"}
                 ),
             },
         )
 
-        output_path = tmp_path / "slice_time_2d_no_time_coord.nii.gz"
-        with pytest.warns(UserWarning, match="without a `time` coordinate"):
-            save_nifti(da, output_path)
-
-        with open(tmp_path / "slice_time_2d_no_time_coord.json") as f:
-            sidecar = json.load(f)
-
-        assert "SliceTiming" not in sidecar
+        with pytest.raises(
+            ValueError, match="Missing required coordinate for dimension 'time'"
+        ):
+            save_nifti(da, tmp_path / "slice_time_2d_no_time_coord.nii.gz")
 
     def test_save_2d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
         """A single-volume 2D `slice_time` needs an explicit frame duration."""
@@ -2312,9 +2439,15 @@ class TestSaveNifti:
                     dims=["time"],
                     attrs={"units": "s", "volume_acquisition_reference": "start"},
                 ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
                 "slice_time": xr.DataArray(
                     np.zeros((1, 4)) + np.array([10.0, 10.1, 10.2, 10.3]),
                     dims=("time", "z"),
@@ -2348,9 +2481,15 @@ class TestSaveNifti:
                         "volume_acquisition_reference": "middle",
                     },
                 ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
+                "z": xr.DataArray(
+                    np.arange(4, dtype=float), dims="z", attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(3, dtype=float), dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(2, dtype=float), dims="x", attrs={"units": "mm"}
+                ),
             },
         )
 
@@ -2382,9 +2521,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 1.0,
-                "y": np.arange(3) * 1.0,
-                "x": np.arange(2) * 1.0,
+                "z": xr.DataArray(np.arange(4) * 1.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 1.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={
                 "affines": {
@@ -2408,9 +2547,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 3.0,
-                "y": np.arange(3) * 3.0,
-                "x": np.arange(2) * 3.0,
+                "z": xr.DataArray(np.arange(4) * 3.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 3.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 3.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={"affines": {"physical_to_qform": physical_to_qform}},
         )
@@ -2430,9 +2569,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 2.0,
-                "y": np.arange(3) * 2.0,
-                "x": np.arange(2) * 2.0,
+                "z": xr.DataArray(np.arange(4) * 2.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 2.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 2.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={"affines": {"physical_to_template": physical_to_sform}},
         )
@@ -2450,9 +2589,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 1.0,
-                "y": np.arange(3) * 1.0,
-                "x": np.arange(2) * 1.0,
+                "z": xr.DataArray(np.arange(4) * 1.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 1.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={
                 "affines": {"physical_to_sform": physical_to_sform},
@@ -2472,9 +2611,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 1.0,
-                "y": np.arange(3) * 1.0,
-                "x": np.arange(2) * 1.0,
+                "z": xr.DataArray(np.arange(4) * 1.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 1.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={"qform_code": 1},
         )
@@ -2492,9 +2631,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 1.0,
-                "y": np.arange(3) * 1.0,
-                "x": np.arange(2) * 1.0,
+                "z": xr.DataArray(np.arange(4) * 1.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 1.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={
                 "affines": {"physical_to_sform": physical_to_sform},
@@ -2516,9 +2655,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 1.0,
-                "y": np.arange(3) * 1.0,
-                "x": np.arange(2) * 1.0,
+                "z": xr.DataArray(np.arange(4) * 1.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 1.0, dims="x", attrs={"units": "mm"}),
             },
             attrs={"affines": {"physical_to_template": np.eye(4)}},
         )
@@ -2538,9 +2677,9 @@ class TestSaveNifti:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(4) * 1.0,
-                "y": np.arange(3) * 1.0,
-                "x": np.arange(2) * 1.0,
+                "z": xr.DataArray(np.arange(4) * 1.0, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 1.0, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 1.0, dims="x", attrs={"units": "mm"}),
             },
         )
         output_path = tmp_path / "no_sform.nii.gz"
@@ -2576,6 +2715,7 @@ class TestRoundtrip:
         img = nib.Nifti1Image(np.zeros((4, 3, 2), dtype=np.float32), sform)
         img.header.set_sform(sform, code=5)
         img.header.set_qform(qform, code=1)
+        img.header.set_xyzt_units("mm")
         in_path = tmp_path / "in.nii.gz"
         img.to_filename(in_path)
 
@@ -2608,6 +2748,7 @@ class TestRoundtrip:
         img = nib.Nifti1Image(np.zeros((4, 3, 1), dtype=np.float32), sform)
         img.header.set_sform(sform, code=1)
         img.header.set_qform(qform, code=1)
+        img.header.set_xyzt_units("mm")
         in_path = tmp_path / "in.nii.gz"
         img.to_filename(in_path)
 
@@ -2645,12 +2786,16 @@ class TestRoundtrip:
         original = xr.DataArray(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
-            coords={"time": time_values},
+            coords={
+                "time": xr.DataArray(time_values, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(6.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(4.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2.0), dims="x", attrs={"units": "mm"}),
+            },
         )
 
         nifti_path = tmp_path / "regular_timing.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(original, nifti_path)
+        save_nifti(original, nifti_path)
 
         sidecar_path = tmp_path / "regular_timing.json"
         with open(sidecar_path) as f:
@@ -2671,12 +2816,16 @@ class TestRoundtrip:
         original = xr.DataArray(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
-            coords={"time": time_values},
+            coords={
+                "time": xr.DataArray(time_values, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(6.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(4.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2.0), dims="x", attrs={"units": "mm"}),
+            },
         )
 
         nifti_path = tmp_path / "no_delay.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(original, nifti_path)
+        save_nifti(original, nifti_path)
 
         sidecar_path = tmp_path / "no_delay.json"
         with open(sidecar_path) as f:
@@ -2712,6 +2861,9 @@ class TestRoundtrip:
                         "volume_acquisition_duration": 0.4,
                     },
                 ),
+                "z": xr.DataArray(np.arange(4.0), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2.0), dims="x", attrs={"units": "mm"}),
             },
         )
 
@@ -2818,9 +2970,9 @@ class TestRoundtrip:
                         "volume_acquisition_reference": "start",
                     },
                 ),
-                "z": np.arange(6) * 0.1,
-                "y": np.arange(4) * 0.1,
-                "x": np.arange(2) * 0.1,
+                "z": xr.DataArray(np.arange(6) * 0.1, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(4) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
 

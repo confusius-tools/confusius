@@ -101,19 +101,13 @@ def _validate_register_volume_inputs(
             "For volume-wise registration, use register_volumewise."
         )
 
-    from confusius.validation import ensure_fusi_dataarray
+    from confusius.validation import ensure_fusi
 
-    moving = ensure_fusi_dataarray(
-        moving,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
+    moving = ensure_fusi(
+        moving, require_time=False, allow_pose=False, allow_extra_dims=False
     )
-    fixed = ensure_fusi_dataarray(
-        fixed,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
+    fixed = ensure_fusi(
+        fixed, require_time=False, allow_pose=False, allow_extra_dims=False
     )
     validate_matching_spatial_units((("moving", moving), ("fixed", fixed)))
 

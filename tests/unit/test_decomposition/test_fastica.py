@@ -413,7 +413,6 @@ def test_mask_restricts_features(sample_3dt_volume):
     assert model.n_features_in_ == int(mask.values.sum())
 
 
-
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume):
     """Masked FastICA keeps full geometry and fills outside-mask voxels with zero."""
     mask = xr.DataArray(

@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
+
 @pytest.fixture(scope="module")
 def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """OBJ file with six vertices (3 right, 3 left) and two triangle faces.

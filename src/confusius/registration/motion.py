@@ -227,14 +227,14 @@ def compute_framewise_displacement(
         Spurious but systematic correlations in functional connectivity MRI networks
         arise from subject motion. Neuroimage 59, 2142-2154
     """
-    from confusius.validation import ensure_fusi_dataarray
+    from confusius.validation import ensure_fusi
 
     if "time" in reference.dims:
         raise ValueError(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    reference = ensure_fusi_dataarray(
+    reference = ensure_fusi(
         reference,
         require_time=False,
         allow_pose=False,
@@ -336,7 +336,7 @@ def create_motion_dataframe(
     """
     import pandas as pd
 
-    from confusius.validation import ensure_fusi_dataarray
+    from confusius.validation import ensure_fusi
 
     if "time" in reference.dims:
         raise ValueError(
@@ -346,7 +346,7 @@ def create_motion_dataframe(
     # Canonicalize once so a scalar-indexed reference (e.g. `.isel(z=0)`) has its
     # singleton spatial dim restored before compute_framewise_displacement and
     # _get_motion_parameter_columns both consult reference.dims.
-    reference = ensure_fusi_dataarray(
+    reference = ensure_fusi(
         reference,
         require_time=False,
         allow_pose=False,

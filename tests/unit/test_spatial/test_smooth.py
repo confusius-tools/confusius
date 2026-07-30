@@ -138,11 +138,9 @@ class TestSmoothVolume:
             np.testing.assert_array_equal(smoothed.coords[dim], vol.coords[dim])
 
     def test_accepts_scalar_indexed_spatial_dimension(self, sample_3dt_volume):
-        """A scalar-indexed fUSI slice is smoothed without restoring the dim."""
+        """A scalar-indexed fUSI slice is smoothed with its spatial dim restored."""
         sliced = sample_3dt_volume.isel(y=1)
-        expected = smooth_volume(sample_3dt_volume.isel(y=[1]), fwhm={"x": 0.2}).isel(
-            y=0
-        )
+        expected = smooth_volume(sample_3dt_volume.isel(y=[1]), fwhm={"x": 0.2})
 
         smoothed = smooth_volume(sliced, fwhm={"x": 0.2})
 
@@ -162,9 +160,11 @@ class TestSmoothVolume:
             data,
             dims=["z", "y", "x"],
             coords={
-                "z": np.arange(5) * 0.2,
-                "y": [0.0],
-                "x": np.arange(7) * 0.1,
+                "z": xr.DataArray(np.arange(5) * 0.2, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(
+                    [0.0], dims="y", attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "x": xr.DataArray(np.arange(7) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
 
@@ -201,7 +201,10 @@ class TestSmoothVolume:
         vol = xr.DataArray(
             data,
             dims=["z", "y", "x"],
-            coords={d: np.arange(s) * spacing for d, s in zip(["z", "y", "x"], shape)},
+            coords={
+                d: xr.DataArray(np.arange(s) * spacing, dims=d, attrs={"units": "mm"})
+                for d, s in zip(["z", "y", "x"], shape)
+            },
         )
 
         smoothed = smooth_volume(vol, fwhm=fwhm_val)
@@ -261,7 +264,11 @@ class TestSmoothVolume:
         vol = xr.DataArray(
             np.ones((11, 8, 10)),
             dims=["z", "y", "x"],
-            coords={"z": coords, "y": np.arange(8) * 0.1, "x": np.arange(10) * 0.1},
+            coords={
+                "z": xr.DataArray(coords, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(8) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(10) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         with pytest.raises(
             ValueError, match="non-uniform or undefined coordinate spacing"
@@ -271,7 +278,7 @@ class TestSmoothVolume:
     def test_raises_missing_coord(self):
         """Should raise ValueError if a smoothed dim has no coordinate."""
         vol = xr.DataArray(np.ones((8, 10, 12)), dims=["z", "y", "x"])
-        with pytest.raises(ValueError, match="undefined coordinate spacing"):
+        with pytest.raises(ValueError, match="Missing required coordinate"):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_unknown_fwhm_key(self, sample_3d_volume):

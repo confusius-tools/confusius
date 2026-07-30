@@ -11,6 +11,12 @@ import xarray as xr
 from confusius._dims import CORE_DIMS, POSE_DIM, SPATIAL_DIMS, TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.validation import require_dataarray
+from confusius.validation.time_series import (
+    validate_required_time_dimension,
+    validate_timepoint_count,
+    validate_unchunked_time,
+    validate_uniform_time,
+)
 
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
@@ -208,7 +214,7 @@ def _validate_regular_spacing(
             )
 
 
-def canonicalize_fusi_dataarray(data: xr.DataArray) -> xr.DataArray:
+def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
     """Return `data` with scalar spatial coordinates restored as dimensions.
 
     Parameters
@@ -260,7 +266,10 @@ def canonicalize_fusi_dataarray(data: xr.DataArray) -> xr.DataArray:
     return result
 
 
-def ensure_fusi_dataarray(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
+def ensure_fusi(
+    data: xr.DataArray,
+    **validate_kwargs: Any,
+) -> xr.DataArray:
     """Canonicalize and validate a ConfUSIus fUSI DataArray.
 
     Parameters
@@ -269,7 +278,7 @@ def ensure_fusi_dataarray(data: xr.DataArray, **validate_kwargs: Any) -> xr.Data
         DataArray to canonicalize and validate.
     **validate_kwargs : Any
         Keyword arguments forwarded to
-        [validate_fusi_dataarray][confusius.validation.validate_fusi_dataarray].
+        [validate_fusi][confusius.validation.validate_fusi].
 
     Returns
     -------
@@ -281,37 +290,32 @@ def ensure_fusi_dataarray(data: xr.DataArray, **validate_kwargs: Any) -> xr.Data
     TypeError
         If `data` is not an `xarray.DataArray`.
     ValueError
-        If canonicalization or validation fails.
+        If canonicalization, fUSI validation, or requested temporal validation fails.
     """
     require_dataarray(data)
-
     _validate_core_dimension_names(
         data,
         allow_extra_dims=validate_kwargs.get("allow_extra_dims", True),
     )
-    if validate_kwargs.get("allow_pose") is False and POSE_DIM in data.dims:
-        raise ValueError("DataArray must not have a 'pose' dimension.")
-    if validate_kwargs.get("require_time") is True and TIME_DIM not in data.dims:
-        raise ValueError("DataArray must have a 'time' dimension.")
 
-    result = canonicalize_fusi_dataarray(data)
-    validate_fusi_dataarray(result, **validate_kwargs)
+    result = canonicalize_fusi(data)
+    validate_fusi(result, **validate_kwargs)
     return result
 
 
-def validate_fusi_dataarray(
+def validate_fusi(
     data: xr.DataArray,
     *,
     require_time: bool = False,
+    require_unchunked_time: bool = False,
+    require_uniform_time: bool = False,
+    uniformity_tolerance: float = 1e-2,
     allow_pose: bool = True,
     allow_extra_dims: bool = True,
     require_regular_spacing: bool = False,
     regular_spacing_tolerance: float = 1e-2,
     regular_spacing_dims: RegularSpacingDims = "space",
     require_canonical_dim_order: bool = False,
-    require_spatial_voxdim: bool = False,
-    require_spatial_units: bool = False,
-    require_time_units: bool = False,
 ) -> None:
     """Validate that a DataArray follows ConfUSIus fUSI conventions.
 
@@ -328,14 +332,24 @@ def validate_fusi_dataarray(
     - Have numeric, finite, and strictly increasing core dimension coordinates (`time`,
       `pose`, `z`, `y`, `x`).
 
-    Additional requirements can be enforced using the function parameters.
+    Spatial coordinates must define `units`. Singleton spatial coordinates must also
+    define `voxdim`. When present, the `time` coordinate must define `units`.
 
     Parameters
     ----------
     data : xarray.DataArray
         DataArray to validate.
     require_time : bool, default: False
-        Whether to require a `time` dimension.
+        Whether to require a `time` dimension with more than one timepoint.
+    require_unchunked_time : bool, default: False
+        Whether to require the time dimension to occupy one Dask chunk. This also
+        requires a `time` dimension with more than one timepoint.
+    require_uniform_time : bool, default: False
+        Whether to require uniformly sampled time coordinates. This also requires a
+        `time` dimension with more than one timepoint.
+    uniformity_tolerance : float, default: 1e-2
+        Maximum relative variation allowed between consecutive time intervals when
+        `require_uniform_time=True`.
     allow_pose : bool, default: True
         Whether to allow a `pose` dimension.
     allow_extra_dims : bool, default: True
@@ -355,12 +369,6 @@ def validate_fusi_dataarray(
     require_canonical_dim_order : bool, default: False
         Whether the ConfUSIus core dimensions present in the DataArray must appear in
         canonical relative order `(time, pose, z, y, x)`.
-    require_spatial_voxdim : bool, default: False
-        Whether present spatial coordinates must define a `voxdim` attribute.
-    require_spatial_units : bool, default: False
-        Whether present spatial coordinates must define a `units` attribute.
-    require_time_units : bool, default: False
-        Whether the `time` coordinate must define a `units` attribute when present.
 
     Raises
     ------
@@ -375,8 +383,13 @@ def validate_fusi_dataarray(
 
     _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
 
-    if require_time and TIME_DIM not in data.dims:
-        raise ValueError("DataArray must have a 'time' dimension.")
+    if require_time or require_unchunked_time or require_uniform_time:
+        validate_required_time_dimension(data)
+        validate_timepoint_count(data, "fUSI validation")
+    if require_unchunked_time:
+        validate_unchunked_time(data, "fUSI validation")
+    if require_uniform_time:
+        validate_uniform_time(data, "fUSI validation", uniformity_tolerance)
 
     if not allow_pose and POSE_DIM in data.dims:
         raise ValueError("DataArray must not have a 'pose' dimension.")
@@ -399,11 +412,8 @@ def validate_fusi_dataarray(
     if require_canonical_dim_order:
         _validate_canonical_core_dim_order(data)
 
-    if require_spatial_voxdim:
-        _validate_required_coordinate_attrs(data, SPATIAL_DIMS, "voxdim")
-
-    if require_spatial_units:
-        _validate_required_coordinate_attrs(data, SPATIAL_DIMS, "units")
-
-    if require_time_units and TIME_DIM in data.dims:
+    singleton_spatial_dims = tuple(dim for dim in SPATIAL_DIMS if data.sizes[dim] == 1)
+    _validate_required_coordinate_attrs(data, singleton_spatial_dims, "voxdim")
+    _validate_required_coordinate_attrs(data, SPATIAL_DIMS, "units")
+    if TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")

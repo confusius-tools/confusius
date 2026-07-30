@@ -12,7 +12,12 @@ from sklearn.base import BaseEstimator
 from confusius.extract import extract_with_mask, unmask
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
-from confusius.validation import validate_labels, validate_mask, validate_time_series
+from confusius.validation import (
+    ensure_fusi,
+    validate_labels,
+    validate_mask,
+    validate_time_series,
+)
 from confusius.validation.coordinates import validate_matching_coordinates
 
 
@@ -268,14 +273,10 @@ class SeedBasedMaps(BaseEstimator):
                 "but both were given."
             )
 
-        # Validate time dimension *before* cleaning so the error message points to the
-        # right cause. check_time_chunks=False here because we re-validate inside
-        # signal.clean if needed.
-        validate_time_series(
-            X, operation_name="SeedBasedMaps.fit", check_time_chunks=False
-        )
+        X = ensure_fusi(X, require_time=True)
 
         if self.seed_masks is not None:
+            self.seed_masks = ensure_fusi(self.seed_masks, allow_pose=False)
             validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -284,6 +285,7 @@ class SeedBasedMaps(BaseEstimator):
             _validate_seed_signals(self.seed_signals, X)
 
         if self.mask is not None:
+            self.mask = ensure_fusi(self.mask, allow_pose=False, allow_extra_dims=False)
             validate_mask(self.mask, X, "mask")
 
         if self.mask is not None:

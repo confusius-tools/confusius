@@ -910,7 +910,7 @@ class TestTransforms:
             get_affine_transform_from_payload(loaded), np.eye(3)
         )
 
-    def test_bspline_payload_roundtrip(self, tmp_path):
+    def test_bspline_payload_missing_spatial_axis_is_rejected(self, tmp_path):
         reference = xr.DataArray(
             np.ones((3, 4), dtype=np.float32),
             dims=["y", "x"],
@@ -932,29 +932,8 @@ class TestTransforms:
             diagnostics=_FakeDiagnostics(),
         )
 
-        path = tmp_path / "bspline.nii.gz"
-        with pytest.warns(UserWarning, match="Dimension 'z' has no coordinate"):
-            save_transform_payload(path, payload)
-        loaded = load_transform_payload(path)
-
-        assert loaded["name"] == "moving → fixed (bspline)"
-        assert loaded["kind"] == "bspline"
-        assert get_output_grid_from_payload(loaded)["shape"] == [3, 4]
-        input_grid = get_input_grid_from_payload(loaded)
-        assert input_grid is not None
-        assert input_grid["shape"] == [3, 4]
-        roundtripped = get_bspline_transform_from_payload(loaded)
-        np.testing.assert_array_equal(
-            roundtripped.coords["component"].values,
-            transform.coords["component"].values,
-        )
-        np.testing.assert_allclose(
-            roundtripped.coords["y"].values, transform.coords["y"].values
-        )
-        np.testing.assert_allclose(
-            roundtripped.coords["x"].values, transform.coords["x"].values
-        )
-        np.testing.assert_allclose(roundtripped.values, transform.values)
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
+            save_transform_payload(tmp_path / "bspline.nii.gz", payload)
 
     def test_bspline_transform_is_not_offered_for_initialization(
         self, viewer, registration_panel
@@ -1126,9 +1105,15 @@ class TestTransforms:
             np.zeros((2, 20, 20), dtype=np.float32),
             dims=["z", "y", "x"],
             coords={
-                "z": xr.DataArray(np.arange(2) * 0.3, dims=["z"]),
-                "y": xr.DataArray(np.arange(20) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(20) * 0.1, dims=["x"]),
+                "z": xr.DataArray(
+                    np.arange(2) * 0.3, dims=["z"], attrs={"units": "mm"}
+                ),
+                "y": xr.DataArray(
+                    np.arange(20) * 0.2, dims=["y"], attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(20) * 0.1, dims=["x"], attrs={"units": "mm"}
+                ),
             },
         )
         source.values[:, 5:10, 6:11] = 1.0
@@ -1539,9 +1524,15 @@ class TestFinishedCallbacks:
             np.arange(24, dtype=np.float32).reshape(1, 4, 6),
             dims=["z", "y", "x"],
             coords={
-                "z": xr.DataArray([0.0], dims=["z"], attrs={"voxdim": 0.2}),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
+                "z": xr.DataArray(
+                    [0.0], dims=["z"], attrs={"units": "mm", "voxdim": 0.2}
+                ),
+                "y": xr.DataArray(
+                    np.arange(4) * 0.2, dims=["y"], attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(6) * 0.1, dims=["x"], attrs={"units": "mm"}
+                ),
             },
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")

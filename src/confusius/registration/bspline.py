@@ -60,7 +60,7 @@ from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius.registration._utils import expand_thin_dims, set_sitk_thread_count
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
-    ensure_fusi_dataarray,
+    ensure_fusi,
     validate_matching_spatial_units,
 )
 
@@ -173,7 +173,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     """
     import SimpleITK as sitk
 
-    validate_bspline_dataarray(da)
+    validate_bspline(da)
 
     ndim = da.ndim - 1  # subtract the component axis
     order = int(da.attrs["order"])
@@ -263,7 +263,7 @@ def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
     )
 
 
-def validate_bspline_dataarray(da: xr.DataArray) -> None:
+def validate_bspline(da: xr.DataArray) -> None:
     """Raise ValueError if `da` does not look like a valid B-spline transform DataArray.
 
     Parameters
@@ -397,7 +397,7 @@ def sample_displacement_field_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    reference = ensure_fusi_dataarray(
+    reference = ensure_fusi(
         reference,
         require_time=False,
         allow_pose=False,

@@ -619,7 +619,9 @@ class TestLoadScanWithBPS:
         brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)
         return np.linalg.inv(brain_to_confusius_lab) @ physical_to_lab
 
-    def test_load_bps_reexpresses_lab_side(self, bps_path: Path, brain_to_lab: np.ndarray) -> None:
+    def test_load_bps_reexpresses_lab_side(
+        self, bps_path: Path, brain_to_lab: np.ndarray
+    ) -> None:
         """load_bps converts BrainToLab to ConfUSIus-ordered lab coordinates."""
         expected = self._expected_brain_to_confusius_lab(brain_to_lab)
         result = load_bps(bps_path)

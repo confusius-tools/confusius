@@ -18,7 +18,7 @@ from confusius.registration.bspline import (
     _dataarray_to_sitk_displacement_field,
 )
 from confusius.validation import (
-    ensure_fusi_dataarray,
+    ensure_fusi,
     validate_matching_spatial_units,
 )
 
@@ -102,7 +102,7 @@ def resample_volume(
     """
     import SimpleITK as sitk
 
-    moving = ensure_fusi_dataarray(
+    moving = ensure_fusi(
         moving,
         require_time=False,
         allow_pose=False,
@@ -166,13 +166,18 @@ def resample_volume(
         # image.
         registered_arr = sitk.GetArrayFromImage(result_sitk).T
 
-    coords = {
-        d: np.array(origin[i]) + np.arange(shape[i]) * np.array(spacing[i])
-        for i, d in enumerate(dims)
-    }
+    coords = {}
+    for i, d in enumerate(dims):
+        coord_attrs = moving.coords[d].attrs.copy()
+        coord_attrs["voxdim"] = float(spacing[i])
+        coords[d] = xr.DataArray(
+            np.array(origin[i]) + np.arange(shape[i]) * np.array(spacing[i]),
+            dims=d,
+            attrs=coord_attrs,
+        )
 
     if has_time:
-        coords["time"] = moving.coords["time"].values
+        coords["time"] = moving.coords["time"]
         dims = ["time"] + list(dims)
 
     result = xr.DataArray(
@@ -252,13 +257,13 @@ def resample_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    moving = ensure_fusi_dataarray(
+    moving = ensure_fusi(
         moving,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
     )
-    reference = ensure_fusi_dataarray(
+    reference = ensure_fusi(
         reference,
         require_time=False,
         allow_pose=False,

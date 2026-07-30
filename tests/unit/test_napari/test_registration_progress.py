@@ -268,9 +268,15 @@ class TestRegisterVolumeWithNapariFactory:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(
+                    np.arange(16) * 0.1, dims=("y",), attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(16) * 0.1, dims=("x",), attrs={"units": "mm"}
+                ),
             },
         )
 

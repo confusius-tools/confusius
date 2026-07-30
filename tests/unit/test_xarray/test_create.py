@@ -6,7 +6,7 @@ import xarray as xr
 from numpy.testing import assert_allclose
 from xarray.testing import assert_identical
 
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import validate_fusi
 from confusius.xarray import create_fusi_dataarray
 
 
@@ -33,7 +33,7 @@ def test_create_fusi_dataarray_builds_canonical_time_varying_single_slice():
     assert result.coords["time"].attrs["units"] == "s"
     assert result.coords["z"].attrs == {"units": "mm", "voxdim": 0.4}
     assert result.coords["x"].attrs == {"units": "mm", "voxdim": 0.2}
-    validate_fusi_dataarray(result, require_time=True)
+    validate_fusi(result, require_time=True)
 
 
 def test_create_fusi_dataarray_adds_missing_singleton_spatial_dim():
@@ -52,7 +52,7 @@ def test_create_fusi_dataarray_adds_missing_singleton_spatial_dim():
     assert result.shape == (5, 1, 8, 12)
     assert_allclose(result.coords["z"].values, [2.0])
     assert result.coords["z"].attrs == {"units": "mm", "voxdim": 0.4}
-    validate_fusi_dataarray(result, require_time=True)
+    validate_fusi(result, require_time=True)
 
 
 def test_create_fusi_dataarray_reorders_input_dims_by_default():
@@ -86,7 +86,7 @@ def test_create_fusi_dataarray_can_preserve_input_dim_order():
     )
 
     assert result.dims == ("y", "x", "z", "time")
-    validate_fusi_dataarray(result, require_time=True)
+    validate_fusi(result, require_time=True)
 
 
 def test_create_fusi_dataarray_preserved_order_inserts_singleton_at_canonical_slot():

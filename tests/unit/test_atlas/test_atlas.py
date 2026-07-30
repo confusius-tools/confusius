@@ -15,7 +15,7 @@ from brainglobe_atlasapi.structure_class import StructuresDict
 import confusius as cf
 from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
-from confusius.validation import validate_atlas_dataset
+from confusius.validation import validate_atlas
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
@@ -73,6 +73,7 @@ class TestBuilder:
         # It must not leak onto the other variables as a coordinate.
         assert "hemispheres" not in atlas_ds["annotation"].coords
         assert "hemispheres" not in atlas_ds["reference"].coords
+
 
 class TestStructuresSerialization:
     """Round-trip the structure hierarchy through JSON (W0)."""
@@ -639,7 +640,7 @@ class TestNonlinearMesh:
         resampled = atlas_ds.atlas.resample_like(reference, field)
         assert isinstance(resampled.attrs["physical_to_base"], xr.DataArray)
         assert "physical_to_base" not in resampled.data_vars
-        validate_atlas_dataset(resampled)
+        validate_atlas(resampled)
 
     def test_resample_like_affine_shifts_mesh(self, atlas_ds: xr.Dataset) -> None:
         """An affine pull translation warps the mesh by its inverse."""
@@ -803,7 +804,9 @@ class TestStandaloneOperations:
         self, atlas_ds: xr.Dataset
     ) -> None:
         """Standalone helpers return the same outputs as the accessor on a valid atlas."""
-        assert cf.atlas.search_atlas(atlas_ds, "gc", field="acronym").index.tolist() == [20]
+        assert cf.atlas.search_atlas(
+            atlas_ds, "gc", field="acronym"
+        ).index.tolist() == [20]
         np.testing.assert_array_equal(
             cf.atlas.get_atlas_masks(atlas_ds, 10).values,
             atlas_ds.atlas.get_masks(10).values,

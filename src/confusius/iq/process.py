@@ -22,7 +22,11 @@ from confusius.timing import (
     get_representative_time_step,
     get_time_coord_to_seconds_factor,
 )
-from confusius.validation import validate_iq_dataarray, validate_mask
+from confusius.validation import (
+    ensure_fusi,
+    ensure_iq,
+    validate_mask,
+)
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -500,6 +504,8 @@ def compute_processed_volume_timings(
     >>> output_durations
     array([2.5, 2.5, 2.5, 2.5])
     """
+    iq = ensure_iq(iq)
+
     iq_time_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
@@ -1290,10 +1296,13 @@ def process_iq_to_power_doppler(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq_dataarray(iq, require_attrs=False)
+    iq = ensure_iq(iq)
 
     clutter_mask_array = None
     if clutter_mask is not None:
+        clutter_mask = ensure_fusi(
+            clutter_mask, allow_pose=False, allow_extra_dims=False
+        )
         clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values
 
@@ -1428,7 +1437,7 @@ def process_iq_to_bmode(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq_dataarray(iq, require_attrs=False)
+    iq = ensure_iq(iq)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1630,10 +1639,13 @@ def process_iq_to_axial_velocity(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq_dataarray(iq, require_attrs=True)
+    iq = ensure_iq(iq, require_velocity_attrs=True)
 
     clutter_mask_array = None
     if clutter_mask is not None:
+        clutter_mask = ensure_fusi(
+            clutter_mask, allow_pose=False, allow_extra_dims=False
+        )
         clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values
 

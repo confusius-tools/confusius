@@ -1,4 +1,4 @@
-"""Tests for validate_atlas_dataset."""
+"""Tests for validate_atlas."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
-from confusius.validation import validate_atlas_dataset
+from confusius.validation import validate_atlas
 
 
 def _make_atlas(
@@ -48,23 +48,23 @@ def _make_atlas(
 
 
 def test_valid_atlas_passes() -> None:
-    validate_atlas_dataset(_make_atlas())
+    validate_atlas(_make_atlas())
 
 
 def test_valid_2d_atlas_passes() -> None:
     """A resampled single-slice atlas (2D) is accepted."""
-    validate_atlas_dataset(_make_atlas(dims=("y", "x")))
+    validate_atlas(_make_atlas(dims=("y", "x")))
 
 
 def test_non_dataset_raises_type_error() -> None:
     with pytest.raises(TypeError, match="xarray.Dataset"):
-        validate_atlas_dataset(xr.DataArray(np.zeros((3, 3, 3))))  # ty: ignore[invalid-argument-type]
+        validate_atlas(xr.DataArray(np.zeros((3, 3, 3))))  # ty: ignore[invalid-argument-type]
 
 
 def test_missing_data_var_raises() -> None:
     ds = _make_atlas().drop_vars("annotation")
     with pytest.raises(ValueError, match="annotation"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_hemispheres_as_coordinate_reported_missing() -> None:
@@ -72,21 +72,21 @@ def test_hemispheres_as_coordinate_reported_missing() -> None:
     ds = _make_atlas()
     ds = ds.set_coords("hemispheres")
     with pytest.raises(ValueError, match="data variable"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_reference_wrong_dtype_raises_type_error() -> None:
     ds = _make_atlas()
     ds["reference"] = ds["reference"].astype(np.int32)
     with pytest.raises(TypeError, match="reference"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_annotation_wrong_dtype_raises_type_error() -> None:
     ds = _make_atlas()
     ds["annotation"] = ds["annotation"].astype(np.float32)
     with pytest.raises(TypeError, match="annotation"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_missing_structures_attr_raises() -> None:
@@ -94,7 +94,7 @@ def test_missing_structures_attr_raises() -> None:
     ds = _make_atlas()
     del ds.attrs["structures"]
     with pytest.raises(ValueError, match="structures"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_missing_metadata_attrs_pass() -> None:
@@ -102,14 +102,14 @@ def test_missing_metadata_attrs_pass() -> None:
     ds = _make_atlas()
     for attr in ("name", "citation", "species", "orientation"):
         del ds.attrs[attr]
-    validate_atlas_dataset(ds)
+    validate_atlas(ds)
 
 
 def test_missing_physical_to_base_passes_without_mesh_use() -> None:
     """physical_to_base is not required unless validating for mesh use."""
     ds = _make_atlas()
     del ds.attrs["physical_to_base"]
-    validate_atlas_dataset(ds)
+    validate_atlas(ds)
 
 
 def test_require_mesh_use_passes(tmp_path) -> None:
@@ -117,7 +117,7 @@ def test_require_mesh_use_passes(tmp_path) -> None:
     obj = tmp_path / "997.obj"
     obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
     ds = _make_atlas(mesh_filename=str(obj))
-    validate_atlas_dataset(ds, require_mesh_use=True)
+    validate_atlas(ds, require_mesh_use=True)
 
 
 def test_require_mesh_use_missing_physical_to_base_raises(tmp_path) -> None:
@@ -126,14 +126,14 @@ def test_require_mesh_use_missing_physical_to_base_raises(tmp_path) -> None:
     ds = _make_atlas(mesh_filename=str(obj))
     del ds.attrs["physical_to_base"]
     with pytest.raises(ValueError, match="physical_to_base"):
-        validate_atlas_dataset(ds, require_mesh_use=True)
+        validate_atlas(ds, require_mesh_use=True)
 
 
 def test_require_mesh_use_without_meshes_raises() -> None:
     """An atlas whose structures reference no existing mesh fails mesh-use validation."""
     ds = _make_atlas()  # root structure has mesh_filename=None.
     with pytest.raises(ValueError, match="mesh"):
-        validate_atlas_dataset(ds, require_mesh_use=True)
+        validate_atlas(ds, require_mesh_use=True)
 
 
 def test_matching_variable_affines_pass() -> None:
@@ -143,7 +143,7 @@ def test_matching_variable_affines_pass() -> None:
     aff[0, 3] = 5.0
     ds["reference"].attrs["affines"] = {"physical_to_sform": aff}
     ds["annotation"].attrs["affines"] = {"physical_to_sform": aff.copy()}
-    validate_atlas_dataset(ds)
+    validate_atlas(ds)
 
 
 def test_mismatched_variable_affines_raise() -> None:
@@ -154,12 +154,12 @@ def test_mismatched_variable_affines_raise() -> None:
     other[0, 3] = 5.0
     ds["hemispheres"].attrs["affines"] = {"physical_to_sform": other}
     with pytest.raises(ValueError, match="physical_to_sform"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_non_spatial_dims_raise() -> None:
     with pytest.raises(ValueError, match="subset"):
-        validate_atlas_dataset(_make_atlas(dims=("z", "y", "w")))
+        validate_atlas(_make_atlas(dims=("z", "y", "w")))
 
 
 def test_mismatched_dims_raise() -> None:
@@ -169,7 +169,7 @@ def test_mismatched_dims_raise() -> None:
         annotation=xr.DataArray(np.zeros((3, 3), dtype=np.int32), dims=("y", "x"))
     )
     with pytest.raises(ValueError, match="share dimensions"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)
 
 
 def test_non_structuresdict_structures_raises() -> None:
@@ -177,4 +177,4 @@ def test_non_structuresdict_structures_raises() -> None:
     ds = _make_atlas()
     ds.attrs["structures"] = [{"id": 997, "acronym": "root"}]
     with pytest.raises(ValueError, match="StructuresDict"):
-        validate_atlas_dataset(ds)
+        validate_atlas(ds)

@@ -359,12 +359,15 @@ class TestRegisterVolumeOutput:
         da = xr.DataArray(
             sample_2d_image[np.newaxis],
             dims=("z", "y", "x"),
-            coords={"z": [0.0], "y": np.arange(32.0), "x": np.arange(32.0)},
+            coords={
+                "z": xr.DataArray([0.0], dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(32.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(32.0), dims="x", attrs={"units": "mm"}),
+            },
         )
 
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            with pytest.raises(ValueError, match="SimpleITK image.*z"):
-                register_volume(da, da, transform_type="translation")
+        with pytest.raises(ValueError, match="missing required 'voxdim' metadata"):
+            register_volume(da, da, transform_type="translation")
 
     def test_returns_affine_matrix(self, sample_singleton_z_dataarray_spatial):
         """register_volume returns a (4, 4) numpy affine matrix for single-slice input."""
@@ -411,9 +414,11 @@ class TestRegisterVolumeOutput:
             img[np.newaxis],
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.5}),
-                "y": np.arange(20) * 0.5,
-                "x": np.arange(40) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.5}
+                ),
+                "y": xr.DataArray(np.arange(20) * 0.5, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(40) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         _, bspline_tx, _ = register_volume(
@@ -637,13 +642,16 @@ class TestRegisterVolumeAccuracy:
     def test_3d_recovers_known_shift(self, sample_3d_array):
         """Registration recovers a known 3D translation."""
         shifted = np.roll(sample_3d_array, 2, axis=0)
-        spacing = (1.0, 1.0, 1.0)
         fixed = xr.DataArray(
             sample_3d_array,
             dims=("z", "y", "x"),
             coords={
-                d: np.arange(sample_3d_array.shape[i]) * spacing[i]
-                for i, d in enumerate(("z", "y", "x"))
+                dim: xr.DataArray(
+                    np.arange(size, dtype=float), dims=dim, attrs={"units": "mm"}
+                )
+                for dim, size in zip(
+                    ("z", "y", "x"), sample_3d_array.shape, strict=True
+                )
             },
         )
         moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
@@ -692,9 +700,11 @@ class TestRegisterVolumeThinDims:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}
+                ),
+                "y": xr.DataArray(np.arange(32) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(32) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         result, _, _ = register_volume(da, da, transform_type="translation")
@@ -708,9 +718,11 @@ class TestRegisterVolumeThinDims:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}
+                ),
+                "y": xr.DataArray(np.arange(32) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(32) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         result, _, _ = register_volume(
@@ -740,9 +752,9 @@ class TestRegisterVolumeThinDims:
             arr,
             dims=("z", "y", "x"),
             coords={
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(16) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(16) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         result, _, _ = register_volume(da, da, transform_type="translation")
@@ -1107,8 +1119,8 @@ class TestDisplacementField:
             coords={
                 "component": [0, 1, 2],
                 "z": [0.0],
-                "y": np.arange(4.0),
-                "x": np.arange(4.0),
+                "y": xr.DataArray(np.arange(4.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4.0), dims="x", attrs={"units": "mm"}),
             },
             attrs={"type": "displacement_field_transform"},
         )
@@ -1123,9 +1135,11 @@ class TestDisplacementField:
             np.zeros((1, 4, 4)),
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2}),
-                "y": np.arange(4.0),
-                "x": np.arange(4.0),
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.2}
+                ),
+                "y": xr.DataArray(np.arange(4.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4.0), dims="x", attrs={"units": "mm"}),
             },
         )
         field = xr.DataArray(
@@ -1134,8 +1148,8 @@ class TestDisplacementField:
             coords={
                 "component": [0, 1, 2],
                 "z": [0.0],
-                "y": np.arange(4.0),
-                "x": np.arange(4.0),
+                "y": xr.DataArray(np.arange(4.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4.0), dims="x", attrs={"units": "mm"}),
             },
             attrs={"type": "displacement_field_transform"},
         )
@@ -1216,8 +1230,16 @@ class TestDisplacementField:
             dims=["component", *dims],
             coords={
                 "component": [0, 1],
-                "y": np.arange(shape[0], dtype=np.float64),
-                "x": np.arange(shape[1], dtype=np.float64),
+                "y": xr.DataArray(
+                    np.arange(shape[0], dtype=np.float64),
+                    dims="y",
+                    attrs={"units": "mm"},
+                ),
+                "x": xr.DataArray(
+                    np.arange(shape[1], dtype=np.float64),
+                    dims="x",
+                    attrs={"units": "mm"},
+                ),
             },
             attrs={"type": "displacement_field_transform"},
         )
@@ -1403,8 +1425,8 @@ class TestResampleLike:
             dims=("z", "y", "x"),
             coords={
                 "z": sample_singleton_z_dataarray_spatial.coords["z"],
-                "y": sample_singleton_z_dataarray_spatial.coords["y"].values[:8],
-                "x": sample_singleton_z_dataarray_spatial.coords["x"].values[:8],
+                "y": sample_singleton_z_dataarray_spatial.coords["y"].isel(y=slice(8)),
+                "x": sample_singleton_z_dataarray_spatial.coords["x"].isel(x=slice(8)),
             },
         )
         result = resample_like(moving, sample_singleton_z_dataarray_spatial, np.eye(4))
@@ -1417,8 +1439,8 @@ class TestResampleLike:
             dims=("z", "y", "x"),
             coords={
                 "z": sample_singleton_z_dataarray_spatial.coords["z"],
-                "y": sample_singleton_z_dataarray_spatial.coords["y"].values[:8],
-                "x": sample_singleton_z_dataarray_spatial.coords["x"].values[:8],
+                "y": sample_singleton_z_dataarray_spatial.coords["y"].isel(y=slice(8)),
+                "x": sample_singleton_z_dataarray_spatial.coords["x"].isel(x=slice(8)),
             },
         )
         result = resample_like(
@@ -1439,6 +1461,19 @@ class TestResampleLike:
         assert_allclose(
             result.coords["x"].values,
             sample_singleton_z_dataarray_spatial.coords["x"].values,
+        )
+
+    def test_accepts_scalar_indexed_z(self, sample_singleton_z_dataarray_spatial):
+        """Scalar-indexed `z` coordinates are restored before resampling."""
+        moving = sample_singleton_z_dataarray_spatial.isel(z=0)
+        reference = sample_singleton_z_dataarray_spatial.isel(z=0)
+
+        result = resample_like(moving, reference, np.eye(4))
+
+        assert result.dims == ("z", "y", "x")
+        assert result.sizes["z"] == 1
+        assert result.coords["z"].attrs["voxdim"] == pytest.approx(
+            sample_singleton_z_dataarray_spatial.coords["z"].attrs["voxdim"]
         )
 
     def test_inherits_reference_affines(self, sample_singleton_z_dataarray_spatial):
@@ -1613,9 +1648,11 @@ class TestRegisterVolumeFillValue:
             np.ones((1, 16, 16), dtype=np.float32),
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(np.arange(16) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(16) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         # moving covers only the central 8x8 region.
@@ -1623,9 +1660,15 @@ class TestRegisterVolumeFillValue:
             np.ones((1, 8, 8), dtype=np.float32) * 2.0,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
-                "y": np.arange(4, 12) * 0.1,
-                "x": np.arange(4, 12) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(
+                    np.arange(4, 12) * 0.1, dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(4, 12) * 0.1, dims="x", attrs={"units": "mm"}
+                ),
             },
         )
         sentinel = -99.0
@@ -1644,18 +1687,26 @@ class TestRegisterVolumeFillValue:
             np.ones((1, 16, 16), dtype=np.float32),
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(np.arange(16) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(16) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         moving = xr.DataArray(
             np.ones((1, 8, 8), dtype=np.float32) * 2.0,
             dims=("z", "y", "x"),
             coords={
-                "z": xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.1}),
-                "y": np.arange(4, 12) * 0.1,
-                "x": np.arange(4, 12) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(
+                    np.arange(4, 12) * 0.1, dims="y", attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(4, 12) * 0.1, dims="x", attrs={"units": "mm"}
+                ),
             },
         )
         result, _, _ = register_volume(
