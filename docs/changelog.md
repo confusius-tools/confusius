@@ -10,6 +10,21 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
+  defaults `meta_path` to the sibling `ScanParameters.mat` file
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+
+### :bug: Fixes
+
+- NIfTI loading now keeps nibabel data lazy under Dask, EchoFrame `.dat` loading is now
+  lazily chunked, and EchoFrame metadata reads current `xAxis`/`zAxis` fields
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+- Confound regression now z-scores confounds when `standardize_confounds=True`, so
+  motion-confound cleaning removes fluctuations without regressing baseline-related
+  signal by default ([#351](https://github.com/confusius-tools/confusius/pull/351)).
+
 ## 0.6.0
 
 Released 2026-07-18.
