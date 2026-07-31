@@ -447,7 +447,9 @@ def test_clean_cosine_filter_is_jointly_regressed_with_confounds(sample_timeseri
     )
     combined_confounds = xr.concat([confounds, cosine_confounds], dim="confound")
 
-    expected = regress_confounds(signals, combined_confounds)
+    expected = regress_confounds(
+        signals, combined_confounds, standardize_confounds=False
+    )
     result = clean(
         signals,
         detrend_order=None,
@@ -485,7 +487,9 @@ def test_clean_cosine_filter_joint_regression_with_1d_confounds(sample_timeserie
         },
     )
 
-    expected = regress_confounds(signals, combined_confounds)
+    expected = regress_confounds(
+        signals, combined_confounds, standardize_confounds=False
+    )
     result = clean(
         signals,
         detrend_order=None,

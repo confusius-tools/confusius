@@ -73,35 +73,35 @@ def _validate_confounds(signals: xr.DataArray, confounds: xr.DataArray) -> np.nd
     return confounds_values
 
 
-def _standardize_confounds(confounds: np.ndarray) -> np.ndarray:
-    """Standardize confounds by max absolute value for numerical stability.
-
-    Following nilearn's approach: divide each confound by its maximum absolute
-    value to control the range while preserving constant terms. This improves
-    numerical stability without removing the mean (unlike z-scoring).
+def _prepare_confounds_for_regression(
+    confounds: np.ndarray,
+    standardize_confounds: bool,
+) -> np.ndarray:
+    """Prepare confounds for regression.
 
     Parameters
     ----------
     confounds : numpy.ndarray
-        Confound regressors, shape (time, n_confounds).
+        Confound regressors, shape `(time, n_confounds)`.
+    standardize_confounds : bool
+        Whether to z-score confounds. If `False`, confounds are divided by their
+        maximum absolute value without centering.
 
     Returns
     -------
     numpy.ndarray
-        Standardized confounds with values in approximately [-1, 1] range.
-        Constant columns are preserved (not zeroed out).
-
-    Notes
-    -----
-    Based on nilearn.signal.clean implementation which standardizes by max
-    absolute value to improve numerical stability while keeping constant
-    contributions intact.
+        Prepared confound regressors. Standardized constant columns are returned as
+        zeros; unstandardized columns are divided by their maximum absolute value.
     """
-    confound_max = np.max(np.abs(confounds), axis=0)
-    confound_max[confound_max == 0] = 1
-    confounds = confounds / confound_max
+    if standardize_confounds:
+        confounds = confounds - confounds.mean(axis=0)
+        confound_scale = confounds.std(axis=0, ddof=1)
+        confound_scale[confound_scale < np.finfo(np.float64).eps] = 1
+        return confounds / confound_scale
 
-    return confounds
+    confound_scale = np.max(np.abs(confounds), axis=0)
+    confound_scale[confound_scale == 0] = 1
+    return confounds / confound_scale
 
 
 def _regress_confounds_numpy(
@@ -121,7 +121,9 @@ def _regress_confounds_numpy(
     confounds : numpy.ndarray
         Confound regressors, shape (time, n_confounds).
     standardize_confounds : bool, default=True
-        Whether to standardize confounds before regression.
+        Whether to z-score confounds before regression. If `False`, confounds are
+        divided by their maximum absolute value for numerical stability without
+        centering.
 
     Returns
     -------
@@ -134,8 +136,7 @@ def _regress_confounds_numpy(
     Friston et al. (1994) for confound removal via projection onto
     the orthogonal of the signal space.
     """
-    if standardize_confounds:
-        confounds = _standardize_confounds(confounds)
+    confounds = _prepare_confounds_for_regression(confounds, standardize_confounds)
 
     qr_result = scipy.linalg.qr(confounds, mode="economic", pivoting=True)
     Q, R, _ = cast(tuple[np.ndarray, np.ndarray, np.ndarray], qr_result)
@@ -222,8 +223,9 @@ def regress_confounds(
         confound. The time dimension and coordinates must match the signals within
         the default coordinate-comparison tolerance (`rtol=1e-5`, `atol=1e-8`).
     standardize_confounds : bool, default: True
-        Whether to standardize confounds by their maximum absolute value before
-        regression. This improves numerical stability while preserving constant terms.
+        Whether to z-score confounds before regression. If `False`, confounds are
+        divided by their maximum absolute value for numerical stability without
+        centering.
 
     Returns
     -------
