@@ -30,11 +30,15 @@ Current development version for the next ConfUSIus release.
 
 - Added [`ensure_iq`][confusius.validation.ensure_iq] to canonicalize and validate IQ
   inputs with one call ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- Added [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] (also exposed
-  as `confusius.create_fusi_dataarray`) to build a canonical fUSI DataArray from a raw
-  array plus higher-level metadata (`dt`, `dz`, `dy`, `dx`, and axis origins). It
-  attaches regularly spaced physical coordinates, `units`/`voxdim` metadata, and
-  validates the result before returning it ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- Added [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to build a
+  canonical fUSI DataArray from a raw array plus higher-level metadata (`dt`, `dz`,
+  `dy`, `dx`, and axis origins). It attaches regularly spaced physical coordinates,
+  `units`/`voxdim` metadata, and validates the result before returning it
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- Added [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] to construct
+  canonical complex IQ DataArrays with explicit `transmit_frequency` and
+  `beamforming_sound_velocity` arguments
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
 
 ## 0.6.0
 

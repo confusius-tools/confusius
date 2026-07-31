@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import SupportsFloat, SupportsIndex
+from typing import Any, SupportsFloat, SupportsIndex
 
 import numpy as np
 import numpy.typing as npt
@@ -11,7 +11,7 @@ import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
-from confusius.validation import canonicalize_fusi, validate_fusi
+from confusius.validation import canonicalize_fusi, validate_fusi, validate_iq
 
 _SPATIAL_UNITS = "mm"
 """Physical units attached to the `z`, `y`, and `x` coordinates."""
@@ -318,7 +318,7 @@ def create_fusi_dataarray(
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     name: str | None = None,
-    attrs: dict | None = None,
+    attrs: dict[str, Any] | None = None,
 ) -> xr.DataArray:
     """Build a ConfUSIus fUSI DataArray from a raw array.
 
@@ -475,4 +475,113 @@ def create_fusi_dataarray(
         require_canonical_dim_order=canonical_order,
     )
 
+    return result
+
+
+def create_iq_dataarray(
+    data: npt.ArrayLike,
+    *,
+    dims: Sequence[str],
+    coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
+    dt: float | None = None,
+    dz: float | None = None,
+    dy: float | None = None,
+    dx: float | None = None,
+    t0: float = 0.0,
+    z0: float = 0.0,
+    y0: float = 0.0,
+    x0: float = 0.0,
+    volume_acquisition_reference: VolumeAcquisitionReference = "start",
+    volume_acquisition_duration: float | None = None,
+    transmit_frequency: float | None = None,
+    beamforming_sound_velocity: float | None = None,
+    name: str | None = "iq",
+    attrs: dict[str, Any] | None = None,
+) -> xr.DataArray:
+    """Build a canonical ConfUSIus IQ DataArray from a raw complex array.
+
+    Parameters
+    ----------
+    data : numpy.typing.ArrayLike
+        Raw complex IQ array whose rank matches the length of `dims`.
+    dims : sequence[str]
+        Explicit dimension names for each axis of `data`, in order. Must include
+        `time`; spatial singleton dimensions may be omitted and are added from the
+        corresponding spacing/origin arguments.
+    coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
+        Explicit 1D coordinates. See
+        [create_fusi_dataarray][confusius.xarray.create_fusi_dataarray].
+    dt : float, optional
+        Spacing of the `time` coordinate, in seconds.
+    dz : float, optional
+        Spacing of the `z` coordinate, in millimetres.
+    dy : float, optional
+        Spacing of the `y` coordinate, in millimetres.
+    dx : float, optional
+        Spacing of the `x` coordinate, in millimetres.
+    t0 : float, default: 0.0
+        Origin of the generated `time` coordinate, in seconds.
+    z0 : float, default: 0.0
+        Origin of the generated `z` coordinate, in millimetres.
+    y0 : float, default: 0.0
+        Origin of the generated `y` coordinate, in millimetres.
+    x0 : float, default: 0.0
+        Origin of the generated `x` coordinate, in millimetres.
+    volume_acquisition_reference : {"start", "center", "end"}, default: "start"
+        Where within its acquisition window each frame's `time` coordinate is anchored.
+    volume_acquisition_duration : float, optional
+        Duration of a single volume's acquisition window, in seconds.
+    transmit_frequency : float, optional
+        Ultrasound transmit frequency in hertz. Stored in DataArray attrs when
+        provided.
+    beamforming_sound_velocity : float, optional
+        Speed of sound assumed during beamforming, in metres per second. Stored in
+        DataArray attrs when provided.
+    name : str, default: "iq"
+        Name assigned to the resulting DataArray.
+    attrs : dict, optional
+        Additional DataArray-level attributes. Explicit `transmit_frequency` and
+        `beamforming_sound_velocity` arguments override same-named keys in `attrs`.
+
+    Returns
+    -------
+    xarray.DataArray
+        Canonical IQ DataArray with dimensions `(time, z, y, x)`.
+
+    Raises
+    ------
+    TypeError
+        If `data` is not complex-valued.
+    ValueError
+        If coordinate construction or IQ validation fails.
+    """
+    attrs = {} if attrs is None else dict(attrs)
+    if transmit_frequency is not None:
+        attrs["transmit_frequency"] = _require_positive_finite(
+            transmit_frequency, "transmit_frequency"
+        )
+    if beamforming_sound_velocity is not None:
+        attrs["beamforming_sound_velocity"] = _require_positive_finite(
+            beamforming_sound_velocity, "beamforming_sound_velocity"
+        )
+
+    result = create_fusi_dataarray(
+        data,
+        dims=dims,
+        coords=coords,
+        dt=dt,
+        dz=dz,
+        dy=dy,
+        dx=dx,
+        t0=t0,
+        z0=z0,
+        y0=y0,
+        x0=x0,
+        canonical_order=True,
+        volume_acquisition_reference=volume_acquisition_reference,
+        volume_acquisition_duration=volume_acquisition_duration,
+        name=name,
+        attrs=attrs,
+    )
+    validate_iq(result)
     return result

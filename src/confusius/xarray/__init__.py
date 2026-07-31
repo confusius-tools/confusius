@@ -14,6 +14,7 @@ __all__ = [
     "FUSIScaleAccessor",
     "apply_affine",
     "create_fusi_dataarray",
+    "create_iq_dataarray",
     "db_scale",
     "log_scale",
     "power_scale",
@@ -24,6 +25,7 @@ from confusius.xarray.accessors import FUSIAccessor
 _ATTR_TO_MODULE = {
     "FUSIAffineAccessor": "confusius.xarray.affine",
     "create_fusi_dataarray": "confusius.xarray.create",
+    "create_iq_dataarray": "confusius.xarray.create",
     "FUSIConnectivityAccessor": "confusius.xarray.connectivity",
     "FUSIExtractAccessor": "confusius.xarray.extract",
     "FUSIIQAccessor": "confusius.xarray.iq",
@@ -53,7 +55,7 @@ def __dir__() -> list[str]:
 if TYPE_CHECKING:
     from confusius.xarray.affine import FUSIAffineAccessor, apply_affine
     from confusius.xarray.connectivity import FUSIConnectivityAccessor
-    from confusius.xarray.create import create_fusi_dataarray
+    from confusius.xarray.create import create_fusi_dataarray, create_iq_dataarray
     from confusius.xarray.extract import FUSIExtractAccessor
     from confusius.xarray.iq import FUSIIQAccessor
     from confusius.xarray.plotting import FUSIPlotAccessor

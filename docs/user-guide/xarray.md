@@ -157,9 +157,24 @@ single_slice = cf.create_fusi_dataarray(
 
 Pass `canonical_order=False` only when you need to preserve the input dimension order.
 
-Acquisition metadata that describes the whole recording, such as
-`transmit_frequency` or `beamforming_sound_velocity`, belongs in `attrs`. Coordinate
+Acquisition metadata that describes the whole recording belongs in `attrs`. Coordinate
 metadata such as `units` and `voxdim` is added automatically.
+
+For beamformed IQ data, use
+[`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] instead:
+
+```python
+iq = cf.create_iq_dataarray(
+    raw_iq,  # shape: (time, y, x)
+    dims=("time", "y", "x"),
+    dt=1 / 500,
+    dz=0.4,
+    dy=0.05,
+    dx=0.1,
+    transmit_frequency=15.625e6,
+    beamforming_sound_velocity=1540.0,
+)
+```
 
 ### Canonical fUSI Dimensions and Scalar Indexing
 

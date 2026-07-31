@@ -6,8 +6,8 @@ import xarray as xr
 from numpy.testing import assert_allclose
 from xarray.testing import assert_identical
 
-from confusius.validation import validate_fusi
-from confusius.xarray import create_fusi_dataarray
+from confusius.validation import validate_fusi, validate_iq
+from confusius.xarray import create_fusi_dataarray, create_iq_dataarray
 
 
 def test_create_fusi_dataarray_builds_canonical_time_varying_single_slice():
@@ -535,6 +535,55 @@ def test_create_fusi_dataarray_passes_through_dataarray_attrs():
 
     assert result.attrs["transmit_frequency"] == 15.625e6
     assert result.attrs["beamforming_sound_velocity"] == 1540.0
+
+
+def test_create_iq_dataarray_sets_velocity_attrs_from_args():
+    """IQ constructor exposes velocity metadata as explicit arguments."""
+    result = create_iq_dataarray(
+        np.ones((5, 4, 6), dtype=np.complex64),
+        dims=("time", "y", "x"),
+        dt=0.1,
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+        transmit_frequency=15.625e6,
+        beamforming_sound_velocity=1540.0,
+        attrs={"plane_wave_angles": [-5.0, 0.0, 5.0]},
+    )
+
+    assert result.dims == ("time", "z", "y", "x")
+    assert result.name == "iq"
+    assert result.attrs["transmit_frequency"] == 15.625e6
+    assert result.attrs["beamforming_sound_velocity"] == 1540.0
+    assert result.attrs["plane_wave_angles"] == [-5.0, 0.0, 5.0]
+    validate_iq(result, require_velocity_attrs=True)
+
+
+def test_create_iq_dataarray_rejects_real_data():
+    """IQ constructor requires complex-valued data."""
+    with pytest.raises(TypeError, match="complex-valued"):
+        create_iq_dataarray(
+            np.ones((5, 4, 6), dtype=np.float32),
+            dims=("time", "y", "x"),
+            dt=0.1,
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+        )
+
+
+def test_create_iq_dataarray_rejects_invalid_velocity_metadata():
+    """Velocity metadata arguments must be positive finite values."""
+    with pytest.raises(ValueError, match="transmit_frequency"):
+        create_iq_dataarray(
+            np.ones((5, 4, 6), dtype=np.complex64),
+            dims=("time", "y", "x"),
+            dt=0.1,
+            dz=0.4,
+            dy=0.1,
+            dx=0.2,
+            transmit_frequency=0.0,
+        )
 
 
 def test_create_fusi_dataarray_matches_explicit_singleton_constructor():
