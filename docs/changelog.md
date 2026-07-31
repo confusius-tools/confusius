@@ -10,6 +10,12 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :bug: Fixes
+
+- Confound regression now z-scores confounds when `standardize_confounds=True`, so
+  motion-confound cleaning removes fluctuations without regressing baseline-related
+  signal by default ([#351](https://github.com/confusius-tools/confusius/pull/351)).
+
 ## 0.6.0
 
 Released 2026-07-18.
