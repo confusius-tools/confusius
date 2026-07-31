@@ -1,8 +1,9 @@
-"""Unit tests for MatplotlibRegistrationProgressPlotter."""
+"""Unit tests for MatplotlibVolumeRegistrationProgressPlotter."""
 
 import builtins
 import sys
 import types
+from typing import Any, cast
 
 import matplotlib
 import numpy as np
@@ -11,13 +12,31 @@ import SimpleITK as sitk
 
 matplotlib.use("Agg")
 
-from confusius.registration.progress import (  # noqa: E402
-    MatplotlibRegistrationProgressPlotter,
+from confusius.registration.diagnostics import RegistrationDiagnostics
+from confusius.registration.progress import (
+    MatplotlibVolumeRegistrationProgressPlotter,
+)
+from confusius.registration.volumewise_progress import (
+    MatplotlibVolumewiseRegistrationProgressPlotter,
 )
 
 # ---------------------------------------------------------------------------
 # Helper fixtures
 # ---------------------------------------------------------------------------
+
+
+def _make_diagnostics(
+    final_metric_value: float, n_iterations: int
+) -> RegistrationDiagnostics:
+    """Return minimal registration diagnostics for progress-plotter tests."""
+    return RegistrationDiagnostics(
+        metric="correlation",
+        metric_values=np.asarray([final_metric_value]),
+        final_metric_value=final_metric_value,
+        n_iterations=n_iterations,
+        stop_condition="done",
+        status="completed",
+    )
 
 
 @pytest.fixture
@@ -79,11 +98,11 @@ def _make_registration_method():
 
 
 # ---------------------------------------------------------------------------
-# MatplotlibRegistrationProgressPlotter
+# MatplotlibVolumeRegistrationProgressPlotter
 # ---------------------------------------------------------------------------
 
 
-class TestMatplotlibRegistrationProgressPlotterInstantiation:
+class TestMatplotlibVolumeRegistrationProgressPlotterInstantiation:
     """Smoke tests for plotter construction."""
 
     def test_importerror_from_ipython_detection_falls_back_to_script_mode(
@@ -100,7 +119,7 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
 
         monkeypatch.setattr(builtins, "__import__", _guarded_import)
 
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -114,7 +133,7 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
     def test_metric_only(self, fixed_img_2d, moving_img_2d):
         """Plotter with only metric panel is created without error."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -126,7 +145,7 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
     def test_composite_only(self, fixed_img_2d, moving_img_2d):
         """Plotter with only composite panel is created without error."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -138,7 +157,7 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
     def test_both_panels(self, fixed_img_2d, moving_img_2d):
         """Plotter with both panels is created without error."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -148,7 +167,7 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
         plotter.figure.clf()
 
 
-class TestMatplotlibRegistrationProgressPlotterUpdate:
+class TestMatplotlibVolumeRegistrationProgressPlotterUpdate:
     """Tests for metric_values population and composite rendering."""
 
     def test_notebook_mode_uses_display_and_closes_figure(
@@ -161,23 +180,21 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         display_calls: list[tuple[object, bool]] = []
         closed_figures: list[object] = []
 
-        fake_getipython = types.ModuleType("IPython.core.getipython")
+        fake_getipython = cast(Any, types.ModuleType("IPython.core.getipython"))
 
         class ZMQInteractiveShell:
             pass
 
-        setattr(fake_getipython, "get_ipython", lambda: ZMQInteractiveShell())
-        fake_display = types.ModuleType("IPython.display")
-        setattr(
-            fake_display,
-            "display",
-            lambda fig, clear=False: display_calls.append((fig, clear)),
+        fake_getipython.get_ipython = lambda: ZMQInteractiveShell()
+        fake_display = cast(Any, types.ModuleType("IPython.display"))
+        fake_display.display = lambda fig, clear=False: display_calls.append(
+            (fig, clear)
         )
         monkeypatch.setitem(sys.modules, "IPython.core.getipython", fake_getipython)
         monkeypatch.setitem(sys.modules, "IPython.display", fake_display)
         monkeypatch.setattr(plt, "close", lambda fig: closed_figures.append(fig))
 
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -198,7 +215,7 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
     ):
         """metric_values contains one entry per iteration after registration."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -217,7 +234,7 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
     def test_metric_values_are_floats(self, fixed_img_2d, moving_img_2d):
         """All recorded metric values are finite floats."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -238,7 +255,7 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
     ):
         """Composite panel renders without error after at least one iteration."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -269,7 +286,7 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         reg.SmoothingSigmasAreSpecifiedInPhysicalUnitsOff()
         reg.SetInitialTransform(sitk.TranslationTransform(3), inPlace=True)
 
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_3d,
             moving_img_3d,
@@ -285,15 +302,13 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         plotter.figure.clf()
 
 
-class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
+class TestMatplotlibVolumeRegistrationProgressPlotterResampleKwargs:
     """Tests for intermediate-resample settings."""
 
-    def test_none_interpolation_falls_back_to_linear(
-        self, fixed_img_2d, moving_img_2d
-    ):
+    def test_none_interpolation_falls_back_to_linear(self, fixed_img_2d, moving_img_2d):
         """A `None` interpolation override falls back to linear at render time."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -307,12 +322,10 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
         assert plotter._composite_im is not None
         plotter.figure.clf()
 
-    def test_invalid_interpolation_raises_on_update(
-        self, fixed_img_2d, moving_img_2d
-    ):
+    def test_invalid_interpolation_raises_on_update(self, fixed_img_2d, moving_img_2d):
         """Unknown interpolation names raise a clear ValueError during rendering."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -329,7 +342,7 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     def test_default_fill_value_is_moving_min(self, fixed_img_2d, moving_img_2d):
         """When resample_kwargs omits fill_value, it defaults to moving_img.min()."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg, fixed_img_2d, moving_img_2d, plot_metric=False, plot_composite=True
         )
         expected = float(sitk.GetArrayFromImage(moving_img_2d).min())
@@ -339,7 +352,7 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     def test_explicit_fill_value_is_respected(self, fixed_img_2d, moving_img_2d):
         """Explicit fill_value in resample_kwargs overrides the auto-default."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -353,7 +366,7 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     def test_explicit_interpolation_is_stored(self, fixed_img_2d, moving_img_2d):
         """interpolation key in resample_kwargs is stored and later used."""
         reg = _make_registration_method()
-        plotter = MatplotlibRegistrationProgressPlotter(
+        plotter = MatplotlibVolumeRegistrationProgressPlotter(
             reg,
             fixed_img_2d,
             moving_img_2d,
@@ -393,3 +406,25 @@ class TestRegisterVolumeShowProgress:
             plot_composite=False,
         )
         assert result.shape == da.shape
+
+
+class TestMatplotlibVolumewiseRegistrationProgressPlotter:
+    """Unit tests for MatplotlibVolumewiseRegistrationProgressPlotter."""
+
+    def test_updates_completed_frames_by_index(self):
+        """Out-of-order frame completion fills the matching slots."""
+        import xarray as xr
+
+        frame = xr.DataArray(np.zeros((2, 2)), dims=("y", "x"))
+        with pytest.warns(UserWarning, match="non-interactive"):
+            plotter = MatplotlibVolumewiseRegistrationProgressPlotter(
+                3, reference=frame, redraw_every=1
+            )
+
+        plotter.frame_completed(2, frame, np.eye(3), _make_diagnostics(-0.2, 4))
+        plotter.frame_completed(0, frame, np.eye(3), _make_diagnostics(-1.0, 2))
+
+        np.testing.assert_allclose(plotter.metric_values, [-1.0, np.nan, -0.2])
+        np.testing.assert_allclose(plotter.n_iterations, [2, np.nan, 4])
+        plotter.close()
+        plotter.figure.clf()

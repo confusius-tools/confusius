@@ -1359,7 +1359,7 @@ class TestVolumewiseProgress:
                 "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
             },
         )
-        progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
+        progress.frame_completed(1, frame, np.eye(3), _FakeDiagnostics(n_iterations=2))
 
         assert registration_panel._progress.value() == 1
         np.testing.assert_array_equal(

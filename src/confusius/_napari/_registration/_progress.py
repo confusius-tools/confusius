@@ -1,7 +1,7 @@
 """Napari-layer-backed progress reporting for `register_volume`.
 
 This module provides a progress reporter that mirrors the matplotlib-based
-[`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter] but
+[`MatplotlibVolumeRegistrationProgressPlotter`][confusius.registration.MatplotlibVolumeRegistrationProgressPlotter] but
 streams the intermediate resampled volume into a napari Image layer instead of a
 matplotlib figure.
 
@@ -9,23 +9,23 @@ The reporter is intentionally split into two pieces so that napari layers can be
 constructed and signal slots connected on the GUI thread before the registration worker
 thread starts:
 
-- [`NapariRegistrationProgressPlotterBridge`][confusius._napari._registration._progress.NapariRegistrationProgressPlotterBridge]
+- [`NapariVolumeRegistrationProgressPlotterBridge`][confusius._napari._registration._progress.NapariVolumeRegistrationProgressPlotterBridge]
   is a lightweight `QObject` that lives on the GUI thread and exposes Qt signals. The
   worker thread calls `emit` on it; Qt marshals the slot invocations back to the GUI
   thread via an automatically-detected queued connection.
-- [`NapariRegistrationProgressPlotter`][confusius._napari._registration._progress.NapariRegistrationProgressPlotter]
-  implements the [`RegistrationProgress`][confusius.registration.RegistrationProgress]
+- [`NapariVolumeRegistrationProgressPlotter`][confusius._napari._registration._progress.NapariVolumeRegistrationProgressPlotter]
+  implements the [`VolumeRegistrationProgress`][confusius.registration.VolumeRegistrationProgress]
   protocol. It is constructed inside `register_volume` (i.e. on the worker thread) and
   resamples the moving image at every iteration using the current tentative transform,
   forwarding the resulting array to the bridge.
 
 Connection lifecycle:
 
-1. The panel constructs a `NapariRegistrationProgressPlotterBridge` on the GUI thread and connects its
+1. The panel constructs a `NapariVolumeRegistrationProgressPlotterBridge` on the GUI thread and connects its
   `iterated` signal to a slot that writes the array into the resampled napari layer.
 2. The panel builds a factory (via
   [`make_napari_progress_factory`][confusius._napari._registration._progress.make_napari_progress_factory])
-  that closes over the bridge and returns a `NapariRegistrationProgressPlotter` instance when called
+  that closes over the bridge and returns a `NapariVolumeRegistrationProgressPlotter` instance when called
   by `register_volume`.
 3. `register_volume` instantiates the progress inside the worker thread and wires it to
   SimpleITK's iteration and end events as usual.
@@ -38,6 +38,7 @@ from threading import Lock
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
+import numpy.typing as npt
 from qtpy.QtCore import QObject, Signal
 
 from confusius.registration.progress import _resample_intermediate
@@ -46,10 +47,13 @@ if TYPE_CHECKING:
     import SimpleITK as sitk
     import xarray as xr
 
-    from confusius.registration import RegistrationDiagnostics, RegistrationProgress
+    from confusius.registration import (
+        RegistrationDiagnostics,
+        VolumeRegistrationProgress,
+    )
 
 
-class NapariRegistrationProgressPlotterBridge(QObject):
+class NapariVolumeRegistrationProgressPlotterBridge(QObject):
     """Thread-boundary signal bridge for napari registration progress.
 
     Construct this on the GUI thread before starting the registration worker. Connect
@@ -60,7 +64,7 @@ class NapariRegistrationProgressPlotterBridge(QObject):
 
     See Also
     --------
-    NapariRegistrationProgressPlotter : Worker-side reporter that emits via this bridge.
+    NapariVolumeRegistrationProgressPlotter : Worker-side reporter that emits via this bridge.
     """
 
     iterated = Signal(object)
@@ -75,10 +79,10 @@ class NapariRegistrationProgressPlotterBridge(QObject):
     """Emitted once when the registration end event fires."""
 
 
-class NapariRegistrationProgressPlotter:
+class NapariVolumeRegistrationProgressPlotter:
     """Napari-layer progress reporter for `register_volume`.
 
-    Implements the [`RegistrationProgress`][confusius.registration.RegistrationProgress]
+    Implements the [`VolumeRegistrationProgress`][confusius.registration.VolumeRegistrationProgress]
     protocol. Stores the registration method and SimpleITK images it needs to resample
     the moving image at each iteration. The resampled array is forwarded to the bridge
     via a Qt signal, so this object is safe to call from the SimpleITK command callback
@@ -86,7 +90,7 @@ class NapariRegistrationProgressPlotter:
 
     Parameters
     ----------
-    bridge : NapariRegistrationProgressPlotterBridge
+    bridge : NapariVolumeRegistrationProgressPlotterBridge
         GUI-thread signal bridge. Stored by reference; never accessed for GUI APIs from
         this object.
     registration_method : SimpleITK.ImageRegistrationMethod
@@ -109,7 +113,7 @@ class NapariRegistrationProgressPlotter:
 
     def __init__(
         self,
-        bridge: NapariRegistrationProgressPlotterBridge,
+        bridge: NapariVolumeRegistrationProgressPlotterBridge,
         registration_method: sitk.ImageRegistrationMethod,
         fixed_img: sitk.Image,
         moving_img: sitk.Image,
@@ -172,7 +176,7 @@ class NapariRegistrationProgressPlotter:
         self._bridge.finished.emit()
 
 
-class NapariRegistrationProgressReporterBridge(QObject):
+class NapariVolumewiseRegistrationProgressReporterBridge(QObject):
     """Thread-boundary signal bridge for volumewise registration progress."""
 
     frame_progress = Signal(int, int)
@@ -182,16 +186,20 @@ class NapariRegistrationProgressReporterBridge(QObject):
     """Emitted with `(frame_index, registered_frame_array)` when one frame
     finishes."""
 
+    diagnostics_updated = Signal(int, object, object)
+    """Emitted with `(frame_index, affine_matrix, diagnostics)` when one frame
+    finishes."""
+
     finished = Signal()
     """Emitted once when the volumewise run ends."""
 
 
-class NapariRegistrationProgressReporter:
+class NapariVolumewiseRegistrationProgressReporter:
     """Aggregate per-frame progress for `register_volumewise` on the GUI thread.
 
     Parameters
     ----------
-    bridge : NapariRegistrationProgressReporterBridge
+    bridge : NapariVolumewiseRegistrationProgressReporterBridge
         GUI-thread signal bridge used to forward progress updates.
     n_frames : int
         Number of frames that will be registered.
@@ -199,7 +207,7 @@ class NapariRegistrationProgressReporter:
 
     def __init__(
         self,
-        bridge: NapariRegistrationProgressReporterBridge,
+        bridge: NapariVolumewiseRegistrationProgressReporterBridge,
         *,
         n_frames: int,
     ) -> None:
@@ -212,6 +220,7 @@ class NapariRegistrationProgressReporter:
         self,
         frame_index: int,
         registered_frame: xr.DataArray,
+        affine_matrix: npt.NDArray[np.floating],
         diagnostics: RegistrationDiagnostics,
     ) -> None:
         """Emit one completed frame for GUI-side layer updates.
@@ -222,11 +231,12 @@ class NapariRegistrationProgressReporter:
             Index of the completed frame.
         registered_frame : xarray.DataArray
             Registered frame data to write into the napari output layer.
+        affine_matrix : (N+1, N+1) numpy.ndarray
+            Affine transform estimated for the completed frame.
         diagnostics : confusius.registration.RegistrationDiagnostics
             Diagnostics collected for the completed frame.
         """
         with self._lock:
-            del diagnostics
             self._completed_frames.add(frame_index)
             completed = len(self._completed_frames)
             total = self._n_frames
@@ -234,6 +244,7 @@ class NapariRegistrationProgressReporter:
         self._bridge.frame_completed.emit(
             frame_index, np.asarray(registered_frame.values)
         )
+        self._bridge.diagnostics_updated.emit(frame_index, affine_matrix, diagnostics)
 
     def close(self) -> None:
         """Signal the end of the volumewise run."""
@@ -241,19 +252,19 @@ class NapariRegistrationProgressReporter:
 
 
 def make_napari_progress_factory(
-    bridge: NapariRegistrationProgressPlotterBridge,
-) -> Callable[..., RegistrationProgress]:
+    bridge: NapariVolumeRegistrationProgressPlotterBridge,
+) -> Callable[..., VolumeRegistrationProgress]:
     """Return a progress-plotter factory bound to a bridge.
 
     The returned callable has the signature expected by `register_volume`'s
     `progress_plotter` argument—it accepts `(registration_method, fixed_img, moving_img,
     *, plot_metric, plot_composite, resample_kwargs)` and returns a
-    [`NapariRegistrationProgressPlotter`][confusius._napari._registration._progress.NapariRegistrationProgressPlotter]
+    [`NapariVolumeRegistrationProgressPlotter`][confusius._napari._registration._progress.NapariVolumeRegistrationProgressPlotter]
     instance wrapping `bridge`.
 
     Parameters
     ----------
-    bridge : NapariRegistrationProgressPlotterBridge
+    bridge : NapariVolumeRegistrationProgressPlotterBridge
         GUI-thread bridge the constructed reporter will emit through.
 
     Returns
@@ -271,8 +282,8 @@ def make_napari_progress_factory(
         plot_metric: bool = True,
         plot_composite: bool = True,
         resample_kwargs: dict[str, Any] | None = None,
-    ) -> RegistrationProgress:
-        """Build a NapariRegistrationProgressPlotter wrapping the captured bridge.
+    ) -> VolumeRegistrationProgress:
+        """Build a NapariVolumeRegistrationProgressPlotter wrapping the captured bridge.
 
         Parameters
         ----------
@@ -292,11 +303,11 @@ def make_napari_progress_factory(
 
         Returns
         -------
-        RegistrationProgress
+        VolumeRegistrationProgress
             Progress reporter ready to be wired to SimpleITK's iteration and
             end events by `register_volume`.
         """
-        return NapariRegistrationProgressPlotter(
+        return NapariVolumeRegistrationProgressPlotter(
             bridge,
             registration_method,
             fixed_img,

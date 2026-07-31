@@ -9,10 +9,10 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius.registration.diagnostics import RegistrationDiagnostics
-from confusius.registration.progress import RegistrationProgress
+from confusius.registration.progress import VolumeRegistrationProgress
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
-from confusius.registration.volumewise_progress import VolumewiseProgressReporter
+from confusius.registration.volumewise_progress import VolumewiseRegistrationProgress
 
 
 class FUSIRegistrationAccessor:
@@ -61,7 +61,7 @@ class FUSIRegistrationAccessor:
         show_progress: bool = False,
         plot_metric: bool = True,
         plot_composite: bool = True,
-        progress_plotter: Callable[..., RegistrationProgress] | None = None,
+        progress_plotter: Callable[..., VolumeRegistrationProgress] | None = None,
         abort_event: Event | None = None,
     ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray | None, RegistrationDiagnostics]":
         """Register this volume to a fixed reference volume.
@@ -143,7 +143,7 @@ class FUSIRegistrationAccessor:
             progress plot. Ignored when `show_progress=False`.
         progress_plotter : callable, optional
             Custom progress reporter factory. If not provided, the default
-            [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
+            [`MatplotlibVolumeRegistrationProgressPlotter`][confusius.registration.MatplotlibVolumeRegistrationProgressPlotter]
             is used. See [`register_volume`][confusius.registration.register_volume].
         abort_event : threading.Event, optional
             Cooperative cancellation flag.
@@ -218,7 +218,9 @@ class FUSIRegistrationAccessor:
         resample_interpolation: Literal["linear", "bspline"] = "linear",
         fill_value: float | None = None,
         show_progress: bool = True,
-        progress_reporter: VolumewiseProgressReporter | None = None,
+        plot_progress: bool = False,
+        progress_reporter: VolumewiseRegistrationProgress | None = None,
+        progress_plotter: Callable[..., VolumewiseRegistrationProgress] | None = None,
         abort_event: Event | None = None,
         keep_diagnostics: bool = False,
     ) -> xr.DataArray:
@@ -279,9 +281,14 @@ class FUSIRegistrationAccessor:
             resampling. If not provided, defaults to that volume's minimum value.
         show_progress : bool, default: True
             Whether to display a progress bar while registering volumes.
-        progress_reporter : VolumewiseProgressReporter, optional
+        plot_progress : bool, default: False
+            Whether to plot per-frame registration diagnostics as frames complete.
+        progress_reporter : VolumewiseRegistrationProgress, optional
             Thread-safe reporter notified whenever one frame completes. If not
             provided, no per-frame callback is used.
+        progress_plotter : callable, optional
+            Factory used when `plot_progress=True`. See
+            [`register_volumewise`][confusius.registration.register_volumewise].
         abort_event : threading.Event, optional
             Cooperative cancellation flag shared across frames.
         keep_diagnostics : bool, default: False
@@ -319,7 +326,9 @@ class FUSIRegistrationAccessor:
             resample_interpolation=resample_interpolation,
             fill_value=fill_value,
             show_progress=show_progress,
+            plot_progress=plot_progress,
             progress_reporter=progress_reporter,
+            progress_plotter=progress_plotter,
             abort_event=abort_event,
             keep_diagnostics=keep_diagnostics,
         )

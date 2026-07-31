@@ -10,6 +10,20 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :sparkles: Enhancements
+
+- [`register_volumewise`][confusius.registration.register_volumewise] can now show live
+  motion diagnostics while volumes finish, including motion estimates, framewise
+  displacement, and optimizer summaries.
+- The napari registration panel now shows live volumewise motion diagnostics in a
+  floating plot window during motion correction.
+
+### :bug: Fixes
+
+- [`register_volumewise`][confusius.registration.register_volumewise] now warns when
+  lazy dask inputs use multi-volume time chunks, which can repeatedly read the same
+  chunk and slow down volume-by-volume registration.
+
 ## 0.6.0
 
 Released 2026-07-18.
