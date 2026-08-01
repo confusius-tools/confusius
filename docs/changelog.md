@@ -13,13 +13,22 @@ Current development version for the next ConfUSIus release.
 ### :sparkles: Enhancements
 
 - [`register_volumewise`][confusius.registration.register_volumewise] can now show live
-  motion diagnostics while volumes finish, including motion estimates, framewise
+  motion diagnostics, including motion estimates, framewise
   displacement, and optimizer summaries.
 - The napari registration panel now shows live volumewise motion diagnostics in a
   floating plot window during motion correction.
+- `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
+  defaults `meta_path` to the sibling `ScanParameters.mat` file
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
 
 ### :bug: Fixes
 
+- NIfTI loading now keeps nibabel data lazy under Dask, EchoFrame `.dat` loading is now
+  lazily chunked, and EchoFrame metadata reads current `xAxis`/`zAxis` fields
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+- Confound regression now z-scores confounds when `standardize_confounds=True`, so
+  motion-confound cleaning removes fluctuations without regressing baseline-related
+  signal by default ([#351](https://github.com/confusius-tools/confusius/pull/351)).
 - [`register_volumewise`][confusius.registration.register_volumewise] now warns when
   lazy dask inputs use multi-volume time chunks, which can repeatedly read the same
   chunk and slow down volume-by-volume registration.
