@@ -326,8 +326,15 @@ def resample_time(
     validate_time_series(data, "time resampling")
 
     time_coord = data.coords[TIME_DIM].values
+    if np.any(np.diff(time_coord) <= 0):
+        raise ValueError("time coordinates must be strictly increasing for resampling.")
+
     new_time_arr = np.asarray(new_time)
-    output_dtype = np.result_type(data.dtype, np.float64)
+    output_dtype = (
+        data.dtype
+        if np.issubdtype(data.dtype, np.floating)
+        else np.result_type(data.dtype, np.float64)
+    )
 
     result = xr.apply_ufunc(
         interpolate_timeseries,

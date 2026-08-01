@@ -49,6 +49,12 @@ def interpolate_timeseries(
     numpy.ndarray
         Interpolated signal at `target_times`.
     """
+    output_dtype = (
+        ts.dtype
+        if np.issubdtype(ts.dtype, np.floating)
+        else np.result_type(ts.dtype, np.float64)
+    )
+
     interp_fill_value: float | tuple[float, float] | Literal["extrapolate"]
     if fill_value == "nan":
         interp_fill_value = np.nan
@@ -56,24 +62,30 @@ def interpolate_timeseries(
         interp_fill_value = fill_value
 
     try:
-        return interp1d(
+        result = interp1d(
             acq_times,
             ts,
             kind=method,
             bounds_error=False,
             fill_value=interp_fill_value,
+            copy=False,
+            assume_sorted=True,
         )(target_times)
+        return result.astype(output_dtype, copy=False)
     except ValueError as e:
         if "derivatives at boundaries" in str(e):
             warnings.warn(
                 f"{e}; falling back to 'linear'.",
                 stacklevel=2,
             )
-            return interp1d(
+            result = interp1d(
                 acq_times,
                 ts,
                 kind="linear",
                 bounds_error=False,
                 fill_value=interp_fill_value,
+                copy=False,
+                assume_sorted=True,
             )(target_times)
+            return result.astype(output_dtype, copy=False)
         raise

@@ -18,6 +18,9 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- Time resampling now keeps floating-point input dtypes and avoids unnecessary SciPy
+  interpolation copies, reducing memory use for large `float32` arrays
+  ([#353](https://github.com/confusius-tools/confusius/pull/353)).
 - NIfTI loading now keeps nibabel data lazy under Dask, EchoFrame `.dat` loading is now
   lazily chunked, and EchoFrame metadata reads current `xAxis`/`zAxis` fields
   ([#343](https://github.com/confusius-tools/confusius/pull/343)).
