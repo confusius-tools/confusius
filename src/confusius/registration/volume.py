@@ -24,7 +24,7 @@ from confusius.validation import validate_matching_spatial_units
 if TYPE_CHECKING:
     from threading import Event
 
-    from confusius.registration.progress import RegistrationProgress
+    from confusius.registration.progress import VolumeRegistrationProgress
 
 
 def _validate_register_volume_inputs(
@@ -290,7 +290,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    progress_plotter: "Callable[..., VolumeRegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for linear transforms (translation/rigid/affine)."""
@@ -325,7 +325,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    progress_plotter: "Callable[..., VolumeRegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, xr.DataArray, RegistrationDiagnostics]":
     """Overload for bspline transform (returns DataArray transform)."""
@@ -359,7 +359,7 @@ def register_volume(  # numpydoc ignore=GL08,PR01,RT01
     show_progress: bool = ...,
     plot_metric: bool = ...,
     plot_composite: bool = ...,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    progress_plotter: "Callable[..., VolumeRegistrationProgress] | None" = None,
     abort_event: "Event | None" = ...,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating], RegistrationDiagnostics]":
     """Overload for default transform (rigid, returns affine)."""
@@ -393,7 +393,7 @@ def register_volume(
     show_progress: bool = False,
     plot_metric: bool = True,
     plot_composite: bool = True,
-    progress_plotter: "Callable[..., RegistrationProgress] | None" = None,
+    progress_plotter: "Callable[..., VolumeRegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.floating] | xr.DataArray, RegistrationDiagnostics]":
     """Register a single 2D or 3D volume to a fixed reference.
@@ -524,9 +524,9 @@ def register_volume(
         plot_composite, resample_kwargs)`. Here `resample_kwargs` carries
         `interpolation`, `fill_value`, and `sitk_threads`. The returned object must
         implement the
-        [`RegistrationProgress`][confusius.registration.RegistrationProgress] protocol
+        [`VolumeRegistrationProgress`][confusius.registration.VolumeRegistrationProgress] protocol
         (`update()` / `close()`). If not provided, the default
-        [`MatplotlibRegistrationProgressPlotter`][confusius.registration.MatplotlibRegistrationProgressPlotter]
+        [`MatplotlibVolumeRegistrationProgressPlotter`][confusius.registration.MatplotlibVolumeRegistrationProgressPlotter]
         is used. Ignored when `show_progress=False`. Custom factories are expected to
         be safe to call from a non-GUI thread; GUI side effects must be marshalled via
         thread-safe primitives such as Qt signals.
@@ -776,7 +776,7 @@ def register_volume(
 
         if show_progress:
             from confusius.registration.progress import (
-                MatplotlibRegistrationProgressPlotter,
+                MatplotlibVolumeRegistrationProgressPlotter,
             )
 
             resample_kwargs: dict[str, object] = {
@@ -785,7 +785,9 @@ def register_volume(
                 "sitk_threads": sitk_threads,
             }
 
-            plotter_factory = progress_plotter or MatplotlibRegistrationProgressPlotter
+            plotter_factory = (
+                progress_plotter or MatplotlibVolumeRegistrationProgressPlotter
+            )
             plotter = plotter_factory(
                 registration,
                 fixed_sitk,

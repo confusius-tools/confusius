@@ -374,6 +374,7 @@ def create_motion_dataframe(
     reference: "xr.DataArray",
     mask: NDArray[np.bool_] | None = None,
     time_coords: NDArray[np.floating] | None = None,
+    time_units: str | None = None,
 ) -> "pd.DataFrame":
     """Create a DataFrame with motion parameters and framewise displacement.
 
@@ -388,6 +389,8 @@ def create_motion_dataframe(
         Boolean mask for FD computation.
     time_coords : numpy.ndarray, optional
         Time coordinates for each frame.
+    time_units : str, optional
+        Unit label for `time_coords`.
 
     Returns
     -------
@@ -446,6 +449,8 @@ def create_motion_dataframe(
     if time_coords is not None:
         df.index = time_coords
         df.index.name = "time"
+        if time_units is not None:
+            df.attrs["time_units"] = time_units
     else:
         df.index.name = "frame"
 

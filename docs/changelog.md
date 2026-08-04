@@ -12,6 +12,12 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- [`register_volumewise`][confusius.registration.register_volumewise] can now show live
+  motion diagnostics, including motion estimates, framewise displacement, and optimizer
+  summaries ([#352](https://github.com/confusius-tools/confusius/pull/352)).
+- [Napari plugin] The registration panel now shows live volumewise motion diagnostics in
+  a floating plot window during motion correction
+  ([#352](https://github.com/confusius-tools/confusius/pull/352)).
 - `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
   defaults `meta_path` to the sibling `ScanParameters.mat` file
   ([#343](https://github.com/confusius-tools/confusius/pull/343)).
@@ -24,6 +30,10 @@ Current development version for the next ConfUSIus release.
 - Confound regression now z-scores confounds when `standardize_confounds=True`, so
   motion-confound cleaning removes fluctuations without regressing baseline-related
   signal by default ([#351](https://github.com/confusius-tools/confusius/pull/351)).
+- [`register_volumewise`][confusius.registration.register_volumewise] now warns when
+  lazy dask inputs use multi-volume time chunks, which can repeatedly read the same
+  chunk and slow down volume-by-volume registration
+  ([#352](https://github.com/confusius-tools/confusius/pull/352)).
 
 ## 0.6.0
 

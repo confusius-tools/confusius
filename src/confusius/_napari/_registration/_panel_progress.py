@@ -18,9 +18,9 @@ from confusius._napari._registration._panel_utils import (
     _preserve_view,
 )
 from confusius._napari._registration._progress import (
-    NapariRegistrationProgressPlotterBridge,
-    NapariRegistrationProgressReporter,
-    NapariRegistrationProgressReporterBridge,
+    NapariVolumeRegistrationProgressPlotterBridge,
+    NapariVolumewiseRegistrationProgressReporter,
+    NapariVolumewiseRegistrationProgressReporterBridge,
     make_napari_progress_factory,
 )
 from confusius.plotting.napari import plot_napari
@@ -36,7 +36,10 @@ if TYPE_CHECKING:
         RegistrationMetricPlotter,
     )
     from confusius._napari._registration._panel import RegistrationPanel
-    from confusius.registration import RegistrationProgress
+    from confusius._napari._registration._volumewise_diagnostics_plotter import (
+        VolumewiseRegistrationDiagnosticsPlotter,
+    )
+    from confusius.registration import VolumeRegistrationProgress
 
 
 def setup_volumewise_progress(
@@ -46,7 +49,7 @@ def setup_volumewise_progress(
     moving: xr.DataArray,
     layer_name: str,
     scale_mode: str,
-) -> NapariRegistrationProgressReporter:
+) -> NapariVolumewiseRegistrationProgressReporter:
     """Create volumewise preview layers and a progress reporter.
 
     Parameters
@@ -64,7 +67,7 @@ def setup_volumewise_progress(
 
     Returns
     -------
-    NapariRegistrationProgressReporter
+    NapariVolumewiseRegistrationProgressReporter
         Worker-side reporter that forwards completed-frame updates back to the
         panel.
     """
@@ -133,7 +136,7 @@ def setup_volumewise_progress(
         except Exception as exc:
             panel._set_error(f"Could not create progress layer: {exc}")
             raise
-    bridge = NapariRegistrationProgressReporterBridge()
+    bridge = NapariVolumewiseRegistrationProgressReporterBridge()
     bridge.frame_progress.connect(
         lambda completed_frames, total_frames: update_volumewise_progress_bar(
             panel, completed_frames, total_frames
@@ -144,6 +147,13 @@ def setup_volumewise_progress(
             panel, frame_index, frame_data
         )
     )
+    plotter = ensure_volumewise_diagnostics_plotter(
+        panel,
+        moving=moving,
+        reference=moving.isel({TIME_DIM: 0}),
+    )
+    if plotter is not None:
+        bridge.diagnostics_updated.connect(plotter.add_frame)
 
     panel._volumewise_progress_bridge = bridge
     panel._volumewise_progress_layer = cast("Image", layer)
@@ -152,7 +162,7 @@ def setup_volumewise_progress(
     panel._volumewise_progress_total = moving.sizes[TIME_DIM]
     panel._progress.setRange(0, panel._volumewise_progress_total)
     panel._progress.setValue(0)
-    return NapariRegistrationProgressReporter(
+    return NapariVolumewiseRegistrationProgressReporter(
         bridge,
         n_frames=panel._volumewise_progress_total,
     )
@@ -241,6 +251,63 @@ def teardown_volumewise_progress(
     panel._volumewise_progress_layer = None
     panel._volumewise_progress_time_axis = None
     panel._volumewise_progress_total = None
+    if panel._volumewise_diagnostics_dock is not None:
+        try:
+            panel.viewer.window.remove_dock_widget(panel._volumewise_diagnostics_dock)
+        except (KeyError, ValueError, RuntimeError):
+            pass
+    panel._volumewise_diagnostics_dock = None
+    panel._volumewise_diagnostics_plotter = None
+
+
+def ensure_volumewise_diagnostics_plotter(
+    panel: RegistrationPanel,
+    *,
+    moving: xr.DataArray,
+    reference: xr.DataArray,
+) -> VolumewiseRegistrationDiagnosticsPlotter | None:
+    """Return the floating volumewise diagnostics plotter, creating it if needed.
+
+    Parameters
+    ----------
+    panel : RegistrationPanel
+        Registration panel whose viewer receives the diagnostics widget.
+    moving : xarray.DataArray
+        Volumewise data carrying the time coordinate.
+    reference : xarray.DataArray
+        Spatial reference used for motion diagnostics.
+
+    Returns
+    -------
+    VolumewiseRegistrationDiagnosticsPlotter or None
+        Floating diagnostics widget.
+    """
+    from confusius._napari._registration._volumewise_diagnostics_plotter import (
+        VolumewiseRegistrationDiagnosticsPlotter,
+    )
+
+    time_coords = moving.coords[TIME_DIM].values if TIME_DIM in moving.coords else None
+    time_units = (
+        str(moving.coords[TIME_DIM].attrs.get("units"))
+        if TIME_DIM in moving.coords and "units" in moving.coords[TIME_DIM].attrs
+        else None
+    )
+    panel._volumewise_diagnostics_plotter = VolumewiseRegistrationDiagnosticsPlotter(
+        panel.viewer,
+        n_frames=moving.sizes[TIME_DIM],
+        reference=reference,
+        time_coords=time_coords,
+        time_units=time_units,
+    )
+    dock = panel.viewer.window.add_dock_widget(
+        panel._volumewise_diagnostics_plotter,
+        name="Volumewise Registration Diagnostics",
+        area="right",
+    )
+    panel._volumewise_diagnostics_dock = dock
+    dock.setFloating(True)
+    dock.resize(900, 820)
+    return panel._volumewise_diagnostics_plotter
 
 
 def create_volume_progress_plotter(
@@ -253,7 +320,7 @@ def create_volume_progress_plotter(
     layer_name: str,
     initial_transform: npt.NDArray[np.floating] | None = None,
     scale_mode: str,
-) -> Callable[..., RegistrationProgress]:
+) -> Callable[..., VolumeRegistrationProgress]:
     """Create between-scan preview layers and a progress-plotter factory.
 
     Parameters
@@ -383,7 +450,7 @@ def create_volume_progress_plotter(
             panel._set_error(f"Could not create progress layer: {exc}")
             raise
 
-    bridge = NapariRegistrationProgressPlotterBridge()
+    bridge = NapariVolumeRegistrationProgressPlotterBridge()
     bridge.iterated.connect(lambda arr: update_progress_layer(panel, arr))
     panel._progress_bridge = bridge
     panel._progress_layer = cast("Image", layer)

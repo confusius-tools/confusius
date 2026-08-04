@@ -1,6 +1,7 @@
 """Volumewise registration for fUSI data."""
 
-from collections.abc import Sequence
+import warnings
+from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Literal
 
@@ -9,6 +10,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.io import is_h5py_backed
+from confusius._utils.stack import find_stack_level
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.motion import create_motion_dataframe
 from confusius.registration.volume import register_volume
@@ -17,7 +19,9 @@ from confusius.validation import validate_fusi_dataarray
 if TYPE_CHECKING:
     from threading import Event
 
-    from confusius.registration.volumewise_progress import VolumewiseProgressReporter
+    from confusius.registration.volumewise_progress import (
+        VolumewiseRegistrationProgress,
+    )
 
 
 def register_volumewise(
@@ -41,7 +45,9 @@ def register_volumewise(
     resample_interpolation: Literal["linear", "bspline"] = "linear",
     fill_value: float | None = None,
     show_progress: bool = True,
-    progress_reporter: "VolumewiseProgressReporter | None" = None,
+    plot_progress: bool = False,
+    progress_reporter: "VolumewiseRegistrationProgress | None" = None,
+    progress_plotter: "Callable[..., VolumewiseRegistrationProgress] | None" = None,
     abort_event: "Event | None" = None,
     keep_diagnostics: bool = False,
 ) -> xr.DataArray:
@@ -123,9 +129,18 @@ def register_volumewise(
         resampling. If not provided, defaults to that volume's minimum value.
     show_progress : bool, default: True
         Whether to display a progress bar while registering volumes.
-    progress_reporter : VolumewiseProgressReporter, optional
+    plot_progress : bool, default: False
+        Whether to plot per-frame registration diagnostics as frames complete.
+    progress_reporter : VolumewiseRegistrationProgress, optional
         Thread-safe reporter notified whenever one frame completes. Useful for GUI
         progress bars or progressively filling an output layer while frames finish.
+    progress_plotter : callable, optional
+        Factory used when `plot_progress=True`. The callable receives `(n_frames, *,
+        time_coords)` and returns a
+        [`VolumewiseRegistrationProgress`][confusius.registration.VolumewiseRegistrationProgress].
+        If not provided,
+        [`MatplotlibVolumewiseRegistrationProgressPlotter`][confusius.registration.MatplotlibVolumewiseRegistrationProgressPlotter]
+        is used.
     abort_event : threading.Event, optional
         Cooperative cancellation flag shared across frames. If set before or during
         execution, in-flight frame registrations stop at the next optimiser iteration
@@ -199,6 +214,17 @@ def register_volumewise(
     )
 
     n_frames = data_moved.sizes["time"]
+    chunks = getattr(data_moved.data, "chunks", None)
+    if chunks is not None:
+        time_chunks = chunks[data_moved.get_axis_num("time")]
+        if max(time_chunks) > 1:
+            warnings.warn(
+                "register_volumewise processes data volume-by-volume. Dask arrays "
+                "with multi-volume time chunks may repeatedly read the same chunk; "
+                "rechunk time to 1 or call .compute() before registration for better "
+                "performance.",
+                stacklevel=find_stack_level(),
+            )
     ref_da = data_moved.isel(time=reference_time)
 
     progress_context = nullcontext()
@@ -207,8 +233,34 @@ def register_volumewise(
 
         progress_context = joblib_progress("Registering volumes...", total=n_frames)
 
+    time_coords = (
+        data_moved.coords["time"].values if "time" in data_moved.coords else None
+    )
+    time_units = (
+        str(data_moved.coords["time"].attrs.get("units"))
+        if "time" in data_moved.coords and "units" in data_moved.coords["time"].attrs
+        else None
+    )
+    progress_reporters = [] if progress_reporter is None else [progress_reporter]
+    if plot_progress:
+        from confusius.registration.volumewise_progress import (
+            MatplotlibVolumewiseRegistrationProgressPlotter,
+        )
+
+        plotter_factory = (
+            progress_plotter or MatplotlibVolumewiseRegistrationProgressPlotter
+        )
+        progress_reporters.append(
+            plotter_factory(
+                n_frames,
+                reference=ref_da,
+                time_coords=time_coords,
+                time_units=time_units,
+            )
+        )
+
     parallel_kwargs: dict[str, object] = {"n_jobs": n_jobs}
-    if abort_event is not None or progress_reporter is not None:
+    if abort_event is not None or progress_reporters:
         # Use threads when cancellation or progress reporting is enabled so
         # every worker sees the shared reporter / event instance.
         parallel_kwargs["prefer"] = "threads"
@@ -296,17 +348,17 @@ def register_volumewise(
                 n_iterations_per_frame[t] = frame_diag.n_iterations
                 statuses[t] = frame_diag.status
                 diagnostics[t] = frame_diag
-                if progress_reporter is not None:
-                    progress_reporter.frame_completed(t, registered_da, frame_diag)
+                for reporter in progress_reporters:
+                    reporter.frame_completed(t, registered_da, frame_affine, frame_diag)
     finally:
-        if progress_reporter is not None:
-            progress_reporter.close()
+        for reporter in progress_reporters:
+            reporter.close()
 
-    time_coords = (
-        data_moved.coords["time"].values if "time" in data_moved.coords else None
-    )
     motion_df = create_motion_dataframe(
-        affines=affines, reference=ref_da, time_coords=time_coords
+        affines=affines,
+        reference=ref_da,
+        time_coords=time_coords,
+        time_units=time_units,
     )
 
     # Per-frame summary columns are cheap (one float / int each) and useful

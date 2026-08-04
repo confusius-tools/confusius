@@ -14,8 +14,8 @@ from confusius.registration.motion import (
     extract_motion_parameters,
 )
 from confusius.registration.progress import (
-    MatplotlibRegistrationProgressPlotter,
-    RegistrationProgress,
+    MatplotlibVolumeRegistrationProgressPlotter,
+    VolumeRegistrationProgress,
 )
 from confusius.registration.resampling import (
     resample_like,
@@ -23,14 +23,18 @@ from confusius.registration.resampling import (
 )
 from confusius.registration.volume import register_volume
 from confusius.registration.volumewise import register_volumewise
-from confusius.registration.volumewise_progress import VolumewiseProgressReporter
+from confusius.registration.volumewise_progress import (
+    MatplotlibVolumewiseRegistrationProgressPlotter,
+    VolumewiseRegistrationProgress,
+)
 
 __all__ = [
-    "MatplotlibRegistrationProgressPlotter",
+    "MatplotlibVolumeRegistrationProgressPlotter",
+    "MatplotlibVolumewiseRegistrationProgressPlotter",
     "RegistrationAbortedError",
     "RegistrationDiagnostics",
-    "RegistrationProgress",
-    "VolumewiseProgressReporter",
+    "VolumeRegistrationProgress",
+    "VolumewiseRegistrationProgress",
     "compose_affine",
     "compute_framewise_displacement",
     "create_motion_dataframe",

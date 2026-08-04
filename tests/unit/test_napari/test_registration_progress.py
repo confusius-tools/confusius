@@ -9,10 +9,10 @@ import pytest
 import SimpleITK as sitk
 
 from confusius._napari._registration._progress import (
-    NapariRegistrationProgressPlotter,
-    NapariRegistrationProgressPlotterBridge,
-    NapariRegistrationProgressReporter,
-    NapariRegistrationProgressReporterBridge,
+    NapariVolumeRegistrationProgressPlotter,
+    NapariVolumeRegistrationProgressPlotterBridge,
+    NapariVolumewiseRegistrationProgressReporter,
+    NapariVolumewiseRegistrationProgressReporterBridge,
     make_napari_progress_factory,
 )
 from confusius.registration import RegistrationDiagnostics
@@ -66,16 +66,16 @@ class _SignalSpy:
         self.payloads.append(payload)
 
 
-class TestNapariRegistrationProgressPlotter:
+class TestNapariVolumeRegistrationProgressPlotter:
     """Per-iteration reporter behaviour."""
 
     def test_update_resamples_and_emits_array(self, qtbot, fixed_img_2d, moving_img_2d):
         reg = _make_registration_method(ndim=2)
-        bridge = NapariRegistrationProgressPlotterBridge()
+        bridge = NapariVolumeRegistrationProgressPlotterBridge()
         spy = _SignalSpy()
         bridge.iterated.connect(spy)
 
-        reporter = NapariRegistrationProgressPlotter(
+        reporter = NapariVolumeRegistrationProgressPlotter(
             bridge,
             reg,
             fixed_img_2d,
@@ -95,11 +95,11 @@ class TestNapariRegistrationProgressPlotter:
     def test_update_emits_metric_value(self, qtbot, fixed_img_2d, moving_img_2d):
         """`update()` also forwards the current optimizer metric value."""
         reg = _make_registration_method(ndim=2)
-        bridge = NapariRegistrationProgressPlotterBridge()
+        bridge = NapariVolumeRegistrationProgressPlotterBridge()
         metric_spy = _SignalSpy()
         bridge.metric_updated.connect(metric_spy)
 
-        reporter = NapariRegistrationProgressPlotter(
+        reporter = NapariVolumeRegistrationProgressPlotter(
             bridge,
             reg,
             fixed_img_2d,
@@ -124,11 +124,11 @@ class TestNapariRegistrationProgressPlotter:
     ):
         """`plot_metric=False` suppresses the metric_updated emission."""
         reg = _make_registration_method(ndim=2)
-        bridge = NapariRegistrationProgressPlotterBridge()
+        bridge = NapariVolumeRegistrationProgressPlotterBridge()
         metric_spy = _SignalSpy()
         bridge.metric_updated.connect(metric_spy)
 
-        reporter = NapariRegistrationProgressPlotter(
+        reporter = NapariVolumeRegistrationProgressPlotter(
             bridge,
             reg,
             fixed_img_2d,
@@ -145,8 +145,8 @@ class TestNapariRegistrationProgressPlotter:
 
     def test_close_emits_finished_signal(self, qtbot, fixed_img_2d, moving_img_2d):
         reg = _make_registration_method(ndim=2)
-        bridge = NapariRegistrationProgressPlotterBridge()
-        reporter = NapariRegistrationProgressPlotter(
+        bridge = NapariVolumeRegistrationProgressPlotterBridge()
+        reporter = NapariVolumeRegistrationProgressPlotter(
             bridge,
             reg,
             fixed_img_2d,
@@ -157,21 +157,27 @@ class TestNapariRegistrationProgressPlotter:
             reporter.close()
 
 
-class TestNapariRegistrationProgressReporter:
+class TestNapariVolumewiseRegistrationProgressReporter:
     """Aggregate per-frame progress for volumewise registration."""
 
     def test_frame_completed_emits_progress_and_array(self, qtbot):
         import xarray as xr
 
-        bridge = NapariRegistrationProgressReporterBridge()
-        reporter = NapariRegistrationProgressReporter(bridge, n_frames=3)
+        bridge = NapariVolumewiseRegistrationProgressReporterBridge()
+        reporter = NapariVolumewiseRegistrationProgressReporter(bridge, n_frames=3)
         progress_payloads: list[tuple[int, int]] = []
         frame_payloads: list[tuple[int, np.ndarray]] = []
+        diagnostics_payloads: list[tuple[int, np.ndarray, RegistrationDiagnostics]] = []
         bridge.frame_progress.connect(
             lambda completed, total: progress_payloads.append((completed, total))
         )
         bridge.frame_completed.connect(
             lambda index, array: frame_payloads.append((index, array))
+        )
+        bridge.diagnostics_updated.connect(
+            lambda index, affine, diag: diagnostics_payloads.append(
+                (index, affine, diag)
+            )
         )
         frame = xr.DataArray(np.ones((2, 2), dtype=np.float32), dims=("y", "x"))
         diagnostics = RegistrationDiagnostics(
@@ -186,18 +192,22 @@ class TestNapariRegistrationProgressReporter:
         with qtbot.waitSignals(
             [bridge.frame_progress, bridge.frame_completed], timeout=1000
         ):
-            reporter.frame_completed(1, frame, diagnostics)
+            reporter.frame_completed(1, frame, np.eye(3), diagnostics)
 
         assert progress_payloads == [(1, 3)]
         assert len(frame_payloads) == 1
         assert frame_payloads[0][0] == 1
         np.testing.assert_array_equal(frame_payloads[0][1], frame.values)
+        assert len(diagnostics_payloads) == 1
+        assert diagnostics_payloads[0][0] == 1
+        np.testing.assert_array_equal(diagnostics_payloads[0][1], np.eye(3))
+        assert diagnostics_payloads[0][2] is diagnostics
 
     def test_frame_completed_accumulates_unique_progress(self, qtbot):
         import xarray as xr
 
-        bridge = NapariRegistrationProgressReporterBridge()
-        reporter = NapariRegistrationProgressReporter(bridge, n_frames=3)
+        bridge = NapariVolumewiseRegistrationProgressReporterBridge()
+        reporter = NapariVolumewiseRegistrationProgressReporter(bridge, n_frames=3)
         progress_payloads: list[tuple[int, int]] = []
         bridge.frame_progress.connect(
             lambda completed, total: progress_payloads.append((completed, total))
@@ -212,15 +222,15 @@ class TestNapariRegistrationProgressReporter:
             status="completed",
         )
 
-        reporter.frame_completed(1, frame, diagnostics)
-        reporter.frame_completed(2, frame, diagnostics)
+        reporter.frame_completed(1, frame, np.eye(3), diagnostics)
+        reporter.frame_completed(2, frame, np.eye(3), diagnostics)
 
         qtbot.waitUntil(lambda: len(progress_payloads) == 2, timeout=1000)
         assert progress_payloads == [(1, 3), (2, 3)]
 
     def test_close_emits_finished_signal(self, qtbot):
-        bridge = NapariRegistrationProgressReporterBridge()
-        reporter = NapariRegistrationProgressReporter(bridge, n_frames=3)
+        bridge = NapariVolumewiseRegistrationProgressReporterBridge()
+        reporter = NapariVolumewiseRegistrationProgressReporter(bridge, n_frames=3)
 
         with qtbot.waitSignal(bridge.finished, timeout=1000):
             reporter.close()
@@ -232,7 +242,7 @@ class TestMakeNapariProgressFactory:
     def test_factory_returns_napari_volume_progress(
         self, qtbot, fixed_img_2d, moving_img_2d
     ):
-        bridge = NapariRegistrationProgressPlotterBridge()
+        bridge = NapariVolumeRegistrationProgressPlotterBridge()
         factory = make_napari_progress_factory(bridge)
         reg = _make_registration_method(ndim=2)
 
@@ -245,7 +255,7 @@ class TestMakeNapariProgressFactory:
             resample_kwargs={"fill_value": 0.0},
         )
 
-        assert isinstance(plotter, NapariRegistrationProgressPlotter)
+        assert isinstance(plotter, NapariVolumeRegistrationProgressPlotter)
 
         with qtbot.waitSignals(
             [bridge.metric_updated, bridge.iterated, bridge.finished], timeout=2000
@@ -273,7 +283,7 @@ class TestRegisterVolumeWithNapariFactory:
             },
         )
 
-        bridge = NapariRegistrationProgressPlotterBridge()
+        bridge = NapariVolumeRegistrationProgressPlotterBridge()
         spy = _SignalSpy()
         bridge.iterated.connect(spy)
         factory = make_napari_progress_factory(bridge)
