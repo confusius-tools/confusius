@@ -1,5 +1,7 @@
 """Unit tests for single-volume registration."""
 
+from threading import Event
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -7,15 +9,15 @@ from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius.registration._utils import (
+    build_voxel_affine_plane_initial_transform,
+    dataarray_to_sitk_image,
+)
 from confusius.registration.bspline import (
     invert_displacement_field,
     sample_displacement_field,
     sample_displacement_field_like,
     sitk_bspline_to_dataarray,
-)
-from confusius.registration._utils import (
-    build_voxel_affine_plane_initial_transform,
-    dataarray_to_sitk_image,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
@@ -142,6 +144,15 @@ class TestRegisterVolumeValidation:
                 initialization=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],  # ty: ignore[invalid-argument-type]
             )
 
+    def test_invalid_learning_rate_raises(self, sample_2d_dataarray_spatial):
+        """A non-positive learning_rate raises ValueError."""
+        with pytest.raises(ValueError, match="learning_rate must be a positive"):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                learning_rate=-1.0,
+            )
+
     def test_shape_mismatch_no_error(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -154,6 +165,98 @@ class TestRegisterVolumeValidation:
             resample=False,
         )
         assert result.shape == moving.shape
+
+    def test_abort_event_returns_partial_result(self, sample_2d_dataarray_spatial):
+        """A pre-set abort event returns an aborted diagnostics record."""
+        abort_event = Event()
+        abort_event.set()
+
+        result, _transform, diagnostics = register_volume(
+            sample_2d_dataarray_spatial,
+            sample_2d_dataarray_spatial,
+            transform_type="translation",
+            abort_event=abort_event,
+        )
+
+        assert result.shape == sample_2d_dataarray_spatial.shape
+        assert diagnostics.status == "aborted"
+        assert diagnostics.n_iterations == 0
+
+    def test_unknown_runtime_error_is_passed_through(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Unknown SimpleITK runtime errors are re-raised unchanged."""
+        import SimpleITK as sitk
+
+        error = RuntimeError("boom")
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise error
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="translation",
+            )
+
+        assert excinfo.value is error
+
+    def test_bspline_scale_error_raises_clearer_message(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Known SimpleITK scale failures are rewritten to actionable errors."""
+        import SimpleITK as sitk
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise RuntimeError(
+                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "ITK ERROR: GradientDescentOptimizerv4Template: "
+                "m_Scales values must be > epsilon.[1e-20, 1e-12]"
+            )
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(
+            RuntimeError, match="could not compute valid optimizer scales"
+        ):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="bspline",
+                learning_rate=1.0,
+            )
+
+    def test_bspline_scale_error_with_auto_learning_rate_suggests_fixed_rate(
+        self, sample_2d_dataarray_spatial, monkeypatch
+    ):
+        """Auto-learning-rate scale failures suggest retrying with a fixed rate."""
+        import SimpleITK as sitk
+
+        def fake_execute(self, fixed, moving):
+            del self, fixed, moving
+            raise RuntimeError(
+                "Exception thrown in SimpleITK ImageRegistrationMethod_Execute: "
+                "ITK ERROR: GradientDescentOptimizerv4Template: "
+                "m_Scales values must be > epsilon.[1e-20, 1e-12]"
+            )
+
+        monkeypatch.setattr(sitk.ImageRegistrationMethod, "Execute", fake_execute)
+
+        with pytest.raises(
+            RuntimeError,
+            match="Retry with a fixed `learning_rate` such as `0.1` or `0.01`",
+        ):
+            register_volume(
+                sample_2d_dataarray_spatial,
+                sample_2d_dataarray_spatial,
+                transform_type="bspline",
+                learning_rate="auto",
+            )
 
     def test_mismatched_spatial_units_raise(self, sample_2d_dataarray_spatial):
         """moving and fixed must agree on spatial coordinate units when declared."""
@@ -493,7 +596,9 @@ class TestRegisterVolumeAccuracy:
     def test_optimizer_weights_freezes_rotation(self, sample_2d_dataarray_spatial):
         """Setting rotation weight to 0 produces the same result as translation-only."""
         da = sample_2d_dataarray_spatial
-        _, affine_translation, _ = register_volume(da, da, transform_type="translation")
+        _, _affine_translation, _ = register_volume(
+            da, da, transform_type="translation"
+        )
         # 2D rigid with rotation frozen: [rotation, tx, ty] with weight [0, 1, 1].
         _, affine_frozen, _ = register_volume(
             da, da, transform_type="rigid", optimizer_weights=[0.0, 1.0, 1.0]
@@ -518,9 +623,7 @@ class TestRegisterVolumeThinDims:
                 "x": np.arange(32) * 0.1,
             },
         )
-        with pytest.raises(
-            ValueError, match="singleton spatial axes.*voxdim"
-        ):
+        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
             register_volume(da, da, transform_type="translation")
 
     def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
@@ -536,9 +639,7 @@ class TestRegisterVolumeThinDims:
                 "x": np.arange(32) * 0.1,
             },
         )
-        with pytest.raises(
-            ValueError, match="singleton spatial axes.*voxdim"
-        ):
+        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
             register_volume(da, da, transform_type="translation", resample=True)
 
     def test_float32_moving_float64_fixed_does_not_crash(

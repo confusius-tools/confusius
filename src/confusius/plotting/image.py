@@ -3,8 +3,8 @@
 import math
 import numbers
 import warnings
-from collections.abc import Hashable
-from typing import TYPE_CHECKING, Any, Literal, Sequence
+from collections.abc import Hashable, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import xarray as xr
@@ -25,8 +25,10 @@ from confusius.plotting._utils import (
     _style_colorbar,
     coerce_complex_to_magnitude,
     convert_axis_aligned_voxel_affine_to_physical_grid,
-    resample_voxel_affine_to_physical_grid as _shared_resample_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
+)
+from confusius.plotting._utils import (
+    resample_voxel_affine_to_physical_grid as _shared_resample_voxel_affine_to_physical_grid,
 )
 from confusius.signal import clean
 from confusius.validation import validate_matching_coordinates, validate_time_series
@@ -491,7 +493,7 @@ def _resolve_cmap(
     # `colors_before` entry shares its value with the start of `gray_band`).
     # Collapse duplicates by value, keeping the later entry so gray-band
     # boundaries take precedence over the underlying cmap at the same value.
-    deduped: dict[float, "str | tuple[float, ...] | list[float]"] = {}
+    deduped: dict[float, str | tuple[float, ...] | list[float]] = {}
     for value, color in new_colors:
         deduped[value] = color
     new_colors = list(deduped.items())
@@ -592,7 +594,7 @@ def _extract_slices(
                     f"slice_mode '{slice_mode}' has no coordinates, so slice_coords "
                     f"must be numeric positional indices, got {coord!r}."
                 )
-            idx = int(round(coord))
+            idx = round(coord)
             slice_da = data.isel({slice_mode: idx})
             actual_coord = float(coord)
         slices.append(slice_da)
@@ -666,7 +668,12 @@ class VolumePlotter:
         self.axes = axes
         self._user_provided_axes = axes is not None
         if figure is None and axes is not None:
-            self.figure = axes.flat[0].figure
+            from matplotlib.axes import Axes
+
+            first_axis = axes.flat[0]
+            if not isinstance(first_axis, Axes):
+                raise TypeError("axes must contain matplotlib.axes.Axes instances.")
+            self.figure = first_axis.get_figure(root=True)
         else:
             self.figure = figure
         self._bg_color = bg_color

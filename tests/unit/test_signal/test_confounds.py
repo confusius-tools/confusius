@@ -63,9 +63,12 @@ def test_regress_confounds_multiple_confounds(sample_timeseries):
     # Remove confounds
     cleaned = regress_confounds(signals_with_confounds, confounds)
 
-    # Check cleaned signals have no remaining linear dependence on confounds
+    # Check cleaned signals have no remaining linear dependence on centered confounds.
+    confounds_centered = confounds.values - confounds.values.mean(axis=0)
     for j in range(signals.sizes["space"]):
-        coeffs = np.linalg.lstsq(confounds.values, cleaned.values[:, j], rcond=None)[0]
+        coeffs = np.linalg.lstsq(confounds_centered, cleaned.values[:, j], rcond=None)[
+            0
+        ]
         assert_allclose(coeffs, 0.0, atol=1e-10)
 
 
@@ -99,8 +102,8 @@ def test_regress_confounds_orthogonalization():
         assert_allclose(coeff, 0.0, atol=1e-10)
 
 
-def test_regress_confounds_normalization_preserves_constant():
-    """Test that normalization preserves constant confounds."""
+def test_regress_confounds_without_standardization_preserves_constant():
+    """Unstandardized confound regression preserves constant confounds."""
     n_time = 50
     n_voxels = 10
 
@@ -125,14 +128,36 @@ def test_regress_confounds_normalization_preserves_constant():
         coords={"time": np.arange(n_time) * 0.1},
     )
 
-    # Should work without error and remove both confounds
-    cleaned = regress_confounds(signals, confounds, standardize_confounds=True)
+    # Should work without error and remove both confounds.
+    cleaned = regress_confounds(signals, confounds, standardize_confounds=False)
 
     # Cleaned signals should be orthogonal to both confounds
     for i in range(confounds.shape[1]):
         for j in range(n_voxels):
             dot_product = np.dot(cleaned.values[:, j], confounds.values[:, i])
             assert abs(dot_product) < 1e-10
+
+
+def test_regress_confounds_standardizes_confounds_by_default():
+    """Default confound standardization removes only confound fluctuations."""
+    n_time = 20
+    time = np.arange(n_time)
+    baseline = np.array([10.0, 20.0])
+    confound = xr.DataArray(
+        100.0 + np.linspace(-1, 1, n_time),
+        dims=["time"],
+        coords={"time": time},
+    )
+    signals = xr.DataArray(
+        baseline + 2.0 * confound.values[:, np.newaxis],
+        dims=["time", "space"],
+        coords={"time": time},
+    )
+
+    cleaned = regress_confounds(signals, confound)
+
+    assert_allclose(cleaned.mean("time"), signals.mean("time"))
+    assert_allclose(cleaned.std("time"), 0.0, atol=1e-10)
 
 
 def test_regress_confounds_rank_deficient():

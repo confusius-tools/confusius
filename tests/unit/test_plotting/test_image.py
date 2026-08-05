@@ -319,6 +319,11 @@ class TestPlotVolume:
         assert plotter.figure is fig
         assert len(ax.collections) == 1
 
+    def test_invalid_axes_array_raises(self, matplotlib_pyplot):
+        """VolumePlotter raises TypeError when an axes array contains non-Axes."""
+        with pytest.raises(TypeError, match="matplotlib.axes.Axes"):
+            VolumePlotter(slice_mode="z", axes=np.array([[object()]]))
+
     def test_axes_count_mismatch_raises(self, sample_3d_volume, matplotlib_pyplot):
         """plot_volume raises ValueError when axes count doesn't match slices."""
         import matplotlib.pyplot as plt

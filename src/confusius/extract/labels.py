@@ -1,6 +1,7 @@
 """Extraction of region-aggregated signals using integer label maps."""
 
-from typing import Hashable, Literal
+from collections.abc import Hashable
+from typing import Literal
 
 import flox.xarray
 import numpy as np

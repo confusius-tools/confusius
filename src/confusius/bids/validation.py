@@ -296,7 +296,7 @@ class FUSIBIDSMetadata(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def validate_timing(self) -> "FUSIBIDSMetadata":
+    def validate_timing(self) -> FUSIBIDSMetadata:
         """Validate timing field constraints per fUSI-BIDS spec.
 
         Enforces:
@@ -356,7 +356,7 @@ class FUSIBIDSMetadata(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_slice_timing_consistency(self) -> "FUSIBIDSMetadata":
+    def validate_slice_timing_consistency(self) -> FUSIBIDSMetadata:
         """Validate that `SliceTiming` and `SliceEncodingDirection` are consistent.
 
         Returns
@@ -373,7 +373,7 @@ class FUSIBIDSMetadata(BaseModel):
         return self
 
 
-def validate_metadata(metadata: Mapping[str, Any]) -> "FUSIBIDSMetadata":
+def validate_metadata(metadata: Mapping[str, Any]) -> FUSIBIDSMetadata:
     """Validate fUSI-BIDS metadata dictionary.
 
     Parameters

@@ -6,9 +6,28 @@ icon: lucide/history
 
 # Changelog
 
-## 0.6.0.dev0
+## 0.7.0.dev0
 
 Current development version for the next ConfUSIus release.
+
+### :sparkles: Enhancements
+
+- `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
+  defaults `meta_path` to the sibling `ScanParameters.mat` file
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+
+### :bug: Fixes
+
+- NIfTI loading now keeps nibabel data lazy under Dask, EchoFrame `.dat` loading is now
+  lazily chunked, and EchoFrame metadata reads current `xAxis`/`zAxis` fields
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+- Confound regression now z-scores confounds when `standardize_confounds=True`, so
+  motion-confound cleaning removes fluctuations without regressing baseline-related
+  signal by default ([#351](https://github.com/confusius-tools/confusius/pull/351)).
+
+## 0.6.0
+
+Released 2026-07-18.
 
 ### :boom: Breaking changes
 
@@ -75,6 +94,14 @@ Current development version for the next ConfUSIus release.
   visualize motion-correction summaries from `motion_params` tables returned by
   [`register_volumewise`][confusius.registration.register_volumewise]
   ([#302](https://github.com/confusius-tools/confusius/pull/302)).
+- Added [`plot_design_matrix`][confusius.plotting.plot_design_matrix] to visualize a
+  first-level GLM design matrix as a heatmap, with regressor names along the top and an
+  optional acquisition-time y-axis (`index_yaxis`)
+  ([#331](https://github.com/confusius-tools/confusius/pull/331)).
+- Added [`plot_contrast_matrix`][confusius.plotting.plot_contrast_matrix] to visualize a
+  GLM contrast, given as a string expression or a numeric vector/matrix, as a weight strip
+  aligned with the design regressors
+  ([#331](https://github.com/confusius-tools/confusius/pull/331)).
 - [`create_motion_dataframe`][confusius.registration.create_motion_dataframe] now always
   reports all named rotation / translation axes exposed by the affine dimensionality,
   even when one spatial axis is singleton
@@ -123,6 +150,10 @@ Current development version for the next ConfUSIus release.
 - Fixed velocity sign interpretation in [Beamformed IQ user
   guide](user-guide/beamformed-iq.md)
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+- Added a first-level GLM example that fits a voxel-wise first-level model to
+  a stimulus-evoked olfactory task with the
+  [Khallaf et al. 2026](https://doi.org/10.1038/s41586-026-10772-5) fUSI dataset
+  ([#320](https://github.com/confusius-tools/confusius/pull/320)).
 
 ### :wrench: Maintenance
 
@@ -133,6 +164,9 @@ Current development version for the next ConfUSIus release.
   `collapse` cell tag, with optional custom title and type (`collapse[<type>]:
   <title>`), i.e. `# %% tags=["collapse[warning]: Collapsed warning"]`
   ([#309](https://github.com/confusius-tools/confusius/pull/309)).
+- [Example Gallery]: Hovering a gallery card reveals the example's first paragraph as
+  an overlay over the card
+  ([#327](https://github.com/confusius-tools/confusius/pull/327)).
 
 ## 0.5.2
 
