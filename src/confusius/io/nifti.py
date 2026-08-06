@@ -322,7 +322,8 @@ def _find_bids_sidecars(path: Path) -> list[Path]:
 
     sidecars: list[Path] = []
     for folder in reversed(folders):
-        for sidecar_path in sorted(folder.glob("*.json")):
+        folder_sidecars: list[tuple[int, Path]] = []
+        for sidecar_path in folder.glob("*.json"):
             parsed_sidecar = _parse_bids_entities(sidecar_path)
             if parsed_sidecar is None:
                 continue
@@ -331,7 +332,8 @@ def _find_bids_sidecars(path: Path) -> list[Path]:
                 continue
             if any(target_entities.get(k) != v for k, v in sidecar_entities.items()):
                 continue
-            sidecars.append(sidecar_path)
+            folder_sidecars.append((len(sidecar_entities), sidecar_path))
+        sidecars.extend(path for _, path in sorted(folder_sidecars))
     return sidecars
 
 

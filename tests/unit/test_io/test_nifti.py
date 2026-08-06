@@ -1088,6 +1088,9 @@ class TestLoadNifti:
         (bids_root / "task-rest_angio.json").write_text(
             json.dumps({"ignored_suffix": "ignored"})
         )
+        (fusi_dir / "task-rest_pwd.json").write_text(
+            json.dumps({"Manufacturer": "folder", "InstitutionName": "folder"})
+        )
         (fusi_dir / "sub-01_ses-01_task-rest_pwd.json").write_text(
             json.dumps({"Manufacturer": "local", "custom_meta": "kept"})
         )
@@ -1100,6 +1103,7 @@ class TestLoadNifti:
 
         assert da.attrs["task_name"] == "rest"
         assert da.attrs["manufacturer"] == "local"
+        assert da.attrs["institution_name"] == "folder"
         assert da.attrs["custom_meta"] == "kept"
         assert "ignored_task" not in da.attrs
         assert "ignored_suffix" not in da.attrs
