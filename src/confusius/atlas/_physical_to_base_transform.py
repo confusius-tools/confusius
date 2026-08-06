@@ -8,6 +8,8 @@ vertices, and displacement components are in DataArray dim order `(z, y, x)`: co
 of a displacement field displaces along axis `dims[i]`.
 """
 
+from typing import cast
+
 import numpy as np
 import numpy.typing as npt
 import xarray as xr
@@ -285,10 +287,13 @@ def _apply_physical_to_base_transform(
     if transform.attrs.get("type") == "bspline_transform":
         field = sample_displacement_field_like(transform, reference)
 
-    initial_guess_affine = None
+    initial_guess_affine: npt.NDArray[np.float64] | None = None
     pre_affine = transform.attrs.get("affines", {}).get("bspline_initialization")
     if pre_affine is not None:
-        initial_guess_affine = np.linalg.inv(np.asarray(pre_affine, dtype=np.float64))
+        initial_guess_affine = cast(
+            npt.NDArray[np.float64],
+            np.linalg.inv(np.asarray(pre_affine, dtype=np.float64)),
+        )
 
     return _invert_displacement_field_at_points(field, vertices, initial_guess_affine)
 
