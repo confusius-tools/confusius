@@ -1073,6 +1073,29 @@ class TestLoadNifti:
         assert da.attrs.get("custom_meta") == "test_value"
         assert da.attrs.get("acquisition") == "test_acq"
 
+    def test_load_nifti_inherits_bids_sidecars(self, tmp_path: Path) -> None:
+        """BIDS sidecars inherit from root to recording-specific JSON files."""
+        bids_root = tmp_path / "dataset"
+        fusi_dir = bids_root / "rawdata" / "sub-01" / "ses-01" / "fusi"
+        fusi_dir.mkdir(parents=True)
+        (bids_root / "dataset_description.json").write_text("{}")
+        (bids_root / "pwd.json").write_text(
+            json.dumps({"TaskName": "rest", "Manufacturer": "root"})
+        )
+        (fusi_dir / "sub-01_ses-01_task-rest_pwd.json").write_text(
+            json.dumps({"Manufacturer": "local", "custom_meta": "kept"})
+        )
+
+        data = np.zeros((2, 3, 4), dtype=np.float32)
+        nifti_path = fusi_dir / "sub-01_ses-01_task-rest_acq-3dfusi_pwd.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+
+        assert da.attrs["task_name"] == "rest"
+        assert da.attrs["manufacturer"] == "local"
+        assert da.attrs["custom_meta"] == "kept"
+
     def test_load_nifti_preserves_sidecar_extra_affines(self, tmp_path: Path) -> None:
         """Sidecar `ConfUSIusAffines` entries survive qform/sform merge (#221)."""
         rng = np.random.default_rng(0)

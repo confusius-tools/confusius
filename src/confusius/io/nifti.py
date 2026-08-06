@@ -237,11 +237,106 @@ def _select_affines(
         return None, None
 
 
-def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
-    """Load and validate a BIDS JSON sidecar for a NIfTI file.
+def _parse_bids_entities(path: Path) -> tuple[dict[str, str], str] | None:
+    """Parse BIDS entities and suffix from a BIDS filename.
 
-    Looks for a `.json` file with the same stem as `path`. For `.nii.gz` files, the
-    sidecar is `stem.json` (e.g. `sub-01_bold.json` for `sub-01_bold.nii.gz`).
+    Parameters
+    ----------
+    path : pathlib.Path
+        BIDS filename.
+
+    Returns
+    -------
+    entities : dict[str, str]
+        BIDS entities keyed by entity name.
+    suffix : str
+        BIDS suffix.
+    """
+    while path.suffix:
+        path = path.with_suffix("")
+
+    parts = path.stem.split("_")
+    if not parts or "-" in parts[-1]:
+        return None
+
+    entities = {}
+    for part in parts[:-1]:
+        key, sep, value = part.partition("-")
+        if not sep or not key or not value:
+            return None
+        entities[key] = value
+    return entities, parts[-1]
+
+
+def _find_bids_root(path: Path) -> Path | None:
+    """Find the BIDS root for a recording path.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Path to a recording.
+
+    Returns
+    -------
+    pathlib.Path or None
+        Nearest ancestor containing `dataset_description.json`, or `None` for non-BIDS
+        paths.
+    """
+    for parent in path.parents:
+        if (parent / "dataset_description.json").exists():
+            return parent
+    return None
+
+
+def _find_bids_sidecars(path: Path) -> list[Path]:
+    """Find matching BIDS sidecars from least to most specific.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Path to a BIDS-like NIfTI file.
+
+    Returns
+    -------
+    list[pathlib.Path]
+        Matching JSON sidecars ordered by the BIDS inheritance principle.
+    """
+    parsed = _parse_bids_entities(path)
+    if parsed is None:
+        sidecar_path = path.with_suffix("").with_suffix(".json")
+        return [sidecar_path] if sidecar_path.exists() else []
+
+    root = _find_bids_root(path)
+    if root is None:
+        sidecar_path = path.with_suffix("").with_suffix(".json")
+        return [sidecar_path] if sidecar_path.exists() else []
+
+    target_entities, target_suffix = parsed
+    folders = []
+    folder = path.parent
+    while True:
+        folders.append(folder)
+        if folder == root:
+            break
+        folder = folder.parent
+
+    sidecars: list[Path] = []
+    for folder in reversed(folders):
+        for sidecar_path in sorted(folder.glob("*.json")):
+            parsed_sidecar = _parse_bids_entities(sidecar_path)
+            if parsed_sidecar is None:
+                continue
+            sidecar_entities, sidecar_suffix = parsed_sidecar
+            if sidecar_suffix != target_suffix:
+                continue
+            if any(target_entities.get(k) != v for k, v in sidecar_entities.items()):
+                continue
+            sidecars.append(sidecar_path)
+    return sidecars
+
+
+def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
+    """Load and validate inherited BIDS JSON sidecars for a NIfTI file.
 
     Parameters
     ----------
@@ -252,14 +347,12 @@ def _load_nifti_sidecar(path: Path) -> dict[str, Any]:
     -------
     dict[str, Any]
         Sidecar attributes converted to ConfUSIus (snake_case) naming via `from_bids`.
-        Empty dict when no sidecar is found.
+        Empty dict when no matching sidecar is found.
     """
-    sidecar_path = path.with_suffix("").with_suffix(".json")
-    if not sidecar_path.exists():
-        return {}
-
-    with open(sidecar_path) as f:
-        sidecar_data = json.load(f)
+    sidecar_data: dict[str, Any] = {}
+    for sidecar_path in _find_bids_sidecars(path):
+        with open(sidecar_path) as f:
+            sidecar_data.update(json.load(f))
 
     if sidecar_data:
         try:
@@ -1016,8 +1109,9 @@ def load_nifti(
     the data in Dask arrays for chunked, parallel processing. The data is transposed to
     ConfUSIus conventions with dimensions `(time, z, y, x)`.
 
-    A BIDS-style JSON sidecar file (same name, `.json` extension) is loaded
-    automatically when present.
+    A BIDS-style JSON sidecar file is loaded automatically when present. For files
+    inside a BIDS dataset, matching sidecars are inherited from the dataset root to the
+    recording folder before conversion to ConfUSIus attributes.
 
     Parameters
     ----------
