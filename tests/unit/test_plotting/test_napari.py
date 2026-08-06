@@ -5,7 +5,13 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
+from confusius.plotting import (
+    draw_napari_labels,
+    labels_from_layer,
+    plot_atlas_mesh,
+    plot_napari,
+    plot_surface,
+)
 
 
 class TestPlotNapari:
@@ -392,4 +398,141 @@ class TestLabelsFromLayer:
         # DirectLabelColormap built by build_atlas_cmap_and_norm.
         for label, expected_rgb in sample_roi_labels.attrs["rgb_lookup"].items():
             assert result.attrs["rgb_lookup"][label] == expected_rgb
+        viewer.close()
+
+
+class TestPlotSurface:
+    """Tests for plot_surface (bare mesh wire-up)."""
+
+    @staticmethod
+    def _tetra():
+        """Return a simple two-triangle mesh with per-vertex values."""
+        vertices = np.array(
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+        )
+        faces = np.array([[0, 1, 2], [0, 1, 3]], dtype=np.int32)
+        values = np.array([0.1, 0.4, 0.7, 1.0])
+        return vertices, faces, values
+
+    def test_mesh_and_values_reach_the_layer(self, make_napari_viewer):
+        """Vertices, faces, and per-vertex values round-trip into the Surface layer."""
+        vertices, faces, values = self._tetra()
+        viewer = make_napari_viewer()
+        _, layer = plot_surface(
+            (vertices, faces), values=values, viewer=viewer, show_scale_bar=False
+        )
+
+        npt.assert_array_equal(layer.vertices, vertices)
+        npt.assert_array_equal(layer.faces, faces)
+        npt.assert_array_equal(layer.vertex_values, values)
+        viewer.close()
+
+    def test_switches_viewer_to_3d(self, make_napari_viewer):
+        """A 3D mesh switches the viewer to 3D so the surface is actually visible."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        assert viewer.dims.ndisplay == 2
+        plot_surface((vertices, faces), viewer=viewer, show_scale_bar=False)
+
+        assert viewer.dims.ndisplay == 3
+        viewer.close()
+
+    def test_flat_surface_when_no_values(self, make_napari_viewer):
+        """Without values the surface is flat (all vertex values equal)."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        _, layer = plot_surface((vertices, faces), viewer=viewer, show_scale_bar=False)
+
+        assert len(np.unique(layer.vertex_values)) == 1
+        viewer.close()
+
+    def test_overlay_on_existing_viewer_carries_units(
+        self, sample_3d_volume, make_napari_viewer
+    ):
+        """Reuses the passed viewer, adds one layer, and sets the layer units."""
+        vertices, faces, _ = self._tetra()
+        viewer = make_napari_viewer()
+        plot_napari(sample_3d_volume, viewer=viewer, show_scale_bar=False)
+        n_layers_before = len(viewer.layers)
+
+        returned_viewer, layer = plot_surface(
+            (vertices, faces), viewer=viewer, units="um"
+        )
+
+        assert returned_viewer is viewer
+        assert len(viewer.layers) == n_layers_before + 1
+        assert viewer.scale_bar.visible
+        assert all(str(unit) == "micrometer" for unit in layer.units)
+        viewer.close()
+
+
+class TestPlotAtlasMesh:
+    """Tests for plot_atlas_mesh and the ds.atlas.plot.mesh accessor."""
+
+    @pytest.mark.parametrize("region", ["root", 997])
+    def test_mesh_name_and_color_come_from_atlas(
+        self, region, atlas_ds, make_napari_viewer
+    ):
+        """The layer's mesh, name, and solid color are pulled from the atlas region.
+
+        The region is resolved from either its acronym or its integer id.
+        """
+        viewer = make_napari_viewer()
+        expected_vertices, expected_faces = atlas_ds.atlas.get_mesh(region)
+        _, layer = plot_atlas_mesh(
+            atlas_ds, region, viewer=viewer, show_scale_bar=False
+        )
+
+        npt.assert_array_equal(layer.vertices, expected_vertices)
+        npt.assert_array_equal(layer.faces, expected_faces)
+        assert layer.name == "root"
+        # root's Allen color is [200, 200, 200]; the surface is drawn solid in it.
+        npt.assert_allclose(
+            layer.colormap.colors[0][:3], np.full(3, 200 / 255), atol=1e-6
+        )
+        viewer.close()
+
+    def test_side_restricts_mesh_to_one_hemisphere(self, atlas_ds, make_napari_viewer):
+        """`side` forwards to get_mesh, cutting the mesh down to that hemisphere."""
+        viewer = make_napari_viewer()
+        _, both = plot_atlas_mesh(atlas_ds, "root", viewer=viewer, show_scale_bar=False)
+        _, right = plot_atlas_mesh(
+            atlas_ds, "root", side="right", viewer=viewer, show_scale_bar=False
+        )
+
+        assert len(right.vertices) < len(both.vertices)
+        viewer.close()
+
+    def test_values_drive_colormap_instead_of_region_color(
+        self, atlas_ds, make_napari_viewer
+    ):
+        """Per-vertex values reach the layer and suppress the solid region color."""
+        viewer = make_napari_viewer()
+        vertices, _ = atlas_ds.atlas.get_mesh("root")
+        values = np.linspace(0.0, 1.0, len(vertices))
+        _, layer = plot_atlas_mesh(
+            atlas_ds, "root", values=values, viewer=viewer, show_scale_bar=False
+        )
+
+        npt.assert_array_equal(layer.vertex_values, values)
+        assert layer.colormap.name != "root"
+        viewer.close()
+
+    def test_units_taken_from_atlas(self, atlas_ds, make_napari_viewer):
+        """The layer units are derived from the reference coordinates (mm)."""
+        viewer = make_napari_viewer()
+        _, layer = plot_atlas_mesh(atlas_ds, "root", viewer=viewer)
+
+        assert viewer.scale_bar.visible
+        assert all(str(unit) == "millimeter" for unit in layer.units)
+        viewer.close()
+
+    def test_accessor_matches_plot_atlas_mesh(self, atlas_ds, make_napari_viewer):
+        """ds.atlas.plot.mesh delegates to plot_atlas_mesh."""
+        viewer = make_napari_viewer()
+        _, layer = atlas_ds.atlas.plot.mesh("root", viewer=viewer, show_scale_bar=False)
+
+        expected_vertices, _ = atlas_ds.atlas.get_mesh("root")
+        npt.assert_array_equal(layer.vertices, expected_vertices)
+        assert layer.name == "root"
         viewer.close()
