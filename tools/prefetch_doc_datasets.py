@@ -129,6 +129,7 @@ def _prefetch_cybis_pereira() -> None:
         acqs="slice32",
     )
 
+    # docs/examples/06_decoding/01_searchlight_speed.py
     # docs/examples/05_glm/02_first_level_continuous.py
     fetch_cybis_pereira_2026(
         datasets="rawdata",
@@ -139,7 +140,7 @@ def _prefetch_cybis_pereira() -> None:
 
 
 def _prefetch_khallaf() -> None:
-    # docs/examples/glm/first_level.py
+    # docs/examples/05_glm/01_first_level.py
     fetch_khallaf_2026(
         datasets="rawdata",
         subjects="5622",

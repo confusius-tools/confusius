@@ -71,6 +71,11 @@ Released 2026-07-18.
 
 ### :sparkles: Enhancements
 
+- New `confusius.decoding` module with
+  [`SearchLight`][confusius.decoding.SearchLight], which maps how well a
+  cross-validated scikit-learn estimator predicts a target from the local
+  neighborhood of each voxel
+  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
@@ -154,6 +159,10 @@ Released 2026-07-18.
 - Fixed velocity sign interpretation in [Beamformed IQ user
   guide](user-guide/beamformed-iq.md)
   ([#313](https://github.com/confusius-tools/confusius/pull/313)).
+- Added a [searchlight decoding example](examples/_built/decoding/searchlight_speed.md)
+  that decodes locomotion speed from a single fUSI plane and compares the searchlight map
+  against a matched GLM
+  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 - Added a first-level GLM example that fits a voxel-wise first-level model to
   a stimulus-evoked olfactory task with the
   [Khallaf et al. 2026](https://doi.org/10.1038/s41586-026-10772-5) fUSI dataset
