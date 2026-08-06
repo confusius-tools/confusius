@@ -254,8 +254,10 @@ def clean(
         signals before regression. The time dimension and coordinates must match the
         signals exactly. If not provided, no confound regression is applied.
     standardize_confounds : bool, default: True
-        Whether to standardize confounds by their maximum absolute value before
-        regression. This improves numerical stability while preserving constant terms.
+        Whether to z-score confounds before regression. If `False`, confounds are
+        divided by their maximum absolute value for numerical stability without
+        centering. When `filter_method="cosine"`, confounds are not z-scored because
+        the cosine drift matrix includes a constant column.
     ensure_finite : bool, default: False
         Whether to repair non-finite values (`NaN`, `Inf`) in `signals` and
         `confounds` before cleaning by interpolating each series along `time` and
@@ -389,8 +391,15 @@ def clean(
             confounds = censor_samples(confounds, sample_mask=sample_mask)
 
     if confounds is not None:
+        # Cosine filtering uses a constant drift regressor to match filter_cosine.
+        # Z-scoring would zero that column and stop removing the mean.
+        regress_standardized_confounds = (
+            standardize_confounds and filter_method != "cosine"
+        )
         signals = regress_confounds(
-            signals, confounds, standardize_confounds=standardize_confounds
+            signals,
+            confounds,
+            standardize_confounds=regress_standardized_confounds,
         )
 
     if standardize_method is None:

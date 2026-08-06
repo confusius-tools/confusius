@@ -494,7 +494,12 @@ class VolumePlotter:
         self.axes = axes
         self._user_provided_axes = axes is not None
         if figure is None and axes is not None:
-            self.figure = axes.flat[0].figure
+            from matplotlib.axes import Axes
+
+            first_axis = axes.flat[0]
+            if not isinstance(first_axis, Axes):
+                raise TypeError("axes must contain matplotlib.axes.Axes instances.")
+            self.figure = first_axis.get_figure(root=True)
         else:
             self.figure = figure
         self._bg_color = bg_color
