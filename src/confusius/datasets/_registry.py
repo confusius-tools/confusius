@@ -16,6 +16,10 @@ from ._nunez_elizalde_2022 import _BIDS_ROOT as _nunez_elizalde_2022_bids_root
 from ._nunez_elizalde_2022 import _TOTAL_SIZE_BYTES as _nunez_elizalde_2022_size
 from ._pepe_mariani_2026 import _TEMPLATE_ROOT as _pepe_mariani_2026_template_root
 from ._pepe_mariani_2026 import _TOTAL_SIZE_BYTES as _pepe_mariani_2026_size
+from ._pepe_mariani_2026_bids import _BIDS_ROOT as _pepe_mariani_2026_bids_root
+from ._pepe_mariani_2026_bids import _TOTAL_SIZE_BYTES as _pepe_mariani_2026_bids_size
+from ._pereira_2025 import _BIDS_ROOT as _pereira_2025_bids_root
+from ._pereira_2025 import _TOTAL_SIZE_BYTES as _pereira_2025_size
 from ._utils import get_datasets_dir
 
 _SIZE_UNITS = ("B", "KB", "MB", "GB", "TB")
@@ -24,14 +28,24 @@ RegistryEntry = tuple[str, int, str]
 
 _REGISTRY: tuple[RegistryEntry, ...] = (
     (
+        "fetch_nunez_elizalde_2022",
+        _nunez_elizalde_2022_size,
+        _nunez_elizalde_2022_bids_root,
+    ),
+    (
+        "fetch_pereira_2025",
+        _pereira_2025_size,
+        _pereira_2025_bids_root,
+    ),
+    (
         "fetch_cybis_pereira_2026",
         _cybis_pereira_2026_size,
         _cybis_pereira_2026_bids_root,
     ),
     (
-        "fetch_khallaf_2026",
-        _khallaf_2026_size,
-        _khallaf_2026_bids_root,
+        "fetch_pepe_mariani_2026",
+        _pepe_mariani_2026_bids_size,
+        _pepe_mariani_2026_bids_root,
     ),
     (
         "fetch_landemard_2026",
@@ -39,9 +53,9 @@ _REGISTRY: tuple[RegistryEntry, ...] = (
         _landemard_2026_bids_root,
     ),
     (
-        "fetch_nunez_elizalde_2022",
-        _nunez_elizalde_2022_size,
-        _nunez_elizalde_2022_bids_root,
+        "fetch_khallaf_2026",
+        _khallaf_2026_size,
+        _khallaf_2026_bids_root,
     ),
     (
         "fetch_template_huang_2025",

@@ -12,6 +12,10 @@ Current development version for the next ConfUSIus release.
 
 ### :sparkles: Enhancements
 
+- Added [`fetch_pereira_2025`][confusius.datasets.fetch_pereira_2025] and
+  [`fetch_pepe_mariani_2026`][confusius.datasets.fetch_pepe_mariani_2026] for the new
+  OSF-hosted fUSI-BIDS re-exports
+  ([#361](https://github.com/confusius-tools/confusius/pull/361)).
 - `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
   defaults `meta_path` to the sibling `ScanParameters.mat` file
   ([#343](https://github.com/confusius-tools/confusius/pull/343)).
