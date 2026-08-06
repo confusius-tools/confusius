@@ -1088,9 +1088,6 @@ class TestLoadNifti:
         (bids_root / "task-rest_angio.json").write_text(
             json.dumps({"ignored_suffix": "ignored"})
         )
-        (fusi_dir / "task-rest_pwd.json").write_text(
-            json.dumps({"Manufacturer": "folder", "InstitutionName": "folder"})
-        )
         (fusi_dir / "sub-01_ses-01_task-rest_pwd.json").write_text(
             json.dumps({"Manufacturer": "local", "custom_meta": "kept"})
         )
@@ -1103,10 +1100,39 @@ class TestLoadNifti:
 
         assert da.attrs["task_name"] == "rest"
         assert da.attrs["manufacturer"] == "local"
-        assert da.attrs["institution_name"] == "folder"
         assert da.attrs["custom_meta"] == "kept"
         assert "ignored_task" not in da.attrs
         assert "ignored_suffix" not in da.attrs
+
+    def test_load_nifti_warns_and_ignores_same_level_bids_sidecars(
+        self, tmp_path: Path
+    ) -> None:
+        """Multiple applicable sidecars in the same BIDS folder are ignored."""
+        bids_root = tmp_path / "dataset"
+        fusi_dir = bids_root / "rawdata" / "sub-01" / "ses-01" / "fusi"
+        fusi_dir.mkdir(parents=True)
+        (bids_root / "dataset_description.json").write_text("{}")
+        (bids_root / "pwd.json").write_text(
+            json.dumps({"TaskName": "rest", "Manufacturer": "root"})
+        )
+        (fusi_dir / "task-rest_pwd.json").write_text(
+            json.dumps({"Manufacturer": "folder", "InstitutionName": "folder"})
+        )
+        (fusi_dir / "sub-01_ses-01_task-rest_pwd.json").write_text(
+            json.dumps({"Manufacturer": "local", "custom_meta": "ignored"})
+        )
+
+        data = np.zeros((2, 3, 4), dtype=np.float32)
+        nifti_path = fusi_dir / "sub-01_ses-01_task-rest_acq-3dfusi_pwd.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with pytest.warns(UserWarning, match="Multiple BIDS JSON sidecars"):
+            da = load_nifti(nifti_path)
+
+        assert da.attrs["task_name"] == "rest"
+        assert da.attrs["manufacturer"] == "root"
+        assert "institution_name" not in da.attrs
+        assert "custom_meta" not in da.attrs
 
     def test_load_nifti_with_non_bids_name_reads_local_sidecar(
         self, tmp_path: Path

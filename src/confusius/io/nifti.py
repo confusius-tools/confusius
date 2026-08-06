@@ -322,8 +322,8 @@ def _find_bids_sidecars(path: Path) -> list[Path]:
 
     sidecars: list[Path] = []
     for folder in reversed(folders):
-        folder_sidecars: list[tuple[int, Path]] = []
-        for sidecar_path in folder.glob("*.json"):
+        folder_sidecars: list[Path] = []
+        for sidecar_path in sorted(folder.glob("*.json")):
             parsed_sidecar = _parse_bids_entities(sidecar_path)
             if parsed_sidecar is None:
                 continue
@@ -332,8 +332,15 @@ def _find_bids_sidecars(path: Path) -> list[Path]:
                 continue
             if any(target_entities.get(k) != v for k, v in sidecar_entities.items()):
                 continue
-            folder_sidecars.append((len(sidecar_entities), sidecar_path))
-        sidecars.extend(path for _, path in sorted(folder_sidecars))
+            folder_sidecars.append(sidecar_path)
+        if len(folder_sidecars) > 1:
+            warnings.warn(
+                "Multiple BIDS JSON sidecars apply at the same directory level. "
+                f"Ignoring sidecars in {folder}.",
+                stacklevel=find_stack_level(),
+            )
+            continue
+        sidecars.extend(folder_sidecars)
     return sidecars
 
 
