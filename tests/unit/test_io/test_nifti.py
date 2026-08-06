@@ -1082,6 +1082,12 @@ class TestLoadNifti:
         (bids_root / "pwd.json").write_text(
             json.dumps({"TaskName": "rest", "Manufacturer": "root"})
         )
+        (bids_root / "task-other_pwd.json").write_text(
+            json.dumps({"ignored_task": "ignored"})
+        )
+        (bids_root / "task-rest_angio.json").write_text(
+            json.dumps({"ignored_suffix": "ignored"})
+        )
         (fusi_dir / "sub-01_ses-01_task-rest_pwd.json").write_text(
             json.dumps({"Manufacturer": "local", "custom_meta": "kept"})
         )
@@ -1094,6 +1100,21 @@ class TestLoadNifti:
 
         assert da.attrs["task_name"] == "rest"
         assert da.attrs["manufacturer"] == "local"
+        assert da.attrs["custom_meta"] == "kept"
+        assert "ignored_task" not in da.attrs
+        assert "ignored_suffix" not in da.attrs
+
+    def test_load_nifti_with_non_bids_name_reads_local_sidecar(
+        self, tmp_path: Path
+    ) -> None:
+        """Non-BIDS-looking NIfTI names still use the local JSON sidecar."""
+        data = np.zeros((2, 3, 4), dtype=np.float32)
+        nifti_path = tmp_path / "sub-01.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+        (tmp_path / "sub-01.json").write_text(json.dumps({"custom_meta": "kept"}))
+
+        da = load_nifti(nifti_path)
+
         assert da.attrs["custom_meta"] == "kept"
 
     def test_load_nifti_preserves_sidecar_extra_affines(self, tmp_path: Path) -> None:

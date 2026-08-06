@@ -18,6 +18,10 @@ Current development version for the next ConfUSIus release.
 
 ### :bug: Fixes
 
+- [`load_nifti`][confusius.io.load_nifti] now follows the BIDS inheritance principle
+  for matching JSON sidecars, so shared metadata stored at the dataset root or parent
+  folders is preserved when loading recordings
+  ([#359](https://github.com/confusius-tools/confusius/pull/359)).
 - NIfTI loading now keeps nibabel data lazy under Dask, EchoFrame `.dat` loading is now
   lazily chunked, and EchoFrame metadata reads current `xAxis`/`zAxis` fields
   ([#343](https://github.com/confusius-tools/confusius/pull/343)).
