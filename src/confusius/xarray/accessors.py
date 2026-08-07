@@ -201,7 +201,10 @@ class FUSIAccessor:
         >>> data.fusi.spacing
         {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
-        from confusius._utils.coordinates import get_coordinate_spacings
+        from confusius._utils.coordinates import (
+            get_coordinate_spacing_info,
+            get_coordinate_spacings,
+        )
         from confusius._utils.geometry import (
             get_voxel_affine_spacing,
             has_voxel_affine_geometry,
@@ -214,9 +217,10 @@ class FUSIAccessor:
         missing_dims = [
             str(dim) for dim in self._obj.dims if str(dim) not in voxel_spacing
         ]
-        regular_spacing = (
-            get_coordinate_spacings(self._obj[missing_dims]) if missing_dims else {}
-        )
+        regular_spacing = {
+            dim: get_coordinate_spacing_info(dim, self._obj, 1e-2).value
+            for dim in missing_dims
+        }
         return {
             dim_str: voxel_spacing[dim_str]
             if dim_str in voxel_spacing

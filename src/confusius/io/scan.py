@@ -23,6 +23,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.io.utils import check_path
 
@@ -385,7 +386,7 @@ def _attach_scan_voxel_affine_geometry(
     return add_physical_coords_from_voxel_affine(
         data,
         voxel_to_physical,
-        voxel_dims=("k", "j", "i"),
+        voxel_dims=VOXEL_DIMS,
         physical_coord_names=("z", "y", "x"),
         physical_coord_attrs={
             "z": {"units": "mm", "voxdim": float(abs(voxel_to_physical[0, 0]))},

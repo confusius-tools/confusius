@@ -11,6 +11,8 @@ import pandas as pd
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
 
 @pytest.fixture
 def frame_times():
@@ -34,32 +36,44 @@ def events():
 
 @pytest.fixture
 def fusi_data(rng, frame_times):
-    """Small `(time, z, y, x)` DataArray with mm spatial coordinates."""
+    """Small `(time, k, j, i)` DataArray with mm spatial coordinates."""
     n_time = len(frame_times)
-    return xr.DataArray(
+    data = xr.DataArray(
         rng.standard_normal((n_time, 2, 3, 4)),
-        dims=["time", "z", "y", "x"],
+        dims=["time", "k", "j", "i"],
         coords={
             "time": frame_times,
-            "z": np.arange(2) * 0.5,
-            "y": np.arange(3) * 0.1,
-            "x": np.arange(4) * 0.1,
+            "k": np.arange(2),
+            "j": np.arange(3),
+            "i": np.arange(4),
         },
+    )
+    return add_physical_coords_from_voxel_affine(
+        data,
+        np.diag([0.5, 0.1, 0.1, 1.0]),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
     )
 
 
 @pytest.fixture
 def fusi_data_2d(rng, frame_times):
-    """Small `(time, y, x)` DataArray (no `z` axis)."""
+    """Small `(time, j, i)` DataArray (no `k` axis)."""
     n_time = len(frame_times)
-    return xr.DataArray(
+    data = xr.DataArray(
         rng.standard_normal((n_time, 5, 6)),
-        dims=["time", "y", "x"],
+        dims=["time", "j", "i"],
         coords={
             "time": frame_times,
-            "y": np.arange(5) * 0.1,
-            "x": np.arange(6) * 0.1,
+            "j": np.arange(5),
+            "i": np.arange(6),
         },
+    )
+    return add_physical_coords_from_voxel_affine(
+        data,
+        np.diag([0.1, 0.1, 1.0]),
+        voxel_dims=("j", "i"),
+        physical_coord_names=("y", "x"),
     )
 
 

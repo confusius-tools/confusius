@@ -65,8 +65,8 @@ def test_fit_transform_matches_fit_then_transform(sample_3dt_volume, mode):
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
 def test_inverse_transform_matches_sklearn(sample_3dt_volume, mode):
     """inverse_transform matches sklearn FastICA reconstruction for both modes."""
-    stacked = sample_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = sample_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -86,7 +86,7 @@ def test_inverse_transform_matches_sklearn(sample_3dt_volume, mode):
         sklearn_reconstructed = time_courses @ spatial_maps + voxel_mean
 
     np.testing.assert_allclose(
-        reconstructed.stack(feature=["z", "y", "x"]).values,
+        reconstructed.stack(feature=["k", "j", "i"]).values,
         sklearn_reconstructed,
     )
     assert reconstructed.name == sample_3dt_volume.name
@@ -96,8 +96,8 @@ def test_inverse_transform_matches_sklearn(sample_3dt_volume, mode):
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
 def test_wrapper_matches_sklearn_attributes(sample_3dt_volume, mode):
     """Wrapper exposes the same learned matrices as sklearn FastICA for both modes."""
-    stacked = sample_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = sample_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -110,14 +110,14 @@ def test_wrapper_matches_sklearn_attributes(sample_3dt_volume, mode):
             sklearn_model.transform(X),
         )
         np.testing.assert_allclose(
-            model.maps_.stack(feature=["z", "y", "x"]).values,
+            model.maps_.stack(feature=["k", "j", "i"]).values,
             sklearn_model.components_,
         )
         np.testing.assert_allclose(
-            model.mean_.stack(feature=["z", "y", "x"]).values, sklearn_model.mean_
+            model.mean_.stack(feature=["k", "j", "i"]).values, sklearn_model.mean_
         )
         np.testing.assert_allclose(
-            model.whitening_.stack(feature=["z", "y", "x"]).values,
+            model.whitening_.stack(feature=["k", "j", "i"]).values,
             sklearn_model.whitening_,
         )
         assert model.n_iter_ == sklearn_model.n_iter_
@@ -131,11 +131,11 @@ def test_wrapper_matches_sklearn_attributes(sample_3dt_volume, mode):
             (X - voxel_mean) @ spatial_maps.T,
         )
         np.testing.assert_allclose(
-            model.maps_.stack(feature=["z", "y", "x"]).values,
+            model.maps_.stack(feature=["k", "j", "i"]).values,
             spatial_maps,
         )
         np.testing.assert_allclose(
-            model.mean_.stack(feature=["z", "y", "x"]).values,
+            model.mean_.stack(feature=["k", "j", "i"]).values,
             voxel_mean,
         )
         assert not hasattr(model, "whitening_")
@@ -246,16 +246,16 @@ def test_fit_transform_rejects_unexpected_fit_params(sample_3dt_volume):
 def test_transform_checks_spatial_layout(sample_3dt_volume):
     """transform raises if spatial layout differs from fit."""
     model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
-    bad = sample_3dt_volume.isel(x=slice(0, 4))
+    bad = sample_3dt_volume.isel(i=slice(0, 4))
 
-    with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
+    with pytest.raises(ValueError, match="Spatial dimension 'i' has size"):
         model.transform(bad)
 
 
 def test_transform_checks_spatial_dimension_names(sample_3dt_volume):
     """transform raises if spatial dimension names differ from fit."""
     model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
-    bad = sample_3dt_volume.rename({"x": "region"})
+    bad = sample_3dt_volume.rename({"i": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
         model.transform(bad)
@@ -268,9 +268,9 @@ def test_transform_without_time_coordinate_uses_index(sample_3dt_volume):
         sample_3dt_volume.values,
         dims=sample_3dt_volume.dims,
         coords={
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
+            "k": sample_3dt_volume.coords["k"],
+            "j": sample_3dt_volume.coords["j"],
+            "i": sample_3dt_volume.coords["i"],
         },
     )
 
@@ -306,7 +306,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_3dt_volume, monkeypat
     """Estimator remains unfitted when underlying sklearn FastICA fit fails."""
     import confusius.decomposition.fastica as fastica_module
 
-    def _raise_fit(self, X, y=None):
+    def _raise_fit(self, X, j=None):
         raise RuntimeError("fit failed")
 
     monkeypatch.setattr(fastica_module._SklearnFastICA, "fit", _raise_fit)
@@ -393,17 +393,17 @@ def test_mask_restricts_features(sample_3dt_volume):
     mask = xr.DataArray(
         np.zeros(
             (
-                sample_3dt_volume.sizes["z"],
-                sample_3dt_volume.sizes["y"],
-                sample_3dt_volume.sizes["x"],
+                sample_3dt_volume.sizes["k"],
+                sample_3dt_volume.sizes["j"],
+                sample_3dt_volume.sizes["i"],
             ),
             dtype=bool,
         ),
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         coords={
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
+            "k": sample_3dt_volume.coords["k"],
+            "j": sample_3dt_volume.coords["j"],
+            "i": sample_3dt_volume.coords["i"],
         },
     )
     mask.values[:, :2, :] = True
@@ -413,23 +413,22 @@ def test_mask_restricts_features(sample_3dt_volume):
     assert model.n_features_in_ == int(mask.values.sum())
 
 
-
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume):
     """Masked FastICA keeps full geometry and fills outside-mask voxels with zero."""
     mask = xr.DataArray(
         np.zeros(
             (
-                sample_3dt_volume.sizes["z"],
-                sample_3dt_volume.sizes["y"],
-                sample_3dt_volume.sizes["x"],
+                sample_3dt_volume.sizes["k"],
+                sample_3dt_volume.sizes["j"],
+                sample_3dt_volume.sizes["i"],
             ),
             dtype=bool,
         ),
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         coords={
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
+            "k": sample_3dt_volume.coords["k"],
+            "j": sample_3dt_volume.coords["j"],
+            "i": sample_3dt_volume.coords["i"],
         },
     )
     mask.values[:, :2, :] = True
@@ -454,7 +453,7 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume)
 
 def test_mask_mismatch_raises(sample_3dt_volume):
     """fit raises when mask does not match spatial dimensions."""
-    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
     with pytest.raises(ValueError, match="missing from mask"):
         FastICA(mask=bad_mask).fit(sample_3dt_volume)

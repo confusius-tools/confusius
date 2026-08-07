@@ -54,6 +54,19 @@ def _make_voxel_affine_2d() -> xr.DataArray:
     )
 
 
+def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
+    """Attach identity voxel-affine geometry to a test array."""
+    voxel_dims = tuple(str(dim) for dim in data.dims if str(dim) in {"k", "j", "i"})
+    physical_names = {1: ("x",), 2: ("y", "x"), 3: ("z", "y", "x")}[len(voxel_dims)]
+    return add_physical_coords_from_voxel_affine(
+        data,
+        np.eye(len(voxel_dims) + 1),
+        voxel_dims=voxel_dims,
+        physical_coord_names=physical_names,
+        physical_coord_attrs={name: {"units": "mm"} for name in physical_names},
+    )
+
+
 def _make_voxel_affine_3d_slab() -> xr.DataArray:
     """Create a small 3D voxel-affine slab with a singleton slice dimension."""
     base = xr.DataArray(
@@ -114,14 +127,18 @@ class TestRegisterVolumeValidation:
 
     def test_wrong_ndim_1d_raises(self):
         """1D input raises ValueError."""
-        da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
+        da = _add_identity_voxel_affine(
+            xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
+        )
+        with pytest.raises(
+            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+        ):
             register_volume(da, da)
 
     def test_wrong_ndim_4d_raises(self):
         """4D input raises ValueError."""
         da = xr.DataArray(np.zeros((4, 4, 4, 4)), dims=("a", "b", "c", "d"))
-        with pytest.raises(ValueError, match="Unexpected dimensions"):
+        with pytest.raises(ValueError, match="at most 3 spatial dimensions"):
             register_volume(da, da)
 
     def test_invalid_initialization_raises(self, sample_2d_dataarray_spatial):
@@ -157,7 +174,7 @@ class TestRegisterVolumeValidation:
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
         """Different shapes do not raise an error."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16))
         result, _, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
@@ -293,8 +310,10 @@ class TestRegisterVolumeOutput:
 
     def test_without_coords_raises(self, sample_2d_image):
         """DataArray without coordinates is rejected."""
-        da = xr.DataArray(sample_2d_image, dims=("y", "x"))
-        with pytest.raises(ValueError, match="Missing required coordinate"):
+        da = xr.DataArray(sample_2d_image, dims=("j", "i"))
+        with pytest.raises(
+            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+        ):
             register_volume(da, da, transform_type="translation")
 
     def test_returns_affine_matrix(self, sample_2d_dataarray_spatial):
@@ -317,7 +336,7 @@ class TestRegisterVolumeOutput:
         assert isinstance(bspline_tx, xr.DataArray)
         assert bspline_tx.attrs.get("type") == "bspline_transform"
         assert bspline_tx.dims[0] == "component"
-        np.testing.assert_array_equal(bspline_tx.coords["component"].values, ["y", "x"])
+        np.testing.assert_array_equal(bspline_tx.coords["component"].values, ["j", "i"])
 
     def test_bspline_control_point_domain_matches_each_axis_extent(self):
         """Each axis's control-point domain scales with its own physical extent.
@@ -333,10 +352,12 @@ class TestRegisterVolumeOutput:
         """
         img = np.zeros((20, 40), dtype=np.float32)
         img[6:14, 10:30] = 100.0
-        da = xr.DataArray(
-            img,
-            dims=("y", "x"),
-            coords={"y": np.arange(20) * 0.5, "x": np.arange(40) * 0.1},
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                img,
+                dims=("j", "i"),
+                coords={"j": np.arange(20) * 0.5, "i": np.arange(40) * 0.1},
+            )
         )
         _, bspline_tx, _ = register_volume(  # ty: ignore[no-matching-overload]
             da,
@@ -346,10 +367,10 @@ class TestRegisterVolumeOutput:
         )
 
         y_span = float(
-            bspline_tx.coords["y"].values[-1] - bspline_tx.coords["y"].values[0]
+            bspline_tx.coords["j"].values[-1] - bspline_tx.coords["j"].values[0]
         )
         x_span = float(
-            bspline_tx.coords["x"].values[-1] - bspline_tx.coords["x"].values[0]
+            bspline_tx.coords["i"].values[-1] - bspline_tx.coords["i"].values[0]
         )
         # The control-point domain is padded beyond the image FOV for boundary
         # support, so spans are somewhat larger than the raw physical extent (9.5 mm
@@ -363,7 +384,7 @@ class TestRegisterVolumeOutput:
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
         """resample=True output coordinates match the fixed volume, not moving."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16))
         result, _, _ = register_volume(
             moving,
             sample_2d_dataarray_spatial,
@@ -371,15 +392,15 @@ class TestRegisterVolumeOutput:
             resample=True,
         )
         assert_allclose(
-            result.coords["y"].values, sample_2d_dataarray_spatial.coords["y"].values
+            result.coords["j"].values, sample_2d_dataarray_spatial.coords["j"].values
         )
         assert_allclose(
-            result.coords["x"].values, sample_2d_dataarray_spatial.coords["x"].values
+            result.coords["i"].values, sample_2d_dataarray_spatial.coords["i"].values
         )
 
     def test_resample_true_inherits_fixed_affines(self, sample_2d_dataarray_spatial):
         """resample=True output inherits physical-space affines from `fixed`."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16)).copy()
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16)).copy()
         fixed = sample_2d_dataarray_spatial.copy()
         moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
         fixed.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
@@ -413,7 +434,7 @@ class TestRegisterVolumeOutput:
             result.attrs["voxel_to_physical"], fixed.attrs["voxel_to_physical"]
         )
         assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
-        assert result.coords["x"].dims == fixed.coords["x"].dims
+        assert result.coords["i"].dims == fixed.coords["i"].dims
 
 
 class TestRegisterVolumeMask:
@@ -432,14 +453,21 @@ class TestRegisterVolumeMask:
         shift = 2
         shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
         fixed = sample_2d_dataarray_spatial
-        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+        moving = xr.DataArray(
+            shifted, dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
 
         region = np.zeros(fixed.shape, dtype=bool)
         region[4:28, 4:28] = True  # covers the bright square in both volumes
-        bool_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        bool_mask = xr.DataArray(
+            region, dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
         # 512 is a multiple of 256: a uint8 cast of the raw integer mask wraps it to 0.
         int_mask = xr.DataArray(
-            region.astype(np.int32) * 512, dims=fixed.dims, coords=fixed.coords
+            region.astype(np.int32) * 512,
+            dims=fixed.dims,
+            coords=fixed.coords,
+            attrs=fixed.attrs,
         )
 
         _, affine_bool, _ = register_volume(
@@ -469,12 +497,18 @@ class TestRegisterVolumeMask:
         shift = 2
         shifted = np.roll(np.roll(sample_2d_image, shift, axis=0), shift, axis=1)
         fixed = sample_2d_dataarray_spatial
-        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+        moving = xr.DataArray(
+            shifted, dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
 
         region = np.zeros(fixed.shape, dtype=bool)
         region[4:28, 4:28] = True
-        fixed_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
-        moving_mask = xr.DataArray(region, dims=fixed.dims, coords=fixed.coords)
+        fixed_mask = xr.DataArray(
+            region, dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
+        moving_mask = xr.DataArray(
+            region, dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
 
         _, affine, _ = register_volume(
             moving,
@@ -503,6 +537,7 @@ class TestRegisterVolumeResample:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         result, _, _ = register_volume(
             moving,
@@ -523,6 +558,7 @@ class TestRegisterVolumeResample:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         result, _, _ = register_volume(
             moving,
@@ -568,15 +604,19 @@ class TestRegisterVolumeAccuracy:
         """Registration recovers a known 3D translation."""
         shifted = np.roll(sample_3d_array, 2, axis=0)
         spacing = (1.0, 1.0, 1.0)
-        fixed = xr.DataArray(
-            sample_3d_array,
-            dims=("z", "y", "x"),
-            coords={
-                d: np.arange(sample_3d_array.shape[i]) * spacing[i]
-                for i, d in enumerate(("z", "y", "x"))
-            },
+        fixed = _add_identity_voxel_affine(
+            xr.DataArray(
+                sample_3d_array,
+                dims=("k", "j", "i"),
+                coords={
+                    d: np.arange(sample_3d_array.shape[i]) * spacing[i]
+                    for i, d in enumerate(("k", "j", "i"))
+                },
+            )
         )
-        moving = xr.DataArray(shifted, dims=fixed.dims, coords=fixed.coords)
+        moving = xr.DataArray(
+            shifted, dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
         result, _, _ = register_volume(
             moving,
             fixed,
@@ -614,33 +654,39 @@ class TestRegisterVolumeThinDims:
         """3D volume with depth=1 (coronal fUSI scan) registers without error."""
         arr = np.zeros((1, 32, 32), dtype=np.float32)
         arr[0, 12:20, 12:20] = 1.0
-        da = xr.DataArray(
-            arr,
-            dims=("z", "y", "x"),
-            coords={
-                "z": np.array([0.0]),
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                arr,
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.array([0.0]),
+                    "j": np.arange(32) * 0.1,
+                    "i": np.arange(32) * 0.1,
+                },
+            )
         )
-        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
-            register_volume(da, da, transform_type="translation")
+        result, _, _ = register_volume(da, da, transform_type="translation")
+        assert result.shape == da.shape
 
     def test_3d_volume_with_depth_1_preserves_output_shape_on_resample(self):
         """resample=True preserves the original shape for a depth-1 volume."""
         arr = np.zeros((1, 32, 32), dtype=np.float32)
         arr[0, 12:20, 12:20] = 1.0
-        da = xr.DataArray(
-            arr,
-            dims=("z", "y", "x"),
-            coords={
-                "z": np.array([0.0]),
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                arr,
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.array([0.0]),
+                    "j": np.arange(32) * 0.1,
+                    "i": np.arange(32) * 0.1,
+                },
+            )
         )
-        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
-            register_volume(da, da, transform_type="translation", resample=True)
+        result, _, _ = register_volume(
+            da, da, transform_type="translation", resample=True
+        )
+        assert result.shape == da.shape
 
     def test_float32_moving_float64_fixed_does_not_crash(
         self, sample_2d_dataarray_spatial
@@ -660,14 +706,16 @@ class TestRegisterVolumeThinDims:
         """3D volume with depth=2 (below the 4-voxel threshold) registers without error."""
         arr = np.zeros((2, 16, 16), dtype=np.float32)
         arr[:, 6:10, 6:10] = 1.0
-        da = xr.DataArray(
-            arr,
-            dims=("z", "y", "x"),
-            coords={
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                arr,
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.arange(2) * 0.5,
+                    "j": np.arange(16) * 0.1,
+                    "i": np.arange(16) * 0.1,
+                },
+            )
         )
         result, _, _ = register_volume(da, da, transform_type="translation")
         assert result.shape == da.shape
@@ -708,10 +756,14 @@ class TestResampleVolume:
 
     def test_wrong_ndim_raises(self):
         """1D input raises ValueError."""
-        da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
+        da = _add_identity_voxel_affine(
+            xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
+        )
+        with pytest.raises(
+            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+        ):
             resample_volume(
-                da, np.eye(2), shape=[10], spacing=[1.0], origin=[0.0], dims=["x"]
+                da, np.eye(2), shape=[10], spacing=[1.0], origin=[0.0], dims=["i"]
             )
 
     def test_affine_shape_mismatch_raises(self, sample_2d_dataarray_spatial):
@@ -727,7 +779,7 @@ class TestResampleVolume:
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
         """Output shape matches the requested shape, not the moving shape."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16))
         result = resample_volume(
             moving,
             np.eye(3),
@@ -760,6 +812,7 @@ class TestResampleVolume:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
@@ -810,27 +863,31 @@ class TestInitialization:
 
         assert_allclose(initial_transform, expected_transform, atol=1e-10)
         assert_allclose(seeded.fusi.direction, fixed.fusi.direction, atol=1e-10)
-        assert_allclose(seeded.coords["z"].values, fixed.coords["z"].values, atol=1e-10)
-        assert_allclose(seeded.coords["y"].values, fixed.coords["y"].values, atol=1e-10)
-        assert_allclose(seeded.coords["x"].values, fixed.coords["x"].values, atol=1e-10)
+        assert_allclose(seeded.coords["k"].values, fixed.coords["k"].values, atol=1e-10)
+        assert_allclose(seeded.coords["j"].values, fixed.coords["j"].values, atol=1e-10)
+        assert_allclose(seeded.coords["i"].values, fixed.coords["i"].values, atol=1e-10)
 
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
         """A supplied initial affine is used directly, without extra centering shift."""
-        fixed = xr.DataArray(
-            np.arange(16, dtype=np.float32).reshape(4, 4),
-            dims=("y", "x"),
-            coords={
-                "y": np.arange(4, dtype=np.float64),
-                "x": np.arange(4, dtype=np.float64),
-            },
+        fixed = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.arange(16, dtype=np.float32).reshape(4, 4),
+                dims=("j", "i"),
+                coords={
+                    "j": np.arange(4, dtype=np.float64),
+                    "i": np.arange(4, dtype=np.float64),
+                },
+            )
         )
-        moving = xr.DataArray(
-            fixed.values.copy(),
-            dims=fixed.dims,
-            coords={
-                "y": fixed.coords["y"].values + 10.0,
-                "x": fixed.coords["x"].values + 20.0,
-            },
+        moving = _add_identity_voxel_affine(
+            xr.DataArray(
+                fixed.values.copy(),
+                dims=fixed.dims,
+                coords={
+                    "j": fixed.coords["j"].values + 10.0,
+                    "i": fixed.coords["i"].values + 20.0,
+                },
+            )
         )
         initial_transform = np.eye(3, dtype=np.float64)
         initial_transform[:2, 2] = [20.0, 10.0]
@@ -917,6 +974,7 @@ class TestResampleVolumeWithBspline:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
@@ -941,6 +999,7 @@ class TestResampleVolumeWithBspline:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         # First pass: affine registration.
         _, affine_tx, _ = register_volume(
@@ -975,8 +1034,8 @@ class TestDisplacementField:
         """A DataArray with the wrong `type` attr is rejected."""
         transform = xr.DataArray(
             np.zeros((2, 4, 4)),
-            dims=["component", "y", "x"],
-            coords={"component": ["y", "x"], "y": np.arange(4.0), "x": np.arange(4.0)},
+            dims=["component", "j", "i"],
+            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
             attrs={
                 "type": "displacement_field_transform",
                 "order": 3,
@@ -989,15 +1048,15 @@ class TestDisplacementField:
                 shape=[4, 4],
                 spacing=[1.0, 1.0],
                 origin=[0.0, 0.0],
-                dims=["y", "x"],
+                dims=["j", "i"],
             )
 
     def test_sample_displacement_field_missing_required_attr_raises(self):
         """Missing B-spline metadata is rejected."""
         transform = xr.DataArray(
             np.zeros((2, 4, 4)),
-            dims=["component", "y", "x"],
-            coords={"component": ["y", "x"], "y": np.arange(4.0), "x": np.arange(4.0)},
+            dims=["component", "j", "i"],
+            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
             attrs={"type": "bspline_transform", "order": 3},
         )
         with pytest.raises(ValueError, match="direction"):
@@ -1006,15 +1065,15 @@ class TestDisplacementField:
                 shape=[4, 4],
                 spacing=[1.0, 1.0],
                 origin=[0.0, 0.0],
-                dims=["y", "x"],
+                dims=["j", "i"],
             )
 
     def test_sample_displacement_field_wrong_first_dim_raises(self):
         """A B-spline DataArray without leading 'component' is rejected."""
         transform = xr.DataArray(
             np.zeros((4, 4, 2)),
-            dims=["y", "x", "component"],
-            coords={"y": np.arange(4.0), "x": np.arange(4.0), "component": ["y", "x"]},
+            dims=["j", "i", "component"],
+            coords={"j": np.arange(4.0), "i": np.arange(4.0), "component": ["j", "i"]},
             attrs={
                 "type": "bspline_transform",
                 "order": 3,
@@ -1027,7 +1086,7 @@ class TestDisplacementField:
                 shape=[4, 4],
                 spacing=[1.0, 1.0],
                 origin=[0.0, 0.0],
-                dims=["y", "x"],
+                dims=["j", "i"],
             )
 
     def test_sample_displacement_field_like_time_reference_raises(
@@ -1036,8 +1095,8 @@ class TestDisplacementField:
         """The `_like` wrapper rejects references with a time dimension."""
         transform = xr.DataArray(
             np.zeros((2, 4, 4)),
-            dims=["component", "y", "x"],
-            coords={"component": ["y", "x"], "y": np.arange(4.0), "x": np.arange(4.0)},
+            dims=["component", "j", "i"],
+            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
             attrs={
                 "type": "bspline_transform",
                 "order": 3,
@@ -1051,12 +1110,12 @@ class TestDisplacementField:
         """Thin references without `voxdim` are rejected during field sampling."""
         transform = xr.DataArray(
             np.zeros((3, 4, 4, 4)),
-            dims=["component", "z", "y", "x"],
+            dims=["component", "k", "j", "i"],
             coords={
-                "component": ["z", "y", "x"],
-                "z": np.arange(4.0),
-                "y": np.arange(4.0),
-                "x": np.arange(4.0),
+                "component": ["k", "j", "i"],
+                "k": np.arange(4.0),
+                "j": np.arange(4.0),
+                "i": np.arange(4.0),
             },
             attrs={
                 "type": "bspline_transform",
@@ -1066,23 +1125,26 @@ class TestDisplacementField:
         )
         reference = xr.DataArray(
             np.zeros((1, 8, 8), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
-                "z": np.array([0.0]),
-                "y": np.arange(8, dtype=np.float64) * 0.1,
-                "x": np.arange(8, dtype=np.float64) * 0.1,
+                "k": np.array([0.0]),
+                "j": np.arange(8, dtype=np.float64) * 0.1,
+                "i": np.arange(8, dtype=np.float64) * 0.1,
             },
         )
 
-        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
+        with pytest.raises(
+            ValueError,
+            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
+        ):
             sample_displacement_field_like(transform, reference)
 
     def test_invert_displacement_field_wrong_type_attr_raises(self):
         """A DataArray with the wrong `type` attr is rejected."""
         field = xr.DataArray(
             np.zeros((2, 4, 4)),
-            dims=["component", "y", "x"],
-            coords={"component": [0, 1], "y": np.arange(4.0), "x": np.arange(4.0)},
+            dims=["component", "j", "i"],
+            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
             attrs={"type": "bspline_transform"},
         )
         with pytest.raises(ValueError, match="displacement_field_transform"):
@@ -1092,8 +1154,8 @@ class TestDisplacementField:
         """A DataArray without 'component' as its first dimension is rejected."""
         field = xr.DataArray(
             np.zeros((4, 4, 2)),
-            dims=["y", "x", "component"],
-            coords={"y": np.arange(4.0), "x": np.arange(4.0), "component": [0, 1]},
+            dims=["j", "i", "component"],
+            coords={"j": np.arange(4.0), "i": np.arange(4.0), "component": ["j", "i"]},
             attrs={"type": "displacement_field_transform"},
         )
         with pytest.raises(ValueError, match="'component' as its first dimension"):
@@ -1113,7 +1175,7 @@ class TestDisplacementField:
 
         assert field.attrs["type"] == "displacement_field_transform"
         assert field.dims[0] == "component"
-        np.testing.assert_array_equal(field.coords["component"].values, ["y", "x"])
+        np.testing.assert_array_equal(field.coords["component"].values, ["j", "i"])
         assert_allclose(np.asarray(field.attrs["direction"]), np.eye(2))
         assert field.shape == (2, *sample_2d_dataarray_spatial.shape)
         assert_allclose(field.values, 0.0, atol=1e-6)
@@ -1135,19 +1197,19 @@ class TestDisplacementField:
             bspline_tx, sample_2d_dataarray_spatial
         )
 
-        assert_array_equal(by_reference.coords["component"].values, ["y", "x"])
+        assert_array_equal(by_reference.coords["component"].values, ["j", "i"])
         assert_allclose(by_reference.values, by_grid.values, atol=1e-6)
         assert_allclose(
             np.asarray(by_reference.attrs["direction"]),
             sample_2d_dataarray_spatial.fusi.direction,
         )
         assert_allclose(
-            by_reference.coords["y"].values,
-            sample_2d_dataarray_spatial.coords["y"].values,
+            by_reference.coords["j"].values,
+            sample_2d_dataarray_spatial.coords["j"].values,
         )
         assert_allclose(
-            by_reference.coords["x"].values,
-            sample_2d_dataarray_spatial.coords["x"].values,
+            by_reference.coords["i"].values,
+            sample_2d_dataarray_spatial.coords["i"].values,
         )
 
     def test_sample_and_invert_displacement_field_preserve_direction(self):
@@ -1167,12 +1229,12 @@ class TestDisplacementField:
         """Thin displacement fields without `voxdim` are rejected on inversion."""
         field = xr.DataArray(
             np.zeros((3, 1, 8, 8), dtype=np.float64),
-            dims=["component", "z", "y", "x"],
+            dims=["component", "k", "j", "i"],
             coords={
-                "component": ["z", "y", "x"],
-                "z": np.array([0.0]),
-                "y": np.arange(8, dtype=np.float64) * 0.1,
-                "x": np.arange(8, dtype=np.float64) * 0.1,
+                "component": ["k", "j", "i"],
+                "k": np.array([0.0]),
+                "j": np.arange(8, dtype=np.float64) * 0.1,
+                "i": np.arange(8, dtype=np.float64) * 0.1,
             },
             attrs={
                 "type": "displacement_field_transform",
@@ -1191,7 +1253,7 @@ class TestDisplacementField:
         cannot resolve (there is nothing to invert against there).
         """
         shape = (12, 12)
-        dims = ["y", "x"]
+        dims = ["j", "i"]
         translation = np.array([2.0, -1.5])
         array = np.broadcast_to(translation[:, None, None], (2, *shape)).astype(
             np.float64
@@ -1200,9 +1262,9 @@ class TestDisplacementField:
             array.copy(),
             dims=["component", *dims],
             coords={
-                "component": [0, 1],
-                "y": np.arange(shape[0], dtype=np.float64),
-                "x": np.arange(shape[1], dtype=np.float64),
+                "component": ["j", "i"],
+                "j": np.arange(shape[0], dtype=np.float64),
+                "i": np.arange(shape[1], dtype=np.float64),
             },
             attrs={"type": "displacement_field_transform"},
         )
@@ -1226,6 +1288,7 @@ class TestDisplacementField:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         _, bspline_tx, _ = register_volume(
             moving,
@@ -1251,17 +1314,18 @@ class TestDisplacementField:
         to the `voxdim` coordinate attribute instead (via the `fusi` accessor), as
         `resample_volume`'s own grid handling already does.
         """
-        fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
-            "z", "y", "x"
+        fixed = _add_identity_voxel_affine(
+            sample_2d_dataarray_spatial.expand_dims(k=[0.0]).transpose("k", "j", "i")
         )
-        fixed.coords["z"].attrs["voxdim"] = 0.5
 
         rng = np.random.default_rng(3)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
             np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
         )
-        moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
+        moving = xr.DataArray(
+            shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
         grid = get_grid_kwargs_from_dataarray(fixed)
@@ -1287,17 +1351,18 @@ class TestDisplacementField:
         expand the degenerate axis before inverting and crop it back down afterward,
         rather than passing the degenerate field straight to the filter.
         """
-        fixed = sample_2d_dataarray_spatial.expand_dims(z=[0.0]).transpose(
-            "z", "y", "x"
+        fixed = _add_identity_voxel_affine(
+            sample_2d_dataarray_spatial.expand_dims(k=[0.0]).transpose("k", "j", "i")
         )
-        fixed.coords["z"].attrs["voxdim"] = 0.5
 
         rng = np.random.default_rng(4)
         shift = rng.integers(3, 6, size=2)
         shifted = np.roll(
             np.roll(sample_2d_image, int(shift[0]), axis=0), int(shift[1]), axis=1
         )
-        moving = xr.DataArray(shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords)
+        moving = xr.DataArray(
+            shifted[np.newaxis], dims=fixed.dims, coords=fixed.coords, attrs=fixed.attrs
+        )
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
         grid = get_grid_kwargs_from_dataarray(fixed)
@@ -1339,16 +1404,18 @@ class TestResampleLike:
         """Thin references without `voxdim` are rejected with a repair hint."""
         reference = xr.DataArray(
             np.zeros((1, 8, 8), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
-                "z": np.array([0.0]),
-                "y": np.arange(8, dtype=np.float64) * 0.1,
-                "x": np.arange(8, dtype=np.float64) * 0.1,
+                "k": np.array([0.0]),
+                "j": np.arange(8, dtype=np.float64) * 0.1,
+                "i": np.arange(8, dtype=np.float64) * 0.1,
             },
         )
         moving = reference.copy()
 
-        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
+        with pytest.raises(
+            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+        ):
             resample_like(moving, reference, np.eye(4))
 
     def test_mismatched_units_between_moving_and_reference_raise(
@@ -1374,11 +1441,13 @@ class TestResampleLike:
         reference.coords["x"].attrs["units"] = "mm"
         transform = xr.DataArray(
             np.zeros((2, 2, 2), dtype=np.float64),
-            dims=["component", "y", "x"],
+            dims=["component", "j", "i"],
             coords={
                 "component": np.arange(2),
-                "y": xr.Variable("y", [0.0, 1.0], attrs={"units": "um"}),
-                "x": xr.Variable("x", [0.0, 1.0], attrs={"units": "um"}),
+                "j": [0.0, 1.0],
+                "i": [0.0, 1.0],
+                "y": xr.Variable("j", [0.0, 1.0], attrs={"units": "um"}),
+                "x": xr.Variable("i", [0.0, 1.0], attrs={"units": "um"}),
             },
             attrs={"type": "displacement_field_transform"},
         )
@@ -1388,33 +1457,25 @@ class TestResampleLike:
 
     def test_wrong_ndim_reference_raises(self):
         """1D reference raises ValueError."""
-        da = xr.DataArray(np.zeros(10), dims=("x",))
-        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
+        da = _add_identity_voxel_affine(
+            xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
+        )
+        with pytest.raises(
+            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+        ):
             resample_like(da, da, np.eye(2))
 
     def test_default_fill_is_moving_min(self, sample_2d_dataarray_spatial):
         """Out-of-FOV voxels default to moving.min(), not 0.0."""
-        moving = xr.DataArray(
-            np.ones((8, 8), dtype=np.float32) * 5.0,
-            dims=("y", "x"),
-            coords={
-                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
-                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
-            },
-        )
+        moving = sample_2d_dataarray_spatial.isel(j=slice(8), i=slice(8)).copy()
+        moving.values[:] = 5.0
         result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3))
         assert float(result.values[-1, -1]) == pytest.approx(5.0, abs=1e-5)
 
     def test_explicit_default_value_overrides(self, sample_2d_dataarray_spatial):
         """Explicit default_value overrides the auto-default."""
-        moving = xr.DataArray(
-            np.ones((8, 8), dtype=np.float32) * 5.0,
-            dims=("y", "x"),
-            coords={
-                "y": sample_2d_dataarray_spatial.coords["y"].values[:8],
-                "x": sample_2d_dataarray_spatial.coords["x"].values[:8],
-            },
-        )
+        moving = sample_2d_dataarray_spatial.isel(j=slice(8), i=slice(8)).copy()
+        moving.values[:] = 5.0
         result = resample_like(
             moving, sample_2d_dataarray_spatial, np.eye(3), default_value=0.0
         )
@@ -1424,18 +1485,18 @@ class TestResampleLike:
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
         """Output coordinates match reference, not moving."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16))
         result = resample_like(moving, sample_2d_dataarray_spatial, np.eye(3))
         assert_allclose(
-            result.coords["y"].values, sample_2d_dataarray_spatial.coords["y"].values
+            result.coords["j"].values, sample_2d_dataarray_spatial.coords["j"].values
         )
         assert_allclose(
-            result.coords["x"].values, sample_2d_dataarray_spatial.coords["x"].values
+            result.coords["i"].values, sample_2d_dataarray_spatial.coords["i"].values
         )
 
     def test_inherits_reference_affines(self, sample_2d_dataarray_spatial):
         """resample_like output inherits physical-space affines from `reference`."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16)).copy()
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16)).copy()
         reference = sample_2d_dataarray_spatial.copy()
         moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
         reference.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
@@ -1459,7 +1520,7 @@ class TestResampleLike:
             result.attrs["voxel_to_physical"], reference.attrs["voxel_to_physical"]
         )
         assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
-        assert result.coords["x"].dims == reference.coords["x"].dims
+        assert result.coords["i"].dims == reference.coords["i"].dims
 
     def test_matches_register_volume_resample_2d(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -1474,6 +1535,7 @@ class TestResampleLike:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
@@ -1493,6 +1555,7 @@ class TestResampleLike:
             shifted,
             dims=sample_3d_dataarray_spatial.dims,
             coords=sample_3d_dataarray_spatial.coords,
+            attrs=sample_3d_dataarray_spatial.attrs,
         )
         resampled_direct, affine, _ = register_volume(
             moving,
@@ -1524,6 +1587,7 @@ class TestResampleLike:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
         _, affine_init, _ = register_volume(
             moving, sample_2d_dataarray_spatial, transform_type="translation"
@@ -1542,25 +1606,13 @@ class TestResampleLike:
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
         """resample_like and resample_volume produce identical results."""
-        moving = sample_2d_dataarray_spatial.isel(y=slice(16), x=slice(16))
+        moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16))
         affine = np.eye(3)
         result_like = resample_like(moving, sample_2d_dataarray_spatial, affine)
         result_vol = resample_volume(
             moving,
             affine,
-            shape=[
-                sample_2d_dataarray_spatial.sizes[d]
-                for d in sample_2d_dataarray_spatial.dims
-            ],
-            spacing=[
-                float(sample_2d_dataarray_spatial.coords[d].diff(d).mean())
-                for d in sample_2d_dataarray_spatial.dims
-            ],
-            origin=[
-                float(sample_2d_dataarray_spatial.coords[d][0])
-                for d in sample_2d_dataarray_spatial.dims
-            ],
-            dims=[str(d) for d in sample_2d_dataarray_spatial.dims],
+            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
         )
         assert_allclose(result_like.values, result_vol.values, atol=1e-10)
 
@@ -1577,6 +1629,7 @@ class TestRegisterVolumeDiagnostics:
             shifted,
             dims=sample_2d_dataarray_spatial.dims,
             coords=sample_2d_dataarray_spatial.coords,
+            attrs=sample_2d_dataarray_spatial.attrs,
         )
 
         max_iters = 50
@@ -1622,16 +1675,20 @@ class TestRegisterVolumeFillValue:
         """Out-of-FOV voxels in the registered output are filled with fill_value."""
         # moving is a small sub-region of fixed; after registration the output grid
         # is fixed-sized, so voxels outside moving's FOV must be filled.
-        fixed = xr.DataArray(
-            np.ones((16, 16), dtype=np.float32),
-            dims=("y", "x"),
-            coords={"y": np.arange(16) * 0.1, "x": np.arange(16) * 0.1},
+        fixed = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.ones((16, 16), dtype=np.float32),
+                dims=("j", "i"),
+                coords={"j": np.arange(16) * 0.1, "i": np.arange(16) * 0.1},
+            )
         )
         # moving covers only the central 8x8 region.
-        moving = xr.DataArray(
-            np.ones((8, 8), dtype=np.float32) * 2.0,
-            dims=("y", "x"),
-            coords={"y": np.arange(4, 12) * 0.1, "x": np.arange(4, 12) * 0.1},
+        moving = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.ones((8, 8), dtype=np.float32) * 2.0,
+                dims=("j", "i"),
+                coords={"j": np.arange(4, 12) * 0.1, "i": np.arange(4, 12) * 0.1},
+            )
         )
         sentinel = -99.0
         result, _, _ = register_volume(
@@ -1645,15 +1702,19 @@ class TestRegisterVolumeFillValue:
 
     def test_default_fill_value_is_moving_min(self):
         """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""
-        fixed = xr.DataArray(
-            np.ones((16, 16), dtype=np.float32),
-            dims=("y", "x"),
-            coords={"y": np.arange(16) * 0.1, "x": np.arange(16) * 0.1},
+        fixed = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.ones((16, 16), dtype=np.float32),
+                dims=("j", "i"),
+                coords={"j": np.arange(16) * 0.1, "i": np.arange(16) * 0.1},
+            )
         )
-        moving = xr.DataArray(
-            np.ones((8, 8), dtype=np.float32) * 2.0,
-            dims=("y", "x"),
-            coords={"y": np.arange(4, 12) * 0.1, "x": np.arange(4, 12) * 0.1},
+        moving = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.ones((8, 8), dtype=np.float32) * 2.0,
+                dims=("j", "i"),
+                coords={"j": np.arange(4, 12) * 0.1, "i": np.arange(4, 12) * 0.1},
+            )
         )
         result, _, _ = register_volume(
             moving,

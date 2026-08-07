@@ -314,6 +314,23 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
         DataArray dimension order.
     """
     dims = [str(dim) for dim in data.dims]
+    from confusius._utils.geometry import (
+        get_voxel_affine_origin,
+        get_voxel_affine_physical_coord_names,
+        has_voxel_affine_geometry,
+    )
+
+    if has_voxel_affine_geometry(data):
+        spacings = data.fusi.spacing
+        origin = get_voxel_affine_origin(data)
+        physical_names = get_voxel_affine_physical_coord_names(data)
+        return {
+            "shape": [int(data.sizes[dim]) for dim in dims],
+            "spacing": [float(spacings[dim]) for dim in dims],
+            "origin": [float(origin[name]) for name in physical_names],
+            "dims": dims,
+        }
+
     spacings = get_coordinate_spacings(data)
     origins = get_coordinate_origins(data)
     return {

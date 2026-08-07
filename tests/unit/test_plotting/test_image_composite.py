@@ -19,7 +19,7 @@ def _shifted_volume(template: xr.DataArray, shift: float = 0.07) -> xr.DataArray
         np.roll(template.values, shift=1, axis=-1) + shift,
         name="moving",
         dims=template.dims,
-        coords={d: template.coords[d] for d in template.dims if d in template.coords},
+        coords=template.coords,
         attrs=dict(template.attrs),
     )
 
@@ -37,15 +37,15 @@ class TestAddCompositeChannels:
             data1, data2, resample=False, normalize_strategy="per_slice"
         )
 
-        slice1 = data1.isel(z=0).values.astype(float)
-        slice2 = data2.isel(z=0).values.astype(float)
+        slice1 = data1.isel(k=0).values.astype(float)
+        slice2 = data2.isel(k=0).values.astype(float)
 
         def _norm(arr):
             lo, hi = arr.min(), arr.max()
             return (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
 
         rgb = _axes(plotter)[0, 0].collections[0].get_array()
-        assert rgb.shape == (data1.sizes["y"], data1.sizes["x"], 3)
+        assert rgb.shape == (data1.sizes["j"], data1.sizes["i"], 3)
         npt.assert_allclose(rgb[..., 0], _norm(slice1), atol=1e-6)
         npt.assert_allclose(rgb[..., 1], _norm(slice2), atol=1e-6)
         npt.assert_allclose(rgb[..., 2], _norm(slice2), atol=1e-6)
@@ -72,15 +72,15 @@ class TestAddCompositeResample:
 
         # All panels should be rendered at data1's (y, x) shape.
         rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
-        assert rgb0.shape == (data1.sizes["y"], data1.sizes["x"], 3)
+        assert rgb0.shape == (data1.sizes["j"], data1.sizes["i"], 3)
         # And we should get one panel per data1 z-slice.
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == data1.sizes["z"]
+        assert len(rendered) == data1.sizes["k"]
 
     def test_resample_false_shape_mismatch_raises(
         self, sample_3d_volume, matplotlib_pyplot
     ):
-        data2 = sample_3d_volume.isel(x=slice(0, 4))
+        data2 = sample_3d_volume.isel(i=slice(0, 4))
         with pytest.raises(ValueError, match="share shape"):
             VolumePlotter(slice_mode="z").add_composite(
                 sample_3d_volume, data2, resample=False
@@ -90,7 +90,7 @@ class TestAddCompositeResample:
         self, sample_3d_volume, matplotlib_pyplot
     ):
         data2 = sample_3d_volume.assign_coords(
-            x=sample_3d_volume.coords["x"].values + 0.5
+            x=("i", sample_3d_volume.coords["x"].values + 0.5)
         )
         with pytest.raises(ValueError, match="does not match"):
             VolumePlotter(slice_mode="z").add_composite(
@@ -105,7 +105,7 @@ class TestAddCompositeResample:
         # with data1's so downstream slicing sees a single coordinate frame.
         x_coords = sample_3d_volume.coords["x"].values.astype(float)
         drift = 1e-11
-        data2 = sample_3d_volume.assign_coords(x=x_coords + drift)
+        data2 = sample_3d_volume.assign_coords(x=("i", x_coords + drift))
 
         plotter = VolumePlotter(slice_mode="z").add_composite(
             sample_3d_volume, data2, resample=False
@@ -125,7 +125,7 @@ class TestAddCompositeResample:
         # rendered axes sit on data1's grid.
         x_coords = sample_3d_volume.coords["x"].values.astype(float)
         x_shift = 0.5
-        data2 = sample_3d_volume.assign_coords(x=x_coords + x_shift)
+        data2 = sample_3d_volume.assign_coords(x=("i", x_coords + x_shift))
 
         plotter = VolumePlotter(slice_mode="z").add_composite(
             sample_3d_volume, data2, resample=False, atol=1.0
@@ -149,7 +149,7 @@ class TestAddCompositeResampleKwargs:
         x_sub = x[len(x) // 4 : 3 * len(x) // 4]
         data2 = xr.DataArray(
             np.full(
-                (sample_3d_volume.sizes["z"], sample_3d_volume.sizes["y"], len(x_sub)),
+                (sample_3d_volume.sizes["k"], sample_3d_volume.sizes["j"], len(x_sub)),
                 fill_value=5.0,
             ),
             dims=["z", "y", "x"],
@@ -177,12 +177,17 @@ class TestAddCompositeResampleKwargs:
         # so after normalisation the cyan channel should be uniform at 1.0.
         npt.assert_allclose(rgb0[..., 1], 1.0, atol=1e-5)
 
-    def test_explicit_fill_value_overrides_default(self, narrow_data2, matplotlib_pyplot):
+    def test_explicit_fill_value_overrides_default(
+        self, narrow_data2, matplotlib_pyplot
+    ):
         """Explicit fill_value in resample_kwargs is respected."""
         data1, data2 = narrow_data2
         # Passing fill_value=0.0 explicitly should fill out-of-FOV with 0.0.
         plotter = VolumePlotter(slice_mode="z").add_composite(
-            data1, data2, resample=True, normalize_strategy="shared",
+            data1,
+            data2,
+            resample=True,
+            normalize_strategy="shared",
             resample_kwargs={"fill_value": 0.0},
         )
         rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
@@ -216,10 +221,11 @@ class TestAddCompositeNormalize:
         # in the red channel should stay well below 1.0.
         dim_max = max(
             float(_axes(plotter).ravel()[i].collections[0].get_array()[..., 0].max())
-            for i in range(data1.sizes["z"] - 1)
+            for i in range(data1.sizes["k"] - 1)
         )
         bright_max = float(
-            _axes(plotter).ravel()[data1.sizes["z"] - 1]
+            _axes(plotter)
+            .ravel()[data1.sizes["k"] - 1]
             .collections[0]
             .get_array()[..., 0]
             .max()
@@ -232,7 +238,7 @@ class TestAddCompositeNormalize:
         plotter = VolumePlotter(slice_mode="z").add_composite(
             data1, data2, resample=False, normalize_strategy="per_slice"
         )
-        for i in range(data1.sizes["z"]):
+        for i in range(data1.sizes["k"]):
             rgb = _axes(plotter).ravel()[i].collections[0].get_array()
             assert float(rgb[..., 0].max()) == pytest.approx(1.0, abs=1e-6)
 
@@ -244,22 +250,24 @@ class TestAddCompositeNormalize:
             np.linspace(0, 1, 4 * 6 * 8).reshape(4, 6, 8),
             dims=sample_3d_volume.dims,
             coords=sample_3d_volume.coords,
+            attrs=sample_3d_volume.attrs,
         )
         data2 = xr.DataArray(
             np.linspace(0, 4, 4 * 6 * 8).reshape(4, 6, 8),
             dims=sample_3d_volume.dims,
             coords=sample_3d_volume.coords,
+            attrs=sample_3d_volume.attrs,
         )
         plotter = VolumePlotter(slice_mode="z").add_composite(
             data1, data2, resample=False, normalize_strategy="shared"
         )
         red_max = max(
             float(_axes(plotter).ravel()[i].collections[0].get_array()[..., 0].max())
-            for i in range(data1.sizes["z"])
+            for i in range(data1.sizes["k"])
         )
         cyan_max = max(
             float(_axes(plotter).ravel()[i].collections[0].get_array()[..., 1].max())
-            for i in range(data1.sizes["z"])
+            for i in range(data1.sizes["k"])
         )
         assert red_max == pytest.approx(0.25, abs=1e-6)
         assert cyan_max == pytest.approx(1.0, abs=1e-6)
@@ -337,7 +345,7 @@ class TestPlotComposite:
         plotter = plot_composite(sample_3d_volume, sample_3d_volume, resample=False)
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["z"]
+        assert len(rendered) == sample_3d_volume.sizes["k"]
 
     def test_forwards_slice_mode_to_volume_plotter(
         self, sample_3d_volume, matplotlib_pyplot
@@ -347,7 +355,7 @@ class TestPlotComposite:
         )
         assert plotter.slice_mode == "y"
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["y"]
+        assert len(rendered) == sample_3d_volume.sizes["j"]
 
     def test_rejects_time_dim(self, sample_3dt_volume, matplotlib_pyplot):
         with pytest.raises(ValueError, match="time"):
@@ -408,7 +416,7 @@ class TestCompositeAccessor:
         plotter = sample_3d_volume.fusi.plot.composite(sample_3d_volume, resample=False)
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["z"]
+        assert len(rendered) == sample_3d_volume.sizes["k"]
 
     def test_accessor_shared_normalize(self, sample_3d_volume, matplotlib_pyplot):
         import confusius  # noqa: F401 - register accessor.

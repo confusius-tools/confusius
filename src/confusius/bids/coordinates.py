@@ -10,22 +10,12 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-SLICE_ENCODING_DIRECTION_TO_DIM: Final[dict[str, str]] = {
-    "i": "x",
-    "i-": "x",
-    "j": "y",
-    "j-": "y",
-    "k": "z",
-    "k-": "z",
-}
-"""Mapping from fUSI-BIDS `SliceEncodingDirection` values to ConfUSIus dimension names."""
+from confusius._dims import VOXEL_DIMS
 
-DIM_TO_SLICE_ENCODING_DIRECTION: Final[dict[str, str]] = {
-    "x": "i",
-    "y": "j",
-    "z": "k",
-}
-"""Mapping from ConfUSIus dimension names to fUSI-BIDS `SliceEncodingDirection` values."""
+_SLICE_ENCODING_DIRECTIONS: Final = tuple(
+    f"{dim}{suffix}" for dim in reversed(VOXEL_DIMS) for suffix in ("", "-")
+)
+"""fUSI-BIDS `SliceEncodingDirection` values accepted by ConfUSIus."""
 
 
 def create_slice_time_coordinate_from_bids(
@@ -46,7 +36,7 @@ def create_slice_time_coordinate_from_bids(
     slice_timing : (n_slices,) array-like
         Array of slice acquisition times relative to the onset of each volume.
     slice_encoding_direction : {"i", "j", "k", "i-", "j-", "k-"}
-        Direction of slice acquisition: `"i"` → `x`, `"j"` → `y`, `"k"` → `z`. A
+        Direction of slice acquisition: `"i"` → `i`, `"j"` → `j`, `"k"` → `k`. A
         trailing `-` indicates that `slice_timing` is defined in reverse order (the
         first entry corresponds to the slice with the largest index). The values are
         reversed internally so the stored coordinate is always aligned with natural
@@ -68,18 +58,18 @@ def create_slice_time_coordinate_from_bids(
     ...     volume_times, slice_timing, slice_encoding_direction="k"
     ... )
     >>> coord.dims
-    ('time', 'z')
+    ('time', 'k')
 
     >>> coord.shape
     (2, 4)
     """
-    if slice_encoding_direction not in SLICE_ENCODING_DIRECTION_TO_DIM:
+    if slice_encoding_direction not in _SLICE_ENCODING_DIRECTIONS:
         raise ValueError(
             f"Invalid SliceEncodingDirection: {slice_encoding_direction}. "
-            f"Must be one of: {list(SLICE_ENCODING_DIRECTION_TO_DIM.keys())}"
+            f"Must be one of: {list(_SLICE_ENCODING_DIRECTIONS)}"
         )
 
-    dim_name = SLICE_ENCODING_DIRECTION_TO_DIM[slice_encoding_direction]
+    dim_name = slice_encoding_direction.removesuffix("-")
     slice_timing_arr = np.asarray(slice_timing)
     volume_times_arr = np.asarray(volume_times)
 
@@ -143,10 +133,10 @@ def create_bids_slice_timing_from_coordinate(
         )
 
     spatial_dim = next(iter(set(slice_time_coord.dims) - {"time"}))
-    if spatial_dim not in DIM_TO_SLICE_ENCODING_DIRECTION:
+    if spatial_dim not in VOXEL_DIMS:
         raise ValueError(
             f"slice_time coordinate must have one of spatial dimensions "
-            f"{list(DIM_TO_SLICE_ENCODING_DIRECTION.keys())}, got: {slice_time_coord.dims}"
+            f"{list(reversed(VOXEL_DIMS))}, got: {slice_time_coord.dims}"
         )
 
     volume_times_arr = np.asarray(volume_times)
@@ -170,4 +160,4 @@ def create_bids_slice_timing_from_coordinate(
             "volume-onset-relative offsets."
         )
 
-    return relative_slice_timing[0], DIM_TO_SLICE_ENCODING_DIRECTION[str(spatial_dim)]
+    return relative_slice_timing[0], str(spatial_dim)

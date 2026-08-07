@@ -274,7 +274,7 @@ class TestCreateMotionDataframe:
         self, sample_3d_dataarray_spatial
     ):
         """A singleton z axis still reports the full 3D motion summary."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "z")
+        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "k")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
@@ -298,7 +298,7 @@ class TestCreateMotionDataframe:
         self, sample_3d_dataarray_spatial
     ):
         """Any singleton spatial axis still reports the full 3D motion summary."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "x")
+        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "i")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
@@ -341,36 +341,40 @@ class TestCreateMotionDataframe:
     def test_2d_dataframe_reorders_translations_to_named_axes(
         self, sample_2d_dataarray_spatial
     ):
-        """2D translations follow x/y names, not raw axis order."""
-        ref = _with_spatial_dims(sample_2d_dataarray_spatial, ("y", "x"))
-        df = create_motion_dataframe([np.eye(3), _translation_affine_2d(2.0, 3.0)], ref)
+        """2D translations follow physical x/y names, not raw voxel axis names."""
+        df = create_motion_dataframe(
+            [np.eye(3), _translation_affine_2d(2.0, 3.0)],
+            sample_2d_dataarray_spatial,
+        )
 
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
 
     def test_2d_dataframe_uses_present_named_axes(self, sample_2d_dataarray_spatial):
-        """2D tables use the spatial axes actually present in the reference."""
-        ref = _with_spatial_dims(sample_2d_dataarray_spatial, ("z", "x"))
-        df = create_motion_dataframe([np.eye(3), _translation_affine_2d(2.0, 3.0)], ref)
+        """2D tables use the physical axes exposed by voxel-affine geometry."""
+        df = create_motion_dataframe(
+            [np.eye(3), _translation_affine_2d(2.0, 3.0)],
+            sample_2d_dataarray_spatial,
+        )
 
         assert list(df.columns) == [
             "rotation",
             "trans_x",
-            "trans_z",
+            "trans_y",
             "mean_fd",
             "max_fd",
             "rms_fd",
         ]
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_z"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
 
     def test_3d_dataframe_reorders_translations_to_named_axes(
         self, sample_3d_dataarray_spatial
     ):
-        """3D translations follow x/y/z names, not raw axis order."""
-        ref = _with_spatial_dims(sample_3d_dataarray_spatial, ("z", "y", "x"))
+        """3D translations follow physical x/y/z names, not raw voxel axis names."""
         df = create_motion_dataframe(
-            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
+            [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)],
+            sample_3d_dataarray_spatial,
         )
 
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
@@ -380,11 +384,11 @@ class TestCreateMotionDataframe:
     def test_3d_dataframe_reorders_rotations_to_named_axes(
         self, sample_3d_dataarray_spatial
     ):
-        """3D rotations follow x/y/z names, not raw axis order."""
-        ref = _with_spatial_dims(sample_3d_dataarray_spatial, ("z", "y", "x"))
+        """3D rotations follow physical x/y/z names, not raw voxel axis names."""
         angle = 0.1
         df = create_motion_dataframe(
-            [np.eye(4), _rotation_affine_3d_first_axis(angle)], ref
+            [np.eye(4), _rotation_affine_3d_first_axis(angle)],
+            sample_3d_dataarray_spatial,
         )
 
         assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
@@ -431,14 +435,13 @@ class TestCreateMotionDataframe:
 
     def test_motion_values_correct(self, sample_2d_dataarray_spatial):
         """Motion parameter values are correctly populated."""
-        ref = _with_spatial_dims(sample_2d_dataarray_spatial, ("x", "y"))
         affines = [np.eye(3), _translation_affine_2d(2.0, 3.0)]
-        df = create_motion_dataframe(affines, ref)
+        df = create_motion_dataframe(affines, sample_2d_dataarray_spatial)
 
         assert_allclose(df.iloc[0]["rotation"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_y"], 0.0, atol=1e-6)
 
         assert_allclose(df.iloc[1]["rotation"], 0.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_x"], 2.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)

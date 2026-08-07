@@ -347,7 +347,7 @@ class TestCorrectSliceTiming:
         """Output is dask-backed and numerically identical to the eager result."""
         pytest.importorskip("dask.array")
         da = consolidated_scan_4d
-        da_dask = da.chunk({"z": 1})
+        da_dask = da.chunk({"k": 1})
         eager_result = correct_slice_timings(da)
         lazy_result = correct_slice_timings(da_dask)
         assert hasattr(lazy_result.data, "dask"), "Output should be dask-backed."

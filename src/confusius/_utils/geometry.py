@@ -21,6 +21,7 @@ import numpy.typing as npt
 import xarray as xr
 from xarray.indexes import CoordinateTransform, CoordinateTransformIndex
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.coordinates import get_representative_step
 
 
@@ -265,9 +266,8 @@ def add_physical_coords_from_voxel_affine(
     -------
     xarray.DataArray
         A new DataArray with derived physical coordinates attached. Axis-aligned
-        affines produce ordinary 1D coordinates with standard Xarray indexes;
-        oblique affines produce lazily generated coordinates attached via a
-        `CoordinateTransformIndex`.
+        affines produce ordinary 1D coordinates; oblique affines produce lazily
+        generated coordinates attached via a `CoordinateTransformIndex`.
 
     Raises
     ------
@@ -310,8 +310,6 @@ def add_physical_coords_from_voxel_affine(
             )
         }
         result = data.assign_coords(axis_coords)
-        for name in physical_coord_names:
-            result = result.set_xindex(name)
     else:
         transform = VoxelSpaceAffineTransform(
             voxel_coords,
@@ -420,7 +418,7 @@ def has_voxel_affine_geometry(data: xr.DataArray) -> bool:
     -------
     bool
         Whether `data` stores a `voxel_to_physical` affine and has 2D or 3D voxel-space
-        dimensions drawn from `("k", "j", "i")`.
+        dimensions drawn from `confusius._dims.VOXEL_DIMS`.
     """
     return "voxel_to_physical" in data.attrs and len(
         get_voxel_affine_spatial_dims(data)
@@ -443,7 +441,7 @@ def get_voxel_affine_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
     tuple[str, ...]
         Present voxel-space dimensions in canonical affine column order.
     """
-    return tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    return tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
 
 
 def get_voxel_affine_physical_coord_names(data: xr.DataArray) -> tuple[str, ...]:

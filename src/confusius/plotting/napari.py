@@ -15,6 +15,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.geometry import has_voxel_affine_geometry
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
@@ -22,7 +23,6 @@ from confusius._utils.napari import (
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
-    convert_axis_aligned_voxel_affine_to_physical_grid,
     resample_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
 )
@@ -38,12 +38,18 @@ def _get_napari_scale_translate_units(
     """Return napari layer geometry metadata for `data`."""
     all_dims = list(data.dims)
 
-    spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    fusi_spacing = data.fusi.spacing if has_voxel_affine_geometry(data) else {}
+    spacing = {
+        dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
+        for dim, fallback in coordinate_spacing.items()
+    }
     origin = data.fusi.origin
+    physical_dim = {"k": "z", "j": "y", "i": "x"}
     scale = [spacing[str(dim)] for dim in all_dims]
     translate = [
-        origin[dim]
-        if dim in origin
+        origin[physical_dim.get(str(dim), str(dim))]
+        if physical_dim.get(str(dim), str(dim)) in origin
         else (
             float(np.asarray(data.coords[dim].values, dtype=float)[0])
             if dim in data.coords
@@ -175,7 +181,6 @@ def plot_napari(
         )
 
     source_data = data
-    data = convert_axis_aligned_voxel_affine_to_physical_grid(data)
     data = resample_voxel_affine_to_physical_grid(data)
 
     all_dims = list(data.dims)
@@ -357,11 +362,15 @@ def draw_napari_labels(
     spatial_dims = [d for d in all_dims if d != time_dim]
 
     spacing = data.fusi.spacing
+    origin = data.fusi.origin
+    physical_dim = {"k": "z", "j": "y", "i": "x"}
     spatial_scale = [
         s if (s := spacing[dim]) is not None else 1.0 for dim in spatial_dims
     ]
     spatial_translate = [
-        float(data.coords[dim].values[0]) if dim in data.coords else 0.0
+        origin[physical_dim.get(dim, dim)]
+        if physical_dim.get(dim, dim) in origin
+        else (float(data.coords[dim].values[0]) if dim in data.coords else 0.0)
         for dim in spatial_dims
     ]
     spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
@@ -447,7 +456,11 @@ def labels_from_layer(
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
 
-    coords = {dim: data.coords[dim] for dim in spatial_dims if dim in data.coords}
+    coords = {
+        name: coord
+        for name, coord in data.coords.items()
+        if set(coord.dims).issubset(spatial_dims)
+    }
 
     # Build a color lookup from the napari layer so downstream consumers
     # (plot_napari, VolumePlotter.add_volume, add_contours) can render each
@@ -481,6 +494,11 @@ def labels_from_layer(
         dims=["mask", *spatial_dims],
         coords={"mask": unique_labels.astype(np.int32), **coords},
         attrs={
+            **{
+                key: value
+                for key, value in data.attrs.items()
+                if key == "voxel_to_physical"
+            },
             "long_name": "Drawn label map",
             "labels_layer_name": labels_layer.name,
             "rgb_lookup": rgb_lookup,

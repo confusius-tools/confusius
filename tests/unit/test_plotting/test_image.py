@@ -463,7 +463,7 @@ class TestPlotVolume:
         should plot like the size-1 z dimension from isel(z=[1]).
         """
         plotter = plot_volume(
-            sample_3d_volume.isel(z=1), slice_mode="z", show_colorbar=False
+            sample_3d_volume.isel(k=[1]), slice_mode="z", show_colorbar=False
         )
         assert _axes(plotter).shape == (1, 1)
         assert len(_axes(plotter)[0, 0].collections) == 1
@@ -472,7 +472,7 @@ class TestPlotVolume:
         self, sample_3d_volume, matplotlib_pyplot
     ):
         """plot_volume sorts non-monotonic spatial coordinates before plotting."""
-        data = sample_3d_volume.copy().isel(y=[2, 0, 1], x=[3, 1, 2, 0])
+        data = sample_3d_volume.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
 
         z_coord = float(data.coords["z"].values[0])
         plotter = plot_volume(
@@ -658,7 +658,7 @@ class TestVolumePlotterAddVolume:
     ):
         """Physical CTI overlays resample onto the first plotted physical grid."""
         overlay = add_physical_coords_from_voxel_affine(
-            sample_3d_volume.rename(z="k", y="j", x="i").assign_coords(
+            sample_3d_volume.copy().assign_coords(
                 k=sample_3d_volume.coords["z"].values,
                 j=sample_3d_volume.coords["y"].values,
                 i=sample_3d_volume.coords["x"].values,
@@ -725,7 +725,7 @@ class TestVolumePlotterAddVolume:
         `alpha` must be sorted the same way rather than rejected for carrying data's
         genuine (descending) coordinates.
         """
-        descending = sample_3d_volume.isel(y=slice(None, None, -1))
+        descending = sample_3d_volume.isel(j=slice(None, None, -1))
         alpha = xr.zeros_like(descending)
         alpha[0] = 0.25
         alpha[1] = 0.75
@@ -752,7 +752,7 @@ class TestVolumePlotterAddVolume:
         self, sample_3d_volume, matplotlib_pyplot
     ):
         """Same dims as data, but a differently-sized one, is rejected explicitly."""
-        alpha = sample_3d_volume.isel(x=slice(0, 4))
+        alpha = sample_3d_volume.isel(i=slice(0, 4))
         with pytest.raises(ValueError, match="size along 'x'"):
             VolumePlotter(slice_mode="z").add_volume(
                 sample_3d_volume, match_coordinates=False, alpha=alpha
@@ -763,13 +763,13 @@ class TestVolumePlotterAddVolume:
     ):
         """Still-3D alpha with a differently-named dimension is rejected explicitly.
 
-        Dropping a dimension entirely (e.g. via `.isel(x=0)`) would instead trip the
+        Dropping a dimension entirely (e.g. via `.isel(i=0)`) would instead trip the
         earlier "must be 3D" check in `_prepare_slice_inputs`, not the dims-equality
         check this test targets, so the mismatch is introduced via `rename` to keep
         `alpha` 3D.
         """
-        alpha = sample_3d_volume.rename(x="w")
-        with pytest.raises(ValueError, match="dims"):
+        alpha = sample_3d_volume.rename(i="w")
+        with pytest.raises(ValueError, match="dims|slice_mode"):
             VolumePlotter(slice_mode="z").add_volume(
                 sample_3d_volume, match_coordinates=False, alpha=alpha
             )
@@ -778,7 +778,7 @@ class TestVolumePlotterAddVolume:
         self, sample_3d_volume, matplotlib_pyplot
     ):
         alpha = sample_3d_volume.assign_coords(
-            x=sample_3d_volume.coords["x"].values + 1.0
+            x=("i", sample_3d_volume.coords["x"].values + 1.0)
         )
         with pytest.raises(ValueError, match="does not match"):
             VolumePlotter(slice_mode="z").add_volume(
@@ -999,7 +999,7 @@ class TestVolumePlotterAddContours:
     def _make_mask(self, sample_3d_volume, z_indices):
         """Create a mask with label 1 in a small region for the given z indices."""
         mask_data = np.zeros(
-            (len(z_indices), sample_3d_volume.sizes["y"], sample_3d_volume.sizes["x"]),
+            (len(z_indices), sample_3d_volume.sizes["j"], sample_3d_volume.sizes["i"]),
             dtype=int,
         )
         mask_data[:, 1:3, 1:3] = 1

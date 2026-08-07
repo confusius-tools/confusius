@@ -10,8 +10,21 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.io.nifti import load_nifti, save_nifti
 from confusius.xarray.affine import apply_affine
+
+
+def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
+    """Attach test voxel-affine geometry to a k/j/i DataArray."""
+    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    physical_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
+    return add_physical_coords_from_voxel_affine(
+        data,
+        np.eye(len(voxel_dims) + 1),
+        voxel_dims=voxel_dims,
+        physical_coord_names=physical_names,
+    )
 
 
 @pytest.fixture
@@ -192,9 +205,7 @@ class TestLoadNifti:
         da = load_nifti(nifti_path)
 
         assert da.dims == ("echo", "channel", "time", "k", "j", "i")
-        np.testing.assert_array_equal(
-            da.coords["channel"].values, np.array([0.0, 1.0])
-        )
+        np.testing.assert_array_equal(da.coords["channel"].values, np.array([0.0, 1.0]))
         np.testing.assert_array_equal(
             da.coords["echo"].values, np.array([10.0, 20.0, 30.0])
         )
@@ -755,11 +766,13 @@ class TestLoadNifti:
         with open(tmp_path / "bad_sidecar_validation.json", "w") as f:
             json.dump({"RepetitionTime": 1.0}, f)
 
-        with patch(
-            "confusius.io.nifti.validate_metadata", side_effect=RuntimeError("boom")
+        with (
+            patch(
+                "confusius.io.nifti.validate_metadata", side_effect=RuntimeError("boom")
+            ),
+            pytest.warns(UserWarning, match="validation warning: boom"),
         ):
-            with pytest.warns(UserWarning, match="validation warning: boom"):
-                load_nifti(path)
+            load_nifti(path)
 
     def test_load_nifti_both_affines_stores_qform_attrs(self, tmp_path: Path) -> None:
         """Loading a NIfTI with both valid affines stores qform orientation attr."""
@@ -834,7 +847,9 @@ class TestLoadNifti:
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" not in da.attrs["affines"]
 
-    def test_load_nifti_coordinate_affine_sform_forces_sform(self, tmp_path: Path) -> None:
+    def test_load_nifti_coordinate_affine_sform_forces_sform(
+        self, tmp_path: Path
+    ) -> None:
         """`coordinate_affine="sform"` makes sform define CTI geometry."""
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         qform = np.diag([5.0, 6.0, 7.0, 1.0])
@@ -848,11 +863,15 @@ class TestLoadNifti:
         da = load_nifti(nifti_path, coordinate_affine="sform")
 
         np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
-        np.testing.assert_allclose(da.attrs["voxel_to_physical"][:3, :3], np.diag([4.0, 3.0, 2.0]))
+        np.testing.assert_allclose(
+            da.attrs["voxel_to_physical"][:3, :3], np.diag([4.0, 3.0, 2.0])
+        )
         assert "physical_to_sform" in da.attrs["affines"]
         assert "physical_to_qform" in da.attrs["affines"]
 
-    def test_load_nifti_coordinate_affine_qform_forces_qform(self, tmp_path: Path) -> None:
+    def test_load_nifti_coordinate_affine_qform_forces_qform(
+        self, tmp_path: Path
+    ) -> None:
         """`coordinate_affine="qform"` makes qform define CTI geometry."""
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         qform = np.diag([5.0, 6.0, 7.0, 1.0])
@@ -866,7 +885,9 @@ class TestLoadNifti:
         da = load_nifti(nifti_path, coordinate_affine="qform")
 
         np.testing.assert_allclose(da.coords["z"].values, [0.0, 7.0])
-        np.testing.assert_allclose(da.attrs["voxel_to_physical"][:3, :3], np.diag([7.0, 6.0, 5.0]))
+        np.testing.assert_allclose(
+            da.attrs["voxel_to_physical"][:3, :3], np.diag([7.0, 6.0, 5.0])
+        )
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" in da.attrs["affines"]
 
@@ -2058,7 +2079,7 @@ class TestSaveNifti:
         da = da.assign_coords(
             slice_time=xr.DataArray(
                 time_values[:, np.newaxis] + np.array([0.0, 0.1, 0.2, 0.3]),
-                dims=("time", "z"),
+                dims=("time", "k"),
                 attrs={"units": "s"},
             )
         )
@@ -2091,7 +2112,7 @@ class TestSaveNifti:
         da = da.assign_coords(
             slice_time=xr.DataArray(
                 time_values[:, np.newaxis] + varying_offsets,
-                dims=("time", "z"),
+                dims=("time", "k"),
                 attrs={"units": "s"},
             )
         )
@@ -2126,7 +2147,7 @@ class TestSaveNifti:
         da = da.assign_coords(
             slice_time=xr.DataArray(
                 da.coords["time"].item() + np.array([0.0, 0.1, 0.2, 0.3]),
-                dims=("z",),
+                dims=("k",),
                 attrs={"units": "s"},
             )
         )
@@ -2142,22 +2163,24 @@ class TestSaveNifti:
 
     def test_save_1d_slice_time_requires_scalar_time_coordinate(self, tmp_path) -> None:
         """A 1D `slice_time` on time-series data is rejected for BIDS export."""
-        da = xr.DataArray(
-            np.zeros((2, 4, 3, 2), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(
-                    [0.0, 1.0],
-                    dims=["time"],
-                    attrs={"units": "s", "volume_acquisition_reference": "start"},
-                ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    [0.0, 0.1, 0.2, 0.3], dims=["z"], attrs={"units": "s"}
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((2, 4, 3, 2), dtype=np.float32),
+                dims=["time", "k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(
+                        [0.0, 1.0],
+                        dims=["time"],
+                        attrs={"units": "s", "volume_acquisition_reference": "start"},
+                    ),
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        [0.0, 0.1, 0.2, 0.3], dims=["k"], attrs={"units": "s"}
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_1d_requires_scalar.nii.gz"
@@ -2171,17 +2194,19 @@ class TestSaveNifti:
 
     def test_save_1d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 1D `slice_time` without `time` cannot be exported to BIDS."""
-        da = xr.DataArray(
-            np.zeros((4, 3, 2), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    [0.0, 0.1, 0.2, 0.3], dims=["z"], attrs={"units": "s"}
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((4, 3, 2), dtype=np.float32),
+                dims=["k", "j", "i"],
+                coords={
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        [0.0, 0.1, 0.2, 0.3], dims=["k"], attrs={"units": "s"}
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_1d_no_time.nii.gz"
@@ -2195,18 +2220,20 @@ class TestSaveNifti:
 
     def test_save_1d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
         """A scalar-time snapshot without frame duration cannot export `SliceTiming`."""
-        da = xr.DataArray(
-            np.zeros((4, 3, 2), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "time": xr.DataArray(10.0, attrs={"units": "s"}),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    [10.0, 10.1, 10.2, 10.3], dims=["z"], attrs={"units": "s"}
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((4, 3, 2), dtype=np.float32),
+                dims=["k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(10.0, attrs={"units": "s"}),
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        [10.0, 10.1, 10.2, 10.3], dims=["k"], attrs={"units": "s"}
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_1d_no_duration.nii.gz"
@@ -2229,31 +2256,33 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """A 1D `slice_time` honors its own acquisition reference metadata."""
-        da = xr.DataArray(
-            np.zeros((2, 3, 2), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "time": xr.DataArray(
-                    10.0,
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_duration": 0.25,
-                        "volume_acquisition_reference": "start",
-                    },
-                ),
-                "z": np.arange(2, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    [10.2, 10.3],
-                    dims=["z"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_duration": 0.2,
-                        "volume_acquisition_reference": "end",
-                    },
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((2, 3, 2), dtype=np.float32),
+                dims=["k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(
+                        10.0,
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_duration": 0.25,
+                            "volume_acquisition_reference": "start",
+                        },
+                    ),
+                    "k": np.arange(2, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        [10.2, 10.3],
+                        dims=["k"],
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_duration": 0.2,
+                            "volume_acquisition_reference": "end",
+                        },
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_1d_end_reference.nii.gz"
@@ -2266,26 +2295,28 @@ class TestSaveNifti:
 
     def test_save_invalid_1d_slice_time_dimension_is_skipped(self, tmp_path) -> None:
         """A 1D `slice_time` on a non-spatial dimension is skipped silently."""
-        da = xr.DataArray(
-            np.zeros((2, 4, 3, 2), dtype=np.float32),
-            dims=["channel", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(
-                    10.0,
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_duration": 0.25,
-                        "volume_acquisition_reference": "start",
-                    },
-                ),
-                "channel": [0, 1],
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    [10.0, 10.1], dims=["channel"], attrs={"units": "s"}
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((2, 4, 3, 2), dtype=np.float32),
+                dims=["channel", "k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(
+                        10.0,
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_duration": 0.25,
+                            "volume_acquisition_reference": "start",
+                        },
+                    ),
+                    "channel": [0, 1],
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        [10.0, 10.1], dims=["channel"], attrs={"units": "s"}
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_1d_invalid_dim.nii.gz"
@@ -2307,11 +2338,11 @@ class TestSaveNifti:
                 np.zeros(
                     (
                         sample_3dt_volume.sizes["time"],
-                        sample_3dt_volume.sizes["z"],
-                        sample_3dt_volume.sizes["y"],
+                        sample_3dt_volume.sizes["k"],
+                        sample_3dt_volume.sizes["j"],
                     )
                 ),
-                dims=("time", "z", "y"),
+                dims=("time", "k", "j"),
                 attrs={"units": "s"},
             )
         )
@@ -2327,23 +2358,25 @@ class TestSaveNifti:
 
     def test_save_2d_slice_time_on_non_spatial_dim_is_skipped(self, tmp_path) -> None:
         """A 2D `slice_time` with a non-spatial companion dimension is skipped."""
-        da = xr.DataArray(
-            np.zeros((2, 2, 4, 3, 2), dtype=np.float32),
-            dims=["channel", "time", "z", "y", "x"],
-            coords={
-                "channel": [0, 1],
-                "time": xr.DataArray(
-                    [0.0, 1.0],
-                    dims=["time"],
-                    attrs={"units": "s", "volume_acquisition_reference": "start"},
-                ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    np.zeros((2, 2)), dims=("time", "channel"), attrs={"units": "s"}
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((2, 2, 4, 3, 2), dtype=np.float32),
+                dims=["channel", "time", "k", "j", "i"],
+                coords={
+                    "channel": [0, 1],
+                    "time": xr.DataArray(
+                        [0.0, 1.0],
+                        dims=["time"],
+                        attrs={"units": "s", "volume_acquisition_reference": "start"},
+                    ),
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        np.zeros((2, 2)), dims=("time", "channel"), attrs={"units": "s"}
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_2d_non_spatial_dim.nii.gz"
@@ -2356,17 +2389,19 @@ class TestSaveNifti:
 
     def test_save_2d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 2D `slice_time` without a `time` coordinate cannot be exported."""
-        da = xr.DataArray(
-            np.zeros((2, 4, 3, 2), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    np.zeros((2, 4)), dims=("time", "z"), attrs={"units": "s"}
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((2, 4, 3, 2), dtype=np.float32),
+                dims=["time", "k", "j", "i"],
+                coords={
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        np.zeros((2, 4)), dims=("time", "k"), attrs={"units": "s"}
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_2d_no_time_coord.nii.gz"
@@ -2380,24 +2415,26 @@ class TestSaveNifti:
 
     def test_save_2d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
         """A single-volume 2D `slice_time` needs an explicit frame duration."""
-        da = xr.DataArray(
-            np.zeros((1, 4, 3, 2), dtype=np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(
-                    [10.0],
-                    dims=["time"],
-                    attrs={"units": "s", "volume_acquisition_reference": "start"},
-                ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-                "slice_time": xr.DataArray(
-                    np.zeros((1, 4)) + np.array([10.0, 10.1, 10.2, 10.3]),
-                    dims=("time", "z"),
-                    attrs={"units": "s"},
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((1, 4, 3, 2), dtype=np.float32),
+                dims=["time", "k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(
+                        [10.0],
+                        dims=["time"],
+                        attrs={"units": "s", "volume_acquisition_reference": "start"},
+                    ),
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        np.zeros((1, 4)) + np.array([10.0, 10.1, 10.2, 10.3]),
+                        dims=("time", "k"),
+                        attrs={"units": "s"},
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "slice_time_2d_no_duration.nii.gz"
@@ -2413,22 +2450,24 @@ class TestSaveNifti:
 
     def test_save_invalid_time_reference_raises(self, tmp_path) -> None:
         """Saving rejects invalid `volume_acquisition_reference` values."""
-        da = xr.DataArray(
-            np.zeros((4, 3, 2), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "time": xr.DataArray(
-                    10.0,
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_duration": 0.25,
-                        "volume_acquisition_reference": "middle",
-                    },
-                ),
-                "z": np.arange(4, dtype=float),
-                "y": np.arange(3, dtype=float),
-                "x": np.arange(2, dtype=float),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((4, 3, 2), dtype=np.float32),
+                dims=["k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(
+                        10.0,
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_duration": 0.25,
+                            "volume_acquisition_reference": "middle",
+                        },
+                    ),
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                },
+            )
         )
 
         with pytest.raises(
@@ -2442,13 +2481,13 @@ class TestSaveNifti:
         """Unexpected sidecar validation failures degrade to a warning when saving."""
         output_path = tmp_path / "save_validation_runtime_error.nii.gz"
 
-        with patch(
-            "confusius.io.nifti.validate_metadata", side_effect=RuntimeError("boom")
+        with (
+            patch(
+                "confusius.io.nifti.validate_metadata", side_effect=RuntimeError("boom")
+            ),
+            pytest.warns(UserWarning, match="validation warning when saving: boom"),
         ):
-            with pytest.warns(
-                UserWarning, match="validation warning when saving: boom"
-            ):
-                save_nifti(sample_3dt_volume, output_path)
+            save_nifti(sample_3dt_volume, output_path)
 
     def test_named_qform_selects_requested_affine(self, tmp_path):
         """`qform=` selects the requested affine key from `attrs['affines']`."""
@@ -2521,7 +2560,9 @@ class TestSaveNifti:
             attrs={"affines": {"physical_to_qform": sheared_affine}},
         )
         output_path = tmp_path / "sheared_qform_promoted.nii.gz"
-        with pytest.warns(UserWarning, match="coordinate-defining affine contains shear"):
+        with pytest.warns(
+            UserWarning, match="coordinate-defining affine contains shear"
+        ):
             save_nifti(da, output_path)
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
@@ -2529,7 +2570,9 @@ class TestSaveNifti:
         assert loaded.header.get_sform(coded=True)[1] == 1
         expected_sform = sheared_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
         np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
-        np.testing.assert_allclose(loaded.header.structarr["pixdim"][1:4], [1.0, 1.0, 1.0])
+        np.testing.assert_allclose(
+            loaded.header.structarr["pixdim"][1:4], [1.0, 1.0, 1.0]
+        )
 
         sidecar_path = tmp_path / "sheared_qform_promoted.json"
         with open(sidecar_path) as f:
@@ -2804,29 +2847,34 @@ class TestRoundtrip:
         """Explicit end-reference duration avoids spurious validation warnings."""
         rng = np.random.default_rng(0)
         time_values = np.array([0.4, 2.8, 5.2, 7.6])
-        da = xr.DataArray(
-            rng.random((4, 4, 3, 2)).astype(np.float32),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(
-                    time_values,
-                    dims=["time"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "end",
-                        "volume_acquisition_duration": 0.4,
-                    },
-                ),
-                "slice_time": xr.DataArray(
-                    time_values[:, np.newaxis] + np.array([0.0, 1.8, 0.6, 1.2]),
-                    dims=("time", "z"),
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "end",
-                        "volume_acquisition_duration": 0.4,
-                    },
-                ),
-            },
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                rng.random((4, 4, 3, 2)).astype(np.float32),
+                dims=["time", "k", "j", "i"],
+                coords={
+                    "time": xr.DataArray(
+                        time_values,
+                        dims=["time"],
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "end",
+                            "volume_acquisition_duration": 0.4,
+                        },
+                    ),
+                    "k": np.arange(4, dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                    "slice_time": xr.DataArray(
+                        time_values[:, np.newaxis] + np.array([0.0, 1.8, 0.6, 1.2]),
+                        dims=("time", "k"),
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "end",
+                            "volume_acquisition_duration": 0.4,
+                        },
+                    ),
+                },
+            )
         )
 
         output_path = tmp_path / "end_referenced_scan_timing.nii.gz"

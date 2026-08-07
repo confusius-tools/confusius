@@ -16,7 +16,7 @@ from confusius._utils.geometry import (
 
 
 def test_axis_aligned_voxel_affine_uses_1d_physical_coords() -> None:
-    """Axis-aligned voxel-affine geometry exposes 1D physical coords and indexes."""
+    """Axis-aligned voxel-affine geometry exposes 1D physical coords."""
     data = xr.DataArray(
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
@@ -48,12 +48,11 @@ def test_axis_aligned_voxel_affine_uses_1d_physical_coords() -> None:
     assert_array_equal(result.coords["z"].values, [100.0, 120.0])
     assert_array_equal(result.coords["y"].values, [200.0, 202.0, 206.0])
     assert_array_equal(result.coords["x"].values, [300.0, 306.0, 309.0, 321.0])
-    assert type(result.xindexes["x"]).__name__ == "PandasIndex"
+    assert "x" not in result.xindexes
 
 
-
-def test_axis_aligned_voxel_affine_sel_supports_scalars_and_slices() -> None:
-    """Axis-aligned voxel-affine geometry supports ordinary `.sel(...)` queries."""
+def test_axis_aligned_voxel_affine_does_not_add_extra_indexes() -> None:
+    """Axis-aligned physical coords do not add a second index per voxel dim."""
     data = xr.DataArray(
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
@@ -78,15 +77,8 @@ def test_axis_aligned_voxel_affine_sel_supports_scalars_and_slices() -> None:
         physical_coord_names=("z", "y", "x"),
     )
 
-    selected = result.sel(z=12.1, y=26.2, x=39.4, method="nearest")
-    sliced = result.sel(z=slice(10.0, 12.0), y=slice(20.0, 22.0))
-
-    assert selected.item() == data.sel(k=2.0, j=3.0, i=3.0).item()
-    assert float(selected.coords["z"]) == 12.0
-    assert float(selected.coords["y"]) == 26.0
-    assert float(selected.coords["x"]) == 39.0
-    assert sliced.sizes == {"k": 2, "j": 2, "i": 4}
-
+    assert list(result.xindexes) == ["k", "j", "i"]
+    result.stack(space=("k", "j", "i"))
 
 
 def test_oblique_coordinate_transform_index_selection_uses_physical_coords() -> None:
@@ -185,7 +177,6 @@ def test_get_physical_spacings_singleton_axis_uses_affine_column_norm() -> None:
     spacing = get_physical_spacings(voxel_coords, voxel_to_physical)
 
     assert spacing == {"k": 0.4, "j": 6.0, "i": 5.0}
-
 
 
 def test_get_physical_spacings_returns_none_for_irregular_voxel_axes() -> None:

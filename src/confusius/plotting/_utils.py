@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
     get_voxel_affine_physical_coord_names,
     has_axis_aligned_voxel_affine_geometry,
@@ -203,7 +204,7 @@ def convert_axis_aligned_voxel_affine_to_physical_grid(
     if not has_axis_aligned_voxel_affine_geometry(data):
         return data
 
-    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     physical_dims = get_voxel_affine_physical_coord_names(data)
     dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
     result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)

@@ -8,10 +8,11 @@ from typing import Literal
 import numpy as np
 import xarray as xr
 
-from confusius._dims import POSE_DIM, TIME_DIM
+from confusius._dims import POSE_DIM, TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
     get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spacing,
     get_voxel_affine_spatial_dims,
     has_voxel_affine_geometry,
 )
@@ -19,17 +20,8 @@ from confusius._utils.geometry import (
 RegularSpacingDims = Literal["space", "core", "all"] | str | Sequence[str]
 """Selector for dimensions that must satisfy regular-spacing checks."""
 
-_PHYSICAL_CORE_DIMS = (TIME_DIM, POSE_DIM, "z", "y", "x")
-"""Physical-grid dimension names recognized by ConfUSIus fUSI validators."""
-
-_VOXEL_CORE_DIMS = (TIME_DIM, POSE_DIM, "k", "j", "i")
+_VOXEL_CORE_DIMS = (TIME_DIM, POSE_DIM, *VOXEL_DIMS)
 """Voxel-affine dimension names recognized by ConfUSIus fUSI validators."""
-
-_VOXEL_SPATIAL_DIMS = ("k", "j", "i")
-"""Voxel-space spatial dimension names used by ConfUSIus geometry."""
-
-_PHYSICAL_SPATIAL_DIMS = ("z", "y", "x")
-"""Physical-grid spatial dimension names used by ConfUSIus geometry."""
 
 
 def _get_allowed_core_dims(da: xr.DataArray) -> tuple[str, ...]:
@@ -45,7 +37,7 @@ def _get_allowed_core_dims(da: xr.DataArray) -> tuple[str, ...]:
     tuple[str, ...]
         Allowed core dimensions for `da`.
     """
-    return _VOXEL_CORE_DIMS if has_voxel_affine_geometry(da) else _PHYSICAL_CORE_DIMS
+    return _VOXEL_CORE_DIMS
 
 
 def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
@@ -62,10 +54,7 @@ def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
         Spatial dimensions for `da`, using `k/j/i` for voxel-affine geometry and
         `z/y/x` otherwise.
     """
-    spatial_dims = (
-        _VOXEL_SPATIAL_DIMS if has_voxel_affine_geometry(da) else _PHYSICAL_SPATIAL_DIMS
-    )
-    return tuple(dim for dim in spatial_dims if dim in da.dims)
+    return tuple(dim for dim in VOXEL_DIMS if dim in da.dims)
 
 
 def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
@@ -311,8 +300,13 @@ def _validate_regular_spacing(
         coord = da.coords[dim]
         if not np.issubdtype(coord.dtype, np.number):
             continue
-        spacing = get_coordinate_spacing_info(dim, da, regular_spacing_tolerance)
-        if spacing.value is None:
+        if has_voxel_affine_geometry(da) and dim in spatial_dims:
+            spacing_value = get_voxel_affine_spacing(da)[dim]
+        else:
+            spacing_value = get_coordinate_spacing_info(
+                dim, da, regular_spacing_tolerance
+            ).value
+        if spacing_value is None:
             raise ValueError(
                 f"Coordinate {dim!r} must have regular spacing, but spacing is "
                 "non-uniform or undefined."
@@ -396,7 +390,7 @@ def validate_fusi_dataarray(
     if not isinstance(data, xr.DataArray):
         raise TypeError(f"data must be an xarray.DataArray, got {type(data).__name__}.")
 
-    if minimum_spatial_dims < 0 or minimum_spatial_dims > len(_VOXEL_SPATIAL_DIMS):
+    if minimum_spatial_dims < 0 or minimum_spatial_dims > len(VOXEL_DIMS):
         raise ValueError(
             "minimum_spatial_dims must be between 0 and 3 inclusive, got "
             f"{minimum_spatial_dims}."
@@ -411,6 +405,12 @@ def validate_fusi_dataarray(
         allowed_core_dims=allowed_core_dims,
     )
 
+    if not has_voxel_affine_geometry(data):
+        raise ValueError(
+            "DataArray must use native voxel dimensions `k/j/i` with "
+            "`attrs['voxel_to_physical']` and derived physical coordinates."
+        )
+
     _validate_voxel_affine_geometry(data)
 
     if require_time and TIME_DIM not in data.dims:
@@ -423,7 +423,7 @@ def validate_fusi_dataarray(
     if len(spatial_dims_present) < minimum_spatial_dims:
         raise ValueError(
             f"DataArray must have at least {minimum_spatial_dims} spatial dimensions "
-            f"from {_VOXEL_SPATIAL_DIMS!r}, got {tuple(spatial_dims_present)!r}."
+            f"from {VOXEL_DIMS!r}, got {tuple(spatial_dims_present)!r}."
         )
 
     for dim in data.dims:

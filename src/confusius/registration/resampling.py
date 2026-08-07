@@ -16,15 +16,13 @@ from confusius.registration._utils import (
     get_defined_spatial_spacing,
     replace_spatial_geometry_attrs,
     set_sitk_thread_count,
+    validate_registration_dataarray,
 )
 from confusius.registration.bspline import (
     _dataarray_to_sitk_bspline,
     _dataarray_to_sitk_displacement_field,
 )
-from confusius.validation import (
-    validate_fusi_dataarray,
-    validate_matching_spatial_units,
-)
+from confusius.validation import validate_matching_spatial_units
 
 
 def resample_volume(
@@ -114,13 +112,7 @@ def resample_volume(
     spatial_dims = [str(d) for d in moving.dims if str(d) != "time"]
     ndim = len(spatial_dims)
 
-    validate_fusi_dataarray(
-        moving,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
-    )
+    validate_registration_dataarray(moving, minimum_spatial_dims=2)
 
     if isinstance(transform, np.ndarray):
         expected_shape = (ndim + 1, ndim + 1)
@@ -263,19 +255,9 @@ def resample_like(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    validate_fusi_dataarray(
-        moving,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
-    )
-    validate_fusi_dataarray(
-        reference,
-        require_time=False,
-        allow_pose=False,
-        allow_extra_dims=False,
-        minimum_spatial_dims=2,
+    validate_registration_dataarray(moving, minimum_spatial_dims=2)
+    validate_registration_dataarray(
+        reference, require_spatial_only=True, minimum_spatial_dims=2
     )
     validate_matching_spatial_units((("moving", moving), ("reference", reference)))
     if isinstance(transform, xr.DataArray):

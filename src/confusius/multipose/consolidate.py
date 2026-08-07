@@ -11,6 +11,11 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+    has_voxel_affine_geometry,
+)
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
 
@@ -157,7 +162,7 @@ def _consolidate_linked_affines(
 def consolidate_poses(
     da: xr.DataArray,
     affines_key: str = "physical_to_lab",
-    sweep_dim: str = "z",
+    sweep_dim: str = "k",
     rtol: float = 0.01,
 ) -> xr.DataArray:
     """Merge `pose` and `sweep_dim` dimensions into a single axis ordered by position.
@@ -170,8 +175,8 @@ def consolidate_poses(
     pos[p, i] = affine[p, :3, sweep_col] * sweep_mm[i] + affine[p, :3, 3]
     ```
 
-    where `sweep_col` is the column index of `sweep_dim` in the spatial dim ordering
-    `(z, y, x)` → columns `(0, 1, 2)`.
+    where `sweep_col` is the column index of `sweep_dim` in the voxel dim ordering
+    `(k, j, i)` → affine columns `(z, y, x)`.
 
     The primary sweep direction is found via singular value decomposition of all
     positions. Each voxel is projected onto that axis, the positions are checked for
@@ -181,19 +186,20 @@ def consolidate_poses(
     This function is primarily intended for consolidating multi-pose fUSI volumes
     acquired with an Iconeus system using a purely translational probe sweep. In that
     workflow, each pose corresponds to one probe position along the elevation axis
-    (`z`), and the DataArray is produced by [`load_scan`][confusius.io.load_scan]:
+    (`k`/physical `z`), and the DataArray is produced by
+    [`load_scan`][confusius.io.load_scan]:
 
     ```python
-    scan_3d = load_scan("recording.scan")       # dims: (pose, z, y, x)
-    volume  = consolidate_poses(scan_3d)        # dims: (z, y, x)
+    scan_3d = load_scan("recording.scan")       # dims: (pose, k, j, i)
+    volume  = consolidate_poses(scan_3d)        # dims: (k, j, i)
 
-    scan_4d = load_scan("recording_4d.scan")    # dims: (time, pose, z, y, x)
-    volume  = consolidate_poses(scan_4d)        # dims: (time, z, y, x)
+    scan_4d = load_scan("recording_4d.scan")    # dims: (time, pose, k, j, i)
+    volume  = consolidate_poses(scan_4d)        # dims: (time, k, j, i)
     ```
 
     The function also works on any DataArray that carries a `(npose, 4, 4)` affine stack
     in `da.attrs["affines"][affines_key]` with columns ordered as `(z, y, x,
-    translation)`. The `sweep_dim` parameter selects which spatial dimension is being
+    translation)`. The `sweep_dim` parameter selects which voxel dimension is being
     swept across poses. For example, a stack of NIfTI DataArrays concatenated along a
     new `pose` dimension with their `physical_to_qform` affines stacked accordingly.
 
@@ -206,11 +212,11 @@ def consolidate_poses(
     affines_key : str, default: "physical_to_lab"
         Key into `da.attrs["affines"]` that holds the `(npose, 4, 4)` affine stack.
         Column order must be `(z, y, x, translation)`.
-    sweep_dim : str, default: "z"
-        Name of the spatial dimension being swept across poses. Must be one of the
+    sweep_dim : str, default: "k"
+        Name of the voxel dimension being swept across poses. Must be one of the
         spatial dimensions in `da.dims`. The column index in the affine is determined
-        by the order of spatial dimensions in the DataArray (e.g., if spatial dims are
-        `["z", "y", "x"]`, then `"z"` → column 0, `"y"` → column 1, `"x"` → column 2).
+        by the voxel dimension order (`"k"` → column 0, `"j"` → column 1,
+        `"i"` → column 2).
     rtol : float, default: 0.01
         Relative tolerance for the regularity check (fraction of mean spacing).
 
@@ -237,22 +243,41 @@ def consolidate_poses(
     UserWarning
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
-    # Determine spatial dimensions (non-time, non-pose) and their column indices.
-    spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
-    if sweep_dim not in spatial_dims:
-        raise ValueError(
-            f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
-            f"got {sweep_dim!r}."
-        )
-    sweep_col = spatial_dims.index(sweep_dim)
-
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
+
+    if has_voxel_affine_geometry(da):
+        voxel_dims = list(get_voxel_affine_spatial_dims(da))
+        physical_dims = list(get_voxel_affine_physical_coord_names(da))
+        voxel_to_physical = dict(zip(voxel_dims, physical_dims, strict=True))
+        if sweep_dim not in voxel_dims:
+            raise ValueError(
+                f"sweep_dim must be one of the spatial dimensions {voxel_dims!r}; "
+                f"got {sweep_dim!r}."
+            )
+        sweep_data_dim = sweep_dim
+        spatial_dims = voxel_dims
+        output_spatial_dims = spatial_dims
+        physical_sweep_dim = voxel_to_physical[sweep_dim]
+        sweep_mm = np.asarray(da.coords[physical_sweep_dim].values, dtype=np.float64)
+        sweep_coord_attrs = dict(da.coords[physical_sweep_dim].attrs)
+    else:
+        spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
+        output_spatial_dims = spatial_dims
+        if sweep_dim not in spatial_dims:
+            raise ValueError(
+                f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
+                f"got {sweep_dim!r}."
+            )
+        sweep_data_dim = sweep_dim
+        sweep_mm = np.asarray(da.coords[sweep_dim].values, dtype=np.float64)
+        sweep_coord_attrs = dict(da.coords[sweep_dim].attrs)
+
+    sweep_col = spatial_dims.index(sweep_dim)
 
     affine: npt.NDArray[np.float64] = np.asarray(
         da.attrs["affines"][affines_key]
     )  # (npose, 4, 4)
-    sweep_mm: npt.NDArray[np.float64] = da.coords[sweep_dim].values
     n_sweep = len(sweep_mm)
 
     rotations: npt.NDArray[np.float64] = affine[:, :3, :3]  # (npose, 3, 3)
@@ -320,7 +345,7 @@ def consolidate_poses(
         proj_sorted[0] + np.arange(n_consolidated) * mean_spacing
     )
 
-    new_sweep = xr.Variable(sweep_dim, proj_regular, attrs=da.coords[sweep_dim].attrs)
+    new_sweep = xr.Variable(sweep_dim, proj_regular, attrs=sweep_coord_attrs)
 
     # After merging, sweep_dim is the projection along sweep_axis (already in affine/
     # world-space units), so the sweep column becomes sweep_axis. The other spatial
@@ -355,15 +380,26 @@ def consolidate_poses(
     new_affine[:3, :3] = q
     new_affine[:3, 3] = t_perp
 
-    other_dims = [d for d in spatial_dims if d != sweep_dim]
+    other_output_dims = [d for d in output_spatial_dims if d != sweep_dim]
     new_affines = _consolidate_linked_affines(
         da.attrs.get("affines", {}), affines_key, affine, new_affine
     )
     new_attrs = {**da.attrs, "affines": new_affines}
-    base_coords: dict[str, Any] = {
-        str(sweep_dim): new_sweep,
-        **{str(d): da.coords[d] for d in other_dims},
-    }
+    new_attrs.pop("voxel_to_physical", None)
+    base_coords: dict[str, Any] = {str(sweep_dim): new_sweep}
+    for output_dim in other_output_dims:
+        coord_name = (
+            voxel_to_physical.get(output_dim, output_dim)
+            if has_voxel_affine_geometry(da)
+            else output_dim
+        )
+        if coord_name in da.coords:
+            coord = da.coords[coord_name]
+            base_coords[str(output_dim)] = xr.DataArray(
+                np.asarray(coord.values),
+                dims=[str(output_dim)],
+                attrs=dict(coord.attrs),
+            )
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.
     # This stays dask-backed; dask does not support multi-axis fancy indexing via
@@ -374,7 +410,7 @@ def consolidate_poses(
     data = da.isel(
         {
             "pose": xr.DataArray(pose_idx, dims=[_consolidated]),
-            sweep_dim: xr.DataArray(sweep_idx, dims=[_consolidated]),
+            sweep_data_dim: xr.DataArray(sweep_idx, dims=[_consolidated]),
         }
     ).data
 
@@ -415,7 +451,7 @@ def consolidate_poses(
                 slice_time_attrs,
             )
         coords.update(base_coords)
-        out_dims = ["time", sweep_dim] + other_dims
+        out_dims = ["time", sweep_dim] + other_output_dims
         return xr.DataArray(
             data,
             dims=out_dims,
@@ -424,7 +460,7 @@ def consolidate_poses(
             name="scan_data",
         )
 
-    out_dims = [sweep_dim] + other_dims
+    out_dims = [sweep_dim] + other_output_dims
     return xr.DataArray(
         data,
         dims=out_dims,

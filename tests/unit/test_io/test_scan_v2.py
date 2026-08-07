@@ -10,8 +10,8 @@ import pytest
 import xarray as xr
 
 from confusius.io.scan import (
-    PHYSICAL_TO_PROBE_PERMUTATION,
     _SCAN_V2_OFFSETS,
+    PHYSICAL_TO_PROBE_PERMUTATION,
     SCAN_V2_MAGIC,
     load_bps,
     load_scan,
@@ -354,8 +354,8 @@ class TestLoadScanV2:
     """Tests for load_scan dispatching to the binary v2 loader."""
 
     def test_dims(self, scan_v2: xr.DataArray) -> None:
-        """Single-pose v2 produces dims (time, z, y, x)."""
-        assert scan_v2.dims == ("time", "z", "y", "x")
+        """Single-pose v2 produces voxel-affine dims (time, k, j, i)."""
+        assert scan_v2.dims == ("time", "k", "j", "i")
 
     def test_shape(self, scan_v2: xr.DataArray) -> None:
         """Shape maps Iconeus (sizeY, sizeZ, sizeX) to ConfUSIus (z, y, x)."""
@@ -465,9 +465,9 @@ class TestLoadScanV2Multipose:
     """Tests for multi-pose v2 files (inferred layout)."""
 
     def test_dims(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 produces dims (time, pose, z, y, x)."""
+        """Multi-pose v2 produces voxel-affine dims (time, pose, k, j, i)."""
         da = load_scan(scan_v2_multipose_path)
-        assert da.dims == ("time", "pose", "z", "y", "x")
+        assert da.dims == ("time", "pose", "k", "j", "i")
 
     def test_shape(self, scan_v2_multipose_path: Path) -> None:
         """Multi-pose shape keeps pose and maps elevation to z."""
@@ -497,7 +497,7 @@ class TestLoadScanV2Multiblock:
     def test_shape_folds_block_into_time(self, scan_v2_multiblock_path: Path) -> None:
         """nblock_repeat is merged into time: T = n_time * nblock_repeat."""
         da = load_scan(scan_v2_multiblock_path)
-        assert da.dims == ("time", "z", "y", "x")
+        assert da.dims == ("time", "k", "j", "i")
         assert da.shape == (_N_TIME * 2, _SIZE_Y, _SIZE_Z, _SIZE_X)
 
     def test_values(self, scan_v2_multiblock_path: Path) -> None:

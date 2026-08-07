@@ -56,6 +56,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import has_voxel_affine_geometry
 from confusius.registration._utils import (
     expand_thin_dims,
@@ -124,7 +125,7 @@ def sitk_bspline_to_dataarray(
     direction = np.array(coeff_images[0].GetDirection()).reshape(ndim, ndim)
 
     grid_shape = coefficients.shape[1:]  # (nz, ny, nx) or (ny, nx)
-    spatial_dims = ["z", "y", "x"][-ndim:]  # ["y", "x"] or ["z", "y", "x"]
+    spatial_dims = list(VOXEL_DIMS[-ndim:])
     coords: dict[str, object] = {
         "component": np.array(spatial_dims, dtype=np.str_),
     }

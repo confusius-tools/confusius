@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import get_voxel_affine_physical_coord_names
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
@@ -79,7 +80,7 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
 def _has_voxel_affine_geometry(data: xr.DataArray) -> bool:
     """Return whether `data` carries voxel-affine geometry metadata."""
     return "voxel_to_physical" in data.attrs and all(
-        str(dim) in {"k", "j", "i"} for dim in data.dims
+        str(dim) in {"time", "k", "j", "i"} for dim in data.dims
     )
 
 
@@ -101,7 +102,7 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
     if not _has_voxel_affine_geometry(data):
         return
 
-    valid_slice_modes = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    valid_slice_modes = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     valid_slice_modes += tuple(
         dim
         for dim in get_voxel_affine_physical_coord_names(data)
@@ -113,7 +114,8 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
             f"physical z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
             f"modes: {valid_slice_modes!r}."
         )
-    if slice_mode in {"z", "y", "x"} and len(data.dims) != 3:
+    spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
+    if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
         raise ValueError(
             "Physical z/y/x slicing for voxel-affine plotting requires 3D data."
         )
@@ -123,7 +125,7 @@ def _voxel_affine_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
     """Return voxel-space dimension order implied by the stored affine."""
     ndim = np.asarray(slice_da.attrs["voxel_to_physical"]).shape[0] - 1
     dims = tuple(
-        dim for dim in ("k", "j", "i") if dim in slice_da.dims or dim in slice_da.coords
+        dim for dim in VOXEL_DIMS if dim in slice_da.dims or dim in slice_da.coords
     )
     if len(dims) != ndim:
         raise ValueError(

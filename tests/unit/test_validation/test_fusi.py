@@ -18,9 +18,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
         coords={
             "k": xr.DataArray([0.0, 1.0], dims=("k",), attrs={"voxdim": 1.0}),
             "j": xr.DataArray([0.0, 2.0, 4.0], dims=("j",), attrs={"voxdim": 2.0}),
-            "i": xr.DataArray(
-                [0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}
-            ),
+            "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
         },
     )
     return add_physical_coords_from_voxel_affine(
@@ -75,7 +73,7 @@ def test_validate_fusi_dataarray_rejects_non_dataarray() -> None:
 
 
 def test_validate_fusi_dataarray_rejects_plain_physical_grid() -> None:
-    """Plain z/y/x dimension arrays are no longer a valid ConfUSIus model."""
+    """Plain z/y/x dimension arrays are not valid fUSI data."""
     data = xr.DataArray(
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("z", "y", "x"),
@@ -159,7 +157,9 @@ def test_validate_fusi_dataarray_rejects_missing_dimension_coordinate() -> None:
 
 def test_validate_fusi_dataarray_allows_missing_extra_dimension_coordinate() -> None:
     """Missing extra-dimension coordinates are allowed."""
-    bad = _make_voxel_affine_time_series().expand_dims(region=["roi"]).drop_vars("region")
+    bad = (
+        _make_voxel_affine_time_series().expand_dims(region=["roi"]).drop_vars("region")
+    )
     validate_fusi_dataarray(bad)
 
 
@@ -167,7 +167,9 @@ def test_validate_fusi_dataarray_rejects_non_numeric_core_coordinate() -> None:
     """Core dimension coordinates must be numeric."""
     n_i = _make_voxel_affine_time_series().sizes["i"]
     labels = np.array([f"v{i}" for i in range(n_i)], dtype=object)
-    bad = _make_voxel_affine_time_series().assign_coords(i=xr.DataArray(labels, dims=("i",)))
+    bad = _make_voxel_affine_time_series().assign_coords(
+        i=xr.DataArray(labels, dims=("i",))
+    )
 
     with pytest.raises(ValueError, match="must be numeric"):
         validate_fusi_dataarray(bad)
@@ -204,7 +206,9 @@ def test_validate_fusi_dataarray_regular_spacing_can_target_space_dims_only() ->
     )
 
 
-def test_validate_fusi_dataarray_regular_spacing_core_checks_time_when_present() -> None:
+def test_validate_fusi_dataarray_regular_spacing_core_checks_time_when_present() -> (
+    None
+):
     """`core` mode includes `time` and rejects irregular time spacing."""
     bad_time = _make_voxel_affine_time_series().assign_coords(
         time=np.array([0.0, 0.5, 1.0, 1.7, 2.2, 2.8], dtype=float)

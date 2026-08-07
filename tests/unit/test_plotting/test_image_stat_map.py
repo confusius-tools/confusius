@@ -23,7 +23,8 @@ def _signed_stat_map(template: xr.DataArray) -> xr.DataArray:
         values,
         name="t_stat",
         dims=template.dims,
-        coords={d: template.coords[d] for d in template.dims if d in template.coords},
+        coords=template.coords,
+        attrs=template.attrs,
     )
 
 
@@ -34,7 +35,8 @@ def _nonneg_stat_map(template: xr.DataArray) -> xr.DataArray:
         values,
         name="r2",
         dims=template.dims,
-        coords={d: template.coords[d] for d in template.dims if d in template.coords},
+        coords=template.coords,
+        attrs=template.attrs,
     )
 
 
@@ -130,7 +132,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["z"]
+        assert len(rendered) == sample_3d_volume.sizes["k"]
         # Background + overlay were both drawn on every panel.
         assert all(len(ax.collections) == 2 for ax in rendered)
 
@@ -139,7 +141,7 @@ class TestPlotStatMap:
         plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="y")
         assert plotter.slice_mode == "y"
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["y"]
+        assert len(rendered) == sample_3d_volume.sizes["j"]
 
     def test_overlay_sets_no_explicit_alpha_by_default(
         self, sample_3d_volume, matplotlib_pyplot
@@ -284,7 +286,7 @@ class TestPlotStatMap:
         stat_map = _signed_stat_map(sample_3d_volume)
         alpha = xr.ones_like(stat_map) * 0.5
         # bg_volume deliberately has a coarser, non-matching x grid.
-        bg_volume = sample_3d_volume.isel(x=slice(0, 4))
+        bg_volume = sample_3d_volume.isel(i=slice(0, 4))
 
         plotter = plot_stat_map(
             stat_map, bg_volume=bg_volume, slice_mode="z", alpha=alpha
@@ -298,7 +300,7 @@ class TestPlotStatMap:
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = plot_stat_map(stat_map, slice_mode="z")
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == stat_map.sizes["z"]
+        assert len(rendered) == stat_map.sizes["k"]
         assert all(len(ax.collections) == 1 for ax in rendered)
         norm = rendered[0].collections[0].norm
         assert norm.vmax == 10.0
@@ -319,7 +321,7 @@ class TestStatMapAccessor:
         )
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["z"]
+        assert len(rendered) == sample_3d_volume.sizes["k"]
 
     def test_accessor_without_background(self, sample_3d_volume, matplotlib_pyplot):
         import confusius  # noqa: F401 - register accessor.
@@ -327,5 +329,5 @@ class TestStatMapAccessor:
         stat_map = _signed_stat_map(sample_3d_volume)
         plotter = stat_map.fusi.plot.stat_map(slice_mode="z")
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == stat_map.sizes["z"]
+        assert len(rendered) == stat_map.sizes["k"]
         assert all(len(ax.collections) == 1 for ax in rendered)

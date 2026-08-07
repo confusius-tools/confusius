@@ -9,7 +9,9 @@ from confusius.validation import validate_mask, validate_matching_coordinates
 
 def test_validate_matching_coordinates_accepts_numeric_drift():
     """Numeric coordinates match within tolerance."""
-    left = xr.DataArray(np.arange(5), dims=["time"], coords={"time": np.arange(5) * 0.1})
+    left = xr.DataArray(
+        np.arange(5), dims=["time"], coords={"time": np.arange(5) * 0.1}
+    )
     right = xr.DataArray(
         np.arange(5),
         dims=["time"],
@@ -89,9 +91,7 @@ def test_validate_matching_coordinates_raises_on_mismatch():
 def test_validate_matching_coordinates_uses_exact_message_for_non_numeric_coords():
     """Non-numeric coordinate mismatches mention exact equality."""
     left = xr.DataArray(np.arange(2), dims=["region"], coords={"region": ["a", "b"]})
-    right = xr.DataArray(
-        np.arange(2), dims=["region"], coords={"region": ["a", "c"]}
-    )
+    right = xr.DataArray(np.arange(2), dims=["region"], coords={"region": ["a", "c"]})
 
     with pytest.raises(ValueError, match="with exact equality"):
         validate_matching_coordinates(left, right, "region")
@@ -133,9 +133,7 @@ def test_validate_matching_coordinates_uses_custom_array_names_in_errors():
         )
 
     missing = xr.DataArray(np.arange(3), dims=["time"])
-    with pytest.raises(
-        ValueError, match="Coordinate 'time' is missing from run 3"
-    ):
+    with pytest.raises(ValueError, match="Coordinate 'time' is missing from run 3"):
         validate_matching_coordinates(left, missing, "time", right_name="run 3")
 
 
@@ -150,15 +148,19 @@ def test_validate_matching_coordinates_raises_on_shape_mismatch():
 
 def test_validate_mask_accepts_scalar_attached_coordinate(sample_3dt_volume):
     """Single selected masks validate even if they keep a scalar `mask` coord."""
+    spatial_dims = sample_3dt_volume.dims[1:]
     mask = xr.DataArray(
         np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int),
-        dims=["mask", "z", "y", "x"],
+        dims=("mask", *spatial_dims),
         coords={
             "mask": ["roi_a", "roi_b"],
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
+            **{
+                name: coord
+                for name, coord in sample_3dt_volume.coords.items()
+                if set(coord.dims).issubset(spatial_dims)
+            },
         },
+        attrs={"voxel_to_physical": sample_3dt_volume.attrs["voxel_to_physical"]},
     )
     mask[0, 0, :, :] = 1
 
@@ -167,15 +169,7 @@ def test_validate_mask_accepts_scalar_attached_coordinate(sample_3dt_volume):
 
 def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_3dt_volume):
     """`require_exact_dims=True` accepts masks over all non-time dimensions."""
-    mask = xr.DataArray(
-        np.ones(sample_3dt_volume.shape[1:], dtype=bool),
-        dims=["z", "y", "x"],
-        coords={
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
-        },
-    )
+    mask = xr.ones_like(sample_3dt_volume.isel(time=0, drop=True), dtype=bool)
 
     validate_mask(mask, sample_3dt_volume, require_exact_dims=True)
 
@@ -183,9 +177,9 @@ def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_3dt_v
 def test_validate_mask_require_exact_dims_rejects_subset_dims(sample_3dt_volume):
     """`require_exact_dims=True` rejects subset spatial masks."""
     mask = xr.DataArray(
-        np.ones(sample_3dt_volume.shape[3], dtype=bool),
-        dims=["x"],
-        coords={"x": sample_3dt_volume.coords["x"]},
+        np.ones(sample_3dt_volume.sizes["i"], dtype=bool),
+        dims=["i"],
+        coords={"i": sample_3dt_volume.coords["i"]},
     )
 
     with pytest.raises(ValueError, match="must match all non-time dimensions"):

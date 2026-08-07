@@ -42,8 +42,9 @@ def _meta_from_layer(
     """
     import confusius  # noqa: F401 — registers .fusi accessor
 
+    physical_dim = {"k": "z", "j": "y", "i": "x"}
     scale = [da.fusi.spacing[d] or 1.0 for d in da.dims]
-    translate = [float(da[d].values[0]) for d in da.dims]
+    translate = [float(da[physical_dim.get(d, d)].values[0]) for d in da.dims]
     units = [da[d].attrs.get("units") for d in da.dims] if include_units else None
     return {
         "axis_labels": list(da.dims),
@@ -290,9 +291,12 @@ class TestWriteZarrFromReconstruction:
             str(path), sample_3dt_volume.values, _meta_from_layer(sample_3dt_volume)
         )
         loaded = load(path)
-        for dim in ("time", "z", "y", "x"):
+        coord_pairs = (("time", "time"), ("z", "z"), ("y", "y"), ("x", "x"))
+        for loaded_dim, sample_dim in coord_pairs:
             npt.assert_allclose(
-                loaded[dim].values, sample_3dt_volume[dim].values, rtol=1e-6
+                loaded[loaded_dim].values,
+                sample_3dt_volume[sample_dim].values,
+                rtol=1e-6,
             )
 
     def test_integer_labels_preserved(self, tmp_path: Path) -> None:
@@ -402,7 +406,6 @@ class TestDaFromNapariLayer:
 
     def test_napari_pixel_units_treated_as_absent(self) -> None:
         """Pint pixel/dimensionless units from napari are not stored in coord attrs."""
-        from unittest.mock import MagicMock
 
         from confusius._napari._io._writers import _compute_dataarray_from_layer
 

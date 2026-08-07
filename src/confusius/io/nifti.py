@@ -16,6 +16,7 @@ import numpy.typing as npt
 import xarray as xr
 from pydantic import ValidationError
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.coordinates import (
     get_affine_in_axis_aligned_space,
     get_axis_aligned_affine,
@@ -24,12 +25,11 @@ from confusius._utils.coordinates import (
 )
 from confusius._utils.geometry import (
     add_physical_coords_from_voxel_affine,
+    get_voxel_affine_spacing,
     has_voxel_affine_geometry,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
-    DIM_TO_SLICE_ENCODING_DIRECTION,
-    SLICE_ENCODING_DIRECTION_TO_DIM,
     create_bids_slice_timing_from_coordinate,
     create_slice_time_coordinate_from_bids,
     from_bids,
@@ -745,7 +745,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
     if "slice_timing" in attrs and "slice_encoding_direction" in attrs:
         slice_encoding_direction = str(attrs["slice_encoding_direction"])
-        if slice_encoding_direction not in SLICE_ENCODING_DIRECTION_TO_DIM:
+        if slice_encoding_direction.removesuffix("-") not in VOXEL_DIMS:
             return coords, attrs
         attrs.pop("slice_encoding_direction")
 
@@ -760,7 +760,7 @@ def _create_scalar_temporal_coords_from_nifti(
         if slice_encoding_direction.endswith("-"):
             slice_timing = slice_timing[::-1]
 
-        spatial_dim = SLICE_ENCODING_DIRECTION_TO_DIM[slice_encoding_direction]
+        spatial_dim = slice_encoding_direction.removesuffix("-")
         coords["slice_time"] = xr.DataArray(
             time_value + slice_timing,
             dims=[spatial_dim],
@@ -1009,11 +1009,48 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
     xarray.DataArray
         DataArray with voxel dims `k`/`j`/`i` plus physical `z`/`y`/`x` coordinates.
     """
+    native_voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
+    singleton_physical_dims = [
+        dim
+        for dim in ("z", "y", "x")
+        if dim in data_array.dims and data_array.sizes[dim] == 1
+    ]
+    if len(native_voxel_dims) in {2, 3} and singleton_physical_dims:
+        data_array = data_array.squeeze(dim=singleton_physical_dims, drop=True)
+        physical_names = tuple(("z", "y", "x")[-len(native_voxel_dims) :])
+        physical_values = {
+            physical: np.asarray(data_array.coords[voxel].values, dtype=np.float64)
+            for voxel, physical in zip(native_voxel_dims, physical_names, strict=True)
+            if voxel in data_array.coords
+        }
+        spacing = [
+            float(np.median(np.diff(values))) if values.size > 1 else 1.0
+            for values in physical_values.values()
+        ]
+        origin = [float(values[0]) for values in physical_values.values()]
+        voxel_to_physical = np.eye(len(native_voxel_dims) + 1, dtype=np.float64)
+        voxel_to_physical[:-1, :-1] = np.diag(spacing)
+        voxel_to_physical[:-1, -1] = origin
+        result = data_array.assign_coords(
+            {
+                dim: np.arange(data_array.sizes[dim], dtype=float)
+                for dim in native_voxel_dims
+            }
+        )
+        result = add_physical_coords_from_voxel_affine(
+            result,
+            voxel_to_physical,
+            voxel_dims=native_voxel_dims,
+            physical_coord_names=physical_names,
+        )
+        dim_order = [dim for dim in ("time", "k", "j", "i") if dim in result.dims]
+        return result.transpose(*dim_order)
+
     spatial_dims = tuple(dim for dim in ("z", "y", "x") if dim in data_array.dims)
     if len(spatial_dims) not in {2, 3}:
         return data_array
 
-    voxel_dims = tuple(dim for dim in ("k", "j", "i")[-len(spatial_dims) :])
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS[-len(spatial_dims) :])
     rename_map = dict(zip(spatial_dims, voxel_dims, strict=True))
     physical_coord_attrs = {
         dim: dict(data_array.coords[dim].attrs)
@@ -1248,6 +1285,15 @@ def load_nifti(
         )
         coords = {**spatial_coords, **extra_coords, **scalar_temporal_coords}
 
+    if "slice_time" in coords:
+        coords["slice_time"] = coords["slice_time"].rename(
+            {
+                dim: physical_dim
+                for dim, physical_dim in {"k": "z", "j": "y", "i": "x"}.items()
+                if dim in coords["slice_time"].dims
+            }
+        )
+
     nifti_name = path.with_suffix("").stem if path.suffix == ".gz" else path.stem
     data_array = xr.DataArray(
         dask_arr, dims=nifti_dims[::-1], coords=coords, attrs=attrs, name=nifti_name
@@ -1362,7 +1408,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
     slice_time_coord = data_array.coords["slice_time"]
     if len(slice_time_coord.dims) == 1:
         spatial_dim = slice_time_coord.dims[0]
-        if spatial_dim not in DIM_TO_SLICE_ENCODING_DIRECTION:
+        if spatial_dim not in VOXEL_DIMS:
             return {}
 
         if "time" not in data_array.coords:
@@ -1435,7 +1481,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
 
         return {
             "SliceTiming": (slice_time_seconds - volume_onset_seconds).tolist(),
-            "SliceEncodingDirection": DIM_TO_SLICE_ENCODING_DIRECTION[spatial_dim],
+            "SliceEncodingDirection": spatial_dim,
         }
 
     if len(slice_time_coord.dims) != 2 or "time" not in slice_time_coord.dims:
@@ -1448,7 +1494,7 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
         return {}
 
     spatial_dims = [dim for dim in slice_time_coord.dims if dim != "time"]
-    if len(spatial_dims) != 1 or spatial_dims[0] not in DIM_TO_SLICE_ENCODING_DIRECTION:
+    if len(spatial_dims) != 1 or spatial_dims[0] not in VOXEL_DIMS:
         return {}
 
     if "time" not in data_array.coords:
@@ -1710,7 +1756,11 @@ def _prepare_data_for_nifti(
     data = np.asarray(data_array)
     current_dims = tuple(str(dim) for dim in data_array.dims)
 
-    canonical_order, extras = _split_nifti_dims(current_dims)
+    if has_voxel_affine_geometry(data_array):
+        canonical_order = [*reversed(VOXEL_DIMS), "time"]
+        extras = [d for d in current_dims if d not in canonical_order]
+    else:
+        canonical_order, extras = _split_nifti_dims(current_dims)
     if len(extras) > _MAX_NIFTI_EXTRA_DIMS:
         raise ValueError(
             f"Cannot save DataArray with {len(extras)} extra (non-spatial, "
@@ -1730,7 +1780,12 @@ def _prepare_data_for_nifti(
 
     data = np.transpose(data, target_order)
 
-    for insert_pos, dim in enumerate(("x", "y", "z")):
+    nifti_spatial_dims = (
+        tuple(reversed(VOXEL_DIMS))
+        if has_voxel_affine_geometry(data_array)
+        else ("x", "y", "z")
+    )
+    for insert_pos, dim in enumerate(nifti_spatial_dims):
         if dim not in current_dims:
             data = np.expand_dims(data, axis=insert_pos)
 
@@ -1764,6 +1819,10 @@ def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
         needed for the NIfTI header.
     """
     spatial_spacings: list[float] = []
+    if has_voxel_affine_geometry(data_array):
+        voxel_spacings = get_voxel_affine_spacing(data_array)
+        return [float(voxel_spacings.get(dim) or 1.0) for dim in reversed(VOXEL_DIMS)]
+
     for dim in ("x", "y", "z"):
         spacing = get_coordinate_spacing_info(
             dim, data_array, uniformity_tolerance=1e-2
@@ -1976,7 +2035,7 @@ def _build_nifti_voxel_to_physical_affine(
         spacings = np.array(spatial_spacings)
         return get_axis_aligned_affine(origin, spacings)
 
-    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data_array.dims)
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
     if len(voxel_dims) != 3:
         raise ValueError(
             "Saving voxel-affine NIfTI currently requires 3D spatial geometry."

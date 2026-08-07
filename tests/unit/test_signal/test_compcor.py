@@ -261,12 +261,12 @@ def test_compute_compcor_mask_size_mismatch_after_flatten(sample_3dt_volume):
     """Test error when a subset-dimension mask flattens to the wrong size."""
     noise_mask = xr.DataArray(
         np.ones(
-            (sample_3dt_volume.sizes["z"], sample_3dt_volume.sizes["y"]), dtype=bool
+            (sample_3dt_volume.sizes["k"], sample_3dt_volume.sizes["j"]), dtype=bool
         ),
-        dims=["z", "y"],
+        dims=["k", "j"],
         coords={
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
+            "k": sample_3dt_volume.coords["k"],
+            "j": sample_3dt_volume.coords["j"],
         },
     )
 

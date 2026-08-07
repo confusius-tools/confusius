@@ -238,7 +238,16 @@ def _get_motion_parameter_columns(
     ValueError
         If `params` does not have 3 or 6 columns.
     """
-    spatial_dims = tuple(str(dim) for dim in reference.dims)
+    from confusius._utils.geometry import (
+        get_voxel_affine_physical_coord_names,
+        has_voxel_affine_geometry,
+    )
+
+    spatial_dims = (
+        get_voxel_affine_physical_coord_names(reference)
+        if has_voxel_affine_geometry(reference)
+        else tuple(str(dim) for dim in reference.dims)
+    )
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
 
     if params.shape[1] == 3:
