@@ -16,11 +16,17 @@ from confusius.iq.clutter_filters import (
     clutter_filter_svd_from_indices,
 )
 from confusius.timing import (
+    TIMING_REFERENCE_FACTORS,
+    VolumeAcquisitionReference,
     convert_time_reference,
     get_representative_time_step,
     get_time_coord_to_seconds_factor,
 )
-from confusius.validation import validate_iq_dataarray, validate_mask
+from confusius.validation import (
+    ensure_fusi,
+    ensure_iq,
+    validate_mask,
+)
 
 if TYPE_CHECKING:
     import dask.array as da
@@ -276,7 +282,7 @@ def _compute_clutter_filter_window_metadata(
     iq_time_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
-    if iq_time_reference not in {"start", "center", "end"}:
+    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown volume_acquisition_reference: {iq_time_reference!r}. Must be "
             "'start', 'center', or 'end'."
@@ -365,7 +371,7 @@ def _compute_inner_window_metadata(
     output_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
-    if output_reference not in {"start", "center", "end"}:
+    if output_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown volume_acquisition_reference: {output_reference!r}. Must be "
             "'start', 'center', or 'end'."
@@ -414,7 +420,7 @@ def compute_processed_volume_timings(
     clutter_window_stride: int,
     inner_window_width: int,
     inner_window_stride: int,
-    processed_time_reference: Literal["start", "center", "end"] | None = None,
+    processed_time_reference: VolumeAcquisitionReference | None = None,
 ) -> tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]:
     """Compute timings from processing input IQ volumes with nested sliding windows.
 
@@ -498,6 +504,8 @@ def compute_processed_volume_timings(
     >>> output_durations
     array([2.5, 2.5, 2.5, 2.5])
     """
+    iq = ensure_iq(iq)
+
     iq_time_reference = iq.coords["time"].attrs.get(
         "volume_acquisition_reference", "start"
     )
@@ -506,11 +514,11 @@ def compute_processed_volume_timings(
     iq_volume_duration = _get_volume_acquisition_duration(iq)
     iq_volume_timings = np.asarray(iq.coords["time"].values)
 
-    if iq_time_reference not in {"start", "center", "end"}:
+    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown iq_time_reference: {iq_time_reference!r}. Must be 'start', 'center', or 'end'."
         )
-    if processed_time_reference not in {"start", "center", "end"}:
+    if processed_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             "Unknown processed_time_reference: "
             f"{processed_time_reference!r}. Must be 'start', 'center', or 'end'."
@@ -1288,10 +1296,13 @@ def process_iq_to_power_doppler(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq_dataarray(iq, require_attrs=False)
+    iq = ensure_iq(iq)
 
     clutter_mask_array = None
     if clutter_mask is not None:
+        clutter_mask = ensure_fusi(
+            clutter_mask, allow_pose=False, allow_extra_dims=False
+        )
         clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values
 
@@ -1426,7 +1437,7 @@ def process_iq_to_bmode(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq_dataarray(iq, require_attrs=False)
+    iq = ensure_iq(iq)
 
     dask_iq: Array = iq.data
     if not isinstance(dask_iq, Array):
@@ -1628,10 +1639,13 @@ def process_iq_to_axial_velocity(
     import dask.array as da
     from dask.array import Array
 
-    validate_iq_dataarray(iq, require_attrs=True)
+    iq = ensure_iq(iq, require_velocity_attrs=True)
 
     clutter_mask_array = None
     if clutter_mask is not None:
+        clutter_mask = ensure_fusi(
+            clutter_mask, allow_pose=False, allow_extra_dims=False
+        )
         clutter_mask = validate_mask(clutter_mask, iq, "clutter_mask")
         clutter_mask_array = clutter_mask.values
 

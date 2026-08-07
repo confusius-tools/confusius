@@ -53,9 +53,9 @@ class TestComputeProcessedVolumeTimes:
                         "volume_acquisition_reference": volume_acquisition_reference,
                     },
                 ),
-                "z": [0],
-                "y": [0],
-                "x": [0],
+                "z": xr.DataArray([0], dims="z", attrs={"units": "mm", "voxdim": 1.0}),
+                "y": xr.DataArray([0], dims="y", attrs={"units": "mm", "voxdim": 1.0}),
+                "x": xr.DataArray([0], dims="x", attrs={"units": "mm", "voxdim": 1.0}),
             },
         )
 
@@ -100,21 +100,18 @@ class TestComputeProcessedVolumeTimes:
         assert_allclose(result, [0.45])
         assert_allclose(durations, [1.0])
 
-    def test_single_frame_center(self):
-        """Single-frame window: center is onset + volume_duration / 2."""
-        # Verifies the bin model: a single frame at t=0 with duration 2 ms has
-        # its center at 1 ms, not 0 ms (which the old discrete midpoint gave).
+    def test_single_frame_is_rejected(self):
+        """Processed IQ timing requires a multi-frame acquisition."""
         iq = self._make_iq([0.0], volume_acquisition_duration=0.002)
-        result, durations = compute_processed_volume_timings(
-            iq,
-            clutter_window_width=1,
-            clutter_window_stride=1,
-            inner_window_width=1,
-            inner_window_stride=1,
-            processed_time_reference="center",
-        )
-        assert_allclose(result, [0.001])
-        assert_allclose(durations, [0.002])
+
+        with pytest.raises(ValueError, match="requires more than 1 timepoint"):
+            compute_processed_volume_timings(
+                iq,
+                clutter_window_width=1,
+                clutter_window_stride=1,
+                inner_window_width=1,
+                inner_window_stride=1,
+            )
 
     def test_multiple_windows_values(self):
         """Multiple windows produce correct timestamps."""
@@ -579,7 +576,7 @@ class TestProcessIqToPowerDoppler:
                 "y": np.arange(6),
             },
         )
-        with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
             process_iq_to_power_doppler(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -589,10 +586,10 @@ class TestProcessIqToPowerDoppler:
             data,
             dims=("time", "z", "y", "x"),
             coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-                "x": np.arange(8),
+                "time": xr.DataArray(np.arange(10), dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(4), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(6), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(8), dims="x", attrs={"units": "mm"}),
             },
         )
         with pytest.raises(TypeError, match="complex-valued"):
@@ -689,23 +686,14 @@ class TestProcessIqToPowerDoppler:
             "volume_acquisition_duration"
         ] == pytest.approx(0.4)
 
-    def test_duration_metadata_set_without_time_coord_units(self, sample_iq_dataarray):
-        """volume_acquisition_duration is always set even when time coord has no units."""
+    def test_missing_time_coord_units_raises(self, sample_iq_dataarray):
+        """IQ processing requires explicit time coordinate units."""
         iq = sample_iq_dataarray.assign_coords(
             time=xr.DataArray(np.arange(20) * 0.1, dims=("time",))
         )
 
-        with pytest.warns(
-            UserWarning, match="no `units` attribute|compound_sampling_frequency"
-        ):
-            result = process_iq_to_bmode(
-                iq, bmode_window_width=10, bmode_window_stride=5
-            )
-
-        assert result.coords["time"].attrs[
-            "volume_acquisition_duration"
-        ] == pytest.approx(1.0)
-        assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
+        with pytest.raises(ValueError, match="Coordinate 'time'.*'units'"):
+            process_iq_to_bmode(iq, bmode_window_width=10, bmode_window_stride=5)
 
     def test_duration_metadata_preserves_time_coordinate_units(
         self, sample_iq_dataarray
@@ -733,15 +721,14 @@ class TestProcessIqToPowerDoppler:
     def test_varying_window_durations_warn_and_store_median(self, sample_iq_dataarray):
         """Variable output-window durations warn and store the median metadata value."""
         iq = sample_iq_dataarray.isel(time=slice(0, 5)).assign_coords(
-            time=xr.DataArray([0.0, 1.0, 3.0, 4.0, 7.0], dims=("time",))
+            time=xr.DataArray(
+                [0.0, 1.0, 3.0, 4.0, 7.0], dims=("time",), attrs={"units": "s"}
+            )
         )
 
         with pytest.warns(
             UserWarning,
-            match=(
-                "no `units` attribute|compound_sampling_frequency|"
-                "B-mode integration (duration|stride) varies"
-            ),
+            match="compound_sampling_frequency|B-mode integration (duration|stride) varies",
         ):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=2, bmode_window_stride=1
@@ -772,18 +759,12 @@ class TestProcessIqToPowerDoppler:
                 doppler_window_stride=1,
             )
 
-    def test_single_time_point_has_volume_acquisition_duration(
-        self, sample_iq_dataarray
-    ) -> None:
-        """Single-volume inputs still emit volume_acquisition_duration on the time coordinate."""
+    def test_single_time_point_is_rejected(self, sample_iq_dataarray) -> None:
+        """B-mode processing requires a multi-frame acquisition."""
         iq = sample_iq_dataarray.isel(time=slice(0, 1))
 
-        result = process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
-
-        assert result.coords["time"].attrs[
-            "volume_acquisition_duration"
-        ] == pytest.approx(1.0 / iq.attrs["compound_sampling_frequency"])
-        assert result.coords["time"].attrs["volume_acquisition_reference"] == "start"
+        with pytest.raises(ValueError, match="requires more than 1 timepoint"):
+            process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
 
     def test_duration_falls_back_to_compound_sampling_frequency_with_warning(
         self, sample_iq_dataarray
@@ -846,19 +827,6 @@ class TestProcessIqToPowerDoppler:
         assert result.coords["time"].attrs[
             "volume_acquisition_duration"
         ] == pytest.approx(np.median(np.diff(iq.coords["time"].values)))
-
-    def test_single_time_point_without_duration_metadata_raises(
-        self, sample_iq_dataarray
-    ) -> None:
-        """A single time point without duration provenance cannot infer acquisition duration."""
-        iq = sample_iq_dataarray.isel(time=slice(0, 1)).copy()
-        iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
-        iq.attrs.pop("compound_sampling_frequency", None)
-
-        with pytest.raises(
-            ValueError, match="Cannot determine volume acquisition duration"
-        ):
-            process_iq_to_bmode(iq, bmode_window_width=1, bmode_window_stride=1)
 
     def test_accessor_delegates_to_process_iq_to_power_doppler(
         self, sample_iq_dataarray
@@ -1194,7 +1162,9 @@ class TestDataArrayClutterMask:
             },
         )
 
-        with pytest.raises(ValueError, match=r"is missing from clutter_mask"):
+        with pytest.raises(
+            ValueError, match=r"Missing required coordinate for dimension 'z'"
+        ):
             process_iq_to_power_doppler(
                 iq,
                 clutter_mask=mask_dataarray,
@@ -1212,9 +1182,9 @@ class TestDataArrayClutterMask:
             wrong_mask,
             dims=("z", "y", "x"),
             coords={
-                "z": np.arange(2),
-                "y": np.arange(2),
-                "x": np.arange(2),
+                "z": xr.DataArray(np.arange(2), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(2), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(2), dims="x", attrs={"units": "mm"}),
             },
         )
 
@@ -1270,7 +1240,7 @@ class TestProcessIqToBmode:
                 "y": np.arange(6),
             },
         )
-        with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
+        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
             process_iq_to_bmode(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -1280,10 +1250,10 @@ class TestProcessIqToBmode:
             data,
             dims=("time", "z", "y", "x"),
             coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-                "x": np.arange(8),
+                "time": xr.DataArray(np.arange(10), dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(4), dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(6), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(8), dims="x", attrs={"units": "mm"}),
             },
         )
         with pytest.raises(TypeError, match="complex-valued"):

@@ -92,11 +92,11 @@ def _validate_meshes_available(structures: "StructuresDict") -> None:
         )
 
 
-def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
+def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     """Validate that a Dataset is a well-formed atlas.
 
-    Companion to [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray]
-    and [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray]. Checks that
+    Companion to [`validate_fusi`][confusius.validation.validate_fusi]
+    and [`validate_iq`][confusius.validation.validate_iq]. Checks that
     `ds` matches the atlas schema produced by
     [`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] and consumed
     by the `.atlas` accessor:
@@ -141,7 +141,7 @@ def validate_atlas_dataset(ds: xr.Dataset, *, require_mesh_use: bool = False) ->
     --------
     >>> from confusius.datasets import fetch_brainglobe_atlas
     >>> atlas = fetch_brainglobe_atlas("allen_mouse_100um")
-    >>> validate_atlas_dataset(atlas)
+    >>> validate_atlas(atlas)
     """
     if not isinstance(ds, xr.Dataset):
         raise TypeError(f"Expected an xarray.Dataset, got {type(ds).__name__}.")

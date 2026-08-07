@@ -488,6 +488,4 @@ class TestComputeSvdCumulativeEnergyThreshold:
 
         # Their projection onto the filtered signal should be zero.
         filtered_signals = filtered.reshape(n_volumes, -1)
-        assert_allclose(
-            np.abs(clutter_vecs.conj().T @ filtered_signals), 0, atol=1e-8
-        )
+        assert_allclose(np.abs(clutter_vecs.conj().T @ filtered_signals), 0, atol=1e-8)

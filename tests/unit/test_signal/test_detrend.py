@@ -329,7 +329,6 @@ def test_detrend_polynomial_with_nonleading_time_axis(sample_timeseries):
     assert_allclose(result.values, naive_result, rtol=1e-7)
 
 
-
 def test_detrend_dask_compatibility(rng):
     """Test linear detrending works with Dask-backed arrays."""
     n_time = 100

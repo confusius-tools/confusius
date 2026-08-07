@@ -137,7 +137,7 @@ def _append_cosine_drift_confounds(
     _, time_spacing = validate_time_series(
         signals,
         "cosine filtering",
-        check_time_chunks=False,
+        require_unchunked_time=False,
         require_uniform_time=True,
         uniformity_tolerance=uniformity_tolerance,
     )
@@ -299,7 +299,7 @@ def clean(
         Artifacts into fMRI Data.” Human Brain Mapping, vol. 40, no. 8, June 2019, pp.
         2358–76. DOI.org (Crossref), <https://doi.org/10.1002/hbm.24528>.
     """
-    validate_time_series(signals, operation_name="clean", check_time_chunks=False)
+    validate_time_series(signals, operation_name="clean", require_unchunked_time=False)
 
     if filter_kwargs is not None and not isinstance(filter_kwargs, dict):
         raise TypeError("filter_kwargs must be a dict or None")

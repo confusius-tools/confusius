@@ -9,7 +9,9 @@ from confusius.validation import validate_mask, validate_matching_coordinates
 
 def test_validate_matching_coordinates_accepts_numeric_drift():
     """Numeric coordinates match within tolerance."""
-    left = xr.DataArray(np.arange(5), dims=["time"], coords={"time": np.arange(5) * 0.1})
+    left = xr.DataArray(
+        np.arange(5), dims=["time"], coords={"time": np.arange(5) * 0.1}
+    )
     right = xr.DataArray(
         np.arange(5),
         dims=["time"],
@@ -89,9 +91,7 @@ def test_validate_matching_coordinates_raises_on_mismatch():
 def test_validate_matching_coordinates_uses_exact_message_for_non_numeric_coords():
     """Non-numeric coordinate mismatches mention exact equality."""
     left = xr.DataArray(np.arange(2), dims=["region"], coords={"region": ["a", "b"]})
-    right = xr.DataArray(
-        np.arange(2), dims=["region"], coords={"region": ["a", "c"]}
-    )
+    right = xr.DataArray(np.arange(2), dims=["region"], coords={"region": ["a", "c"]})
 
     with pytest.raises(ValueError, match="with exact equality"):
         validate_matching_coordinates(left, right, "region")
@@ -133,9 +133,7 @@ def test_validate_matching_coordinates_uses_custom_array_names_in_errors():
         )
 
     missing = xr.DataArray(np.arange(3), dims=["time"])
-    with pytest.raises(
-        ValueError, match="Coordinate 'time' is missing from run 3"
-    ):
+    with pytest.raises(ValueError, match="Coordinate 'time' is missing from run 3"):
         validate_matching_coordinates(left, missing, "time", right_name="run 3")
 
 

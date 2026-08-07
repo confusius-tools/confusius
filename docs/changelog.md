@@ -10,6 +10,36 @@ icon: lucide/history
 
 Current development version for the next ConfUSIus release.
 
+### :boom: Breaking changes
+
+- Renamed `validate_fusi_dataarray` to `validate_fusi`, `validate_iq_dataarray`
+  to `validate_iq`, `validate_bspline_dataarray` to `validate_bspline`, and
+  `validate_atlas_dataset` to `validate_atlas`; renamed the IQ validator option
+  `require_attrs` to `require_velocity_attrs`
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- fUSI DataArrays now require explicit 3D spatial geometry with `z`, `y`, and `x`
+  dimensions. Spatial coordinates must carry `units` metadata, time coordinates must
+  carry `units` metadata when present, and singleton spatial dimensions must carry
+  `voxdim` metadata because spacing cannot be inferred from a single coordinate point. Scalar-indexed slices are
+  recovered as singleton dimensions at relevant API boundaries; use
+  [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to add singleton
+  axes and coordinate metadata from raw 2D or 2D+t arrays
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+  
+### :sparkles: Enhancements
+
+- Added [`ensure_iq`][confusius.validation.ensure_iq] to canonicalize and validate IQ
+  inputs with one call ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- Added [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to build a
+  canonical fUSI DataArray from a raw array plus higher-level metadata (`dt`, `dz`,
+  `dy`, `dx`, and axis origins). It attaches regularly spaced physical coordinates,
+  `units`/`voxdim` metadata, and validates the result before returning it
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+- Added [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] to construct
+  canonical complex IQ DataArrays with explicit `transmit_frequency` and
+  `beamforming_sound_velocity` arguments
+  ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+
 ## 0.6.1
 
 Released 2026-08-07.
@@ -80,7 +110,7 @@ Released 2026-07-18.
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
   Zarr store, so a reloaded atlas renders meshes without the BrainGlobe cache
   ([#274](https://github.com/confusius-tools/confusius/pull/274)).
-- [`validate_atlas_dataset`][confusius.validation.validate_atlas_dataset] checks that a
+- [`validate_atlas_dataset`][confusius.validation.validate_atlas] checks that a
   Dataset is a well-formed atlas
   ([#274](https://github.com/confusius-tools/confusius/pull/274)).
 - [`load_scan`][confusius.io.load_scan] now opens binary Iconeus SCAN v2 files in
@@ -501,7 +531,7 @@ Released 2026-07-07.
   called with `keep_diagnostics=True` to avoid retaining the full optimizer metric
   trace by default ([#139](https://github.com/confusius-tools/confusius/pull/139)).
 - Renamed `validate_iq` to
-  [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray]
+  [`validate_iq_dataarray`][confusius.validation.validate_iq]
   ([#153](https://github.com/confusius-tools/confusius/pull/153)).
 
 ### :sparkles: Enhancements
@@ -525,10 +555,10 @@ Released 2026-07-07.
 - Added `show_progress` to volumewise registration so joblib progress output can be
   disabled in scripted or quiet workflows
   ([#126](https://github.com/confusius-tools/confusius/pull/126)).
-- Added a reusable [`validate_fusi_dataarray`][confusius.validation.validate_fusi_dataarray]
+- Added a reusable [`validate_fusi_dataarray`][confusius.validation.validate_fusi]
   validator and refactored IQ/registration validation to use it. Core dimension
-  coordinates are now validated as 1D, numeric, finite, and strictly increasing,
-  while extra/non-dimension coordinates remain allowed
+  coordinates are now validated as 1D, numeric, finite, and strictly increasing, while
+  extra/non-dimension coordinates remain allowed
   ([#153](https://github.com/confusius-tools/confusius/pull/153)).
 - Added shared `fontsize` parameter to `plot_volume`, `plot_contours`, and carpet
   plotting entry points so text sizing is consistent across all plotting APIs

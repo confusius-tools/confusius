@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, TIME_DIM
-from confusius.validation.fusi import validate_fusi_dataarray
+from confusius.validation.fusi import ensure_fusi, validate_fusi
 
 _REQUIRED_DIMS = (TIME_DIM, *SPATIAL_DIMS)
 """Required dimensions and coordinates that all IQ data must have."""
@@ -16,7 +16,37 @@ _AXIAL_VELOCITY_REQUIRED_ATTRS = (
 """Required attributes for IQ data used in axial velocity computation."""
 
 
-def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None:
+def ensure_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> xr.DataArray:
+    """Return `iq` as a canonical validated IQ DataArray.
+
+    Parameters
+    ----------
+    iq : xarray.DataArray
+        Input DataArray to canonicalize and validate as IQ data.
+    require_velocity_attrs : bool, default: False
+        Whether to validate that all attributes required for velocity estimation
+        (`transmit_frequency`, `beamforming_sound_velocity`) are present in the
+        DataArray attributes.
+
+    Returns
+    -------
+    xarray.DataArray
+        Canonical IQ DataArray with dimensions `(time, z, y, x)`.
+
+    Raises
+    ------
+    ValueError
+        If `iq` is not valid canonical fUSI IQ data or required attributes are missing.
+    TypeError
+        If `iq` is not complex-valued.
+    """
+    iq = ensure_fusi(iq, require_time=True)
+    iq = iq.transpose(*_REQUIRED_DIMS)
+    validate_iq(iq, require_velocity_attrs=require_velocity_attrs)
+    return iq
+
+
+def validate_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> None:
     """Validate that a DataArray contains valid IQ data.
 
     This function performs validation of an IQ DataArray to ensure it meets all
@@ -26,7 +56,7 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
        order: `(time, z, y, x)`.
     2. **Coordinates**: All dimensions must have corresponding coordinates.
     3. **Data type**: The data must be complex-valued (`complex64` or `complex128`).
-    4. **Attributes** (optional): If `require_attrs` is `True`, the DataArray must have
+    4. **Attributes** (optional): If `require_velocity_attrs` is `True`, the DataArray must have
        the following attributes needed for axial velocity computation:
 
        - `transmit_frequency`: Ultrasound probe central frequency in Hz.
@@ -38,16 +68,17 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     iq : xarray.DataArray
         Input DataArray to validate. Must have dimensions `(time, z, y, x)` and the
         required structure and attributes.
-    require_attrs : bool, default: False
-        Whether to validate that all required attributes (`transmit_frequency`,
-        `beamforming_sound_velocity`) are present in the DataArray attributes.
+    require_velocity_attrs : bool, default: False
+        Whether to validate that all attributes required for velocity estimation
+        (`transmit_frequency`, `beamforming_sound_velocity`) are present in the
+        DataArray attributes.
 
     Raises
     ------
     ValueError
         If the DataArray does not have dimensions `(time, z, y, x)`, if required
         coordinates are missing, or if required attributes are missing when
-        `require_attrs=True`.
+        `require_velocity_attrs=True`.
     TypeError
         If the IQ data is not complex-valued.
 
@@ -71,7 +102,7 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     ...         "beamforming_sound_velocity": 1540.0,
     ...     },
     ... )
-    >>> validate_iq_dataarray(iq, require_attrs=True)
+    >>> validate_iq(iq, require_velocity_attrs=True)
 
     Skip attribute validation for intermediate processing:
 
@@ -85,14 +116,13 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
     ...         "x": np.arange(8),
     ...     },
     ... )
-    >>> validate_iq_dataarray(iq_no_attrs, require_attrs=False)
+    >>> validate_iq(iq_no_attrs, require_velocity_attrs=False)
     """
-    validate_fusi_dataarray(
+    validate_fusi(
         iq,
         require_time=True,
         allow_pose=False,
         allow_extra_dims=True,
-        minimum_spatial_dims=3,
         require_canonical_dim_order=True,
     )
 
@@ -108,7 +138,7 @@ def validate_iq_dataarray(iq: xr.DataArray, require_attrs: bool = False) -> None
             "IQ data should be complex64 or complex128."
         )
 
-    if require_attrs:
+    if require_velocity_attrs:
         missing_attrs = set(_AXIAL_VELOCITY_REQUIRED_ATTRS) - set(iq.attrs.keys())
         if missing_attrs:
             raise ValueError(

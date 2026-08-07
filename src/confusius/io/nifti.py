@@ -35,7 +35,13 @@ from confusius.bids.mapping import CONFUSIUS_INTERNAL_FIELDS
 from confusius.bids.validation import format_validation_error, validate_metadata
 from confusius.io.utils import check_path
 from confusius.registration.affines import decompose_affine
-from confusius.timing import convert_time_reference, convert_time_units
+from confusius.timing import (
+    TIMING_REFERENCE_FACTORS,
+    VolumeAcquisitionReference,
+    convert_time_reference,
+    convert_time_units,
+)
+from confusius.validation import ensure_fusi
 
 if TYPE_CHECKING:
     import nibabel as nib
@@ -752,7 +758,7 @@ def _create_scalar_temporal_coords_from_nifti(
 
 def _get_volume_acquisition_reference(
     attrs: dict[str, Any], *, coord_name: str, warn_on_missing: bool = False
-) -> Literal["start", "center", "end"]:
+) -> VolumeAcquisitionReference:
     """Return a coordinate timing reference, defaulting to onset timing.
 
     When the reference is missing, ConfUSIus assumes timestamps correspond to the start
@@ -795,7 +801,7 @@ def _get_volume_acquisition_reference(
             )
         return "start"
 
-    if reference not in {"start", "center", "end"}:
+    if reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             f"Unknown {coord_name} volume_acquisition_reference: {reference!r}. "
             "Must be 'start', 'center', or 'end'."
@@ -1588,9 +1594,8 @@ def _prepare_data_for_nifti(
     Returns
     -------
     data : numpy.ndarray
-        Array reordered to NIfTI axis order. Missing spatial axes are inserted
-        as singletons. The 4th NIfTI axis is present when `time` is a real
-        dimension or when a synthetic singleton time axis is needed so non-time
+        Array reordered to NIfTI axis order. The 4th NIfTI axis is present when
+        `time` is a real dimension or when a synthetic singleton time axis is needed so non-time
         extra axes land at NIfTI axes 4, 5, 6. Boolean arrays are cast to
         `uint8` because NIfTI does not support `bool` payload dtypes.
     has_time_axis : bool
@@ -1630,10 +1635,6 @@ def _prepare_data_for_nifti(
             target_order.append(i)
 
     data = np.transpose(data, target_order)
-
-    for insert_pos, dim in enumerate(("x", "y", "z")):
-        if dim not in current_dims:
-            data = np.expand_dims(data, axis=insert_pos)
 
     has_time_axis = "time" in current_dims or bool(extras)
     if has_time_axis and "time" not in current_dims:
@@ -2271,6 +2272,7 @@ def save_nifti(
     >>> cf.io.save_nifti(da, "output.nii.gz")
     >>> cf.io.save_nifti(da, "output.nii.gz", sform="physical_to_template")
     """
+    data_array = ensure_fusi(data_array)
     path = Path(path)
     if not path.name.endswith(".nii") and not path.name.endswith(".nii.gz"):
         raise ValueError("Output file must have .nii or .nii.gz extension.")

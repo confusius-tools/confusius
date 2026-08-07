@@ -262,14 +262,21 @@ class TestRegisterVolumeWithNapariFactory:
 
         from confusius.registration.volume import register_volume
 
-        arr = np.zeros((16, 16), dtype=np.float32)
-        arr[6:10, 6:10] = 1.0
+        arr = np.zeros((1, 16, 16), dtype=np.float32)
+        arr[0, 6:10, 6:10] = 1.0
         da = xr.DataArray(
             arr,
-            dims=("y", "x"),
+            dims=("z", "y", "x"),
             coords={
-                "y": np.arange(16) * 0.1,
-                "x": np.arange(16) * 0.1,
+                "z": xr.DataArray(
+                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "y": xr.DataArray(
+                    np.arange(16) * 0.1, dims=("y",), attrs={"units": "mm"}
+                ),
+                "x": xr.DataArray(
+                    np.arange(16) * 0.1, dims=("x",), attrs={"units": "mm"}
+                ),
             },
         )
 

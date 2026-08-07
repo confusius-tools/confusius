@@ -13,6 +13,7 @@ import xarray as xr
 
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
+from confusius.validation import ensure_fusi
 
 
 def _build_consolidated_time_coordinate(
@@ -237,6 +238,8 @@ def consolidate_poses(
     UserWarning
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
+    da = ensure_fusi(da)
+
     # Determine spatial dimensions (non-time, non-pose) and their column indices.
     spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
     if sweep_dim not in spatial_dims:

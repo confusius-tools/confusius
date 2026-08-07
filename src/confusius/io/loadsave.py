@@ -15,6 +15,7 @@ from confusius.io._utils import (
     restore_affines_in_attrs,
 )
 from confusius.io.utils import check_path
+from confusius.validation import ensure_fusi
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
@@ -108,6 +109,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):
+        data_array = ensure_fusi(data_array)
         data_array = data_array.copy(deep=False)
         data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
         with warnings.catch_warnings():

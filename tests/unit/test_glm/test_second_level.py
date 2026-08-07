@@ -116,9 +116,18 @@ class TestSecondLevelModelFit:
         first_level_models = []
         for _ in range(5):
             data = xr.DataArray(
-                rng.standard_normal((100, 2, 3)),
-                dims=["time", "y", "x"],
-                coords={"time": frame_times},
+                rng.standard_normal((100, 1, 2, 3)),
+                dims=["time", "z", "y", "x"],
+                coords={
+                    "time": xr.DataArray(
+                        frame_times, dims="time", attrs={"units": "s"}
+                    ),
+                    "z": xr.DataArray(
+                        [0.0], dims="z", attrs={"units": "mm", "voxdim": 1.0}
+                    ),
+                    "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
+                    "x": xr.DataArray(np.arange(3.0), dims="x", attrs={"units": "mm"}),
+                },
             )
             m = FirstLevelModel(noise_model="ols")
             m.fit(data, events=events)
@@ -129,8 +138,8 @@ class TestSecondLevelModelFit:
 
         assert group_model.__sklearn_is_fitted__()
         z_map = group_model.compute_contrast("intercept")
-        assert z_map.dims == ("y", "x")
-        assert z_map.shape == (2, 3)
+        assert z_map.dims == ("z", "y", "x")
+        assert z_map.shape == (1, 2, 3)
 
 
 # -----------------------------------------------------------------------------
@@ -279,9 +288,16 @@ class TestSecondLevelModelErrors:
         frame_times = np.arange(50) * 0.5
         events = pd.DataFrame({"trial_type": ["A"], "onset": [5.0], "duration": [1.0]})
         data = xr.DataArray(
-            rng.standard_normal((50, 2, 3)),
-            dims=["time", "y", "x"],
-            coords={"time": frame_times},
+            rng.standard_normal((50, 1, 2, 3)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(
+                    [0.0], dims="z", attrs={"units": "mm", "voxdim": 1.0}
+                ),
+                "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(3.0), dims="x", attrs={"units": "mm"}),
+            },
         )
         m = FirstLevelModel(noise_model="ols")
         m.fit(data, events=events)
@@ -294,9 +310,16 @@ class TestSecondLevelModelErrors:
         frame_times = np.arange(50) * 0.5
         events = pd.DataFrame({"trial_type": ["A"], "onset": [5.0], "duration": [1.0]})
         data = xr.DataArray(
-            np.zeros((50, 2, 3)),
-            dims=["time", "y", "x"],
-            coords={"time": frame_times},
+            np.zeros((50, 1, 2, 3)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(
+                    [0.0], dims="z", attrs={"units": "mm", "voxdim": 1.0}
+                ),
+                "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(3.0), dims="x", attrs={"units": "mm"}),
+            },
         )
         m = FirstLevelModel(noise_model="ols")
         m.fit(data, events=events)
