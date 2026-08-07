@@ -219,7 +219,7 @@ The physical space is a *choice of coordinate frame*, not a fixed property of th
 When a DataArray carries an affine from its current physical space (described by its
 coordinates) to a reference space in `attrs["affines"]`, you can use
 [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] to re-express its
-physical coordinates in that reference frame. 
+physical coordinates in that reference frame.
 
 ConfUSIus physical coordinates are stored as three independent 1D arrays, so they can
 encode scaling and translation but not rotations and shears. Consequently,
@@ -308,7 +308,7 @@ array([[1., 0., 0., 0.],
        [0., 1., 0., 0.],
        [0., 0., 1., 0.],
        [0., 0., 0., 1.]])
->>> 
+>>>
 >>> orientation  # identity, nothing left over
 array([[1., 0., 0., 0.],
        [0., 1., 0., 0.],

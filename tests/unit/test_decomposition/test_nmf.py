@@ -8,6 +8,7 @@ import xarray as xr
 from sklearn.decomposition import NMF as SklearnNMF
 from sklearn.utils.validation import check_is_fitted
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.decomposition import NMF
 
 
@@ -25,41 +26,47 @@ def nmf_3dt_volume():
     W = local_rng.random((n_t, k))
     H = local_rng.random((k, n_z * n_y * n_x))
     data = (10.0 * (W @ H) + 1.0).reshape(n_t, n_z, n_y, n_x)
-    return xr.DataArray(
+    base = xr.DataArray(
         data,
         name="power_doppler",
-        dims=["time", "z", "y", "x"],
+        dims=["time", "k", "j", "i"],
         coords={
             "time": xr.DataArray(
                 10.0 + np.arange(n_t) * 0.5,
                 dims=["time"],
                 attrs={"units": "s"},
             ),
-            "z": xr.DataArray(
+            "k": xr.DataArray(
                 1.0 + np.arange(n_z) * 0.2,
-                dims=["z"],
+                dims=["k"],
                 attrs={"units": "mm", "voxdim": 0.2},
             ),
-            "y": xr.DataArray(
+            "j": xr.DataArray(
                 2.0 + np.arange(n_y) * 0.1,
-                dims=["y"],
+                dims=["j"],
                 attrs={"units": "mm", "voxdim": 0.1},
             ),
-            "x": xr.DataArray(
+            "i": xr.DataArray(
                 3.0 + np.arange(n_x) * 0.05,
-                dims=["x"],
+                dims=["i"],
                 attrs={"units": "mm", "voxdim": 0.05},
             ),
         },
         attrs={"long_name": "Intensity", "units": "a.u."},
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.eye(4),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
     )
 
 
 def test_feature_names_in_for_string_feature_labels(nmf_3dt_volume):
     """feature_names_in_ is defined when flattened feature labels are strings."""
     data = (
-        nmf_3dt_volume.isel(z=0, x=0, drop=True)
-        .rename({"y": "region"})
+        nmf_3dt_volume.isel(k=0, i=0, drop=True)
+        .rename({"j": "region"})
         .assign_coords(region=["A", "B", "C", "D", "E", "F"])
     )
 
@@ -91,8 +98,8 @@ def test_fit_transform_matches_fit_then_transform(nmf_3dt_volume, mode):
 
 def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
     """Temporal wrapper exposes the same learned quantities as sklearn NMF."""
-    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -104,7 +111,7 @@ def test_wrapper_matches_sklearn_attributes(nmf_3dt_volume):
         sklearn_model.transform(X),
     )
     np.testing.assert_allclose(
-        model.maps_.stack(feature=["z", "y", "x"]).values,
+        model.maps_.stack(feature=["k", "j", "i"]).values,
         sklearn_model.components_,
     )
     assert model.n_components_ == sklearn_model.n_components_
@@ -119,7 +126,7 @@ def test_fit_raises_for_negative_input():
     rng = np.random.default_rng(0)
     data = xr.DataArray(
         rng.standard_normal((20, 4, 5, 6)),
-        dims=["time", "z", "y", "x"],
+        dims=["time", "k", "j", "i"],
     )
 
     with pytest.raises(ValueError, match="non-negative input data"):
@@ -128,8 +135,8 @@ def test_fit_raises_for_negative_input():
 
 def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
     """inverse_transform matches sklearn NMF reconstruction in temporal mode."""
-    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -140,7 +147,7 @@ def test_inverse_transform_matches_sklearn_temporal(nmf_3dt_volume):
     sklearn_reconstructed = sklearn_model.inverse_transform(sklearn_model.transform(X))
 
     np.testing.assert_allclose(
-        reconstructed.stack(feature=["z", "y", "x"]).values,
+        reconstructed.stack(feature=["k", "j", "i"]).values,
         sklearn_reconstructed,
     )
 
@@ -250,17 +257,17 @@ def test_mask_must_match_full_spatial_dims_in_order(nmf_3dt_volume):
     mask = xr.DataArray(
         np.ones(
             (
-                nmf_3dt_volume.sizes["y"],
-                nmf_3dt_volume.sizes["z"],
-                nmf_3dt_volume.sizes["x"],
+                nmf_3dt_volume.sizes["j"],
+                nmf_3dt_volume.sizes["k"],
+                nmf_3dt_volume.sizes["i"],
             ),
             dtype=bool,
         ),
-        dims=["y", "z", "x"],
+        dims=["j", "k", "i"],
         coords={
-            "y": nmf_3dt_volume.coords["y"],
-            "z": nmf_3dt_volume.coords["z"],
-            "x": nmf_3dt_volume.coords["x"],
+            "j": nmf_3dt_volume.coords["j"],
+            "k": nmf_3dt_volume.coords["k"],
+            "i": nmf_3dt_volume.coords["i"],
         },
     )
 
@@ -289,16 +296,16 @@ def test_fit_transform_rejects_unexpected_fit_params(nmf_3dt_volume):
 def test_transform_checks_spatial_layout(nmf_3dt_volume):
     """transform raises if spatial layout differs from fit."""
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    bad = nmf_3dt_volume.isel(x=slice(0, 4))
+    bad = nmf_3dt_volume.isel(i=slice(0, 4))
 
-    with pytest.raises(ValueError, match="Spatial dimension 'x' has size"):
+    with pytest.raises(ValueError, match="Spatial dimension 'i' has size"):
         model.transform(bad)
 
 
 def test_transform_checks_spatial_dimension_names(nmf_3dt_volume):
     """transform raises if spatial dimension names differ from fit."""
     model = NMF(n_components=3, random_state=0).fit(nmf_3dt_volume)
-    bad = nmf_3dt_volume.rename({"x": "region"})
+    bad = nmf_3dt_volume.rename({"i": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
         model.transform(bad)
@@ -311,9 +318,9 @@ def test_transform_without_time_coordinate_uses_index(nmf_3dt_volume):
         nmf_3dt_volume.values,
         dims=nmf_3dt_volume.dims,
         coords={
-            "z": nmf_3dt_volume.coords["z"],
-            "y": nmf_3dt_volume.coords["y"],
-            "x": nmf_3dt_volume.coords["x"],
+            "k": nmf_3dt_volume.coords["k"],
+            "j": nmf_3dt_volume.coords["j"],
+            "i": nmf_3dt_volume.coords["i"],
         },
     )
 
@@ -347,7 +354,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(nmf_3dt_volume, monkeypatch)
     """Estimator remains unfitted when underlying sklearn NMF fit fails."""
     import confusius.decomposition.nmf as nmf_module
 
-    def _raise_fit(self, X, y=None):
+    def _raise_fit(self, X, j=None):
         raise RuntimeError("fit failed")
 
     monkeypatch.setattr(nmf_module._SklearnNMF, "fit", _raise_fit)
@@ -414,8 +421,8 @@ def test_set_params_updates_values():
 
 def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
     """Spatial mode matches sklearn NMF fitted on transposed data."""
-    stacked = nmf_3dt_volume.transpose("time", "z", "y", "x").stack(
-        feature=["z", "y", "x"]
+    stacked = nmf_3dt_volume.transpose("time", "k", "j", "i").stack(
+        feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
@@ -432,12 +439,12 @@ def test_spatial_mode_matches_reference_implementation(nmf_3dt_volume):
         reference_signals,
     )
     np.testing.assert_allclose(
-        model.maps_.stack(feature=["z", "y", "x"]).values,
+        model.maps_.stack(feature=["k", "j", "i"]).values,
         spatial_maps,
     )
     np.testing.assert_allclose(
         model.inverse_transform(model.transform(nmf_3dt_volume))
-        .stack(feature=["z", "y", "x"])
+        .stack(feature=["k", "j", "i"])
         .values,
         reference_reconstructed,
     )
@@ -454,17 +461,17 @@ def test_mask_restricts_features(nmf_3dt_volume):
     mask = xr.DataArray(
         np.zeros(
             (
-                nmf_3dt_volume.sizes["z"],
-                nmf_3dt_volume.sizes["y"],
-                nmf_3dt_volume.sizes["x"],
+                nmf_3dt_volume.sizes["k"],
+                nmf_3dt_volume.sizes["j"],
+                nmf_3dt_volume.sizes["i"],
             ),
             dtype=bool,
         ),
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         coords={
-            "z": nmf_3dt_volume.coords["z"],
-            "y": nmf_3dt_volume.coords["y"],
-            "x": nmf_3dt_volume.coords["x"],
+            "k": nmf_3dt_volume.coords["k"],
+            "j": nmf_3dt_volume.coords["j"],
+            "i": nmf_3dt_volume.coords["i"],
         },
     )
     mask.values[:2, :, :] = True
@@ -479,17 +486,17 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(nmf_3dt_volume):
     mask = xr.DataArray(
         np.zeros(
             (
-                nmf_3dt_volume.sizes["z"],
-                nmf_3dt_volume.sizes["y"],
-                nmf_3dt_volume.sizes["x"],
+                nmf_3dt_volume.sizes["k"],
+                nmf_3dt_volume.sizes["j"],
+                nmf_3dt_volume.sizes["i"],
             ),
             dtype=bool,
         ),
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         coords={
-            "z": nmf_3dt_volume.coords["z"],
-            "y": nmf_3dt_volume.coords["y"],
-            "x": nmf_3dt_volume.coords["x"],
+            "k": nmf_3dt_volume.coords["k"],
+            "j": nmf_3dt_volume.coords["j"],
+            "i": nmf_3dt_volume.coords["i"],
         },
     )
     mask.values[:2, :, :] = True
@@ -510,7 +517,7 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(nmf_3dt_volume):
 
 def test_mask_mismatch_raises(nmf_3dt_volume):
     """fit raises when mask does not match spatial dimensions."""
-    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["y", "x"])
+    bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
     with pytest.raises(ValueError, match="missing from mask"):
         NMF(mask=bad_mask).fit(nmf_3dt_volume)

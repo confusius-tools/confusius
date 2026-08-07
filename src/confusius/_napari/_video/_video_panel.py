@@ -808,10 +808,12 @@ class VideoPanel(QWidget):
             return None
 
         dim_name = self._axis_labels[dim_idx]
-        if dim_name not in xr_da.coords:
+        physical_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
+        coord_name = physical_dim if physical_dim in xr_da.coords else dim_name
+        if coord_name not in xr_da.coords:
             return None
 
-        return np.asarray(xr_da.coords[dim_name], dtype=np.float64)
+        return np.asarray(xr_da.coords[coord_name], dtype=np.float64)
 
     def _compute_spatial_scale(self, vertical_dim: int, video_h: int) -> float:
         """Return the isotropic spatial scale for the video.
@@ -838,8 +840,10 @@ class VideoPanel(QWidget):
             y_step = float(np.median(np.diff(coords)))
         else:
             dim_name = self._axis_labels[vertical_dim]
+            physical_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
             xr_da = self._ref_layer.metadata["xarray"]  # type: ignore
-            y_step = float(xr_da.coords[dim_name].attrs.get("voxdim", 1.0))
+            coord_name = physical_dim if physical_dim in xr_da.coords else dim_name
+            y_step = float(xr_da.coords[coord_name].attrs.get("voxdim", 1.0))
 
         fusi_extent = (y_max - y_min) + abs(y_step)
         return fusi_extent / video_h

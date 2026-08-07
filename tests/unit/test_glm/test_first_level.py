@@ -11,7 +11,6 @@ from confusius.glm._models import OLSModel
 from confusius.glm.first_level import _flatten_spatial
 from confusius.spatial import smooth_volume
 
-
 # -----------------------------------------------------------------------------
 # FirstLevelModel: fitting
 # -----------------------------------------------------------------------------
@@ -31,12 +30,12 @@ class TestFirstLevelModelFit:
         pd.testing.assert_frame_equal(model.design_matrices_[0], dm)
 
     def test_fit_2d_spatial(self, fusi_data_2d, events):
-        """Fitting a `(time, y, x)` array yields a contrast map with the same
+        """Fitting a `(time, j, i)` array yields a contrast map with the same
         spatial dims and shape."""
         model = FirstLevelModel(noise_model="ols")
         model.fit(fusi_data_2d, events=events)
         z_map = model.compute_contrast("A - B")
-        assert z_map.dims == ("y", "x")
+        assert z_map.dims == ("j", "i")
         assert z_map.shape == (5, 6)
 
     def test_minimize_memory_strips_diagnostic_fields(self, fusi_data, events):
@@ -100,22 +99,7 @@ class TestFirstLevelModelFit:
 
     def test_fit_with_mask_sets_outside_voxels_to_zero(self, fusi_data, events):
         """Mask limits fitted voxels and keeps full output geometry."""
-        mask = xr.DataArray(
-            np.zeros(
-                (
-                    fusi_data.sizes["z"],
-                    fusi_data.sizes["y"],
-                    fusi_data.sizes["x"],
-                ),
-                dtype=bool,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": fusi_data.coords["z"],
-                "y": fusi_data.coords["y"],
-                "x": fusi_data.coords["x"],
-            },
-        )
+        mask = xr.zeros_like(fusi_data.isel(time=0, drop=True), dtype=bool)
         mask.values[0, :, :] = True
 
         model = FirstLevelModel(noise_model="ols", mask=mask)
@@ -127,22 +111,7 @@ class TestFirstLevelModelFit:
 
     def test_masked_f_contrast_effect_keeps_contrast_dim(self, fusi_data, events):
         """Masked F-contrast effect maps keep `contrast_dim` and zero-fill outside mask."""
-        mask = xr.DataArray(
-            np.zeros(
-                (
-                    fusi_data.sizes["z"],
-                    fusi_data.sizes["y"],
-                    fusi_data.sizes["x"],
-                ),
-                dtype=bool,
-            ),
-            dims=["z", "y", "x"],
-            coords={
-                "z": fusi_data.coords["z"],
-                "y": fusi_data.coords["y"],
-                "x": fusi_data.coords["x"],
-            },
-        )
+        mask = xr.zeros_like(fusi_data.isel(time=0, drop=True), dtype=bool)
         mask.values[:, 0, :] = True
 
         model = FirstLevelModel(noise_model="ols", mask=mask)
@@ -156,7 +125,7 @@ class TestFirstLevelModelFit:
 
         e_map = model.compute_contrast(c, stat_type="F", output_type="effect")
 
-        assert e_map.dims == ("contrast_dim", "z", "y", "x")
+        assert e_map.dims == ("contrast_dim", "k", "j", "i")
         outside = e_map.where(~mask, other=np.nan)
         np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
 
@@ -220,7 +189,7 @@ class TestFirstLevelModelContrast:
         z_array = self.model.compute_contrast(vec)
 
         assert_allclose(z_string.values, z_array.values, rtol=1e-12)
-        assert z_string.dims == ("z", "y", "x")
+        assert z_string.dims == ("k", "j", "i")
 
     def test_output_type_pvalue_in_unit_interval(self):
         p_map = self.model.compute_contrast("A", output_type="pvalue")
@@ -329,7 +298,7 @@ class TestFirstLevelModelFContrast:
         c[0, a_idx] = 1.0
         c[1, b_idx] = 1.0
         e_map = self.model.compute_contrast(c, stat_type="F", output_type="effect")
-        assert e_map.dims == ("contrast_dim", "z", "y", "x")
+        assert e_map.dims == ("contrast_dim", "k", "j", "i")
         assert e_map.shape == (2, 2, 3, 4)
 
     def test_2d_contrast_is_zero_padded(self):

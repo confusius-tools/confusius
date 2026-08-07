@@ -7,6 +7,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
 
@@ -58,6 +59,7 @@ class TestRegisterVolumewise:
             da.from_array(sample_2d_dataarray.values),
             dims=sample_2d_dataarray.dims,
             coords=sample_2d_dataarray.coords,
+            attrs=sample_2d_dataarray.attrs,
         )
         result = register_volumewise(dask_data, n_jobs=2, transform="translation")
         assert result.shape == sample_2d_dataarray.shape
@@ -210,15 +212,17 @@ class TestRegisterVolumewise:
     def test_wrong_dimensionality_raises(self):
         """Data that is neither 2D+t nor 3D+t raises ValueError."""
         # 1D+time = 2D total.
-        data = xr.DataArray(np.zeros((5, 10)), dims=("time", "x"))
-        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
+        data = xr.DataArray(np.zeros((5, 10)), dims=("time", "i"))
+        with pytest.raises(
+            ValueError, match="at least 2 spatial dimensions|native voxel"
+        ):
             register_volumewise(data)
 
     @pytest.mark.parametrize(
         ("data_fixture", "dims"),
         [
-            ("sample_2d_dataarray", ("time", "y", "x")),
-            ("sample_3d_dataarray", ("time", "z", "y", "x")),
+            ("sample_2d_dataarray", ("time", "j", "i")),
+            ("sample_3d_dataarray", ("time", "k", "j", "i")),
         ],
     )
     def test_identical_frames_unchanged(self, data_fixture, dims, request):
@@ -243,12 +247,18 @@ class TestRegisterVolumewise:
 
         data = xr.DataArray(
             np.stack(frames, axis=0),
-            dims=("time", "y", "x"),
+            dims=("time", "j", "i"),
             coords={
                 "time": np.arange(n_frames) * 0.1,
-                "y": np.arange(32) * 1.0,  # 1mm spacing.
-                "x": np.arange(32) * 1.0,
+                "j": np.arange(32),
+                "i": np.arange(32),
             },
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([1.0, 1.0, 1.0]),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
         )
 
         result = register_volumewise(
@@ -313,19 +323,22 @@ class TestRegisterVolumewise:
 
     def test_singleton_dimension_handling(self, sample_2d_image):
         """Singleton spatial dimensions are handled correctly."""
-        # Create data with a singleton z dimension (2D slice in 3D array).
-        # The voxdim attribute provides spacing for the singleton z coordinate so
-        # that no "spacing is undefined" warning is raised.
-        z_coord = xr.DataArray([0.0], dims=("z",), attrs={"voxdim": 0.2})
+        # Create data with a singleton k dimension (2D slice in 3D array).
         data = xr.DataArray(
             sample_2d_image[np.newaxis, np.newaxis, :, :].repeat(3, axis=0),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             coords={
                 "time": np.arange(3) * 0.1,
-                "z": z_coord,
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
+                "k": [0],
+                "j": np.arange(32),
+                "i": np.arange(32),
             },
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([0.2, 0.1, 0.1, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
         )
 
         result = register_volumewise(data, n_jobs=1)
@@ -333,7 +346,7 @@ class TestRegisterVolumewise:
         # Should preserve the singleton dimension.
         assert result.dims == data.dims
         assert result.shape == data.shape
-        assert result.sizes["z"] == 1
+        assert result.sizes["k"] == 1
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 
@@ -342,17 +355,23 @@ class TestRegisterVolumewise:
         # Create data with non-standard dimension order.
         data = xr.DataArray(
             np.stack([sample_2d_image] * 3, axis=2),
-            dims=("y", "x", "time"),
+            dims=("j", "i", "time"),
             coords={
-                "y": np.arange(32) * 0.1,
-                "x": np.arange(32) * 0.1,
+                "j": np.arange(32),
+                "i": np.arange(32),
                 "time": np.arange(3) * 0.1,
             },
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([0.1, 0.1, 1.0]),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
         )
 
         result = register_volumewise(data, n_jobs=1)
 
-        assert result.dims == ("y", "x", "time")
+        assert result.dims == ("j", "i", "time")
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 

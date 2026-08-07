@@ -313,8 +313,13 @@ class FirstLevelModel(BaseEstimator):
                 masked = extract_with_mask(run, self.mask)
                 data_2d = masked.transpose("time", "space").values
             self._spatial_shapes.append(s_shape)
+            spatial_dim_set = set(s_dims)
             self._run_coords.append(
-                {str(d): run.coords[d] for d in s_dims if d in run.coords}
+                {
+                    str(name): coord
+                    for name, coord in run.coords.items()
+                    if set(coord.dims).issubset(spatial_dim_set)
+                }
             )
 
             dm = design_matrices_list[run_index]

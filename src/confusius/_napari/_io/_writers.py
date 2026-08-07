@@ -81,16 +81,38 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     ]
 
     data_array = np.asarray(data)
+    spatial_axis = {"k": "z", "j": "y", "i": "x"}
+    voxel_dims = tuple(dim for dim in axis_labels if dim in spatial_axis)
     coords: dict[str, xr.DataArray] = {}
     for i, dim in enumerate(axis_labels):
         n = data_array.shape[i]
-        coord_values = translate[i] + np.arange(n) * scale[i]
+        coord_values = (
+            np.arange(n)
+            if dim in spatial_axis
+            else translate[i] + np.arange(n) * scale[i]
+        )
         attrs: dict[str, Any] = {"voxdim": abs(float(scale[i]))}
         if units[i] is not None:
             attrs["units"] = units[i]
         coords[dim] = xr.DataArray(coord_values, dims=[dim], attrs=attrs)
 
-    return xr.DataArray(data_array, dims=list(axis_labels), coords=coords)
+    result = xr.DataArray(data_array, dims=list(axis_labels), coords=coords)
+    if voxel_dims:
+        from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
+        axis_positions = {dim: axis_labels.index(dim) for dim in voxel_dims}
+        affine = np.eye(len(voxel_dims) + 1, dtype=float)
+        for row, dim in enumerate(voxel_dims):
+            affine[row, row] = scale[axis_positions[dim]]
+            affine[row, -1] = translate[axis_positions[dim]]
+        return add_physical_coords_from_voxel_affine(
+            result,
+            affine,
+            voxel_dims=voxel_dims,
+            physical_coord_names=tuple(spatial_axis[dim] for dim in voxel_dims),
+        )
+
+    return result
 
 
 def _get_or_compute_dataarray_from_layer(
@@ -115,7 +137,9 @@ def _get_or_compute_dataarray_from_layer(
     xarray.DataArray
         DataArray ready for saving.
     """
-    da: xr.DataArray | None = meta.get("metadata", {}).get("xarray")
+    da: xr.DataArray | None = meta.get("metadata", {}).get("source_xarray")
+    if da is None:
+        da = meta.get("metadata", {}).get("xarray")
     if da is not None:
         return da
     return _compute_dataarray_from_layer(data, meta)

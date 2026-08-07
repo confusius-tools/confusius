@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS
-from confusius._utils.coordinates import get_affine_in_axis_aligned_space
-from confusius.registration.affines import decompose_affine
+from confusius._utils.geometry import (
+    has_voxel_affine_geometry,
+    restore_physical_coords_from_voxel_affine,
+)
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -69,34 +70,20 @@ def apply_affine(
     affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
 ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
-    """Apply an affine to a DataArray's spatial coordinates.
+    """Apply a physical-space affine to voxel-affine geometry.
 
-    A diagonal affine (any per-axis scale or sign flip, plus translation) maps
-    each spatial axis to itself and updates the independent 1D `z`, `y`, `x`
-    coordinate arrays: `new_coord = scale * old_coord + translation`. The whole
-    transform is absorbed into the coordinates, so the returned orientation is
-    the identity.
-
-    An affine that mixes axes (a rotation, shear, or axis permutation) cannot be
-    expressed as independent 1D coordinates. The coordinates then absorb only the
-    axis-aligned zoom and translation, and the residual orientation is returned
-    as a 4x4 affine mapping the new physical coordinates to the affine's target
-    world frame (`orientation @ new_physical == affine @ old_physical`). The
-    caller decides what to do with it (compose it with a stored affine, store it
-    under a key of their choosing, or ignore it).
-
-    All affines already in `da.attrs["affines"]` are re-expressed against the new
-    coordinate frame so they remain valid. Per-pose `(npose, 4, 4)` stacks are handled
-    per pose via broadcasting.
+    The transform is composed into `attrs["voxel_to_physical"]`, derived physical
+    coordinates are regenerated, and existing `attrs["affines"]` entries are
+    re-expressed against the new physical frame. Per-pose `(npose, N, N)` stacks
+    are handled by NumPy broadcasting.
 
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan. Must have at least one of `"z"`, `"y"`, `"x"` as dimensions
-        with associated 1D coordinates.
-    affine : numpy.ndarray, shape (4, 4), or str
-        Homogeneous affine matrix to apply. If a string, it is looked up as a
-        key in `da.attrs["affines"]`.
+        Input scan with voxel-affine geometry in `attrs["voxel_to_physical"]`.
+    affine : numpy.ndarray, shape (N, N), or str
+        Homogeneous physical-space affine matrix to apply. If a string, it is
+        looked up as a key in `da.attrs["affines"]`.
     inplace : bool, default: False
         Whether to modify the DataArray in-place.
 
@@ -104,16 +91,15 @@ def apply_affine(
     -------
     result : xarray.DataArray
         `da` with updated spatial coordinates and updated `attrs["affines"]`.
-    orientation : (4, 4) numpy.ndarray
-        The residual orientation the coordinates could not absorb, mapping the
-        new physical coordinates to the affine's target world frame. The identity
-        when `affine` is diagonal.
+    orientation : (N, N) numpy.ndarray
+        Identity matrix with the same shape as `affine`.
 
     Raises
     ------
     ValueError
-        If `affine` is not shape `(4, 4)`, or if `affine` is a string and `da`
-        has no `"affines"` entry in `attrs`.
+        If `da` lacks voxel-affine geometry, if `affine` shape does not match
+        `attrs["voxel_to_physical"]`, or if `affine` is a string and `da` has no
+        `"affines"` entry in `attrs`.
     KeyError
         If `affine` is a string not present in `da.attrs["affines"]`.
 
@@ -122,15 +108,14 @@ def apply_affine(
     >>> import numpy as np
     >>> import xarray as xr
     >>> import confusius  # noqa: F401
-    >>> data = xr.DataArray(
-    ...     np.zeros((3, 4)),
-    ...     dims=["z", "y"],
-    ...     coords={"z": [0.0, 1.0, 2.0], "y": [0.0, 1.0, 2.0, 3.0]},
+    >>> from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+    >>> data = add_physical_coords_from_voxel_affine(
+    ...     xr.DataArray(np.zeros((3, 4)), dims=["j", "i"]), np.eye(3)
     ... )
-    >>> shift = np.eye(4)
-    >>> shift[:3, 3] = [10.0, 5.0, 0.0]
+    >>> shift = np.eye(3)
+    >>> shift[:2, 2] = [10.0, 5.0]
     >>> result, orientation = data.fusi.affine.apply(shift)
-    >>> float(result.coords["z"].values[0])
+    >>> float(result.attrs["voxel_to_physical"][0, 2])
     10.0
     """
     if isinstance(affine, str):
@@ -140,82 +125,38 @@ def apply_affine(
             raise KeyError(f"'{affine}' not found in da.attrs['affines'].")
         affine = da.attrs["affines"][affine]
     affine = np.asarray(affine, dtype=np.float64)
-    if affine.shape != (4, 4):
-        raise ValueError(f"affine must have shape (4, 4), got {affine.shape}.")
 
-    # Classify the transform from its decomposition A = R @ diag(Z) @ S:
-    #   - sign flips sit on the DIAGONAL of R (axis-aligned, not mixing),
-    #   - a true rotation or axis permutation fills R's OFF-diagonal,
-    #   - any shear is non-zero in S.
-    # A non-mixing affine is fully absorbed into the independent 1D coordinates;
-    # a mixing one absorbs only the axis-aligned zoom and leaves a residual
-    # orientation, which is returned to the caller.
-    translation, rotation, zoom, shear = decompose_affine(affine)
-    off_diagonal = rotation[~np.eye(3, dtype=bool)]
-    mixes_axes = bool(
-        np.any(np.abs(off_diagonal) > 1e-9) or np.any(np.abs(shear) > 1e-9)
-    )
+    if not has_voxel_affine_geometry(da):
+        raise ValueError("DataArray must have voxel-affine geometry.")
 
-    if mixes_axes:
-        # When axes mix, the decomposition's signed zoom is not a canonical
-        # per-axis coordinate scaling: decompose_affine keeps `rotation`
-        # right-handed (`det(rotation) > 0`) by relocating any needed
-        # reflection into one zoom entry. Absorb only the zoom magnitudes into
-        # the independent 1D coordinates and leave permutations/reflections in
-        # the residual orientation.
-        zoom = np.abs(zoom)
-        orientation = get_affine_in_axis_aligned_space(affine, translation, zoom)
-    else:
-        # Diagonal affine: each axis keeps its own SIGNED scale. Use the raw
-        # diagonal, not the decomposed zoom -- decompose relocates a lone sign
-        # flip onto axis 0, which would otherwise flip the wrong coordinate. The
-        # coordinates absorb the whole transform, leaving no residual.
-        zoom = np.diag(affine[:3, :3])
-        orientation = np.eye(4)
-
-    # Apply the axis-aligned part to each present spatial dimension's 1D coords:
-    #   new_coord_i = zoom[i] * old_coord_i + translation[i].
-    spatial_axes = [0, 1, 2]  # z, y, x map to affine rows 0, 1, 2.
-    dim_names = list(SPATIAL_DIMS)
-    new_coords = dict(da.coords)
-    for axis, dim in zip(spatial_axes, dim_names):
-        if dim not in da.dims:
-            continue
-        old_coord = da.coords[dim].values.astype(np.float64)
-        new_coord = zoom[axis] * old_coord + translation[axis]
-        new_coords[dim] = xr.DataArray(
-            new_coord,
-            dims=[dim],
-            attrs=da.coords[dim].attrs,
+    voxel_to_physical = np.asarray(da.attrs["voxel_to_physical"], dtype=np.float64)
+    if affine.shape != voxel_to_physical.shape:
+        raise ValueError(
+            "voxel-affine data requires an affine with shape matching "
+            f"voxel_to_physical {voxel_to_physical.shape}, got {affine.shape}."
         )
-        if "voxdim" in new_coords[dim].attrs:
-            # `voxdim` records the physical voxel size along this axis, so it must scale
-            # together with the coordinates it describes.
-            new_coords[dim].attrs["voxdim"] *= np.abs(zoom[axis])
 
-    # Re-express every stored affine against the new axis-aligned physical frame
-    # so it stays valid: M_new = M_old @ inv(axis_aligned(translation, zoom)).
-    # Per-pose (npose, 4, 4) stacks are handled via broadcasting in
-    # get_affine_in_axis_aligned_space.
     stored = da.attrs.get("affines", {})
     new_affines: dict[str, npt.NDArray[np.float64]] = {}
+    inv_affine = np.linalg.inv(affine)
     for stored_key, val in stored.items():
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
-            new_affines[stored_key] = get_affine_in_axis_aligned_space(
-                arr, translation, zoom
-            )
+            new_affines[stored_key] = arr @ inv_affine
         else:
-            # Unexpected shape: pass through unchanged.
             new_affines[stored_key] = arr
 
-    new_attrs = {**da.attrs, "affines": new_affines}
-    result = da.assign_coords(new_coords).assign_attrs(new_attrs)
+    new_attrs = dict(da.attrs)
+    new_attrs["voxel_to_physical"] = affine @ voxel_to_physical
+    if "affines" in da.attrs:
+        new_attrs["affines"] = new_affines
+
+    result = restore_physical_coords_from_voxel_affine(da.assign_attrs(new_attrs))
+    orientation = np.eye(affine.shape[0], dtype=np.float64)
     if inplace:
-        # xarray DataArrays are not truly mutable; update the underlying variable
-        # in-place so callers holding a reference see the change.
         da.coords.update(result.coords)
-        da.attrs.update(new_attrs)
+        da.attrs.clear()
+        da.attrs.update(result.attrs)
         return da, orientation
     return result, orientation
 
@@ -280,30 +221,18 @@ class FUSIAffineAccessor:
         affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
     ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
-        """Apply an affine to the scan's spatial coordinates.
+        """Apply a physical-space affine to voxel-affine geometry.
 
-        A diagonal affine (any per-axis scale or sign flip, plus translation) maps
-        each spatial axis to itself and updates the independent 1D `z`, `y`, `x`
-        coordinate arrays: `new_coord = scale * old_coord + translation`. The whole
-        transform is absorbed into the coordinates, so the returned orientation is
-        the identity.
-
-        An affine that mixes axes (a rotation, shear, or axis permutation) cannot be
-        expressed as independent 1D coordinates. The coordinates then absorb only the
-        axis-aligned zoom and translation, and the residual orientation is returned
-        as a 4x4 affine mapping the new physical coordinates to the affine's target
-        world frame (`orientation @ new_physical == affine @ old_physical`). The
-        caller decides what to do with it.
-
-        All affines already in `attrs["affines"]` are re-expressed against the new
-        coordinate frame so they remain valid. Per-pose `(npose, 4, 4)` stacks are
-        handled per pose via broadcasting.
+        The transform is composed into `attrs["voxel_to_physical"]`, derived physical
+        coordinates are regenerated, and existing `attrs["affines"]` entries are
+        re-expressed against the new physical frame. Per-pose `(npose, N, N)` stacks
+        are handled by NumPy broadcasting.
 
         Parameters
         ----------
-        affine : numpy.ndarray, shape (4, 4), or str
-            Homogeneous affine matrix to apply. If a string, it is looked up
-            as a key in `self.attrs["affines"]`.
+        affine : numpy.ndarray, shape (N, N), or str
+            Homogeneous physical-space affine matrix to apply. If a string, it is
+            looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
             Whether to modify the DataArray in-place.
 
@@ -311,16 +240,15 @@ class FUSIAffineAccessor:
         -------
         result : xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
-        orientation : (4, 4) numpy.ndarray
-            The residual orientation the coordinates could not absorb, mapping the
-            new physical coordinates to the affine's target world frame. The
-            identity when `affine` is diagonal.
+        orientation : (N, N) numpy.ndarray
+            Identity matrix with the same shape as `affine`.
 
         Raises
         ------
         ValueError
-            If `affine` shape is not `(4, 4)`, or if `affine` is a string and
-            `self` has no `"affines"` entry in `attrs`.
+            If `self` lacks voxel-affine geometry, if `affine` shape does not match
+            `attrs["voxel_to_physical"]`, or if `affine` is a string and `self` has
+            no `"affines"` entry in `attrs`.
         KeyError
             If `affine` is a string not present in `self.attrs["affines"]`.
 
@@ -329,15 +257,14 @@ class FUSIAffineAccessor:
         >>> import numpy as np
         >>> import xarray as xr
         >>> import confusius  # noqa: F401
-        >>> data = xr.DataArray(
-        ...     np.zeros((3, 4)),
-        ...     dims=["z", "y"],
-        ...     coords={"z": [0.0, 1.0, 2.0], "y": [0.0, 1.0, 2.0, 3.0]},
+        >>> from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+        >>> data = add_physical_coords_from_voxel_affine(
+        ...     xr.DataArray(np.zeros((3, 4)), dims=["j", "i"]), np.eye(3)
         ... )
-        >>> shift = np.eye(4)
-        >>> shift[:3, 3] = [10.0, 5.0, 0.0]
+        >>> shift = np.eye(3)
+        >>> shift[:2, 2] = [10.0, 5.0]
         >>> result, orientation = data.fusi.affine.apply(shift)
-        >>> float(result.coords["z"].values[0])
+        >>> float(result.attrs["voxel_to_physical"][0, 2])
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)

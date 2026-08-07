@@ -562,6 +562,31 @@ def scan_4d_multiblock(scan_4d_multiblock_path: Path) -> xr.DataArray:
 matplotlib.use("Agg", force=True)
 
 
+def _add_voxel_affine_coords(
+    da: xr.DataArray,
+    *,
+    voxel_dims: tuple[str, ...],
+    spacing: tuple[float, ...],
+    origin: tuple[float, ...],
+) -> xr.DataArray:
+    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
+    affine = np.eye(len(voxel_dims) + 1, dtype=np.float64)
+    affine[:-1, :-1] = np.diag(spacing)
+    affine[:-1, -1] = origin
+    physical_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
+    return add_physical_coords_from_voxel_affine(
+        da,
+        affine,
+        voxel_dims=voxel_dims,
+        physical_coord_names=physical_names,
+        physical_coord_attrs={
+            name: {"units": "mm", "voxdim": step}
+            for name, step in zip(physical_names, spacing, strict=True)
+        },
+    )
+
+
 @pytest.fixture
 def sample_3d_volume(rng):
     """3D spatial volume (z, y, x) with consistent spatial coordinates.
@@ -575,31 +600,24 @@ def sample_3d_volume(rng):
     da = xr.DataArray(
         data,
         name="power_doppler",
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         coords={
-            "z": xr.DataArray(
-                1.0 + np.arange(4) * 0.2,
-                dims=["z"],
-                attrs={"units": "mm", "voxdim": 0.2},
-            ),
-            "y": xr.DataArray(
-                2.0 + np.arange(6) * 0.1,
-                dims=["y"],
-                attrs={"units": "mm", "voxdim": 0.1},
-            ),
-            "x": xr.DataArray(
-                3.0 + np.arange(8) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm", "voxdim": 0.05},
-            ),
-            "time": 0.0,  # Scalar coord for consistency with 4D volumes.
+            "k": np.arange(4),
+            "j": np.arange(6),
+            "i": np.arange(8),
+            "time": 0.0,
         },
         attrs={
             "long_name": "Intensity",
             "units": "a.u.",
         },
     )
-    return da
+    return _add_voxel_affine_coords(
+        da,
+        voxel_dims=("k", "j", "i"),
+        spacing=(0.2, 0.1, 0.05),
+        origin=(1.0, 2.0, 3.0),
+    )
 
 
 @pytest.fixture
@@ -615,35 +633,28 @@ def sample_3dt_volume(rng):
     da = xr.DataArray(
         data,
         name="power_doppler",
-        dims=["time", "z", "y", "x"],
+        dims=["time", "k", "j", "i"],
         coords={
             "time": xr.DataArray(
                 10.0 + np.arange(10) * 0.5,
                 dims=["time"],
                 attrs={"units": "s"},
             ),
-            "z": xr.DataArray(
-                1.0 + np.arange(4) * 0.2,
-                dims=["z"],
-                attrs={"units": "mm", "voxdim": 0.2},
-            ),
-            "y": xr.DataArray(
-                2.0 + np.arange(6) * 0.1,
-                dims=["y"],
-                attrs={"units": "mm", "voxdim": 0.1},
-            ),
-            "x": xr.DataArray(
-                3.0 + np.arange(8) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm", "voxdim": 0.05},
-            ),
+            "k": np.arange(4),
+            "j": np.arange(6),
+            "i": np.arange(8),
         },
         attrs={
             "long_name": "Intensity",
             "units": "a.u.",
         },
     )
-    return da
+    return _add_voxel_affine_coords(
+        da,
+        voxel_dims=("k", "j", "i"),
+        spacing=(0.2, 0.1, 0.05),
+        origin=(1.0, 2.0, 3.0),
+    )
 
 
 @pytest.fixture
@@ -654,42 +665,56 @@ def sample_2dt_volume(sample_3dt_volume):
     sample_3dt_volume without the z-dimension. Includes name and metadata attributes for
     testing labels and units.
     """
-    return sample_3dt_volume.drop_vars("z")
+    data = sample_3dt_volume.isel(k=0, drop=True).drop_vars("z")
+    data = (
+        data.drop_vars("voxel_to_physical", errors="ignore")
+        if "voxel_to_physical" in data.coords
+        else data
+    )
+    data.attrs.pop("voxel_to_physical", None)
+    return _add_voxel_affine_coords(
+        data.drop_vars("k", errors="ignore"),
+        voxel_dims=("j", "i"),
+        spacing=(0.1, 0.05),
+        origin=(2.0, 3.0),
+    )
 
 
 @pytest.fixture
 def sample_3dt_volume_complex(rng):
-    """Complex-valued 3D+t volume (time, z, y, x) for IQ processing tests.
+    """Complex-valued 3D+t volume (time, k, j, i) for IQ processing tests.
 
     Shape: (10, 4, 6, 8) - matches sample_3dt_volume spatial dimensions. Includes name
     and metadata attributes for testing labels and units.
     """
+    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
     shape = (10, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
     da = xr.DataArray(
         data,
         name="iq",
-        dims=["time", "z", "y", "x"],
+        dims=["time", "k", "j", "i"],
         coords={
             "time": xr.DataArray(
                 np.arange(10) * 0.1,
                 dims=["time"],
                 attrs={"units": "s"},
             ),
-            "z": xr.DataArray(
-                np.arange(4) * 0.1,
-                dims=["z"],
-                attrs={"units": "mm", "voxdim": 0.1},
+            "k": xr.DataArray(
+                np.arange(4),
+                dims=["k"],
+                attrs={"voxdim": 1.0},
             ),
-            "y": xr.DataArray(
-                np.arange(6) * 0.05,
-                dims=["y"],
-                attrs={"units": "mm", "voxdim": 0.05},
+            "j": xr.DataArray(
+                np.arange(6),
+                dims=["j"],
+                attrs={"voxdim": 1.0},
             ),
-            "x": xr.DataArray(
-                np.arange(8) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm", "voxdim": 0.05},
+            "i": xr.DataArray(
+                np.arange(8),
+                dims=["i"],
+                attrs={"voxdim": 1.0},
             ),
         },
         attrs={
@@ -697,7 +722,17 @@ def sample_3dt_volume_complex(rng):
             "units": "a.u.",
         },
     )
-    return da
+    return add_physical_coords_from_voxel_affine(
+        da,
+        np.diag([0.1, 0.05, 0.05, 1.0]),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm", "voxdim": 0.1},
+            "y": {"units": "mm", "voxdim": 0.05},
+            "x": {"units": "mm", "voxdim": 0.05},
+        },
+    )
 
 
 @pytest.fixture
@@ -750,32 +785,22 @@ def sample_roi_labels():
     values[1, 2:4, 3:5] = 7  # somatosensory.
     values[2, 4:6, 5:8] = 42  # visual.
 
-    return xr.DataArray(
+    da = xr.DataArray(
         values,
         name="roi_labels",
-        dims=["z", "y", "x"],
-        coords={
-            "z": xr.DataArray(
-                1.0 + np.arange(4) * 0.2,
-                dims=["z"],
-                attrs={"units": "mm", "voxdim": 0.2},
-            ),
-            "y": xr.DataArray(
-                2.0 + np.arange(6) * 0.1,
-                dims=["y"],
-                attrs={"units": "mm", "voxdim": 0.1},
-            ),
-            "x": xr.DataArray(
-                3.0 + np.arange(8) * 0.05,
-                dims=["x"],
-                attrs={"units": "mm", "voxdim": 0.05},
-            ),
-        },
+        dims=["k", "j", "i"],
+        coords={"k": np.arange(4), "j": np.arange(6), "i": np.arange(8)},
         attrs={
             "long_name": "ROI labels",
             "roi_labels": {3: "motor", 7: "somatosensory", 42: "visual"},
             "rgb_lookup": {3: [0, 0, 255], 7: [255, 0, 0], 42: [0, 255, 0]},
         },
+    )
+    return _add_voxel_affine_coords(
+        da,
+        voxel_dims=("k", "j", "i"),
+        spacing=(0.2, 0.1, 0.05),
+        origin=(1.0, 2.0, 3.0),
     )
 
 

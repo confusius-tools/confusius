@@ -322,9 +322,31 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
             normalized.attrs.pop("affines", None)
 
     component_values = [str(v) for v in normalized.coords["component"].values]
-    for dim in list(normalized.dims[1:]):
+    spatial_dims = list(normalized.dims[1:])
+    for dim in spatial_dims:
         if dim not in component_values and normalized.sizes[dim] == 1:
             normalized = normalized.squeeze(dim, drop=True)
+
+    spatial_dims = list(normalized.dims[1:])
+    if spatial_dims != component_values and len(spatial_dims) == len(component_values):
+        affine = np.asarray(normalized.attrs.get("voxel_to_physical"), dtype=float)
+        coords: dict[str, xr.DataArray] = {}
+        for axis, (old_dim, new_dim) in enumerate(
+            zip(spatial_dims, component_values, strict=True)
+        ):
+            values = np.asarray(normalized.coords[old_dim].values, dtype=float)
+            if affine.shape == (len(spatial_dims) + 1, len(spatial_dims) + 1):
+                values = affine[axis, axis] * values + affine[axis, -1]
+            attrs = dict(
+                normalized.coords.get(new_dim, normalized.coords[old_dim]).attrs
+            )
+            coords[new_dim] = xr.DataArray(values, dims=[new_dim], attrs=attrs)
+        normalized = normalized.drop_vars(
+            [name for name in component_values if name in normalized.coords],
+            errors="ignore",
+        ).rename(dict(zip(spatial_dims, component_values, strict=True)))
+        normalized = normalized.assign_coords(coords)
+        normalized.attrs.pop("voxel_to_physical", None)
 
     return normalized
 
@@ -627,6 +649,23 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 payload_metadata["input_grid"] = transform.attrs["input_grid"]
 
     transform = _normalize_loaded_bspline_transform(transform)
+    grid = get_input_grid_from_payload(
+        payload_metadata
+    ) or get_output_grid_from_payload(payload_metadata)
+    component_values = [str(v) for v in transform.coords["component"].values]
+    if grid["dims"] == component_values:
+        transform = transform.assign_coords(
+            {
+                dim: xr.DataArray(
+                    origin + np.arange(transform.sizes[dim], dtype=float) * spacing,
+                    dims=[dim],
+                )
+                for dim, origin, spacing in zip(
+                    grid["dims"], grid["origin"], grid["spacing"], strict=True
+                )
+                if dim in transform.dims
+            }
+        )
     validate_bspline_dataarray(transform)
     payload: BSplineTransformPayload = {
         "kind": "bspline",

@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any, Literal
 import numpy as np
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.geometry import get_voxel_affine_physical_coord_names
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
@@ -23,7 +25,11 @@ from confusius.plotting._utils import (
     _resolve_font_sizes,
     _style_colorbar,
     coerce_complex_to_magnitude,
+    convert_axis_aligned_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
+)
+from confusius.plotting._utils import (
+    resample_voxel_affine_to_physical_grid as _shared_resample_voxel_affine_to_physical_grid,
 )
 from confusius.signal import clean
 from confusius.validation import validate_matching_coordinates, validate_time_series
@@ -71,15 +77,182 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[left], interior, [right]])
 
 
+def _has_voxel_affine_geometry(data: xr.DataArray) -> bool:
+    """Return whether `data` carries voxel-affine geometry metadata."""
+    return "voxel_to_physical" in data.attrs and all(
+        str(dim) in {"time", "k", "j", "i"} for dim in data.dims
+    )
+
+
+def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
+    """Validate slice selection semantics for voxel-affine data.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Data being sliced for plotting.
+    slice_mode : str
+        Requested slice dimension.
+
+    Raises
+    ------
+    ValueError
+        If voxel-affine data is sliced along an unsupported dimension.
+    """
+    if not _has_voxel_affine_geometry(data):
+        return
+
+    valid_slice_modes = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
+    valid_slice_modes += tuple(
+        dim
+        for dim in get_voxel_affine_physical_coord_names(data)
+        if dim not in valid_slice_modes
+    )
+    if slice_mode not in valid_slice_modes:
+        raise ValueError(
+            "Voxel-affine plotting supports only native voxel-plane slicing or "
+            f"physical z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
+            f"modes: {valid_slice_modes!r}."
+        )
+    spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
+    if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
+        raise ValueError(
+            "Physical z/y/x slicing for voxel-affine plotting requires 3D data."
+        )
+
+
+def _voxel_affine_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
+    """Return voxel-space dimension order implied by the stored affine."""
+    ndim = np.asarray(slice_da.attrs["voxel_to_physical"]).shape[0] - 1
+    dims = tuple(
+        dim for dim in VOXEL_DIMS if dim in slice_da.dims or dim in slice_da.coords
+    )
+    if len(dims) != ndim:
+        raise ValueError(
+            "Voxel-affine plotting could not infer voxel dimension order from "
+            f"dims/coords {dims!r} and affine shape {slice_da.attrs['voxel_to_physical'].shape}."
+        )
+    return dims
+
+
+def _project_voxel_affine_plane(
+    slice_da: xr.DataArray,
+    dim_row: str,
+    dim_col: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Project a voxel-affine 2D slice into an in-plane orthonormal basis.
+
+    Parameters
+    ----------
+    slice_da : xarray.DataArray
+        Two-dimensional slice whose dimensions are voxel-space dims.
+    dim_row : str
+        Voxel-space dimension displayed on rows.
+    dim_col : str
+        Voxel-space dimension displayed on columns.
+
+    Returns
+    -------
+    x_edges : (H+1, W+1) numpy.ndarray
+        In-plane x coordinates of cell corners.
+    y_edges : (H+1, W+1) numpy.ndarray
+        In-plane y coordinates of cell corners.
+    x_centers : (H, W) numpy.ndarray
+        In-plane x coordinates of cell centers.
+    y_centers : (H, W) numpy.ndarray
+        In-plane y coordinates of cell centers.
+    """
+    affine = np.asarray(slice_da.attrs["voxel_to_physical"], dtype=np.float64)
+    dim_order = _voxel_affine_dim_order(slice_da)
+    linear = affine[:-1, :-1]
+
+    row_vals = (
+        slice_da.coords[dim_row].values.astype(float)
+        if dim_row in slice_da.coords
+        else np.arange(slice_da.sizes[dim_row], dtype=float)
+    )
+    col_vals = (
+        slice_da.coords[dim_col].values.astype(float)
+        if dim_col in slice_da.coords
+        else np.arange(slice_da.sizes[dim_col], dtype=float)
+    )
+    row_edges = _centers_to_edges(row_vals)
+    col_edges = _centers_to_edges(col_vals)
+
+    col_vec = linear[:, dim_order.index(dim_col)]
+    row_vec = linear[:, dim_order.index(dim_row)]
+    e1 = col_vec / np.linalg.norm(col_vec)
+    row_perp = row_vec - np.dot(row_vec, e1) * e1
+    row_perp_norm = np.linalg.norm(row_perp)
+    if np.isclose(row_perp_norm, 0.0):
+        raise ValueError(
+            f"Voxel-affine plotting requires non-collinear plane axes, got {dim_row!r} "
+            f"and {dim_col!r}."
+        )
+    e2 = row_perp / row_perp_norm
+
+    def _project(
+        row_axis: np.ndarray, col_axis: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        col_grid, row_grid = np.meshgrid(col_axis, row_axis, indexing="xy")
+        voxel_components: list[np.ndarray] = []
+        for dim in dim_order:
+            if dim == dim_row:
+                voxel_components.append(row_grid)
+            elif dim == dim_col:
+                voxel_components.append(col_grid)
+            else:
+                voxel_components.append(
+                    np.full_like(
+                        row_grid, float(slice_da.coords[dim].item()), dtype=float
+                    )
+                )
+        homogeneous = np.stack(
+            [*voxel_components, np.ones_like(row_grid, dtype=float)], axis=0
+        ).reshape(len(dim_order) + 1, -1)
+        physical = (affine @ homogeneous).reshape((affine.shape[0], *row_grid.shape))[
+            :-1
+        ]
+        origin = physical[:, 0, 0][:, np.newaxis, np.newaxis]
+        rel = physical - origin
+        x = np.tensordot(e1, rel, axes=(0, 0))
+        y = np.tensordot(e2, rel, axes=(0, 0))
+        return x, y
+
+    x_edges, y_edges = _project(row_edges, col_edges)
+    x_centers, y_centers = _project(row_vals, col_vals)
+    return x_edges, y_edges, x_centers, y_centers
+
+
+def _resample_voxel_affine_to_physical_grid(
+    data: xr.DataArray,
+    slice_mode: str,
+    reference: xr.DataArray | None = None,
+) -> xr.DataArray:
+    """Resample voxel-affine data onto an axis-aligned physical grid for plotting."""
+    if not _has_voxel_affine_geometry(data) or slice_mode not in {"z", "y", "x"}:
+        return data
+
+    physical_dims = get_voxel_affine_physical_coord_names(data)
+    if slice_mode not in physical_dims:
+        return data
+
+    data = convert_axis_aligned_voxel_affine_to_physical_grid(data)
+    return _shared_resample_voxel_affine_to_physical_grid(data, reference=reference)
+
+
 def _slice_edges_and_centers(
     slice_da: xr.DataArray, dim_row: str, dim_col: str
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return `(x_edges, y_edges, x_centers, y_centers)` for a 2D slice.
+    """Return plotting geometry for a 2D slice.
 
-    Centers fall back to integer indices when the slice lacks coordinates along the
-    requested dimension; edges are derived from the centers via
-    [`_centers_to_edges`][confusius.plotting.image._centers_to_edges].
+    For standard axis-aligned data, returns 1D edge/center coordinates for the plotted
+    row/column dimensions. For voxel-affine data, returns 2D corner and center meshes
+    obtained by projecting the physical slice into an orthonormal in-plane basis.
     """
+    if _has_voxel_affine_geometry(slice_da):
+        return _project_voxel_affine_plane(slice_da, dim_row, dim_col)
+
     if dim_col in slice_da.coords:
         x_centers = slice_da.coords[dim_col].values.astype(float)
         x_edges = _centers_to_edges(x_centers)
@@ -347,6 +520,9 @@ def _resolve_cmap(
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     """Return axis label for `dim`, including units when available."""
+    if _has_voxel_affine_geometry(da):
+        return f"{dim} in-plane (mm)"
+
     label = dim
     if dim in da.coords:
         units = da.coords[dim].attrs.get("units")
@@ -512,6 +688,7 @@ class VolumePlotter:
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
         self._hover_manager = _HoverManager()
+        self._physical_grid_reference: xr.DataArray | None = None
 
     def _ensure_figure(
         self,
@@ -676,6 +853,12 @@ class VolumePlotter:
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
+        _validate_voxel_affine_slice_mode(data, self.slice_mode)
+        data = _resample_voxel_affine_to_physical_grid(
+            data,
+            self.slice_mode,
+            reference=self._physical_grid_reference,
+        )
         # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
         if self.slice_mode not in data.dims and _is_scalar_coord(data, self.slice_mode):
@@ -946,6 +1129,8 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
         data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
+        if self.slice_mode in {"z", "y", "x"} and self._physical_grid_reference is None:
+            self._physical_grid_reference = data
 
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
@@ -1051,16 +1236,17 @@ class VolumePlotter:
                 norm=norm,
                 alpha=panel_alpha,
             )
-            self._attach_or_update_hover_manager(resolved_roi_labels)
-            self._hover_manager.register_data_to_axis(
-                ax,
-                hover_x,
-                hover_y,
-                slice_da.values,
-                role="labels" if resolved_roi_labels else "volume",
-                name=str(data.name) if data.name is not None else "value",
-                units=data.attrs.get("units"),
-            )
+            if hover_x.ndim == 1 and hover_y.ndim == 1:
+                self._attach_or_update_hover_manager(resolved_roi_labels)
+                self._hover_manager.register_data_to_axis(
+                    ax,
+                    hover_x,
+                    hover_y,
+                    slice_da.values,
+                    role="labels" if resolved_roi_labels else "volume",
+                    name=str(data.name) if data.name is not None else "value",
+                    units=data.attrs.get("units"),
+                )
 
             self._style_slice_axis(
                 ax,
@@ -1355,19 +1541,22 @@ class VolumePlotter:
             )
 
             ax.pcolormesh(x_edges, y_edges, rgb, alpha=alpha)
-            self._attach_or_update_hover_manager({})
-            for i, (data, input_slices) in enumerate(
-                zip((data1, data2), (input_slices1, input_slices2))
-            ):
-                self._hover_manager.register_data_to_axis(
-                    ax,
-                    hover_x,
-                    hover_y,
-                    input_slices[slice_idx].values,
-                    role="volume",
-                    name=str(data.name) if data.name is not None else f"data{i + 1}",
-                    units=data.attrs.get("units"),
-                )
+            if hover_x.ndim == 1 and hover_y.ndim == 1:
+                self._attach_or_update_hover_manager({})
+                for i, (data, input_slices) in enumerate(
+                    zip((data1, data2), (input_slices1, input_slices2))
+                ):
+                    self._hover_manager.register_data_to_axis(
+                        ax,
+                        hover_x,
+                        hover_y,
+                        input_slices[slice_idx].values,
+                        role="volume",
+                        name=str(data.name)
+                        if data.name is not None
+                        else f"data{i + 1}",
+                        units=data.attrs.get("units"),
+                    )
 
             self._style_slice_axis(
                 ax,
@@ -1532,6 +1721,8 @@ class VolumePlotter:
         ]
         if squeeze_dims:
             mask = mask.squeeze(dim=squeeze_dims)
+
+        _validate_voxel_affine_slice_mode(mask, self.slice_mode)
 
         if self.slice_mode not in mask.dims:
             raise ValueError(f"slice_mode '{self.slice_mode}' not in mask dimensions")

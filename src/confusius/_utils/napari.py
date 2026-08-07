@@ -91,6 +91,14 @@ def convert_dataarray_to_layer_data(
     layer_type : {"image", "labels"}
         Napari layer type inferred from `da.dtype`.
     """
+    from confusius.plotting._utils import (
+        convert_axis_aligned_voxel_affine_to_physical_grid,
+        resample_voxel_affine_to_physical_grid,
+    )
+
+    source_da = da
+    da = convert_axis_aligned_voxel_affine_to_physical_grid(da)
+    da = resample_voxel_affine_to_physical_grid(da)
     all_dims = list(da.dims)
 
     spacing, non_uniform = get_coordinate_spacings_best_effort(da)
@@ -102,7 +110,16 @@ def convert_dataarray_to_layer_data(
     origin = da.fusi.origin
 
     scale: list[float] = [spacing[str(d)] for d in all_dims]
-    translate: list[float] = [origin[d] for d in all_dims]
+    translate: list[float] = [
+        origin[d]
+        if d in origin
+        else (
+            float(np.asarray(da.coords[d].values, dtype=float)[0])
+            if d in da.coords
+            else 0.0
+        )
+        for d in all_dims
+    ]
     all_units: list[str | None] = [
         da.coords[d].attrs.get("units") if d in da.coords else None for d in all_dims
     ]
@@ -112,7 +129,7 @@ def convert_dataarray_to_layer_data(
         "scale": scale,
         "translate": translate,
         "axis_labels": all_dims,
-        "metadata": {"xarray": da},
+        "metadata": {"xarray": da, "source_xarray": source_da},
     }
     if any(u is not None for u in all_units):
         kwargs["units"] = all_units

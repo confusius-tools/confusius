@@ -5,12 +5,23 @@ import pytest
 import scipy.ndimage
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.spatial import smooth_volume
 
 
+def _add_identity_affine(da):
+    """Attach identity voxel-affine geometry."""
+    return add_physical_coords_from_voxel_affine(
+        da,
+        np.eye(len(da.dims) + 1),
+        voxel_dims=tuple(da.dims),
+        physical_coord_names=tuple("zyx"[-len(da.dims) :]),
+    )
+
+
 def _spacing(da, dim):
-    """Return the uniform voxel spacing (mm) for a dimension."""
-    return float(np.diff(da.coords[dim].values)[0])
+    """Return the physical voxel spacing for a dimension."""
+    return float(da.fusi.spacing[dim])
 
 
 class TestSmoothVolume:
@@ -25,9 +36,11 @@ class TestSmoothVolume:
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
+            fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["k", "j", "i"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -40,24 +53,28 @@ class TestSmoothVolume:
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [0.0] + [
-            fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
+            fwhm * fwhm_to_sigma / _spacing(vol, d) for d in ["k", "j", "i"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
     def test_anisotropic_fwhm_dict(self, sample_3d_volume):
         """Per-dimension FWHM dict should produce the correct per-dim sigmas."""
         vol = sample_3d_volume
-        fwhm_dict = {"z": 0.6, "y": 0.2, "x": 0.4}
+        fwhm_dict = {"k": 0.6, "j": 0.2, "i": 0.4}
 
         smoothed = smooth_volume(vol, fwhm=fwhm_dict)
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            fwhm_dict[d] * fwhm_to_sigma / _spacing(vol, d) for d in ["z", "y", "x"]
+            fwhm_dict[d] * fwhm_to_sigma / _spacing(vol, d) for d in ["k", "j", "i"]
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -66,32 +83,36 @@ class TestSmoothVolume:
         vol = sample_3d_volume
         fwhm = 0.4
 
-        smoothed = smooth_volume(vol, fwhm={"z": fwhm, "x": fwhm})
+        smoothed = smooth_volume(vol, fwhm={"k": fwhm, "i": fwhm})
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            fwhm * fwhm_to_sigma / _spacing(vol, "z"),
-            0.0,  # y not smoothed.
-            fwhm * fwhm_to_sigma / _spacing(vol, "x"),
+            fwhm * fwhm_to_sigma / _spacing(vol, "k"),
+            0.0,  # j not smoothed.
+            fwhm * fwhm_to_sigma / _spacing(vol, "i"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
     def test_fwhm_dict_infers_smoothed_dims(self, sample_3d_volume):
         """A dict FWHM should define the smoothed dimensions."""
         vol = sample_3d_volume
-        fwhm_dict = {"z": 0.6, "x": 0.4}
+        fwhm_dict = {"k": 0.6, "i": 0.4}
 
         smoothed = smooth_volume(vol, fwhm=fwhm_dict)
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            fwhm_dict["z"] * fwhm_to_sigma / _spacing(vol, "z"),
+            fwhm_dict["k"] * fwhm_to_sigma / _spacing(vol, "k"),
             0.0,
-            fwhm_dict["x"] * fwhm_to_sigma / _spacing(vol, "x"),
+            fwhm_dict["i"] * fwhm_to_sigma / _spacing(vol, "i"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -109,7 +130,9 @@ class TestSmoothVolume:
             0.0,
             0.0,
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -134,25 +157,29 @@ class TestSmoothVolume:
         """Length-1 dimensions should be ignored instead of requiring spacing."""
         data = np.zeros((5, 1, 7))
         data[2, 0, 3] = 1.0
-        vol = xr.DataArray(
-            data,
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.arange(5) * 0.2,
-                "y": [0.0],
-                "x": np.arange(7) * 0.1,
-            },
+        vol = _add_identity_affine(
+            xr.DataArray(
+                data,
+                dims=["k", "j", "i"],
+                coords={
+                    "k": np.arange(5),
+                    "j": [0.0],
+                    "i": np.arange(7),
+                },
+            )
         )
 
         smoothed = smooth_volume(vol, fwhm=0.4)
 
         fwhm_to_sigma = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         expected_sigmas = [
-            0.4 * fwhm_to_sigma / _spacing(vol, "z"),
+            0.4 * fwhm_to_sigma / _spacing(vol, "k"),
             0.0,
-            0.4 * fwhm_to_sigma / _spacing(vol, "x"),
+            0.4 * fwhm_to_sigma / _spacing(vol, "i"),
         ]
-        expected = scipy.ndimage.gaussian_filter(vol.values.astype(float), expected_sigmas)
+        expected = scipy.ndimage.gaussian_filter(
+            vol.values.astype(float), expected_sigmas
+        )
 
         np.testing.assert_allclose(smoothed.values, expected, rtol=1e-10)
 
@@ -172,10 +199,14 @@ class TestSmoothVolume:
 
         data = np.zeros(shape)
         data[center] = 1.0
-        vol = xr.DataArray(
-            data,
-            dims=["z", "y", "x"],
-            coords={d: np.arange(s) * spacing for d, s in zip(["z", "y", "x"], shape)},
+        vol = _add_identity_affine(
+            xr.DataArray(
+                data,
+                dims=["k", "j", "i"],
+                coords={
+                    d: np.arange(s) * spacing for d, s in zip(["k", "j", "i"], shape)
+                },
+            )
         )
 
         smoothed = smooth_volume(vol, fwhm=fwhm_val)
@@ -222,7 +253,7 @@ class TestSmoothVolume:
     def test_raises_invalid_dim(self, sample_3d_volume):
         """Should raise ValueError for dimensions not in the DataArray."""
         with pytest.raises(ValueError, match="not present in the DataArray"):
-            smooth_volume(sample_3d_volume, fwhm={"z": 0.3, "nonexistent": 0.3})
+            smooth_volume(sample_3d_volume, fwhm={"k": 0.3, "nonexistent": 0.3})
 
     def test_re_raises_non_missing_coord_validation_error(self, monkeypatch):
         """Non-missing-coordinate validation errors should be re-raised."""
@@ -240,26 +271,26 @@ class TestSmoothVolume:
         coords = np.concatenate([np.arange(5), np.arange(6, 12)]) * 0.1
         vol = xr.DataArray(
             np.ones((11, 8, 10)),
-            dims=["z", "y", "x"],
-            coords={"z": coords, "y": np.arange(8) * 0.1, "x": np.arange(10) * 0.1},
+            dims=["k", "j", "i"],
+            coords={"k": coords, "j": np.arange(8) * 0.1, "i": np.arange(10) * 0.1},
         )
-        with pytest.raises(ValueError, match="non-uniform or undefined coordinate spacing"):
+        with pytest.raises(ValueError, match="native voxel dimensions `k/j/i`"):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_missing_coord(self):
         """Should raise ValueError if a core dim has no coordinate."""
-        vol = xr.DataArray(np.ones((8, 10, 12)), dims=["z", "y", "x"])
-        with pytest.raises(ValueError, match="Missing required coordinate"):
+        vol = xr.DataArray(np.ones((8, 10, 12)), dims=["k", "j", "i"])
+        with pytest.raises(ValueError, match="native voxel dimensions `k/j/i`"):
             smooth_volume(vol, fwhm=0.3)
 
     def test_raises_unknown_fwhm_key(self, sample_3d_volume):
         """Should raise ValueError if fwhm dict contains dim names not in the array."""
         with pytest.raises(ValueError, match="not present in the DataArray"):
-            smooth_volume(sample_3d_volume, fwhm={"z": 0.3, "w": 0.2})
+            smooth_volume(sample_3d_volume, fwhm={"k": 0.3, "w": 0.2})
 
     def test_raises_chunked_spatial_dim(self, sample_3d_volume):
         """Should raise ValueError if a smoothed spatial dim is Dask-chunked."""
         pytest.importorskip("dask.array")
-        vol_dask = sample_3d_volume.chunk({"z": 2})  # Spatial dim chunked.
+        vol_dask = sample_3d_volume.chunk({"k": 2})  # Spatial dim chunked.
         with pytest.raises(ValueError, match="is chunked"):
             smooth_volume(vol_dask, fwhm=0.3)

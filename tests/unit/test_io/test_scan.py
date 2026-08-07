@@ -134,8 +134,54 @@ class TestLoadScan2D:
     """Tests for load_scan with 2Dscan files."""
 
     def test_dims(self, scan_2d: xr.DataArray) -> None:
-        """2Dscan produces DataArray with dims (time, z, y, x)."""
-        assert scan_2d.dims == ("time", "z", "y", "x")
+        """2Dscan produces DataArray with dims (time, k, j, i)."""
+        assert scan_2d.dims == ("time", "k", "j", "i")
+
+    def test_voxel_affine_model_uses_voxel_dims_and_1d_physical_coords(
+        self, scan_2d_path: Path
+    ) -> None:
+        """Axis-aligned voxel-affine loading exposes `k/j/i` plus 1D physical coords."""
+        da = load_scan(scan_2d_path)
+
+        assert da.dims == ("time", "k", "j", "i")
+        assert da.shape == (_T, _SIZE_Y, _SIZE_Z, _SIZE_X)
+        assert da.coords["k"].dims == ("k",)
+        assert da.coords["j"].dims == ("j",)
+        assert da.coords["i"].dims == ("i",)
+        assert da.coords["z"].dims == ("k",)
+        assert da.coords["y"].dims == ("j",)
+        assert da.coords["x"].dims == ("i",)
+        assert da.attrs["voxel_to_physical"].shape == (4, 4)
+        np.testing.assert_allclose(
+            da.coords["x"].values,
+            1e3
+            * (
+                _VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1)
+                + _VOXELS_TO_PROBE[0, 3]
+            ),
+            rtol=1e-10,
+        )
+        np.testing.assert_allclose(
+            da.coords["y"].values,
+            1e3
+            * (
+                -(
+                    _VOXELS_TO_PROBE[2, 2] * (np.arange(_SIZE_Z) + 1)
+                    + _VOXELS_TO_PROBE[2, 3]
+                )
+            ),
+            rtol=1e-10,
+        )
+        np.testing.assert_allclose(
+            da.coords["z"].values,
+            1e3
+            * (
+                _VOXELS_TO_PROBE[1, 1] * (np.arange(_SIZE_Y) + 1)
+                + _VOXELS_TO_PROBE[1, 3]
+            ),
+            rtol=1e-10,
+        )
+        assert da.attrs["affines"]["physical_to_lab"].shape == (4, 4)
 
     def test_shape(self, scan_2d: xr.DataArray) -> None:
         """2Dscan shape matches (T, sizeY, sizeZ, sizeX)."""
@@ -261,8 +307,8 @@ class TestLoadScan2D:
         assert "pose_time" not in scan_2d.coords
 
     def test_linear_probe_z_singleton(self, scan_2d: xr.DataArray) -> None:
-        """2Dscan with linear probe (sizeY=1) has a singleton z dimension."""
-        assert scan_2d.sizes["z"] == _SIZE_Y == 1
+        """2Dscan with linear probe (sizeY=1) has a singleton k dimension."""
+        assert scan_2d.sizes["k"] == _SIZE_Y == 1
 
 
 class TestLoadScan2DTransposedTime:
@@ -294,8 +340,8 @@ class TestLoadScan3D:
     """Tests for load_scan with 3Dscan files."""
 
     def test_dims(self, scan_3d: xr.DataArray) -> None:
-        """3Dscan produces DataArray with dims (pose, z, y, x)."""
-        assert scan_3d.dims == ("pose", "z", "y", "x")
+        """3Dscan produces DataArray with dims (pose, k, j, i)."""
+        assert scan_3d.dims == ("pose", "k", "j", "i")
 
     def test_shape(self, scan_3d: xr.DataArray) -> None:
         """3Dscan shape matches (npose, sizeY, sizeZ, sizeX)."""
@@ -336,13 +382,13 @@ class TestLoadScan3D:
         assert scan_3d.attrs["iconeus_scan_mode"] == "3Dscan"
 
     def test_matrix_probe_z_dim(self, scan_3d_matrix: xr.DataArray) -> None:
-        """3Dscan with matrix probe (sizeY=4) has z dimension size 4."""
-        assert scan_3d_matrix.dims == ("pose", "z", "y", "x")
-        assert scan_3d_matrix.sizes["z"] == 4
+        """3Dscan with matrix probe (sizeY=4) has k dimension size 4."""
+        assert scan_3d_matrix.dims == ("pose", "k", "j", "i")
+        assert scan_3d_matrix.sizes["k"] == 4
 
     def test_linear_probe_z_singleton(self, scan_3d: xr.DataArray) -> None:
-        """3Dscan with linear probe (sizeY=1) has a singleton z dimension."""
-        assert scan_3d.sizes["z"] == _SIZE_Y == 1
+        """3Dscan with linear probe (sizeY=1) has a singleton k dimension."""
+        assert scan_3d.sizes["k"] == _SIZE_Y == 1
 
 
 # ---------------------------------------------------------------------------
@@ -354,8 +400,8 @@ class TestLoadScan4D:
     """Tests for load_scan with 4Dscan files."""
 
     def test_dims(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan produces DataArray with dims (time, pose, z, y, x)."""
-        assert scan_4d.dims == ("time", "pose", "z", "y", "x")
+        """4Dscan produces DataArray with dims (time, pose, k, j, i)."""
+        assert scan_4d.dims == ("time", "pose", "k", "j", "i")
 
     def test_shape(self, scan_4d: xr.DataArray) -> None:
         """4Dscan shape matches (nscanRepeat, npose, sizeY, sizeZ, sizeX)."""
@@ -619,7 +665,9 @@ class TestLoadScanWithBPS:
         brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)
         return np.linalg.inv(brain_to_confusius_lab) @ physical_to_lab
 
-    def test_load_bps_reexpresses_lab_side(self, bps_path: Path, brain_to_lab: np.ndarray) -> None:
+    def test_load_bps_reexpresses_lab_side(
+        self, bps_path: Path, brain_to_lab: np.ndarray
+    ) -> None:
         """load_bps converts BrainToLab to ConfUSIus-ordered lab coordinates."""
         expected = self._expected_brain_to_confusius_lab(brain_to_lab)
         result = load_bps(bps_path)

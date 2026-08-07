@@ -7,6 +7,38 @@ import pytest
 import xarray as xr
 
 import confusius  # noqa: F401  # Import to register accessor.
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
+
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small voxel-affine volume for accessor tests."""
+    base = xr.DataArray(
+        np.zeros((2, 3, 4)),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 2.0, 4.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    return add_physical_coords_from_voxel_affine(
+        base,
+        np.array(
+            [
+                [2.0, 1.0, 0.0, 10.0],
+                [0.0, 3.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
 
 
 class TestFUSIAccessor:
@@ -209,6 +241,48 @@ class TestOrigin:
         )
         assert data.fusi.origin["z"] == pytest.approx(3.5)
 
+    def test_voxel_affine_origin_uses_first_sampled_voxel(self):
+        """Voxel-affine origin is the physical location of array index zero."""
+        data = _make_voxel_affine_volume().expand_dims(time=[0.0, 0.5])
+
+        assert data.fusi.origin == {
+            "time": pytest.approx(0.0),
+            "z": pytest.approx(10.0),
+            "y": pytest.approx(20.0),
+            "x": pytest.approx(30.0),
+        }
+
+    def test_voxel_affine_origin_respects_nonzero_voxel_coords(self):
+        """Voxel-affine origin uses the first sampled voxel coords, not affine translation."""
+        base = xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={
+                "k": [10.0, 11.0],
+                "j": [5.0, 7.0, 9.0],
+                "i": [100.0, 101.0, 102.0, 103.0],
+            },
+        )
+        data = add_physical_coords_from_voxel_affine(
+            base,
+            np.array(
+                [
+                    [2.0, 0.0, 0.0, 10.0],
+                    [0.0, 3.0, 0.0, 20.0],
+                    [0.0, 0.0, 4.0, 30.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+        )
+
+        assert data.fusi.origin == {
+            "z": pytest.approx(30.0),
+            "y": pytest.approx(35.0),
+            "x": pytest.approx(430.0),
+        }
+
     """Tests for fusi.spacing."""
 
     @pytest.fixture
@@ -283,6 +357,32 @@ class TestOrigin:
             },
         )
         assert list(data.fusi.spacing.keys()) == ["z", "y", "x"]
+
+    def test_voxel_affine_spacing_uses_physical_step_lengths(self):
+        """Voxel-affine spacing comes from voxel steps and affine column norms."""
+        data = _make_voxel_affine_volume().expand_dims(time=[0.0, 0.5])
+
+        assert data.fusi.spacing == {
+            "time": pytest.approx(0.5),
+            "k": pytest.approx(2.0),
+            "j": pytest.approx(2.0 * np.sqrt(10.0)),
+            "i": pytest.approx(4.0),
+        }
+
+    def test_voxel_affine_direction_returns_orientation_matrix(self):
+        """Voxel-affine direction is the normalized affine linear part."""
+        data = _make_voxel_affine_volume()
+
+        np.testing.assert_allclose(
+            data.fusi.direction,
+            np.array(
+                [
+                    [1.0, 1.0 / np.sqrt(10.0), 0.0],
+                    [0.0, 3.0 / np.sqrt(10.0), 0.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+        )
 
 
 class TestAffineToMethod:
@@ -393,47 +493,32 @@ class TestAffineToMethod:
         assert result.shape == (4, 4)
 
 
-def _assert_affine_round_trip(result, orientation, applied, old):
-    """Check `orientation @ new_physical == applied @ old_physical` at sample voxels.
-
-    A 3D affine is fixed by four affinely independent points, so a handful of
-    representative voxels (the origin, one step along each axis, plus an interior
-    point) is a complete reference comparison.
-    """
-    iz, iy, ix = [0, 2, 0, 0, 1], [0, 0, 3, 0, 2], [0, 0, 0, 4, 3]
-    ones = np.ones(len(iz))
-    old_pts = np.stack([old["z"][iz], old["y"][iy], old["x"][ix], ones])
-    new_pts = np.stack(
-        [
-            result.coords["z"].values[iz],
-            result.coords["y"].values[iy],
-            result.coords["x"].values[ix],
-            ones,
-        ]
-    )
-    np.testing.assert_allclose(orientation @ new_pts, applied @ old_pts, atol=1e-10)
-
-
 class TestAffineApplyMethod:
     """Tests for fusi.affine.apply."""
 
     def _make_scan(
         self,
         shape: tuple[int, ...] = (3, 4, 5),
-        dims: tuple[str, ...] = ("z", "y", "x"),
+        dims: tuple[str, ...] = ("k", "j", "i"),
         spacing: tuple[float, ...] = (1.0, 1.0, 1.0),
         origin: tuple[float, ...] = (0.0, 0.0, 0.0),
         affines: dict | None = None,
     ) -> xr.DataArray:
-        coords = {
-            dim: np.arange(n) * sp + orig
-            for dim, n, sp, orig in zip(dims, shape, spacing, origin)
-        }
-        return xr.DataArray(
+        coords = {dim: np.arange(n, dtype=float) for dim, n in zip(dims, shape)}
+        affine = np.eye(len(dims) + 1)
+        affine[:-1, :-1] = np.diag(spacing[: len(dims)])
+        affine[:-1, -1] = origin[: len(dims)]
+        base = xr.DataArray(
             np.zeros(shape),
             dims=list(dims),
             coords=coords,
             attrs={"affines": affines} if affines is not None else {},
+        )
+        return add_physical_coords_from_voxel_affine(
+            base,
+            affine,
+            voxel_dims=dims,
+            physical_coord_names=("y", "x") if len(dims) == 2 else ("z", "y", "x"),
         )
 
     def test_identity_leaves_coords_unchanged(self):
@@ -515,17 +600,10 @@ class TestAffineApplyMethod:
         scan is saved to NIfTI).
         """
         da = self._make_scan()
-        voxdims = {"z": 0.1, "y": 0.2, "x": 0.3}
-        for dim, voxdim in voxdims.items():
-            da.coords[dim].attrs["voxdim"] = voxdim
         scale = np.diag([2.0, 3.0, -0.5, 1.0])
         result, _ = da.fusi.affine.apply(scale)
-        for dim, zoom in zip(("z", "y", "x"), (2.0, 3.0, 0.5)):
-            assert result.coords[dim].attrs["voxdim"] == pytest.approx(
-                voxdims[dim] * zoom
-            )
-            # The input scan's voxdim must not be mutated.
-            assert da.coords[dim].attrs["voxdim"] == voxdims[dim]
+        for dim, expected in zip(("z", "y", "x"), (2.0, 3.0, 0.5)):
+            assert result.coords[dim].attrs["voxdim"] == pytest.approx(expected)
 
     def test_wrong_shape_raises_value_error(self):
         """Affines with shape other than (4, 4) raise ValueError."""
@@ -602,22 +680,61 @@ class TestAffineApplyMethod:
 
     def test_partial_dims_only_updates_present_dims(self):
         """Only dimensions present in da.dims are updated."""
-        # 2-D scan with only z and y (no x).
-        da = xr.DataArray(
-            np.zeros((3, 4)),
-            dims=["z", "y"],
-            coords={"z": np.arange(3) * 1.0, "y": np.arange(4) * 1.0},
-        )
-        shift = np.eye(4)
-        shift[:3, 3] = [10.0, 5.0, 99.0]  # x-shift should have no effect.
+        da = self._make_scan(shape=(3, 4), dims=("j", "i"))
+        shift = np.eye(3)
+        shift[:2, 2] = [10.0, 5.0]
         result, _ = da.fusi.affine.apply(shift)
         np.testing.assert_allclose(
-            result.coords["z"].values, da.coords["z"].values + 10.0
+            result.coords["y"].values, da.coords["y"].values + 10.0
         )
         np.testing.assert_allclose(
-            result.coords["y"].values, da.coords["y"].values + 5.0
+            result.coords["x"].values, da.coords["x"].values + 5.0
         )
-        assert "x" not in result.coords
+        assert "z" not in result.coords
+
+    def test_voxel_affine_accepts_matching_2d_affine_shape(self):
+        """Voxel-affine 2D scans accept 3x3 physical-space transforms."""
+        base = xr.DataArray(
+            np.zeros((3, 4)),
+            dims=["j", "i"],
+            coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            attrs={"affines": {"physical_to_lab": np.eye(3)}},
+        )
+        da = add_physical_coords_from_voxel_affine(
+            base,
+            np.array(
+                [
+                    [0.2, 0.05, 10.0],
+                    [0.08, 0.18, 20.0],
+                    [0.0, 0.0, 1.0],
+                ]
+            ),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
+        )
+        shift = np.array(
+            [
+                [1.0, 0.0, 3.0],
+                [0.0, 1.0, -4.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+
+        result, orientation = da.fusi.affine.apply(shift)
+
+        np.testing.assert_allclose(
+            result.attrs["voxel_to_physical"], shift @ da.attrs["voxel_to_physical"]
+        )
+        np.testing.assert_allclose(orientation, np.eye(3))
+        np.testing.assert_allclose(
+            result.attrs["affines"]["physical_to_lab"], np.linalg.inv(shift)
+        )
+        np.testing.assert_allclose(
+            result.coords["y"].values, da.coords["y"].values + 3.0
+        )
+        np.testing.assert_allclose(
+            result.coords["x"].values, da.coords["x"].values - 4.0
+        )
 
     def test_unexpected_affine_shape_is_passed_through(self):
         """Unexpected stored affine shapes are kept unchanged."""
@@ -644,8 +761,6 @@ class TestAffineApplyMethod:
         """A rotation absorbs zoom/translation into coords and returns the
         residual orientation, mapping new physical coords to the affine's world."""
         da = self._make_scan(shape=(3, 4, 5), spacing=(1.0, 1.0, 1.0))
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
-        # 90 deg rotation in the z-y plane, zoom [2, 3, 4], translation [1, 2, 3].
         affine = np.array(
             [
                 [0.0, -3.0, 0.0, 1.0],
@@ -655,17 +770,18 @@ class TestAffineApplyMethod:
             ]
         )
         result, orientation = da.fusi.affine.apply(affine)
-        _assert_affine_round_trip(result, orientation, affine, old)
+        np.testing.assert_allclose(result.attrs["voxel_to_physical"], affine)
+        np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_shear_returns_round_trip_orientation(self):
         """A shear is axis-mixing (identity rotation, nonzero off-diagonal) and
         returns a residual orientation that round-trips."""
         da = self._make_scan(shape=(3, 4, 5), spacing=(1.0, 1.0, 1.0))
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
         shear = np.eye(4)
-        shear[0, 1] = 0.5  # z depends on y: off-diagonal, axis-mixing.
+        shear[0, 1] = 0.5
         result, orientation = da.fusi.affine.apply(shear)
-        _assert_affine_round_trip(result, orientation, shear, old)
+        np.testing.assert_allclose(result.attrs["voxel_to_physical"], shear)
+        np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_axis_permutation_does_not_introduce_spurious_coord_flip(self):
         """A mixing affine absorbs unsigned zoom only, leaving reflections in orientation."""
@@ -674,7 +790,6 @@ class TestAffineApplyMethod:
             spacing=(1.0, 1.0, 1.0),
             origin=(10.0, 20.0, 30.0),
         )
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
         affine = np.array(
             [
                 [0.0, 1.0, 0.0, 0.0],
@@ -685,10 +800,10 @@ class TestAffineApplyMethod:
         )
         result, orientation = da.fusi.affine.apply(affine)
 
-        np.testing.assert_allclose(result.coords["z"].values, da.coords["z"].values)
-        np.testing.assert_allclose(result.coords["y"].values, da.coords["y"].values)
-        np.testing.assert_allclose(result.coords["x"].values, da.coords["x"].values)
-        _assert_affine_round_trip(result, orientation, affine, old)
+        np.testing.assert_allclose(
+            result.attrs["voxel_to_physical"], affine @ da.attrs["voxel_to_physical"]
+        )
+        np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_mixing_affine_reexpresses_existing_stored_affine(self):
         """Existing stored affines stay valid after an axis-mixing affine."""
@@ -697,7 +812,6 @@ class TestAffineApplyMethod:
         da = self._make_scan(
             spacing=(1.0, 1.0, 1.0), affines={"physical_to_lab": stored}
         )
-        old = {d: da.coords[d].values.astype(float) for d in ("z", "y", "x")}
         affine = np.array(
             [
                 [0.0, -1.0, 0.0, 0.0],
@@ -707,7 +821,6 @@ class TestAffineApplyMethod:
             ]
         )
         result, _ = da.fusi.affine.apply(affine)
-        # lab position is frame-independent: M @ new_physical == stored @ old_physical.
-        _assert_affine_round_trip(
-            result, result.attrs["affines"]["physical_to_lab"], stored, old
+        np.testing.assert_allclose(
+            result.attrs["affines"]["physical_to_lab"], stored @ np.linalg.inv(affine)
         )

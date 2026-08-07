@@ -9,6 +9,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.iq.process import (
     compute_axial_velocity_volume,
     compute_bmode_volume,
@@ -569,14 +570,19 @@ class TestProcessIqToPowerDoppler:
 
     def test_wrong_dimensions_raises(self, rng):
         """DataArray with wrong dimensions raises ValueError."""
-        data = rng.random((10, 4, 6)) + 1j * rng.random((10, 4, 6))
-        iq = xr.DataArray(
-            data,
-            dims=("time", "z", "y"),  # Missing x dimension.
-            coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
+        base = xr.DataArray(
+            rng.random((10, 4, 6)) + 1j * rng.random((10, 4, 6)),
+            dims=("time", "j", "i"),
+            coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
+        )
+        iq = add_physical_coords_from_voxel_affine(
+            base,
+            np.diag([0.1, 0.05, 1.0]),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
+            physical_coord_attrs={
+                "y": {"units": "mm", "voxdim": 0.1},
+                "x": {"units": "mm", "voxdim": 0.05},
             },
         )
         with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
@@ -585,14 +591,25 @@ class TestProcessIqToPowerDoppler:
     def test_non_complex_data_raises(self, rng):
         """Non-complex data raises TypeError."""
         data = rng.random((10, 4, 6, 8))  # Real, not complex.
-        iq = xr.DataArray(
+        base = xr.DataArray(
             data,
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             coords={
                 "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-                "x": np.arange(8),
+                "k": np.arange(4),
+                "j": np.arange(6),
+                "i": np.arange(8),
+            },
+        )
+        iq = add_physical_coords_from_voxel_affine(
+            base,
+            np.diag([0.1, 0.05, 0.05, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": {"units": "mm", "voxdim": 0.1},
+                "y": {"units": "mm", "voxdim": 0.05},
+                "x": {"units": "mm", "voxdim": 0.05},
             },
         )
         with pytest.raises(TypeError, match="complex-valued"):
@@ -1079,8 +1096,11 @@ class TestDataArrayClutterMask:
         # Create DataArray mask with matching coordinates.
         mask_dataarray = xr.DataArray(
             spatial_mask,
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
+                "k": iq.coords["k"],
+                "j": iq.coords["j"],
+                "i": iq.coords["i"],
                 "z": iq.coords["z"],
                 "y": iq.coords["y"],
                 "x": iq.coords["x"],
@@ -1118,8 +1138,11 @@ class TestDataArrayClutterMask:
         # Create DataArray mask with matching coordinates.
         mask_dataarray = xr.DataArray(
             spatial_mask,
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
+                "k": iq.coords["k"],
+                "j": iq.coords["j"],
+                "i": iq.coords["i"],
                 "z": iq.coords["z"],
                 "y": iq.coords["y"],
                 "x": iq.coords["x"],
@@ -1159,9 +1182,12 @@ class TestDataArrayClutterMask:
         # Create mask with different coordinates.
         mask_dataarray = xr.DataArray(
             spatial_mask,
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
-                "z": iq.coords["z"] + 1.0,  # Shifted coordinates.
+                "k": iq.coords["k"] + 1,
+                "j": iq.coords["j"],
+                "i": iq.coords["i"],
+                "z": iq.coords["z"] + 1.0,
                 "y": iq.coords["y"],
                 "x": iq.coords["x"],
             },
@@ -1184,11 +1210,13 @@ class TestDataArrayClutterMask:
         """DataArray mask missing a coordinate raises ValueError."""
         iq = sample_iq_dataarray
 
-        # Create mask missing 'z' coordinate.
+        # Create mask missing 'k' coordinate.
         mask_dataarray = xr.DataArray(
             spatial_mask,
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
+                "j": iq.coords["j"],
+                "i": iq.coords["i"],
                 "y": iq.coords["y"],
                 "x": iq.coords["x"],
             },
@@ -1210,11 +1238,11 @@ class TestDataArrayClutterMask:
         wrong_mask = np.ones((2, 2, 2), dtype=bool)
         mask_dataarray = xr.DataArray(
             wrong_mask,
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             coords={
-                "z": np.arange(2),
-                "y": np.arange(2),
-                "x": np.arange(2),
+                "k": np.arange(2),
+                "j": np.arange(2),
+                "i": np.arange(2),
             },
         )
 
@@ -1260,14 +1288,19 @@ class TestProcessIqToBmode:
 
     def test_wrong_dimensions_raises(self, rng):
         """DataArray with wrong dimensions raises ValueError."""
-        data = rng.random((10, 4, 6)) + 1j * rng.random((10, 4, 6))
-        iq = xr.DataArray(
-            data,
-            dims=("time", "z", "y"),  # Missing x dimension.
-            coords={
-                "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
+        base = xr.DataArray(
+            rng.random((10, 4, 6)) + 1j * rng.random((10, 4, 6)),
+            dims=("time", "j", "i"),
+            coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
+        )
+        iq = add_physical_coords_from_voxel_affine(
+            base,
+            np.diag([0.1, 0.05, 1.0]),
+            voxel_dims=("j", "i"),
+            physical_coord_names=("y", "x"),
+            physical_coord_attrs={
+                "y": {"units": "mm", "voxdim": 0.1},
+                "x": {"units": "mm", "voxdim": 0.05},
             },
         )
         with pytest.raises(ValueError, match="must have at least 3 spatial dimensions"):
@@ -1276,14 +1309,25 @@ class TestProcessIqToBmode:
     def test_non_complex_data_raises(self, rng):
         """Non-complex data raises TypeError."""
         data = rng.random((10, 4, 6, 8))  # Real, not complex.
-        iq = xr.DataArray(
+        base = xr.DataArray(
             data,
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             coords={
                 "time": np.arange(10),
-                "z": np.arange(4),
-                "y": np.arange(6),
-                "x": np.arange(8),
+                "k": np.arange(4),
+                "j": np.arange(6),
+                "i": np.arange(8),
+            },
+        )
+        iq = add_physical_coords_from_voxel_affine(
+            base,
+            np.diag([0.1, 0.05, 0.05, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": {"units": "mm", "voxdim": 0.1},
+                "y": {"units": "mm", "voxdim": 0.05},
+                "x": {"units": "mm", "voxdim": 0.05},
             },
         )
         with pytest.raises(TypeError, match="complex-valued"):

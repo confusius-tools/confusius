@@ -50,7 +50,7 @@ the same coordinate system. When you open a Zarr archive, you get a Dataset:
 ```pycon
 >>> import xarray as xr
 >>> import confusius
->>> 
+>>>
 >>> ds = xr.open_zarr("power_doppler.zarr")
 >>> ds
 <xarray.Dataset> Size: 76MB

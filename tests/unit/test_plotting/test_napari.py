@@ -5,7 +5,40 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
+
+
+def _make_voxel_affine_volume() -> xr.DataArray:
+    """Create a small oblique CTI volume for napari display tests."""
+    data = xr.DataArray(
+        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+        dims=["k", "j", "i"],
+        coords={
+            "k": [0.0, 1.0],
+            "j": [0.0, 1.0, 2.0],
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    voxel_to_physical = np.array(
+        [
+            [0.4, 0.0, 0.1, 10.0],
+            [0.1, 0.3, 0.0, 20.0],
+            [0.0, 0.05, 0.25, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    return add_physical_coords_from_voxel_affine(
+        data,
+        voxel_to_physical,
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
 
 
 class TestPlotNapari:
@@ -25,7 +58,7 @@ class TestPlotNapari:
         self, sample_3d_volume, make_napari_viewer
     ):
         """A spatial axis of length 3 is not auto-interpreted as RGB channels."""
-        data = sample_3d_volume.isel(x=slice(0, 3))
+        data = sample_3d_volume.isel(i=slice(0, 3))
         viewer = make_napari_viewer()
         _, layer = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
@@ -49,6 +82,52 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
+    def test_voxel_affine_resamples_to_physical_grid(self, make_napari_viewer):
+        """Oblique CTI volumes are displayed on an axis-aligned physical grid in napari."""
+        data = _make_voxel_affine_volume()
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            data, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+
+        assert layer.metadata["xarray"].dims == ("z", "y", "x")
+        assert layer.metadata["source_xarray"] is data
+        assert tuple(layer.axis_labels) == ("z", "y", "x")
+        npt.assert_allclose(layer.translate, [10.0, 20.0, 30.0], rtol=1e-5)
+        viewer.close()
+
+    def test_axis_aligned_voxel_affine_uses_native_display_by_default(
+        self, make_napari_viewer
+    ):
+        """Axis-aligned data keeps native k/j/i display by default in napari."""
+        data = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["k", "j", "i"],
+            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+        )
+        data = add_physical_coords_from_voxel_affine(
+            data,
+            np.diag([0.4, 0.3, 0.25, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            physical_coord_names=("z", "y", "x"),
+            physical_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
+        viewer = make_napari_viewer()
+        _, layer = plot_napari(
+            data, viewer=viewer, show_colorbar=False, show_scale_bar=False
+        )
+
+        assert layer.metadata["xarray"] is data
+        assert layer.metadata["source_xarray"] is data
+        assert tuple(layer.axis_labels) == ("k", "j", "i")
+        npt.assert_allclose(layer.scale, [0.4, 0.3, 0.25], rtol=1e-5)
+        npt.assert_allclose(layer.translate, [0.0, 0.0, 0.0], rtol=1e-5)
+        viewer.close()
+
     def test_scale_falls_back_to_1_when_no_coords(self, make_napari_viewer):
         """Dims without coordinates use scale=1.0 and translate=0.0."""
         da = xr.DataArray(np.zeros((4, 6, 8), dtype=np.float32), dims=["z", "y", "x"])
@@ -69,11 +148,11 @@ class TestPlotNapari:
         plot_napari(
             sample_3dt_volume,
             viewer=viewer,
-            dim_order=("y", "z", "x"),
+            dim_order=("j", "k", "i"),
             show_colorbar=False,
             show_scale_bar=False,
         )
-        # all_dims = (time, z, y, x); requested = (y, z, x) → indices (2, 1, 3),
+        # all_dims = (time, k, j, i); requested = (j, k, i) → indices (2, 1, 3),
         # prepended with the time-dim index (0).
         assert tuple(viewer.dims.order) == (0, 2, 1, 3)
         viewer.close()
@@ -85,7 +164,7 @@ class TestPlotNapari:
             plot_napari(
                 sample_3dt_volume,
                 viewer=viewer,
-                dim_order=("z", "y", "foo"),
+                dim_order=("k", "j", "foo"),
                 show_colorbar=False,
                 show_scale_bar=False,
             )
@@ -120,7 +199,15 @@ class TestPlotNapari:
     def test_non_uniform_spatial_coords_warn(
         self, sample_3d_volume, make_napari_viewer
     ):
-        data = sample_3d_volume.assign_coords(y=[2.0, 2.1, 2.4, 2.6, 2.7, 2.9])
+        data = xr.DataArray(
+            sample_3d_volume.values,
+            dims=("z", "y", "x"),
+            coords={
+                "z": sample_3d_volume.coords["z"].values,
+                "y": [2.0, 2.1, 2.4, 2.6, 2.7, 2.9],
+                "x": sample_3d_volume.coords["x"].values,
+            },
+        )
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning, match="non-uniform spacing"):
             _, _ = plot_napari(
@@ -191,7 +278,7 @@ class TestPlotNapari:
         self, sample_3d_volume, make_napari_viewer
     ):
         """plot_napari sorts non-monotonic spatial coordinates before display."""
-        data = sample_3d_volume.copy().isel(y=[2, 0, 1], x=[3, 1, 2, 0])
+        data = sample_3d_volume.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
 
         viewer = make_napari_viewer()
         _, layer = plot_napari(
@@ -308,7 +395,7 @@ class TestLabelsFromLayer:
             show_scale_bar=False,
         )
         result = labels_from_layer(labels_layer, sample_3d_volume)
-        assert result.dims == ("mask", "z", "y", "x")
+        assert result.dims == ("mask", "k", "j", "i")
         assert result.sizes["mask"] == 0
         viewer.close()
 
@@ -368,7 +455,7 @@ class TestLabelsFromLayer:
 
         result = labels_from_layer(labels_layer, sample_3dt_volume)
 
-        assert result.dims == ("mask", "z", "y", "x")
+        assert result.dims == ("mask", "k", "j", "i")
         viewer.close()
 
     def test_attrs_round_trip_label_metadata(

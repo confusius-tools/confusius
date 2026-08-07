@@ -31,7 +31,7 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
-from confusius._dims import SPATIAL_DIMS_WITH_POSE, TIME_DIM
+from confusius._dims import POSE_DIM, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
 from confusius._napari._registration._metric_plotter import (
     RegistrationMetricPlotter,
 )
@@ -1424,7 +1424,9 @@ class RegistrationPanel(QWidget):
             self._set_error(str(exc))
             return
 
-        dims = tuple(str(d) for d in source.dims if d in SPATIAL_DIMS_WITH_POSE)
+        dims = tuple(
+            str(d) for d in source.dims if d in (POSE_DIM, *VOXEL_DIMS, *SPATIAL_DIMS)
+        )
         if not dims:
             self._set_error(f"Layer {layer.name!r} has no spatial dimensions.")
             return

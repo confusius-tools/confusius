@@ -226,15 +226,19 @@ def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_3dt_v
     mask_data = np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
     mask_data[1, 1, :, :] = 2
+    spatial_dims = sample_3dt_volume.dims[1:]
     labels = xr.DataArray(
         mask_data,
-        dims=["mask", "z", "y", "x"],
+        dims=("mask", *spatial_dims),
         coords={
             "mask": ["VISp", "AUDp"],
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
+            **{
+                name: coord
+                for name, coord in sample_3dt_volume.coords.items()
+                if set(coord.dims).issubset(spatial_dims)
+            },
         },
+        attrs={"voxel_to_physical": sample_3dt_volume.attrs["voxel_to_physical"]},
     )
     signals = extract_with_labels(sample_3dt_volume, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
@@ -322,9 +326,9 @@ def test_censor_4d_data(sample_3dt_volume):
 
     # Shape correct.
     assert result.sizes["time"] == np.sum(mask_values)
-    assert result.sizes["z"] == sample_3dt_volume.sizes["z"]
-    assert result.sizes["y"] == sample_3dt_volume.sizes["y"]
-    assert result.sizes["x"] == sample_3dt_volume.sizes["x"]
+    assert result.sizes["k"] == sample_3dt_volume.sizes["k"]
+    assert result.sizes["j"] == sample_3dt_volume.sizes["j"]
+    assert result.sizes["i"] == sample_3dt_volume.sizes["i"]
 
     # Data correct.
     expected_data = sample_3dt_volume.values[mask_values, ...]
@@ -336,15 +340,19 @@ def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_3dt_volume
     mask_data = np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int)
     mask_data[0, 0, :, :] = 1
     mask_data[1, 1, :, :] = 2
+    spatial_dims = sample_3dt_volume.dims[1:]
     labels = xr.DataArray(
         mask_data,
-        dims=["mask", "z", "y", "x"],
+        dims=("mask", *spatial_dims),
         coords={
             "mask": ["VISp", "AUDp"],
-            "z": sample_3dt_volume.coords["z"],
-            "y": sample_3dt_volume.coords["y"],
-            "x": sample_3dt_volume.coords["x"],
+            **{
+                name: coord
+                for name, coord in sample_3dt_volume.coords.items()
+                if set(coord.dims).issubset(spatial_dims)
+            },
         },
+        attrs={"voxel_to_physical": sample_3dt_volume.attrs["voxel_to_physical"]},
     )
     signals = extract_with_labels(sample_3dt_volume, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)

@@ -48,12 +48,12 @@ class TestConsolidatePoses:
         ] == pytest.approx(0.3)
 
     def test_4dscan_slice_time_values(self, scan_4d: xr.DataArray) -> None:
-        """4Dscan consolidation keeps absolute per-slice timestamps on (time, z)."""
+        """4Dscan consolidation keeps absolute per-slice timestamps on (time, k)."""
         result = consolidate_poses(scan_4d)
-        assert result.dims == ("time", "z", "y", "x")
+        assert result.dims == ("time", "k", "j", "i")
         assert "pose" not in result.dims
         assert "slice_time" in result.coords
-        assert result.coords["slice_time"].dims == ("time", "z")
+        assert result.coords["slice_time"].dims == ("time", "k")
         assert result.coords["slice_time"].shape == (_T, _NPOSE * _SIZE_Y)
         assert result.coords["slice_time"].attrs.get("units") == "s"
         orig_pt = scan_4d.coords["pose_time"].values  # (T, npose)
@@ -204,9 +204,11 @@ class TestConsolidatePoses:
         diagonal axis, so a ValueError follows the warning. Both are expected here.
         """
         da = load_scan(scan_3d_2d_sweep_path)
-        with pytest.warns(UserWarning, match="not purely 1D"):
-            with pytest.raises(ValueError):
-                consolidate_poses(da)
+        with (
+            pytest.warns(UserWarning, match="not purely 1D"),
+            pytest.raises(ValueError),
+        ):
+            consolidate_poses(da)
 
     def test_varying_rotation_raises(self, scan_3d_varying_rotation_path: Path) -> None:
         """consolidate_poses raises ValueError when rotation varies across poses."""
@@ -233,12 +235,12 @@ class TestConsolidatePoses:
         result_custom = consolidate_poses(da_custom, affines_key="my_affine")
         np.testing.assert_array_equal(result_default.values, result_custom.values)
         np.testing.assert_array_equal(
-            result_default.coords["z"].values, result_custom.coords["z"].values
+            result_default.coords["k"].values, result_custom.coords["k"].values
         )
 
     @pytest.mark.parametrize(
         ("sweep_dim", "sweep_unit"),
-        [("z", "um"), ("y", "mm"), ("x", "m")],
+        [("k", "um"), ("j", "mm"), ("i", "m")],
     )
     def test_consolidates_all_sweep_dims(self, sweep_dim: str, sweep_unit: str) -> None:
         """consolidate_poses correctly merges poses for any spatial sweep dimension.
@@ -252,17 +254,17 @@ class TestConsolidatePoses:
           ``(pose, sweep_dim)`` combination.
         """
         npose = 3
-        sizes = {"z": 2, "y": 4, "x": 3}
+        sizes = {"k": 2, "j": 4, "i": 3}
         intra_step = 0.2  # mm voxel pitch
         voxel_size = 0.15
 
-        _SWEEP_DIM_TO_COL = {"z": 0, "y": 1, "x": 2}
+        _SWEEP_DIM_TO_COL = {"k": 0, "j": 1, "i": 2}
         sweep_col = _SWEEP_DIM_TO_COL[sweep_dim]
         n_sweep = sizes[sweep_dim]
         inter_step = n_sweep * intra_step  # poses tile without gaps
 
         rng = np.random.default_rng(7)
-        data = rng.random((npose, sizes["z"], sizes["y"], sizes["x"]))
+        data = rng.random((npose, sizes["k"], sizes["j"], sizes["i"]))
 
         affines = np.stack([np.eye(4) for _ in range(npose)])
         for i in range(npose):
@@ -279,19 +281,19 @@ class TestConsolidatePoses:
                         "voxdim": voxel_size,
                     },
                 )
-                for d in ("z", "y", "x")
+                for d in ("k", "j", "i")
             },
         }
         da = xr.DataArray(
             data,
-            dims=["pose", "z", "y", "x"],
+            dims=["pose", "k", "j", "i"],
             coords=coords,
             attrs={"affines": {"physical_to_lab": affines}},
         )
 
         result = consolidate_poses(da, sweep_dim=sweep_dim)
 
-        other_dims = [d for d in ["z", "y", "x"] if d != sweep_dim]
+        other_dims = [d for d in ["k", "j", "i"] if d != sweep_dim]
         assert result.dims == tuple([sweep_dim] + other_dims)
         assert "pose" not in result.dims
         assert result.sizes[sweep_dim] == npose * n_sweep
@@ -308,7 +310,7 @@ class TestConsolidatePoses:
             for si in range(n_sweep):
                 flat_idx = p * n_sweep + si
                 # Expected slice: fix pose and sweep dim, free other dims.
-                dim_order = ["z", "y", "x"]
+                dim_order = ["k", "j", "i"]
                 idx_dict: dict[str, int | slice] = {d: slice(None) for d in dim_order}
                 idx_dict[sweep_dim] = si
                 idx_tuple = (p,) + tuple(idx_dict[d] for d in dim_order)

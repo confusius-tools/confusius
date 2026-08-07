@@ -397,9 +397,14 @@ def to_spatial_dataarray(
         volume = flat.reshape(spatial_shape)
         dims = spatial_dims
 
+    spatial_dim_set = set(spatial_dims)
     return xr.DataArray(
         volume,
         dims=dims,
-        coords={d: coords[d] for d in spatial_dims if d in coords},
+        coords={
+            name: coord
+            for name, coord in coords.items()
+            if set(coord.dims).issubset(spatial_dim_set)
+        },
         attrs={**attrs, "long_name": name, "cmap": "coolwarm"},
     )
