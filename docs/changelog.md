@@ -6,15 +6,19 @@ icon: lucide/history
 
 # Changelog
 
-## 0.7.0.dev0
+## 0.6.1
 
-Current development version for the next ConfUSIus release.
+Released 2026-08-07.
 
 ### :sparkles: Enhancements
 
 - `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
   defaults `meta_path` to the sibling `ScanParameters.mat` file
   ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+- New `confusius.decoding` module with [`SearchLight`][confusius.decoding.SearchLight],
+  which maps how well a cross-validated scikit-learn estimator predicts a target from
+  the local neighborhood of each voxel
+  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 
 ### :bug: Fixes
 
@@ -67,11 +71,6 @@ Released 2026-07-18.
 
 ### :sparkles: Enhancements
 
-- New `confusius.decoding` module with
-  [`SearchLight`][confusius.decoding.SearchLight], which maps how well a
-  cross-validated scikit-learn estimator predicts a target from the local
-  neighborhood of each voxel
-  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
