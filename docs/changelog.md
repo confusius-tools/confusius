@@ -25,10 +25,7 @@ Current development version for the next ConfUSIus release.
   [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] to add singleton
   axes and coordinate metadata from raw 2D or 2D+t arrays
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
-- `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
-  defaults `meta_path` to the sibling `ScanParameters.mat` file
-  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
-
+  
 ### :sparkles: Enhancements
 
 - Added [`ensure_iq`][confusius.validation.ensure_iq] to canonicalize and validate IQ
@@ -42,6 +39,20 @@ Current development version for the next ConfUSIus release.
   canonical complex IQ DataArrays with explicit `transmit_frequency` and
   `beamforming_sound_velocity` arguments
   ([#322](https://github.com/confusius-tools/confusius/pull/322)).
+
+## 0.6.1
+
+Released 2026-08-07.
+
+### :sparkles: Enhancements
+
+- `load_echoframe_dat` now returns a ConfUSIus-ordered `(time, z, y, x)` DataArray and
+  defaults `meta_path` to the sibling `ScanParameters.mat` file
+  ([#343](https://github.com/confusius-tools/confusius/pull/343)).
+- New `confusius.decoding` module with [`SearchLight`][confusius.decoding.SearchLight],
+  which maps how well a cross-validated scikit-learn estimator predicts a target from
+  the local neighborhood of each voxel
+  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 
 ### :bug: Fixes
 
@@ -94,11 +105,6 @@ Released 2026-07-18.
 
 ### :sparkles: Enhancements
 
-- New `confusius.decoding` module with
-  [`SearchLight`][confusius.decoding.SearchLight], which maps how well a
-  cross-validated scikit-learn estimator predicts a target from the local
-  neighborhood of each voxel
-  ([#334](https://github.com/confusius-tools/confusius/pull/334)).
 - Atlases are now serializable: save and reload a complete atlas, including its structure
   hierarchy and region meshes, with [`save_atlas`][confusius.io.save_atlas] /
   [`load_atlas`][confusius.io.load_atlas]. The region `.obj` meshes are bundled into the
