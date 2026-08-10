@@ -72,9 +72,9 @@ def sample_iq_dataarray(rng):
                     "volume_acquisition_reference": "start",
                 },
             ),
-            "z": np.arange(4) * 0.1,
-            "y": np.arange(6) * 0.05,
-            "x": np.arange(8) * 0.05,
+            "z": xr.DataArray(np.arange(4) * 0.1, dims=("z",), attrs={"units": "mm"}),
+            "y": xr.DataArray(np.arange(6) * 0.05, dims=("y",), attrs={"units": "mm"}),
+            "x": xr.DataArray(np.arange(8) * 0.05, dims=("x",), attrs={"units": "mm"}),
         },
         attrs={
             "compound_sampling_frequency": 10.0,

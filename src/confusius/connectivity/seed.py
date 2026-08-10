@@ -12,7 +12,12 @@ from sklearn.base import BaseEstimator
 from confusius.extract import extract_with_mask, unmask
 from confusius.extract.labels import extract_with_labels
 from confusius.signal import clean
-from confusius.validation import validate_labels, validate_mask, validate_time_series
+from confusius.validation import (
+    ensure_fusi,
+    validate_labels,
+    validate_mask,
+    validate_time_series,
+)
 from confusius.validation.coordinates import validate_matching_coordinates
 
 
@@ -159,17 +164,18 @@ class SeedBasedMaps(BaseEstimator):
     >>>
     >>> rng = np.random.default_rng(0)
     >>> data = xr.DataArray(
-    ...     rng.standard_normal((200, 10, 20)),
-    ...     dims=["time", "y", "x"],
-    ...     coords={"time": np.arange(200) * 0.1},
+    ...     rng.standard_normal((200, 1, 10, 20)),
+    ...     dims=["time", "z", "y", "x"],
+    ...     coords={"time": np.arange(200) * 0.1, "z": [0.0]},
     ... )
     >>>
     >>> labels = xr.DataArray(
-    ...     np.zeros((10, 20), dtype=int),
-    ...     dims=["y", "x"],
+    ...     np.zeros((1, 10, 20), dtype=int),
+    ...     dims=["z", "y", "x"],
+    ...     coords={"z": [0.0]},
     ... )
-    >>> labels[:3, :] = 1   # Region 1: first 3 y-slices.
-    >>> labels[3:6, :] = 2  # Region 2: next 3 y-slices.
+    >>> labels[:, :3, :] = 1   # Region 1: first 3 y-slices.
+    >>> labels[:, 3:6, :] = 2  # Region 2: next 3 y-slices.
     >>>
     >>> mapper = SeedBasedMaps(seed_masks=labels)
     >>> mapper.fit(data)
@@ -181,15 +187,16 @@ class SeedBasedMaps(BaseEstimator):
     >>>
     >>> # Single seed from a boolean mask converted to integer.
     >>> mask = xr.DataArray(
-    ...     np.zeros((10, 20), dtype=bool),
-    ...     dims=["y", "x"],
+    ...     np.zeros((1, 10, 20), dtype=bool),
+    ...     dims=["z", "y", "x"],
+    ...     coords={"z": [0.0]},
     ... )
-    >>> mask[:3, :] = True
+    >>> mask[:, :3, :] = True
     >>> mapper_single = SeedBasedMaps(seed_masks=mask.astype(int))
     >>> mapper_single.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper_single.maps_.dims  # region dim is squeezed for a single seed
-    ('y', 'x')
+    ('z', 'y', 'x')
 
     Signal-based usage: provide seed signals directly.
 
@@ -202,7 +209,7 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper_sig.fit(data)
     SeedBasedMaps(seed_signals=...)
     >>> mapper_sig.maps_.dims  # single signal, region dim squeezed
-    ('y', 'x')
+    ('z', 'y', 'x')
     """
 
     def __init__(
@@ -266,14 +273,10 @@ class SeedBasedMaps(BaseEstimator):
                 "but both were given."
             )
 
-        # Validate time dimension *before* cleaning so the error message points to the
-        # right cause. check_time_chunks=False here because we re-validate inside
-        # signal.clean if needed.
-        validate_time_series(
-            X, operation_name="SeedBasedMaps.fit", check_time_chunks=False
-        )
+        X = ensure_fusi(X, require_time=True)
 
         if self.seed_masks is not None:
+            self.seed_masks = ensure_fusi(self.seed_masks, allow_pose=False)
             validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
@@ -282,6 +285,7 @@ class SeedBasedMaps(BaseEstimator):
             _validate_seed_signals(self.seed_signals, X)
 
         if self.mask is not None:
+            self.mask = ensure_fusi(self.mask, allow_pose=False, allow_extra_dims=False)
             validate_mask(self.mask, X, "mask")
 
         if self.mask is not None:

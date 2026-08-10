@@ -20,7 +20,7 @@ import xarray as xr
 
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
-from confusius.registration.bspline import validate_bspline_dataarray
+from confusius.registration.bspline import validate_bspline
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -240,7 +240,7 @@ def _serialize_bspline_dataarray(transform: xr.DataArray) -> BSplineDataArrayPay
     BSplineDataArrayPayload
         JSON-serializable B-spline DataArray payload.
     """
-    validate_bspline_dataarray(transform)
+    validate_bspline(transform)
     return {
         "dims": [str(dim) for dim in transform.dims],
         "data": np.asarray(transform, dtype=float).tolist(),
@@ -288,7 +288,7 @@ def _deserialize_bspline_dataarray(payload: BSplineDataArrayPayload) -> xr.DataA
         coords=coords,
         attrs=dict(payload["attrs"]),
     )
-    validate_bspline_dataarray(transform)
+    validate_bspline(transform)
     return transform
 
 
@@ -627,7 +627,7 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
                 payload_metadata["input_grid"] = transform.attrs["input_grid"]
 
     transform = _normalize_loaded_bspline_transform(transform)
-    validate_bspline_dataarray(transform)
+    validate_bspline(transform)
     payload: BSplineTransformPayload = {
         "kind": "bspline",
         "bspline": _serialize_bspline_dataarray(transform),

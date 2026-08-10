@@ -646,15 +646,11 @@ def sample_3dt_volume(rng):
     return da
 
 
-@pytest.fixture
-def sample_2dt_volume(sample_3dt_volume):
-    """2D+t volume (time, y, x) with consistent coordinates.
 
-    Shape: (10, 6, 8) - small enough for fast tests. Spatial coordinates match
-    sample_3dt_volume without the z-dimension. Includes name and metadata attributes for
-    testing labels and units.
-    """
-    return sample_3dt_volume.drop_vars("z")
+@pytest.fixture
+def sample_3dt_volume_with_scalar_z(sample_3dt_volume):
+    """Scalar-indexed fUSI slice whose `z` dimension can be restored at a boundary."""
+    return sample_3dt_volume.isel(z=0)
 
 
 @pytest.fixture

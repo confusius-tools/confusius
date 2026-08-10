@@ -30,15 +30,6 @@ class TestFirstLevelModelFit:
         # Auto-built design must match the user-supplied one column-for-column.
         pd.testing.assert_frame_equal(model.design_matrices_[0], dm)
 
-    def test_fit_2d_spatial(self, fusi_data_2d, events):
-        """Fitting a `(time, y, x)` array yields a contrast map with the same
-        spatial dims and shape."""
-        model = FirstLevelModel(noise_model="ols")
-        model.fit(fusi_data_2d, events=events)
-        z_map = model.compute_contrast("A - B")
-        assert z_map.dims == ("y", "x")
-        assert z_map.shape == (5, 6)
-
     def test_minimize_memory_strips_diagnostic_fields(self, fusi_data, events):
         """minimize_memory=True drops Y/whitened_Y/whitened_residuals/model post-fit.
 
@@ -262,12 +253,22 @@ class TestFirstLevelModelContrastMultiRun:
         data1 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         data2 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         single = FirstLevelModel(noise_model="ols")
         single.fit(data1, events=events)
@@ -288,12 +289,22 @@ class TestFirstLevelModelContrastMultiRun:
         data1 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         data2 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         conf1 = pd.DataFrame({"motion": rng.standard_normal(200)})
         conf2 = pd.DataFrame({"motion": rng.standard_normal(200)})
@@ -480,12 +491,22 @@ class TestFirstLevelModelErrors:
         data1 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         data2 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="design-matrix columns"):
@@ -497,28 +518,44 @@ class TestFirstLevelModelErrors:
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
             coords={
-                "time": frame_times,
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         data2 = data1.drop_vars("z")
         model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(ValueError, match=r"Coordinate 'z' is missing from run 1"):
+        with pytest.raises(
+            ValueError, match="Missing required coordinate for dimension 'z'"
+        ):
             model.fit([data1, data2], events=[events, events])
 
     def test_spatial_shape_mismatch_raises(self, rng, frame_times, events):
         """Multi-run fit raises if runs have different spatial shapes."""
         data1 = xr.DataArray(
-            rng.standard_normal((200, 2, 3)),
-            dims=["time", "z", "x"],
-            coords={"time": frame_times},
+            rng.standard_normal((200, 2, 1, 3)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(
+                    [0.0], dims="y", attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "x": xr.DataArray(np.arange(3) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         data2 = xr.DataArray(
-            rng.standard_normal((200, 4, 3)),
-            dims=["time", "z", "x"],
-            coords={"time": frame_times},
+            rng.standard_normal((200, 2, 1, 4)),
+            dims=["time", "z", "y", "x"],
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(
+                    [0.0], dims="y", attrs={"units": "mm", "voxdim": 0.1}
+                ),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="spatial dimensions"):
@@ -535,7 +572,12 @@ class TestFirstLevelModelErrors:
         data1 = xr.DataArray(
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            coords={
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
+            },
         )
         data2 = data1.transpose("time", "y", "z", "x")
         model = FirstLevelModel(noise_model="ols")
@@ -548,13 +590,15 @@ class TestFirstLevelModelErrors:
             rng.standard_normal((200, 2, 3, 4)),
             dims=["time", "z", "y", "x"],
             coords={
-                "time": frame_times,
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
-        data2 = data1.assign_coords(z=np.arange(2) * 0.5 + 10.0)
+        data2 = data1.assign_coords(
+            z=xr.DataArray(np.arange(2) * 0.5 + 10.0, dims="z", attrs={"units": "mm"})
+        )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(
             ValueError,
@@ -575,16 +619,16 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="noise_model"):
             model.fit(fusi_data, events=events)
 
-    def test_mask_must_cover_all_non_time_dims(self, frame_times, events):
-        """Mask must span all non-time dims in GLM voxel order."""
+    def test_mask_must_be_a_fusi_grid(self, frame_times, events):
+        """Masks must retain every fUSI spatial dimension."""
         data = xr.DataArray(
             np.zeros((len(frame_times), 2, 3, 4)),
             dims=["time", "z", "y", "x"],
             coords={
-                "time": frame_times,
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
+                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
+                "z": xr.DataArray(np.arange(2) * 0.5, dims="z", attrs={"units": "mm"}),
+                "y": xr.DataArray(np.arange(3) * 0.1, dims="y", attrs={"units": "mm"}),
+                "x": xr.DataArray(np.arange(4) * 0.1, dims="x", attrs={"units": "mm"}),
             },
         )
         mask = xr.DataArray(
@@ -593,7 +637,7 @@ class TestFirstLevelModelErrors:
             coords={"y": data.coords["y"], "x": data.coords["x"]},
         )
         model = FirstLevelModel(noise_model="ols", mask=mask)
-        with pytest.raises(ValueError, match="match all non-time dimensions"):
+        with pytest.raises(ValueError, match="missing spatial dimension 'z'"):
             model.fit(data, events=events)
 
     def test_2d_contrast_too_wide_raises(self, fusi_data, events):

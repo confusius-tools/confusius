@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, TypeGuard
 import numpy as np
 import xarray as xr
 
+from confusius._utils.coordinates import get_grid_info_from_dataarray
+
 if TYPE_CHECKING:
     from threading import Event
 
@@ -154,8 +156,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     ----------
     da : xarray.DataArray
         2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
-        Spacing and origin are derived from its coordinates; missing coordinates warn
-        and fall back to spacing `1.0` and origin `0.0`.
+        Spacing and origin are derived from its coordinates. Spatial spacing must be
+        defined by regular coordinates or `voxdim` metadata on singleton coordinates.
 
     Returns
     -------
@@ -166,14 +168,16 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """
     import SimpleITK as sitk
 
-    spacing_dict = da.fusi.spacing
-    origin_dict = da.fusi.origin
-
     has_time = "time" in da.dims
-    spacing = tuple(
-        s if s is not None else 1.0 for d, s in spacing_dict.items() if str(d) != "time"
+    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
+    grid = get_grid_info_from_dataarray(
+        da,
+        spatial_dims,
+        error_prefix=(
+            "Cannot convert DataArray to a SimpleITK image because spatial spacing "
+            "is undefined"
+        ),
     )
-    origin = tuple(o for d, o in origin_dict.items() if str(d) != "time")
 
     if has_time:
         data = da.values
@@ -185,8 +189,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     else:
         image = sitk.GetImageFromArray(da.values.T)
 
-    image.SetSpacing(spacing)
-    image.SetOrigin(origin)
+    image.SetSpacing(grid["spacing"])
+    image.SetOrigin(grid["origin"])
     return image
 
 

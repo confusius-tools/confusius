@@ -320,7 +320,9 @@ class TestReaderLayerData:
     def test_non_uniform_spacing_warns(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Non-uniform coords warn and still use the best-effort median spacing."""
         warnings_seen: list[str] = []
-        monkeypatch.setattr("confusius._utils.napari.show_warning", warnings_seen.append)
+        monkeypatch.setattr(
+            "confusius._utils.napari.show_warning", warnings_seen.append
+        )
 
         da = xr.DataArray(
             np.zeros((3, 2), dtype=np.float32),

@@ -327,5 +327,3 @@ class TestAUTCDATsLoader:
 
         with pytest.raises(TypeError):
             loader[[0, 1, 2]]  # type: ignore
-
-

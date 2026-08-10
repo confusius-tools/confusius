@@ -140,14 +140,20 @@ class TestARModel:
 
         # Whitened residuals should have lower lag-1 autocorrelation than raw residuals.
         raw_ac = np.mean(
-            [np.corrcoef(results.residuals[:-1, v], results.residuals[1:, v])[0, 1]
-             for v in range(n_voxels)]
+            [
+                np.corrcoef(results.residuals[:-1, v], results.residuals[1:, v])[0, 1]
+                for v in range(n_voxels)
+            ]
         )
         assert results.whitened_residuals is not None
         white_ac = np.mean(
-            [np.corrcoef(results.whitened_residuals[:-1, v],
-                         results.whitened_residuals[1:, v])[0, 1]
-             for v in range(n_voxels)]
+            [
+                np.corrcoef(
+                    results.whitened_residuals[:-1, v],
+                    results.whitened_residuals[1:, v],
+                )[0, 1]
+                for v in range(n_voxels)
+            ]
         )
         assert abs(white_ac) < abs(raw_ac)
 

@@ -132,7 +132,7 @@ def compute_dvars(
     from scipy import stats as sp_stats
 
     validate_time_series(
-        signals, operation_name="compute_dvars", check_time_chunks=False
+        signals, operation_name="compute_dvars", require_unchunked_time=False
     )
 
     time_coords = signals.coords["time"]
