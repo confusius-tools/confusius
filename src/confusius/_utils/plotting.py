@@ -16,12 +16,23 @@ def scale_min_max(arr: NDArray[np.floating]) -> NDArray[np.floating]:
     -------
     numpy.ndarray
         Float array with the same shape as `arr`, rescaled to `[0, 1]`. Returns an
-        all-zero array when `arr` is flat (`arr.min() == arr.max()`).
+        all-zero array when `arr` is flat (`arr.min() == arr.max()`). Non-finite values
+        (e.g. `-inf` from [`db_scale`][confusius.xarray.scale.db_scale] on zero-valued
+        voxels) are excluded when computing the scaling bounds and clipped to `0`/`1`
+        in the output, instead of propagating as `nan`.
+
+    Raises
+    ------
+    ValueError
+        If `arr` contains no finite values.
     """
-    lo, hi = arr.min(), arr.max()
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        raise ValueError("Cannot scale an array with no finite values.")
+    lo, hi = finite.min(), finite.max()
     if hi == lo:
         return np.zeros_like(arr, dtype=float)
-    return (arr - lo) / (hi - lo)
+    return np.clip((arr - lo) / (hi - lo), 0.0, 1.0)
 
 
 def blend_red_cyan(

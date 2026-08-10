@@ -1303,14 +1303,20 @@ class VolumePlotter:
         elif normalize_strategy == "shared":
             arr1 = data1.values.astype(float)
             arr2 = data2.values.astype(float)
-            lo = float(min(arr1.min(), arr2.min()))
-            hi = float(max(arr1.max(), arr2.max()))
+            finite = np.concatenate([arr1[np.isfinite(arr1)], arr2[np.isfinite(arr2)]])
+            if finite.size == 0:
+                raise ValueError(
+                    "Cannot normalize data1/data2 with 'shared' strategy: no finite "
+                    "values found in either array."
+                )
+            lo = float(finite.min())
+            hi = float(finite.max())
             if hi == lo:
                 arr1 = np.zeros_like(arr1)
                 arr2 = np.zeros_like(arr2)
             else:
-                arr1 = (arr1 - lo) / (hi - lo)
-                arr2 = (arr2 - lo) / (hi - lo)
+                arr1 = np.clip((arr1 - lo) / (hi - lo), 0.0, 1.0)
+                arr2 = np.clip((arr2 - lo) / (hi - lo), 0.0, 1.0)
             data1 = data1.copy(data=arr1)
             data2 = data2.copy(data=arr2)
 

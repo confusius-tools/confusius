@@ -284,6 +284,31 @@ class TestAddCompositeNormalize:
         assert red_max == pytest.approx(0.25, abs=1e-6)
         assert cyan_max == pytest.approx(1.0, abs=1e-6)
 
+    @pytest.mark.parametrize(
+        "normalize_strategy", ["per_volume", "per_slice", "shared"]
+    )
+    def test_neg_inf_background_does_not_propagate_nan(
+        self, sample_3d_volume, matplotlib_pyplot, normalize_strategy
+    ):
+        # db_scale maps zero/negative voxels to -inf (background in power-Doppler
+        # data). All three normalisation strategies must exclude -inf from the
+        # min/max bounds instead of letting it turn every pixel into nan.
+        base1 = sample_3d_volume.copy()
+        base1.values[0, 0, 0] = 0.0
+        base2 = _shifted_volume(sample_3d_volume)
+        base2.values[0, 0, 0] = 0.0
+        data1 = base1.fusi.scale.db()
+        data2 = base2.fusi.scale.db()
+
+        plotter = VolumePlotter(slice_mode="z").add_composite(
+            data1, data2, resample=False, normalize_strategy=normalize_strategy
+        )
+        for ax in _axes(plotter).ravel():
+            rgb = ax.collections[0].get_array()
+            assert np.isfinite(rgb).all()
+            assert rgb.min() >= 0.0
+            assert rgb.max() <= 1.0
+
 
 class TestAddCompositeValidation:
     """Validation guards on add_composite inputs."""
