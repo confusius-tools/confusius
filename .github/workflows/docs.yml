@@ -86,6 +86,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-brainglobe-
 
+      - name: Cache Rabut 2024 human GLM example data
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/confusius/rabut_2024_human_glm
+          key: ${{ runner.os }}-rabut-2024-human-glm-${{ hashFiles('tools/prefetch_doc_datasets.py') }}
+          restore-keys: |
+            ${{ runner.os }}-rabut-2024-human-glm-
+
       - name: Pre-fetch docs datasets
         # Single source of truth for every dataset the docs pipeline loads
         # (userguide image generators and gallery examples). Running it before
@@ -97,6 +105,7 @@ jobs:
 
       - name: Ensure docs images directories exist
         run: |
+          mkdir -p docs/images/atlas
           mkdir -p docs/images/gui
           mkdir -p docs/images/qc
           mkdir -p docs/images/visualization
@@ -107,6 +116,8 @@ jobs:
         uses: actions/cache@v6
         with:
           path: |
+            docs/images/atlas/*.png
+            docs/images/atlas/*.gif
             docs/images/gui/*.png
             docs/images/gui/*.gif
             docs/images/qc/*.png

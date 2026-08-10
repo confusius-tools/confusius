@@ -16,3 +16,6 @@ POSE_DIM: str = "pose"
 
 TIME_DIM: str = "time"
 """Default signal (x-axis) dimension name."""
+
+CORE_DIMS: tuple[str, ...] = (TIME_DIM, POSE_DIM, *VOXEL_DIMS)
+"""Canonical ConfUSIus core dimension names."""

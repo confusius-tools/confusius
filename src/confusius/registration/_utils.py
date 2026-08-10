@@ -12,7 +12,10 @@ from typing import TYPE_CHECKING, TypeGuard
 import numpy as np
 import xarray as xr
 
-from confusius._utils.coordinates import get_coordinate_spacing_info
+from confusius._utils.coordinates import (
+    get_coordinate_spacing_info,
+    get_grid_info_from_dataarray,
+)
 from confusius._utils.geometry import (
     get_voxel_affine_physical_coord_names,
     get_voxel_affine_spatial_dims,
@@ -437,8 +440,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     ----------
     da : xarray.DataArray
         2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
-        Spacing and origin are derived from its coordinates; missing coordinates warn
-        and fall back to spacing `1.0` and origin `0.0`.
+        Spacing and origin are derived from its coordinates. Spatial spacing must be
+        defined by regular coordinates or `voxdim` metadata on singleton coordinates.
 
     Returns
     -------
@@ -449,15 +452,24 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """
     import SimpleITK as sitk
 
-    spatial_dims, spacing = get_defined_spatial_spacing(da)
-    origin_dict = da.fusi.origin
-
     has_time = "time" in da.dims
+    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
     if has_voxel_affine_geometry(da):
+        spatial_dims, spacing = get_defined_spatial_spacing(da)
+        origin_dict = da.fusi.origin
         origin_names = get_voxel_affine_physical_coord_names(da)
         origin = tuple(origin_dict[d] for d in origin_names)
     else:
-        origin = tuple(origin_dict[d] for d in spatial_dims)
+        grid = get_grid_info_from_dataarray(
+            da,
+            spatial_dims,
+            error_prefix=(
+                "Cannot convert DataArray to a SimpleITK image because spatial spacing "
+                "is undefined"
+            ),
+        )
+        spacing = grid["spacing"]
+        origin = grid["origin"]
 
     if has_time:
         data = da.values
@@ -470,7 +482,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
         image = sitk.GetImageFromArray(da.values.T)
 
     image.SetSpacing(tuple(spacing))
-    image.SetOrigin(origin)
+    image.SetOrigin(tuple(origin))
     if has_voxel_affine_geometry(da):
         image.SetDirection(
             np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist()

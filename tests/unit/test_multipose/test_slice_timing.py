@@ -8,6 +8,13 @@ from scipy.interpolate import interp1d
 from confusius.multipose import correct_slice_timings
 
 
+def _spatial_coord(values: np.ndarray | list[float], dim: str) -> xr.DataArray:
+    attrs = {"units": "mm"}
+    if len(values) == 1:
+        attrs["voxdim"] = 0.1
+    return xr.DataArray(values, dims=[dim], attrs=attrs)
+
+
 def _make_consolidated_da(
     ntime: int = 20,
     nz: int = 5,
@@ -33,13 +40,13 @@ def _make_consolidated_da(
     )
 
     z_vals = np.arange(nz) * 0.2
-    z_coord = xr.DataArray(z_vals, dims=["z"], attrs={"units": "mm"})
+    z_coord = _spatial_coord(z_vals, "z")
 
     y_vals = np.arange(ny) * 0.3
-    y_coord = xr.DataArray(y_vals, dims=["y"], attrs={"units": "mm"})
+    y_coord = _spatial_coord(y_vals, "y")
 
     x_vals = np.arange(nx) * 0.4
-    x_coord = xr.DataArray(x_vals, dims=["x"], attrs={"units": "mm"})
+    x_coord = _spatial_coord(x_vals, "x")
 
     if slice_offsets is None:
         slice_offsets = np.linspace(0, tr * 0.8, nz)
@@ -106,7 +113,7 @@ class TestCorrectSliceTiming:
     def test_raises_missing_time_dim(self) -> None:
         """Raises ValueError if DataArray has no time dimension."""
         da = xr.DataArray(
-            np.random.random((5, 3, 2)),
+            np.zeros((5, 3, 2)),
             dims=("z", "y", "x"),
             coords={"z": np.arange(5), "y": np.arange(3), "x": np.arange(2)},
         )
@@ -123,13 +130,13 @@ class TestCorrectSliceTiming:
     def test_raises_missing_timing_coord(self) -> None:
         """Raises ValueError if DataArray has no slice_time or pose_time coordinate."""
         da = xr.DataArray(
-            np.random.random((5, 3, 2, 2)),
+            np.zeros((5, 3, 2, 2)),
             dims=("time", "z", "y", "x"),
             coords={
-                "time": np.arange(5),
-                "z": np.arange(3),
-                "y": np.arange(2),
-                "x": np.arange(2),
+                "time": xr.DataArray(np.arange(5), dims=["time"], attrs={"units": "s"}),
+                "z": _spatial_coord(np.arange(3), "z"),
+                "y": _spatial_coord(np.arange(2), "y"),
+                "x": _spatial_coord(np.arange(2), "x"),
             },
         )
         with pytest.raises(
@@ -140,15 +147,17 @@ class TestCorrectSliceTiming:
     def test_raises_invalid_slice_time_dims(self) -> None:
         """Raises ValueError if slice_time has wrong dimensions."""
         da = xr.DataArray(
-            np.random.random((5, 3, 2, 2)),
+            np.zeros((5, 3, 2, 2)),
             dims=("time", "z", "y", "x"),
             coords={
-                "time": [0, 1, 2, 3, 4],
-                "z": [0, 1, 2],
-                "y": [0, 1],
-                "x": [0, 1],
+                "time": xr.DataArray(
+                    [0, 1, 2, 3, 4], dims=["time"], attrs={"units": "s"}
+                ),
+                "z": _spatial_coord([0, 1, 2], "z"),
+                "y": _spatial_coord([0, 1], "y"),
+                "x": _spatial_coord([0, 1], "x"),
                 "slice_time": xr.DataArray(
-                    np.random.random((3, 5)),
+                    np.zeros((3, 5)),
                     dims=("z", "time"),
                 ),
             },
@@ -202,9 +211,9 @@ class TestCorrectSliceTiming:
                     dims=["time"],
                     attrs={"units": "s", "volume_acquisition_reference": "start"},
                 ),
-                "z": xr.DataArray(np.arange(nz) * 0.2, dims=["z"]),
-                "y": xr.DataArray([0.0], dims=["y"]),
-                "x": xr.DataArray([0.0], dims=["x"]),
+                "z": _spatial_coord(np.arange(nz) * 0.2, "z"),
+                "y": _spatial_coord([0.0], "y"),
+                "x": _spatial_coord([0.0], "x"),
                 "slice_time": xr.DataArray(
                     slice_time_vals, dims=["time", "z"], attrs={"units": "s"}
                 ),
@@ -307,9 +316,9 @@ class TestCorrectSliceTiming:
             coords={
                 "time": time_coord,
                 "pose": np.arange(npose),
-                "z": np.array([0.0]),
-                "y": np.arange(2) * 0.3,
-                "x": np.arange(3) * 0.4,
+                "z": _spatial_coord([0.0], "z"),
+                "y": _spatial_coord(np.arange(2) * 0.3, "y"),
+                "x": _spatial_coord(np.arange(3) * 0.4, "x"),
                 "pose_time": xr.DataArray(
                     pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
                 ),
@@ -321,9 +330,9 @@ class TestCorrectSliceTiming:
             dims=("time", "z", "y", "x"),
             coords={
                 "time": time_coord,
-                "z": np.arange(npose) * 0.5,
-                "y": np.arange(2) * 0.3,
-                "x": np.arange(3) * 0.4,
+                "z": _spatial_coord(np.arange(npose) * 0.5, "z"),
+                "y": _spatial_coord(np.arange(2) * 0.3, "y"),
+                "x": _spatial_coord(np.arange(3) * 0.4, "x"),
                 "slice_time": xr.DataArray(
                     pose_time_vals, dims=["time", "z"], attrs=timing_attrs
                 ),

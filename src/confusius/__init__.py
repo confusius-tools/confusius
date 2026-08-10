@@ -7,7 +7,10 @@ __all__ = [
     "__version__",
     "atlas",
     "connectivity",
+    "create_fusi_dataarray",
+    "create_iq_dataarray",
     "datasets",
+    "decoding",
     "decomposition",
     "extract",
     "glm",
@@ -36,8 +39,9 @@ from confusius import atlas, xarray
 _SUBMODULES = {
     "atlas",
     "connectivity",
-    "decomposition",
     "datasets",
+    "decoding",
+    "decomposition",
     "extract",
     "glm",
     "io",
@@ -54,6 +58,8 @@ _SUBMODULES = {
 }
 
 _ATTR_TO_MODULE = {
+    "create_fusi_dataarray": "confusius.xarray.create",
+    "create_iq_dataarray": "confusius.xarray.create",
     "load": "confusius.io.loadsave",
     "save": "confusius.io.loadsave",
 }
@@ -85,6 +91,7 @@ if TYPE_CHECKING:
         atlas,
         connectivity,
         datasets,
+        decoding,
         decomposition,
         extract,
         glm,
@@ -102,3 +109,4 @@ if TYPE_CHECKING:
         xarray,
     )
     from confusius.io.loadsave import load, save
+    from confusius.xarray.create import create_fusi_dataarray, create_iq_dataarray

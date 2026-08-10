@@ -5,14 +5,123 @@ from typing import Literal, overload
 
 import xarray as xr
 
+from confusius._dims import TIME_DIM
 from confusius._utils.coordinates import get_coordinate_spacings
+
+
+def validate_required_time_dimension(data: xr.DataArray) -> None:
+    """Validate that a DataArray has a `time` dimension.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray whose dimensions should be checked.
+
+    Raises
+    ------
+    ValueError
+        If `data` has no `time` dimension.
+    """
+    if TIME_DIM not in data.dims:
+        raise ValueError("DataArray must have a 'time' dimension.")
+
+
+def validate_timepoint_count(data: xr.DataArray, operation_name: str) -> None:
+    """Validate that a DataArray has more than one timepoint.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` dimension.
+    operation_name : str
+        Name of the operation used in error messages.
+
+    Raises
+    ------
+    ValueError
+        If `data` has fewer than two timepoints.
+    """
+    if data.sizes[TIME_DIM] <= 1:
+        raise ValueError(
+            f"{operation_name.capitalize()} requires more than 1 timepoint, "
+            f"got {data.sizes[TIME_DIM]}"
+        )
+
+
+def validate_unchunked_time(data: xr.DataArray, operation_name: str) -> None:
+    """Validate that `time` occupies one Dask chunk.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` dimension.
+    operation_name : str
+        Name of the operation used in error messages.
+
+    Raises
+    ------
+    ValueError
+        If `data` is chunked along `time` into multiple chunks.
+    """
+    time_axis = data.get_axis_num(TIME_DIM)
+    if hasattr(data.data, "chunks"):
+        time_chunks = data.data.chunks[time_axis]
+        if len(time_chunks) > 1:
+            raise ValueError(
+                f"Data is chunked along the 'time' dimension ({len(time_chunks)} "
+                f"chunks), but {operation_name} requires the full time series. "
+                f"Rechunk your data so 'time' is not chunked: "
+                f"data.chunk({{'time': -1}})"
+            )
+
+
+def validate_uniform_time(
+    data: xr.DataArray,
+    operation_name: str,
+    uniformity_tolerance: float = 1e-2,
+) -> float:
+    """Validate uniformly sampled `time` coordinates and return spacing.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray with a `time` dimension.
+    operation_name : str
+        Name of the operation used in error messages.
+    uniformity_tolerance : float, default: 1e-2
+        Maximum allowed relative range of consecutive time intervals.
+
+    Returns
+    -------
+    float
+        Representative time spacing.
+
+    Raises
+    ------
+    ValueError
+        If `time` coordinates are not uniformly sampled.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        spacing = get_coordinate_spacings(
+            data, uniformity_tolerance=uniformity_tolerance
+        )
+
+    time_spacing = spacing[TIME_DIM]
+    if time_spacing is None:
+        raise ValueError(
+            "Non-uniform 'time' coordinates detected. "
+            f"{operation_name.capitalize()} requires uniformly sampled data. "
+            "Consider interpolating your data to a regular time grid first."
+        )
+    return time_spacing
 
 
 @overload
 def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     time_series: xr.DataArray,
     operation_name: str,
-    check_time_chunks: bool = True,
+    require_unchunked_time: bool = True,
     require_uniform_time: Literal[False] = False,
     uniformity_tolerance: float = 1e-2,
 ) -> tuple[int, None]: ...
@@ -22,7 +131,7 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
 def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
     time_series: xr.DataArray,
     operation_name: str,
-    check_time_chunks: bool = True,
+    require_unchunked_time: bool = True,
     require_uniform_time: Literal[True] = True,
     uniformity_tolerance: float = 1e-2,
 ) -> tuple[int, float]: ...
@@ -31,7 +140,7 @@ def validate_time_series(  # numpydoc ignore=GL08,PR01,RT01
 def validate_time_series(
     time_series: xr.DataArray,
     operation_name: str,
-    check_time_chunks: bool = True,
+    require_unchunked_time: bool = True,
     require_uniform_time: bool = False,
     uniformity_tolerance: float = 1e-2,
 ) -> tuple[int, float | None]:
@@ -50,9 +159,9 @@ def validate_time_series(
         Input time series to validate. Must have a `time` dimension.
     operation_name : str
         Name of the operation (used in error/warning messages).
-    check_time_chunks : bool, default=True
-        Whether to raise an error when time dimension is chunked in a Dask array. Set to
-        `False` for operations that can handle chunked time (e.g.,
+    require_unchunked_time : bool, default=True
+        Whether to require the time dimension to occupy one Dask chunk. Set to `False`
+        for operations that can process chunked time (e.g.,
         `confusius.signal.standardize`).
     require_uniform_time : bool, default: False
         Whether to require uniformly sampled `time` coordinates and return their spacing.
@@ -73,45 +182,20 @@ def validate_time_series(
     ValueError
         If `time_series` has no `time` dimension, if the `time` dimension has only 1
         timepoint, if the `time` dimension is chunked in a Dask array (when
-        `check_time_chunks=True`), or if `require_uniform_time=True` and the `time`
+        `require_unchunked_time=True`), or if `require_uniform_time=True` and the `time`
         coordinate is not uniformly sampled.
     """
-    if "time" not in time_series.dims:
-        raise ValueError("time_series must have a 'time' dimension")
+    validate_required_time_dimension(time_series)
+    validate_timepoint_count(time_series, operation_name)
 
-    if time_series.sizes["time"] <= 1:
-        raise ValueError(
-            f"{operation_name.capitalize()} requires more than 1 timepoint, "
-            f"got {time_series.sizes['time']}"
-        )
+    time_axis = time_series.get_axis_num(TIME_DIM)
 
-    time_axis = time_series.get_axis_num("time")
-
-    if check_time_chunks and hasattr(time_series.data, "chunks"):
-        time_chunks = time_series.data.chunks[time_axis]
-        if len(time_chunks) > 1:
-            raise ValueError(
-                f"Data is chunked along the 'time' dimension ({len(time_chunks)} "
-                f"chunks), but {operation_name} requires the full time series. "
-                f"Rechunk your data so 'time' is not chunked: "
-                f"data.chunk({{'time': -1}})"
-            )
+    if require_unchunked_time:
+        validate_unchunked_time(time_series, operation_name)
 
     if not require_uniform_time:
         return time_axis, None
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", UserWarning)
-        spacing = get_coordinate_spacings(
-            time_series, uniformity_tolerance=uniformity_tolerance
-        )
-
-    time_spacing = spacing["time"]
-    if time_spacing is None:
-        raise ValueError(
-            "Non-uniform 'time' coordinates detected. "
-            f"{operation_name.capitalize()} requires uniformly sampled data. "
-            "Consider interpolating your data to a regular time grid first."
-        )
-
-    return time_axis, time_spacing
+    return time_axis, validate_uniform_time(
+        time_series, operation_name, uniformity_tolerance
+    )

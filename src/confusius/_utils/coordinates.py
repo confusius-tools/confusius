@@ -1,7 +1,8 @@
 """Coordinate spacing and origin helpers shared across modules."""
 
 import warnings
-from typing import TypedDict
+from collections.abc import Sequence
+from typing import TypedDict, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -119,7 +120,11 @@ def get_coordinate_spacing_info(
         )
 
     coord = data.coords[dim]
-    if not np.issubdtype(coord.dtype, int) and not np.issubdtype(coord.dtype, float):
+    # Bare int/float map to the exact int64/float64 dtypes, silently excluding
+    # e.g. float32 coordinates; use the abstract numpy supertypes instead.
+    if not np.issubdtype(coord.dtype, np.integer) and not np.issubdtype(
+        coord.dtype, np.floating
+    ):
         return CoordinateSpacingInfo(value=None, median=None, warn_msg=None)
 
     if len(coord) < 2:
@@ -290,7 +295,12 @@ class GridKwargs(TypedDict):
     dims: list[str]
 
 
-def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
+def get_grid_info_from_dataarray(
+    data: xr.DataArray,
+    dims: Sequence[str] | None = None,
+    *,
+    error_prefix: str = "Cannot build grid kwargs because spacing is undefined",
+) -> GridKwargs:
     """Return the resampling grid specification extracted from a DataArray.
 
     Bundles the `shape`, `spacing`, `origin`, and `dims` that a DataArray defines into
@@ -298,47 +308,108 @@ def get_grid_kwargs_from_dataarray(data: xr.DataArray) -> GridKwargs:
     [`resample_volume`][confusius.registration.resample_volume] and
     [`sample_displacement_field`][confusius.registration.sample_displacement_field].
     Spacing comes from
-    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings],
-    falling back to `1.0` for dimensions whose spacing is undefined; origin comes from
-    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins].
+    [`get_coordinate_spacings`][confusius._utils.coordinates.get_coordinate_spacings]
+    and origin from
+    [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins],
+    both computed over all of `data`'s dimensions so that their warning behaviour is
+    preserved. Each requested dimension must have defined spacing; singleton
+    dimensions require `voxdim` coordinate metadata.
 
     Parameters
     ----------
     data : xarray.DataArray
         Spatial reference DataArray.
+    dims : sequence[str], optional
+        Dimensions to extract, in the desired output order. Must be a subset of
+        `data`'s dimensions. If not provided, all of `data`'s dimensions are used.
+    error_prefix : str, default: "Cannot build grid kwargs because spacing is undefined"
+        Start of the error message raised when spacing is undefined for any of the
+        requested dimensions, stating what could not be built.
 
     Returns
     -------
     GridKwargs
         Dictionary with `shape`, `spacing`, `origin`, and `dims` keys, each a list in
-        DataArray dimension order.
+        the requested dimension order.
+
+    Raises
+    ------
+    ValueError
+        If spacing is undefined for any requested dimension.
     """
-    dims = [str(dim) for dim in data.dims]
+    dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
+
     from confusius._utils.geometry import (
         get_voxel_affine_origin,
         get_voxel_affine_physical_coord_names,
+        get_voxel_affine_spatial_dims,
         has_voxel_affine_geometry,
     )
 
     if has_voxel_affine_geometry(data):
         spacings = data.fusi.spacing
         origin = get_voxel_affine_origin(data)
+        coord_origins = get_coordinate_origins(data)
         physical_names = get_voxel_affine_physical_coord_names(data)
+        voxel_dims = get_voxel_affine_spatial_dims(data)
+        origins = [
+            origin[physical_names[voxel_dims.index(dim)]]
+            if dim in voxel_dims
+            else coord_origins[dim]
+            for dim in dims
+        ]
+        missing_spacing = [dim for dim in dims if spacings[dim] is None]
+        if missing_spacing:
+            raise ValueError(
+                f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
+                "coordinates or `voxdim` metadata for singleton coordinates."
+            )
         return {
             "shape": [int(data.sizes[dim]) for dim in dims],
             "spacing": [float(spacings[dim]) for dim in dims],
-            "origin": [float(origin[name]) for name in physical_names],
+            "origin": [float(value) for value in origins],
             "dims": dims,
         }
 
     spacings = get_coordinate_spacings(data)
     origins = get_coordinate_origins(data)
+    missing_spacing = [dim for dim in dims if spacings[dim] is None]
+    if missing_spacing:
+        raise ValueError(
+            f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
+            "coordinates or `voxdim` metadata for singleton coordinates."
+        )
     return {
         "shape": [int(data.sizes[dim]) for dim in dims],
-        "spacing": [s if s is not None else 1.0 for s in spacings.values()],
-        "origin": [float(o) for o in origins.values()],
+        "spacing": [cast(float, spacings[dim]) for dim in dims],
+        "origin": [origins[dim] for dim in dims],
         "dims": dims,
     }
+
+
+def get_grid_kwargs_from_dataarray(
+    data: xr.DataArray,
+    dims: Sequence[str] | None = None,
+    *,
+    error_prefix: str = "Cannot build grid kwargs because spacing is undefined",
+) -> GridKwargs:
+    """Return grid kwargs for legacy callers.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Spatial reference DataArray.
+    dims : sequence[str], optional
+        Dimensions to extract, in the desired output order.
+    error_prefix : str, default: "Cannot build grid kwargs because spacing is undefined"
+        Start of the error message raised when spacing is undefined.
+
+    Returns
+    -------
+    GridKwargs
+        Dictionary with `shape`, `spacing`, `origin`, and `dims` keys.
+    """
+    return get_grid_info_from_dataarray(data, dims=dims, error_prefix=error_prefix)
 
 
 def get_axis_aligned_affine(

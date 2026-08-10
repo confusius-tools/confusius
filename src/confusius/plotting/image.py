@@ -2848,7 +2848,7 @@ def _prepare_carpet_data(
     if np.iscomplexobj(data):
         data = xr.ufuncs.abs(data)
 
-    validate_time_series(data, "plot_carpet", check_time_chunks=False)
+    validate_time_series(data, "plot_carpet", require_unchunked_time=False)
 
     n_timepoints = data.sizes["time"]
 

@@ -65,12 +65,17 @@ from confusius.registration._utils import (
 )
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
-    validate_fusi_dataarray,
+    ensure_fusi,
     validate_matching_spatial_units,
 )
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
+
+_MISSING_FIELD_SPACING_PREFIX = (
+    "Cannot convert displacement field to SimpleITK because spacing is undefined"
+)
+"""Error prefix used when a displacement field dimension has no defined spacing."""
 
 
 def sitk_bspline_to_dataarray(
@@ -174,7 +179,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     """
     import SimpleITK as sitk
 
-    validate_bspline_dataarray(da)
+    validate_bspline(da)
 
     ndim = da.ndim - 1  # subtract the component axis
     order = int(da.attrs["order"])
@@ -264,7 +269,7 @@ def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
     )
 
 
-def validate_bspline_dataarray(da: xr.DataArray) -> None:
+def validate_bspline(da: xr.DataArray) -> None:
     """Raise ValueError if `da` does not look like a valid B-spline transform DataArray.
 
     Parameters
@@ -387,9 +392,9 @@ def sample_displacement_field_like(
         control-point DataArrays produced by
         [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be 2D or 3D spatial (no time
-        dimension). When spatial coordinate `units` metadata is present on both
-        `transform` and `reference`, they must match.
+        DataArray defining the output grid. Must be a 3D spatial volume with dimensions
+        `z`, `y`, `x` (no time dimension). When spatial coordinate `units` metadata is
+        present on both `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
@@ -403,19 +408,19 @@ def sample_displacement_field_like(
     Raises
     ------
     ValueError
-        If `reference` contains a `time` dimension or is not 2D or 3D.
+        If `reference` contains a `time` dimension or does not contain the spatial
+        dimensions `z`, `y`, and `x`.
     """
     if "time" in reference.dims:
         raise ValueError(
             f"'reference' must not have a time dimension; got dims {reference.dims}."
         )
 
-    validate_fusi_dataarray(
+    reference = ensure_fusi(
         reference,
         require_time=False,
         allow_pose=False,
         allow_extra_dims=False,
-        minimum_spatial_dims=2,
     )
     validate_matching_spatial_units(
         (("transform", transform), ("reference", reference))

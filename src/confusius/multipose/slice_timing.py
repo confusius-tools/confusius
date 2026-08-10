@@ -5,7 +5,7 @@ from typing import Literal
 import xarray as xr
 
 from confusius._utils.timing import interpolate_timeseries
-from confusius.validation.time_series import validate_time_series
+from confusius.validation import ensure_fusi
 
 
 def correct_slice_timings(
@@ -91,7 +91,7 @@ def correct_slice_timings(
     UserWarning
         If a spline method fails due to too few points and falls back to `"linear"`.
     """
-    validate_time_series(da, "slice timing correction")
+    da = ensure_fusi(da, require_time=True, require_unchunked_time=True)
 
     timing_coord_name = next(
         (name for name in ("slice_time", "pose_time") if name in da.coords),

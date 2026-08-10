@@ -18,6 +18,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
+from confusius.validation import ensure_fusi
 
 
 def _build_consolidated_time_coordinate(
@@ -243,6 +244,17 @@ def consolidate_poses(
     UserWarning
         If the sweep is not purely 1D (secondary/primary singular value ratio > 0.01).
     """
+    da = ensure_fusi(da)
+
+    # Determine spatial dimensions (non-time, non-pose) and their column indices.
+    spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
+    if sweep_dim not in spatial_dims:
+        raise ValueError(
+            f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
+            f"got {sweep_dim!r}."
+        )
+    sweep_col = spatial_dims.index(sweep_dim)
+
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
 
