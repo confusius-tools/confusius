@@ -82,28 +82,29 @@ typically hundreds of Hz.
 ### Expected Data Structure
 
 Beamformed IQ data in ConfUSIus should be a complex-valued Xarray DataArray with
-dimensions `(time, z, y, x)`, where `time` is the slow-time dimension and `(z, y, x)`
-are the spatial dimensions. ConfUSIus typically adopts the following convention for the
+dimensions exactly ordered as `(time, z, y, x)`, where `time` is the slow-time
+dimension and `(z, y, x)` are the spatial dimensions. IQ processing works on temporal
+blocks and flattens the spatial axes, so this stricter order keeps the data layout
+unambiguous and efficient. ConfUSIus typically adopts the following convention for the
 spatial dimensions:
 
 - `z`: Elevation dimension (out-of-plane dimension for linear arrays).
 - `y`: Axial dimension (depth dimension).
 - `x`: Lateral dimension (dimension along the transducer array).
 
-Additionally, ConfUSIus expects certain metadata attributes to be present:
+Additionally, IQ processing needs timing metadata. Prefer storing the acquisition
+window duration on the `time` coordinate as
+`time.attrs["volume_acquisition_duration"]`; legacy datasets may instead provide
+`compound_sampling_frequency` as scanner provenance. Axial velocity estimation also
+requires these DataArray attributes:
 
-- `compound_sampling_frequency`: Effective sampling frequency of the IQ data (Hz).
 - `transmit_frequency`: Frequency of the transmitted ultrasound pulse (Hz).
 - `beamforming_sound_velocity`: Speed of sound used for beamforming (m/s).
 
-!!! note "Loading IQ data from unsupported formats"
-    If you've loaded IQ data from an unsupported format (i.e., not using ConfUSIus
-    converters), use [`validate_iq_dataarray`][confusius.validation.validate_iq_dataarray] to check that your
-    data has the required structure and attributes. See [Other Systems](io.md#other-systems)
-    for details.
+Here is what a valid IQ DataArray looks like once loaded:
 
 ```pycon
->>> import xarray as xr
+>>> import confusius as cf
 >>>
 >>> iq = cf.load("sub-01_task-rest_iq.zarr")
 >>> iq
@@ -125,6 +126,21 @@ In this example, the PRF is 15 kHz, but the data uses compound imaging with a
 `compound_sampling_frequency` of 500 Hz. This means each IQ sample (compound volume)
 results from combining 30 individual pulses, giving an effective temporal sampling
 period of 2 ms rather than 67 μs.
+
+If your acquisition system isn't directly supported by ConfUSIus, see
+[Other Systems](io.md#other-systems) for how to wrap a custom complex array as an IQ
+DataArray.
+
+!!! question "Finding metadata values"
+    If you're unsure about the correct values:
+
+    - `volume_acquisition_duration`: Check your acquisition software settings. For
+      regularly sampled IQ, this is usually the inverse effective volume rate.
+    - `transmit_frequency`: Found in your probe specifications or acquisition
+      settings. Generally around 5-10 MHz for clinical probes, and 12-20 MHz for
+      high-frequency probes used in small animal imaging.
+    - `beamforming_sound_velocity`: Typically 1540 m/s for brain tissues, but may vary
+      with temperature and tissue type.
 
 ## How ConfUSIus Processes IQ Data
 

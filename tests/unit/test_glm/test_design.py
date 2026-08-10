@@ -469,7 +469,9 @@ class TestEdgeCases:
         """Unknown drift_model values raise."""
         with pytest.raises(ValueError, match="drift_model"):
             make_first_level_design_matrix(
-                frame_times, basic_events, drift_model="unknown"  # ty: ignore[invalid-argument-type]
+                frame_times,
+                basic_events,
+                drift_model="unknown",  # ty: ignore[invalid-argument-type]
             )
 
 

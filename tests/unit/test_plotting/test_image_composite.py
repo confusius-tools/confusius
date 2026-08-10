@@ -60,9 +60,21 @@ class TestAddCompositeResample:
             np.linspace(0, 1, 3 * 4 * 5).reshape(3, 4, 5),
             dims=["z", "y", "x"],
             coords={
-                "z": np.array([1.05, 1.35, 1.65]),
-                "y": np.array([2.0, 2.2, 2.4, 2.6]),
-                "x": np.array([3.0, 3.1, 3.2, 3.3, 3.4]),
+                "z": xr.DataArray(
+                    np.array([1.05, 1.35, 1.65]),
+                    dims="z",
+                    attrs=sample_3d_volume.coords["z"].attrs,
+                ),
+                "y": xr.DataArray(
+                    np.array([2.0, 2.2, 2.4, 2.6]),
+                    dims="y",
+                    attrs=sample_3d_volume.coords["y"].attrs,
+                ),
+                "x": xr.DataArray(
+                    np.array([3.0, 3.1, 3.2, 3.3, 3.4]),
+                    dims="x",
+                    attrs=sample_3d_volume.coords["x"].attrs,
+                ),
             },
         )
 
@@ -154,9 +166,11 @@ class TestAddCompositeResampleKwargs:
             ),
             dims=["z", "y", "x"],
             coords={
-                "z": sample_3d_volume.coords["z"].values,
-                "y": sample_3d_volume.coords["y"].values,
-                "x": x_sub,
+                "z": sample_3d_volume.coords["z"],
+                "y": sample_3d_volume.coords["y"],
+                "x": xr.DataArray(
+                    x_sub, dims="x", attrs=sample_3d_volume.coords["x"].attrs
+                ),
             },
         )
         return sample_3d_volume, data2
@@ -177,12 +191,17 @@ class TestAddCompositeResampleKwargs:
         # so after normalisation the cyan channel should be uniform at 1.0.
         npt.assert_allclose(rgb0[..., 1], 1.0, atol=1e-5)
 
-    def test_explicit_fill_value_overrides_default(self, narrow_data2, matplotlib_pyplot):
+    def test_explicit_fill_value_overrides_default(
+        self, narrow_data2, matplotlib_pyplot
+    ):
         """Explicit fill_value in resample_kwargs is respected."""
         data1, data2 = narrow_data2
         # Passing fill_value=0.0 explicitly should fill out-of-FOV with 0.0.
         plotter = VolumePlotter(slice_mode="z").add_composite(
-            data1, data2, resample=True, normalize_strategy="shared",
+            data1,
+            data2,
+            resample=True,
+            normalize_strategy="shared",
             resample_kwargs={"fill_value": 0.0},
         )
         rgb0 = _axes(plotter)[0, 0].collections[0].get_array()
@@ -219,7 +238,8 @@ class TestAddCompositeNormalize:
             for i in range(data1.sizes["z"] - 1)
         )
         bright_max = float(
-            _axes(plotter).ravel()[data1.sizes["z"] - 1]
+            _axes(plotter)
+            .ravel()[data1.sizes["z"] - 1]
             .collections[0]
             .get_array()[..., 0]
             .max()

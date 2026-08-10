@@ -32,9 +32,9 @@ from confusius.glm._utils import (
     to_spatial_dataarray,
 )
 from confusius.spatial import smooth_volume
+from confusius.validation import ensure_fusi
 from confusius.validation.coordinates import validate_matching_coordinates
 from confusius.validation.mask import validate_mask
-from confusius.validation.time_series import validate_time_series
 
 if TYPE_CHECKING:
     import numpy.typing as npt
@@ -233,10 +233,15 @@ class FirstLevelModel(BaseEstimator):
         """
         if isinstance(run_data, xr.DataArray):
             run_data = [run_data]
+        run_data = [
+            ensure_fusi(run, require_time=True, require_unchunked_time=True)
+            for run in run_data
+        ]
+        if self.mask is not None:
+            self.mask = ensure_fusi(self.mask, allow_pose=False, allow_extra_dims=False)
         n_runs = len(run_data)
 
-        for i, run in enumerate(run_data):
-            validate_time_series(run, f"FirstLevelModel fit (run {i})")
+        for run in run_data:
             if self.mask is not None:
                 validate_mask(self.mask, run, "mask", require_exact_dims=True)
 
