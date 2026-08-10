@@ -16,10 +16,11 @@ def scale_min_max(arr: NDArray[np.floating]) -> NDArray[np.floating]:
     -------
     numpy.ndarray
         Float array with the same shape as `arr`, rescaled to `[0, 1]`. Returns an
-        all-zero array when `arr` is flat (`arr.min() == arr.max()`). Non-finite values
-        (e.g. `-inf` from [`db_scale`][confusius.xarray.scale.db_scale] on zero-valued
-        voxels) are excluded when computing the scaling bounds and clipped to `0`/`1`
-        in the output, instead of propagating as `nan`.
+        all-zero array when `arr` is flat (`arr.min() == arr.max()`). `-inf`/`inf` values
+        (e.g. from [`db_scale`][confusius.xarray.scale.db_scale] on zero-valued voxels)
+        are excluded when computing the scaling bounds and clipped to `0`/`1` in the
+        output. `nan` elements are likewise excluded from the bounds but remain `nan`
+        in the output, since there is no position on the `[0, 1]` scale to clip them to.
 
     Raises
     ------

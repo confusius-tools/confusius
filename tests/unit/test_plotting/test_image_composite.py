@@ -284,6 +284,16 @@ class TestAddCompositeNormalize:
         assert red_max == pytest.approx(0.25, abs=1e-6)
         assert cyan_max == pytest.approx(1.0, abs=1e-6)
 
+    def test_shared_raises_when_no_finite_values(
+        self, sample_3d_volume, matplotlib_pyplot
+    ):
+        data1 = sample_3d_volume.copy(data=np.full(sample_3d_volume.shape, -np.inf))
+        data2 = sample_3d_volume.copy(data=np.full(sample_3d_volume.shape, np.nan))
+        with pytest.raises(ValueError, match="no finite"):
+            VolumePlotter(slice_mode="z").add_composite(
+                data1, data2, resample=False, normalize_strategy="shared"
+            )
+
     @pytest.mark.parametrize(
         "normalize_strategy", ["per_volume", "per_slice", "shared"]
     )
