@@ -351,8 +351,8 @@ class TestDaFromNapariLayer:
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
-        npt.assert_allclose(np.diff(da["z"].isel(i=0).values), 0.2, rtol=1e-10)
-        npt.assert_allclose(np.diff(da["x"].isel(k=0).values), 0.05, rtol=1e-10)
+        npt.assert_allclose(np.diff(da["z"].values), 0.2, rtol=1e-10)
+        npt.assert_allclose(np.diff(da["x"].values), 0.05, rtol=1e-10)
 
     def test_translate_sets_coord_origin(self) -> None:
         """Translate values set the first coordinate value for each dimension."""
@@ -363,8 +363,8 @@ class TestDaFromNapariLayer:
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
-        assert da["z"].isel(k=0, i=0).item() == pytest.approx(1.0)
-        assert da["x"].isel(k=0, i=0).item() == pytest.approx(3.0)
+        assert da["z"].isel(k=0).item() == pytest.approx(1.0)
+        assert da["x"].isel(i=0).item() == pytest.approx(3.0)
 
     def test_units_stored_in_coord_attrs(self) -> None:
         """Unit strings from meta are stored in coordinate attrs."""

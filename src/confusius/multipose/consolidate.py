@@ -450,7 +450,6 @@ def consolidate_poses(
             voxel_dims=output_spatial_dim_names,
             physical_coord_names=physical_coord_names,
             physical_coord_attrs=physical_attrs,
-            force_transform_index=True,
         )
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.

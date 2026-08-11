@@ -154,5 +154,4 @@ def correct_slice_timings(
         physical_coord_attrs={
             name: dict(da.coords[name].attrs) for name in physical_coord_names
         },
-        force_transform_index=True,
     )

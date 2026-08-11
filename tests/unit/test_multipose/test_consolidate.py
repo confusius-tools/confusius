@@ -304,9 +304,8 @@ class TestConsolidatePoses:
         assert "pose" not in result.dims
         assert result.sizes[sweep_dim] == npose * n_sweep
         physical_sweep_dim = {"k": "z", "j": "y", "i": "x"}[sweep_dim]
-        sweep_coord = result.coords[physical_sweep_dim].isel(
-            {dim: 0 for dim in other_dims}
-        )
+        # Axis-aligned geometry gets an ordinary 1D coordinate on `sweep_dim` alone.
+        sweep_coord = result.coords[physical_sweep_dim]
         np.testing.assert_allclose(
             sweep_coord.values,
             np.arange(npose * n_sweep) * intra_step,

@@ -137,7 +137,6 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
         voxel_dims=tuple(voxel_dims),
         physical_coord_names=tuple(physical_names),
         physical_coord_attrs=physical_attrs,
-        force_transform_index=len(voxel_dims) >= 2,
     )
 
 

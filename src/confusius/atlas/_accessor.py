@@ -488,7 +488,6 @@ class AtlasAccessor:
             voxel_dims=tuple(dims),
             physical_coord_names=physical_names,
             physical_coord_attrs=physical_attrs,
-            force_transform_index=True,
         )
         return self.resample_like(
             reference,

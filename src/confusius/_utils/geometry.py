@@ -242,7 +242,6 @@ def add_physical_coords_from_voxel_affine(
     voxel_dims: tuple[str, ...],
     physical_coord_names: tuple[Hashable, ...] | None = None,
     physical_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
-    force_transform_index: bool = False,
 ) -> xr.DataArray:
     """Attach physical coordinates to a DataArray.
 
@@ -262,8 +261,6 @@ def add_physical_coords_from_voxel_affine(
     physical_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to attach to the derived physical coordinates, keyed by physical
         coordinate name.
-    force_transform_index : bool, default: False
-        Whether to use a `CoordinateTransformIndex` even for axis-aligned affines.
 
     Returns
     -------
@@ -301,7 +298,7 @@ def add_physical_coords_from_voxel_affine(
 
     voxel_to_physical_array = np.asarray(voxel_to_physical, dtype=np.float64)
 
-    if _is_axis_aligned_affine(voxel_to_physical_array) and not force_transform_index:
+    if _is_axis_aligned_affine(voxel_to_physical_array):
         affine = voxel_to_physical_array
         axis_coords = {
             name: (
