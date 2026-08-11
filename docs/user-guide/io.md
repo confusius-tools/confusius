@@ -486,10 +486,10 @@ raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (x, y, time)
 power = cf.create_fusi_dataarray(
     raw_power,
     dims=("x", "y", "time"),  # missing z is added as a singleton dimension
-    dt=1 / 2.5,               # 2.5 Hz frame rate
-    dz=0.4,                   # spacing for the singleton z dimension in mm
-    dy=0.05,                  # axial voxel size in mm
-    dx=0.1,                   # lateral voxel size in mm
+    dt=1 / 2.5,  # 2.5 Hz frame rate
+    dz=0.4,  # spacing for the singleton z dimension in mm
+    dy=0.05,  # axial voxel size in mm
+    dx=0.1,  # lateral voxel size in mm
     attrs={"description": "Power Doppler from my system"},
 )
 ```

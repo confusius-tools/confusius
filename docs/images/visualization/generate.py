@@ -34,7 +34,7 @@ from napari.qt import get_qapp
 from qtpy.QtCore import Qt
 from rich.console import Console
 
-import confusius as cf  # noqa: F401  # Register xarray accessors.
+import confusius as cf  # Register xarray accessors.
 from confusius.datasets import fetch_nunez_elizalde_2022
 
 HERE = Path(__file__).parent

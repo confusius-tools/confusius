@@ -588,6 +588,24 @@ def _add_voxel_affine_coords(
 
 
 @pytest.fixture
+def singleton_registration_volume():
+    """Small singleton-slice (k, j, i) volume for registration progress tests."""
+    arr = np.zeros((1, 16, 16), dtype=np.float32)
+    arr[0, 6:10, 6:10] = 1.0
+    da = xr.DataArray(
+        arr,
+        dims=("k", "j", "i"),
+        coords={"k": [0.0], "j": np.arange(16), "i": np.arange(16)},
+    )
+    return _add_voxel_affine_coords(
+        da,
+        voxel_dims=("k", "j", "i"),
+        spacing=(0.1, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
+    )
+
+
+@pytest.fixture
 def sample_3d_volume(rng):
     """3D spatial volume (z, y, x) with consistent spatial coordinates.
 

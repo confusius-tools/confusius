@@ -197,7 +197,7 @@ def _coordinate_dataarray(
     *,
     coords: Mapping[str, npt.ArrayLike | xr.DataArray],
     spacings: Mapping[str, float | None],
-    origins: Mapping[str, float],
+    origins: Mapping[str, float | None],
     volume_acquisition_reference: VolumeAcquisitionReference,
     volume_acquisition_duration: float | None,
 ) -> xr.DataArray:
@@ -213,7 +213,7 @@ def _coordinate_dataarray(
         Explicit coordinates provided by the caller.
     spacings : mapping[str, float or None]
         Per-dimension spacings.
-    origins : mapping[str, float]
+    origins : mapping[str, float or None]
         Per-dimension origins used with `spacings`.
     volume_acquisition_reference : {"start", "center", "end"}
         Time-coordinate acquisition reference metadata.
@@ -237,7 +237,10 @@ def _coordinate_dataarray(
         _validate_coordinate_shape(dim, coord_values, size)
     elif dim in spacings:
         step = _require_spacing(dim, spacings[dim])
-        coord_values = origins[dim] + np.arange(size) * step
+        origin = origins[dim]
+        if origin is None:
+            raise ValueError(f"Origin for dimension {dim!r} must be provided.")
+        coord_values = origin + np.arange(size) * step
         attrs = {}
     else:
         coord_values = np.arange(size)
@@ -273,7 +276,7 @@ def _spatial_geometry(
     *,
     coords: Mapping[str, npt.ArrayLike | xr.DataArray],
     spacing: float | None,
-    origin: float,
+    origin: float | None,
 ) -> tuple[xr.DataArray, float, float, dict[str, Any]]:
     """Build a voxel coordinate and physical affine parameters for one axis.
 
@@ -289,8 +292,10 @@ def _spatial_geometry(
         Explicit coordinate mapping.
     spacing : float, optional
         Physical spacing for the axis.
-    origin : float
-        Physical origin for the axis.
+    origin : float, optional
+        Physical position of the first voxel's center. If not provided, defaults to
+        the ConfUSIus convention for `physical_dim`: probe-centered (symmetric around
+        zero) for `z`/`x`, or a half-voxel past the probe surface at `y=0` for `y`.
 
     Returns
     -------
@@ -318,8 +323,17 @@ def _spatial_geometry(
 
     physical_explicit = _coordinate_values_and_attrs(physical_dim, coords)
     if physical_explicit is None:
-        physical_origin = origin
         physical_spacing = _require_spacing(physical_dim, spacing)
+        if origin is not None:
+            physical_origin = origin
+        elif physical_dim == "y":
+            # Depth is probe-surface-referenced: the surface sits at y=0, so the
+            # first voxel's center is half a voxel past it.
+            physical_origin = physical_spacing / 2
+        else:
+            # Elevation (z) and lateral (x) are probe-centered: the voxel grid is
+            # symmetric around zero.
+            physical_origin = -physical_spacing * (size - 1) / 2
         physical_attrs: dict[str, Any] = {}
     else:
         physical_values, physical_attrs = physical_explicit
@@ -358,14 +372,15 @@ def create_fusi_dataarray(
     dy: float | None = None,
     dx: float | None = None,
     t0: float = 0.0,
-    z0: float = 0.0,
-    y0: float = 0.0,
-    x0: float = 0.0,
+    z0: float | None = None,
+    y0: float | None = None,
+    x0: float | None = None,
     canonical_order: bool = True,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     name: str | None = None,
     attrs: dict[str, Any] | None = None,
+    voxel_to_physical: npt.ArrayLike | None = None,
 ) -> xr.DataArray:
     """Build a ConfUSIus fUSI DataArray from a raw array.
 
@@ -389,13 +404,21 @@ def create_fusi_dataarray(
     dx : float, optional
         Spacing of the `x` physical coordinate, in millimetres.
     t0 : float, default: 0.0
-        Origin of the generated `time` coordinate, in seconds.
-    z0 : float, default: 0.0
-        Origin of the generated `z` physical coordinate, in millimetres.
-    y0 : float, default: 0.0
-        Origin of the generated `y` physical coordinate, in millimetres.
-    x0 : float, default: 0.0
-        Origin of the generated `x` physical coordinate, in millimetres.
+        Physical position of the first `time` sample, in seconds.
+    z0 : float, optional
+        Physical position of the first `z` voxel's center, in millimetres. If not
+        provided, assumes `z` is the elevation axis and places the origin at the
+        center of the probe surface (see the
+        [Spatial Conventions](../../user-guide/spatial-conventions.md) guide for
+        the exact convention).
+    y0 : float, optional
+        Physical position of the first `y` voxel's center, in millimetres. If not
+        provided, assumes `y` is the depth axis and places the origin at the
+        center of the probe surface.
+    x0 : float, optional
+        Physical position of the first `x` voxel's center, in millimetres. If not
+        provided, assumes `x` is the lateral axis and places the origin at the
+        center of the probe surface.
     canonical_order : bool, default: True
         Whether to transpose core dimensions to `(time, pose, k, j, i)` order.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
@@ -406,6 +429,13 @@ def create_fusi_dataarray(
         Name assigned to the resulting DataArray.
     attrs : dict, optional
         DataArray-level attributes.
+    voxel_to_physical : numpy.typing.ArrayLike, optional
+        Homogeneous affine mapping native voxel coordinates to physical coordinates
+        `z/y/x`. If provided, `dz`/`dy`/`dx`, `z0`/`y0`/`x0`, and any physical
+        `z/y/x` coordinates in `coords` are ignored. Its columns follow the order
+        spatial axes appear in `dims` (matching `data`'s own layout), not canonical
+        `k/j/i` order; a spatial axis missing from `dims` (added as a singleton) is
+        assumed last. Internally re-ordered to canonical `k/j/i` order before use.
 
     Returns
     -------
@@ -464,24 +494,75 @@ def create_fusi_dataarray(
         )
 
     voxel_coords: dict[str, xr.DataArray] = {}
-    physical_origins: list[float] = []
-    physical_spacings: list[float] = []
     physical_attrs: dict[str, dict[str, Any]] = {}
-    for physical_dim, voxel_dim in zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True):
-        voxel_coord, physical_origin, physical_spacing, attrs_for_physical = (
-            _spatial_geometry(
-                physical_dim,
-                voxel_dim,
-                spatial_sizes[voxel_dim],
-                coords=coords,
-                spacing=spacings[physical_dim],
-                origin=origins[physical_dim],
+    if voxel_to_physical is None:
+        physical_origins: list[float] = []
+        physical_spacings: list[float] = []
+        for physical_dim, voxel_dim in zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True):
+            voxel_coord, physical_origin, physical_spacing, attrs_for_physical = (
+                _spatial_geometry(
+                    physical_dim,
+                    voxel_dim,
+                    spatial_sizes[voxel_dim],
+                    coords=coords,
+                    spacing=spacings[physical_dim],
+                    origin=origins[physical_dim],
+                )
             )
-        )
-        voxel_coords[voxel_dim] = voxel_coord
-        physical_origins.append(physical_origin)
-        physical_spacings.append(physical_spacing)
-        physical_attrs[physical_dim] = attrs_for_physical
+            voxel_coords[voxel_dim] = voxel_coord
+            physical_origins.append(physical_origin)
+            physical_spacings.append(physical_spacing)
+            physical_attrs[physical_dim] = attrs_for_physical
+        resolved_voxel_to_physical = np.eye(len(VOXEL_DIMS) + 1, dtype=np.float64)
+        resolved_voxel_to_physical[:-1, :-1] = np.diag(physical_spacings)
+        resolved_voxel_to_physical[:-1, -1] = physical_origins
+    else:
+        input_voxel_to_physical = np.asarray(voxel_to_physical, dtype=np.float64)
+        expected_shape = (len(VOXEL_DIMS) + 1, len(VOXEL_DIMS) + 1)
+        if input_voxel_to_physical.shape != expected_shape:
+            raise ValueError(
+                f"voxel_to_physical must have shape {expected_shape}, got "
+                f"{input_voxel_to_physical.shape}."
+            )
+        if not np.allclose(input_voxel_to_physical[-1], [0.0, 0.0, 0.0, 1.0]):
+            raise ValueError("voxel_to_physical must be a homogeneous affine.")
+
+        # voxel_to_physical's columns are given in the order spatial axes appear in
+        # `dims` (matching the caller's raw array layout), not canonical k/j/i order;
+        # any spatial dim missing from `dims` (added as a singleton) is assumed last,
+        # matching where it is appended below. Permute into canonical order here so
+        # the rest of the function (and the resulting attrs) can assume it throughout.
+        input_order = tuple(dim for dim in data_dims if dim in VOXEL_DIMS)
+        input_order += tuple(dim for dim in VOXEL_DIMS if dim not in input_order)
+        column_perm = [input_order.index(dim) for dim in VOXEL_DIMS]
+        resolved_voxel_to_physical = np.eye(len(VOXEL_DIMS) + 1, dtype=np.float64)
+        resolved_voxel_to_physical[:-1, :-1] = input_voxel_to_physical[:-1, :-1][
+            :, column_perm
+        ]
+        resolved_voxel_to_physical[:-1, -1] = input_voxel_to_physical[:-1, -1]
+
+        column_norms = np.linalg.norm(resolved_voxel_to_physical[:-1, :-1], axis=0)
+        for physical_dim, voxel_dim, spacing in zip(
+            SPATIAL_DIMS, VOXEL_DIMS, column_norms, strict=True
+        ):
+            explicit = _coordinate_values_and_attrs(voxel_dim, coords)
+            if explicit is None:
+                voxel_coords[voxel_dim] = xr.DataArray(
+                    np.arange(spatial_sizes[voxel_dim], dtype=float),
+                    dims=(voxel_dim,),
+                )
+            else:
+                values, coord_attrs = explicit
+                _validate_coordinate_shape(voxel_dim, values, spatial_sizes[voxel_dim])
+                voxel_coords[voxel_dim] = xr.DataArray(
+                    values, dims=(voxel_dim,), attrs=coord_attrs
+                )
+            physical_attrs[physical_dim] = {
+                "units": _SPATIAL_UNITS,
+                "voxdim": _require_positive_finite(
+                    spacing, f"voxdim for dimension {physical_dim!r}"
+                ),
+            }
 
     result = xr.DataArray(
         data,
@@ -501,16 +582,12 @@ def create_fusi_dataarray(
             )
             result.coords[dim].attrs.update(voxel_coords[dim].attrs)
 
-    voxel_to_physical = np.eye(len(VOXEL_DIMS) + 1, dtype=np.float64)
-    voxel_to_physical[:-1, :-1] = np.diag(physical_spacings)
-    voxel_to_physical[:-1, -1] = physical_origins
     result = add_physical_coords_from_voxel_affine(
         result,
-        voxel_to_physical,
+        resolved_voxel_to_physical,
         voxel_dims=VOXEL_DIMS,
         physical_coord_names=SPATIAL_DIMS,
         physical_coord_attrs=physical_attrs,
-        force_transform_index=True,
     )
 
     if canonical_order:
@@ -544,15 +621,16 @@ def create_iq_dataarray(
     dy: float | None = None,
     dx: float | None = None,
     t0: float = 0.0,
-    z0: float = 0.0,
-    y0: float = 0.0,
-    x0: float = 0.0,
+    z0: float | None = None,
+    y0: float | None = None,
+    x0: float | None = None,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     transmit_frequency: float | None = None,
     beamforming_sound_velocity: float | None = None,
     name: str | None = "iq",
     attrs: dict[str, Any] | None = None,
+    voxel_to_physical: npt.ArrayLike | None = None,
 ) -> xr.DataArray:
     """Build a canonical ConfUSIus IQ DataArray from a raw complex array.
 
@@ -574,13 +652,21 @@ def create_iq_dataarray(
     dx : float, optional
         Spacing of the `x` physical coordinate, in millimetres.
     t0 : float, default: 0.0
-        Origin of the generated `time` coordinate, in seconds.
-    z0 : float, default: 0.0
-        Origin of the generated `z` coordinate, in millimetres.
-    y0 : float, default: 0.0
-        Origin of the generated `y` coordinate, in millimetres.
-    x0 : float, default: 0.0
-        Origin of the generated `x` coordinate, in millimetres.
+        Physical position of the first `time` sample, in seconds.
+    z0 : float, optional
+        Physical position of the first `z` voxel's center, in millimetres. If not
+        provided, assumes `z` is the elevation axis and places the origin at the
+        center of the probe surface (see the
+        [Spatial Conventions](../../user-guide/spatial-conventions.md) guide for
+        the exact convention).
+    y0 : float, optional
+        Physical position of the first `y` voxel's center, in millimetres. If not
+        provided, assumes `y` is the depth axis and places the origin at the
+        center of the probe surface.
+    x0 : float, optional
+        Physical position of the first `x` voxel's center, in millimetres. If not
+        provided, assumes `x` is the lateral axis and places the origin at the
+        center of the probe surface.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
         Where within its acquisition window each frame's `time` coordinate is anchored.
     volume_acquisition_duration : float, optional
@@ -593,6 +679,13 @@ def create_iq_dataarray(
         Name assigned to the resulting DataArray.
     attrs : dict, optional
         Additional DataArray-level attributes.
+    voxel_to_physical : numpy.typing.ArrayLike, optional
+        Homogeneous affine mapping native voxel coordinates to physical coordinates
+        `z/y/x`. If provided, `dz`/`dy`/`dx`, `z0`/`y0`/`x0`, and any physical
+        `z/y/x` coordinates in `coords` are ignored. Its columns follow the order
+        spatial axes appear in `dims` (matching `data`'s own layout), not canonical
+        `k/j/i` order; a spatial axis missing from `dims` (added as a singleton) is
+        assumed last. Internally re-ordered to canonical `k/j/i` order before use.
 
     Returns
     -------
@@ -633,6 +726,7 @@ def create_iq_dataarray(
         volume_acquisition_duration=volume_acquisition_duration,
         name=name,
         attrs=attrs,
+        voxel_to_physical=voxel_to_physical,
     )
     validate_iq(result)
     return result

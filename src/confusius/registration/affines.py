@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     import SimpleITK as sitk
     from SimpleITK import (
         AffineTransform,
+        Euler2DTransform,
         Euler3DTransform,
         Similarity3DTransform,
         VersorRigid3DTransform,
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 
     _MatrixTransform = (
         AffineTransform
+        | Euler2DTransform
         | Euler3DTransform
         | Similarity3DTransform
         | VersorRigid3DTransform
@@ -24,6 +26,7 @@ if TYPE_CHECKING:
 
 _MATRIX_TRANSFORMS = {
     "AffineTransform",
+    "Euler2DTransform",
     "Euler3DTransform",
     "Similarity3DTransform",
     "VersorRigid3DTransform",

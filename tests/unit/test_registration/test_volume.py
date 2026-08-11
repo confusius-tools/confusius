@@ -790,14 +790,14 @@ class TestResampleVolume:
     def test_coords_reconstructed_from_origin_and_spacing(
         self, sample_2d_dataarray_spatial
     ):
-        """Output coordinates are reconstructed from origin and spacing, not copied."""
+        """Output CTI geometry is reconstructed from origin and spacing."""
         grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         result = resample_volume(sample_2d_dataarray_spatial, np.eye(3), **grid)
         for i, d in enumerate(sample_2d_dataarray_spatial.dims):
-            expected = (
-                grid["origin"][i] + np.arange(grid["shape"][i]) * grid["spacing"][i]
-            )
-            assert_allclose(result.coords[d].values, expected)
+            assert_allclose(result.coords[d].values, np.arange(grid["shape"][i]))
+            assert result.fusi.spacing[d] == pytest.approx(grid["spacing"][i])
+        for origin, d in zip(grid["origin"], ("y", "x"), strict=True):
+            assert result.fusi.origin[d] == pytest.approx(origin)
 
     def test_matches_register_volume_resample(
         self, sample_2d_image, sample_2d_dataarray_spatial

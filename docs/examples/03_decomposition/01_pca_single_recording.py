@@ -149,7 +149,7 @@ _ = axes[1].set_title("Cumulative variance")
 # ## Temporal PCA maps and corresponding time courses
 #
 # [`maps_`][confusius.decomposition.PCA] stores principal axes in voxel space as a
-# `(component, z, y, x)` DataArray. [`transform`][confusius.decomposition.PCA.transform]
+# `(component, k, j, i)` DataArray. [`transform`][confusius.decomposition.PCA.transform]
 # returned the associated temporal scores in `signals_t`, a `(time, component)`
 # DataArray.
 #

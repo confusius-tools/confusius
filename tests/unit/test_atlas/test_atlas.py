@@ -55,10 +55,14 @@ class TestBuilder:
             atlas_ds.atlas.annotation,
             atlas_ds.atlas.hemispheres,
         ]:
-            assert da.dims == ("z", "y", "x")
+            assert da.dims == ("k", "j", "i")
+            assert "voxel_to_physical" in da.attrs
 
-        for dim in ["z", "y", "x"]:
+        for dim, voxel_dim in zip(["z", "y", "x"], ["k", "j", "i"], strict=True):
             coord = atlas_ds.atlas.annotation.coords[dim]
+            # Axis-aligned geometry gets ordinary 1D coordinates, not a dense
+            # CoordinateTransformIndex-backed grid.
+            assert coord.dims == (voxel_dim,)
             np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
 
     def test_hemispheres_is_data_var(self, atlas_ds: xr.Dataset) -> None:
@@ -241,7 +245,7 @@ class TestGetMasks:
 
     def test_multiple_regions_stacked_shape(self, atlas_ds: xr.Dataset) -> None:
         result = atlas_ds.atlas.get_masks([10, 20])
-        assert result.dims == ("mask", "z", "y", "x")
+        assert result.dims == ("mask", "k", "j", "i")
         assert result.sizes["mask"] == 2
 
     def test_multiple_regions_masks_coord_contains_acronyms(
@@ -291,14 +295,14 @@ class TestGetMasks:
         np.testing.assert_array_equal((left > 0) | (right > 0), both > 0)
 
     def test_2d_slice_preserves_spatial_dims(self, atlas_ds: xr.Dataset) -> None:
-        sliced = atlas_ds.isel(z=0, drop=True)
+        sliced = atlas_ds.isel(k=0, drop=True)
         result = sliced.atlas.get_masks(10)
-        assert result.dims == ("mask", "y", "x")
+        assert result.dims == ("mask", "j", "i")
         np.testing.assert_array_equal(
-            result.coords["y"], sliced["annotation"].coords["y"]
+            result.coords["j"], sliced["annotation"].coords["j"]
         )
         np.testing.assert_array_equal(
-            result.coords["x"], sliced["annotation"].coords["x"]
+            result.coords["i"], sliced["annotation"].coords["i"]
         )
 
     def test_sides_length_mismatch_raises(self, atlas_ds: xr.Dataset) -> None:
@@ -684,7 +688,7 @@ class TestNonlinearMesh:
             shape=reference.shape,
             spacing=[0.05, 0.05, 0.05],
             origin=[0.0, 0.0, 0.0],
-            dims=["z", "y", "x"],
+            dims=["k", "j", "i"],
         )
         for var in ["reference", "annotation", "hemispheres"]:
             np.testing.assert_array_equal(by_like[var].values, by_grid[var].values)
@@ -782,10 +786,8 @@ class TestGroupbyIntegration:
         self, atlas_ds: xr.Dataset
     ) -> None:
         rng = np.random.default_rng(0)
-        data = xr.DataArray(
-            rng.standard_normal(atlas_ds.atlas.annotation.shape).astype(np.float32),
-            dims=["z", "y", "x"],
-            coords={d: atlas_ds.atlas.annotation.coords[d] for d in ["z", "y", "x"]},
+        data = atlas_ds.atlas.annotation.copy(
+            data=rng.standard_normal(atlas_ds.atlas.annotation.shape).astype(np.float32)
         )
         grouped = data.groupby(atlas_ds.atlas.annotation.rename("annotation")).mean()
 

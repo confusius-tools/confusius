@@ -27,14 +27,78 @@ def test_create_fusi_dataarray_builds_canonical_time_varying_single_slice():
     )
 
     assert result.dims == ("time", "k", "j", "i")
-    assert type(result.xindexes["x"]).__name__ == "CoordinateTransformIndex"
+    # Axis-aligned geometry gets ordinary 1D coordinates, not a lazy
+    # CoordinateTransformIndex, which only supports method="nearest" selection and
+    # would reject this slice outright.
+    assert_allclose(
+        result.sel(x=slice(0.0, 1.0)).coords["x"].values, [0.1, 0.3, 0.5, 0.7, 0.9]
+    )
     assert_allclose(result.coords["time"].values, 1.0 + np.arange(5) * 0.5)
     assert_allclose(np.unique(result.coords["z"].values), [2.0])
-    assert_allclose(result.coords["y"].isel(k=0, i=0).values, np.arange(8) * 0.1)
+    assert_allclose(result.coords["y"].values, 0.05 + np.arange(8) * 0.1)
     assert result.coords["time"].attrs["units"] == "s"
     assert result.coords["z"].attrs == {"units": "mm", "voxdim": 0.4}
     assert result.coords["x"].attrs == {"units": "mm", "voxdim": 0.2}
     validate_fusi(result, require_time=True)
+
+
+def test_create_fusi_dataarray_default_y_origin_is_half_voxel_past_surface():
+    """Without `y0`, depth is probe-surface-referenced: `y=0` is the probe surface."""
+    result = create_fusi_dataarray(
+        np.zeros((4, 8, 12)),
+        dims=("time", "y", "x"),
+        dt=0.5,
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+    )
+
+    assert_allclose(result.coords["y"].values, 0.05 + np.arange(8) * 0.1)
+
+
+@pytest.mark.parametrize(
+    ("n_z", "expected_z"),
+    [
+        pytest.param(3, [-0.4, 0.0, 0.4], id="odd"),
+        pytest.param(4, [-0.6, -0.2, 0.2, 0.6], id="even"),
+    ],
+)
+def test_create_fusi_dataarray_default_z_and_x_origin_are_probe_centered(
+    n_z, expected_z
+):
+    """Without `z0`/`x0`, elevation and lateral axes are centered around zero.
+
+    `0.0` lands exactly on a grid point only for an odd voxel count; for an even
+    count it falls between two voxels instead.
+    """
+    result = create_fusi_dataarray(
+        np.zeros((4, n_z, 8, 4)),
+        dims=("time", "z", "y", "x"),
+        dt=0.5,
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+    )
+
+    assert_allclose(np.unique(result.coords["z"].values), expected_z)
+    assert_allclose(result.coords["x"].values, [-0.3, -0.1, 0.1, 0.3])
+
+
+def test_create_fusi_dataarray_explicit_origin_is_used_as_is():
+    """An explicit `z0`/`y0`/`x0` is the first voxel's coordinate, no added offset."""
+    result = create_fusi_dataarray(
+        np.zeros((4, 8, 12)),
+        dims=("time", "y", "x"),
+        dt=0.5,
+        dz=0.4,
+        dy=0.1,
+        dx=0.2,
+        y0=10.0,
+        x0=0.0,
+    )
+
+    assert_allclose(result.coords["y"].values, 10.0 + np.arange(8) * 0.1)
+    assert_allclose(result.coords["x"].values, np.arange(12) * 0.2)
 
 
 def test_create_fusi_dataarray_adds_missing_singleton_spatial_dim():

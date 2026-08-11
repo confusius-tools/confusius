@@ -35,7 +35,7 @@ The fastest way to get started is to fetch a single subject from the Nunez-Eliza
 >>>
 >>> # Load a power Doppler acquisition from the returned BIDS tree.
 >>> pwd = cf.load(
-...    root
+...     root
 ...     / "sub-CR020"
 ...     / "ses-20191122"
 ...     / "fusi"

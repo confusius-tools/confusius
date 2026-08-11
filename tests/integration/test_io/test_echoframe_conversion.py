@@ -311,16 +311,18 @@ class TestEchoFrameConversion:
             real_group = original_open_group(*args, **kwargs)
             return MockZarrGroup(real_group)
 
-        with patch(
-            "confusius.io.echoframe.zarr.open_group", side_effect=mock_open_group
+        with (
+            patch(
+                "confusius.io.echoframe.zarr.open_group", side_effect=mock_open_group
+            ),
+            pytest.raises(Exception, match="Simulated error during conversion"),
         ):
-            with pytest.raises(Exception, match="Simulated error during conversion"):
-                convert_echoframe_dat_to_zarr(
-                    dat_path,
-                    meta_path,
-                    output_path,
-                    show_progress=False,
-                )
+            convert_echoframe_dat_to_zarr(
+                dat_path,
+                meta_path,
+                output_path,
+                show_progress=False,
+            )
 
         assert not output_path.exists()
 

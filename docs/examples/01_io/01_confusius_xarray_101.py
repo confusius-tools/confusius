@@ -114,11 +114,14 @@ roi
 #
 # To summarize the ROI over time, we average over the spatial dimensions. With Xarray,
 # reductions such as [`.mean`][xarray.DataArray.mean] take dimension names like
-# `("z", "y", "x")` rather than integer axis indices, which makes the intent much
-# clearer than the NumPy-style `axis=(...)` equivalent.
+# `("k", "j", "i")` rather than integer axis indices, which makes the intent much
+# clearer than the NumPy-style `axis=(...)` equivalent. Note that the underlying array
+# dimensions are the voxel-space `k`/`j`/`i` axes; the physical `z`/`y`/`x` coordinates
+# attached to them are what makes coordinate-based `.sel` calls like the ROI selection
+# above possible.
 
 # %%
-roi_trace = roi.mean(("z", "y", "x"))
+roi_trace = roi.mean(("k", "j", "i"))
 roi_trace
 
 # %% [markdown]

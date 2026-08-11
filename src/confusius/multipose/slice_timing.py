@@ -4,6 +4,11 @@ from typing import Literal
 
 import xarray as xr
 
+from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+)
 from confusius._utils.timing import interpolate_timeseries
 from confusius.validation import ensure_fusi
 
@@ -91,6 +96,8 @@ def correct_slice_timings(
     UserWarning
         If a spline method fails due to too few points and falls back to `"linear"`.
     """
+    if "time" not in da.dims:
+        raise ValueError("DataArray must have a 'time' dimension.")
     da = ensure_fusi(da, require_time=True, require_unchunked_time=True)
 
     timing_coord_name = next(
@@ -135,7 +142,17 @@ def correct_slice_timings(
     # apply_ufunc appends core dims to the end; restore the original dim order.
     result = result.transpose(*da.dims)
 
-    corrected_coords = {k: v for k, v in da.coords.items() if k != timing_coord_name}
-    return xr.DataArray(
-        result.data, dims=da.dims, coords=corrected_coords, attrs=da.attrs, name=da.name
+    out = da.copy(data=result.data)
+    del out.coords[timing_coord_name]
+    physical_coord_names = tuple(get_voxel_affine_physical_coord_names(da))
+    out = out.drop_vars(physical_coord_names, errors="ignore")
+    return add_physical_coords_from_voxel_affine(
+        out,
+        da.attrs["voxel_to_physical"],
+        voxel_dims=tuple(get_voxel_affine_spatial_dims(da)),
+        physical_coord_names=physical_coord_names,
+        physical_coord_attrs={
+            name: dict(da.coords[name].attrs) for name in physical_coord_names
+        },
+        force_transform_index=True,
     )

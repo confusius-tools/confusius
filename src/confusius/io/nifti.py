@@ -1073,6 +1073,24 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
     voxel_to_physical[:-1, :-1] = np.diag(spacing)
     voxel_to_physical[:-1, -1] = origin
 
+    conflicting_dims = [
+        dim
+        for dim in rename_map.values()
+        if dim in data_array.dims and dim not in spatial_dims
+    ]
+    if conflicting_dims:
+        fallback_names = [
+            data_array.attrs.get("dim7_name"),
+            data_array.attrs.get("dim6_name"),
+            data_array.attrs.get("dim5_name"),
+        ]
+        extra_renames = {
+            dim: name
+            for dim, name in zip(conflicting_dims, fallback_names, strict=False)
+            if isinstance(name, str) and name not in data_array.dims
+        }
+        data_array = data_array.rename(extra_renames)
+
     result = data_array.rename(rename_map)
     for dim in voxel_dims:
         result = result.assign_coords({dim: np.arange(result.sizes[dim], dtype=float)})
@@ -1651,7 +1669,10 @@ def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any
         dimensions.
     """
     current_dims = tuple(str(dim) for dim in data_array.dims)
-    _, extras = _split_nifti_dims(current_dims)
+    if has_voxel_affine_geometry(data_array):
+        extras = [d for d in current_dims if d not in (*VOXEL_DIMS, "time")]
+    else:
+        _, extras = _split_nifti_dims(current_dims)
 
     extra_metadata: dict[str, Any] = {}
     for extra_index, dim_name in enumerate(extras):

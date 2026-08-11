@@ -18,6 +18,10 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.geometry import (
+    get_voxel_affine_physical_coord_names,
+    has_voxel_affine_geometry,
+)
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
 from confusius.registration.bspline import validate_bspline
@@ -124,16 +128,21 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
         JSON-serializable output-grid description.
     """
     dims = [str(dim) for dim in reference.dims]
+    origin_names = (
+        get_voxel_affine_physical_coord_names(reference)
+        if has_voxel_affine_geometry(reference)
+        else dims
+    )
     return {
         "dims": dims,
         "shape": [int(reference.sizes[dim]) for dim in dims],
         "spacing": [float(reference.fusi.spacing[dim]) for dim in dims],
-        "origin": [float(reference.fusi.origin[dim]) for dim in dims],
+        "origin": [float(reference.fusi.origin[dim]) for dim in origin_names],
         "units": [
             cast("str | None", reference.coords[dim].attrs.get("units"))
             if dim in reference.coords
             else None
-            for dim in dims
+            for dim in origin_names
         ],
     }
 

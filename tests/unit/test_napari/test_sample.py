@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from unittest.mock import Mock
 
-from npe2 import PluginManifest
-
 import numpy as np
 import pytest
 import xarray as xr
+from npe2 import PluginManifest
 
 from confusius._napari._sample import (
     _AWAKE_MOUSE_ACQ,

@@ -34,6 +34,7 @@ from confusius._napari._registration._transform_payloads import (
     make_bspline_transform_payload,
     save_transform_payload,
 )
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.registration import (
     RegistrationDiagnostics,
     resample_like,
@@ -81,6 +82,36 @@ def _FakeDiagnostics(
         n_iterations=n_iterations,
         stop_condition=stop_condition,
         status=cast("Any", status),
+    )
+
+
+def _make_cti_volume(
+    data: np.ndarray,
+    *,
+    spacing: tuple[float, ...],
+    origin: tuple[float, ...] | None = None,
+) -> xr.DataArray:
+    dims = ("k", "j", "i")[-data.ndim :]
+    origin = (0.0,) * data.ndim if origin is None else origin
+    da = xr.DataArray(
+        data,
+        dims=dims,
+        coords={
+            dim: np.arange(size) for dim, size in zip(dims, data.shape, strict=True)
+        },
+    )
+    affine = np.eye(data.ndim + 1, dtype=float)
+    affine[:-1, :-1] = np.diag(spacing)
+    affine[:-1, -1] = origin
+    return add_physical_coords_from_voxel_affine(
+        da,
+        affine,
+        voxel_dims=dims,
+        physical_coord_names=("z", "y", "x")[-data.ndim :],
+        physical_coord_attrs={
+            name: {"units": "mm", "voxdim": step}
+            for name, step in zip(("z", "y", "x")[-data.ndim :], spacing, strict=True)
+        },
     )
 
 
@@ -911,13 +942,8 @@ class TestTransforms:
         )
 
     def test_bspline_payload_missing_spatial_axis_is_rejected(self, tmp_path):
-        reference = xr.DataArray(
-            np.ones((3, 4), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+        reference = _make_cti_volume(
+            np.ones((3, 4), dtype=np.float32), spacing=(0.2, 0.1)
         )
         transform = _make_bspline_transform()
         payload = make_bspline_transform_payload(
@@ -932,7 +958,7 @@ class TestTransforms:
             diagnostics=_FakeDiagnostics(),
         )
 
-        with pytest.raises(ValueError, match="must contain all spatial dimensions"):
+        with pytest.raises(ValueError, match="native voxel dimensions"):
             save_transform_payload(tmp_path / "bspline.nii.gz", payload)
 
     def test_bspline_transform_is_not_offered_for_initialization(
@@ -1046,20 +1072,8 @@ class TestTransforms:
     def test_apply_transform_layers_keep_grid_units_and_singleton_spacing(
         self, viewer, registration_panel, monkeypatch
     ):
-        def _mm_coord(values, dim, voxdim=None):
-            attrs = {"units": "mm"}
-            if voxdim is not None:
-                attrs["voxdim"] = voxdim
-            return xr.DataArray(values, dims=[dim], attrs=attrs)
-
-        target = xr.DataArray(
-            np.zeros((1, 5, 7), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": _mm_coord([0.0], "z", voxdim=0.4),
-                "y": _mm_coord(np.arange(5) * 0.3, "y"),
-                "x": _mm_coord(np.arange(7) * 0.3, "x"),
-            },
+        target = _make_cti_volume(
+            np.zeros((1, 5, 7), dtype=np.float32), spacing=(0.4, 0.3, 0.3)
         )
         moving = target.copy()
         payload = make_affine_transform_payload(
@@ -1101,20 +1115,8 @@ class TestTransforms:
     def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = xr.DataArray(
-            np.zeros((2, 20, 20), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": xr.DataArray(
-                    np.arange(2) * 0.3, dims=["z"], attrs={"units": "mm"}
-                ),
-                "y": xr.DataArray(
-                    np.arange(20) * 0.2, dims=["y"], attrs={"units": "mm"}
-                ),
-                "x": xr.DataArray(
-                    np.arange(20) * 0.1, dims=["x"], attrs={"units": "mm"}
-                ),
-            },
+        source = _make_cti_volume(
+            np.zeros((2, 20, 20), dtype=np.float32), spacing=(0.3, 0.2, 0.1)
         )
         source.values[:, 5:10, 6:11] = 1.0
         affine = np.array(
@@ -1129,10 +1131,10 @@ class TestTransforms:
         target = resample_volume(
             source,
             affine,
-            shape=[source.sizes["z"], source.sizes["y"], source.sizes["x"]],
+            shape=[source.sizes["k"], source.sizes["j"], source.sizes["i"]],
             spacing=[0.3, 0.2, 0.1],
             origin=[0.0, 0.0, 0.0],
-            dims=["z", "y", "x"],
+            dims=["k", "j", "i"],
             interpolation="nearest",
         )
         payload = make_affine_transform_payload(
@@ -1520,27 +1522,12 @@ class TestFinishedCallbacks:
     def test_create_volume_progress_plotter_applies_initial_transform_to_preview_layers(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = _make_cti_volume(
             np.arange(24, dtype=np.float32).reshape(1, 4, 6),
-            dims=["z", "y", "x"],
-            coords={
-                "z": xr.DataArray(
-                    [0.0], dims=["z"], attrs={"units": "mm", "voxdim": 0.2}
-                ),
-                "y": xr.DataArray(
-                    np.arange(4) * 0.2, dims=["y"], attrs={"units": "mm"}
-                ),
-                "x": xr.DataArray(
-                    np.arange(6) * 0.1, dims=["x"], attrs={"units": "mm"}
-                ),
-            },
+            spacing=(0.2, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
-        fixed = xr.DataArray(
-            np.zeros((1, 4, 6), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords=moving_data.coords,
-        )
+        fixed = moving_data.copy(data=np.zeros((1, 4, 6), dtype=np.float32))
         fixed_layer = real_viewer.add_image(
             np.zeros((1, 4, 6), dtype=np.float32), name="fixed"
         )

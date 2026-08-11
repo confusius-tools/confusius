@@ -22,7 +22,7 @@ from pathlib import Path
 # Ensure the repo root is importable when this script is invoked directly.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tools.gallery._pipeline import build_gallery  # noqa: E402
+from tools.gallery._pipeline import build_gallery
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_ROOT = REPO_ROOT / "docs" / "examples"

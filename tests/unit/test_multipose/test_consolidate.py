@@ -8,6 +8,7 @@ import xarray as xr
 
 from confusius.io.scan import load_scan
 from confusius.multipose import consolidate_poses
+from confusius.xarray import create_fusi_dataarray
 
 _NPOSE = 3
 _SIZE_Y = 1
@@ -284,10 +285,15 @@ class TestConsolidatePoses:
                 for d in ("k", "j", "i")
             },
         }
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
-            dims=["pose", "k", "j", "i"],
-            coords=coords,
+            dims=["pose", "z", "y", "x"],
+            coords={
+                "pose": coords["pose"],
+                "z": coords["k"].rename("z"),
+                "y": coords["j"].rename("y"),
+                "x": coords["i"].rename("x"),
+            },
             attrs={"affines": {"physical_to_lab": affines}},
         )
 
@@ -297,12 +303,18 @@ class TestConsolidatePoses:
         assert result.dims == tuple([sweep_dim] + other_dims)
         assert "pose" not in result.dims
         assert result.sizes[sweep_dim] == npose * n_sweep
+        physical_sweep_dim = {"k": "z", "j": "y", "i": "x"}[sweep_dim]
+        sweep_coord = result.coords[physical_sweep_dim].isel(
+            {dim: 0 for dim in other_dims}
+        )
         np.testing.assert_allclose(
-            result.coords[sweep_dim].values,
+            sweep_coord.values,
             np.arange(npose * n_sweep) * intra_step,
         )
-        assert result.coords[sweep_dim].attrs.get("units") == sweep_unit
-        assert result.coords[sweep_dim].attrs["voxdim"] == pytest.approx(voxel_size)
+        assert result.coords[physical_sweep_dim].attrs.get("units") == sweep_unit
+        assert result.coords[physical_sweep_dim].attrs["voxdim"] == pytest.approx(
+            intra_step
+        )
 
         # Verify data values: for each pose p and local sweep index si, the
         # consolidated flat index is p*n_sweep + si (poses are sorted ascending).

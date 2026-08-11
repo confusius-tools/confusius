@@ -153,7 +153,10 @@ for label, volume in {
     print(f"\n--- {label} ---")
     print("dims:", volume.dims)
     print("coord names:", list(volume.coords))
-    print("axis-aligned voxel-to-physical geometry:", has_axis_aligned_voxel_affine_geometry(volume))
+    print(
+        "axis-aligned voxel-to-physical geometry:",
+        has_axis_aligned_voxel_affine_geometry(volume),
+    )
     print("voxel_to_physical:\n", np.asarray(volume.attrs["voxel_to_physical"]))
     print("origin:", volume.fusi.origin)
     print("spacing:", volume.fusi.spacing)

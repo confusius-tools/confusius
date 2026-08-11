@@ -20,6 +20,7 @@ from confusius.iq.process import (
     process_iq_to_bmode,
     process_iq_to_power_doppler,
 )
+from confusius.xarray import create_iq_dataarray
 
 
 class _ProcessedTimingKwargs(TypedDict):
@@ -41,9 +42,9 @@ class TestComputeProcessedVolumeTimes:
         volume_acquisition_reference: str = "start",
     ) -> xr.DataArray:
         time_values = np.asarray(time_values, dtype=np.float64)
-        return xr.DataArray(
+        return create_iq_dataarray(
             np.ones((time_values.size, 1, 1, 1), dtype=np.complex128),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             coords={
                 "time": xr.DataArray(
                     time_values,
@@ -53,11 +54,9 @@ class TestComputeProcessedVolumeTimes:
                         "volume_acquisition_duration": volume_acquisition_duration,
                         "volume_acquisition_reference": volume_acquisition_reference,
                     },
-                ),
-                "z": [0],
-                "y": [0],
-                "x": [0],
+                )
             },
+            voxel_to_physical=np.eye(4),
         )
 
     @pytest.mark.parametrize(
@@ -286,7 +285,7 @@ class TestComputePowerDopplerVolume:
     def test_matches_reference_with_svd_filter(self, sample_iq_block_4d, spatial_mask):
         """Result with SVD filter matches reference implementation."""
         low_cutoff, high_cutoff = 2, 8
-        time, z, y, x = sample_iq_block_4d.shape
+        time, _z, _y, _x = sample_iq_block_4d.shape
 
         # Reference: apply SVD filter manually then compute power Doppler.
         signals = sample_iq_block_4d.reshape(time, -1)
@@ -661,7 +660,7 @@ class TestProcessIqToPowerDoppler:
                     doppler_window_width=2,
                     doppler_window_stride=2,
                 )
-                for start in range(0, sample_iq_dataarray.sizes["time"] - 6 + 1)
+                for start in range(sample_iq_dataarray.sizes["time"] - 6 + 1)
             ],
             axis=0,
         )
@@ -1093,19 +1092,7 @@ class TestDataArrayClutterMask:
         iq = sample_iq_dataarray
         n_time = iq.sizes["time"]
 
-        # Create DataArray mask with matching coordinates.
-        mask_dataarray = xr.DataArray(
-            spatial_mask,
-            dims=("k", "j", "i"),
-            coords={
-                "k": iq.coords["k"],
-                "j": iq.coords["j"],
-                "i": iq.coords["i"],
-                "z": iq.coords["z"],
-                "y": iq.coords["y"],
-                "x": iq.coords["x"],
-            },
-        )
+        mask_dataarray = iq.isel(time=0, drop=True).copy(data=spatial_mask)
 
         result = process_iq_to_power_doppler(
             iq,
@@ -1135,19 +1122,7 @@ class TestDataArrayClutterMask:
         iq = sample_iq_dataarray
         n_time = iq.sizes["time"]
 
-        # Create DataArray mask with matching coordinates.
-        mask_dataarray = xr.DataArray(
-            spatial_mask,
-            dims=("k", "j", "i"),
-            coords={
-                "k": iq.coords["k"],
-                "j": iq.coords["j"],
-                "i": iq.coords["i"],
-                "z": iq.coords["z"],
-                "y": iq.coords["y"],
-                "x": iq.coords["x"],
-            },
-        )
+        mask_dataarray = iq.isel(time=0, drop=True).copy(data=spatial_mask)
 
         result = process_iq_to_axial_velocity(
             iq,
@@ -1179,19 +1154,8 @@ class TestDataArrayClutterMask:
         """DataArray mask with mismatched coordinates raises ValueError."""
         iq = sample_iq_dataarray
 
-        # Create mask with different coordinates.
-        mask_dataarray = xr.DataArray(
-            spatial_mask,
-            dims=("k", "j", "i"),
-            coords={
-                "k": iq.coords["k"] + 1,
-                "j": iq.coords["j"],
-                "i": iq.coords["i"],
-                "z": iq.coords["z"] + 1.0,
-                "y": iq.coords["y"],
-                "x": iq.coords["x"],
-            },
-        )
+        mask_dataarray = iq.isel(time=0, drop=True).copy(data=spatial_mask)
+        mask_dataarray = mask_dataarray.assign_coords(k=mask_dataarray.coords["k"] + 1)
 
         with pytest.raises(
             ValueError,
@@ -1210,19 +1174,11 @@ class TestDataArrayClutterMask:
         """DataArray mask missing a coordinate raises ValueError."""
         iq = sample_iq_dataarray
 
-        # Create mask missing 'k' coordinate.
-        mask_dataarray = xr.DataArray(
-            spatial_mask,
-            dims=("k", "j", "i"),
-            coords={
-                "j": iq.coords["j"],
-                "i": iq.coords["i"],
-                "y": iq.coords["y"],
-                "x": iq.coords["x"],
-            },
+        mask_dataarray = (
+            iq.isel(time=0, drop=True).copy(data=spatial_mask).drop_vars("k")
         )
 
-        with pytest.raises(ValueError, match=r"is missing from clutter_mask"):
+        with pytest.raises(ValueError, match=r"Missing required coordinate"):
             process_iq_to_power_doppler(
                 iq,
                 clutter_mask=mask_dataarray,
@@ -1234,17 +1190,10 @@ class TestDataArrayClutterMask:
         """DataArray mask with wrong shape raises ValueError."""
         iq = sample_iq_dataarray
 
-        # Create mask with wrong shape.
         wrong_mask = np.ones((2, 2, 2), dtype=bool)
-        mask_dataarray = xr.DataArray(
-            wrong_mask,
-            dims=("k", "j", "i"),
-            coords={
-                "k": np.arange(2),
-                "j": np.arange(2),
-                "i": np.arange(2),
-            },
-        )
+        mask_dataarray = iq.isel(
+            time=0, k=slice(0, 2), j=slice(0, 2), i=slice(0, 2), drop=True
+        ).copy(data=wrong_mask)
 
         with pytest.raises(
             ValueError,
@@ -1271,7 +1220,7 @@ class TestComputeBmodeVolume:
 
     def test_output_shape(self, sample_iq_block_4d):
         """Output has shape (1, z, y, x)."""
-        time, z, y, x = sample_iq_block_4d.shape
+        _time, z, y, x = sample_iq_block_4d.shape
         result = compute_bmode_volume(sample_iq_block_4d)
 
         assert result.shape == (1, z, y, x)

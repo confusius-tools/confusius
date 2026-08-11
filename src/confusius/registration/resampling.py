@@ -8,6 +8,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
     get_voxel_affine_physical_coord_names,
     has_voxel_affine_geometry,
 )
@@ -173,27 +174,45 @@ def resample_volume(
         # image.
         registered_arr = sitk.GetArrayFromImage(result_sitk).T
 
-    coords = {}
-    for i, d in enumerate(dims):
-        coord_attrs = moving.coords[d].attrs.copy()
-        coord_attrs["voxdim"] = float(spacing[i])
-        coords[d] = xr.DataArray(
-            np.array(origin[i]) + np.arange(shape[i]) * np.array(spacing[i]),
-            dims=d,
-            attrs=coord_attrs,
-        )
+    coords = {d: xr.DataArray(np.arange(shape[i]), dims=d) for i, d in enumerate(dims)}
 
     if has_time:
         coords["time"] = moving.coords["time"]
         dims = ["time"] + list(dims)
 
+    attrs = moving.attrs.copy()
+    attrs.pop("voxel_to_physical", None)
     result = xr.DataArray(
         registered_arr,
         coords=coords,
         dims=dims,
-        attrs=moving.attrs.copy(),
+        attrs=attrs,
     )
-    return result
+
+    spatial_dims = tuple(str(d) for d in dims if str(d) != "time")
+    physical_coord_names = (
+        get_voxel_affine_physical_coord_names(moving)
+        if has_voxel_affine_geometry(moving)
+        else tuple(spatial_dims)
+    )
+    output_affine = np.eye(ndim + 1, dtype=np.float64)
+    output_affine[:-1, :-1] = (
+        np.asarray(direction, dtype=np.float64) @ np.diag(spacing)
+        if direction is not None
+        else np.diag(spacing)
+    )
+    output_affine[:-1, -1] = np.asarray(origin, dtype=np.float64)
+    return add_physical_coords_from_voxel_affine(
+        result,
+        output_affine,
+        voxel_dims=spatial_dims,
+        physical_coord_names=physical_coord_names,
+        physical_coord_attrs={
+            name: {"units": moving.coords[name].attrs.get("units"), "voxdim": step}
+            for name, step in zip(physical_coord_names, spacing, strict=True)
+            if name in moving.coords
+        },
+    )
 
 
 def resample_like(

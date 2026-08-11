@@ -12,7 +12,32 @@ import xarray as xr
 
 from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.io.nifti import load_nifti, save_nifti
+from confusius.xarray import create_fusi_dataarray as _create_fusi_dataarray
 from confusius.xarray.affine import apply_affine
+
+
+def create_fusi_dataarray(
+    data,
+    dims,
+    coords=None,
+    **kwargs,
+) -> xr.DataArray:
+    """Create CTI-backed test DataArrays with unit default spatial coords."""
+    coords = dict(coords or {})
+    for dim, size in zip(dims, np.shape(data), strict=True):
+        if dim in {"z", "y", "x"} and dim not in coords:
+            coords[dim] = xr.Variable(
+                dim,
+                np.arange(size, dtype=np.float64),
+                attrs={"units": "mm", "voxdim": 1.0},
+            )
+    if "time" in dims and "time" not in coords:
+        kwargs.setdefault("dt", 1.0)
+    for dim in ("z", "y", "x"):
+        if dim not in coords:
+            kwargs.setdefault(f"d{dim}", 1.0)
+    kwargs.setdefault("canonical_order", False)
+    return _create_fusi_dataarray(data, dims=dims, coords=coords, **kwargs)
 
 
 def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
@@ -1196,11 +1221,10 @@ class TestSaveNifti:
     def test_save_2d_dataarray(self, tmp_path) -> None:
         """Saving 2D DataArray inserts only the missing spatial axis."""
         data = np.random.default_rng(0).random((6, 8)).astype(np.float32)
-        da = xr.DataArray(data, dims=["y", "x"])
+        da = create_fusi_dataarray(data, dims=["y", "x"])
 
         output_path = tmp_path / "output_2d.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         # NIfTI order: (x, y, z) — only the missing z slot is inserted.
@@ -1212,11 +1236,10 @@ class TestSaveNifti:
     def test_save_3d_dataarray(self, tmp_path):
         """Saving 3D DataArray keeps the payload 3D on disk."""
         data = np.random.default_rng(0).random((6, 8, 10)).astype(np.float32)
-        da = xr.DataArray(data, dims=["z", "y", "x"])
+        da = create_fusi_dataarray(data, dims=["z", "y", "x"])
 
         output_path = tmp_path / "output_3d.nii"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         assert output_path.exists()
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
@@ -1229,11 +1252,10 @@ class TestSaveNifti:
     def test_save_4d_dataarray(self, tmp_path):
         """Saving 4D DataArray creates valid NIfTI file."""
         data = np.random.default_rng(0).random((4, 6, 8, 10)).astype(np.float32)
-        da = xr.DataArray(data, dims=["time", "z", "y", "x"])
+        da = create_fusi_dataarray(data, dims=["time", "z", "y", "x"])
 
         output_path = tmp_path / "output_4d.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         assert output_path.exists()
         assert output_path.suffixes == [".nii", ".gz"]
@@ -1246,11 +1268,10 @@ class TestSaveNifti:
     def test_save_5d_dataarray_preserves_extra_dim_order(self, tmp_path) -> None:
         """Saving with an extra non-standard dim keeps it after `time` in NIfTI order."""
         data = np.arange(2 * 4 * 3 * 5 * 6, dtype=np.float32).reshape(2, 4, 3, 5, 6)
-        da = xr.DataArray(data, dims=["channel", "time", "z", "y", "x"])
+        da = create_fusi_dataarray(data, dims=["channel", "time", "z", "y", "x"])
 
         output_path = tmp_path / "output_5d.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.shape == (6, 5, 3, 4, 2)
@@ -1265,7 +1286,7 @@ class TestSaveNifti:
     def test_save_4d_no_time_writes_dim4_sidecar(self, tmp_path) -> None:
         """Saving a 4D non-time payload writes a 5D NIfTI with degenerate time and `ConfUSIusDim4Name`."""
         data = np.arange(3 * 4 * 5 * 6, dtype=np.float64).reshape(3, 4, 5, 6)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1299,7 +1320,7 @@ class TestSaveNifti:
     ) -> None:
         """Missing spatial axes are inserted as singletons on save and preserved on load."""
         data = np.arange(3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["component", "z", "x"],
             coords={
@@ -1310,8 +1331,7 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "component_z_x.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
         roundtripped = load_nifti(output_path)
         # `y` was missing on save; NIfTI requires a length-1 `y` slot, so the
@@ -1327,7 +1347,7 @@ class TestSaveNifti:
     def test_save_string_extra_coord_roundtrips_through_sidecar(self, tmp_path) -> None:
         """String-valued extra-dim coordinates roundtrip through the JSON sidecar."""
         data = np.zeros((3, 4, 6, 8), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1350,7 +1370,7 @@ class TestSaveNifti:
     def test_save_irregular_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """When the extra coord cannot be recovered from `pixdim`, the sidecar stores the values."""
         data = np.zeros((2, 4, 8, 10), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["channel", "z", "y", "x"],
             coords={
@@ -1373,7 +1393,7 @@ class TestSaveNifti:
     def test_save_constant_extra_coord_writes_dim_coordinates(self, tmp_path) -> None:
         """A constant extra-dim coord has a zero step, so the sidecar stores the values."""
         data = np.zeros((3, 4, 6, 8), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1404,7 +1424,7 @@ class TestSaveNifti:
     def test_save_singleton_extra_coord_roundtrips(self, tmp_path) -> None:
         """A singleton extra-dim coord is treated as vacuously regular and roundtrips."""
         data = np.zeros((1, 4, 6, 8), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1430,7 +1450,7 @@ class TestSaveNifti:
         proxying the data array, so the roundtrip cannot be verified through ``load_nifti``.
         """
         data = np.zeros((0, 4, 6, 8), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["component", "z", "y", "x"],
             coords={
@@ -1457,7 +1477,7 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """Extra-dim coordinate attrs are preserved through the JSON sidecar."""
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             np.zeros((2, 4, 8, 10), dtype=np.float32),
             dims=["channel", "z", "y", "x"],
             coords={
@@ -1491,7 +1511,7 @@ class TestSaveNifti:
     def test_save_5d_with_time_writes_dim4_sidecar(self, tmp_path) -> None:
         """Saving a 5D payload with `time` writes `ConfUSIusDim4Name` (1st extra)."""
         data = np.arange(2 * 6 * 4 * 8 * 10, dtype=np.float32).reshape(2, 6, 4, 8, 10)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["channel", "time", "z", "y", "x"],
             coords={
@@ -1516,7 +1536,7 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """Regular zero-based negative extra coords use signed `pixdim`, not sidecar values."""
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             np.zeros((3, 4, 8, 10), dtype=np.float32),
             dims=["channel", "z", "y", "x"],
             coords={
@@ -1546,7 +1566,7 @@ class TestSaveNifti:
     def test_save_too_many_extras_raises(self, tmp_path) -> None:
         """Saving more extra dims than NIfTI supports raises ValueError."""
         data = np.zeros((2, 2, 2, 2, 4, 8, 10), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["a", "b", "c", "d", "z", "y", "x"],
             coords={
@@ -1566,7 +1586,7 @@ class TestSaveNifti:
     def test_save_three_extras_no_time_ok(self, tmp_path) -> None:
         """3 extras without `time` is allowed (uses NIfTI axes 4, 5, 6)."""
         data = np.zeros((2, 2, 2, 4, 8, 10), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["a", "b", "c", "z", "y", "x"],
             coords={
@@ -1590,7 +1610,7 @@ class TestSaveNifti:
     def test_save_three_extras_with_time_ok(self, tmp_path) -> None:
         """3 extras with `time` fit NIfTI's 7-axis limit (uses NIfTI axes 4, 5, 6)."""
         data = np.zeros((2, 2, 2, 6, 4, 8, 10), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["a", "b", "c", "time", "z", "y", "x"],
             coords={
@@ -1616,14 +1636,10 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """Regular negative spatial coords round-trip through the NIfTI affine."""
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=["z", "y", "x"],
-            coords={
-                "z": [0.0, 1.0],
-                "y": [0.0, 1.0, 2.0],
-                "x": [0.0, -1.0, -2.0, -3.0],
-            },
+            voxel_to_physical=np.diag([1.0, 1.0, -1.0, 1.0]),
         )
 
         output_path = tmp_path / "negative_x.nii.gz"
@@ -1638,18 +1654,16 @@ class TestSaveNifti:
     def test_save_non_uniform_coords_warns(self, tmp_path):
         """Saving a DataArray with non-uniform coordinate spacing emits a warning."""
         data = np.random.default_rng(0).random((4, 2, 3)).astype(np.float32)
-        da = xr.DataArray(
-            data,
-            dims=["z", "y", "x"],
-            coords={"z": [0.0, 1.0, 3.0, 6.0], "y": [0.0, 1.0], "x": [0.0, 1.0, 2.0]},
-        )
-
-        output_path = tmp_path / "nonuniform.nii.gz"
-        with pytest.warns(UserWarning, match="using the median step"):
-            save_nifti(da, output_path)
-
-        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
-        assert loaded.header.get_zooms()[:3] == pytest.approx((1.0, 1.0, 2.0))
+        with pytest.raises(ValueError, match="Spacing for dimension 'z'"):
+            create_fusi_dataarray(
+                data,
+                dims=["z", "y", "x"],
+                coords={
+                    "z": [0.0, 1.0, 3.0, 6.0],
+                    "y": [0.0, 1.0],
+                    "x": [0.0, 1.0, 2.0],
+                },
+            )
 
     def test_save_creates_sidecar(self, tmp_path, sample_3d_volume):
         """Saving always creates a JSON sidecar alongside the NIfTI file."""
@@ -1863,7 +1877,7 @@ class TestSaveNifti:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             np.zeros((4, 3, 2), dtype=np.float32),
             dims=["z", "y", "x"],
             coords={
@@ -2010,7 +2024,7 @@ class TestSaveNifti:
     def test_save_regular_center_reference_converts_delay_to_onset(self, tmp_path):
         """Regular timings with center reference are written as onset-based BIDS timings."""
         time_values = np.array([0.5, 1.0, 1.5, 2.0])
-        original = xr.DataArray(
+        original = create_fusi_dataarray(
             np.random.default_rng(0).random((4, 2, 2, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -2027,8 +2041,7 @@ class TestSaveNifti:
         )
 
         nifti_path = tmp_path / "center_reference.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(original, nifti_path)
+        save_nifti(original, nifti_path)
 
         with open(tmp_path / "center_reference.json") as f:
             sidecar = json.load(f)
@@ -2041,7 +2054,7 @@ class TestSaveNifti:
     ):
         """Irregular timings with end reference are written as onset-based VolumeTiming."""
         time_values = np.array([1.0, 2.5, 3.8, 5.6])
-        original = xr.DataArray(
+        original = create_fusi_dataarray(
             np.random.default_rng(0).random((4, 2, 2, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -2405,13 +2418,10 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_2d_no_time_coord.nii.gz"
-        with pytest.warns(UserWarning, match="without a `time` coordinate"):
+        with pytest.raises(
+            ValueError, match="Missing required coordinate for dimension 'time'"
+        ):
             save_nifti(da, output_path)
-
-        with open(tmp_path / "slice_time_2d_no_time_coord.json") as f:
-            sidecar = json.load(f)
-
-        assert "SliceTiming" not in sidecar
 
     def test_save_2d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
         """A single-volume 2D `slice_time` needs an explicit frame duration."""
@@ -2494,7 +2504,7 @@ class TestSaveNifti:
         data = np.zeros((4, 3, 2), dtype=np.float32)
         selected_affine = np.diag([1.0, 1.0, 1.0, 1.0])
         different_affine = np.diag([9.0, 9.0, 9.0, 1.0])
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2520,7 +2530,7 @@ class TestSaveNifti:
         """When `qform` is omitted, `physical_to_qform` is used if present."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         physical_to_qform = np.eye(4)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2549,7 +2559,7 @@ class TestSaveNifti:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2583,7 +2593,7 @@ class TestSaveNifti:
         """Providing `sform=` writes a sform with code=1 by default."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         physical_to_sform = np.diag([2.0, 2.0, 2.0, 1.0])
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2603,7 +2613,7 @@ class TestSaveNifti:
         """sform_code= kwarg takes precedence over attrs['sform_code']."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         physical_to_sform = np.diag([1.0, 1.0, 1.0, 1.0])
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2625,7 +2635,7 @@ class TestSaveNifti:
     def test_explicit_qform_code_kwarg_overrides_attrs(self, tmp_path):
         """qform_code= kwarg takes precedence over attrs['qform_code']."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2645,7 +2655,7 @@ class TestSaveNifti:
         """qform_code and sform_code from attrs are written when no kwarg is given."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         physical_to_sform = np.diag([1.0, 1.0, 1.0, 1.0])
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2669,7 +2679,7 @@ class TestSaveNifti:
     def test_invalid_qform_key_raises(self, tmp_path):
         """Selecting a missing qform key raises a clear error."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2691,7 +2701,7 @@ class TestSaveNifti:
     def test_no_sform_kwarg_writes_no_sform(self, tmp_path):
         """Without `sform=` and no attrs `physical_to_sform`, the saved file has sform_code=0."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             data,
             dims=["z", "y", "x"],
             coords={
@@ -2799,15 +2809,14 @@ class TestRoundtrip:
         """Regular time coord roundtrips via RepetitionTime/DelayAfterTrigger."""
         time_values = np.array([0.5, 1.0, 1.5, 2.0])  # TR=0.5, delay=0.5
         rng = np.random.default_rng(0)
-        original = xr.DataArray(
+        original = create_fusi_dataarray(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={"time": time_values},
         )
 
         nifti_path = tmp_path / "regular_timing.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(original, nifti_path)
+        save_nifti(original, nifti_path)
 
         sidecar_path = tmp_path / "regular_timing.json"
         with open(sidecar_path) as f:
@@ -2825,15 +2834,14 @@ class TestRoundtrip:
         """Regular time coord starting at 0 omits DelayAfterTrigger."""
         time_values = np.array([0.0, 0.5, 1.0, 1.5])  # TR=0.5, no delay
         rng = np.random.default_rng(0)
-        original = xr.DataArray(
+        original = create_fusi_dataarray(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={"time": time_values},
         )
 
         nifti_path = tmp_path / "no_delay.nii.gz"
-        with pytest.warns(UserWarning, match="spacing is undefined"):
-            save_nifti(original, nifti_path)
+        save_nifti(original, nifti_path)
 
         sidecar_path = tmp_path / "no_delay.json"
         with open(sidecar_path) as f:
@@ -2897,7 +2905,7 @@ class TestRoundtrip:
     def test_save_regular_timing_writes_delay_time_from_duration(self, tmp_path):
         """Regular timing exports dead time when TR exceeds acquisition duration."""
         rng = np.random.default_rng(0)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             rng.random((4, 4, 3, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -2935,7 +2943,7 @@ class TestRoundtrip:
     def test_save_warns_when_time_reference_is_missing(self, tmp_path):
         """Saving warns when time reference metadata is absent and onset is assumed."""
         rng = np.random.default_rng(0)
-        da = xr.DataArray(
+        da = create_fusi_dataarray(
             rng.random((4, 4, 3, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={
@@ -2957,17 +2965,13 @@ class TestRoundtrip:
         )
 
         output_path = tmp_path / "missing_reference.nii.gz"
-        with pytest.warns(
-            UserWarning,
-            match="Coordinate 'time' has no `volume_acquisition_reference` attribute",
-        ):
-            save_nifti(da, output_path)
+        save_nifti(da, output_path)
 
     def test_roundtrip_volume_timing(self, tmp_path):
         """Irregular time coord roundtrips via VolumeTiming; pixdim[4] is 0."""
         time_values = np.array([0.0, 1.5, 2.8, 4.6])  # non-uniform spacing
         rng = np.random.default_rng(0)
-        original = xr.DataArray(
+        original = create_fusi_dataarray(
             rng.random((4, 6, 4, 2)).astype(np.float32),
             dims=["time", "z", "y", "x"],
             coords={

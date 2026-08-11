@@ -81,38 +81,64 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     ]
 
     data_array = np.asarray(data)
-    spatial_axis = {"k": "z", "j": "y", "i": "x"}
-    voxel_dims = tuple(dim for dim in axis_labels if dim in spatial_axis)
+    voxel_to_physical_name = {"k": "z", "j": "y", "i": "x"}
+    physical_to_voxel_name = {v: k for k, v in voxel_to_physical_name.items()}
+
+    result_dims: list[str] = []
     coords: dict[str, xr.DataArray] = {}
-    for i, dim in enumerate(axis_labels):
-        n = data_array.shape[i]
-        coord_values = (
-            np.arange(n)
-            if dim in spatial_axis
-            else translate[i] + np.arange(n) * scale[i]
-        )
-        attrs: dict[str, Any] = {"voxdim": abs(float(scale[i]))}
-        if units[i] is not None:
-            attrs["units"] = units[i]
-        coords[dim] = xr.DataArray(coord_values, dims=[dim], attrs=attrs)
+    voxel_dims: list[str] = []
+    physical_names: list[str] = []
+    affine_scales: list[float] = []
+    affine_translates: list[float] = []
+    physical_attrs: dict[str, dict[str, Any]] = {}
 
-    result = xr.DataArray(data_array, dims=list(axis_labels), coords=coords)
-    if voxel_dims:
-        from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+    for axis, dim in enumerate(axis_labels):
+        n = data_array.shape[axis]
+        if dim in physical_to_voxel_name:
+            result_dim = physical_to_voxel_name[dim]
+            physical_name = dim
+        elif dim in voxel_to_physical_name:
+            result_dim = dim
+            physical_name = voxel_to_physical_name[dim]
+        else:
+            result_dim = dim
+            physical_name = ""
 
-        axis_positions = {dim: axis_labels.index(dim) for dim in voxel_dims}
-        affine = np.eye(len(voxel_dims) + 1, dtype=float)
-        for row, dim in enumerate(voxel_dims):
-            affine[row, row] = scale[axis_positions[dim]]
-            affine[row, -1] = translate[axis_positions[dim]]
-        return add_physical_coords_from_voxel_affine(
-            result,
-            affine,
-            voxel_dims=voxel_dims,
-            physical_coord_names=tuple(spatial_axis[dim] for dim in voxel_dims),
-        )
+        result_dims.append(result_dim)
+        attrs: dict[str, Any] = {"voxdim": abs(float(scale[axis]))}
+        if units[axis] is not None:
+            attrs["units"] = units[axis]
 
-    return result
+        if physical_name:
+            coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
+            voxel_dims.append(result_dim)
+            physical_names.append(physical_name)
+            affine_scales.append(float(scale[axis]))
+            affine_translates.append(float(translate[axis]))
+            physical_attrs[physical_name] = attrs
+        else:
+            coord_values = translate[axis] + np.arange(n) * scale[axis]
+            coords[result_dim] = xr.DataArray(
+                coord_values, dims=[result_dim], attrs=attrs
+            )
+
+    result = xr.DataArray(data_array, dims=result_dims, coords=coords)
+    if not voxel_dims:
+        return result
+
+    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+
+    affine = np.eye(len(voxel_dims) + 1, dtype=float)
+    affine[:-1, :-1] = np.diag(affine_scales)
+    affine[:-1, -1] = affine_translates
+    return add_physical_coords_from_voxel_affine(
+        result,
+        affine,
+        voxel_dims=tuple(voxel_dims),
+        physical_coord_names=tuple(physical_names),
+        physical_coord_attrs=physical_attrs,
+        force_transform_index=len(voxel_dims) >= 2,
+    )
 
 
 def _get_or_compute_dataarray_from_layer(

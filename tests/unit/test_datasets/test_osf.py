@@ -158,12 +158,14 @@ def test_resolve_index_url_raises_if_index_file_not_on_osf():
     folder_resp.raise_for_status.return_value = None
     folder_resp.json.return_value = {"data": []}
 
-    with patch(
-        "confusius.datasets._osf.requests.get",
-        side_effect=[root_resp, folder_resp],
+    with (
+        patch(
+            "confusius.datasets._osf.requests.get",
+            side_effect=[root_resp, folder_resp],
+        ),
+        pytest.raises(RuntimeError, match=_INDEX_FILENAME),
     ):
-        with pytest.raises(RuntimeError, match=_INDEX_FILENAME):
-            resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
+        resolve_index_url(_FAKE_PROJECT, _FAKE_BIDS_ROOT)
 
 
 # ---------------------------------------------------------------------------

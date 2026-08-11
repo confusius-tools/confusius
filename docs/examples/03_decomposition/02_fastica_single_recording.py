@@ -179,7 +179,7 @@ signals_s
 # %% [markdown]
 # ### Spatial maps and time courses
 #
-# [`maps_`][confusius.decomposition.FastICA] is a `(component, y, x)` DataArray whose
+# [`maps_`][confusius.decomposition.FastICA] is a `(component, j, i)` DataArray whose
 # rows are the independent spatial patterns themselves, in contrast to temporal ICA where
 # `maps_` stores mixing weights. Comparing each map with its time course helps judge
 # whether a component reflects a plausible functional or vascular source, or an artefact

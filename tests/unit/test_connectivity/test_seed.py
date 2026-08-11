@@ -17,11 +17,11 @@ def test_seed_maps_match_pearson_reference(
     mapper = SeedBasedMaps(seed_masks=sample_roi_labels).fit(sample_3dt_volume)
 
     seed = mapper.seed_signals_.sel(region=3).values
-    voxel = sample_3dt_volume.isel(z=0, y=0, x=0).values
+    voxel = sample_3dt_volume.isel(k=0, j=0, i=0).values
     expected, _ = pearsonr(seed, voxel)
 
-    assert mapper.maps_.dims == ("region", "z", "y", "x")
-    np.testing.assert_allclose(mapper.maps_.sel(region=3).isel(z=0, y=0, x=0), expected)
+    assert mapper.maps_.dims == ("region", "k", "j", "i")
+    np.testing.assert_allclose(mapper.maps_.sel(region=3).isel(k=0, j=0, i=0), expected)
 
 
 def test_seed_maps_support_stacked_labels(
@@ -134,10 +134,10 @@ def test_seed_maps_reject_missing_spatial_coordinate(
     sample_roi_labels: xr.DataArray,
 ) -> None:
     """Input data must retain all fUSI spatial coordinates."""
-    invalid = sample_3dt_volume.drop_vars("z")
+    invalid = sample_3dt_volume.drop_vars("k")
 
     with pytest.raises(
-        ValueError, match="Missing required coordinate for dimension 'z'"
+        ValueError, match="Missing required coordinate for dimension 'k'"
     ):
         SeedBasedMaps(seed_masks=sample_roi_labels).fit(invalid)
 

@@ -356,6 +356,14 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
                 for d in self.spatial_dims_
                 if d in template.coords
             },
+            # `unmask` restores physical z/y/x coordinates on its output when the mask
+            # carries voxel-affine geometry, so this attr must survive to be usable
+            # downstream (e.g. for plotting `maps_`).
+            attrs=(
+                {"voxel_to_physical": template.attrs["voxel_to_physical"]}
+                if "voxel_to_physical" in template.attrs
+                else {}
+            ),
         )
         self._fit_attrs_ = dict(X.attrs)
         self._fit_name_ = X.name

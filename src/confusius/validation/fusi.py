@@ -60,7 +60,8 @@ def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
     if not has_voxel_affine_geometry(da):
         raise ValueError(
             "DataArray must use native voxel dimensions `k/j/i` with "
-            "`attrs['voxel_to_physical']` and derived physical coordinates."
+            "`attrs['voxel_to_physical']`, derived physical coordinates, and "
+            "defined spatial spacing."
         )
 
     voxel_dims = get_voxel_affine_spatial_dims(da)
@@ -157,7 +158,7 @@ def _validate_core_dimension_names(da: xr.DataArray, allow_extra_dims: bool) -> 
         if unexpected_dims:
             raise ValueError(
                 f"Unexpected dimensions {unexpected_dims!r}. ConfUSIus fUSI DataArrays "
-                f"may only use dimensions {CORE_DIMS!r}."
+                f"may only use dimensions {CORE_DIMS!r} and at most 3 spatial dimensions."
             )
 
 
@@ -301,12 +302,12 @@ def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
     for dim in VOXEL_DIMS:
         if dim in result.dims:
             continue
-        if dim not in result.coords or result.coords[dim].shape != ():
+        if dim not in result.coords:
+            continue
+        if result.coords[dim].shape != ():
             raise ValueError(
-                f"DataArray must contain voxel spatial dimensions {VOXEL_DIMS!r}, but "
-                f"is missing spatial dimension {dim!r}. If this came from scalar "
-                f"indexing, keep the scalar {dim!r} coordinate so ConfUSIus can "
-                "restore it as a singleton dimension."
+                f"DataArray is missing voxel dimension {dim!r}, but coordinate "
+                f"{dim!r} is not scalar."
             )
         coord = result.coords[dim]
         attrs = coord.attrs.copy()
@@ -351,10 +352,6 @@ def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
         If canonicalization or validation fails.
     """
     require_dataarray(data)
-    _validate_core_dimension_names(
-        data,
-        allow_extra_dims=validate_kwargs.get("allow_extra_dims", True),
-    )
     result = canonicalize_fusi(data)
     validate_fusi(result, **validate_kwargs)
     return result

@@ -245,7 +245,9 @@ class TestReaderLayerData:
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
         npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
 
-    def test_axis_aligned_voxel_affine_uses_physical_display_by_default(self, tmp_path: Path) -> None:
+    def test_axis_aligned_voxel_affine_uses_physical_display_by_default(
+        self, tmp_path: Path
+    ) -> None:
         """Axis-aligned reader output uses physical z/y/x display by default."""
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
@@ -257,7 +259,11 @@ class TestReaderLayerData:
             np.diag([0.4, 0.3, 0.25, 1.0]),
             voxel_dims=("k", "j", "i"),
             physical_coord_names=("z", "y", "x"),
-            physical_coord_attrs={"z": {"units": "mm"}, "y": {"units": "mm"}, "x": {"units": "mm"}},
+            physical_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
         )
         path = tmp_path / "axis_aligned_cti.zarr"
         xr.Dataset({"data": data}).to_zarr(path, zarr_format=2)

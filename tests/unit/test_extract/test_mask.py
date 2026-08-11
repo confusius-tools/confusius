@@ -23,12 +23,18 @@ def _make_mask(
     Returns
     -------
     xarray.DataArray
-        Zero-valued mask with `data`'s `z`, `y`, and `x` coordinates.
+        Zero-valued mask with `data`'s native voxel coordinates.
     """
+    spatial_dims = ("k", "j", "i")
     return xr.DataArray(
-        np.zeros(tuple(data.sizes[dim] for dim in ("z", "y", "x")), dtype=dtype),
-        dims=("z", "y", "x"),
-        coords={dim: data.coords[dim] for dim in ("z", "y", "x")},
+        np.zeros(tuple(data.sizes[dim] for dim in spatial_dims), dtype=dtype),
+        dims=spatial_dims,
+        coords={
+            name: coord
+            for name, coord in data.coords.items()
+            if "time" not in coord.dims
+        },
+        attrs={"voxel_to_physical": data.attrs["voxel_to_physical"]},
     )
 
 
@@ -101,7 +107,7 @@ def test_extract_with_mask_rejects_misaligned_coordinates(
     """Extraction rejects masks from a different fUSI grid."""
     mask = _make_mask(sample_3dt_volume)
     mask.data[0, 1, 2] = True
-    mask = mask.assign_coords(x=mask.x + 1.0)
+    mask = mask.assign_coords(k=mask.k + 1.0)
 
     with pytest.raises(ValueError, match="does not match between mask and data"):
         extract_with_mask(sample_3dt_volume, mask)

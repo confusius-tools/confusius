@@ -123,7 +123,9 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     7. Flip the "z" axis to match the atlas orientation.
 
     """
-    # 1. Transpose "z" and "y" and rename the coordinates accordingly.
+    # 1. Swap the elevation/depth voxel axes (data and geometry together) so that
+    #    native voxel dim `k` carries elevation and `j` carries depth, matching
+    #    ConfUSIus's `k`-elevation/`j`-depth/`i`-lateral convention.
     with warnings.catch_warnings():
         # This dataset omits FrameAcquisitionDuration, which the fUSI-BIDS validator
         # flags on load; it is irrelevant to this analysis, so we silence it.
@@ -132,11 +134,21 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         )
         da = cf.load(pwd_path)
 
-    transpose_dims = ("y", "z", "x")
+    transpose_dims = ("j", "k", "i")
     if "time" in da.dims:
         transpose_dims = ("time",) + transpose_dims
 
-    da = da.transpose(*transpose_dims).rename(y="z", z="y")
+    da = da.transpose(*transpose_dims).rename(j="k", k="j")
+
+    # Swapping which voxel dim (k vs j) holds which data must be matched by swapping
+    # `voxel_to_physical`'s z/y output rows *and* k/j input columns together, so the
+    # affine's per-axis coefficients (spacing, origin) stay attached to the right data.
+    swap_kj_zy = np.eye(4)
+    swap_kj_zy[[0, 1]] = swap_kj_zy[[1, 0]]
+    da = da.assign_attrs(
+        voxel_to_physical=swap_kj_zy @ da.attrs["voxel_to_physical"] @ swap_kj_zy
+    )
+    da, _ = da.fusi.affine.apply(np.eye(4))
 
     # 2. Match transpose "z" and "y" in the `physical_to_qform` affine.
     transpose_z_y = np.eye(4)
@@ -162,19 +174,23 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         da.coords[dim].attrs["voxdim"] = da.coords[dim].voxdim * 1e3
         da.coords[dim].attrs["units"] = "mm"
 
-    # 6. Flip the "y" axis to have a depth direction "away" from the transducer.
+    # 6. Flip the "y" axis to have a depth direction "away" from the transducer, and
+    #    7. flip the "z" axis to match the atlas orientation. Under ConfUSIus's
+    #    voxel-affine (CTI) geometry, `.fusi.affine.apply` alone is sufficient: it
+    #    mirrors the *coordinate values*, which is all that flipping requires. A
+    #    decreasing physical coordinate (higher voxel index -> lower z/y) is valid;
+    #    there is no need to also reverse the underlying array with `.isel(..., ::-1)`
+    #    to keep the coordinate increasing, and doing so is unsupported once the
+    #    geometry is oblique (as it is here, after step 3).
     flip_y = np.eye(4)
     flip_y[1, 1] = -1
     flip_y[1, 3] = da.y.max().item() + da.y.min().item()
     da.fusi.affine.apply(flip_y, inplace=True)
-    da = da.isel(y=slice(None, None, -1))
 
-    # 7. Flip the "z" axis to match the atlas orientation.
     flip_z = np.eye(4)
     flip_z[0, 0] = -1
     flip_z[0, 3] = da.z.max().item() + da.z.min().item()
     da.fusi.affine.apply(flip_z, inplace=True)
-    da = da.isel(z=slice(None, None, -1))
 
     return da
 
@@ -339,7 +355,7 @@ confounds = [
 
 # %%
 glm = cf.glm.FirstLevelModel(
-    smoothing_fwhm={"z": 0.3, "y": 0.3, "x": 0.3},
+    smoothing_fwhm={"k": 0.3, "j": 0.3, "i": 0.3},
     hrf_model=modified_claron2021,
     drift_model="cosine",
     low_cutoff=0.01,

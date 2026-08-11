@@ -1435,13 +1435,6 @@ class VolumePlotter:
                 f"Expected 'per_volume', 'per_slice', or 'shared'."
             )
 
-        data1 = self._prepare_slice_inputs(
-            data1, caller="VolumePlotter.add_composite (data1)"
-        )
-        data2 = self._prepare_slice_inputs(
-            data2, caller="VolumePlotter.add_composite (data2)"
-        )
-
         if resample:
             from confusius.registration.resampling import resample_like
 
@@ -1449,7 +1442,15 @@ class VolumePlotter:
             _kw: dict[str, Any] = dict(resample_kwargs or {})
             data2 = resample_like(data2, data1, np.eye(data1.ndim + 1), **_kw)
             data2.name = data2_name
-        else:
+
+        data1 = self._prepare_slice_inputs(
+            data1, caller="VolumePlotter.add_composite (data1)"
+        )
+        data2 = self._prepare_slice_inputs(
+            data2, caller="VolumePlotter.add_composite (data2)"
+        )
+
+        if not resample:
             if data1.dims != data2.dims:
                 raise ValueError(
                     f"With resample=False, data1 and data2 must share dimensions; "
@@ -1711,6 +1712,11 @@ class VolumePlotter:
                 )
             return self
 
+        _validate_voxel_affine_slice_mode(mask, self.slice_mode)
+        mask = _resample_voxel_affine_to_physical_grid(
+            mask, self.slice_mode, reference=self._physical_grid_reference
+        )
+
         # A single-index selection (e.g. mask.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like mask.sel(z=[6]).
         if self.slice_mode not in mask.dims and _is_scalar_coord(mask, self.slice_mode):
@@ -1721,8 +1727,6 @@ class VolumePlotter:
         ]
         if squeeze_dims:
             mask = mask.squeeze(dim=squeeze_dims)
-
-        _validate_voxel_affine_slice_mode(mask, self.slice_mode)
 
         if self.slice_mode not in mask.dims:
             raise ValueError(f"slice_mode '{self.slice_mode}' not in mask dimensions")

@@ -29,7 +29,7 @@ def _make_atlas(
             "mesh_filename": mesh_filename,
         }
     ]
-    mk = lambda data: xr.DataArray(data, dims=dims)  # noqa: E731
+    mk = lambda data: xr.DataArray(data, dims=dims)
     return xr.Dataset(
         {
             "reference": mk(np.ones(shape, dtype=np.float32)),

@@ -132,9 +132,9 @@ class TestFirstLevelModelFit:
     def test_consensus_attrs_propagated_across_runs(self, fusi_data, events):
         """Attributes equal across all runs propagate to the contrast map."""
         run_a = fusi_data.copy()
-        run_a.attrs = {"subject_id": "s01", "task": "stim", "session": 1}
+        run_a.attrs.update({"subject_id": "s01", "task": "stim", "session": 1})
         run_b = fusi_data.copy()
-        run_b.attrs = {"subject_id": "s01", "task": "stim", "session": 2}
+        run_b.attrs.update({"subject_id": "s01", "task": "stim", "session": 2})
         model = FirstLevelModel(noise_model="ols")
         model.fit([run_a, run_b], events=[events, events])
         z_map = model.compute_contrast("A")
@@ -221,22 +221,24 @@ class TestFirstLevelModelContrast:
 class TestFirstLevelModelContrastMultiRun:
     """Test fixed-effects contrast combination across runs."""
 
-    def test_multi_run_effect_is_pooled_average(self, rng, frame_times, events):
+    def test_multi_run_effect_is_pooled_average(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run effect_size is the pooled fixed-effects average, not the sum.
 
         Subjects with more runs would contribute proportionally larger
         effect/variance maps to second-level inputs if `compute_contrast` did
         not divide by `n_runs` after summing.
         """
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         single = FirstLevelModel(noise_model="ols")
         single.fit(data1, events=events)
@@ -251,18 +253,20 @@ class TestFirstLevelModelContrastMultiRun:
         # scale (mean of two unbiased estimates).
         assert np.median(np.abs(e_multi)) < 1.5 * np.median(np.abs(e_single))
 
-    def test_multi_run_per_run_confounds_pass_through(self, rng, frame_times, events):
+    def test_multi_run_per_run_confounds_pass_through(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Per-run confounds passed as a list show up with their values in each
         run's design matrix."""
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         conf1 = pd.DataFrame({"motion": rng.standard_normal(200)})
         conf2 = pd.DataFrame({"motion": rng.standard_normal(200)})
@@ -435,7 +439,9 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="rows but the run has"):
             model.fit(fusi_data, design_matrices=dm)
 
-    def test_design_matrix_columns_mismatch_raises(self, rng, frame_times, events):
+    def test_design_matrix_columns_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run designs with different column orders are rejected."""
         events_swapped = pd.DataFrame(
             {
@@ -446,54 +452,55 @@ class TestFirstLevelModelErrors:
                 "duration": [1.0] * 10,
             }
         )
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="design-matrix columns"):
             model.fit([data1, data2], events=[events, events_swapped])
 
-    def test_dropped_spatial_coord_raises(self, rng, frame_times, events):
-        """A run that drops a spatial coord present on the reference run is rejected."""
-        data1 = xr.DataArray(
+    def test_dropped_spatial_coord_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
+        """A run missing required CTI spatial coords is rejected during validation."""
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": frame_times,
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = data1.drop_vars("z")
+        data2 = data1.drop_vars("k")
         model = FirstLevelModel(noise_model="ols")
-        with pytest.raises(ValueError, match=r"Coordinate 'z' is missing from run 1"):
+        with pytest.raises(ValueError, match="Missing required coordinate"):
             model.fit([data1, data2], events=[events, events])
 
-    def test_spatial_shape_mismatch_raises(self, rng, frame_times, events):
+    def test_spatial_shape_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run fit raises if runs have different spatial shapes."""
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3)),
-            dims=["time", "z", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "i"),
+            time=frame_times,
         )
-        data2 = xr.DataArray(
+        data2 = make_glm_test_dataarray(
             rng.standard_normal((200, 4, 3)),
-            dims=["time", "z", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "i"),
+            time=frame_times,
         )
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="spatial dimensions"):
             model.fit([data1, data2], events=[events, events])
 
-    def test_spatial_axis_order_mismatch_raises(self, rng, frame_times, events):
+    def test_spatial_axis_order_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run fit rejects runs that share spatial sizes but in
         different axis orders.
 
@@ -501,33 +508,30 @@ class TestFirstLevelModelErrors:
         accepting transposed runs would silently mix voxel locations during
         fixed-effects combination.
         """
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={"time": frame_times},
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = data1.transpose("time", "y", "z", "x")
+        data2 = data1.transpose("time", "j", "k", "i")
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(ValueError, match="same order"):
             model.fit([data1, data2], events=[events, events])
 
-    def test_spatial_coord_mismatch_raises(self, rng, frame_times, events):
+    def test_spatial_coord_mismatch_raises(
+        self, rng, frame_times, events, make_glm_test_dataarray
+    ):
         """Multi-run fit raises if runs have mismatched spatial coordinates."""
-        data1 = xr.DataArray(
+        data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": frame_times,
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        data2 = data1.assign_coords(z=np.arange(2) * 0.5 + 10.0)
+        data2 = data1.assign_coords(k=np.arange(2) + 10.0)
         model = FirstLevelModel(noise_model="ols")
         with pytest.raises(
             ValueError,
-            match=r"Coordinate 'z' does not match between run 0 and run 1",
+            match=r"Coordinate 'k' does not match between run 0 and run 1",
         ):
             model.fit([data1, data2], events=[events, events])
 
@@ -544,22 +548,18 @@ class TestFirstLevelModelErrors:
         with pytest.raises(ValueError, match="noise_model"):
             model.fit(fusi_data, events=events)
 
-    def test_mask_must_cover_all_non_time_dims(self, frame_times, events):
+    def test_mask_must_cover_all_non_time_dims(
+        self, frame_times, events, make_glm_test_dataarray
+    ):
         """Mask must span all non-time dims in GLM voxel order."""
-        data = xr.DataArray(
+        data = make_glm_test_dataarray(
             np.zeros((len(frame_times), 2, 3, 4)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": frame_times,
-                "z": np.arange(2) * 0.5,
-                "y": np.arange(3) * 0.1,
-                "x": np.arange(4) * 0.1,
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
-        mask = xr.DataArray(
-            np.ones((data.sizes["y"], data.sizes["x"]), dtype=bool),
-            dims=["y", "x"],
-            coords={"y": data.coords["y"], "x": data.coords["x"]},
+        mask = make_glm_test_dataarray(
+            np.ones((data.sizes["j"], data.sizes["i"]), dtype=bool),
+            ("j", "i"),
         )
         model = FirstLevelModel(noise_model="ols", mask=mask)
         with pytest.raises(ValueError, match="match all non-time dimensions"):

@@ -3,6 +3,13 @@
 import numpy as np
 import xarray as xr
 
+from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+    has_voxel_affine_geometry,
+)
+
 
 def unmask(
     signals: np.ndarray | xr.DataArray,
@@ -48,8 +55,10 @@ def unmask(
     Returns
     -------
     xarray.DataArray
-        Reconstructed DataArray with shape `(..., z, y, x)` where spatial
-        coordinates come from the mask.
+        Reconstructed DataArray with shape `(..., *mask.dims)`, where spatial
+        dimensions and coordinates come from the mask. For a voxel-affine mask (native
+        voxel dims `k`/`j`/`i`), the derived physical `z`/`y`/`x` coordinates are
+        restored on the result as well.
 
     Raises
     ------
@@ -202,9 +211,17 @@ def unmask(
 
         coords = {d: mask.coords[d] for d in spatial_dims}
 
-    return xr.DataArray(
+    result = xr.DataArray(
         output_data,
         dims=output_dims,
         coords=coords,
         attrs=attrs if attrs is not None else {},
     )
+    if has_voxel_affine_geometry(mask):
+        result = add_physical_coords_from_voxel_affine(
+            result,
+            mask.attrs["voxel_to_physical"],
+            voxel_dims=get_voxel_affine_spatial_dims(mask),
+            physical_coord_names=get_voxel_affine_physical_coord_names(mask),
+        )
+    return result

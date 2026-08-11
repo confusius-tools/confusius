@@ -10,6 +10,7 @@ import pandas as pd
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.atlas._physical_to_base_transform import (
     PhysicalToBaseTransform,
     _apply_physical_to_base_transform,
@@ -47,7 +48,7 @@ class AtlasAccessor:
     ----------
     ds : xarray.Dataset
         Atlas Dataset with `reference`, `annotation`, and `hemispheres` data variables on
-        a common `(z, y, x)` grid, and the atlas metadata in `attrs`.
+        a common voxel-affine `(k, j, i)` grid, and the atlas metadata in `attrs`.
     """
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -461,23 +462,33 @@ class AtlasAccessor:
         xarray.Dataset
             Resampled atlas Dataset on the requested grid.
         """
-        coords = {}
-        for i, dim in enumerate(dims):
-            dim_str = str(dim)
-            coord_attrs = {}
-            if dim_str in self.reference.coords:
-                coord_attrs = self.reference.coords[dim_str].attrs.copy()
-            coord_attrs["voxdim"] = float(spacing[i])
-            coords[dim_str] = xr.Variable(
-                dim_str,
-                np.asarray(origin[i]) + np.arange(shape[i]) * np.asarray(spacing[i]),
-                attrs=coord_attrs,
-            )
-
+        dims = [str(dim) for dim in dims]
+        coords = {
+            dim: np.arange(size, dtype=float)
+            for dim, size in zip(dims, shape, strict=True)
+        }
         reference = xr.DataArray(
             np.zeros(tuple(shape), dtype=np.float32),
-            dims=[str(dim) for dim in dims],
+            dims=dims,
             coords=coords,
+        )
+        affine = np.eye(len(dims) + 1, dtype=np.float64)
+        affine[:-1, :-1] = np.diag(spacing)
+        affine[:-1, -1] = origin
+        physical_names = tuple({"k": "z", "j": "y", "i": "x"}[dim] for dim in dims)
+        physical_attrs = {}
+        for dim, name, step in zip(dims, physical_names, spacing, strict=True):
+            physical_attrs[name] = dict(
+                self.reference.coords.get(name, xr.Variable((), 0.0)).attrs
+            )
+            physical_attrs[name]["voxdim"] = float(step)
+        reference = add_physical_coords_from_voxel_affine(
+            reference,
+            affine,
+            voxel_dims=tuple(dims),
+            physical_coord_names=physical_names,
+            physical_coord_attrs=physical_attrs,
+            force_transform_index=True,
         )
         return self.resample_like(
             reference,
@@ -674,19 +685,17 @@ def get_atlas_masks(
             layer[hemispheres_np != right_value] = 0
             acronym = f"{acronym}_R"
 
-        layers.append(layer)
+        layers.append(annotation.copy(data=layer))
         acronyms.append(acronym)
 
-    stacked = np.stack(layers, axis=0)
-
-    spatial_dims = [str(dim) for dim in annotation.dims]
-    spatial_coords = {dim: annotation.coords[dim] for dim in spatial_dims}
-    return xr.DataArray(
-        stacked,
-        dims=["mask", *spatial_dims],
-        coords={"mask": acronyms, **spatial_coords},
-        attrs=annotation.attrs.copy(),
+    result = xr.concat(
+        layers,
+        dim=xr.DataArray(
+            np.asarray(acronyms, dtype=np.str_), dims=("mask",), name="mask"
+        ),
     )
+    result.attrs = annotation.attrs.copy()
+    return result
 
 
 def get_atlas_mesh(

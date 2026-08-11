@@ -281,9 +281,9 @@ pwd.to_zarr("power_doppler.zarr")
     ```python
     # Limit workers and memory.
     client = Client(
-        n_workers=4,              # Number of worker processes.
-        threads_per_worker=2,     # Threads per worker.
-        memory_limit="8GB"        # Memory limit per worker.
+        n_workers=4,  # Number of worker processes.
+        threads_per_worker=2,  # Threads per worker.
+        memory_limit="8GB",  # Memory limit per worker.
     )
     ```
 
@@ -520,10 +520,10 @@ function or the corresponding Xarray accessor method.
     # Process to power Doppler using SVD filtering.
     pwd = cf.iq.process_iq_to_power_doppler(
         iq,
-        clutter_window_width=200,       # Use 200 volumes per clutter filter window.
-        doppler_window_width=100,       # Integrate power in nested windows of 100 volumes.
-        filter_method="svd_indices",    # Use the static SVD filter.
-        low_cutoff=50,                  # Remove 50 strongest singular vectors.
+        clutter_window_width=200,  # Use 200 volumes per clutter filter window.
+        doppler_window_width=100,  # Integrate power in nested windows of 100 volumes.
+        filter_method="svd_indices",  # Use the static SVD filter.
+        low_cutoff=50,  # Remove 50 strongest singular vectors.
     )
     ```
 
@@ -542,10 +542,10 @@ function or the corresponding Xarray accessor method.
 
     # Process to power Doppler using SVD filtering.
     pwd = iq.fusi.iq.process_to_power_doppler(
-        clutter_window_width=200,       # Use 200 volumes per clutter filter window.
-        doppler_window_width=100,       # Integrate power over 100 volumes.
-        filter_method="svd_indices",    # Use static SVD filter.
-        low_cutoff=50,                  # Remove 50 strongest singular vectors.
+        clutter_window_width=200,  # Use 200 volumes per clutter filter window.
+        doppler_window_width=100,  # Integrate power over 100 volumes.
+        filter_method="svd_indices",  # Use static SVD filter.
+        low_cutoff=50,  # Remove 50 strongest singular vectors.
     )
     ```
 

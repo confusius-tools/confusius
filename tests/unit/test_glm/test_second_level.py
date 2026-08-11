@@ -13,7 +13,6 @@ from confusius.glm import (
 )
 from confusius.glm._models import OLSModel
 
-
 # -----------------------------------------------------------------------------
 # make_second_level_design_matrix tests
 # -----------------------------------------------------------------------------
@@ -49,11 +48,11 @@ class TestSecondLevelModelFit:
     """Tests for SecondLevelModel.fit."""
 
     def test_fit_2d_spatial(self, spatial_maps_2d):
-        """Fitting `(y, x)` maps yields a contrast map with the same dims/shape."""
+        """Fitting `(j, i)` maps yields a contrast map with the same dims/shape."""
         model = SecondLevelModel()
         model.fit(spatial_maps_2d)
         z_map = model.compute_contrast("intercept")
-        assert z_map.dims == ("y", "x")
+        assert z_map.dims == ("j", "i")
         assert z_map.shape == (5, 6)
 
     def test_fit_confounds_pass_through_to_design_matrix(self, spatial_maps, rng):
@@ -103,7 +102,7 @@ class TestSecondLevelModelFit:
         model.fit(spatial_maps)
         assert model.__sklearn_is_fitted__()
 
-    def test_fit_from_first_level_models(self, rng):
+    def test_fit_from_first_level_models(self, rng, make_glm_test_dataarray):
         """Fitting from a list of FirstLevelModel objects extracts effect maps."""
         frame_times = np.arange(100) * 0.5
         events = pd.DataFrame(
@@ -115,19 +114,10 @@ class TestSecondLevelModelFit:
         )
         first_level_models = []
         for _ in range(5):
-            data = xr.DataArray(
+            data = make_glm_test_dataarray(
                 rng.standard_normal((100, 1, 2, 3)),
-                dims=["time", "z", "y", "x"],
-                coords={
-                    "time": xr.DataArray(
-                        frame_times, dims="time", attrs={"units": "s"}
-                    ),
-                    "z": xr.DataArray(
-                        [0.0], dims="z", attrs={"units": "mm", "voxdim": 1.0}
-                    ),
-                    "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
-                    "x": xr.DataArray(np.arange(3.0), dims="x", attrs={"units": "mm"}),
-                },
+                ("time", "k", "j", "i"),
+                time=frame_times,
             )
             m = FirstLevelModel(noise_model="ols")
             m.fit(data, events=events)
@@ -138,7 +128,7 @@ class TestSecondLevelModelFit:
 
         assert group_model.__sklearn_is_fitted__()
         z_map = group_model.compute_contrast("intercept")
-        assert z_map.dims == ("z", "y", "x")
+        assert z_map.dims == ("k", "j", "i")
         assert z_map.shape == (1, 2, 3)
 
 
@@ -162,7 +152,7 @@ class TestSecondLevelModelContrast:
         z_explicit = self.model.compute_contrast("intercept")
 
         assert_allclose(z_default.values, z_explicit.values, rtol=1e-12)
-        assert z_default.dims == ("z", "y", "x")
+        assert z_default.dims == ("k", "j", "i")
 
     def test_string_and_array_contrast_agree(self):
         """The string `"intercept"` resolves to `[1.0]`; both must produce
@@ -196,7 +186,7 @@ class TestSecondLevelModelFContrast:
         model.fit(spatial_maps, confounds=confounds)
         c = np.eye(2)
         e_map = model.compute_contrast(c, stat_type="F", output_type="effect")
-        assert e_map.dims == ("contrast_dim", "z", "y", "x")
+        assert e_map.dims == ("contrast_dim", "k", "j", "i")
         assert e_map.shape == (2, 2, 3, 4)
 
     def test_short_contrast_vector_is_zero_padded(self, spatial_maps):
@@ -283,21 +273,16 @@ class TestSecondLevelModelErrors:
         with pytest.raises(ValueError, match="non-empty list"):
             model.fit([])
 
-    def test_first_level_models_without_contrast_raises(self, rng):
+    def test_first_level_models_without_contrast_raises(
+        self, rng, make_glm_test_dataarray
+    ):
         """Passing FirstLevelModel list without first_level_contrast raises."""
         frame_times = np.arange(50) * 0.5
         events = pd.DataFrame({"trial_type": ["A"], "onset": [5.0], "duration": [1.0]})
-        data = xr.DataArray(
+        data = make_glm_test_dataarray(
             rng.standard_normal((50, 1, 2, 3)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(
-                    [0.0], dims="z", attrs={"units": "mm", "voxdim": 1.0}
-                ),
-                "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(3.0), dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         m = FirstLevelModel(noise_model="ols")
         m.fit(data, events=events)
@@ -305,21 +290,14 @@ class TestSecondLevelModelErrors:
         with pytest.raises(ValueError, match="first_level_contrast"):
             group_model.fit([m, m])
 
-    def test_mixed_input_types_raises(self, spatial_maps):
+    def test_mixed_input_types_raises(self, spatial_maps, make_glm_test_dataarray):
         """Mix of FirstLevelModel and DataArray raises TypeError."""
         frame_times = np.arange(50) * 0.5
         events = pd.DataFrame({"trial_type": ["A"], "onset": [5.0], "duration": [1.0]})
-        data = xr.DataArray(
+        data = make_glm_test_dataarray(
             np.zeros((50, 1, 2, 3)),
-            dims=["time", "z", "y", "x"],
-            coords={
-                "time": xr.DataArray(frame_times, dims="time", attrs={"units": "s"}),
-                "z": xr.DataArray(
-                    [0.0], dims="z", attrs={"units": "mm", "voxdim": 1.0}
-                ),
-                "y": xr.DataArray(np.arange(2.0), dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(3.0), dims="x", attrs={"units": "mm"}),
-            },
+            ("time", "k", "j", "i"),
+            time=frame_times,
         )
         m = FirstLevelModel(noise_model="ols")
         m.fit(data, events=events)
@@ -347,12 +325,12 @@ class TestSecondLevelModelErrors:
 
     def test_spatial_coord_mismatch_raises(self, spatial_maps):
         """Mismatched spatial coordinates between maps raise an informative error."""
-        bad = spatial_maps[1].assign_coords(z=spatial_maps[0].coords["z"] + 10.0)
+        bad = spatial_maps[1].assign_coords(k=spatial_maps[0].coords["k"] + 10.0)
         maps = [spatial_maps[0], bad]
         model = SecondLevelModel()
         with pytest.raises(
             ValueError,
-            match=r"Coordinate 'z' does not match between map 0 and map 1",
+            match=r"Coordinate 'k' does not match between map 0 and map 1",
         ):
             model.fit(maps)
 
@@ -395,9 +373,9 @@ class TestSecondLevelModelErrors:
 
     def test_dropped_spatial_coord_raises(self, spatial_maps):
         """A subject map missing a spatial coord present on the reference is rejected."""
-        maps = [spatial_maps[0], spatial_maps[1].drop_vars("z")]
+        maps = [spatial_maps[0], spatial_maps[1].drop_vars("k")]
         model = SecondLevelModel()
-        with pytest.raises(ValueError, match=r"Coordinate 'z' is missing from map 1"):
+        with pytest.raises(ValueError, match=r"Coordinate 'k' is missing from map 1"):
             model.fit(maps)
 
     def test_duplicate_confound_columns_raises(self, spatial_maps):

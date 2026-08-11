@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
@@ -161,9 +161,13 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
                 f"Atlas variables must share dimensions; '{name}' has dims "
                 f"{ds[name].dims} but 'reference' has {reference_dims}."
             )
-    if not set(reference_dims).issubset(SPATIAL_DIMS):
+    if not (
+        set(reference_dims).issubset(SPATIAL_DIMS)
+        or set(reference_dims).issubset(VOXEL_DIMS)
+    ):
         raise ValueError(
-            f"Atlas dimensions must be a subset of {SPATIAL_DIMS}, got {reference_dims}."
+            f"Atlas dimensions must be a subset of {SPATIAL_DIMS} or {VOXEL_DIMS}, "
+            f"got {reference_dims}."
         )
 
     if not np.issubdtype(ds["reference"].dtype, np.floating):

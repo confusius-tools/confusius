@@ -8,6 +8,7 @@ import xarray as xr
 from sklearn.decomposition import FastICA as SklearnFastICA
 from sklearn.utils.validation import check_is_fitted
 
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.decomposition import FastICA
 
 
@@ -26,6 +27,39 @@ FASTICA_TEST_KWARGS: _FasticaTestKwargs = {
     "tol": 1e-3,
     "fun": "cube",
 }
+
+
+@pytest.fixture
+def sample_3dt_volume():
+    """Stable CTI-backed 3D+t input for FastICA convergence tests."""
+    rng = np.random.default_rng(42)
+    da = xr.DataArray(
+        rng.random((10, 4, 6, 8)),
+        name="power_doppler",
+        dims=["time", "k", "j", "i"],
+        coords={
+            "time": xr.DataArray(
+                10.0 + np.arange(10) * 0.5,
+                dims=["time"],
+                attrs={"units": "s"},
+            ),
+            "k": np.arange(4),
+            "j": np.arange(6),
+            "i": np.arange(8),
+        },
+        attrs={"long_name": "Intensity", "units": "a.u."},
+    )
+    return add_physical_coords_from_voxel_affine(
+        da,
+        np.diag([0.2, 0.1, 0.05, 1.0]),
+        voxel_dims=("k", "j", "i"),
+        physical_coord_names=("z", "y", "x"),
+        physical_coord_attrs={
+            "z": {"units": "mm", "voxdim": 0.2},
+            "y": {"units": "mm", "voxdim": 0.1},
+            "x": {"units": "mm", "voxdim": 0.05},
+        },
+    )
 
 
 def test_feature_names_in_for_string_feature_labels():

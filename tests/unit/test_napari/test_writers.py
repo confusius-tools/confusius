@@ -325,22 +325,22 @@ class TestWriteZarrFromReconstruction:
 
 class TestDaFromNapariLayer:
     def test_default_dims_3d(self) -> None:
-        """3D data without axis_labels gets default dims (z, y, x)."""
+        """3D data without axis_labels gets default dims (k, j, i)."""
         from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((4, 6, 8))
         da = _compute_dataarray_from_layer(
             data, {"scale": [0.2, 0.1, 0.05], "translate": [1.0, 2.0, 3.0]}
         )
-        assert list(da.dims) == ["z", "y", "x"]
+        assert list(da.dims) == ["k", "j", "i"]
 
     def test_default_dims_4d(self) -> None:
-        """4D data without axis_labels gets default dims (time, z, y, x)."""
+        """4D data without axis_labels gets default dims (time, k, j, i)."""
         from confusius._napari._io._writers import _compute_dataarray_from_layer
 
         data = np.zeros((10, 4, 6, 8))
         da = _compute_dataarray_from_layer(data, {})
-        assert list(da.dims) == ["time", "z", "y", "x"]
+        assert list(da.dims) == ["time", "k", "j", "i"]
 
     def test_scale_sets_coord_spacing(self) -> None:
         """Scale values produce correct coordinate spacing."""
@@ -351,8 +351,8 @@ class TestDaFromNapariLayer:
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
-        npt.assert_allclose(np.diff(da["z"].values), 0.2, rtol=1e-10)
-        npt.assert_allclose(np.diff(da["x"].values), 0.05, rtol=1e-10)
+        npt.assert_allclose(np.diff(da["z"].isel(i=0).values), 0.2, rtol=1e-10)
+        npt.assert_allclose(np.diff(da["x"].isel(k=0).values), 0.05, rtol=1e-10)
 
     def test_translate_sets_coord_origin(self) -> None:
         """Translate values set the first coordinate value for each dimension."""
@@ -363,8 +363,8 @@ class TestDaFromNapariLayer:
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
-        assert da["z"].values[0] == pytest.approx(1.0)
-        assert da["x"].values[0] == pytest.approx(3.0)
+        assert da["z"].isel(k=0, i=0).item() == pytest.approx(1.0)
+        assert da["x"].isel(k=0, i=0).item() == pytest.approx(3.0)
 
     def test_units_stored_in_coord_attrs(self) -> None:
         """Unit strings from meta are stored in coordinate attrs."""
@@ -402,7 +402,7 @@ class TestDaFromNapariLayer:
         da = _compute_dataarray_from_layer(
             data, {"axis_labels": ["axis -3", "axis -2", "axis -1"]}
         )
-        assert list(da.dims) == ["z", "y", "x"]
+        assert list(da.dims) == ["k", "j", "i"]
 
     def test_napari_pixel_units_treated_as_absent(self) -> None:
         """Pint pixel/dimensionless units from napari are not stored in coord attrs."""

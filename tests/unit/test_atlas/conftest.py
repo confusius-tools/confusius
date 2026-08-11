@@ -9,6 +9,8 @@ import pytest
 import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
+from confusius.xarray import create_fusi_dataarray
+
 
 @pytest.fixture(scope="module")
 def obj_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
@@ -117,22 +119,23 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
         20: [0, 255, 0],
     }
 
-    reference_da = xr.DataArray(
+    da_coords = {d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()}
+    reference_da = create_fusi_dataarray(
         np.ones(shape, dtype=np.float32),
         dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        coords=da_coords,
         attrs={"cmap": "gray"},
     )
-    annotation_da = xr.DataArray(
+    annotation_da = create_fusi_dataarray(
         annotation_data,
         dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        coords=da_coords,
         attrs={"rgb_lookup": rgb_lookup},
     )
-    hemispheres_da = xr.DataArray(
+    hemispheres_da = create_fusi_dataarray(
         hemispheres_data,
         dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
+        coords=da_coords,
         attrs={"left": 1, "right": 2},
     )
 

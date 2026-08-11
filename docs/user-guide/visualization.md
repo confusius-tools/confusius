@@ -69,6 +69,7 @@ concise syntax; both call the same underlying functions.
             }
         )
 
+
     bids_root = fetch_nunez_elizalde_2022(
         subjects=["CR022"],
         sessions=["20201011", "20201007"],
@@ -83,14 +84,10 @@ concise syntax; both call the same underlying functions.
     )
     mean_vol = pwd.mean("time").compute()
     angio = cf.load(
-        bids_root
-        / "sub-CR022/ses-20201011/angio"
-        / "sub-CR022_ses-20201011_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201011/angio" / "sub-CR022_ses-20201011_pwd.nii.gz"
     ).compute()
     angio_2 = cf.load(
-        bids_root
-        / "sub-CR022/ses-20201007/angio"
-        / "sub-CR022_ses-20201007_pwd.nii.gz"
+        bids_root / "sub-CR022/ses-20201007/angio" / "sub-CR022_ses-20201007_pwd.nii.gz"
     ).compute()
     atlas_labels = cf.load(
         bids_root
@@ -408,9 +405,7 @@ statistic's sign.
 === "Function API"
 
     ```python
-    plotter = cf.plotting.plot_stat_map(
-        t_map, bg_volume=pwd, slice_mode="z", threshold=3.0
-    )
+    plotter = cf.plotting.plot_stat_map(t_map, bg_volume=pwd, slice_mode="z", threshold=3.0)
     ```
 
 `bg_volume` is optional. Omit it to plot the statistical map on its own. When `alpha` is

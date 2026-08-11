@@ -15,8 +15,8 @@ import numpy as np
 import pytest
 
 from confusius._napari._video._video_panel import (
-    VideoPanel,
     _IRREGULAR_TIME_WARNING,
+    VideoPanel,
     _VideoArray,
     _VideoEntry,
 )

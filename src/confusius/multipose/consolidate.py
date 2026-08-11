@@ -12,6 +12,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
     get_voxel_affine_physical_coord_names,
     get_voxel_affine_spatial_dims,
     has_voxel_affine_geometry,
@@ -413,6 +414,45 @@ def consolidate_poses(
                 attrs=dict(coord.attrs),
             )
 
+    output_spatial_dim_names = tuple(str(dim) for dim in output_spatial_dims)
+    physical_coord_names = tuple(
+        str(voxel_to_physical.get(dim, dim))
+        if has_voxel_affine_geometry(da)
+        else str(dim)
+        for dim in output_spatial_dims
+    )
+
+    def _attach_output_cti(result: xr.DataArray) -> xr.DataArray:
+        physical_attrs: dict[str, dict[str, Any]] = {}
+        origins: list[float] = []
+        spacings: list[float] = []
+        for voxel_dim, physical_dim in zip(
+            output_spatial_dims, physical_coord_names, strict=True
+        ):
+            coord = result.coords[voxel_dim]
+            values = np.asarray(coord.values, dtype=np.float64)
+            origins.append(float(values[0]))
+            if values.size == 1:
+                spacing = float(coord.attrs.get("voxdim", 1.0))
+            else:
+                spacing = float(np.median(np.diff(values)))
+            spacings.append(spacing)
+            physical_attrs[physical_dim] = dict(coord.attrs)
+            result = result.assign_coords(
+                {voxel_dim: np.arange(result.sizes[voxel_dim], dtype=np.float64)}
+            )
+        voxel_to_physical_affine = np.eye(len(output_spatial_dim_names) + 1)
+        voxel_to_physical_affine[:-1, :-1] = np.diag(spacings)
+        voxel_to_physical_affine[:-1, -1] = origins
+        return add_physical_coords_from_voxel_affine(
+            result,
+            voxel_to_physical_affine,
+            voxel_dims=output_spatial_dim_names,
+            physical_coord_names=physical_coord_names,
+            physical_coord_attrs=physical_attrs,
+            force_transform_index=True,
+        )
+
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.
     # This stays dask-backed; dask does not support multi-axis fancy indexing via
     # da.data[...] (raises NotImplementedError for N-d fancy indexing).
@@ -464,19 +504,23 @@ def consolidate_poses(
             )
         coords.update(base_coords)
         out_dims = ["time", sweep_dim] + other_output_dims
-        return xr.DataArray(
-            data,
-            dims=out_dims,
-            coords=coords,
-            attrs=new_attrs,
-            name="scan_data",
+        return _attach_output_cti(
+            xr.DataArray(
+                data,
+                dims=out_dims,
+                coords=coords,
+                attrs=new_attrs,
+                name="scan_data",
+            )
         )
 
     out_dims = [sweep_dim] + other_output_dims
-    return xr.DataArray(
-        data,
-        dims=out_dims,
-        coords=base_coords,
-        attrs=new_attrs,
-        name="scan_data",
+    return _attach_output_cti(
+        xr.DataArray(
+            data,
+            dims=out_dims,
+            coords=base_coords,
+            attrs=new_attrs,
+            name="scan_data",
+        )
     )

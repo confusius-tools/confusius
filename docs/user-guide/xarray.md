@@ -133,10 +133,10 @@ import confusius as cf
 recording = cf.create_fusi_dataarray(
     raw_power,  # shape: (time, z, y, x)
     dims=("time", "z", "y", "x"),
-    dt=0.6,    # seconds
-    dz=0.4,    # mm
-    dy=0.05,   # mm
-    dx=0.1,    # mm
+    dt=0.6,  # seconds
+    dz=0.4,  # mm
+    dy=0.05,  # mm
+    dx=0.1,  # mm
     attrs={"description": "Power Doppler from my system"},
 )
 ```
@@ -190,7 +190,7 @@ slice_movie = pwd.isel(z=0)
 slice_movie.dims
 # ('time', 'y', 'x')
 
-slice_movie.coords['z']
+slice_movie.coords["z"]
 # scalar coordinate: z = 0.0 mm, with the original coordinate metadata
 ```
 

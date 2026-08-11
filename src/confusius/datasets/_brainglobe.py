@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
+from confusius._utils.geometry import add_physical_coords_from_voxel_affine
 from confusius.atlas._structures import _build_rgb_lookup
 
 if TYPE_CHECKING:
@@ -29,19 +31,20 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common `(z, y, x)` grid with physical coordinates in millimetres.
+        on a common voxel-affine `(k, j, i)` grid, with physical `z`/`y`/`x` coordinates
+        in millimetres.
     """
     metadata = atlas.metadata
     resolution_mm = [r * 1e-3 for r in metadata["resolution"]]
     shape = metadata["shape"]
 
-    coords = {
-        dim: (
-            np.arange(shape[i]) * resolution_mm[i],
-            {"voxdim": resolution_mm[i], "units": "mm"},
-        )
-        for i, dim in enumerate(["z", "y", "x"])
+    voxel_coords = {
+        dim: xr.Variable(dim, np.arange(shape[i], dtype=np.float64))
+        for i, dim in enumerate(VOXEL_DIMS)
     }
+    voxel_to_physical = np.eye(4, dtype=np.float64)
+    voxel_to_physical[:-1, :-1] = np.diag(resolution_mm)
+    physical_coord_attrs = {name: {"units": "mm"} for name in SPATIAL_DIMS}
 
     rgb_lookup = _build_rgb_lookup(atlas.structures)
     cmap, norm = build_atlas_cmap_and_norm(rgb_lookup)
@@ -50,35 +53,50 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         for sid, info in atlas.structures.items()
     }
 
-    reference = xr.DataArray(
-        atlas.reference.astype(np.float32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={"cmap": "gray"},
+    def _with_physical_coords(data: xr.DataArray) -> xr.DataArray:
+        return add_physical_coords_from_voxel_affine(
+            data,
+            voxel_to_physical,
+            voxel_dims=VOXEL_DIMS,
+            physical_coord_names=SPATIAL_DIMS,
+            physical_coord_attrs=physical_coord_attrs,
+        )
+
+    reference = _with_physical_coords(
+        xr.DataArray(
+            atlas.reference.astype(np.float32),
+            dims=VOXEL_DIMS,
+            coords=voxel_coords,
+            attrs={"cmap": "gray"},
+        )
     )
 
-    annotation = xr.DataArray(
-        atlas.annotation.astype(np.int32),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={
-            "rgb_lookup": rgb_lookup,
-            "roi_labels": roi_labels,
-            "cmap": cmap,
-            "norm": norm,
-        },
+    annotation = _with_physical_coords(
+        xr.DataArray(
+            atlas.annotation.astype(np.int32),
+            dims=VOXEL_DIMS,
+            coords=voxel_coords,
+            attrs={
+                "rgb_lookup": rgb_lookup,
+                "roi_labels": roi_labels,
+                "cmap": cmap,
+                "norm": norm,
+            },
+        )
     )
 
     physical_to_base = np.eye(4)
 
-    hemispheres = xr.DataArray(
-        atlas.hemispheres.astype(np.int8),
-        dims=["z", "y", "x"],
-        coords={d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()},
-        attrs={
-            "left": int(getattr(atlas, "left_hemisphere_value", 1)),
-            "right": int(getattr(atlas, "right_hemisphere_value", 2)),
-        },
+    hemispheres = _with_physical_coords(
+        xr.DataArray(
+            atlas.hemispheres.astype(np.int8),
+            dims=VOXEL_DIMS,
+            coords=voxel_coords,
+            attrs={
+                "left": int(getattr(atlas, "left_hemisphere_value", 1)),
+                "right": int(getattr(atlas, "right_hemisphere_value", 2)),
+            },
+        )
     )
 
     return xr.Dataset(
@@ -128,8 +146,9 @@ def fetch_brainglobe_atlas(
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common `(z, y, x)` grid with physical coordinates in millimetres, and the
-        `.atlas` accessor for structure queries, masks, and meshes.
+        on a common voxel-affine `(k, j, i)` grid with physical `z`/`y`/`x` coordinates
+        in millimetres, and the `.atlas` accessor for structure queries, masks, and
+        meshes.
 
     Examples
     --------

@@ -270,9 +270,10 @@ local_inverse_field = cf.registration.invert_displacement_field(local_field)
 # %% [markdown]
 # A quiver plot draws the in-plane displacement as arrows over the anatomy, so the
 # *direction* of the warp is easy to read. The field carries a leading `component` axis
-# labeled by the spatial dim names, so we use the `x` and `y` displacement components,
-# drop the degenerate `z` of the single slice, and subsample the dense grid so the
-# arrows stay legible.
+# labeled by the native voxel dim names, so we use the `i` and `j` displacement
+# components (lateral and axial), drop the degenerate `k` (elevation) of the single
+# slice, and subsample the dense grid so the arrows stay legible. Displacements are
+# still plotted against the physical `x`/`y` coordinates attached to the `i`/`j` dims.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(8, 3))
@@ -283,11 +284,11 @@ for ax, background, field, title in [
     (axes[1], fixed, local_inverse_field, "Approximate inverse local B-spline warp"),
 ]:
     cf.plotting.plot_volume(background, axes=ax, show_colorbar=False, bg_color=bg_color)
-    # x- and y-displacement of the single slice.
-    disp_x = field.sel(component="x").squeeze(drop=True)
-    disp_y = field.sel(component="y").squeeze(drop=True)
+    # Lateral (i/x) and axial (j/y) displacement of the single slice.
+    disp_x = field.sel(component="i").squeeze(drop=True)
+    disp_y = field.sel(component="j").squeeze(drop=True)
     # Subsample to roughly 20 arrows along the shorter axis so the field stays readable.
-    step = max(1, min(disp_x.sizes["y"], disp_x.sizes["x"]) // 20)
+    step = max(1, min(disp_x.sizes["j"], disp_x.sizes["i"]) // 20)
     grid_x, grid_y = np.meshgrid(disp_x["x"].values[::step], disp_x["y"].values[::step])
     u = disp_x.values[::step, ::step]
     v = disp_y.values[::step, ::step]

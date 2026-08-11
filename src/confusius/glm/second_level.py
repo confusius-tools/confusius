@@ -277,8 +277,11 @@ class SecondLevelModel(BaseEstimator):
         self.design_matrix_: pd.DataFrame = dm
         self._spatial_dims: tuple[str, ...] = ref_dims
         self._spatial_shape: tuple[int, ...] = ref_shape
+        spatial_dim_set = set(ref_dims)
         self._coords: dict[str, xr.Variable] = {
-            str(d): ref.coords[d] for d in ref_dims if d in ref.coords
+            str(name): coord
+            for name, coord in ref.coords.items()
+            if set(coord.dims).issubset(spatial_dim_set)
         }
         self._input_attrs: dict[str, object] = consensus_attrs(maps)
 

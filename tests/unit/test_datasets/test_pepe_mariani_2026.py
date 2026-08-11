@@ -51,12 +51,14 @@ def test_resolve_template_url_returns_download_link() -> None:
 
 
 def test_resolve_template_url_raises_when_missing() -> None:
-    with patch(
-        "confusius.datasets._pepe_mariani_2026.requests.get",
-        return_value=_Response({"data": []}),
+    with (
+        patch(
+            "confusius.datasets._pepe_mariani_2026.requests.get",
+            return_value=_Response({"data": []}),
+        ),
+        pytest.raises(RuntimeError, match=_FILENAME),
     ):
-        with pytest.raises(RuntimeError, match=_FILENAME):
-            resolve_template_url()
+        resolve_template_url()
 
 
 @pytest.fixture

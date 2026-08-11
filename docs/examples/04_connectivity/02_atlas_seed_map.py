@@ -120,7 +120,7 @@ atlas_native = atlas.atlas.resample_like(moving, subject_to_atlas)
 # own mask.
 #
 # [`get_masks`][confusius.atlas.AtlasAccessor.get_masks] returns a stacked
-# `(mask, z, y, x)` integer DataArray—one layer per requested region—which
+# `(mask, k, j, i)` integer DataArray—one layer per requested region—which
 # [`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps] accepts directly as
 # `seed_masks`.
 

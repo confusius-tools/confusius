@@ -48,7 +48,7 @@ from napari.qt import get_qapp
 from qtpy.QtCore import QEventLoop, Qt, QTimer
 from rich.console import Console
 
-import confusius as cf  # noqa: F401  # Register xarray accessors.
+import confusius as cf  # Register xarray accessors.
 from confusius.datasets import fetch_cybis_pereira_2026, fetch_nunez_elizalde_2022
 
 HERE = Path(__file__).parent
@@ -590,7 +590,7 @@ try:
     # Place points at the centroids of the two atlas-derived cortical ROIs.
     pt_red = GUI_POINT_LEFT
     pt_teal = GUI_POINT_RIGHT
-    pts_layer4 = getattr(viewer4, "add_points")(
+    pts_layer4 = viewer4.add_points(
         np.array([pt_red, pt_teal]),
         name="ROI Points",
         scale=scale_3d4,
@@ -601,7 +601,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter4 = getattr(ts_panel4, "_ensure_plotter")()
+    plotter4 = ts_panel4._ensure_plotter()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -613,7 +613,7 @@ try:
     # (radio checked, combo enabled and showing "ROI Points"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter, which sets the layer and mode
     # on the plotter automatically.
-    getattr(ts_panel4, "_radio_points").setChecked(True)
+    ts_panel4._radio_points.setChecked(True)
     get_qapp().processEvents()
 
     viewer4.window._qt_window.resize(1400, 1050)
@@ -655,7 +655,7 @@ try:
     labels_data[0, GUI_LEFT_ROI] = 1
     labels_data[0, GUI_RIGHT_ROI] = 2
 
-    labels_layer5 = getattr(viewer5, "add_labels")(
+    labels_layer5 = viewer5.add_labels(
         labels_data,
         name="Brain Regions",
         scale=scale_3d5,
@@ -663,7 +663,7 @@ try:
     )
 
     # Open the bottom dock.
-    plotter5 = getattr(ts_panel5, "_ensure_plotter")()
+    plotter5 = ts_panel5._ensure_plotter()
     _qt_sleep(350)
 
     # Re-activate the image layer so the x-axis dropdown picks up its xarray dims
@@ -674,7 +674,7 @@ try:
     # Select the Labels radio button on the panel so the UI reflects the correct state
     # (radio checked, combo enabled and showing "Brain Regions"). The radio toggle fires
     # _on_source_mode_changed → _sync_source_to_plotter automatically.
-    getattr(ts_panel5, "_radio_labels").setChecked(True)
+    ts_panel5._radio_labels.setChecked(True)
     get_qapp().processEvents()
 
     viewer5.window._qt_window.resize(1400, 1050)

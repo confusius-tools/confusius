@@ -11,7 +11,7 @@ import SimpleITK as sitk
 
 matplotlib.use("Agg")
 
-from confusius.registration.progress import (  # noqa: E402
+from confusius.registration.progress import (
     MatplotlibRegistrationProgressPlotter,
 )
 
@@ -344,31 +344,16 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
 class TestRegisterVolumeShowProgress:
     """Integration: show_progress=True wires correctly through register_volume."""
 
-    def test_show_progress_true_does_not_raise(self):
+    def test_show_progress_true_does_not_raise(self, singleton_registration_volume):
         """register_volume with show_progress=True completes without error."""
-        import xarray as xr
-
         from confusius.registration.volume import register_volume
 
-        arr = np.zeros((1, 16, 16), dtype=np.float32)
-        arr[0, 6:10, 6:10] = 1.0
-        da = xr.DataArray(
-            arr,
-            dims=("z", "y", "x"),
-            coords={
-                "z": xr.DataArray(
-                    [0.0], dims=("z",), attrs={"units": "mm", "voxdim": 0.1}
-                ),
-                "y": xr.DataArray(np.arange(16) * 0.1, dims="y", attrs={"units": "mm"}),
-                "x": xr.DataArray(np.arange(16) * 0.1, dims="x", attrs={"units": "mm"}),
-            },
-        )
         result, _, _ = register_volume(
-            da,
-            da,
+            singleton_registration_volume,
+            singleton_registration_volume,
             transform_type="translation",
             show_progress=True,
             plot_metric=True,
             plot_composite=False,
         )
-        assert result.shape == da.shape
+        assert result.shape == singleton_registration_volume.shape

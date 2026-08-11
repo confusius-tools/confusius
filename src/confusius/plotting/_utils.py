@@ -209,19 +209,20 @@ def convert_axis_aligned_voxel_affine_to_physical_grid(
     dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
     result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)
 
+    coords = {}
+    for dim in data.dims:
+        result_dim = dim_map.get(str(dim), str(dim))
+        if str(dim) in dim_map:
+            source_coord = data.coords[result_dim]
+            indexers = {d: 0 for d in source_coord.dims if d != dim}
+            coords[result_dim] = (result_dim, source_coord.isel(indexers).values)
+        elif str(dim) in data.coords:
+            coords[result_dim] = (result_dim, data.coords[str(dim)].values)
+
     result = xr.DataArray(
         data=data.data,
         dims=result_dims,
-        coords={
-            dim_map.get(str(dim), str(dim)): (
-                dim_map.get(str(dim), str(dim)),
-                data.coords[dim_map.get(str(dim), str(dim))].values
-                if str(dim) in dim_map
-                else data.coords[str(dim)].values,
-            )
-            for dim in data.dims
-            if (str(dim) in dim_map) or (str(dim) in data.coords)
-        },
+        coords=coords,
         name=data.name,
         attrs=data.attrs.copy(),
     )
@@ -266,6 +267,21 @@ def resample_voxel_affine_to_physical_grid(
 
     physical_dims = get_voxel_affine_physical_coord_names(data)
     if reference is not None:
+        if not has_voxel_affine_geometry(reference):
+            from confusius.xarray import create_fusi_dataarray
+
+            reference_dims = tuple(str(dim) for dim in reference.dims)
+            reference = create_fusi_dataarray(
+                reference.data,
+                dims=reference_dims,
+                coords={
+                    dim: reference.coords[dim]
+                    for dim in reference_dims
+                    if dim in reference.coords
+                },
+                attrs=reference.attrs,
+                name=str(reference.name) if reference.name is not None else None,
+            )
         result = resample_like(
             data,
             reference,
@@ -297,6 +313,7 @@ def resample_voxel_affine_to_physical_grid(
             direction=np.eye(len(physical_dims), dtype=np.float64),
         )
 
+    result = convert_axis_aligned_voxel_affine_to_physical_grid(result)
     result.attrs.pop("voxel_to_physical", None)
     for dim in physical_dims:
         result.coords[dim].attrs = data.coords[dim].attrs.copy()

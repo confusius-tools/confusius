@@ -57,7 +57,12 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import has_voxel_affine_geometry
+from confusius._utils.geometry import (
+    add_physical_coords_from_voxel_affine,
+    get_voxel_affine_physical_coord_names,
+    get_voxel_affine_spatial_dims,
+    has_voxel_affine_geometry,
+)
 from confusius.registration._utils import (
     expand_thin_dims,
     get_defined_spatial_spacing,
@@ -392,9 +397,10 @@ def sample_displacement_field_like(
         control-point DataArrays produced by
         [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
-        DataArray defining the output grid. Must be a 3D spatial volume with dimensions
-        `z`, `y`, `x` (no time dimension). When spatial coordinate `units` metadata is
-        present on both `transform` and `reference`, they must match.
+        DataArray defining the output grid. Must be a 3D spatial volume (no time
+        dimension) with either dimensions `z`, `y`, `x` or voxel-affine dimensions
+        `k`, `j`, `i`. When spatial coordinate `units` metadata is present on both
+        `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
@@ -441,13 +447,21 @@ def sample_displacement_field_like(
         direction=reference.fusi.direction,
         sitk_threads=sitk_threads,
     )
-    return result.assign_coords(
+    result = result.assign_coords(
         {
             dim: reference.coords[dim]
             for dim in reference.dims
             if dim in reference.coords
         }
     )
+    if has_voxel_affine_geometry(reference):
+        result = add_physical_coords_from_voxel_affine(
+            result,
+            reference.attrs["voxel_to_physical"],
+            voxel_dims=tuple(dims),
+            physical_coord_names=get_voxel_affine_physical_coord_names(reference),
+        )
+    return result
 
 
 def invert_displacement_field(
@@ -527,13 +541,21 @@ def invert_displacement_field(
 
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [field_grid.fusi.origin[d] for d in dims]
+    origin = [_dim_keyed_origin(field_grid)[d] for d in dims]
     direction = np.asarray(
         field.attrs.get("direction", np.eye(len(dims))), dtype=np.float64
     )
-    return _sitk_displacement_field_to_dataarray(
+    result = _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
     )
+    if has_voxel_affine_geometry(field_grid):
+        result = add_physical_coords_from_voxel_affine(
+            result,
+            field_grid.attrs["voxel_to_physical"],
+            voxel_dims=tuple(dims),
+            physical_coord_names=get_voxel_affine_physical_coord_names(field_grid),
+        )
+    return result
 
 
 def _sitk_displacement_field_to_dataarray(
@@ -603,6 +625,37 @@ def _sitk_displacement_field_to_dataarray(
     )
 
 
+def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
+    """Return `.fusi.origin`, re-keyed by dimension name for voxel-affine data.
+
+    `.fusi.origin` keys voxel-affine spatial dims by their physical coordinate name
+    (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used elsewhere
+    (e.g. `.fusi.spacing`, `data.dims`). This aligns the two conventions.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to inspect.
+
+    Returns
+    -------
+    dict[str, float]
+        Origin keyed by `data`'s own dimension names.
+    """
+    origin = data.fusi.origin
+    if not has_voxel_affine_geometry(data):
+        return origin
+    voxel_dims = get_voxel_affine_spatial_dims(data)
+    physical_names = get_voxel_affine_physical_coord_names(data)
+    return {
+        **origin,
+        **{
+            voxel_dim: origin[physical_name]
+            for voxel_dim, physical_name in zip(voxel_dims, physical_names, strict=True)
+        },
+    }
+
+
 def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     """Reconstruct a SimpleITK vector displacement field image from a DataArray.
 
@@ -629,7 +682,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
 
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [field_grid.fusi.origin[dim] for dim in spatial_dims]
+    origin = [_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
     direction = np.asarray(
         da.attrs.get("direction", np.eye(len(spatial_dims))), dtype=np.float64
     )

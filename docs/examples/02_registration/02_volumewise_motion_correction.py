@@ -17,7 +17,7 @@
 # ## Fetch and load a short motion-corrupted window
 #
 # The selected acquisition is a recording from a single 2D slice, so the data shape is
-# `(time, z=1, y, x)`.
+# `(time, k=1, j, i)`.
 
 
 # %%
@@ -126,10 +126,11 @@ fig.patch.set_facecolor(bg_color)
 
 # %%
 std_map = data.std("time")
-highest_std_voxel = std_map.isel(std_map.argmax(dim=["x", "y", "z"]))
+highest_std_voxel_idx = std_map.argmax(dim=["k", "j", "i"])
+highest_std_voxel = std_map.isel(highest_std_voxel_idx)
 
-voxel_before = data.sel(highest_std_voxel.coords)
-voxel_after = registered.sel(highest_std_voxel.coords)
+voxel_before = data.isel(highest_std_voxel_idx)
+voxel_after = registered.isel(highest_std_voxel_idx)
 
 x_value = highest_std_voxel.x.values
 y_value = highest_std_voxel.y.values

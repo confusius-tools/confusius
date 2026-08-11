@@ -150,7 +150,7 @@ def _normalize_html_output(html: str) -> str:
             r"<pre class=['\"]xr-text-repr-fallback['\"]>.*?</pre>",
             "",
             html,
-            flags=re.S,
+            flags=re.DOTALL,
         )
         html = html.replace(
             "<div class='xr-wrap' style='display:none'>", "<div class='xr-wrap'>"

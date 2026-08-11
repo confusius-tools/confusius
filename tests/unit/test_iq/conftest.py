@@ -119,15 +119,6 @@ def sample_spatial_mask_xarray(rng, sample_iq_dataarray):
     k = sample_iq_dataarray.sizes["k"]
     j = sample_iq_dataarray.sizes["j"]
     i = sample_iq_dataarray.sizes["i"]
-    return xr.DataArray(
-        rng.random((k, j, i)) > 0.5,
-        dims=("k", "j", "i"),
-        coords={
-            "k": sample_iq_dataarray.coords["k"],
-            "j": sample_iq_dataarray.coords["j"],
-            "i": sample_iq_dataarray.coords["i"],
-            "z": sample_iq_dataarray.coords["z"],
-            "y": sample_iq_dataarray.coords["y"],
-            "x": sample_iq_dataarray.coords["x"],
-        },
+    return sample_iq_dataarray.isel(time=0, drop=True).copy(
+        data=rng.random((k, j, i)) > 0.5
     )
