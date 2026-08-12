@@ -289,7 +289,11 @@ for ax, background, field, title in [
     disp_y = field.sel(component="j").squeeze(drop=True)
     # Subsample to roughly 20 arrows along the shorter axis so the field stays readable.
     step = max(1, min(disp_x.sizes["j"], disp_x.sizes["i"]) // 20)
-    grid_x, grid_y = np.meshgrid(disp_x["x"].values[::step], disp_x["y"].values[::step])
+    # x/y are (j, i)-shaped axis-aligned coordinates: x varies only along i, y only
+    # along j, so a single row/column recovers the 1D axis values for the meshgrid.
+    x_1d = disp_x["x"].isel(j=0).values
+    y_1d = disp_x["y"].isel(i=0).values
+    grid_x, grid_y = np.meshgrid(x_1d[::step], y_1d[::step])
     u = disp_x.values[::step, ::step]
     v = disp_y.values[::step, ::step]
     arrows = ax.quiver(grid_x, grid_y, u, v, np.hypot(u, v), angles="xy", cmap="autumn")
