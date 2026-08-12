@@ -2031,7 +2031,6 @@ def _resolve_nifti_xform_code(
     *,
     form_name: Literal["qform", "sform"],
     code: int | None,
-    has_affine: bool,
 ) -> int:
     """Resolve the NIfTI qform/sform code to write.
 
@@ -2043,16 +2042,15 @@ def _resolve_nifti_xform_code(
         Name of the NIfTI xform field being resolved.
     code : int, optional
         Explicit qform/sform code override.
-    has_affine : bool
-        Whether a stored affine was selected for this xform field.
 
     Returns
     -------
     int
         Resolved xform code. Explicit `code` takes precedence, then the corresponding
-        `data_array.attrs["<form_name>_code"]` value when present. Otherwise qform
-        defaults to `1`, while sform defaults to `1` only when an affine is available
-        and `0` when no sform affine will be written.
+        `data_array.attrs["<form_name>_code"]` value when present. Otherwise defaults
+        to `2` (`NIFTI_XFORM_ALIGNED_ANAT`), since `voxel_to_world` no longer
+        necessarily represents any one specific reference frame (e.g. scanner space)
+        once transforms such as registration have been applied.
     """
     if code is not None:
         return code
@@ -2061,10 +2059,7 @@ def _resolve_nifti_xform_code(
     if attr_name in data_array.attrs:
         return int(data_array.attrs[attr_name])
 
-    if form_name == "qform":
-        return 1
-
-    return 1 if has_affine else 0
+    return 2
 
 
 def _build_nifti_voxel_to_world_affine(
@@ -2215,7 +2210,6 @@ def _prepare_nifti_xforms(
             data_array,
             form_name=form_name,
             code=explicit_codes[form_name],
-            has_affine=resolved_key is not None,
         )
 
         header_affines[form_name] = (
@@ -2245,13 +2239,15 @@ def _prepare_nifti_xforms(
         if qform_key is not None:
             written_header_affine_keys.discard(qform_key)
 
-        if resolved_codes["sform"] == 0 or header_affines["sform"] is None:
+        if resolved_keys["sform"] is None:
+            # sform has no explicit/stored source of its own (it was only going to
+            # fall back to raw voxel_to_world), so it's safe to rescue the sheared
+            # geometry into it instead of overwriting a deliberately requested sform.
             header_affines["sform"] = header_affines["qform"].copy()
             resolved_codes["sform"] = _resolve_nifti_xform_code(
                 data_array,
                 form_name="sform",
                 code=explicit_codes["sform"],
-                has_affine=True,
             )
             if qform_key is not None:
                 written_header_affine_keys.add(qform_key)
@@ -2507,25 +2503,26 @@ def save_nifti(
     qform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
         provided, `"physical_to_qform"` is used if present; otherwise qform falls back
-        to the coordinate-defining voxel geometry.
+        to the coordinate-defining voxel geometry (`voxel_to_world`) directly.
 
         If the coordinate-defining affine contains shear, qform writing is disabled
         because the NIfTI qform cannot represent shear. In that case, the geometry is
         written to sform instead.
     sform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
-        provided, `"physical_to_sform"` is used if present; otherwise no sform is
-        written unless the coordinate-defining affine contains shear and must be
-        written to sform.
+        provided, `"physical_to_sform"` is used if present; otherwise sform also falls
+        back to `voxel_to_world` directly (like qform), unless disabled via
+        `sform_code=0` or `attrs["sform_code"] = 0`.
     qform_code : int, optional
         NIfTI qform code to write. When provided, takes precedence over
         `data_array.attrs["qform_code"]`. When not provided, the value from
-        `attrs["qform_code"]` is used if present; otherwise defaults to `1`.
+        `attrs["qform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
     sform_code : int, optional
         NIfTI sform code to write. When provided, takes precedence over
         `data_array.attrs["sform_code"]`. When not provided, the value from
-        `attrs["sform_code"]` is used if present; otherwise defaults to `1` when a
-        sform affine is available, or `0` when no sform affine is written.
+        `attrs["sform_code"]` is used if present; otherwise defaults to `2`
+        (`NIFTI_XFORM_ALIGNED_ANAT`).
 
     Notes
     -----

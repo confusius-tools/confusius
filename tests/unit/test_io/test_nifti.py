@@ -2641,7 +2641,7 @@ class TestSaveNifti:
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
         assert loaded.header.get_qform(coded=True)[1] == 0
-        assert loaded.header.get_sform(coded=True)[1] == 1
+        assert loaded.header.get_sform(coded=True)[1] == 2
         expected_sform = sheared_affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
         np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
         np.testing.assert_allclose(
@@ -2654,7 +2654,7 @@ class TestSaveNifti:
         assert "ConfUSIusAffines" not in sidecar
 
     def test_named_sform_sets_sform_code(self, tmp_path):
-        """Providing `sform=` writes a sform with code=1 by default."""
+        """Providing `sform=` writes a sform with code=2 (ALIGNED_ANAT) by default."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         physical_to_sform = np.diag([2.0, 2.0, 2.0, 1.0])
         da = create_fusi_dataarray(
@@ -2671,7 +2671,7 @@ class TestSaveNifti:
         save_nifti(da, output_path, sform="physical_to_template")
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
-        assert loaded.header.get_sform(coded=True)[1] == 1
+        assert loaded.header.get_sform(coded=True)[1] == 2
 
     def test_named_sform_code_kwarg_overrides_attrs(self, tmp_path):
         """sform_code= kwarg takes precedence over attrs['sform_code']."""
@@ -2762,8 +2762,10 @@ class TestSaveNifti:
                 da, tmp_path / "invalid_qform_key.nii.gz", qform="physical_to_scanner"
             )
 
-    def test_no_sform_kwarg_writes_no_sform(self, tmp_path):
-        """Without `sform=` and no attrs `physical_to_sform`, the saved file has sform_code=0."""
+    def test_no_sform_kwarg_falls_back_to_voxel_to_world(self, tmp_path):
+        """Without `sform=` and no attrs `physical_to_sform`, sform still gets
+        written -- falling back to `voxel_to_world` directly with code=2
+        (ALIGNED_ANAT), same as qform's own fallback."""
         data = np.zeros((4, 3, 2), dtype=np.float32)
         da = create_fusi_dataarray(
             data,
@@ -2778,7 +2780,9 @@ class TestSaveNifti:
         save_nifti(da, output_path)
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
-        assert loaded.header.get_sform(coded=True)[1] == 0
+        assert loaded.header.get_sform(coded=True)[1] == 2
+        expected_sform = get_voxel_to_world_affine(da)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
+        np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
 
 
 class TestRoundtrip:
