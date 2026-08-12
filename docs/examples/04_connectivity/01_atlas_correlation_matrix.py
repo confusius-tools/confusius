@@ -84,7 +84,7 @@ napari_affine = np.array(
 )
 initialization = np.linalg.inv(napari_affine)
 
-target_z = napari_affine[0, 3] + float(moving.z.values[0])
+target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0))
 
 registered, affine, diagnostics = cf.registration.register_volume(
