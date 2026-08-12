@@ -32,6 +32,10 @@ from sklearn.model_selection import (
     cross_val_score,
 )
 
+from confusius._utils.geometry import (
+    get_voxel_affine_world_coord_names,
+    has_voxel_world_geometry,
+)
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
@@ -57,26 +61,57 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
         If any dimension of the mask lacks a coordinate, or carries a non-numeric one.
         SearchLight measures its radius in coordinate units, so a missing coordinate
         would silently make the radius mean voxel indices, which is anisotropic.
+
+    Notes
+    -----
+    For voxel-affine geometry, `mask.dims` are the native voxel dims (`k`/`j`/`i`),
+    whose own coordinates are dense integer indices, not physical distances; the
+    physical `z`/`y`/`x` coordinates (used instead here) are what `radius` is measured
+    against.
     """
     dims = tuple(str(dim) for dim in mask.dims)
-    invalid = [
-        dim
-        for dim in dims
-        if dim not in mask.coords
-        or not np.issubdtype(mask.coords[dim].dtype, np.number)
-    ]
-    if invalid:
-        raise ValueError(
-            f"Mask dimensions {invalid} lack a numeric coordinate. SearchLight "
-            "measures `radius` in coordinate units, so every spatial dimension must "
-            "carry one."
-        )
 
-    grids = np.meshgrid(
-        *[np.asarray(mask.coords[dim].values, dtype=np.float64) for dim in dims],
-        indexing="ij",
-    )
-    flat = np.stack([grid.ravel() for grid in grids], axis=-1)
+    if has_voxel_world_geometry(mask):
+        coord_names = get_voxel_affine_world_coord_names(mask)
+        invalid = [
+            name
+            for name in coord_names
+            if name not in mask.coords
+            or not np.issubdtype(mask.coords[name].dtype, np.number)
+        ]
+        if invalid:
+            raise ValueError(
+                f"Mask coordinates {invalid} lack a numeric coordinate. SearchLight "
+                "measures `radius` in coordinate units, so every spatial dimension "
+                "must carry one."
+            )
+        coord_arrays = [
+            np.broadcast_to(
+                np.asarray(mask.coords[name].transpose(*dims).values, dtype=np.float64),
+                mask.shape,
+            )
+            for name in coord_names
+        ]
+    else:
+        invalid = [
+            dim
+            for dim in dims
+            if dim not in mask.coords
+            or not np.issubdtype(mask.coords[dim].dtype, np.number)
+        ]
+        if invalid:
+            raise ValueError(
+                f"Mask dimensions {invalid} lack a numeric coordinate. SearchLight "
+                "measures `radius` in coordinate units, so every spatial dimension "
+                "must carry one."
+            )
+        grids = np.meshgrid(
+            *[np.asarray(mask.coords[dim].values, dtype=np.float64) for dim in dims],
+            indexing="ij",
+        )
+        coord_arrays = list(grids)
+
+    flat = np.stack([arr.ravel() for arr in coord_arrays], axis=-1)
     return flat[np.asarray(mask.values).ravel()]
 
 

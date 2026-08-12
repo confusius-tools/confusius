@@ -265,6 +265,8 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 3), constrained_layout=True)
 background_data.fusi.plot.volume(axes=axes[0], show_colorbar=False, bg_color=bg_color)
 searchlight.scores_.plot(
     ax=axes[0],
+    x="x",
+    y="y",
     cmap=searchlight_cmap,
     vmin=0,
     cbar_kwargs={"label": "Cross-validated $R^2$"},
@@ -273,7 +275,7 @@ axes[0].set_title("Searchlight decoding of speed")
 
 background_data.fusi.plot.volume(axes=axes[1], show_colorbar=False, bg_color=bg_color)
 z_scores.where(mask).plot(
-    ax=axes[1], cmap=glm_cmap, center=0, cbar_kwargs={"label": "z-score"}
+    ax=axes[1], x="x", y="y", cmap=glm_cmap, center=0, cbar_kwargs={"label": "z-score"}
 )
 axes[1].set_title("GLM, same regressor")
 
