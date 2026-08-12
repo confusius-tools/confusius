@@ -214,7 +214,7 @@ class TestLoadZarr:
         """Zarr store with one variable."""
         ds = xr.Dataset({"iq": xr.DataArray(np.zeros((4, 3)))})
         path = tmp_path / "data.zarr"
-        ds.to_zarr(path, zarr_format=2)
+        ds.to_zarr(path)
         return path
 
     @pytest.fixture
@@ -227,7 +227,7 @@ class TestLoadZarr:
             }
         )
         path = tmp_path / "data.zarr"
-        ds.to_zarr(path, zarr_format=2)
+        ds.to_zarr(path)
         return path
 
     def test_zarr_default_returns_first_variable(self, single_var_zarr):
@@ -256,7 +256,7 @@ class TestLoadRestoresAtlasCmapAndNorm:
             attrs={"rgb_lookup": self.RGB_LOOKUP},
         )
         path = tmp_path / "annotation.zarr"
-        xr.Dataset({"annotation": da}).to_zarr(path, zarr_format=2)
+        xr.Dataset({"annotation": da}).to_zarr(path)
         return path
 
     def test_rebuilds_cmap_and_norm_from_rgb_lookup(self, atlas_like_zarr):

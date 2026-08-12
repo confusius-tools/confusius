@@ -44,7 +44,7 @@ def scan_path(tmp_path: Path) -> Path:
 def zarr_3d_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
     """Zarr store built from the shared sample_fusi_3d fixture."""
     path = tmp_path / "vol3d.zarr"
-    save(sample_fusi_3d, path, zarr_format=2)
+    save(sample_fusi_3d, path)
     return path
 
 
@@ -52,7 +52,7 @@ def zarr_3d_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
 def zarr_4d_path(tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> Path:
     """Zarr store built from the shared sample_fusi_3dt fixture."""
     path = tmp_path / "vol4d.zarr"
-    save(sample_fusi_3dt, path, zarr_format=2)
+    save(sample_fusi_3dt, path)
     return path
 
 
@@ -63,7 +63,7 @@ def integer_zarr_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
     Carries `roi_labels` and `rgb_lookup` attrs, like a real atlas mask.
     """
     path = tmp_path / "labels.zarr"
-    xr.Dataset({"data": sample_roi_labels}).to_zarr(path, zarr_format=2)
+    xr.Dataset({"data": sample_roi_labels}).to_zarr(path)
     return path
 
 
@@ -211,7 +211,7 @@ class TestReaderLayerData:
             },
         )
         path = tmp_path / "time_last.zarr"
-        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+        xr.Dataset({"data": da}).to_zarr(path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -234,7 +234,7 @@ class TestReaderLayerData:
     def test_voxel_affine_is_resampled_to_physical_grid(self, tmp_path: Path) -> None:
         """Oblique reader output uses an axis-aligned world grid for napari."""
         path = tmp_path / "cti.zarr"
-        save(_make_voxel_affine_volume(), path, zarr_format=2)
+        save(_make_voxel_affine_volume(), path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -267,7 +267,7 @@ class TestReaderLayerData:
             },
         )
         path = tmp_path / "axis_aligned_cti.zarr"
-        save(data, path, zarr_format=2)
+        save(data, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -300,7 +300,7 @@ class TestReaderLayerData:
             attrs={"cmap": "viridis"},
         )
         path = tmp_path / "colored.zarr"
-        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+        xr.Dataset({"data": da}).to_zarr(path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -328,7 +328,7 @@ class TestReaderLayerData:
             attrs={"cmap": "<matplotlib.colors.ListedColormap object at 0x0>"},
         )
         path = tmp_path / "invalid_cmap.zarr"
-        xr.Dataset({"data": da}).to_zarr(path, zarr_format=2)
+        xr.Dataset({"data": da}).to_zarr(path)
 
         reader = read_zarr(str(path))
         assert reader is not None
