@@ -11,7 +11,7 @@ from confusius.registration._utils import (
     abort_on_sigint,
     dataarray_to_sitk_image,
     expand_thin_dims,
-    replace_spatial_geometry_attrs,
+    replace_affines_attr,
     set_sitk_thread_count,
 )
 from confusius.registration.affines import (
@@ -875,7 +875,11 @@ def register_volume(
         attrs=moving.attrs.copy(),
     )
     if resample:
-        result = replace_spatial_geometry_attrs(result, fixed)
+        # result already carries fixed's own VoxelToWorldIndex (reused from
+        # fixed.coords above), so only the unrelated attrs["affines"] metadata --
+        # fixed's relationship to other physical reference frames -- needs swapping
+        # in for moving's.
+        replace_affines_attr(result, fixed)
 
     if transform_type == "bspline":
         from confusius.registration.bspline import sitk_bspline_to_dataarray

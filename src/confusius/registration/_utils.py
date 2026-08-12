@@ -17,10 +17,8 @@ from confusius._utils.coordinates import (
     get_grid_info_from_dataarray,
 )
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
     get_voxel_affine_spatial_dims,
     get_voxel_affine_world_coord_names,
-    get_voxel_to_world_affine,
     has_voxel_world_geometry,
 )
 
@@ -297,49 +295,6 @@ def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
         result.attrs["affines"] = deepcopy(reference.attrs["affines"])
     else:
         result.attrs.pop("affines", None)
-
-
-def replace_spatial_geometry_attrs(
-    result: xr.DataArray,
-    reference: xr.DataArray,
-) -> xr.DataArray:
-    """Replace spatial geometry metadata on `result` with `reference` geometry.
-
-    Parameters
-    ----------
-    result : xarray.DataArray
-        DataArray whose spatial geometry metadata should be updated.
-    reference : xarray.DataArray
-        DataArray providing the output spatial geometry.
-
-    Returns
-    -------
-    xarray.DataArray
-        `result` with spatial geometry metadata synchronized to `reference`.
-
-    Notes
-    -----
-    This copies `attrs["affines"]`. If the reference uses voxel-world geometry,
-    VoxelToWorldIndex-backed world coordinates are rebuilt on the returned DataArray.
-    """
-    replace_affines_attr(result, reference)
-
-    result.attrs.pop("voxel_to_world", None)
-    if has_voxel_world_geometry(reference):
-        world_coord_names = get_voxel_affine_world_coord_names(reference)
-        world_coord_attrs = {
-            name: dict(reference.coords[name].attrs)
-            for name in world_coord_names
-            if name in reference.coords
-        }
-        return add_world_coords_from_voxel_affine(
-            result,
-            get_voxel_to_world_affine(reference),
-            voxel_dims=get_voxel_affine_spatial_dims(reference),
-            world_coord_names=world_coord_names,
-            world_coord_attrs=world_coord_attrs,
-        )
-    return result
 
 
 @contextmanager

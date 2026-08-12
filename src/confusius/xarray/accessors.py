@@ -374,6 +374,40 @@ class FUSIAccessor:
 
         return reindex_voxels(self._obj)
 
+    def reindex_voxels_like(
+        self, reference: xr.DataArray, *, atol: float = 1e-6
+    ) -> xr.DataArray:
+        """Rebase voxel coordinates onto `reference`'s voxel labels.
+
+        See
+        [reindex_voxels_like][confusius.xarray.affine.reindex_voxels_like]
+        for details.
+
+        Parameters
+        ----------
+        reference : xarray.DataArray
+            DataArray whose voxel labels and affine `self` should adopt.
+        atol : float, default: 1e-6
+            Absolute tolerance, in `reference`'s physical units, for the
+            world-coordinate alignment check between `self` and `reference`.
+
+        Returns
+        -------
+        xarray.DataArray
+            `self` with voxel coordinates and `voxel_to_world` replaced by
+            `reference`'s. Physical coordinates are unchanged.
+
+        Raises
+        ------
+        ValueError
+            If `self` or `reference` lacks voxel-affine geometry, if their voxel
+            dimensions or shapes differ, or if their physical coordinates do not
+            match within `atol`.
+        """
+        from confusius.xarray.affine import reindex_voxels_like
+
+        return reindex_voxels_like(self._obj, reference, atol=atol)
+
     def save(self, path: str | Path, **kwargs: Any) -> None:
         """Save the DataArray to file, dispatching by extension.
 

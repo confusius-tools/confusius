@@ -448,6 +448,106 @@ class TestReindexVoxels:
             data.fusi.reindex_voxels()
 
 
+class TestReindexVoxelsLike:
+    """Tests for fusi.reindex_voxels_like."""
+
+    def _cropped_strided_reference(self) -> xr.DataArray:
+        """A voxel-affine array cropped and strided from a larger one."""
+        base = xr.DataArray(
+            np.arange(4 * 20 * 20, dtype=np.float64).reshape(4, 20, 20),
+            dims=("k", "j", "i"),
+            coords={
+                "k": np.arange(4.0),
+                "j": np.arange(20.0),
+                "i": np.arange(20.0),
+            },
+        )
+        base = add_world_coords_from_voxel_affine(
+            base,
+            np.diag([1.0, 1.0, 1.0, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            world_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
+        return base.isel(k=slice(1, 3), j=slice(2, 10, 2), i=slice(1, 15, 3))
+
+    def test_relabels_onto_reference_voxel_coords(self):
+        """Voxel coordinates and affine become reference's after reindexing."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.reindex_voxels()
+
+        result = data.fusi.reindex_voxels_like(reference)
+
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                result.coords[dim].values, reference.coords[dim].values
+            )
+        np.testing.assert_allclose(
+            get_voxel_to_world_affine(result), get_voxel_to_world_affine(reference)
+        )
+
+    def test_preserves_data_values_and_world_coordinates(self):
+        """Array content and physical coordinates are unchanged by reindexing."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.reindex_voxels()
+
+        result = data.fusi.reindex_voxels_like(reference)
+
+        np.testing.assert_array_equal(result.values, data.values)
+        for name in ("z", "y", "x"):
+            np.testing.assert_allclose(
+                result.coords[name].values, data.coords[name].values
+            )
+
+    def test_preserves_reference_coord_attrs(self):
+        """Reindexed world coordinates carry reference's attrs (e.g. units)."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.reindex_voxels()
+
+        result = data.fusi.reindex_voxels_like(reference)
+
+        assert result.coords["z"].attrs["units"] == "mm"
+
+    def test_raises_on_shape_mismatch(self):
+        """Different voxel grid shapes cannot be reindexed onto each other."""
+        reference = self._cropped_strided_reference()
+        data = reference.isel(i=slice(0, -1)).fusi.reindex_voxels()
+
+        with pytest.raises(ValueError, match="same voxel grid shape"):
+            data.fusi.reindex_voxels_like(reference)
+
+    def test_raises_when_not_physically_aligned(self):
+        """Data occupying a different physical grid than reference raises."""
+        reference = self._cropped_strided_reference()
+        misaligned, _ = reference.fusi.reindex_voxels().fusi.affine.apply(
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 100.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            )
+        )
+
+        with pytest.raises(ValueError, match="not aligned in physical space"):
+            misaligned.fusi.reindex_voxels_like(reference)
+
+    def test_raises_without_voxel_affine_geometry(self):
+        """Either side lacking voxel-affine geometry raises ValueError."""
+        reference = self._cropped_strided_reference()
+        data = reference.fusi.reindex_voxels()
+        plain = xr.DataArray(np.zeros((2, 4, 5)), dims=["k", "j", "i"])
+
+        with pytest.raises(ValueError, match="data must have voxel-affine"):
+            plain.fusi.reindex_voxels_like(reference)
+        with pytest.raises(ValueError, match="reference must have voxel-affine"):
+            data.fusi.reindex_voxels_like(plain)
+
+
 class TestAffineToMethod:
     """Tests for fusi.affine.to."""
 

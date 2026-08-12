@@ -242,6 +242,96 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     )
 
 
+def reindex_voxels_like(
+    data: xr.DataArray, reference: xr.DataArray, *, atol: float = 1e-6
+) -> xr.DataArray:
+    """Rebase voxel coordinates onto `reference`'s voxel labels.
+
+    `data` and `reference`'s `voxel_to_world` affines can differ even when they describe
+    the exact same physical grid: the affine is defined in terms of voxel *coordinate
+    values*, so two arrays occupying identical physical positions can still carry
+    different affines if their voxel dimensions happen to be labeled differently (e.g.
+    `reference` was cropped or strided from a larger array, while `data` was freshly
+    built with dense labels). This verifies the two occupy the same physical grid, then
+    relabels `data`'s voxel coordinates and affine to match `reference`'s exactly, so
+    the two become directly alignable (`.sel()`, arithmetic, `xarray.align`, ...) by
+    voxel label as well as by physical position.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        Input scan with voxel-affine geometry, physically aligned with `reference`.
+    reference : xarray.DataArray
+        DataArray whose voxel labels and affine `data` should adopt.
+    atol : float, default: 1e-6
+        Absolute tolerance, in `reference`'s physical units, for the world-coordinate
+        alignment check between `data` and `reference`.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` with voxel coordinates and `voxel_to_world` replaced by `reference`'s.
+        Physical (world) coordinates are unchanged, since `data` and `reference` are
+        verified to already occupy the same physical grid.
+
+    Raises
+    ------
+    ValueError
+        If `data` or `reference` lacks voxel-affine geometry, if their voxel
+        dimensions or shapes differ, or if their physical coordinates do not match
+        within `atol`.
+    """
+    if not has_voxel_world_geometry(data):
+        raise ValueError("data must have voxel-affine geometry.")
+    if not has_voxel_world_geometry(reference):
+        raise ValueError("reference must have voxel-affine geometry.")
+
+    voxel_dims = get_voxel_affine_spatial_dims(data)
+    reference_voxel_dims = get_voxel_affine_spatial_dims(reference)
+    if voxel_dims != reference_voxel_dims:
+        raise ValueError(
+            f"data and reference must have the same voxel dimensions; got "
+            f"{voxel_dims!r} and {reference_voxel_dims!r}."
+        )
+    shape = tuple(data.sizes[dim] for dim in voxel_dims)
+    reference_shape = tuple(reference.sizes[dim] for dim in voxel_dims)
+    if shape != reference_shape:
+        raise ValueError(
+            f"data and reference must have the same voxel grid shape to reindex; "
+            f"got {shape!r} and {reference_shape!r}."
+        )
+
+    world_coord_names = get_voxel_affine_world_coord_names(data)
+    reference_world_coord_names = get_voxel_affine_world_coord_names(reference)
+    for name, reference_name in zip(
+        world_coord_names, reference_world_coord_names, strict=True
+    ):
+        data_values = data.coords[name].transpose(*voxel_dims).values
+        reference_values = (
+            reference.coords[reference_name].transpose(*voxel_dims).values
+        )
+        if not np.allclose(data_values, reference_values, atol=atol):
+            raise ValueError(
+                f"data and reference are not aligned in physical space: coordinate "
+                f"{name!r} differs by more than {atol}. reindex_voxels_like requires "
+                "data to already occupy reference's exact physical grid."
+            )
+
+    world_coord_attrs = {
+        name: dict(reference.coords[name].attrs)
+        for name in reference_world_coord_names
+        if name in reference.coords
+    }
+    relabeled = data.assign_coords({dim: reference.coords[dim] for dim in voxel_dims})
+    return add_world_coords_from_voxel_affine(
+        relabeled,
+        get_voxel_to_world_affine(reference),
+        voxel_dims=voxel_dims,
+        world_coord_names=reference_world_coord_names,
+        world_coord_attrs=world_coord_attrs,
+    )
+
+
 class FUSIAffineAccessor:
     """Accessor for affine transform operations on fUSI DataArrays.
 

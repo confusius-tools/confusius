@@ -15,7 +15,7 @@ from confusius._utils.geometry import (
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
-    replace_spatial_geometry_attrs,
+    replace_affines_attr,
     set_sitk_thread_count,
 )
 from confusius.registration.bspline import (
@@ -23,6 +23,7 @@ from confusius.registration.bspline import (
     _dataarray_to_sitk_displacement_field,
 )
 from confusius.validation import ensure_fusi, validate_matching_spatial_units
+from confusius.xarray.affine import reindex_voxels_like
 from confusius.xarray.create import create_fusi_dataarray
 
 
@@ -334,12 +335,11 @@ def resample_like(
         sitk_threads=sitk_threads,
     )
 
-    # Overwrite the reconstructed arithmetic coordinates with reference's exact
-    # coordinate arrays. resample_volume rebuilds coords as origin + k * spacing, which
-    # can diverge from the reference coordinates by floating-point accumulation errors.
-    # Those sub-epsilon differences break xarray coordinate alignment (e.g. plot_volume)
-    # that uses strict tolerances to match coordinates across DataArrays.
-    result = result.assign_coords(
-        {d: reference.coords[d] for d in VOXEL_DIMS if d in reference.coords}
-    )
-    return replace_spatial_geometry_attrs(result, reference)
+    # resample_volume builds a fresh, position-anchored grid (dense zero-based voxel
+    # labels), which physically matches reference's grid but not necessarily its
+    # voxel labels (e.g. reference may itself be cropped or strided from a larger
+    # array). Adopt reference's own labels and affine so the two are directly
+    # alignable by voxel label as well as by physical position.
+    result = reindex_voxels_like(result, reference)
+    replace_affines_attr(result, reference)
+    return result
