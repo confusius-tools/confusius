@@ -388,6 +388,66 @@ class TestOrigin:
         )
 
 
+class TestReindexVoxels:
+    """Tests for fusi.reindex_voxels."""
+
+    def test_rebases_voxel_coords_to_dense_positions(self):
+        """Voxel coordinates become 0, 1, ..., dim - 1 after reindexing."""
+        data = _make_voxel_affine_volume()
+        result = data.fusi.reindex_voxels()
+        for dim in ("k", "j", "i"):
+            np.testing.assert_array_equal(
+                result.coords[dim].values, np.arange(data.sizes[dim], dtype=float)
+            )
+
+    def test_preserves_world_coordinates(self):
+        """Physical (z/y/x) coordinates are unchanged by reindexing."""
+        data = _make_voxel_affine_volume()
+        result = data.fusi.reindex_voxels()
+        for name in ("z", "y", "x"):
+            np.testing.assert_allclose(
+                result.coords[name].values, data.coords[name].values
+            )
+
+    def test_preserves_data_values(self):
+        """Array content is unchanged by reindexing."""
+        data = _make_voxel_affine_volume()
+        data.values[:] = np.arange(data.size).reshape(data.shape)
+        result = data.fusi.reindex_voxels()
+        np.testing.assert_array_equal(result.values, data.values)
+
+    def test_affine_maps_dense_positions_to_world(self):
+        """The rebuilt affine maps position (0, 0, 0) to the array's actual origin."""
+        data = _make_voxel_affine_volume()
+        cropped = data.isel(k=slice(1, 2), j=slice(1, 3), i=slice(2, 4))
+        result = cropped.fusi.reindex_voxels()
+        affine = get_voxel_to_world_affine(result)
+        origin = affine @ np.array([0.0, 0.0, 0.0, 1.0])
+        np.testing.assert_allclose(
+            origin[:3],
+            [cropped.fusi.origin[name] for name in ("z", "y", "x")],
+        )
+
+    def test_raises_without_voxel_affine_geometry(self):
+        """A plain DataArray without voxel-affine geometry raises ValueError."""
+        data = xr.DataArray(np.zeros((2, 3)), dims=["j", "i"])
+        with pytest.raises(ValueError, match="voxel-affine geometry"):
+            data.fusi.reindex_voxels()
+
+    def test_raises_when_spacing_undefined(self):
+        """Irregular voxel-space coordinates without defined spacing raise ValueError."""
+        base = xr.DataArray(
+            np.zeros((3, 4)),
+            dims=["j", "i"],
+            coords={"j": [0.0, 1.0, 3.0], "i": np.arange(4.0)},
+        )
+        data = add_world_coords_from_voxel_affine(
+            base, np.eye(3), voxel_dims=("j", "i")
+        )
+        with pytest.raises(ValueError, match="spacing is undefined"):
+            data.fusi.reindex_voxels()
+
+
 class TestAffineToMethod:
     """Tests for fusi.affine.to."""
 

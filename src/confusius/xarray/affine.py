@@ -7,8 +7,12 @@ import xarray as xr
 
 from confusius._utils.geometry import (
     add_world_coords_from_voxel_affine,
+    get_affine_orientation_matrix,
     get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
     get_voxel_to_world_affine,
+    get_voxel_world_origin,
+    get_voxel_world_spacing,
     has_voxel_world_geometry,
 )
 
@@ -166,6 +170,76 @@ def apply_affine(
         da.attrs.update(result.attrs)
         return da, orientation
     return result, orientation
+
+
+def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
+    """Rebase voxel coordinates to dense positions without moving world coordinates.
+
+    A voxel-affine DataArray's stored `voxel_to_world` affine is defined in terms of
+    voxel *coordinate values*, which stay unchanged across cropping or striding by
+    design (see [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
+    Because of this, the affine generally does not describe where voxel *position*
+    `(0, ..., 0)` sits in physical space, or the physical distance between
+    consecutive positions, once `da` has been cropped or strided from a larger
+    array. This replaces each voxel dimension's coordinate with `0, 1, ..., dim - 1`
+    and rebuilds `voxel_to_world` so the resulting affine directly maps those dense
+    positions to `da`'s existing physical coordinates, producing a DataArray whose
+    affine is directly usable by software that assumes dense, zero-based voxel
+    indices (e.g. ITK, nilearn).
+
+    Parameters
+    ----------
+    da : xarray.DataArray
+        Input scan with voxel-affine geometry.
+
+    Returns
+    -------
+    xarray.DataArray
+        `da` with voxel coordinates rebased to `0, 1, ..., dim - 1` and an updated
+        `voxel_to_world` affine. Physical coordinates are unchanged.
+
+    Raises
+    ------
+    ValueError
+        If `da` lacks voxel-affine geometry, or if physical spacing is undefined for
+        any voxel dimension.
+    """
+    if not has_voxel_world_geometry(da):
+        raise ValueError("DataArray must have voxel-affine geometry.")
+
+    voxel_dims = get_voxel_affine_spatial_dims(da)
+    world_coord_names = get_voxel_affine_world_coord_names(da)
+
+    spacing = get_voxel_world_spacing(da)
+    missing_spacing = [dim for dim in voxel_dims if spacing[dim] is None]
+    if missing_spacing:
+        raise ValueError(
+            f"Cannot reindex voxels because spacing is undefined for dimensions "
+            f"{missing_spacing!r}."
+        )
+    origin = get_voxel_world_origin(da)
+    direction = get_affine_orientation_matrix(get_voxel_to_world_affine(da))
+
+    ndim = len(voxel_dims)
+    new_affine = np.eye(ndim + 1, dtype=np.float64)
+    new_affine[:ndim, :ndim] = direction @ np.diag([spacing[dim] for dim in voxel_dims])
+    new_affine[:ndim, ndim] = [origin[name] for name in world_coord_names]
+
+    world_coord_attrs = {
+        name: dict(da.coords[name].attrs)
+        for name in world_coord_names
+        if name in da.coords
+    }
+    reindexed = da.assign_coords(
+        {dim: np.arange(da.sizes[dim], dtype=np.float64) for dim in voxel_dims}
+    )
+    return add_world_coords_from_voxel_affine(
+        reindexed,
+        new_affine,
+        voxel_dims=voxel_dims,
+        world_coord_names=world_coord_names,
+        world_coord_attrs=world_coord_attrs,
+    )
 
 
 class FUSIAffineAccessor:

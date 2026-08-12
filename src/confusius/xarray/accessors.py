@@ -331,6 +331,49 @@ class FUSIAccessor:
 
         return FUSIAffineAccessor(self._obj)
 
+    def reindex_voxels(self) -> xr.DataArray:
+        """Rebase voxel coordinates to dense positions without moving world coordinates.
+
+        See
+        [reindex_voxels][confusius.xarray.affine.reindex_voxels]
+        for details.
+
+        Returns
+        -------
+        xarray.DataArray
+            DataArray with voxel coordinates rebased to `0, 1, ..., dim - 1` and an
+            updated `voxel_to_world` affine. Physical coordinates are unchanged.
+
+        Raises
+        ------
+        ValueError
+            If `self` lacks voxel-affine geometry, or if physical spacing is
+            undefined for any voxel dimension.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import xarray as xr
+        >>> import confusius  # noqa: F401
+        >>> from confusius._utils.geometry import add_world_coords_from_voxel_affine
+        >>> base = xr.DataArray(
+        ...     np.zeros((3, 4)),
+        ...     dims=["j", "i"],
+        ...     coords={"j": np.arange(3.0) + 2.0, "i": np.arange(4.0) + 1.0},
+        ... )
+        >>> data = add_world_coords_from_voxel_affine(
+        ...     base, np.eye(3), voxel_dims=("j", "i")
+        ... )
+        >>> reindexed = data.fusi.reindex_voxels()
+        >>> reindexed.coords["j"].values
+        array([0., 1., 2.])
+        >>> float(reindexed.coords["y"].isel(j=0, i=0))
+        2.0
+        """
+        from confusius.xarray.affine import reindex_voxels
+
+        return reindex_voxels(self._obj)
+
     def save(self, path: str | Path, **kwargs: Any) -> None:
         """Save the DataArray to file, dispatching by extension.
 
