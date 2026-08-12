@@ -111,7 +111,11 @@ def fetch_template_pepe_mariani_2026(
         with quiet_pooch_logger():
             retrieve_with_retries(url, dest, logger=pooch.get_logger())
 
-    da = load(dest)
+    # `qform` gives scanner-space coordinates (corresponding to a head-fixed setup),
+    # which simplifies manual registration initialization. The Allen CCF transform is
+    # then available separately via `attrs["affines"]["physical_to_sform"]` for
+    # resampling.
+    da = load(dest, coordinate_affine="qform")
     da.attrs["citation"] = plain_citation(_CITATION)
 
     if print_citation:

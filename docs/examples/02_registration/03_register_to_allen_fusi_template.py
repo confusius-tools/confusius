@@ -86,13 +86,10 @@ napari_affine = np.array(
 )
 initialization = np.linalg.inv(napari_affine)
 
-# Crop the template to a thin band of native "k" (elevation) slices around the
-# recording's expected location, to improve registration speed and visualization.
-# Copied and pasted alongside napari_affine above: the template's geometry is
-# oblique (its sform carries a real rotation into Allen CCF space), so this can't be
-# expressed as a "z" range with `.sel`.
+# Crop the template to a thin band around the recording's expected location to improve
+# registration speed and visualization.
 target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
-fixed = template.isel(k=slice(19, 39)).fusi.scale.db()
+fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0)).fusi.scale.db()
 
 initialized = cf.registration.resample_like(moving, fixed, initialization)
 _ = cf.plotting.plot_composite(
@@ -116,7 +113,7 @@ registered, affine, _ = cf.registration.register_volume(
     metric="correlation",
     convergence_window_size=50,
     number_of_iterations=500,
-    learning_rate=1,
+    learning_rate=1.0,
     initialization=initialization,
     show_progress=True,
 )

@@ -84,11 +84,10 @@ napari_affine = np.array(
 )
 initialization = np.linalg.inv(napari_affine)
 
-# Crop the template to a thin band of native "k" (elevation) slices around the
-# recording's expected location. Copied and pasted alongside napari_affine above: the
-# template's geometry is oblique (its sform carries a real rotation into Allen CCF
-# space), so this can't be expressed as a "z" range with `.sel`.
-fixed = template.isel(k=slice(19, 39))
+# Crop the template to a thin band around the recording's expected location to improve
+# registration speed and visualization.
+target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
+fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0))
 
 registered, affine, diagnostics = cf.registration.register_volume(
     moving=moving,

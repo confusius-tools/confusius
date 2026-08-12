@@ -81,7 +81,7 @@ moving
 # [`register_volume`][confusius.registration.register_volume] will correct.
 
 # %%
-cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
+_ = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 
 # %% [markdown]
 # ## Run the registration
