@@ -920,9 +920,10 @@ class TestLoadNifti:
         assert "z_qform" not in da.coords
         # Primary z coord (NIfTI col 2, size 2) should reflect qform spacing of 4.0.
         np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 4.0])
-        # Affines dict uses the qform key, not sform.
-        assert "physical_to_qform" in da.attrs["affines"]
-        assert "physical_to_sform" not in da.attrs["affines"]
+        # qform is primary with no valid secondary (sform is invalid), so it has no
+        # named attrs["affines"] entry -- it's the array's own physical frame, not a
+        # separately tracked relationship.
+        assert "affines" not in da.attrs
 
     def test_load_nifti_coordinate_affine_sform_forces_sform(
         self, tmp_path: Path
@@ -943,7 +944,9 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da)[:3, :3], np.diag([4.0, 3.0, 2.0])
         )
-        assert "physical_to_sform" in da.attrs["affines"]
+        # sform is primary (no named entry of its own); qform is the distinct
+        # secondary relationship, so only it gets a named affines entry.
+        assert "physical_to_sform" not in da.attrs["affines"]
         assert "physical_to_qform" in da.attrs["affines"]
 
     def test_load_nifti_coordinate_affine_qform_forces_qform(
@@ -965,7 +968,9 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da)[:3, :3], np.diag([7.0, 6.0, 5.0])
         )
-        assert "physical_to_qform" in da.attrs["affines"]
+        # qform is primary (no named entry of its own); sform is the distinct
+        # secondary relationship, so only it gets a named affines entry.
+        assert "physical_to_qform" not in da.attrs["affines"]
         assert "physical_to_sform" in da.attrs["affines"]
 
     def test_load_nifti_rotated_affine_voxel_to_world(self, tmp_path: Path) -> None:
@@ -974,7 +979,8 @@ class TestLoadNifti:
         CTI voxel-affine geometry represents rotations exactly, so the sform's 90°
         rotation (mapping voxel x->world y, voxel y->world -x) is not dropped into
         a residual "physical_to_sform" entry -- it lands directly in
-        `voxel_to_world`, and the primary form's own residual is identity.
+        `voxel_to_world`. Sform is primary here (with no valid qform), so it has no
+        named `attrs["affines"]` entry at all.
         """
         # 90° rotation around z maps x→y, y→-x with spacing [2, 3, 4].
         spacing = np.array([2.0, 3.0, 4.0])
@@ -1001,9 +1007,7 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da), expected_voxel_to_world
         )
-        np.testing.assert_allclose(
-            da.attrs["affines"]["physical_to_sform"], np.eye(4)
-        )
+        assert "affines" not in da.attrs
 
     def test_load_nifti_sheared_affine_correct_spacing(self, tmp_path: Path) -> None:
         """Sheared affine uses decompose44 spacings, not (wrong) column norms."""
@@ -1205,7 +1209,12 @@ class TestLoadNifti:
         rng = np.random.default_rng(0)
         data = rng.random((8, 6, 4)).astype(np.float32)
         nifti_path = tmp_path / "extra_affines.nii.gz"
-        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+        # Both qform and sform valid, so the secondary form produces a named
+        # attrs["affines"] entry to merge the sidecar entry alongside.
+        img = nib.Nifti1Image(data, np.eye(4))
+        img.header.set_sform(np.eye(4), code=2)
+        img.header.set_qform(np.eye(4), code=1)
+        img.to_filename(nifti_path)
 
         extra_affine = [
             [1.0, 0.0, 0.0, 0.5],
@@ -1224,12 +1233,9 @@ class TestLoadNifti:
         np.testing.assert_allclose(
             da.attrs["affines"]["bspline_initialization"], extra_affine
         )
-        # The NIfTI header affines (qform/sform) must still be present alongside
-        # the sidecar entry.
-        nifti_affine_keys = {
-            k for k in da.attrs["affines"] if k.startswith("physical_to_")
-        }
-        assert nifti_affine_keys, "expected qform/sform from the NIfTI header"
+        # The secondary NIfTI header affine (qform, since sform is primary) must
+        # still be present alongside the sidecar entry.
+        assert "physical_to_qform" in da.attrs["affines"]
 
     def test_load_nifti_invalid_sidecar_warns(self, tmp_path: Path) -> None:
         """Loading warns when the sidecar violates fUSI-BIDS validation rules."""
@@ -2834,6 +2840,12 @@ class TestRoundtrip:
         `voxdim` coordinate attribute. `apply_affine` must rescale `voxdim`
         along with the coordinates, otherwise the saved qform carries the
         stale voxel size on that axis.
+
+        Sform (primary here) has no named `attrs["affines"]` entry of its own, so
+        after `apply_affine` moves the physical frame into qform's space, sform is
+        no longer recoverable -- it mirrors the new `voxel_to_world` on save, same
+        as qform (whose own `physical_to_qform` entry is now identity, re-expressed
+        by `apply_affine`).
         """
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         sform[:3, 3] = [10.0, -5.0, 2.0]
@@ -2856,7 +2868,7 @@ class TestRoundtrip:
             reloaded.header.get_qform(coded=True)[0], qform, atol=1e-4
         )
         np.testing.assert_allclose(
-            reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
+            reloaded.header.get_sform(coded=True)[0], qform, atol=1e-4
         )
 
     def test_roundtrip_3d(self, tmp_path, sample_fusi_3d):

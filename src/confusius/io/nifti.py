@@ -403,9 +403,19 @@ def _create_spatial_coords_from_nifti(
                 attrs=coord_attrs,
             )
     else:
-        # Sform is preferred; when both codes are positive, qform is secondary
-        # (see `_select_affines`: secondary is always qform, never sform).
-        #
+        # Determine which form is primary the same way `_select_affines` did, so the
+        # secondary form (when present) gets the correct name -- an explicit
+        # coordinate_affine="qform" makes sform the *secondary* form, not qform.
+        _, sform_code = img.header.get_sform(coded=True)
+        sform_valid = sform_code > 0
+        if coordinate_affine == "sform":
+            primary_prefix = "sform"
+        elif coordinate_affine == "qform":
+            primary_prefix = "qform"
+        else:
+            primary_prefix = "sform" if sform_valid else "qform"
+        secondary_prefix = "qform" if primary_prefix == "sform" else "sform"
+
         # CTI voxel-affine geometry represents the full primary affine (any
         # rotation/shear included) exactly, so it becomes `voxel_to_world`
         # directly -- no axis-aligned-only decomposition, and no separate rotation
@@ -414,29 +424,24 @@ def _create_spatial_coords_from_nifti(
         # translation and zoom). A missing spatial dim (e.g. a genuinely 2D scan)
         # needs no special handling either: its affine column is simply dropped,
         # which is exactly equivalent to evaluating the affine at voxel-index 0
-        # along that axis (index 0 zeroes out that column's contribution). A
-        # secondary form (qform, when sform is primary) is expressed relative to
-        # this now-exact physical frame: secondary = physical_to_qform @ primary,
-        # so physical_to_qform = secondary @ inv(primary).
-        _, sform_code = img.header.get_sform(coded=True)
-        primary_prefix = "sform" if sform_code > 0 else "qform"
+        # along that axis (index 0 zeroes out that column's contribution).
+        #
+        # The primary form has no named `attrs["affines"]` entry: it is not a
+        # separately tracked relationship, it *is* the array's own physical frame,
+        # so on save it always mirrors the current `voxel_to_world` (see
+        # `_build_selected_nifti_affine`'s `affine_key=None` fallback). Only the
+        # secondary form is a genuinely distinct, named relationship, so only it
+        # gets one: secondary = physical_to_<secondary> @ primary, so
+        # physical_to_<secondary> = secondary @ inv(primary).
         extra_attrs["_primary_voxel_to_world"] = primary_affine[[2, 1, 0, 3]][
             :, [2, 1, 0, 3]
         ]
-        # The primary form's own relationship to the physical coordinates starts
-        # as identity (physical coordinates *are* the primary affine's output),
-        # but must still be stored: `apply_affine` re-expresses every stored
-        # affine when the physical frame changes, so a later transform (e.g.
-        # composing a registration) keeps this form's coordinates recoverable on
-        # save, instead of only the secondary form surviving.
-        affines_dict: dict[str, npt.NDArray[np.floating]] = {
-            f"physical_to_{primary_prefix}": np.eye(4, dtype=np.float64)
-        }
+        affines_dict: dict[str, npt.NDArray[np.floating]] = {}
         if secondary_affine is not None:
             physical_to_secondary = secondary_affine @ np.linalg.inv(primary_affine)
-            affines_dict["physical_to_qform"] = physical_to_secondary[[2, 1, 0, 3]][
-                :, [2, 1, 0, 3]
-            ]
+            affines_dict[f"physical_to_{secondary_prefix}"] = physical_to_secondary[
+                [2, 1, 0, 3]
+            ][:, [2, 1, 0, 3]]
 
         for col, dim in enumerate(("x", "y", "z")):
             if dim not in dims:

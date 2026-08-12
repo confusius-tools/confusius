@@ -787,6 +787,18 @@ class TestAffineApplyMethod:
             result.coords["x"].values, da.coords["x"].values - 3.0
         )
 
+    def test_string_key_applied_dropped_from_result(self):
+        """Applying by key drops that key: composing it with itself is always
+        identity, so the entry carries no information after applying."""
+        shift = np.eye(4)
+        shift[:3, 3] = [10.0, 5.0, -3.0]
+        da = self._make_scan(
+            affines={"physical_to_lab": shift, "physical_to_atlas": np.eye(4)}
+        )
+        result = da.fusi.affine.apply("physical_to_lab")
+        assert "physical_to_lab" not in result.attrs["affines"]
+        assert "physical_to_atlas" in result.attrs["affines"]
+
     def test_string_key_missing_affines_attr_raises_value_error(self):
         """A string `affine` raises ValueError when `da` has no `affines` attr."""
         da = self._make_scan()

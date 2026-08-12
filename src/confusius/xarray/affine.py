@@ -97,6 +97,10 @@ def apply_affine(
     -------
     xarray.DataArray
         `da` with updated spatial coordinates and updated `attrs["affines"]`.
+        When `affine` is a string, that key is dropped from the result: composing
+        a stored affine with itself is deterministically identity, so the entry
+        would carry no information -- the physical frame now simply *is* that
+        named space.
 
     Raises
     ------
@@ -122,12 +126,13 @@ def apply_affine(
     >>> float(result.attrs["voxel_to_world"][0, 2])
     10.0
     """
-    if isinstance(affine, str):
+    applied_key = affine if isinstance(affine, str) else None
+    if applied_key is not None:
         if "affines" not in da.attrs:
             raise ValueError("da does not have an 'affines' entry in attrs.")
-        if affine not in da.attrs["affines"]:
-            raise KeyError(f"'{affine}' not found in da.attrs['affines'].")
-        affine = da.attrs["affines"][affine]
+        if applied_key not in da.attrs["affines"]:
+            raise KeyError(f"'{applied_key}' not found in da.attrs['affines'].")
+        affine = da.attrs["affines"][applied_key]
     affine_array = np.asarray(affine, dtype=np.float64)
 
     if not has_voxel_world_geometry(da):
@@ -144,6 +149,13 @@ def apply_affine(
     new_affines: dict[str, npt.NDArray[np.float64]] = {}
     inv_affine = np.linalg.inv(affine_array)
     for stored_key, val in stored.items():
+        if stored_key == applied_key:
+            # Composing this stored affine with itself is deterministically
+            # identity (arr @ inv(arr) == I), regardless of what it held --
+            # applying "by key" means "move the physical frame to align with
+            # this named affine," which by construction leaves nothing to
+            # report here.
+            continue
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
             new_affines[stored_key] = arr @ inv_affine
@@ -449,6 +461,10 @@ class FUSIAffineAccessor:
         -------
         xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
+            When `affine` is a string, that key is dropped from the result:
+            composing a stored affine with itself is deterministically identity,
+            so the entry would carry no information -- the physical frame now
+            simply *is* that named space.
 
         Raises
         ------
