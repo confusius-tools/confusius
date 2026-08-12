@@ -8,6 +8,18 @@ from numpy.testing import assert_allclose
 from confusius.validation import validate_fusi, validate_iq
 from confusius.xarray import create_fusi_dataarray, create_iq_dataarray
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
 
 def test_create_fusi_dataarray_builds_canonical_volume():
     """Spatial input dims are canonicalized to native voxel dims."""
@@ -24,9 +36,9 @@ def test_create_fusi_dataarray_builds_canonical_volume():
 
     assert result.dims == ("time", "k", "j", "i")
     assert_allclose(result.coords["time"], 1.0 + np.arange(5) * 0.5)
-    assert_allclose(result.coords["z"], [2.0])
-    assert_allclose(result.coords["y"], 0.05 + np.arange(8) * 0.1)
-    assert_allclose(result.coords["x"], 0.1 + np.arange(12) * 0.2)
+    assert_allclose(_world_coord_1d(result, "z"), [2.0])
+    assert_allclose(_world_coord_1d(result, "y"), 0.05 + np.arange(8) * 0.1)
+    assert_allclose(_world_coord_1d(result, "x"), 0.1 + np.arange(12) * 0.2)
     assert result.coords["z"].attrs == {"units": "mm", "voxdim": 0.4}
     validate_fusi(result, require_time=True)
 
@@ -39,9 +51,9 @@ def test_create_fusi_dataarray_uses_default_probe_origins():
         spacing=(0.4, 0.1, 0.2),
     )
 
-    assert_allclose(result.coords["z"], [-0.4, 0.0, 0.4])
-    assert_allclose(result.coords["y"], 0.05 + np.arange(8) * 0.1)
-    assert_allclose(result.coords["x"], [-0.3, -0.1, 0.1, 0.3])
+    assert_allclose(_world_coord_1d(result, "z"), [-0.4, 0.0, 0.4])
+    assert_allclose(_world_coord_1d(result, "y"), 0.05 + np.arange(8) * 0.1)
+    assert_allclose(_world_coord_1d(result, "x"), [-0.3, -0.1, 0.1, 0.3])
 
 
 def test_create_fusi_dataarray_pads_missing_spatial_dim():
@@ -57,7 +69,7 @@ def test_create_fusi_dataarray_pads_missing_spatial_dim():
     assert result.dims == ("time", "k", "j", "i")
     assert result.shape == (5, 1, 8, 12)
     assert "z" in result.coords
-    assert_allclose(result.coords["y"], np.arange(8) * 0.1)
+    assert_allclose(_world_coord_1d(result, "y"), np.arange(8) * 0.1)
 
 
 def test_create_fusi_dataarray_accepts_direction_matrix():

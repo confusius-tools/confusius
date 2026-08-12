@@ -76,6 +76,19 @@ def create_fusi_dataarray(
     )
 
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
+
 def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
     """Attach test voxel-affine geometry to a k/j/i DataArray."""
     voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
@@ -881,10 +894,13 @@ class TestLoadNifti:
         A = da.attrs["affines"]["physical_to_qform"]
 
         # NIfTI shape is (x=5, y=4, z=3). A is in ConfUSIus (z, y, x) convention.
+        x_1d = _world_coord_1d(da, "x")
+        y_1d = _world_coord_1d(da, "y")
+        z_1d = _world_coord_1d(da, "z")
         for i, j, k in [(0, 0, 0), (4, 3, 2), (2, 1, 0)]:
-            px = float(da.coords["x"].values[i])
-            py = float(da.coords["y"].values[j])
-            pz = float(da.coords["z"].values[k])
+            px = float(x_1d[i])
+            py = float(y_1d[j])
+            pz = float(z_1d[k])
             index_zyx = (A @ np.array([pz, py, px, 1.0]))[:3]
             np.testing.assert_allclose(index_zyx, [k, j, i], atol=1e-9)
 
@@ -903,7 +919,7 @@ class TestLoadNifti:
         assert "z" in da.coords
         assert "z_qform" not in da.coords
         # Primary z coord (NIfTI col 2, size 2) should reflect qform spacing of 4.0.
-        np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 4.0])
         # Affines dict uses the qform key, not sform.
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" not in da.attrs["affines"]
@@ -923,7 +939,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path, coordinate_affine="sform")
 
-        np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 4.0])
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da)[:3, :3], np.diag([4.0, 3.0, 2.0])
         )
@@ -945,7 +961,7 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path, coordinate_affine="qform")
 
-        np.testing.assert_allclose(da.coords["z"].values, [0.0, 7.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 7.0])
         np.testing.assert_allclose(
             get_voxel_to_world_affine(da)[:3, :3], np.diag([7.0, 6.0, 5.0])
         )
@@ -979,10 +995,10 @@ class TestLoadNifti:
         # Coords start at origin and are stepped by column norm (not diagonal, which
         # would give spacing 0 for the rotated x and y axes here).
         np.testing.assert_allclose(
-            da.coords["x"].values, [10.0, 12.0, 14.0, 16.0, 18.0]
+            _world_coord_1d(da, "x"), [10.0, 12.0, 14.0, 16.0, 18.0]
         )
-        np.testing.assert_allclose(da.coords["y"].values, [20.0, 23.0, 26.0, 29.0])
-        np.testing.assert_allclose(da.coords["z"].values, [30.0, 34.0, 38.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "y"), [20.0, 23.0, 26.0, 29.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "z"), [30.0, 34.0, 38.0])
         # Physical transform (4×4 probe→world affine) is stored in da.attrs["affines"].
         assert da.attrs["affines"]["physical_to_sform"].shape == (4, 4)
 
@@ -1008,9 +1024,9 @@ class TestLoadNifti:
 
         # NIfTI data shape is (x=3, y=4, z=5); ConfUSIus order is (z=5, y=4, x=3).
         # All voxel spacings should be 1 (true pixdim), not sqrt(1.25) ≈ 1.118.
-        np.testing.assert_allclose(da.coords["x"].values, [0.0, 1.0, 2.0])
-        np.testing.assert_allclose(da.coords["y"].values, [0.0, 1.0, 2.0, 3.0])
-        np.testing.assert_allclose(da.coords["z"].values, [0.0, 1.0, 2.0, 3.0, 4.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 1.0, 2.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "y"), [0.0, 1.0, 2.0, 3.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 1.0, 2.0, 3.0, 4.0])
 
     def test_load_nifti_physical_transform_maps_probe_to_world(
         self, tmp_path: Path
@@ -1038,12 +1054,15 @@ class TestLoadNifti:
 
         # A_physical uses ConfUSIus (z, y, x) convention:
         # A @ [pz, py, px, 1] → [wz, wy, wx, 1].
+        x_1d = _world_coord_1d(da, "x")
+        y_1d = _world_coord_1d(da, "y")
+        z_1d = _world_coord_1d(da, "z")
         for i, j, k in [(0, 0, 0), (2, 1, 0), (4, 3, 2)]:
             world_xyz = (affine @ np.array([i, j, k, 1.0]))[:3]
             world_expected_zyx = world_xyz[[2, 1, 0]]
-            px = float(da.coords["x"].values[i])
-            py = float(da.coords["y"].values[j])
-            pz = float(da.coords["z"].values[k])
+            px = float(x_1d[i])
+            py = float(y_1d[j])
+            pz = float(z_1d[k])
             world_actual = (A @ np.array([pz, py, px, 1.0]))[:3]
             np.testing.assert_allclose(world_actual, world_expected_zyx, atol=1e-10)
 
@@ -1074,9 +1093,9 @@ class TestLoadNifti:
         assert "qform_code" not in da.attrs
         # Coordinates built from pixdim only: origin 0, step = voxel size.
         # NIfTI shape is (x=4, y=3, z=2); ConfUSIus order is (z=2, y=3, x=4).
-        np.testing.assert_allclose(da.coords["x"].values, [0.0, 2.0, 4.0, 6.0])
-        np.testing.assert_allclose(da.coords["y"].values, [0.0, 3.0, 6.0])
-        np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 2.0, 4.0, 6.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "y"), [0.0, 3.0, 6.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 4.0])
 
     def test_load_nifti_no_valid_affine_2d_preserves_units(
         self, tmp_path: Path
@@ -1102,8 +1121,8 @@ class TestLoadNifti:
         assert "z" not in da.coords
         assert da.coords["x"].attrs["units"] == "mm"
         assert da.coords["y"].attrs["units"] == "mm"
-        np.testing.assert_allclose(da.coords["x"].values, [0.0, 2.0, 4.0, 6.0])
-        np.testing.assert_allclose(da.coords["y"].values, [0.0, 3.0, 6.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 2.0, 4.0, 6.0])
+        np.testing.assert_allclose(_world_coord_1d(da, "y"), [0.0, 3.0, 6.0])
 
     def test_load_nifti_lazy(self, tmp_path: Path) -> None:
         """Loading creates lazy Dask array."""
@@ -1683,7 +1702,7 @@ class TestSaveNifti:
 
         loaded = load_nifti(output_path)
         np.testing.assert_array_equal(
-            loaded.coords["x"].values, np.array([0.0, -1.0, -2.0, -3.0])
+            _world_coord_1d(loaded, "x"), np.array([0.0, -1.0, -2.0, -3.0])
         )
         assert loaded.coords["x"].attrs["voxdim"] == pytest.approx(-1.0)
 

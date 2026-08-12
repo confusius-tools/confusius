@@ -10,6 +10,19 @@ from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_d
 from confusius.xarray import create_fusi_dataarray
 
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = name if name in coord.dims else _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
+
 def _axes(plotter):
     assert plotter.axes is not None
     return plotter.axes
@@ -143,7 +156,7 @@ class TestAddCompositeResampleKwargs:
     def narrow_data2(self, sample_fusi_3d):
         """data2 that covers only a sub-region of data1's grid."""
         # Use data1's central x-slice only, forcing out-of-FOV voxels on resample.
-        x = sample_fusi_3d.coords["x"].values
+        x = _world_coord_1d(sample_fusi_3d, "x")
         x_sub = x[len(x) // 4 : 3 * len(x) // 4]
         data2 = create_fusi_dataarray(
             np.full(

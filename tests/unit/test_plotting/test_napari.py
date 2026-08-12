@@ -8,6 +8,18 @@ import xarray as xr
 from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = name if name in coord.dims else _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
 
 def _make_voxel_affine_volume() -> xr.DataArray:
     """Create a small oblique volume for napari display tests."""
@@ -203,9 +215,9 @@ class TestPlotNapari:
             sample_fusi_3d.values,
             dims=("z", "y", "x"),
             coords={
-                "z": sample_fusi_3d.coords["z"].values,
+                "z": _world_coord_1d(sample_fusi_3d, "z"),
                 "y": [2.0, 2.1, 2.4, 2.6, 2.7, 2.9],
-                "x": sample_fusi_3d.coords["x"].values,
+                "x": _world_coord_1d(sample_fusi_3d, "x"),
             },
         )
         viewer = make_napari_viewer()
@@ -288,13 +300,14 @@ class TestPlotNapari:
             show_scale_bar=False,
         )
 
-        y_sorted = np.sort(data.coords["y"].values.astype(float))
-        x_sorted = np.sort(data.coords["x"].values.astype(float))
+        y_sorted = np.sort(_world_coord_1d(data, "y").astype(float))
+        x_sorted = np.sort(_world_coord_1d(data, "x").astype(float))
         npt.assert_allclose(
             layer.translate, [1.0, float(y_sorted[0]), float(x_sorted[0])], rtol=1e-5
         )
-        assert np.all(np.diff(layer.metadata["xarray"].coords["y"].values) > 0)
-        assert np.all(np.diff(layer.metadata["xarray"].coords["x"].values) > 0)
+        result_da = layer.metadata["xarray"]
+        assert np.all(np.diff(_world_coord_1d(result_da, "y")) > 0)
+        assert np.all(np.diff(_world_coord_1d(result_da, "x")) > 0)
         viewer.close()
 
     # Image comparison tests with pytest-mpl

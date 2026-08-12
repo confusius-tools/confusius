@@ -60,10 +60,10 @@ class TestBuilder:
 
         for dim, voxel_dim in zip(["z", "y", "x"], ["k", "j", "i"], strict=True):
             coord = atlas_ds.atlas.annotation.coords[dim]
-            # Axis-aligned geometry gets ordinary 1D coordinates, not a dense
-            # CoordinateTransformIndex-backed grid.
-            assert coord.dims == (voxel_dim,)
-            np.testing.assert_allclose(coord.values[1], coord.attrs["voxdim"])
+            assert coord.dims == ("k", "j", "i")
+            other_dims = {d: 0 for d in coord.dims if d != voxel_dim}
+            coord_1d = coord.isel(other_dims)
+            np.testing.assert_allclose(coord_1d.values[1], coord.attrs["voxdim"])
 
     def test_hemispheres_is_data_var(self, atlas_ds: xr.Dataset) -> None:
         """hemispheres must be a data variable, not a coordinate.

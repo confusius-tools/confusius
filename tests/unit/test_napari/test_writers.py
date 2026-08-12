@@ -10,6 +10,7 @@ Writer functions are plain Python, no napari viewer required. Tests verify:
 
 from __future__ import annotations
 
+from collections.abc import Hashable
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +23,15 @@ from confusius._napari._io._writers import write_nifti, write_zarr
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _world_coord_1d(da: xr.DataArray, name: str, dim: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
 
 
 def _meta_with_da(da: xr.DataArray) -> dict:
@@ -44,7 +54,14 @@ def _meta_from_layer(
 
     physical_dim = {"k": "z", "j": "y", "i": "x"}
     scale = [da.fusi.spacing[d] or 1.0 for d in da.dims]
-    translate = [float(da[physical_dim.get(d, d)].values[0]) for d in da.dims]
+
+    def _origin(dim: Hashable) -> float:
+        name = physical_dim.get(str(dim), str(dim))
+        coord = da.coords[name]
+        others = {d: 0 for d in coord.dims if d != dim}
+        return float(coord.isel(others).values.reshape(-1)[0])
+
+    translate = [_origin(d) for d in da.dims]
     units = [da[d].attrs.get("units") for d in da.dims] if include_units else None
     return {
         "axis_labels": list(da.dims),
@@ -351,8 +368,8 @@ class TestDaFromNapariLayer:
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
-        npt.assert_allclose(np.diff(da["z"].values), 0.2, rtol=1e-10)
-        npt.assert_allclose(np.diff(da["x"].values), 0.05, rtol=1e-10)
+        npt.assert_allclose(np.diff(_world_coord_1d(da, "z", "k")), 0.2, rtol=1e-10)
+        npt.assert_allclose(np.diff(_world_coord_1d(da, "x", "i")), 0.05, rtol=1e-10)
 
     def test_translate_sets_coord_origin(self) -> None:
         """Translate values set the first coordinate value for each dimension."""
@@ -363,8 +380,8 @@ class TestDaFromNapariLayer:
             data,
             {"axis_labels": ["z", "x"], "scale": [0.2, 0.05], "translate": [1.0, 3.0]},
         )
-        assert da["z"].isel(k=0).item() == pytest.approx(1.0)
-        assert da["x"].isel(i=0).item() == pytest.approx(3.0)
+        assert float(_world_coord_1d(da, "z", "k")[0]) == pytest.approx(1.0)
+        assert float(_world_coord_1d(da, "x", "i")[0]) == pytest.approx(3.0)
 
     def test_units_stored_in_coord_attrs(self) -> None:
         """Unit strings from meta are stored in coordinate attrs."""

@@ -11,6 +11,18 @@ import xarray as xr
 from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import PHYSICAL_TO_PROBE_PERMUTATION, load_bps, load_scan
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
 _RNG = np.random.default_rng(42)
 
 _SIZE_X = 8
@@ -141,7 +153,7 @@ class TestLoadScan2D:
     def test_voxel_affine_model_uses_voxel_dims_and_1d_physical_coords(
         self, scan_2d_path: Path
     ) -> None:
-        """Axis-aligned voxel-affine loading exposes `k/j/i` plus 1D physical coords."""
+        """Axis-aligned voxel-affine loading exposes `k/j/i` plus derived physical coords."""
         da = load_scan(scan_2d_path)
 
         assert da.dims == ("time", "k", "j", "i")
@@ -149,12 +161,12 @@ class TestLoadScan2D:
         assert da.coords["k"].dims == ("k",)
         assert da.coords["j"].dims == ("j",)
         assert da.coords["i"].dims == ("i",)
-        assert da.coords["z"].dims == ("k",)
-        assert da.coords["y"].dims == ("j",)
-        assert da.coords["x"].dims == ("i",)
+        assert da.coords["z"].dims == ("k", "j", "i")
+        assert da.coords["y"].dims == ("k", "j", "i")
+        assert da.coords["x"].dims == ("k", "j", "i")
         assert get_voxel_to_world_affine(da).shape == (4, 4)
         np.testing.assert_allclose(
-            da.coords["x"].values,
+            _world_coord_1d(da, "x"),
             1e3
             * (
                 _VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1)
@@ -163,7 +175,7 @@ class TestLoadScan2D:
             rtol=1e-10,
         )
         np.testing.assert_allclose(
-            da.coords["y"].values,
+            _world_coord_1d(da, "y"),
             1e3
             * (
                 -(
@@ -174,7 +186,7 @@ class TestLoadScan2D:
             rtol=1e-10,
         )
         np.testing.assert_allclose(
-            da.coords["z"].values,
+            _world_coord_1d(da, "z"),
             1e3
             * (
                 _VOXELS_TO_PROBE[1, 1] * (np.arange(_SIZE_Y) + 1)
@@ -232,7 +244,7 @@ class TestLoadScan2D:
         expected = 1e3 * (
             _VOXELS_TO_PROBE[0, 0] * (np.arange(_SIZE_X) + 1) + _VOXELS_TO_PROBE[0, 3]
         )
-        np.testing.assert_allclose(scan_2d.coords["x"].values, expected, rtol=1e-10)
+        np.testing.assert_allclose(_world_coord_1d(scan_2d, "x"), expected, rtol=1e-10)
 
     def test_y_coord_values(self, scan_2d: xr.DataArray) -> None:
         """y coordinate matches expected depth positions (sign-flipped probe z)."""
@@ -243,7 +255,7 @@ class TestLoadScan2D:
                 + _VOXELS_TO_PROBE[2, 3]
             )
         )
-        np.testing.assert_allclose(scan_2d.coords["y"].values, expected, rtol=1e-10)
+        np.testing.assert_allclose(_world_coord_1d(scan_2d, "y"), expected, rtol=1e-10)
 
     def test_provenance_attrs(self, scan_2d: xr.DataArray) -> None:
         """2Dscan attrs contain all provenance fields with correct values."""

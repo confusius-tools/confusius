@@ -147,9 +147,7 @@ class TestRegisterVolumeValidation:
 
     def test_wrong_ndim_1d_raises(self):
         """1D input raises ValueError."""
-        da = _add_identity_voxel_affine(
-            xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
-        )
+        da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
             ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
         ):
@@ -787,9 +785,7 @@ class TestResampleVolume:
 
     def test_wrong_ndim_raises(self):
         """1D input raises ValueError."""
-        da = _add_identity_voxel_affine(
-            xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
-        )
+        da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
             ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
         ):
@@ -1505,9 +1501,7 @@ class TestResampleLike:
 
     def test_wrong_ndim_reference_raises(self):
         """1D reference raises ValueError."""
-        da = _add_identity_voxel_affine(
-            xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
-        )
+        da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
             ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
         ):
@@ -1558,14 +1552,26 @@ class TestResampleLike:
         )
 
     def test_inherits_reference_voxel_affine_geometry(self):
-        """resample_like output inherits voxel-affine metadata and world coords."""
-        moving = _make_voxel_affine_2d()
-        reference = _make_voxel_affine_2d()
+        """resample_like output inherits reference's grid, not moving's."""
+        moving = _make_voxel_affine_3d_slab()
+        reference, _ = moving.fusi.affine.apply(
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 100.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            )
+        )
 
-        result = resample_like(moving, reference, np.eye(3))
+        result = resample_like(moving, reference, np.eye(4))
 
         assert_allclose(
             get_voxel_to_world_affine(result), get_voxel_to_world_affine(reference)
+        )
+        assert not np.allclose(
+            get_voxel_to_world_affine(result), get_voxel_to_world_affine(moving)
         )
         assert type(result.xindexes["x"]).__name__ == "VoxelToWorldIndex"
         assert result.coords["i"].dims == reference.coords["i"].dims

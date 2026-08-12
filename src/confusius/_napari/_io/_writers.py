@@ -84,14 +84,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     voxel_to_world_name = {"k": "z", "j": "y", "i": "x"}
     physical_to_voxel_name = {v: k for k, v in voxel_to_world_name.items()}
 
-    result_dims: list[str] = []
-    coords: dict[str, xr.DataArray] = {}
-    voxel_dims: list[str] = []
-    physical_names: list[str] = []
-    affine_scales: list[float] = []
-    affine_translates: list[float] = []
-    physical_attrs: dict[str, dict[str, Any]] = {}
-
+    axis_specs: list[tuple[str, str, int, float, float, dict[str, Any]]] = []
     for axis, dim in enumerate(axis_labels):
         n = data_array.shape[axis]
         if dim in physical_to_voxel_name:
@@ -104,22 +97,48 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
             result_dim = dim
             physical_name = ""
 
-        result_dims.append(result_dim)
         attrs: dict[str, Any] = {"voxdim": abs(float(scale[axis]))}
         if units[axis] is not None:
             attrs["units"] = units[axis]
+        axis_specs.append(
+            (
+                result_dim,
+                physical_name,
+                n,
+                float(scale[axis]),
+                float(translate[axis]),
+                attrs,
+            )
+        )
 
-        if physical_name:
+    # Voxel-affine (CTI) geometry requires at least 2 active voxel dims; a single
+    # recognized physical dim (e.g. a 1D napari labels layer) falls back to a plain
+    # coordinate below, matching validate_fusi's minimum_spatial_dims invariant.
+    build_cti = sum(1 for spec in axis_specs if spec[1]) >= 2
+
+    result_dims: list[str] = []
+    coords: dict[str, xr.DataArray] = {}
+    voxel_dims: list[str] = []
+    physical_names: list[str] = []
+    affine_scales: list[float] = []
+    affine_translates: list[float] = []
+    physical_attrs: dict[str, dict[str, Any]] = {}
+
+    for result_dim, physical_name, n, axis_scale, axis_translate, attrs in axis_specs:
+        if physical_name and build_cti:
+            result_dims.append(result_dim)
             coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
             voxel_dims.append(result_dim)
             physical_names.append(physical_name)
-            affine_scales.append(float(scale[axis]))
-            affine_translates.append(float(translate[axis]))
+            affine_scales.append(axis_scale)
+            affine_translates.append(axis_translate)
             physical_attrs[physical_name] = attrs
         else:
-            coord_values = translate[axis] + np.arange(n) * scale[axis]
-            coords[result_dim] = xr.DataArray(
-                coord_values, dims=[result_dim], attrs=attrs
+            final_dim = physical_name or result_dim
+            result_dims.append(final_dim)
+            coord_values = axis_translate + np.arange(n) * axis_scale
+            coords[final_dim] = xr.DataArray(
+                coord_values, dims=[final_dim], attrs=attrs
             )
 
     result = xr.DataArray(data_array, dims=result_dims, coords=coords)

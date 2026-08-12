@@ -23,6 +23,18 @@ _SIZE_Z = 3
 _N_TIME = 5
 _NPOSE = 1
 _NBLOCK = 1
+
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
 _DT = 0.4
 _DX_M = 0.00011
 _DY_M = 0.0004
@@ -390,12 +402,12 @@ class TestLoadScanV2:
     def test_lateral_coord_centered(self, scan_v2: xr.DataArray) -> None:
         """Lateral (x) coordinate is centered on zero with correct spacing."""
         expected = (np.arange(_SIZE_X) - (_SIZE_X - 1) / 2) * _DX_M * 1e3
-        np.testing.assert_allclose(scan_v2.coords["x"].values, expected)
+        np.testing.assert_allclose(_world_coord_1d(scan_v2, "x"), expected)
 
     def test_depth_coord_from_zero(self, scan_v2: xr.DataArray) -> None:
         """Depth (y) coordinate starts at zero when no depth range is in the header."""
         expected = np.arange(_SIZE_Z) * _DZ_M * 1e3
-        np.testing.assert_allclose(scan_v2.coords["y"].values, expected)
+        np.testing.assert_allclose(_world_coord_1d(scan_v2, "y"), expected)
 
     def test_depth_origin_recovered(self, tmp_path: Path) -> None:
         """Depth (y) origin is recovered from an embedded depth-range pair."""
@@ -403,14 +415,14 @@ class TestLoadScanV2:
         _write_scan_v2(path, _raw_payload(), depth_start=1.0)
         da = load_scan(path)
         expected = 1.0 + np.arange(_SIZE_Z) * _DZ_M * 1e3
-        np.testing.assert_allclose(da.coords["y"].values, expected)
+        np.testing.assert_allclose(_world_coord_1d(da, "y"), expected)
 
     def test_single_depth_voxel_zero_origin(self, tmp_path: Path) -> None:
         """A single-depth-voxel file has no span to match, so the origin is zero."""
         path = tmp_path / "scan_v2_depth1.scan"
         _write_scan_v2(path, _raw_payload(size_z=1), size_z=1)
         da = load_scan(path)
-        np.testing.assert_array_equal(da.coords["y"].values, [0.0])
+        np.testing.assert_array_equal(_world_coord_1d(da, "y"), [0.0])
 
     def test_spatial_units_mm(self, scan_v2: xr.DataArray) -> None:
         """Spatial coordinates are in mm."""

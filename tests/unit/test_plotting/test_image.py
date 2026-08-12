@@ -18,6 +18,18 @@ from confusius.plotting import (
 )
 from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
 
+_VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
+
+
+def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = da.coords[name]
+    dim = name if name in coord.dims else _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
+
 
 def _make_voxel_affine_volume() -> xr.DataArray:
     """Create a small voxel-affine test volume with an oblique slice geometry."""
@@ -81,7 +93,7 @@ class TestPlotVolume:
         `matplotlib.colors.LinearSegmentedColormap.from_list` with an opaque
         `IndexError`.
         """
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         with pytest.raises(ValueError, match="finite"):
             plot_volume(
                 sample_fusi_3d,
@@ -104,7 +116,7 @@ class TestPlotVolume:
     ):
         """plot_volume converts complex-valued data to magnitude before plotting."""
         complex_data = sample_fusi_3d * (1 + 1j)
-        z_coord = complex_data.coords["z"].values[0]
+        z_coord = _world_coord_1d(complex_data, "z")[0]
         with pytest.warns(UserWarning, match="Complex-valued data"):
             plotter = plot_volume(complex_data, slice_mode="z", slice_coords=[z_coord])
 
@@ -121,7 +133,7 @@ class TestPlotVolume:
         For 'upper': masks |data| > threshold.
         """
         threshold = 0.5
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -150,7 +162,7 @@ class TestPlotVolume:
 
         data = sample_fusi_3d.copy()
         data.attrs["norm"] = Normalize(vmin=-2.0, vmax=2.0)
-        z_coord = data.coords["z"].values[0]
+        z_coord = _world_coord_1d(data, "z")[0]
         plotter = plot_volume(
             data, slice_mode="z", slice_coords=[z_coord], threshold=0.5
         )
@@ -167,7 +179,7 @@ class TestPlotVolume:
 
         # norm(1.0) ≈ 0.667; linear formula gives 0.5 — check position 0.55 is gray.
         norm = TwoSlopeNorm(vcenter=0.0, vmin=-1.0, vmax=3.0)
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -185,7 +197,7 @@ class TestPlotVolume:
 
     def test_explicit_vmin_vmax(self, sample_fusi_3d, matplotlib_pyplot):
         """plot_volume passes explicit vmin and vmax to pcolormesh."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -206,7 +218,7 @@ class TestPlotVolume:
 
         # Semi-transparent colormap; the old alpha=1.0 default would erase it.
         cmap = ListedColormap([(1.0, 0.0, 0.0, 0.3), (0.0, 0.0, 1.0, 0.7)])
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -223,7 +235,7 @@ class TestPlotVolume:
 
     def test_colorbar_added_by_default(self, sample_fusi_3d, matplotlib_pyplot):
         """plot_volume adds a colorbar when show_colorbar=True (default)."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(sample_fusi_3d, slice_mode="z", slice_coords=[z_coord])
 
         plot_axes = set(_axes(plotter).ravel())
@@ -232,7 +244,7 @@ class TestPlotVolume:
 
     def test_no_colorbar_when_disabled(self, sample_fusi_3d, matplotlib_pyplot):
         """plot_volume skips colorbar when show_colorbar=False."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -246,7 +258,7 @@ class TestPlotVolume:
 
     def test_cbar_label_is_set(self, sample_fusi_3d, matplotlib_pyplot):
         """plot_volume sets the colorbar label when cbar_label is provided."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -263,7 +275,7 @@ class TestPlotVolume:
         self, sample_fusi_3d, matplotlib_pyplot
     ):
         """plot_volume scales title, label, tick, and colorbar text from fontsize."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -289,7 +301,7 @@ class TestPlotVolume:
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(1, 1, squeeze=False)
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
 
         plotter = plot_volume(
             sample_fusi_3d, slice_mode="z", slice_coords=[z_coord], axes=axes
@@ -307,7 +319,7 @@ class TestPlotVolume:
         import matplotlib.pyplot as plt
 
         fig, ax = plt.subplots()
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
 
         plotter = plot_volume(
             sample_fusi_3d,
@@ -330,7 +342,7 @@ class TestPlotVolume:
         import matplotlib.pyplot as plt
 
         fig, axes = plt.subplots(1, 1, squeeze=False)
-        z_coords = sample_fusi_3d.coords["z"].values[:3].tolist()
+        z_coords = _world_coord_1d(sample_fusi_3d, "z")[:3].tolist()
 
         with pytest.raises(ValueError, match="must match number of axes"):
             plot_volume(
@@ -339,7 +351,7 @@ class TestPlotVolume:
 
     def test_unused_axes_hidden(self, sample_fusi_3d, matplotlib_pyplot):
         """plot_volume hides axes beyond the number of slices."""
-        z_coords = sample_fusi_3d.coords["z"].values[:2].tolist()
+        z_coords = _world_coord_1d(sample_fusi_3d, "z")[:2].tolist()
         plotter = plot_volume(
             sample_fusi_3d, slice_mode="z", slice_coords=z_coords, nrows=2, ncols=2
         )
@@ -349,12 +361,12 @@ class TestPlotVolume:
 
     def test_axis_limits_match_data_edges(self, sample_fusi_3d, matplotlib_pyplot):
         """Axes limits exactly equal data edges — no matplotlib auto-margin."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(sample_fusi_3d, slice_mode="z", slice_coords=[z_coord])
         ax = _axes(plotter)[0, 0]
 
-        x_centers = sample_fusi_3d.coords["x"].values.astype(float)
-        y_centers = sample_fusi_3d.coords["y"].values.astype(float)
+        x_centers = _world_coord_1d(sample_fusi_3d, "x").astype(float)
+        y_centers = _world_coord_1d(sample_fusi_3d, "y").astype(float)
         dx = x_centers[1] - x_centers[0]
         dy = y_centers[1] - y_centers[0]
 
@@ -381,7 +393,7 @@ class TestPlotVolume:
         self, sample_fusi_3d, matplotlib_pyplot
     ):
         """plot_volume with yincrease=True places y-origin at bottom."""
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -390,7 +402,7 @@ class TestPlotVolume:
             show_colorbar=False,
         )
         ax = _axes(plotter)[0, 0]
-        y_centers = sample_fusi_3d.coords["y"].values.astype(float)
+        y_centers = _world_coord_1d(sample_fusi_3d, "y").astype(float)
         dy = y_centers[1] - y_centers[0]
         assert ax.get_ylim() == pytest.approx(
             (y_centers[0] - dy / 2, y_centers[-1] + dy / 2)
@@ -401,7 +413,7 @@ class TestPlotVolume:
         import matplotlib.pyplot as plt
 
         fig = plt.figure()
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
@@ -416,7 +428,7 @@ class TestPlotVolume:
         """plot_volume squeezes unitary dimensions except slice_mode."""
         # Add unitary time dimension that should be squeezed
         data_4d = sample_fusi_3d.expand_dims("time")
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         plotter = plot_volume(
             data_4d, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
         )
@@ -430,7 +442,7 @@ class TestPlotVolume:
         Casting to float before computing percentiles fixes this.
         """
         bool_data = sample_fusi_3d > sample_fusi_3d.mean()
-        z_coord = sample_fusi_3d.coords["z"].values[0]
+        z_coord = _world_coord_1d(sample_fusi_3d, "z")[0]
         # Should not raise TypeError: numpy boolean subtract.
         plotter = plot_volume(
             bool_data, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
@@ -475,14 +487,14 @@ class TestPlotVolume:
         """plot_volume sorts non-monotonic spatial coordinates before plotting."""
         data = sample_fusi_3d.copy().isel(j=[2, 0, 1], i=[3, 1, 2, 0])
 
-        z_coord = float(data.coords["z"].values[0])
+        z_coord = float(_world_coord_1d(data, "z")[0])
         plotter = plot_volume(
             data, slice_mode="z", slice_coords=[z_coord], show_colorbar=False
         )
         ax = _axes(plotter)[0, 0]
 
-        y_sorted = np.sort(data.coords["y"].values.astype(float))
-        x_sorted = np.sort(data.coords["x"].values.astype(float))
+        y_sorted = np.sort(_world_coord_1d(data, "y").astype(float))
+        x_sorted = np.sort(_world_coord_1d(data, "x").astype(float))
 
         dy = y_sorted[1] - y_sorted[0]
         dx = x_sorted[1] - x_sorted[0]
@@ -535,7 +547,7 @@ class TestPlotVolume:
     ):
         """Voxel-affine volumes plot physical z-slices after axis-aligned resampling."""
         data = _make_voxel_affine_volume()
-        z_coord = float(np.asarray(data.coords["z"].values, dtype=float).mean())
+        z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
 
         plotter = plot_volume(
             data,
@@ -628,7 +640,7 @@ class TestVolumePlotterAddVolume:
         """add_volume overlays only on axes whose coordinates match."""
         plotter = plot_volume(sample_fusi_3d, slice_mode="z", show_colorbar=False)
 
-        subset = sample_fusi_3d.sel(z=sample_fusi_3d.coords["z"].values[:2])
+        subset = sample_fusi_3d.sel(z=_world_coord_1d(sample_fusi_3d, "z")[:2])
         plotter.add_volume(subset, cmap="hot", alpha=0.5, show_colorbar=False)
 
         axes_flat = _axes(plotter).ravel()
@@ -644,10 +656,10 @@ class TestVolumePlotterAddVolume:
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
-            slice_coords=[sample_fusi_3d.coords["z"].values[2]],
+            slice_coords=[_world_coord_1d(sample_fusi_3d, "z")[2]],
         )
 
-        z_vals = sample_fusi_3d.coords["z"].values
+        z_vals = _world_coord_1d(sample_fusi_3d, "z")
         with pytest.warns(UserWarning, match="Could not find matching axes"):
             plotter.add_volume(
                 sample_fusi_3d.sel(z=z_vals[[0, 1, 3]], method="nearest"),
@@ -660,9 +672,9 @@ class TestVolumePlotterAddVolume:
         """World-coordinate overlays resample onto the first plotted world grid."""
         overlay = add_world_coords_from_voxel_affine(
             sample_fusi_3d.copy().assign_coords(
-                k=sample_fusi_3d.coords["z"].values,
-                j=sample_fusi_3d.coords["y"].values,
-                i=sample_fusi_3d.coords["x"].values,
+                k=_world_coord_1d(sample_fusi_3d, "z"),
+                j=_world_coord_1d(sample_fusi_3d, "y"),
+                i=_world_coord_1d(sample_fusi_3d, "x"),
             ),
             np.array(
                 [
@@ -680,7 +692,7 @@ class TestVolumePlotterAddVolume:
                 "x": dict(sample_fusi_3d.coords["x"].attrs),
             },
         )
-        z_coords = list(sample_fusi_3d.coords["z"].values[:2])
+        z_coords = list(_world_coord_1d(sample_fusi_3d, "z")[:2])
 
         plotter = plot_volume(
             sample_fusi_3d,
@@ -779,7 +791,7 @@ class TestVolumePlotterAddVolume:
         self, sample_fusi_3d, matplotlib_pyplot
     ):
         data = _materialize_axis_aligned_world_grid_for_display(sample_fusi_3d)
-        alpha = data.assign_coords(x=data.coords["x"].values + 1.0)
+        alpha = data.assign_coords(x=_world_coord_1d(data, "x") + 1.0)
         with pytest.raises(ValueError, match="does not match"):
             VolumePlotter(slice_mode="z").add_volume(
                 data, match_coordinates=False, alpha=alpha
@@ -1007,9 +1019,9 @@ class TestVolumePlotterAddContours:
             mask_data,
             dims=["z", "y", "x"],
             coords={
-                "z": sample_fusi_3d.coords["z"].values[z_indices],
-                "y": sample_fusi_3d.coords["y"].values,
-                "x": sample_fusi_3d.coords["x"].values,
+                "z": _world_coord_1d(sample_fusi_3d, "z")[z_indices],
+                "y": _world_coord_1d(sample_fusi_3d, "y"),
+                "x": _world_coord_1d(sample_fusi_3d, "x"),
             },
         )
 
@@ -1041,9 +1053,9 @@ class TestVolumePlotterAddContours:
             mask_data,
             dims=["z", "y", "x"],
             coords={
-                "z": sample_fusi_3d.coords["z"].values,
-                "y": sample_fusi_3d.coords["y"].values,
-                "x": sample_fusi_3d.coords["x"].values,
+                "z": _world_coord_1d(sample_fusi_3d, "z"),
+                "y": _world_coord_1d(sample_fusi_3d, "y"),
+                "x": _world_coord_1d(sample_fusi_3d, "x"),
             },
             attrs={"rgb_lookup": {"1": [255, 0, 0]}},
         )
@@ -1057,7 +1069,7 @@ class TestVolumePlotterAddContours:
         plotter = plot_volume(
             sample_fusi_3d,
             slice_mode="z",
-            slice_coords=[sample_fusi_3d.coords["z"].values[2]],
+            slice_coords=[_world_coord_1d(sample_fusi_3d, "z")[2]],
             show_colorbar=False,
         )
         # Mask with z coords that don't match the single plotted slice
@@ -1294,7 +1306,7 @@ class TestPlotVolumeVisualRegression:
     def test_plot_volume_single_slice(self, matplotlib_pyplot):
         """Baseline test for single slice."""
         volume = _create_deterministic_volume()
-        z_coord = volume.coords["z"].values[0]
+        z_coord = _world_coord_1d(volume, "z")[0]
         plotter = plot_volume(volume, slice_mode="z", slice_coords=[z_coord])
         return plotter.figure
 
@@ -1319,7 +1331,7 @@ class TestPlotVolumeVisualRegression:
         volume = _create_deterministic_volume()
         plotter = plot_volume(volume, slice_mode="z")
 
-        subset_coords = volume.coords["z"].values[[0, 3]].tolist()
+        subset_coords = _world_coord_1d(volume, "z")[[0, 3]].tolist()
         subset_data = volume.sel(z=subset_coords)
         plotter.add_volume(subset_data, cmap="hot", alpha=0.5)
 
