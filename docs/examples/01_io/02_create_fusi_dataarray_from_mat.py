@@ -88,16 +88,11 @@ print(f"Data shape: {doppler.shape}")
 # Conventions](../../../user-guide/spatial-conventions.md) guide for details.
 
 # %%
-dy = wavelength
-dx = 0.3
-
 power_doppler = cf.create_fusi_dataarray(
     doppler,
     dims=("time", "x", "y"),
-    coords={"time": timestamps},
-    dz=1.0,
-    dy=dy,
-    dx=dx,
+    time=timestamps,
+    spacing=(1.0, wavelength, 0.3),
     name="power_doppler",
     attrs={"source": RECORD_DOI, "source_member": MEMBER},
 )
