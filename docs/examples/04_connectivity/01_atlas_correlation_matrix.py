@@ -84,21 +84,11 @@ napari_affine = np.array(
 )
 initialization = np.linalg.inv(napari_affine)
 
-# The template's geometry is oblique (its sform carries a real rotation into Allen
-# CCF space), so "z" cannot be sliced on its own with `.sel`; instead, invert the
-# k->z relationship at the volume's center to find the matching "k" range.
-target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
-voxel_to_world = template.fusi.affine.voxel_to_world
-j_center, i_center = template.sizes["j"] / 2, template.sizes["i"] / 2
-z_at_k0 = (
-    voxel_to_world[0, 1] * j_center
-    + voxel_to_world[0, 2] * i_center
-    + voxel_to_world[0, 3]
-)
-z_per_k = voxel_to_world[0, 0]
-target_k = round((target_z - z_at_k0) / z_per_k)
-n_slices = round(1.0 / abs(z_per_k))
-fixed = template.isel(k=slice(target_k - n_slices, target_k + n_slices))
+# Crop the template to a thin band of native "k" (elevation) slices around the
+# recording's expected location. Copied and pasted alongside napari_affine above: the
+# template's geometry is oblique (its sform carries a real rotation into Allen CCF
+# space), so this can't be expressed as a "z" range with `.sel`.
+fixed = template.isel(k=slice(19, 39))
 
 registered, affine, diagnostics = cf.registration.register_volume(
     moving=moving,
