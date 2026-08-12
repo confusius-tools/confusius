@@ -7,14 +7,17 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
 from confusius._utils.geometry import (
     add_world_coords_from_voxel_affine,
+    get_affine_orientation_matrix,
     get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
     build_voxel_affine_plane_initial_transform,
     dataarray_to_sitk_image,
+    get_defined_spatial_spacing,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -55,6 +58,20 @@ def _make_voxel_affine_2d() -> xr.DataArray:
             "x": {"units": "mm"},
         },
     )
+
+
+def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
+    """Build `resample_volume`'s position-anchored output-grid kwargs."""
+    _, spacing = get_defined_spatial_spacing(data)
+    origin = data.fusi.origin
+    return {
+        "output_shape": [int(data.sizes[dim]) for dim in VOXEL_DIMS],
+        "output_spacing": spacing,
+        "output_origin": [origin[name] for name in SPATIAL_DIMS],
+        "output_direction": get_affine_orientation_matrix(
+            get_voxel_to_world_affine(data)
+        ),
+    }
 
 
 def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
@@ -745,7 +762,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_2d_dataarray,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **_resample_volume_grid_kwargs(sample_2d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_2d_dataarray.shape
@@ -760,7 +777,7 @@ class TestResampleVolume:
         result = resample_volume(
             sample_3d_dataarray,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_3d_dataarray_spatial),
+            **_resample_volume_grid_kwargs(sample_3d_dataarray_spatial),
         )
         assert "time" in result.dims
         assert result.shape == sample_3d_dataarray.shape
@@ -777,7 +794,11 @@ class TestResampleVolume:
             ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
         ):
             resample_volume(
-                da, np.eye(2), shape=[10], spacing=[1.0], origin=[0.0], dims=["i"]
+                da,
+                np.eye(2),
+                output_shape=[10, 10, 10],
+                output_spacing=[1.0, 1.0, 1.0],
+                output_origin=[0.0, 0.0, 0.0],
             )
 
     def test_affine_shape_mismatch_raises(self, sample_2d_dataarray_spatial):
@@ -786,7 +807,7 @@ class TestResampleVolume:
             resample_volume(
                 sample_2d_dataarray_spatial,
                 np.eye(3),
-                **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+                **_resample_volume_grid_kwargs(sample_2d_dataarray_spatial),
             )
 
     def test_output_shape_matches_requested_shape(
@@ -797,21 +818,24 @@ class TestResampleVolume:
         result = resample_volume(
             moving,
             np.eye(4),
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **_resample_volume_grid_kwargs(sample_2d_dataarray_spatial),
         )
         assert result.shape == sample_2d_dataarray_spatial.shape
 
     def test_coords_reconstructed_from_origin_and_spacing(
         self, sample_2d_dataarray_spatial
     ):
-        """Output geometry is reconstructed from origin and spacing."""
-        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        """Output geometry is reconstructed from the requested spacing/origin/direction."""
+        grid = _resample_volume_grid_kwargs(sample_2d_dataarray_spatial)
         result = resample_volume(sample_2d_dataarray_spatial, np.eye(4), **grid)
-        for i, d in enumerate(sample_2d_dataarray_spatial.dims):
-            assert_allclose(result.coords[d].values, np.arange(grid["shape"][i]))
-            assert result.fusi.spacing[d] == pytest.approx(grid["spacing"][i])
-        for origin, d in zip(grid["origin"], ("z", "y", "x"), strict=True):
-            assert result.fusi.origin[d] == pytest.approx(origin)
+        for dim, size in zip(VOXEL_DIMS, grid["output_shape"], strict=True):
+            assert result.sizes[dim] == size
+        assert_allclose(
+            [result.fusi.spacing[dim] for dim in VOXEL_DIMS], grid["output_spacing"]
+        )
+        assert_allclose(
+            [result.fusi.origin[name] for name in SPATIAL_DIMS], grid["output_origin"]
+        )
 
     def test_matches_register_volume_resample(
         self, sample_2d_image, sample_2d_dataarray_spatial
@@ -837,7 +861,7 @@ class TestResampleVolume:
         result = resample_volume(
             moving,
             affine,
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **_resample_volume_grid_kwargs(sample_2d_dataarray_spatial),
         )
         assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
@@ -1324,8 +1348,9 @@ class TestDisplacementField:
         grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
-        result_bspline = resample_volume(moving, bspline_tx, **grid)
-        result_field = resample_volume(moving, field, **grid)
+        resample_grid = _resample_volume_grid_kwargs(sample_2d_dataarray_spatial)
+        result_bspline = resample_volume(moving, bspline_tx, **resample_grid)
+        result_field = resample_volume(moving, field, **resample_grid)
 
         assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
 
@@ -1356,8 +1381,9 @@ class TestDisplacementField:
         field = sample_displacement_field(bspline_tx, **grid)
         assert not np.isnan(field.values).any()
 
-        result_bspline = resample_volume(moving, bspline_tx, **grid)
-        result_field = resample_volume(moving, field, **grid)
+        resample_grid = _resample_volume_grid_kwargs(fixed)
+        result_bspline = resample_volume(moving, bspline_tx, **resample_grid)
+        result_field = resample_volume(moving, field, **resample_grid)
         assert_allclose(result_field.values, result_bspline.values, atol=1e-4)
 
         inverse_field = invert_displacement_field(field)
@@ -1544,6 +1570,39 @@ class TestResampleLike:
         assert type(result.xindexes["x"]).__name__ == "VoxelToWorldIndex"
         assert result.coords["i"].dims == reference.coords["i"].dims
 
+    def test_uses_actual_grid_of_cropped_and_strided_reference(self):
+        """resample_like places output at reference's actual grid, not its stale affine.
+
+        Regression test: `reference.voxel_to_world` describes voxel-space *values*
+        (crop/stride-invariant by design), not the physical location of `reference`'s
+        array *positions*. Deriving the output grid straight from that affine silently
+        misplaced the resampled content whenever `reference` had been cropped or
+        strided from a larger array; the correct grid must come from
+        `reference.fusi.origin`/`.fusi.spacing`, which account for the crop/stride.
+        """
+        base = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.arange(4 * 20 * 20, dtype=np.float32).reshape(4, 20, 20),
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.arange(4.0),
+                    "j": np.arange(20.0),
+                    "i": np.arange(20.0),
+                },
+            )
+        )
+        reference = base.isel(k=slice(1, 3), j=slice(2, 10, 2), i=slice(1, 15, 3))
+
+        result = resample_like(reference, reference, np.eye(4), interpolation="nearest")
+
+        assert_allclose(
+            [result.fusi.origin[name] for name in ("z", "y", "x")], [1.0, 2.0, 1.0]
+        )
+        assert_allclose(
+            [result.fusi.spacing[dim] for dim in ("k", "j", "i")], [1.0, 2.0, 3.0]
+        )
+        assert_allclose(result.values, reference.values)
+
     def test_matches_register_volume_resample_2d(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -1634,7 +1693,7 @@ class TestResampleLike:
         result_vol = resample_volume(
             moving,
             affine,
-            **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial),
+            **_resample_volume_grid_kwargs(sample_2d_dataarray_spatial),
         )
         assert_allclose(result_like.values, result_vol.values, atol=1e-10)
 

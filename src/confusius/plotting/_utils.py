@@ -349,11 +349,9 @@ def resample_voxel_affine_to_physical_grid(
         result = resample_volume(
             data,
             np.eye(len(physical_dims) + 1, dtype=np.float64),
-            shape=shape,
-            spacing=spacing,
-            origin=origin,
-            dims=physical_dims,
-            direction=np.eye(len(physical_dims), dtype=np.float64),
+            output_shape=shape,
+            output_spacing=spacing,
+            output_origin=origin,
         )
 
     result = _materialize_axis_aligned_world_grid_for_display(result)

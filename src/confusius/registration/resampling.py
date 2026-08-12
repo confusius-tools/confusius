@@ -7,10 +7,10 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_world_coord_names,
-    has_voxel_world_geometry,
+    get_affine_orientation_matrix,
+    get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
@@ -23,19 +23,19 @@ from confusius.registration.bspline import (
     _dataarray_to_sitk_displacement_field,
 )
 from confusius.validation import ensure_fusi, validate_matching_spatial_units
+from confusius.xarray.create import create_fusi_dataarray
 
 
 def resample_volume(
     moving: xr.DataArray,
     transform: "npt.NDArray[np.floating] | xr.DataArray",
     *,
-    shape: Sequence[int],
-    spacing: Sequence[float],
-    origin: Sequence[float],
-    dims: Sequence[str],
+    output_shape: Sequence[int],
+    output_spacing: Sequence[float],
+    output_origin: Sequence[float],
+    output_direction: "npt.ArrayLike | None" = None,
     interpolation: Literal["linear", "nearest", "bspline"] = "linear",
     fill_value: float | None = None,
-    direction: npt.ArrayLike | None = None,
     sitk_threads: int = -1,
 ) -> xr.DataArray:
     """Resample a volume onto an explicit output grid using a pre-computed transform.
@@ -44,11 +44,22 @@ def resample_volume(
     another DataArray, use [`resample_like`][confusius.registration.resample_like]
     instead.
 
+    The output grid is specified as a position-anchored `shape`/`spacing`/`origin`/
+    `direction` (matching what a SimpleITK image expects), not as a single affine.
+    A DataArray's `voxel_to_world` affine is defined in terms of its voxel
+    *coordinate values*, which stay unchanged across cropping or striding (see
+    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]) — it does not
+    generally describe where the array's *position* `(0, ..., 0)` sits, or the
+    physical distance between consecutive *positions*, once the array has been
+    cropped or strided. Use `reference.fusi.spacing`/`reference.fusi.origin` (as
+    [`resample_like`][confusius.registration.resample_like] does) to derive a
+    position-anchored grid from an existing DataArray.
+
     Parameters
     ----------
     moving : xarray.DataArray
         3D spatial DataArray to resample, or a 3D+t DataArray with a time dimension
-        (single-slice recordings use a singleton `z` axis). If a time dimension is
+        (single-slice recordings use a singleton `k` axis). If a time dimension is
         present, the same transform is applied to all time points.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
@@ -65,15 +76,17 @@ def resample_volume(
           or
           [`invert_displacement_field`][confusius.registration.invert_displacement_field].
 
-    shape : sequence of int
-        Number of voxels along each output axis, in DataArray dimension order.
-    spacing : sequence of float
-        Voxel spacing along each output axis, in DataArray dimension order.
-    origin : sequence of float
-        Physical origin (first voxel centre) along each output axis, in DataArray
-        dimension order.
-    dims : sequence of str
-        Dimension names of the output DataArray.
+    output_shape : sequence of int
+        Number of voxels along each output voxel axis, in native `k/j/i` order.
+    output_spacing : sequence of float
+        Physical distance between consecutive voxel positions along each output voxel
+        axis, in native `k/j/i` order.
+    output_origin : numpy.typing.ArrayLike
+        Physical location of output voxel position `(0, 0, 0)`, in `z/y/x` order.
+    output_direction : numpy.typing.ArrayLike, optional
+        `(3, 3)` matrix whose columns are the unit physical-space direction of each
+        output voxel axis, in native `k/j/i` column order. If not provided, defaults
+        to the identity (axis-aligned output grid).
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
         Interpolation method used during resampling.
     fill_value : float, optional
@@ -81,9 +94,6 @@ def resample_volume(
         after resampling. If not provided, defaults to `float(moving.min())`, which
         renders out-of-FOV voxels as background regardless of intensity scale (important
         for dB data where 0 is maximum intensity).
-    direction : array-like, optional
-        Spatial direction matrix for the output grid, in DataArray spatial-dimension
-        order. If not provided, the output grid is treated as axis-aligned.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
@@ -94,17 +104,16 @@ def resample_volume(
     Returns
     -------
     xarray.DataArray
-        Resampled volume on the specified grid with `moving`'s attributes. If the input
-        had a time dimension, the output will also have a time dimension. This low-level
-        function does not infer world-space affines for the output grid.
+        Canonical fUSI DataArray resampled onto the requested grid, with `moving`'s
+        attributes. If the input had a time dimension, the output will also have a
+        time dimension.
 
     Raises
     ------
     ValueError
-        If `moving` does not contain the spatial dimensions `z`, `y`, and `x`.
-    ValueError
-        If `transform` is a numpy array whose shape does not match the spatial image
-        dimensionality.
+        If `transform` is a numpy array whose shape does not match the spatial
+        dimensionality, or if `output_shape`, `output_spacing`, or `output_origin` do
+        not each have one entry per spatial dimension.
     """
     import SimpleITK as sitk
 
@@ -116,8 +125,27 @@ def resample_volume(
     )
 
     has_time = "time" in moving.dims
-    spatial_dims = [str(d) for d in moving.dims if str(d) != "time"]
-    ndim = len(spatial_dims)
+    ndim = len(VOXEL_DIMS)
+
+    output_shape = [int(value) for value in output_shape]
+    output_spacing = [float(value) for value in output_spacing]
+    output_origin = [float(value) for value in output_origin]
+    direction = (
+        np.eye(ndim, dtype=np.float64)
+        if output_direction is None
+        else np.asarray(output_direction, dtype=np.float64)
+    )
+    for name, values in (
+        ("output_shape", output_shape),
+        ("output_spacing", output_spacing),
+        ("output_origin", output_origin),
+    ):
+        if len(values) != ndim:
+            raise ValueError(f"{name} must have {ndim} entries, got {len(values)}.")
+    if direction.shape != (ndim, ndim):
+        raise ValueError(
+            f"output_direction must have shape ({ndim}, {ndim}), got {direction.shape}."
+        )
 
     if isinstance(transform, np.ndarray):
         expected_shape = (ndim + 1, ndim + 1)
@@ -146,11 +174,10 @@ def resample_volume(
 
     # SimpleITK will automatically create a vector output if the input is a vector
     # image.
-    ref = sitk.Image(list(shape), sitk.sitkFloat32)
-    ref.SetSpacing(list(spacing))
-    ref.SetOrigin(list(origin))
-    if direction is not None:
-        ref.SetDirection(np.asarray(direction, dtype=np.float64).ravel().tolist())
+    ref = sitk.Image(output_shape, sitk.sitkFloat32)
+    ref.SetSpacing(output_spacing)
+    ref.SetOrigin(output_origin)
+    ref.SetDirection(direction.ravel().tolist())
 
     if interpolation == "nearest":
         sitk_interpolation = sitk.sitkNearestNeighbor
@@ -174,45 +201,25 @@ def resample_volume(
         # image.
         registered_arr = sitk.GetArrayFromImage(result_sitk).T
 
-    coords = {d: xr.DataArray(np.arange(shape[i]), dims=d) for i, d in enumerate(dims)}
-
-    if has_time:
-        coords["time"] = moving.coords["time"]
-        dims = ["time"] + list(dims)
+    voxel_to_world_arr = np.eye(ndim + 1, dtype=np.float64)
+    voxel_to_world_arr[:ndim, :ndim] = direction @ np.diag(output_spacing)
+    voxel_to_world_arr[:ndim, ndim] = output_origin
 
     attrs = moving.attrs.copy()
     attrs.pop("voxel_to_world", None)
-    result = xr.DataArray(
+    result = create_fusi_dataarray(
         registered_arr,
-        coords=coords,
-        dims=dims,
+        dims=("time", *VOXEL_DIMS) if has_time else VOXEL_DIMS,
+        time=moving.coords["time"] if has_time else None,
+        voxel_to_world=voxel_to_world_arr,
         attrs=attrs,
+        name=str(moving.name) if moving.name is not None else None,
     )
-
-    spatial_dims = tuple(str(d) for d in dims if str(d) != "time")
-    world_coord_names = (
-        get_voxel_affine_world_coord_names(moving)
-        if has_voxel_world_geometry(moving)
-        else tuple(spatial_dims)
-    )
-    output_affine = np.eye(ndim + 1, dtype=np.float64)
-    output_affine[:-1, :-1] = (
-        np.asarray(direction, dtype=np.float64) @ np.diag(spacing)
-        if direction is not None
-        else np.diag(spacing)
-    )
-    output_affine[:-1, -1] = np.asarray(origin, dtype=np.float64)
-    return add_world_coords_from_voxel_affine(
-        result,
-        output_affine,
-        voxel_dims=spatial_dims,
-        world_coord_names=world_coord_names,
-        world_coord_attrs={
-            name: {"units": moving.coords[name].attrs.get("units"), "voxdim": step}
-            for name, step in zip(world_coord_names, spacing, strict=True)
-            if name in moving.coords
-        },
-    )
+    for name in SPATIAL_DIMS:
+        units = moving.coords[name].attrs.get("units")
+        if units is not None:
+            result.coords[name].attrs["units"] = units
+    return result
 
 
 def resample_like(
@@ -227,8 +234,10 @@ def resample_like(
     """Resample a volume onto the grid of a reference DataArray.
 
     Convenience wrapper around
-    [`resample_volume`][confusius.registration.resample_volume] that extracts the output
-    grid (`shape`, `spacing`, `origin`) from `reference`'s coordinates.
+    [`resample_volume`][confusius.registration.resample_volume] that extracts the
+    position-anchored output grid (`shape`, `spacing`, `origin`, `direction`) from
+    `reference`'s coordinates via the `fusi` accessor, so the grid is correct even if
+    `reference` has been cropped or strided from a larger DataArray.
 
     Parameters
     ----------
@@ -305,25 +314,21 @@ def resample_like(
             (("transform", transform), ("reference", reference))
         )
 
-    dims, spacing = get_defined_spatial_spacing(reference)
-    shape = [int(reference.sizes[dim]) for dim in dims]
-    origin_dict = reference.fusi.origin
-    origin_names = (
-        get_voxel_affine_world_coord_names(reference)
-        if has_voxel_world_geometry(reference)
-        else dims
+    output_shape = [int(reference.sizes[dim]) for dim in VOXEL_DIMS]
+    _, output_spacing = get_defined_spatial_spacing(reference)
+    reference_origin = reference.fusi.origin
+    output_origin = [reference_origin[name] for name in SPATIAL_DIMS]
+    output_direction = get_affine_orientation_matrix(
+        get_voxel_to_world_affine(reference)
     )
-    origin = [origin_dict[dim] for dim in origin_names]
-    direction = reference.fusi.direction
 
     result = resample_volume(
         moving,
         transform,
-        shape=shape,
-        spacing=spacing,
-        origin=origin,
-        dims=dims,
-        direction=direction,
+        output_shape=output_shape,
+        output_spacing=output_spacing,
+        output_origin=output_origin,
+        output_direction=output_direction,
         interpolation=interpolation,
         fill_value=fill_value if fill_value is not None else default_value,
         sitk_threads=sitk_threads,
@@ -335,6 +340,6 @@ def resample_like(
     # Those sub-epsilon differences break xarray coordinate alignment (e.g. plot_volume)
     # that uses strict tolerances to match coordinates across DataArrays.
     result = result.assign_coords(
-        {d: reference.coords[d] for d in dims if d in reference.coords}
+        {d: reference.coords[d] for d in VOXEL_DIMS if d in reference.coords}
     )
     return replace_spatial_geometry_attrs(result, reference)

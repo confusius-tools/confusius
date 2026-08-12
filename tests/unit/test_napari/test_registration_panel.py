@@ -1131,10 +1131,9 @@ class TestTransforms:
         target = resample_volume(
             source,
             affine,
-            shape=[source.sizes["k"], source.sizes["j"], source.sizes["i"]],
-            spacing=[0.3, 0.2, 0.1],
-            origin=[0.0, 0.0, 0.0],
-            dims=["k", "j", "i"],
+            output_shape=[source.sizes["k"], source.sizes["j"], source.sizes["i"]],
+            output_spacing=[0.3, 0.2, 0.1],
+            output_origin=[0.0, 0.0, 0.0],
             interpolation="nearest",
         )
         payload = make_affine_transform_payload(
@@ -1292,10 +1291,9 @@ class TestTransforms:
         assert calls["resample_args"][0] is target
         assert calls["resample_args"][1] is inverse_field
         assert calls["resample_kwargs"] == {
-            "shape": input_grid["shape"],
-            "spacing": input_grid["spacing"],
-            "origin": input_grid["origin"],
-            "dims": input_grid["dims"],
+            "output_shape": input_grid["shape"],
+            "output_spacing": input_grid["spacing"],
+            "output_origin": input_grid["origin"],
             "interpolation": "linear",
         }
 

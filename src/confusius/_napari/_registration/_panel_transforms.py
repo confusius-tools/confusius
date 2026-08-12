@@ -797,10 +797,9 @@ def apply_selected_transform(panel: RegistrationPanel) -> None:
     worker = thread_worker(resample_volume)(
         moving,
         transform,
-        shape=output_grid["shape"],
-        spacing=output_grid["spacing"],
-        origin=output_grid["origin"],
-        dims=output_grid["dims"],
+        output_shape=output_grid["shape"],
+        output_spacing=output_grid["spacing"],
+        output_origin=output_grid["origin"],
         interpolation=panel._current_resample_interpolation(),
     )
     apply_payload: ApplyTransformPayload = {
@@ -861,10 +860,9 @@ def apply_selected_inverse_transform(panel: RegistrationPanel) -> None:
     worker = thread_worker(resample_volume)(
         moving,
         transform,
-        shape=output_grid["shape"],
-        spacing=output_grid["spacing"],
-        origin=output_grid["origin"],
-        dims=output_grid["dims"],
+        output_shape=output_grid["shape"],
+        output_spacing=output_grid["spacing"],
+        output_origin=output_grid["origin"],
         interpolation=panel._current_resample_interpolation(),
     )
     apply_payload: ApplyTransformPayload = {
