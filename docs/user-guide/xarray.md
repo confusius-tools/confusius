@@ -6,13 +6,13 @@ icon: lucide/brackets
 
 ## Why Xarray?
 
-A typical fUSI recording is a 4D array indexed by time, elevation (`z`), depth (`y`),
-and lateral position (`x`). Storing this as a plain NumPy array means losing all of that
-structure: axes become anonymous integers, physical coordinates must be tracked
-separately, and keeping them in sync with the data after slicing or averaging is
-error-prone. A custom wrapper class would address the labeling and coordinate tracking,
-but at the cost of needing a complex reimplementation of many array operations and
-losing access to the broader scientific Python ecosystem.
+A typical fUSI recording is a 4D array indexed by time and native voxel dimensions (`k`,
+`j`, `i`). The corresponding world coordinates are (`z`, `y`, `x`). Storing this as a
+plain NumPy array means losing all of that structure: axes become anonymous integers,
+world coordinates must be tracked separately, and keeping them in sync with the data
+after slicing or averaging is error-prone. A custom wrapper class would address the
+labeling and coordinate tracking, but at the cost of needing a complex reimplementation
+of many array operations and losing access to the broader scientific Python ecosystem.
 
 [Xarray](https://xarray.dev/) solves this by wrapping arrays with named dimensions and
 physical coordinates, while [maintaining compatibility](https://xarray.dev/#ecosystem)
@@ -54,14 +54,17 @@ the same coordinate system. When you open a Zarr archive, you get a Dataset:
 >>> ds = xr.open_zarr("power_doppler.zarr")
 >>> ds
 <xarray.Dataset> Size: 76MB
-Dimensions:        (time: 860, z: 1, y: 128, x: 86)
+Dimensions:        (time: 860, k: 1, j: 128, i: 86)
 Coordinates:
   * time           (time) float64 7kB 0.299 0.899 1.499 ... 514.5 515.1 515.7
-  * z              (z) float64 8B 0.0
-  * y              (y) float64 1kB 5.664 5.713 5.762 5.811 ... 11.77 11.82 11.87
-  * x              (x) float64 688B -3.583 -3.492 -3.402 ... 3.946 4.037 4.127
+  * k              (k) float64 8B 0.0
+  * j              (j) float64 1kB 0.0 1.0 2.0 3.0 ... 124.0 125.0 126.0 127.0
+  * i              (i) float64 688B 0.0 1.0 2.0 3.0 ... 82.0 83.0 84.0 85.0
+  * z              (k, j, i) float64 ... 0.0 0.0 0.0 ...
+  * y              (k, j, i) float64 ... 5.664 5.713 5.762 ...
+  * x              (k, j, i) float64 ... -3.583 -3.492 -3.402 ...
 Data variables:
-    power_doppler  (time, z, y, x) float64 76MB dask.array<chunksize=(215, 1, 32, 22), meta=np.ndarray>
+    power_doppler  (time, k, j, i) float64 76MB dask.array<chunksize=(215, 1, 32, 22), meta=np.ndarray>
 ```
 
 A **[DataArray][xarray.DataArray]** is a single variable from that collection—one array with its own
@@ -72,13 +75,20 @@ a Dataset:
 ```pycon
 >>> pwd = ds["power_doppler"]
 >>> pwd
-<xarray.DataArray 'power_doppler' (time: 860, z: 1, y: 128, x: 86)> Size: 76MB
+<xarray.DataArray 'power_doppler' (time: 860, k: 1, j: 128, i: 86)> Size: 76MB
 dask.array<open_dataset-power_doppler, shape=(860, 1, 128, 86), dtype=float64, chunksize=(215, 1, 32, 22), chunktype=numpy.ndarray>
 Coordinates:
   * time     (time) float64 7kB 0.299 0.899 1.499 2.099 ... 514.5 515.1 515.7
-  * z        (z) float64 8B 0.0
-  * y        (y) float64 1kB 5.664 5.713 5.762 5.811 ... 11.72 11.77 11.82 11.87
-  * x        (x) float64 688B -3.583 -3.492 -3.402 -3.311 ... 3.946 4.037 4.127
+  * k        (k) float64 8B 0.0
+  * j        (j) float64 1kB 0.0 1.0 2.0 3.0 ... 124.0 125.0 126.0 127.0
+  * i        (i) float64 688B 0.0 1.0 2.0 3.0 ... 82.0 83.0 84.0 85.0
+  * z        (k, j, i) float64 ... 0.0 0.0 0.0 ...
+  * y        (k, j, i) float64 ... 5.664 5.713 5.762 ...
+  * x        (k, j, i) float64 ... -3.583 -3.492 -3.402 ...
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
 Attributes: (11/16)
     transmit_frequency:             15625000.0
     probe_number_of_elements:       128
@@ -96,15 +106,15 @@ Attributes: (11/16)
 
 Reading the output from top to bottom, a DataArray has four components:
 
-- **Dimensions** `(time, z, y, x)`: named axes in the order they appear in the
-  underlying array. `time` is the temporal axis, `z` is elevation, `y` is depth (axial),
-  and `x` is the lateral position.
+- **Dimensions** `(time, k, j, i)`: native voxel axes in the order they appear in the
+  underlying array. `time` is the temporal axis; `k`, `j`, and `i` index elevation,
+  depth (axial), and lateral voxels respectively.
 - **Data**: the underlying array. For Zarr-backed data this is a Dask array, meaning
   values are not loaded into memory until you explicitly request them (e.g., by
   calling `.compute()` or accessing `.values`).
-- **Coordinates**: physical values for each dimension, typically timestamps in seconds,
-  spatial positions in millimeters. They are what enable `.sel(y=slice(0, 2.5))` to work
-  in physical units rather than array indices.
+- **Coordinates**: timestamps and world positions, typically in seconds and millimeters.
+  The world coordinates `z`, `y`, and `x` are derived from the voxel-to-world geometry
+  and enable `.sel(y=slice(0, 2.5))` to work in world units rather than array indices.
 - **Attributes**: acquisition metadata as a flat key-value dictionary. Attributes are
   preserved through most ConfUSIus operations, and some are required for certain
   functions (e.g., `transmit_frequency` is needed for velocity calculations).
@@ -124,19 +134,17 @@ mask).
 
 Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
 have a NumPy, Dask, or array-like object and want to attach ConfUSIus-compatible
-dimensions, coordinates, and metadata. Dimensions can be supplied in any order; by
-default, the result is transposed to canonical `(time, z, y, x)` order:
+dimensions, coordinates, and metadata. Dimensions can be supplied in any order; the
+result is canonicalized to native `(time, k, j, i)` order:
 
 ```python
 import confusius as cf
 
 recording = cf.create_fusi_dataarray(
-    raw_power,  # shape: (time, z, y, x)
-    dims=("time", "z", "y", "x"),
+    raw_power,  # shape: (time, k, j, i)
+    dims=("time", "k", "j", "i"),
     dt=0.6,  # seconds
-    dz=0.4,  # mm
-    dy=0.05,  # mm
-    dx=0.1,  # mm
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
     attrs={"description": "Power Doppler from my system"},
 )
 ```
@@ -146,16 +154,12 @@ its spacing and ConfUSIus adds it for you:
 
 ```python
 single_slice = cf.create_fusi_dataarray(
-    raw_power,  # shape: (time, y, x)
-    dims=("time", "y", "x"),
+    raw_power,  # shape: (time, j, i)
+    dims=("time", "j", "i"),
     dt=0.6,
-    dz=0.4,
-    dy=0.05,
-    dx=0.1,
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
 )
 ```
-
-Pass `canonical_order=False` only when you need to preserve the input dimension order.
 
 Acquisition metadata that describes the whole recording belongs in `attrs`. Coordinate
 metadata such as `units` and `voxdim` is added automatically.
@@ -165,12 +169,10 @@ For beamformed IQ data, use
 
 ```python
 iq = cf.create_iq_dataarray(
-    raw_iq,  # shape: (time, y, x)
-    dims=("time", "y", "x"),
+    raw_iq,  # shape: (time, j, i)
+    dims=("time", "j", "i"),
     dt=1 / 500,
-    dz=0.4,
-    dy=0.05,
-    dx=0.1,
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
     transmit_frequency=15.625e6,
     beamforming_sound_velocity=1540.0,
 )
@@ -178,32 +180,32 @@ iq = cf.create_iq_dataarray(
 
 ### Canonical fUSI Dimensions and Scalar Indexing
 
-ConfUSIus stores fUSI recordings with the spatial dimensions `z`, `y`, and `x`.
-Single-slice acquisitions still keep a singleton `z` axis, so the canonical shape is
-`(time, z, y, x)` with `z=1`, not `(time, y, x)`.
+ConfUSIus stores fUSI recordings with the native voxel dimensions `k`, `j`, and `i`.
+Single-slice acquisitions still keep a singleton `k` axis, so the canonical shape is
+`(time, k, j, i)` with `k=1`, not `(time, j, i)`.
 
 Xarray scalar indexing drops the indexed dimension but usually keeps its coordinate as a
 scalar coordinate:
 
 ```python
-slice_movie = pwd.isel(z=0)
+slice_movie = pwd.isel(k=0)
 slice_movie.dims
-# ('time', 'y', 'x')
+# ('time', 'j', 'i')
 
 slice_movie.coords["z"]
-# scalar coordinate: z = 0.0 mm, with the original coordinate metadata
+# scalar world coordinate: z = 0.0 mm, with the original coordinate metadata
 ```
 
 Most geometry-sensitive ConfUSIus functions automatically restore such scalar-indexed
 spatial coordinates as singleton dimensions before validating the data. For example,
-`slice_movie` is treated as `(time, z, y, x)` with `z=1` when passed to registration or
+`slice_movie` is treated as `(time, k, j, i)` with `k=1` when passed to registration or
 resampling APIs. Dimension-generic operations such as smoothing preserve the indexed
 shape.
 
-This recovery only works when the missing spatial dimension is still present as a
-scalar coordinate. A manually constructed bare `(time, y, x)` array with no `z`
-coordinate is rejected because ConfUSIus cannot infer its physical position, units, or
-voxel size.
+This recovery only works when the missing voxel dimension is still represented by scalar
+world-coordinate geometry. A manually constructed bare `(time, j, i)` array with no
+voxel-to-world geometry is rejected because ConfUSIus cannot infer its physical position,
+units, or voxel size.
 
 ## The `.fusi` Accessor
 
@@ -241,7 +243,7 @@ Currently, two global helpers are available:
 
   ```pycon
   >>> pwd.fusi.spacing
-  {'time': 0.6, 'z': 0.4, 'y': 0.049, 'x': 0.091}
+  {'time': 0.6, 'k': 0.4, 'j': 0.049, 'i': 0.091}
   ```
 
   This is particularly useful for sanity-checking voxel sizes or sampling periods
@@ -357,7 +359,7 @@ the full spatial volume, use
 original mask:
 
 ```python
-# reconstructed has dims (time, z, y, x).
+# reconstructed has dims (time, k, j, i).
 reconstructed = signals.fusi.extract.unmask(mask)
 ```
 
@@ -371,7 +373,7 @@ pca = PCA(n_components=5, random_state=0)
 component_signals = pca.fit_transform(signals)  # (time, component)
 spatial_components = pca.maps_.fusi.extract.unmask(mask)
 
-# spatial_components has dims (component, z, y, x).
+# spatial_components has dims (component, k, j, i).
 ```
 
 #### Label-based extraction
@@ -379,9 +381,9 @@ spatial_components = pca.maps_.fusi.extract.unmask(mask)
 [`extract_with_labels`][confusius.extract.extract_with_labels] aggregates signals by
 brain region using an integer label map. It accepts two label formats:
 
-- **Flat label map** `(z, y, x)`: each unique non-zero integer identifies a distinct,
+- **Flat label map** `(k, j, i)`: each unique non-zero integer identifies a distinct,
   non-overlapping region (e.g., from an atlas annotation volume).
-- **Stacked mask format** `(masks, z, y, x)`: one layer per region, with values in
+- **Stacked mask format** `(mask, k, j, i)`: one layer per region, with values in
   `{0, region_id}`. Regions may overlap. This is the format returned by
   [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
 

@@ -236,11 +236,15 @@ dask.array<open_dataset-iq, shape=(1168500, 1, 118, 52), dtype=complex64, chunks
 Coordinates:
   * time     (time) float64 9MB 5.551 5.553 5.555 ... 2.355e+03 2.355e+03
   * k        (k) float64 8B 0.0
-    z        (k) float64 8B 0.0
   * j        (j) float64 944B 0.0 1.0 2.0 3.0 ... 114.0 115.0 116.0 117.0
-    y        (j) float64 944B 4.656 4.705 4.753 4.802 ... 10.23 10.28 10.33
   * i        (i) float64 416B 0.0 1.0 2.0 3.0 ... 48.0 49.0 50.0 51.0
-    x        (i) float64 416B -2.671 -2.57 -2.469 -2.369 ... 2.268 2.369 2.469
+  * z        (k, j, i) float64 ... 0.0 0.0 0.0 ...
+  * y        (k, j, i) float64 ... 4.656 4.705 4.753 ...
+  * x        (k, j, i) float64 ... -2.671 -2.57 -2.469 ...
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
 Attributes:
     transmit_frequency:             15625000.0
     probe_number_of_elements:       128

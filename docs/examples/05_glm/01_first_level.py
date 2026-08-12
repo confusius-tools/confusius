@@ -133,21 +133,30 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         )
         da = cf.load(pwd_path)
 
-    transpose_dims = ("j", "k", "i")
-    if "time" in da.dims:
-        transpose_dims = ("time",) + transpose_dims
+    # Swap the underlying array data (not via .transpose().rename(), which reorders
+    # voxel dims relative to each other on a voxel-affine DataArray and hits an
+    # upstream xarray bug: CoordinateTransformIndexingAdapter.shape ignores the
+    # adapter's own (transposed) dim order and returns the untransposed transform's
+    # shape, desyncing dims from shape). Swapping which voxel dim (k vs j) holds
+    # which data must be matched by swapping `voxel_to_world`'s z/y output rows
+    # *and* k/j input columns together, so the affine's per-axis coefficients
+    # (spacing, origin) stay attached to the right data.
+    k_axis = da.dims.index("k")
+    j_axis = da.dims.index("j")
+    swapped_values = np.swapaxes(da.values, k_axis, j_axis)
 
-    da = da.transpose(*transpose_dims).rename(j="k", k="j")
-
-    # Swapping which voxel dim (k vs j) holds which data must be matched by swapping
-    # `voxel_to_world`'s z/y output rows *and* k/j input columns together, so the
-    # affine's per-axis coefficients (spacing, origin) stay attached to the right data.
     swap_kj_zy = np.eye(4)
     swap_kj_zy[[0, 1]] = swap_kj_zy[[1, 0]]
-    da = da.assign_attrs(
-        voxel_to_world=swap_kj_zy @ da.attrs["voxel_to_world"] @ swap_kj_zy
+    swapped_voxel_to_world = swap_kj_zy @ da.fusi.affine.voxel_to_world @ swap_kj_zy
+
+    da = cf.create_fusi_dataarray(
+        swapped_values,
+        dims=da.dims,
+        time=da.coords["time"] if "time" in da.dims else None,
+        voxel_to_world=swapped_voxel_to_world,
+        attrs=da.attrs,
+        name=str(da.name) if da.name is not None else None,
     )
-    da, _ = da.fusi.affine.apply(np.eye(4))
 
     # 2. Match transpose "z" and "y" in the `physical_to_qform` affine.
     transpose_z_y = np.eye(4)
@@ -412,9 +421,8 @@ _ = cf.plotting.plot_contrast_matrix(
 # %%
 z_score = glm.compute_contrast("active")
 
-slice_coords = resampled_average_in_atlas.z[
-    (resampled_average_in_atlas.z > 5.5) & (resampled_average_in_atlas.z < 9)
-][::4]
+z_1d = resampled_average_in_atlas.z.isel(j=0, i=0).values
+slice_coords = z_1d[(z_1d > 5.5) & (z_1d < 9)][::4]
 
 cmap = "berlin" if is_dark_theme else None
 vmax = 10

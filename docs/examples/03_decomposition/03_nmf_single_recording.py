@@ -188,7 +188,7 @@ _ = fig.suptitle(
 
 # %%
 nmf_s = cf.decomposition.NMF(
-    n_components=10, mode="spatial", random_state=0, max_iter=500
+    n_components=10, mode="spatial", random_state=0, max_iter=1000
 )
 signals_s = nmf_s.fit_transform(data_nmf)
 signals_s

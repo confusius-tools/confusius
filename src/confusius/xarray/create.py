@@ -392,12 +392,9 @@ def _spatial_origin_defaults(
     )
 
 
-def _as_spatial_tuple(
-    values: Sequence[float] | None,
-    *,
-    name: str,
-    required: bool = False,
-) -> tuple[float, float, float] | None:
+def _validate_spatial_tuple(
+    values: Sequence[float] | None, *, name: str
+) -> tuple[float, float, float]:
     """Validate a positive finite `z/y/x` tuple argument.
 
     Parameters
@@ -406,13 +403,11 @@ def _as_spatial_tuple(
         Candidate tuple values in `z/y/x` order.
     name : str
         Argument name used in validation errors.
-    required : bool, default: False
-        Whether to reject missing values.
 
     Returns
     -------
-    tuple[float, float, float] or None
-        Validated tuple, or None when not required and not provided.
+    tuple[float, float, float]
+        Validated tuple.
 
     Raises
     ------
@@ -421,9 +416,7 @@ def _as_spatial_tuple(
         and finite.
     """
     if values is None:
-        if required:
-            raise ValueError(f"{name} must be provided.")
-        return None
+        raise ValueError(f"{name} must be provided.")
     if len(values) != len(SPATIAL_DIMS):
         raise ValueError(f"{name} must have length 3 in z/y/x order.")
     z, y, x = values
@@ -483,8 +476,7 @@ def _resolve_voxel_to_world(
             raise ValueError("voxel_to_world must be a homogeneous affine.")
         return affine
 
-    resolved_spacing = _as_spatial_tuple(spacing, name="spacing", required=True)
-    assert resolved_spacing is not None
+    resolved_spacing = _validate_spatial_tuple(spacing, name="spacing")
     if origin is None:
         resolved_origin = _spatial_origin_defaults(spatial_sizes, resolved_spacing)
     else:
@@ -666,8 +658,7 @@ def create_fusi_dataarray(
             )
         )
     else:
-        resolved_voxdim = _as_spatial_tuple(voxdim, name="voxdim", required=True)
-        assert resolved_voxdim is not None
+        resolved_voxdim = _validate_spatial_tuple(voxdim, name="voxdim")
 
     voxel_coords = {
         dim: xr.DataArray(np.arange(spatial_sizes[dim], dtype=float), dims=(dim,))
