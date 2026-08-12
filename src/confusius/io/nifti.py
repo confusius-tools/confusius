@@ -18,7 +18,6 @@ from pydantic import ValidationError
 
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.coordinates import (
-    get_affine_in_axis_aligned_space,
     get_axis_aligned_affine,
     get_coordinate_spacing_info,
     get_representative_step,
@@ -404,33 +403,40 @@ def _create_spatial_coords_from_nifti(
                 attrs=coord_attrs,
             )
     else:
-        # Sform is preferred; when both codes are positive, qform is secondary.
+        # Sform is preferred; when both codes are positive, qform is secondary
+        # (see `_select_affines`: secondary is always qform, never sform).
+        #
+        # CTI voxel-affine geometry represents the full primary affine (any
+        # rotation/shear included) exactly, so it becomes `voxel_to_world`
+        # directly -- no axis-aligned-only decomposition, and no separate rotation
+        # residual to store for the primary form (unlike the old z/y/x model,
+        # whose independent 1D coordinates could only absorb an axis-aligned
+        # translation and zoom). A missing spatial dim (e.g. a genuinely 2D scan)
+        # needs no special handling either: its affine column is simply dropped,
+        # which is exactly equivalent to evaluating the affine at voxel-index 0
+        # along that axis (index 0 zeroes out that column's contribution). A
+        # secondary form (qform, when sform is primary) is expressed relative to
+        # this now-exact physical frame: secondary = physical_to_qform @ primary,
+        # so physical_to_qform = secondary @ inv(primary).
         _, sform_code = img.header.get_sform(coded=True)
         primary_prefix = "sform" if sform_code > 0 else "qform"
-
-        # The physical coordinate frame is defined once by the primary affine's
-        # axis-aligned decomposition: origin T (translation) and voxel spacing Z (true
-        # zoom from decompose_affine). Every stored affine is re-expressed against this
-        # single frame, so a secondary affine (e.g. qform when sform is primary) keeps its
-        # relationship to the physical coordinates instead of being built from its own,
-        # inconsistent decomposition.
-        T, _, Z, _ = decompose_affine(primary_affine)
-
-        affines_dict: dict[str, npt.NDArray[np.floating]] = {}
-        nifti_affines: list[tuple[npt.NDArray[np.floating], str]] = [
-            (primary_affine, primary_prefix),
+        extra_attrs["_primary_voxel_to_world"] = primary_affine[[2, 1, 0, 3]][
+            :, [2, 1, 0, 3]
         ]
+        # The primary form's own relationship to the physical coordinates starts
+        # as identity (physical coordinates *are* the primary affine's output),
+        # but must still be stored: `apply_affine` re-expresses every stored
+        # affine when the physical frame changes, so a later transform (e.g.
+        # composing a registration) keeps this form's coordinates recoverable on
+        # save, instead of only the secondary form surviving.
+        affines_dict: dict[str, npt.NDArray[np.floating]] = {
+            f"physical_to_{primary_prefix}": np.eye(4, dtype=np.float64)
+        }
         if secondary_affine is not None:
-            nifti_affines.append((secondary_affine, "qform"))
-
-        for affine, prefix in nifti_affines:
-            # Re-express this form's voxel->world affine against the primary physical
-            # frame (in NIfTI x, y, z order), then permute to ConfUSIus (z, y, x) by
-            # swapping rows and columns 0 <-> 2. For the primary form this reduces to
-            # the orientation-only affine [[D, T - D @ T]].
-            A_nifti = get_affine_in_axis_aligned_space(affine, T, Z)
-            A_physical = A_nifti[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
-            affines_dict[f"physical_to_{prefix}"] = A_physical
+            physical_to_secondary = secondary_affine @ np.linalg.inv(primary_affine)
+            affines_dict["physical_to_qform"] = physical_to_secondary[[2, 1, 0, 3]][
+                :, [2, 1, 0, 3]
+            ]
 
         for col, dim in enumerate(("x", "y", "z")):
             if dim not in dims:
@@ -438,12 +444,14 @@ def _create_spatial_coords_from_nifti(
             coord_attrs: dict[str, Any] = {}
             if space_unit is not None:
                 coord_attrs["units"] = space_unit
-            coord_attrs["voxdim"] = float(Z[col])
-
-            # Coordinates encode the primary translation (T[col]) plus the
-            # primary zoom (Z[col], the true voxel spacing along this axis).
+            # Placeholder axis-aligned coordinates for the intermediate DataArray;
+            # `_promote_nifti_to_voxel_affine` rebuilds the true (possibly
+            # rotated) z/y/x coordinates from `_primary_voxel_to_world` and
+            # discards these.
+            step = float(voxel_sizes.get(dim, 1.0))
+            coord_attrs["voxdim"] = step
             coords[dim] = xr.DataArray(
-                T[col] + Z[col] * np.arange(img.shape[col]),
+                step * np.arange(img.shape[col]),
                 dims=[dim],
                 attrs=coord_attrs,
             )
@@ -1055,6 +1063,7 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
 
     spatial_dims = tuple(dim for dim in ("z", "y", "x") if dim in data_array.dims)
     if len(spatial_dims) not in {2, 3}:
+        data_array.attrs.pop("_primary_voxel_to_world", None)
         return data_array
 
     voxel_dims = tuple(dim for dim in VOXEL_DIMS[-len(spatial_dims) :])
@@ -1064,15 +1073,29 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
         for dim in spatial_dims
         if dim in data_array.coords
     }
-    spacing = [
-        float(data_array.coords[dim].attrs.get("voxdim", 1.0)) for dim in spatial_dims
-    ]
-    origin = [
-        float(np.asarray(data_array.coords[dim].values)[0]) for dim in spatial_dims
-    ]
-    voxel_to_world = np.eye(len(spatial_dims) + 1, dtype=np.float64)
-    voxel_to_world[:-1, :-1] = np.diag(spacing)
-    voxel_to_world[:-1, -1] = origin
+    full_voxel_to_world = data_array.attrs.pop("_primary_voxel_to_world", None)
+    if full_voxel_to_world is not None:
+        # The full (possibly rotated) primary affine applies directly -- no
+        # axis-aligned decomposition needed. When a spatial dim is missing (e.g. a
+        # single-slice scan), dropping its row/column here is exactly equivalent
+        # to evaluating the affine at voxel-index 0 along that axis (see
+        # `_create_spatial_coords_from_nifti`), so the remaining present dims'
+        # rotation/shear is preserved exactly rather than approximated.
+        present_indices = [("z", "y", "x").index(dim) for dim in spatial_dims]
+        full_voxel_to_world = np.asarray(full_voxel_to_world, dtype=np.float64)
+        keep = [*present_indices, 3]
+        voxel_to_world = full_voxel_to_world[np.ix_(keep, keep)]
+    else:
+        spacing = [
+            float(data_array.coords[dim].attrs.get("voxdim", 1.0))
+            for dim in spatial_dims
+        ]
+        origin = [
+            float(np.asarray(data_array.coords[dim].values)[0]) for dim in spatial_dims
+        ]
+        voxel_to_world = np.eye(len(spatial_dims) + 1, dtype=np.float64)
+        voxel_to_world[:-1, :-1] = np.diag(spacing)
+        voxel_to_world[:-1, -1] = origin
 
     conflicting_dims = [
         dim

@@ -77,7 +77,7 @@ def test_extract_wrappers_forward_calls(
 def test_affine_wrappers_forward_calls(monkeypatch, sample_fusi_3dt):
     """Affine accessor methods forward arguments to helper functions."""
     expected_to = np.eye(4)
-    expected_apply = (sample_fusi_3dt, np.eye(4))
+    expected_apply = sample_fusi_3dt
     other = sample_fusi_3dt.copy()
     affine = np.diag([1.0, 2.0, 3.0, 1.0])
     calls: dict[str, tuple] = {}
@@ -96,7 +96,7 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_fusi_3dt):
     assert sample_fusi_3dt.fusi.affine.to(other, via="physical_to_lab") is expected_to
     assert calls["to"] == (sample_fusi_3dt, other, "physical_to_lab")
 
-    assert sample_fusi_3dt.fusi.affine.apply(affine, inplace=True) == expected_apply
+    assert sample_fusi_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
     assert calls["apply"] == (sample_fusi_3dt, affine, True)
 
 

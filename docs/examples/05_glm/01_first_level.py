@@ -143,9 +143,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     # an upstream xarray bug: CoordinateTransformIndexingAdapter.shape ignores the
     # adapter's own transposed dim order and returns the untransposed transform's
     # shape, desyncing dims from shape.)
-    relabeled_dims = tuple(
-        {"k": "j", "j": "k"}.get(dim, dim) for dim in da.dims
-    )
+    relabeled_dims = tuple({"k": "j", "j": "k"}.get(dim, dim) for dim in da.dims)
 
     # `voxel_to_world`'s columns still need the matching k/j swap, so that column 0
     # (now labeled `j` on the input) keeps its original k-associated coefficients
@@ -219,7 +217,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
 # %%
 fusi_list = [_load_and_prepare_fusi(pwd_path) for pwd_path in pwd_paths]
 
-fusi_list[0].mean("time").fusi.plot.volume(slice_mode="z", show_axes=False).show() 
+fusi_list[0].mean("time").fusi.plot.volume(slice_mode="z", show_axes=False).show()
 
 # %% [markdown]
 # Averaging each run over time and then across runs gives a single, high-SNR
@@ -272,28 +270,20 @@ resampled_template = cf.registration.resample_like(
 
 napari_transform = np.array(
     [
-        [0.7559553732760649, 0.31697755207337375, 0.0, 1.6997652603607039],
-        [-0.27557848987798905, 0.8004409446062637, 0.0, -0.7527078253190659],
-        [0.0, 0.0, 1.0, 0.0],
+        [1.0, 0.0, 0.0, -22.192993148810338],
+        [0.0, 1.0, 0.0, -42.348147264866085],
+        [0.0, 0.0, 1.0, -6.372680321602125],
         [0.0, 0.0, 0.0, 1.0],
     ]
 )
-napari_transform = np.array(
-    [
-        [1.0, 0.0, 0.0, -22.548751724414302], 
-        [0.0, 1.0, 0.0, -41.426786204991416],
-        [0.0, 0.0, 1.0, -6.367847850879272], 
-        [0.0, 0.0, 0.0, 1.0]
-    ]
-)
-
 
 _, transform, _ = cf.registration.register_volume(
-    average_fusi,
-    resampled_template,
+    average_fusi.isel(k=slice(10, -10)),
+    template_pepe_mariani.isel(k=slice(10, -10)).fusi.scale.db(),
     transform_type="affine",
     learning_rate="auto",
-    initialization=np.linalg.inv(napari_transform),
+    initialization=napari_transform,
+    show_progress=True,
 )
 
 # %% [markdown]

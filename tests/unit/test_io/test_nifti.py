@@ -968,10 +968,14 @@ class TestLoadNifti:
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" in da.attrs["affines"]
 
-    def test_load_nifti_rotated_affine_probe_relative_coords(
-        self, tmp_path: Path
-    ) -> None:
-        """Rotated affine produces probe-relative coords with correct spacing."""
+    def test_load_nifti_rotated_affine_voxel_to_world(self, tmp_path: Path) -> None:
+        """A rotated sform composes fully into `voxel_to_world` (no decomposition).
+
+        CTI voxel-affine geometry represents rotations exactly, so the sform's 90°
+        rotation (mapping voxel x->world y, voxel y->world -x) is not dropped into
+        a residual "physical_to_sform" entry -- it lands directly in
+        `voxel_to_world`, and the primary form's own residual is identity.
+        """
         # 90° rotation around z maps x→y, y→-x with spacing [2, 3, 4].
         spacing = np.array([2.0, 3.0, 4.0])
         origin = np.array([10.0, 20.0, 30.0])
@@ -991,16 +995,15 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        # NIfTI data shape is (x=5, y=4, z=3); ConfUSIus order is (z=3, y=4, x=5).
-        # Coords start at origin and are stepped by column norm (not diagonal, which
-        # would give spacing 0 for the rotated x and y axes here).
+        # NIfTI data shape is (x=5, y=4, z=3); ConfUSIus order is (z=3, y=4, x=5),
+        # so permuting the affine's rows/cols 0<->2 gives the expected voxel_to_world.
+        expected_voxel_to_world = affine[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
         np.testing.assert_allclose(
-            _world_coord_1d(da, "x"), [10.0, 12.0, 14.0, 16.0, 18.0]
+            get_voxel_to_world_affine(da), expected_voxel_to_world
         )
-        np.testing.assert_allclose(_world_coord_1d(da, "y"), [20.0, 23.0, 26.0, 29.0])
-        np.testing.assert_allclose(_world_coord_1d(da, "z"), [30.0, 34.0, 38.0])
-        # Physical transform (4×4 probe→world affine) is stored in da.attrs["affines"].
-        assert da.attrs["affines"]["physical_to_sform"].shape == (4, 4)
+        np.testing.assert_allclose(
+            da.attrs["affines"]["physical_to_sform"], np.eye(4)
+        )
 
     def test_load_nifti_sheared_affine_correct_spacing(self, tmp_path: Path) -> None:
         """Sheared affine uses decompose44 spacings, not (wrong) column norms."""
@@ -1028,10 +1031,10 @@ class TestLoadNifti:
         np.testing.assert_allclose(_world_coord_1d(da, "y"), [0.0, 1.0, 2.0, 3.0])
         np.testing.assert_allclose(_world_coord_1d(da, "z"), [0.0, 1.0, 2.0, 3.0, 4.0])
 
-    def test_load_nifti_physical_transform_maps_probe_to_world(
+    def test_load_nifti_rotated_affine_maps_voxel_indices_to_world(
         self, tmp_path: Path
     ) -> None:
-        """physical_to_sform correctly maps physical-space coords to world-space coords."""
+        """voxel_to_world correctly maps voxel indices to world-space coordinates."""
         # Affine with rotation (90° around z) + zoom [2, 3, 4] + translation [10, 20, 30].
         spacing = np.array([2.0, 3.0, 4.0])
         origin = np.array([10.0, 20.0, 30.0])
@@ -1050,20 +1053,14 @@ class TestLoadNifti:
         img.to_filename(nifti_path)
 
         da = load_nifti(nifti_path)
-        A = da.attrs["affines"]["physical_to_sform"]
+        voxel_to_world = get_voxel_to_world_affine(da)
 
-        # A_physical uses ConfUSIus (z, y, x) convention:
-        # A @ [pz, py, px, 1] → [wz, wy, wx, 1].
-        x_1d = _world_coord_1d(da, "x")
-        y_1d = _world_coord_1d(da, "y")
-        z_1d = _world_coord_1d(da, "z")
+        # voxel_to_world uses ConfUSIus (z, y, x) row / (k, j, i) column convention:
+        # voxel_to_world @ [k, j, i, 1] → [wz, wy, wx, 1].
         for i, j, k in [(0, 0, 0), (2, 1, 0), (4, 3, 2)]:
             world_xyz = (affine @ np.array([i, j, k, 1.0]))[:3]
             world_expected_zyx = world_xyz[[2, 1, 0]]
-            px = float(x_1d[i])
-            py = float(y_1d[j])
-            pz = float(z_1d[k])
-            world_actual = (A @ np.array([pz, py, px, 1.0]))[:3]
+            world_actual = (voxel_to_world @ np.array([k, j, i, 1.0]))[:3]
             np.testing.assert_allclose(world_actual, world_expected_zyx, atol=1e-10)
 
     def test_load_nifti_no_valid_affine_warns(self, tmp_path: Path) -> None:
@@ -1690,7 +1687,12 @@ class TestSaveNifti:
     def test_save_negative_spatial_coord_roundtrips_via_signed_affine(
         self, tmp_path
     ) -> None:
-        """Regular negative spatial coords round-trip through the NIfTI affine."""
+        """Regular negative spatial coords round-trip through the NIfTI affine.
+
+        `voxdim` itself is unsigned magnitude (matching `get_affine_axis_scalings`'s
+        convention used everywhere else in CTI geometry) -- the sign lives in the
+        direction matrix / affine entries, not in `voxdim`.
+        """
         da = create_fusi_dataarray(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=["z", "y", "x"],
@@ -1704,7 +1706,7 @@ class TestSaveNifti:
         np.testing.assert_array_equal(
             _world_coord_1d(loaded, "x"), np.array([0.0, -1.0, -2.0, -3.0])
         )
-        assert loaded.coords["x"].attrs["voxdim"] == pytest.approx(-1.0)
+        assert loaded.coords["x"].attrs["voxdim"] == pytest.approx(1.0)
 
     def test_save_non_uniform_coords_warns(self, tmp_path):
         """Saving a DataArray with non-uniform coordinate spacing emits a warning."""
@@ -2841,7 +2843,7 @@ class TestRoundtrip:
         img.to_filename(in_path)
 
         da = load_nifti(in_path)
-        da, _ = apply_affine(da, da.attrs["affines"]["physical_to_qform"])
+        da = apply_affine(da, da.attrs["affines"]["physical_to_qform"])
         out_path = tmp_path / "out.nii.gz"
         save_nifti(da, out_path)
         reloaded = nib.nifti1.Nifti1Image.from_filename(out_path)

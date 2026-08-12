@@ -242,7 +242,7 @@ def test_load_sample_dataarray_applies_affine_when_requested(monkeypatch, tmp_pa
     class _AffineAccessor:
         def apply(self, key: str):
             applied.append(key)
-            return transformed, np.eye(4)
+            return transformed
 
     sample = Mock()
     sample.fusi.affine = _AffineAccessor()

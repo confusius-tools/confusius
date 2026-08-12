@@ -75,7 +75,7 @@ def apply_affine(
     da: xr.DataArray,
     affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
-) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
+) -> xr.DataArray:
     """Apply a physical-space affine to voxel-affine geometry.
 
     The transform is composed into `attrs["voxel_to_world"]`, derived physical
@@ -95,10 +95,8 @@ def apply_affine(
 
     Returns
     -------
-    result : xarray.DataArray
+    xarray.DataArray
         `da` with updated spatial coordinates and updated `attrs["affines"]`.
-    orientation : (N, N) numpy.ndarray
-        Identity matrix with the same shape as `affine`.
 
     Raises
     ------
@@ -120,7 +118,7 @@ def apply_affine(
     ... )
     >>> shift = np.eye(3)
     >>> shift[:2, 2] = [10.0, 5.0]
-    >>> result, orientation = data.fusi.affine.apply(shift)
+    >>> result = data.fusi.affine.apply(shift)
     >>> float(result.attrs["voxel_to_world"][0, 2])
     10.0
     """
@@ -163,13 +161,12 @@ def apply_affine(
         affine_array @ voxel_to_world,
         voxel_dims=voxel_dims,
     )
-    orientation = np.eye(affine_array.shape[0], dtype=np.float64)
     if inplace:
         da.coords.update(result.coords)
         da.attrs.clear()
         da.attrs.update(result.attrs)
-        return da, orientation
-    return result, orientation
+        return da
+    return result
 
 
 def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
@@ -432,7 +429,7 @@ class FUSIAffineAccessor:
         self,
         affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
-    ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
+    ) -> xr.DataArray:
         """Apply a physical-space affine to voxel-affine geometry.
 
         The transform is composed into `attrs["voxel_to_world"]`, derived physical
@@ -450,10 +447,8 @@ class FUSIAffineAccessor:
 
         Returns
         -------
-        result : xarray.DataArray
+        xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
-        orientation : (N, N) numpy.ndarray
-            Identity matrix with the same shape as `affine`.
 
         Raises
         ------
@@ -475,7 +470,7 @@ class FUSIAffineAccessor:
         ... )
         >>> shift = np.eye(3)
         >>> shift[:2, 2] = [10.0, 5.0]
-        >>> result, orientation = data.fusi.affine.apply(shift)
+        >>> result = data.fusi.affine.apply(shift)
         >>> float(result.attrs["voxel_to_world"][0, 2])
         10.0
         """

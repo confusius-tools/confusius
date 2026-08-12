@@ -416,7 +416,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     has_time = "time" in da.dims
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
     if has_voxel_world_geometry(da):
-        spatial_dims, spacing = get_defined_spatial_spacing(da)
+        _, spacing = get_defined_spatial_spacing(da)
         origin_dict = da.fusi.origin
         origin_names = get_voxel_affine_world_coord_names(da)
         origin = tuple(origin_dict[d] for d in origin_names)

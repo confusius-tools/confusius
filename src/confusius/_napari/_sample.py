@@ -258,7 +258,7 @@ def _load_sample_dataarray(path: Path, affine_key: str | None) -> xr.DataArray:
     """
     da = load(path).compute()
     if affine_key is not None:
-        da, _ = da.fusi.affine.apply(affine_key)
+        da = da.fusi.affine.apply(affine_key)
     return da
 
 

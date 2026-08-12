@@ -59,7 +59,7 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
         / f"sub-rat75_ses-{session}_acq-{acq}_rec-minframe2d_pwd.nii.gz"
     )
     angio = cf.load(path).fusi.scale.db().compute()
-    return angio.fusi.affine.apply(angio.affines["physical_to_qform"])[0]
+    return angio.fusi.affine.apply(angio.affines["physical_to_qform"])
 
 
 fixed = _load_angio_for_registration(sessions[0])

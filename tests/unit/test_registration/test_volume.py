@@ -890,10 +890,10 @@ class TestInitialization:
         translation = np.eye(4, dtype=np.float64)
         translation[:3, 3] = [-25.0, 4.0, 7.5]
         expected_transform = translation @ rotation
-        moving, _ = fixed.fusi.affine.apply(expected_transform)
+        moving = fixed.fusi.affine.apply(expected_transform)
 
         initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
-        seeded, _ = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
+        seeded = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
 
         assert_allclose(initial_transform, expected_transform, atol=1e-10)
         assert_allclose(seeded.fusi.direction, fixed.fusi.direction, atol=1e-10)
@@ -1257,7 +1257,7 @@ class TestDisplacementField:
             ],
             dtype=np.float64,
         )
-        fixed, _ = _make_voxel_affine_3d_slab().fusi.affine.apply(rotation)
+        fixed = _make_voxel_affine_3d_slab().fusi.affine.apply(rotation)
         _, bspline_tx, _ = register_volume(fixed, fixed, transform_type="bspline")
 
         field = sample_displacement_field_like(bspline_tx, fixed)
@@ -1554,7 +1554,7 @@ class TestResampleLike:
     def test_inherits_reference_voxel_affine_geometry(self):
         """resample_like output inherits reference's grid, not moving's."""
         moving = _make_voxel_affine_3d_slab()
-        reference, _ = moving.fusi.affine.apply(
+        reference = moving.fusi.affine.apply(
             np.array(
                 [
                     [1.0, 0.0, 0.0, 100.0],
