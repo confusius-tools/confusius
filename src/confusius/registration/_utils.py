@@ -326,11 +326,18 @@ def replace_spatial_geometry_attrs(
 
     result.attrs.pop("voxel_to_world", None)
     if has_voxel_world_geometry(reference):
+        world_coord_names = get_voxel_affine_world_coord_names(reference)
+        world_coord_attrs = {
+            name: dict(reference.coords[name].attrs)
+            for name in world_coord_names
+            if name in reference.coords
+        }
         return add_world_coords_from_voxel_affine(
             result,
             get_voxel_to_world_affine(reference),
             voxel_dims=get_voxel_affine_spatial_dims(reference),
-            world_coord_names=get_voxel_affine_world_coord_names(reference),
+            world_coord_names=world_coord_names,
+            world_coord_attrs=world_coord_attrs,
         )
     return result
 

@@ -219,10 +219,17 @@ def unmask(
         attrs=attrs if attrs is not None else {},
     )
     if has_voxel_world_geometry(mask):
+        world_coord_names = get_voxel_affine_world_coord_names(mask)
+        world_coord_attrs = {
+            name: dict(mask.coords[name].attrs)
+            for name in world_coord_names
+            if name in mask.coords
+        }
         result = add_world_coords_from_voxel_affine(
             result,
             get_voxel_to_world_affine(mask),
             voxel_dims=get_voxel_affine_spatial_dims(mask),
-            world_coord_names=get_voxel_affine_world_coord_names(mask),
+            world_coord_names=world_coord_names,
+            world_coord_attrs=world_coord_attrs,
         )
     return result

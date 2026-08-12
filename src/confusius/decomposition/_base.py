@@ -367,11 +367,17 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             },
         )
         if has_voxel_world_geometry(template):
+            world_coord_names = get_voxel_affine_world_coord_names(template)
             self._reconstruction_mask_ = add_world_coords_from_voxel_affine(
                 self._reconstruction_mask_,
                 get_voxel_to_world_affine(template),
                 voxel_dims=get_voxel_affine_spatial_dims(template),
-                world_coord_names=get_voxel_affine_world_coord_names(template),
+                world_coord_names=world_coord_names,
+                world_coord_attrs={
+                    name: dict(template.coords[name].attrs)
+                    for name in world_coord_names
+                    if name in template.coords
+                },
             )
         self._fit_attrs_ = dict(X.attrs)
         self._fit_name_ = X.name
