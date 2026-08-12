@@ -88,7 +88,7 @@ initialization = np.linalg.inv(napari_affine)
 
 # Crop the template to a thin band around the recording's expected location to improve
 # registration speed and visualization.
-target_z = napari_affine[0, 3] + float(moving.z.values[0])
+target_z = napari_affine[0, 3] + moving.fusi.origin["z"]
 fixed = template.sel(z=slice(target_z - 1.0, target_z + 1.0)).fusi.scale.db()
 
 initialized = cf.registration.resample_like(moving, fixed, initialization)

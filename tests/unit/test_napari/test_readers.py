@@ -16,6 +16,7 @@ import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
 from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius.io.loadsave import save
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -43,7 +44,7 @@ def scan_path(tmp_path: Path) -> Path:
 def zarr_3d_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
     """Zarr store built from the shared sample_fusi_3d fixture."""
     path = tmp_path / "vol3d.zarr"
-    xr.Dataset({"data": sample_fusi_3d}).to_zarr(path, zarr_format=2)
+    save(sample_fusi_3d, path, zarr_format=2)
     return path
 
 
@@ -51,7 +52,7 @@ def zarr_3d_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
 def zarr_4d_path(tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> Path:
     """Zarr store built from the shared sample_fusi_3dt fixture."""
     path = tmp_path / "vol4d.zarr"
-    xr.Dataset({"data": sample_fusi_3dt}).to_zarr(path, zarr_format=2)
+    save(sample_fusi_3dt, path, zarr_format=2)
     return path
 
 
@@ -233,7 +234,7 @@ class TestReaderLayerData:
     def test_voxel_affine_is_resampled_to_physical_grid(self, tmp_path: Path) -> None:
         """Oblique reader output uses an axis-aligned world grid for napari."""
         path = tmp_path / "cti.zarr"
-        xr.Dataset({"data": _make_voxel_affine_volume()}).to_zarr(path, zarr_format=2)
+        save(_make_voxel_affine_volume(), path, zarr_format=2)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -266,7 +267,7 @@ class TestReaderLayerData:
             },
         )
         path = tmp_path / "axis_aligned_cti.zarr"
-        xr.Dataset({"data": data}).to_zarr(path, zarr_format=2)
+        save(data, path, zarr_format=2)
 
         reader = read_zarr(str(path))
         assert reader is not None

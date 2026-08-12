@@ -10,6 +10,13 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
+)
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
     make_attrs_zarr_safe,
@@ -195,7 +202,8 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     The non-serializable `cmap`/`norm` matplotlib objects in `annotation.attrs` are stripped
     before writing (the caller's in-memory Dataset is left untouched);
     [`load_atlas`][confusius.io.load_atlas] rebuilds the `StructuresDict`, the `cmap`/`norm`
-    from `rgb_lookup`, and re-points the mesh paths on load.
+    from `rgb_lookup`, and re-points the mesh paths on load. Voxel-affine geometry is stored
+    as `attrs["voxel_to_world"]` rather than dense `z`/`y`/`x` coordinate arrays.
 
     Parameters
     ----------
@@ -229,6 +237,24 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     }
     to_save = ds.copy()
     to_save["annotation"] = annotation
+
+    # Store voxel-affine geometry as attrs["voxel_to_world"] rather than dense z/y/x
+    # coordinate arrays, since those are cheaply derived from the affine on load and,
+    # for oblique geometry, would otherwise duplicate a full dense array per axis.
+    if has_voxel_world_geometry(to_save["annotation"]):
+        voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
+        world_coord_names = get_voxel_affine_world_coord_names(to_save["annotation"])
+        world_coord_attrs = {
+            coord_name: dict(to_save.coords[coord_name].attrs)
+            for coord_name in world_coord_names
+            if coord_name in to_save.coords
+        }
+        to_save = to_save.drop_vars(world_coord_names)
+        to_save.attrs = {
+            **to_save.attrs,
+            "voxel_to_world": voxel_to_world,
+            "world_coord_attrs": world_coord_attrs,
+        }
 
     # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
     # Done before attr sanitization below, which would otherwise drop the (non-JSON)
@@ -339,6 +365,26 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
         ds.attrs["physical_to_base"] = np.asarray(
             ds.attrs["physical_to_base"], dtype=np.float64
         )
+
+    # Voxel-affine geometry was stored as attrs["voxel_to_world"] rather than dense
+    # z/y/x coordinate arrays (see save_atlas); rebuild the physical coordinates and
+    # VoxelToWorldIndex on each data variable from that affine.
+    if "voxel_to_world" in ds.attrs:
+        voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
+        world_coord_attrs = ds.attrs.pop("world_coord_attrs", None)
+        voxel_dims = get_voxel_affine_spatial_dims(ds["annotation"])
+        world_coord_names = ("z", "y", "x")[-len(voxel_dims) :]
+        restored_vars = {
+            name: add_world_coords_from_voxel_affine(
+                ds[name],
+                voxel_to_world,
+                voxel_dims=voxel_dims,
+                world_coord_names=world_coord_names,
+                world_coord_attrs=world_coord_attrs,
+            )
+            for name in ds.data_vars
+        }
+        ds = xr.Dataset(restored_vars, attrs=ds.attrs)
 
     restore_atlas_cmap_and_norm(ds["annotation"])
 
