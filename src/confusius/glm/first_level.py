@@ -29,7 +29,6 @@ from confusius.glm._utils import (
     estimate_ar_coeffs,
     resolve_contrast_vector,
     select_contrast_map,
-    to_spatial_dataarray,
 )
 from confusius.spatial import smooth_volume
 from confusius.validation import ensure_fusi
@@ -300,32 +299,28 @@ class FirstLevelModel(BaseEstimator):
 
         ar_order = self._parse_noise_model()
 
-        _, spatial_dims, _ = _flatten_spatial(run_data[0])
-
         self.design_matrices_: list[pd.DataFrame] = design_matrices_list
         self.results_: list[RegressionResults] = []
-        self._spatial_dims: tuple[str, ...] = spatial_dims
-        self._spatial_shapes: list[tuple[int, ...]] = []
-        self._run_coords: list[dict[str, xr.Variable]] = []
         self._input_attrs: dict[str, object] = consensus_attrs(run_data)
+
+        # compute_contrast always reconstructs its output via unmask, which needs a
+        # mask to source spatial dims/coords/geometry from. When the user didn't
+        # provide one, fall back to an all-True mask covering every voxel, so the
+        # masked and unmasked paths share one code path.
+        self._effective_mask_: xr.DataArray = (
+            self.mask
+            if self.mask is not None
+            else xr.ones_like(run_data[0].isel(time=0, drop=True), dtype=bool)
+        )
 
         for run_index in range(n_runs):
             run = run_data[run_index]
             if self.smoothing_fwhm is not None:
                 run = smooth_volume(run, self.smoothing_fwhm)
-            data_2d, s_dims, s_shape = _flatten_spatial(run)
+            data_2d, _, _ = _flatten_spatial(run)
             if self.mask is not None:
                 masked = extract_with_mask(run, self.mask)
                 data_2d = masked.transpose("time", "space").values
-            self._spatial_shapes.append(s_shape)
-            spatial_dim_set = set(s_dims)
-            self._run_coords.append(
-                {
-                    str(name): coord
-                    for name, coord in run.coords.items()
-                    if set(coord.dims).issubset(spatial_dim_set)
-                }
-            )
 
             dm = design_matrices_list[run_index]
             design_array = dm.to_numpy()
@@ -400,30 +395,20 @@ class FirstLevelModel(BaseEstimator):
         )
         flat = select_contrast_map(contrast_obj, output_type)
 
-        if self.mask is not None:
-            attrs = {**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"}
-            if flat.ndim == 1:
-                result = unmask(flat, self.mask, attrs=attrs, fill_value=0.0)
-            else:
-                result = unmask(
-                    flat,
-                    self.mask,
-                    new_dims=["contrast_dim"],
-                    new_dims_coords={"contrast_dim": np.arange(flat.shape[0])},
-                    attrs=attrs,
-                    fill_value=0.0,
-                )
-            result.name = output_type
-            return result
-
-        return to_spatial_dataarray(
-            flat,
-            spatial_dims=self._spatial_dims,
-            spatial_shape=self._spatial_shapes[0],
-            coords=self._run_coords[0],
-            attrs=self._input_attrs,
-            name=output_type,
-        )
+        attrs = {**self._input_attrs, "long_name": output_type, "cmap": "coolwarm"}
+        if flat.ndim == 1:
+            result = unmask(flat, self._effective_mask_, attrs=attrs, fill_value=0.0)
+        else:
+            result = unmask(
+                flat,
+                self._effective_mask_,
+                new_dims=["contrast_dim"],
+                new_dims_coords={"contrast_dim": np.arange(flat.shape[0])},
+                attrs=attrs,
+                fill_value=0.0,
+            )
+        result.name = output_type
+        return result
 
     def _resolve_design_matrices(
         self,

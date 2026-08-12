@@ -17,6 +17,12 @@ import pandas as pd
 import xarray as xr
 from sklearn.base import BaseEstimator
 
+from confusius._utils.geometry import (
+    get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
+)
 from confusius.glm._contrasts import Contrast
 from confusius.glm._models import OLSModel, RegressionResults
 from confusius.glm._utils import (
@@ -285,6 +291,27 @@ class SecondLevelModel(BaseEstimator):
         }
         self._input_attrs: dict[str, object] = consensus_attrs(maps)
 
+        if has_voxel_world_geometry(ref):
+            self._voxel_to_world: npt.NDArray[np.float64] | None = (
+                get_voxel_to_world_affine(ref)
+            )
+            self._voxel_dims: tuple[str, ...] | None = get_voxel_affine_spatial_dims(
+                ref
+            )
+            self._world_coord_names: tuple[str, ...] | None = (
+                get_voxel_affine_world_coord_names(ref)
+            )
+            self._world_coord_attrs: dict[str, dict[str, object]] | None = {
+                name: dict(ref.coords[name].attrs)
+                for name in self._world_coord_names
+                if name in ref.coords
+            }
+        else:
+            self._voxel_to_world = None
+            self._voxel_dims = None
+            self._world_coord_names = None
+            self._world_coord_attrs = None
+
         return self
 
     @staticmethod
@@ -390,6 +417,10 @@ class SecondLevelModel(BaseEstimator):
             coords=self._coords,
             attrs=self._input_attrs,
             name=output_type,
+            voxel_to_world=self._voxel_to_world,
+            voxel_dims=self._voxel_dims,
+            world_coord_names=self._world_coord_names,
+            world_coord_attrs=self._world_coord_attrs,
         )
 
     def _check_is_fitted(self) -> None:
