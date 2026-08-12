@@ -344,7 +344,14 @@ def resample_voxel_affine_to_physical_grid(
             dim_spacing = np.float64(dim_spacing).item()
             origin.append(lower)
             spacing.append(dim_spacing)
-            shape.append(np.int64(np.ceil((upper - lower) / dim_spacing)).item() + 1)
+            # A relative tolerance absorbs floating-point noise in `upper`/`lower`
+            # (e.g. from composing several affines) that would otherwise push an
+            # exact multiple of `dim_spacing` just over an integer boundary and
+            # `ceil` an extra, out-of-bounds slice onto the grid.
+            n_steps = (upper - lower) / dim_spacing
+            shape.append(
+                np.int64(np.ceil(n_steps - 1e-6 * max(1.0, n_steps))).item() + 1
+            )
 
         result = resample_volume(
             data,

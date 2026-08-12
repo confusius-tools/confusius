@@ -113,18 +113,19 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
 
     In this function, we prepare the data as follows:
 
-    1. Permute "k" and "j".
-    2. Match transpose "z" and "y" in the `physical_to_qform` affine.
-    3. Apply the `physical_to_qform` to the coordinates to have metric coordinates.
-    4. Shift the origin of the coordinates to the corner of the volume (nice to have).
-    5. Convert the coordinates units to millimeter (nice to have).
-    6. Flip the "y" axis to have a depth direction "away" from the transducer.
-    7. Flip the "z" axis to match the atlas orientation.
+    1. Permute "k" and "j" so native voxel dim `k` carries elevation and `j` carries
+       depth.
+    2. Apply the `physical_to_qform` affine to the coordinates to have metric
+       coordinates.
+    3. Cyclically permute "z", "y", "x" in world space so elevation lands on `z`,
+       depth on `y`, and lateral on `x` (`physical_to_qform` leaves them on `x`,
+       `z`, and `y` respectively).
+    4. Flip "x" to restore a proper (non-reflective) direction matrix.
+    5. Flip "y" to have a depth direction "away" from the transducer, and flip "z"
+       to match the atlas orientation.
+    6. Convert the coordinates units to millimeter.
 
     """
-    # 1. Swap the elevation/depth voxel axes (data and geometry together) so that
-    #    native voxel dim `k` carries elevation and `j` carries depth, matching
-    #    ConfUSIus's `k`-elevation/`j`-depth/`i`-lateral convention.
     with warnings.catch_warnings():
         # This dataset omits FrameAcquisitionDuration, which the fUSI-BIDS validator
         # flags on load; it is irrelevant to this analysis, so we silence it.
@@ -133,63 +134,66 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         )
         da = cf.load(pwd_path)
 
-    # Swap the underlying array data (not via .transpose().rename(), which reorders
-    # voxel dims relative to each other on a voxel-affine DataArray and hits an
-    # upstream xarray bug: CoordinateTransformIndexingAdapter.shape ignores the
-    # adapter's own (transposed) dim order and returns the untransposed transform's
-    # shape, desyncing dims from shape). Swapping which voxel dim (k vs j) holds
-    # which data must be matched by swapping `voxel_to_world`'s z/y output rows
-    # *and* k/j input columns together, so the affine's per-axis coefficients
-    # (spacing, origin) stay attached to the right data.
-    k_axis = da.dims.index("k")
-    j_axis = da.dims.index("j")
-    swapped_values = np.swapaxes(da.values, k_axis, j_axis)
+    # 1. Relabel the k/j axes (no data copy needed): `create_fusi_dataarray` accepts
+    # `dims` in any order -- it builds world coordinates from whichever dim is
+    # *named* k/j/i, independent of its physical axis position, and transposes to
+    # canonical order internally. So swapping the k/j *labels* on the still-raw
+    # array is enough; the underlying values never need to move. (Avoid
+    # `.transpose().rename()` on the already-CTI-backed array instead, which hits
+    # an upstream xarray bug: CoordinateTransformIndexingAdapter.shape ignores the
+    # adapter's own transposed dim order and returns the untransposed transform's
+    # shape, desyncing dims from shape.)
+    relabeled_dims = tuple(
+        {"k": "j", "j": "k"}.get(dim, dim) for dim in da.dims
+    )
 
-    swap_kj_zy = np.eye(4)
-    swap_kj_zy[[0, 1]] = swap_kj_zy[[1, 0]]
-    swapped_voxel_to_world = swap_kj_zy @ da.fusi.affine.voxel_to_world @ swap_kj_zy
+    # `voxel_to_world`'s columns still need the matching k/j swap, so that column 0
+    # (now labeled `j` on the input) keeps its original k-associated coefficients
+    # and vice versa.
+    permute_kj = np.eye(4)
+    permute_kj[[0, 1]] = permute_kj[[1, 0]]
+    swapped_voxel_to_world = da.fusi.affine.voxel_to_world @ permute_kj
 
     da = cf.create_fusi_dataarray(
-        swapped_values,
-        dims=da.dims,
-        time=da.coords["time"] if "time" in da.dims else None,
+        da.values,
+        dims=relabeled_dims,
+        time=da.time,
         voxel_to_world=swapped_voxel_to_world,
         attrs=da.attrs,
         name=str(da.name) if da.name is not None else None,
     )
 
-    # 2. Match transpose "z" and "y" in the `physical_to_qform` affine.
-    transpose_z_y = np.eye(4)
-    transpose_z_y[[0, 1]] = 0
-    transpose_z_y[[0, 1], [1, 0]] = 1
-    da.affines["physical_to_qform"] = (
-        transpose_z_y.T @ da.affines["physical_to_qform"] @ transpose_z_y
-    )
-
-    # 3. Apply the `physical_to_qform` to the coordinates to have metric coordinates.
+    # 2. Apply the `physical_to_qform` affine to the coordinates to have metric
+    #    coordinates. This is the affine that settles which physical row (z/y/x) each
+    #    voxel column ends up mapping to, so it is applied in full (rotation
+    #    included) -- CTI voxel-affine geometry can represent rotations exactly,
+    #    unlike a plain z/y/x DataArray's independent 1D coordinates.
     da.fusi.affine.apply(da.affines["physical_to_qform"], inplace=True)
 
-    # 4. Shift the origin of the coordinates to the corner of the volume (nice to have).
-    shift_zyx = np.eye(4)
-    shift_zyx[:3, 3] = -np.array([da.z.min(), da.y.min(), da.x.min()])
-    da.fusi.affine.apply(shift_zyx, inplace=True)
+    # 3. `physical_to_qform` (checked empirically) lands elevation on world "x",
+    #    depth on world "z", and lateral on world "y" -- a 3-cycle, not a pairwise
+    #    swap. Permute rows so elevation->z, depth->y, lateral->x, matching
+    #    ConfUSIus's convention.
+    permute_zyx_cycle = np.zeros((4, 4))
+    permute_zyx_cycle[0, 2] = 1  # z <- old x (elevation)
+    permute_zyx_cycle[1, 0] = 1  # y <- old z (depth)
+    permute_zyx_cycle[2, 1] = 1  # x <- old y (lateral)
+    permute_zyx_cycle[3, 3] = 1
+    da.fusi.affine.apply(permute_zyx_cycle, inplace=True)
 
-    # 5. Convert the coordinates units to millimeter (nice to have).
-    m_to_mm = np.eye(4)
-    m_to_mm[:3, :3] *= 1e3
-    da.fusi.affine.apply(m_to_mm, inplace=True)
-    for dim in ("x", "y", "z"):
-        da.coords[dim].attrs["voxdim"] = da.coords[dim].voxdim * 1e3
-        da.coords[dim].attrs["units"] = "mm"
+    # 4. Flip "x" (lateral). The cyclic permutation above leaves the direction matrix
+    #    improper (det -1, a reflection): `plot_volume`'s physical-grid resampling
+    #    (`slice_mode="z"`/`"y"`/`"x"`) silently produces empty/garbage slices for a
+    #    reflection. Mirroring one axis restores a proper rotation (det +1).
+    flip_x = np.eye(4)
+    flip_x[2, 2] = -1
+    flip_x[2, 3] = da.x.max().item() + da.x.min().item()
+    da.fusi.affine.apply(flip_x, inplace=True)
 
-    # 6. Flip the "y" axis to have a depth direction "away" from the transducer, and
-    #    7. flip the "z" axis to match the atlas orientation. With ConfUSIus
-    #    voxel-to-world geometry, `.fusi.affine.apply` alone is sufficient: it
-    #    mirrors the *coordinate values*, which is all that flipping requires. A
-    #    decreasing physical coordinate (higher voxel index -> lower z/y) is valid;
-    #    there is no need to also reverse the underlying array with `.isel(..., ::-1)`
-    #    to keep the coordinate increasing, and doing so is unsupported once the
-    #    geometry is oblique (as it is here, after step 3).
+    # 5. Flip "y" to have a depth direction "away" from the transducer, and flip "z"
+    #    to match the atlas orientation. Two more mirrors keep the direction matrix
+    #    proper (each flip multiplies det by -1; three total flips, including step 4,
+    #    nets back to det +1).
     flip_y = np.eye(4)
     flip_y[1, 1] = -1
     flip_y[1, 3] = da.y.max().item() + da.y.min().item()
@@ -200,13 +204,22 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     flip_z[0, 3] = da.z.max().item() + da.z.min().item()
     da.fusi.affine.apply(flip_z, inplace=True)
 
+    # 6. Convert the coordinates units to millimeter (nice to have). `apply` already
+    #    rescales `voxdim` from the new (mm-scaled) affine's column norms, so it must
+    #    not be scaled again here -- only the "units" label needs setting.
+    m_to_mm = np.eye(4)
+    m_to_mm[:3, :3] *= 1e3
+    da.fusi.affine.apply(m_to_mm, inplace=True)
+    for dim in ("x", "y", "z"):
+        da.coords[dim].attrs["units"] = "mm"
+
     return da
 
 
 # %%
 fusi_list = [_load_and_prepare_fusi(pwd_path) for pwd_path in pwd_paths]
 
-fusi_list[0]
+fusi_list[0].mean("time").fusi.plot.volume(slice_mode="z", show_axes=False).show() 
 
 # %% [markdown]
 # Averaging each run over time and then across runs gives a single, high-SNR
@@ -263,6 +276,14 @@ napari_transform = np.array(
         [-0.27557848987798905, 0.8004409446062637, 0.0, -0.7527078253190659],
         [0.0, 0.0, 1.0, 0.0],
         [0.0, 0.0, 0.0, 1.0],
+    ]
+)
+napari_transform = np.array(
+    [
+        [1.0, 0.0, 0.0, -22.548751724414302], 
+        [0.0, 1.0, 0.0, -41.426786204991416],
+        [0.0, 0.0, 1.0, -6.367847850879272], 
+        [0.0, 0.0, 0.0, 1.0]
     ]
 )
 
