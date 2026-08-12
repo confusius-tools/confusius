@@ -15,6 +15,10 @@ import numpy.typing as npt
 import xarray as xr
 from scipy.interpolate import interpn
 
+from confusius._utils.geometry import (
+    get_voxel_affine_world_coord_names,
+    has_voxel_world_geometry,
+)
 from confusius.registration.bspline import sample_displacement_field_like
 
 PhysicalToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
@@ -327,7 +331,11 @@ def _drop_vertices_outside_grid(
     faces : numpy.ndarray
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
-    dims = [str(dim) for dim in reference.dims]
+    dims = (
+        list(get_voxel_affine_world_coord_names(reference))
+        if has_voxel_world_geometry(reference)
+        else [str(dim) for dim in reference.dims]
+    )
     spacing = reference.fusi.spacing
     inside = np.ones(len(vertices), dtype=bool)
     for axis, dim in enumerate(dims):
@@ -335,7 +343,8 @@ def _drop_vertices_outside_grid(
         # Keep the same one-voxel margin the field interpolation is padded to, so a
         # vertex within `spacing` of a boundary (e.g. the anterior/posterior tips of the
         # Allen brain) is retained rather than clipped.
-        margin = spacing[dim] if spacing[dim] is not None else 0.0
+        coord_spacing = spacing.get(dim, reference.coords[dim].attrs.get("voxdim"))
+        margin = coord_spacing if coord_spacing is not None else 0.0
         inside &= (vertices[:, axis] >= coord.min() - margin) & (
             vertices[:, axis] <= coord.max() + margin
         )

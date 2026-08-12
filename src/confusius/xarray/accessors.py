@@ -197,7 +197,7 @@ class FUSIAccessor:
         ...     y=("j", np.arange(10) * 0.1),
         ...     x=("i", np.arange(20) * 0.05),
         ... )
-        >>> data.attrs["voxel_to_physical"] = np.diag([0.2, 0.1, 0.05, 1.0])
+        >>> data.attrs["voxel_to_world"] = np.diag([0.2, 0.1, 0.05, 1.0])
         >>> data.fusi.spacing
         {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
@@ -206,14 +206,14 @@ class FUSIAccessor:
             get_coordinate_spacings,
         )
         from confusius._utils.geometry import (
-            get_voxel_affine_spacing,
-            has_voxel_affine_geometry,
+            get_voxel_world_spacing,
+            has_voxel_world_geometry,
         )
 
-        if not has_voxel_affine_geometry(self._obj):
+        if not has_voxel_world_geometry(self._obj):
             return get_coordinate_spacings(self._obj)
 
-        voxel_spacing = get_voxel_affine_spacing(self._obj)
+        voxel_spacing = get_voxel_world_spacing(self._obj)
         missing_dims = [
             str(dim) for dim in self._obj.dims if str(dim) not in voxel_spacing
         ]
@@ -234,7 +234,7 @@ class FUSIAccessor:
 
         Non-spatial dimensions use their first coordinate value. Spatial origin is
         returned in physical coordinate order as the physical location of the first
-        sampled voxel under the stored `voxel_to_physical` affine.
+        sampled voxel under the stored `voxel_to_world` affine.
 
         Returns
         -------
@@ -256,7 +256,7 @@ class FUSIAccessor:
         ...     y=("j", 2.0 + np.arange(10) * 0.1),
         ...     x=("i", 3.0 + np.arange(20) * 0.05),
         ... )
-        >>> data.attrs["voxel_to_physical"] = np.array(
+        >>> data.attrs["voxel_to_world"] = np.array(
         ...     [[0.2, 0.0, 0.0, 1.0], [0.0, 0.1, 0.0, 2.0], [0.0, 0.0, 0.05, 3.0], [0.0, 0.0, 0.0, 1.0]]
         ... )
         >>> data.fusi.origin
@@ -264,12 +264,12 @@ class FUSIAccessor:
         """
         from confusius._utils.coordinates import get_coordinate_origins
         from confusius._utils.geometry import (
-            get_voxel_affine_origin,
             get_voxel_affine_spatial_dims,
-            has_voxel_affine_geometry,
+            get_voxel_world_origin,
+            has_voxel_world_geometry,
         )
 
-        if not has_voxel_affine_geometry(self._obj):
+        if not has_voxel_world_geometry(self._obj):
             return get_coordinate_origins(self._obj)
 
         voxel_dims = set(get_voxel_affine_spatial_dims(self._obj))
@@ -280,7 +280,7 @@ class FUSIAccessor:
                 for dim_str in (str(dim) for dim in self._obj.dims)
                 if dim_str not in voxel_dims
             },
-            **get_voxel_affine_origin(self._obj),
+            **get_voxel_world_origin(self._obj),
         }
 
     @property
@@ -296,12 +296,12 @@ class FUSIAccessor:
         import numpy as np
 
         from confusius._utils.geometry import (
-            get_voxel_affine_direction_matrix,
-            has_voxel_affine_geometry,
+            get_voxel_world_direction_matrix,
+            has_voxel_world_geometry,
         )
 
-        if has_voxel_affine_geometry(self._obj):
-            return get_voxel_affine_direction_matrix(self._obj)
+        if has_voxel_world_geometry(self._obj):
+            return get_voxel_world_direction_matrix(self._obj)
 
         ndim = len([dim for dim in self._obj.dims if dim in {"z", "y", "x"}])
         return np.eye(ndim, dtype=np.float64)

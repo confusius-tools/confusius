@@ -8,7 +8,7 @@ import xarray as xr
 from sklearn.decomposition import FastICA as SklearnFastICA
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.decomposition import FastICA
 
 
@@ -30,8 +30,8 @@ FASTICA_TEST_KWARGS: _FasticaTestKwargs = {
 
 
 @pytest.fixture
-def sample_3dt_volume():
-    """Stable CTI-backed 3D+t input for FastICA convergence tests."""
+def sample_fusi_3dt():
+    """Stable 3D+t fUSI input for FastICA convergence tests."""
     rng = np.random.default_rng(42)
     da = xr.DataArray(
         rng.random((10, 4, 6, 8)),
@@ -49,12 +49,12 @@ def sample_3dt_volume():
         },
         attrs={"long_name": "Intensity", "units": "a.u."},
     )
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         da,
         np.diag([0.2, 0.1, 0.05, 1.0]),
         voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
             "z": {"units": "mm", "voxdim": 0.2},
             "y": {"units": "mm", "voxdim": 0.1},
             "x": {"units": "mm", "voxdim": 0.05},
@@ -85,27 +85,27 @@ def test_feature_names_in_for_string_feature_labels():
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_fit_transform_matches_fit_then_transform(sample_3dt_volume, mode):
+def test_fit_transform_matches_fit_then_transform(sample_fusi_3dt, mode):
     """fit_transform matches calling fit followed by transform."""
     model_direct = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    direct = model_direct.fit_transform(sample_3dt_volume)
+    direct = model_direct.fit_transform(sample_fusi_3dt)
 
     model_two_step = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    two_step = model_two_step.fit(sample_3dt_volume).transform(sample_3dt_volume)
+    two_step = model_two_step.fit(sample_fusi_3dt).transform(sample_fusi_3dt)
 
     xr.testing.assert_identical(direct, two_step)
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_inverse_transform_matches_sklearn(sample_3dt_volume, mode):
+def test_inverse_transform_matches_sklearn(sample_fusi_3dt, mode):
     """inverse_transform matches sklearn FastICA reconstruction for both modes."""
-    stacked = sample_3dt_volume.transpose("time", "k", "j", "i").stack(
+    stacked = sample_fusi_3dt.transpose("time", "k", "j", "i").stack(
         feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
     model = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    reconstructed = model.inverse_transform(model.fit_transform(sample_3dt_volume))
+    reconstructed = model.inverse_transform(model.fit_transform(sample_fusi_3dt))
 
     if mode == "temporal":
         sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
@@ -123,24 +123,24 @@ def test_inverse_transform_matches_sklearn(sample_3dt_volume, mode):
         reconstructed.stack(feature=["k", "j", "i"]).values,
         sklearn_reconstructed,
     )
-    assert reconstructed.name == sample_3dt_volume.name
-    assert reconstructed.attrs == sample_3dt_volume.attrs
+    assert reconstructed.name == sample_fusi_3dt.name
+    assert reconstructed.attrs == sample_fusi_3dt.attrs
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_wrapper_matches_sklearn_attributes(sample_3dt_volume, mode):
+def test_wrapper_matches_sklearn_attributes(sample_fusi_3dt, mode):
     """Wrapper exposes the same learned matrices as sklearn FastICA for both modes."""
-    stacked = sample_3dt_volume.transpose("time", "k", "j", "i").stack(
+    stacked = sample_fusi_3dt.transpose("time", "k", "j", "i").stack(
         feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode).fit(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS, mode=mode).fit(sample_fusi_3dt)
 
     if mode == "temporal":
         sklearn_model = SklearnFastICA(**FASTICA_TEST_KWARGS).fit(X)
         np.testing.assert_allclose(
-            model.transform(sample_3dt_volume).values,
+            model.transform(sample_fusi_3dt).values,
             sklearn_model.transform(X),
         )
         np.testing.assert_allclose(
@@ -161,7 +161,7 @@ def test_wrapper_matches_sklearn_attributes(sample_3dt_volume, mode):
         spatial_maps = sklearn_model.transform(X.T).T
         voxel_mean = X.mean(axis=0)
         np.testing.assert_allclose(
-            model.transform(sample_3dt_volume).values,
+            model.transform(sample_fusi_3dt).values,
             (X - voxel_mean) @ spatial_maps.T,
         )
         np.testing.assert_allclose(
@@ -177,25 +177,25 @@ def test_wrapper_matches_sklearn_attributes(sample_3dt_volume, mode):
 
 
 @pytest.mark.parametrize("mode", ["spatial", "temporal"])
-def test_inverse_transform_from_numpy_returns_dataarray(sample_3dt_volume, mode):
+def test_inverse_transform_from_numpy_returns_dataarray(sample_fusi_3dt, mode):
     """inverse_transform accepts ndarray input and returns DataArray."""
     model = FastICA(**FASTICA_TEST_KWARGS, mode=mode)
-    signals = model.fit_transform(sample_3dt_volume).values
+    signals = model.fit_transform(sample_fusi_3dt).values
 
     reconstructed = model.inverse_transform(signals)
 
     assert isinstance(reconstructed, xr.DataArray)
-    assert reconstructed.dims == sample_3dt_volume.dims
+    assert reconstructed.dims == sample_fusi_3dt.dims
     np.testing.assert_array_equal(
-        reconstructed.coords["time"], np.arange(sample_3dt_volume.sizes["time"])
+        reconstructed.coords["time"], np.arange(sample_fusi_3dt.sizes["time"])
     )
 
 
-def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_3dt_volume):
+def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_fusi_3dt):
     """inverse_transform raises when DataArray dims are not time/component."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
     bad = xr.DataArray(
-        np.zeros((sample_3dt_volume.sizes["time"], 2)),
+        np.zeros((sample_fusi_3dt.sizes["time"], 2)),
         dims=["time", "region"],
     )
 
@@ -203,49 +203,49 @@ def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_3dt_volume):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_component_count_mismatch(sample_3dt_volume):
+def test_inverse_transform_raises_for_component_count_mismatch(sample_fusi_3dt):
     """inverse_transform raises when component count differs from fitted FastICA."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
-    scores = model.transform(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
+    scores = model.transform(sample_fusi_3dt)
     bad = scores.isel(component=slice(0, 1))
 
     with pytest.raises(ValueError, match="but FastICA was fitted with"):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_invalid_numpy_shape(sample_3dt_volume):
+def test_inverse_transform_raises_for_invalid_numpy_shape(sample_fusi_3dt):
     """inverse_transform raises when ndarray input is not 2D."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
 
     with pytest.raises(ValueError, match="must be 2D"):
-        model.inverse_transform(np.zeros((sample_3dt_volume.sizes["time"], 2, 1)))
+        model.inverse_transform(np.zeros((sample_fusi_3dt.sizes["time"], 2, 1)))
 
 
-def test_inverse_transform_raises_for_invalid_input_type(sample_3dt_volume):
+def test_inverse_transform_raises_for_invalid_input_type(sample_fusi_3dt):
     """inverse_transform raises TypeError for unsupported input types."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
         model.inverse_transform([1, 2, 3])  # ty: ignore[invalid-argument-type]
 
 
-def test_fit_rejects_invalid_mode(sample_3dt_volume):
+def test_fit_rejects_invalid_mode(sample_fusi_3dt):
     """fit raises ValueError for unknown mode values."""
     with pytest.raises(ValueError, match="mode must be"):
-        FastICA(mode="invalid").fit(sample_3dt_volume)  # ty: ignore[invalid-argument-type]
+        FastICA(mode="invalid").fit(sample_fusi_3dt)  # ty: ignore[invalid-argument-type]
 
 
-def test_fit_requires_time_dimension(sample_3dt_volume):
+def test_fit_requires_time_dimension(sample_fusi_3dt):
     """fit raises when the input has no `time` dimension."""
-    no_time = sample_3dt_volume.isel(time=0, drop=True)
+    no_time = sample_fusi_3dt.isel(time=0, drop=True)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
         FastICA().fit(no_time)
 
 
-def test_fit_requires_more_than_one_timepoint(sample_3dt_volume):
+def test_fit_requires_more_than_one_timepoint(sample_fusi_3dt):
     """fit raises when only one timepoint is provided."""
-    single_timepoint = sample_3dt_volume.isel(time=[0])
+    single_timepoint = sample_fusi_3dt.isel(time=[0])
 
     with pytest.raises(ValueError, match="requires more than 1 timepoint"):
         FastICA().fit(single_timepoint)
@@ -259,52 +259,52 @@ def test_fit_requires_spatial_dimension():
         FastICA().fit(only_time)
 
 
-def test_fit_rejects_unexpected_fit_params(sample_3dt_volume):
+def test_fit_rejects_unexpected_fit_params(sample_fusi_3dt):
     """fit raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         FastICA().fit(
-            sample_3dt_volume,
-            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),  # ty: ignore[unknown-argument]
+            sample_fusi_3dt,
+            sample_weight=np.ones(sample_fusi_3dt.sizes["time"]),  # ty: ignore[unknown-argument]
         )
 
 
-def test_fit_transform_rejects_unexpected_fit_params(sample_3dt_volume):
+def test_fit_transform_rejects_unexpected_fit_params(sample_fusi_3dt):
     """fit_transform raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="Unexpected fit parameters"):
         FastICA().fit_transform(
-            sample_3dt_volume,
-            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),
+            sample_fusi_3dt,
+            sample_weight=np.ones(sample_fusi_3dt.sizes["time"]),
         )
 
 
-def test_transform_checks_spatial_layout(sample_3dt_volume):
+def test_transform_checks_spatial_layout(sample_fusi_3dt):
     """transform raises if spatial layout differs from fit."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
-    bad = sample_3dt_volume.isel(i=slice(0, 4))
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
+    bad = sample_fusi_3dt.isel(i=slice(0, 4))
 
     with pytest.raises(ValueError, match="Spatial dimension 'i' has size"):
         model.transform(bad)
 
 
-def test_transform_checks_spatial_dimension_names(sample_3dt_volume):
+def test_transform_checks_spatial_dimension_names(sample_fusi_3dt):
     """transform raises if spatial dimension names differ from fit."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
-    bad = sample_3dt_volume.rename({"i": "region"})
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
+    bad = sample_fusi_3dt.rename({"i": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(sample_3dt_volume):
+def test_transform_without_time_coordinate_uses_index(sample_fusi_3dt):
     """transform falls back to integer time coordinate when absent."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
     no_time_coord = xr.DataArray(
-        sample_3dt_volume.values,
-        dims=sample_3dt_volume.dims,
+        sample_fusi_3dt.values,
+        dims=sample_fusi_3dt.dims,
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
-            "i": sample_3dt_volume.coords["i"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
 
@@ -312,14 +312,14 @@ def test_transform_without_time_coordinate_uses_index(sample_3dt_volume):
 
     np.testing.assert_array_equal(
         transformed.coords["time"].values,
-        np.arange(sample_3dt_volume.sizes["time"]),
+        np.arange(sample_fusi_3dt.sizes["time"]),
     )
 
 
-def test_transform_chunked_time_reports_transform_operation(sample_3dt_volume):
+def test_transform_chunked_time_reports_transform_operation(sample_fusi_3dt):
     """transform chunking error message identifies FastICA.transform."""
-    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_3dt_volume)
-    chunked = sample_3dt_volume.chunk({"time": 5})
+    model = FastICA(**FASTICA_TEST_KWARGS).fit(sample_fusi_3dt)
+    chunked = sample_fusi_3dt.chunk({"time": 5})
 
     with pytest.raises(
         ValueError, match="FastICA.transform requires the full time series"
@@ -327,16 +327,16 @@ def test_transform_chunked_time_reports_transform_operation(sample_3dt_volume):
         model.transform(chunked)
 
 
-def test_sklearn_interface_fitted_state(sample_3dt_volume):
+def test_sklearn_interface_fitted_state(sample_fusi_3dt):
     """Estimator exposes sklearn fitted-state behavior."""
     model = FastICA(**FASTICA_TEST_KWARGS)
     with pytest.raises(Exception):
         check_is_fitted(model)
 
-    check_is_fitted(model.fit(sample_3dt_volume))
+    check_is_fitted(model.fit(sample_fusi_3dt))
 
 
-def test_fit_failure_does_not_mark_estimator_fitted(sample_3dt_volume, monkeypatch):
+def test_fit_failure_does_not_mark_estimator_fitted(sample_fusi_3dt, monkeypatch):
     """Estimator remains unfitted when underlying sklearn FastICA fit fails."""
     import confusius.decomposition.fastica as fastica_module
 
@@ -347,7 +347,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_3dt_volume, monkeypat
 
     model = FastICA(**FASTICA_TEST_KWARGS)
     with pytest.raises(RuntimeError, match="fit failed"):
-        model.fit(sample_3dt_volume)
+        model.fit(sample_fusi_3dt)
 
     assert not hasattr(model, "_estimator")
     assert not model.__sklearn_is_fitted__()
@@ -422,55 +422,55 @@ def test_reproducible_with_random_state():
     np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
 
 
-def test_mask_restricts_features(sample_3dt_volume):
+def test_mask_restricts_features(sample_fusi_3dt):
     """mask restricts fitted feature count to selected voxels."""
     mask = xr.DataArray(
         np.zeros(
             (
-                sample_3dt_volume.sizes["k"],
-                sample_3dt_volume.sizes["j"],
-                sample_3dt_volume.sizes["i"],
+                sample_fusi_3dt.sizes["k"],
+                sample_fusi_3dt.sizes["j"],
+                sample_fusi_3dt.sizes["i"],
             ),
             dtype=bool,
         ),
         dims=["k", "j", "i"],
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
-            "i": sample_3dt_volume.coords["i"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
     mask.values[:, :2, :] = True
 
-    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_3dt_volume)
+    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_fusi_3dt)
 
     assert model.n_features_in_ == int(mask.values.sum())
 
 
-def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume):
+def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_fusi_3dt):
     """Masked FastICA keeps full geometry and fills outside-mask voxels with zero."""
     mask = xr.DataArray(
         np.zeros(
             (
-                sample_3dt_volume.sizes["k"],
-                sample_3dt_volume.sizes["j"],
-                sample_3dt_volume.sizes["i"],
+                sample_fusi_3dt.sizes["k"],
+                sample_fusi_3dt.sizes["j"],
+                sample_fusi_3dt.sizes["i"],
             ),
             dtype=bool,
         ),
         dims=["k", "j", "i"],
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
-            "i": sample_3dt_volume.coords["i"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
     mask.values[:, :2, :] = True
 
-    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_3dt_volume)
-    reconstructed = model.inverse_transform(model.transform(sample_3dt_volume))
+    model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_fusi_3dt)
+    reconstructed = model.inverse_transform(model.transform(sample_fusi_3dt))
 
-    assert reconstructed.dims == sample_3dt_volume.dims
+    assert reconstructed.dims == sample_fusi_3dt.dims
     np.testing.assert_array_equal(
         reconstructed.where(~mask, other=np.nan).fillna(0.0).values,
         0.0,
@@ -485,9 +485,9 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume)
     )
 
 
-def test_mask_mismatch_raises(sample_3dt_volume):
+def test_mask_mismatch_raises(sample_fusi_3dt):
     """fit raises when mask does not match spatial dimensions."""
     bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
     with pytest.raises(ValueError, match="missing from mask"):
-        FastICA(mask=bad_mask).fit(sample_3dt_volume)
+        FastICA(mask=bad_mask).fit(sample_fusi_3dt)

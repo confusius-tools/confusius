@@ -6,6 +6,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
 from confusius.glm.first_level import _flatten_spatial
@@ -30,13 +31,13 @@ class TestFirstLevelModelFit:
         pd.testing.assert_frame_equal(model.design_matrices_[0], dm)
 
     def test_fit_2d_spatial(self, fusi_data_2d, events):
-        """Fitting a `(time, j, i)` array yields a contrast map with the same
-        spatial dims and shape."""
+        """Fitting a singleton-k `(time, k, j, i)` array yields a contrast map with
+        the same spatial dims and shape."""
         model = FirstLevelModel(noise_model="ols")
         model.fit(fusi_data_2d, events=events)
         z_map = model.compute_contrast("A - B")
-        assert z_map.dims == ("j", "i")
-        assert z_map.shape == (5, 6)
+        assert z_map.dims == ("k", "j", "i")
+        assert z_map.shape == (1, 5, 6)
 
     def test_minimize_memory_strips_diagnostic_fields(self, fusi_data, events):
         """minimize_memory=True drops Y/whitened_Y/whitened_residuals/model post-fit.
@@ -469,7 +470,7 @@ class TestFirstLevelModelErrors:
     def test_dropped_spatial_coord_raises(
         self, rng, frame_times, events, make_glm_test_dataarray
     ):
-        """A run missing required CTI spatial coords is rejected during validation."""
+        """A run missing required spatial coords is rejected during validation."""
         data1 = make_glm_test_dataarray(
             rng.standard_normal((200, 2, 3, 4)),
             ("time", "k", "j", "i"),
@@ -557,9 +558,24 @@ class TestFirstLevelModelErrors:
             ("time", "k", "j", "i"),
             time=frame_times,
         )
-        mask = make_glm_test_dataarray(
-            np.ones((data.sizes["j"], data.sizes["i"]), dtype=bool),
-            ("j", "i"),
+        # create_fusi_dataarray always canonicalizes to (k, j, i), so a mask missing
+        # a spatial dim can no longer be built through it; build the mismatch (wrong
+        # dim order) via add_world_coords_from_voxel_affine directly instead, which
+        # still carries real voxel-affine geometry but doesn't reorder dims.
+        mask_data = xr.DataArray(
+            np.ones((data.sizes["i"], data.sizes["j"], data.sizes["k"]), dtype=bool),
+            dims=("i", "j", "k"),
+            coords={
+                "i": data.coords["i"],
+                "j": data.coords["j"],
+                "k": data.coords["k"],
+            },
+        )
+        mask = add_world_coords_from_voxel_affine(
+            mask_data,
+            np.eye(4),
+            voxel_dims=("i", "j", "k"),
+            world_coord_names=("x", "y", "z"),
         )
         model = FirstLevelModel(noise_model="ols", mask=mask)
         with pytest.raises(ValueError, match="match all non-time dimensions"):

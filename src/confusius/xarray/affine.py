@@ -6,8 +6,10 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.geometry import (
-    has_voxel_affine_geometry,
-    restore_physical_coords_from_voxel_affine,
+    add_world_coords_from_voxel_affine,
+    get_voxel_affine_spatial_dims,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
 )
 
 if TYPE_CHECKING:
@@ -72,7 +74,7 @@ def apply_affine(
 ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
     """Apply a physical-space affine to voxel-affine geometry.
 
-    The transform is composed into `attrs["voxel_to_physical"]`, derived physical
+    The transform is composed into `attrs["voxel_to_world"]`, derived physical
     coordinates are regenerated, and existing `attrs["affines"]` entries are
     re-expressed against the new physical frame. Per-pose `(npose, N, N)` stacks
     are handled by NumPy broadcasting.
@@ -80,7 +82,7 @@ def apply_affine(
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan with voxel-affine geometry in `attrs["voxel_to_physical"]`.
+        Input scan with voxel-affine geometry in `attrs["voxel_to_world"]`.
     affine : numpy.ndarray, shape (N, N), or str
         Homogeneous physical-space affine matrix to apply. If a string, it is
         looked up as a key in `da.attrs["affines"]`.
@@ -98,7 +100,7 @@ def apply_affine(
     ------
     ValueError
         If `da` lacks voxel-affine geometry, if `affine` shape does not match
-        `attrs["voxel_to_physical"]`, or if `affine` is a string and `da` has no
+        `attrs["voxel_to_world"]`, or if `affine` is a string and `da` has no
         `"affines"` entry in `attrs`.
     KeyError
         If `affine` is a string not present in `da.attrs["affines"]`.
@@ -108,14 +110,14 @@ def apply_affine(
     >>> import numpy as np
     >>> import xarray as xr
     >>> import confusius  # noqa: F401
-    >>> from confusius._utils.geometry import add_physical_coords_from_voxel_affine
-    >>> data = add_physical_coords_from_voxel_affine(
+    >>> from confusius._utils.geometry import add_world_coords_from_voxel_affine
+    >>> data = add_world_coords_from_voxel_affine(
     ...     xr.DataArray(np.zeros((3, 4)), dims=["j", "i"]), np.eye(3)
     ... )
     >>> shift = np.eye(3)
     >>> shift[:2, 2] = [10.0, 5.0]
     >>> result, orientation = data.fusi.affine.apply(shift)
-    >>> float(result.attrs["voxel_to_physical"][0, 2])
+    >>> float(result.attrs["voxel_to_world"][0, 2])
     10.0
     """
     if isinstance(affine, str):
@@ -124,21 +126,21 @@ def apply_affine(
         if affine not in da.attrs["affines"]:
             raise KeyError(f"'{affine}' not found in da.attrs['affines'].")
         affine = da.attrs["affines"][affine]
-    affine = np.asarray(affine, dtype=np.float64)
+    affine_array = np.asarray(affine, dtype=np.float64)
 
-    if not has_voxel_affine_geometry(da):
+    if not has_voxel_world_geometry(da):
         raise ValueError("DataArray must have voxel-affine geometry.")
 
-    voxel_to_physical = np.asarray(da.attrs["voxel_to_physical"], dtype=np.float64)
-    if affine.shape != voxel_to_physical.shape:
+    voxel_to_world = get_voxel_to_world_affine(da)
+    if affine_array.shape != voxel_to_world.shape:
         raise ValueError(
             "voxel-affine data requires an affine with shape matching "
-            f"voxel_to_physical {voxel_to_physical.shape}, got {affine.shape}."
+            f"voxel_to_world {voxel_to_world.shape}, got {affine_array.shape}."
         )
 
     stored = da.attrs.get("affines", {})
     new_affines: dict[str, npt.NDArray[np.float64]] = {}
-    inv_affine = np.linalg.inv(affine)
+    inv_affine = np.linalg.inv(affine_array)
     for stored_key, val in stored.items():
         arr = np.asarray(val, dtype=np.float64)
         if arr.ndim in (2, 3):
@@ -147,12 +149,17 @@ def apply_affine(
             new_affines[stored_key] = arr
 
     new_attrs = dict(da.attrs)
-    new_attrs["voxel_to_physical"] = affine @ voxel_to_physical
+    new_attrs.pop("voxel_to_world", None)
     if "affines" in da.attrs:
         new_attrs["affines"] = new_affines
 
-    result = restore_physical_coords_from_voxel_affine(da.assign_attrs(new_attrs))
-    orientation = np.eye(affine.shape[0], dtype=np.float64)
+    voxel_dims = get_voxel_affine_spatial_dims(da)
+    result = add_world_coords_from_voxel_affine(
+        da.assign_attrs(new_attrs),
+        affine_array @ voxel_to_world,
+        voxel_dims=voxel_dims,
+    )
+    orientation = np.eye(affine_array.shape[0], dtype=np.float64)
     if inplace:
         da.coords.update(result.coords)
         da.attrs.clear()
@@ -175,6 +182,47 @@ class FUSIAffineAccessor:
 
     def __init__(self, xarray_obj: xr.DataArray) -> None:
         self._obj = xarray_obj
+
+    @property
+    def voxel_to_world(self) -> "npt.NDArray[np.float64]":
+        """Affine mapping native voxel coordinates to world coordinates.
+
+        Returns
+        -------
+        numpy.ndarray
+            Homogeneous voxel-to-world affine.
+        """
+        return get_voxel_to_world_affine(self._obj)
+
+    def set_voxel_to_world(
+        self, voxel_to_world: "npt.ArrayLike", *, inplace: bool = False
+    ) -> xr.DataArray:
+        """Replace voxel-to-world geometry.
+
+        Parameters
+        ----------
+        voxel_to_world : numpy.typing.ArrayLike
+            Homogeneous affine mapping native voxel coordinates to world coordinates.
+        inplace : bool, default: False
+            Whether to modify the wrapped DataArray in-place.
+
+        Returns
+        -------
+        xarray.DataArray
+            DataArray with rebuilt VoxelToWorldIndex-backed coordinates.
+        """
+        voxel_dims = get_voxel_affine_spatial_dims(self._obj)
+        result = add_world_coords_from_voxel_affine(
+            self._obj,
+            voxel_to_world,
+            voxel_dims=voxel_dims,
+        )
+        if inplace:
+            self._obj.coords.update(result.coords)
+            self._obj.attrs.clear()
+            self._obj.attrs.update(result.attrs)
+            return self._obj
+        return result
 
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
         """Return the affine mapping `self`'s physical space into `other`'s.
@@ -223,7 +271,7 @@ class FUSIAffineAccessor:
     ) -> "tuple[xr.DataArray, npt.NDArray[np.float64]]":
         """Apply a physical-space affine to voxel-affine geometry.
 
-        The transform is composed into `attrs["voxel_to_physical"]`, derived physical
+        The transform is composed into `attrs["voxel_to_world"]`, derived physical
         coordinates are regenerated, and existing `attrs["affines"]` entries are
         re-expressed against the new physical frame. Per-pose `(npose, N, N)` stacks
         are handled by NumPy broadcasting.
@@ -247,7 +295,7 @@ class FUSIAffineAccessor:
         ------
         ValueError
             If `self` lacks voxel-affine geometry, if `affine` shape does not match
-            `attrs["voxel_to_physical"]`, or if `affine` is a string and `self` has
+            `attrs["voxel_to_world"]`, or if `affine` is a string and `self` has
             no `"affines"` entry in `attrs`.
         KeyError
             If `affine` is a string not present in `self.attrs["affines"]`.
@@ -257,14 +305,14 @@ class FUSIAffineAccessor:
         >>> import numpy as np
         >>> import xarray as xr
         >>> import confusius  # noqa: F401
-        >>> from confusius._utils.geometry import add_physical_coords_from_voxel_affine
-        >>> data = add_physical_coords_from_voxel_affine(
+        >>> from confusius._utils.geometry import add_world_coords_from_voxel_affine
+        >>> data = add_world_coords_from_voxel_affine(
         ...     xr.DataArray(np.zeros((3, 4)), dims=["j", "i"]), np.eye(3)
         ... )
         >>> shift = np.eye(3)
         >>> shift[:2, 2] = [10.0, 5.0]
         >>> result, orientation = data.fusi.affine.apply(shift)
-        >>> float(result.attrs["voxel_to_physical"][0, 2])
+        >>> float(result.attrs["voxel_to_world"][0, 2])
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)

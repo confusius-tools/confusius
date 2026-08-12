@@ -59,7 +59,9 @@ def _make_consolidated_da(
     result = create_fusi_dataarray(
         data,
         dims=("time", "z", "y", "x"),
-        coords={"time": time_coord, "z": z_coord, "y": y_coord, "x": x_coord},
+        time=time_coord,
+        spacing=(0.2, 0.3, 0.4),
+        origin=(0.0, 0.0, 0.0),
         attrs={"affines": {"physical_to_lab": np.eye(4)}},
         name="scan_data",
     )
@@ -179,16 +181,13 @@ class TestCorrectSliceTiming:
         da = create_fusi_dataarray(
             data,
             dims=("time", "z", "y", "x"),
-            coords={
-                "time": xr.DataArray(
-                    time_vals,
-                    dims=["time"],
-                    attrs={"units": "s", "volume_acquisition_reference": "start"},
-                ),
-                "z": _spatial_coord(np.arange(nz) * 0.2, "z"),
-                "y": _spatial_coord([0.0], "y"),
-                "x": _spatial_coord([0.0], "x"),
-            },
+            time=xr.DataArray(
+                time_vals,
+                dims=["time"],
+                attrs={"units": "s", "volume_acquisition_reference": "start"},
+            ),
+            spacing=(0.2, 0.1, 0.1),
+            origin=(0.0, 0.0, 0.0),
             attrs={"affines": {"physical_to_lab": np.eye(4)}},
         ).assign_coords(
             slice_time=xr.DataArray(
@@ -288,13 +287,10 @@ class TestCorrectSliceTiming:
         da_unconsolidated = create_fusi_dataarray(
             data[:, :, None],
             dims=("time", "pose", "z", "y", "x"),
-            coords={
-                "time": time_coord,
-                "pose": np.arange(npose),
-                "z": _spatial_coord([0.0], "z"),
-                "y": _spatial_coord(np.arange(2) * 0.3, "y"),
-                "x": _spatial_coord(np.arange(3) * 0.4, "x"),
-            },
+            time=time_coord,
+            pose=np.arange(npose),
+            spacing=(0.1, 0.3, 0.4),
+            origin=(0.0, 0.0, 0.0),
         ).assign_coords(
             pose_time=xr.DataArray(
                 pose_time_vals, dims=["time", "pose"], attrs=timing_attrs
@@ -304,12 +300,9 @@ class TestCorrectSliceTiming:
         da_consolidated = create_fusi_dataarray(
             data,
             dims=("time", "z", "y", "x"),
-            coords={
-                "time": time_coord,
-                "z": _spatial_coord(np.arange(npose) * 0.5, "z"),
-                "y": _spatial_coord(np.arange(2) * 0.3, "y"),
-                "x": _spatial_coord(np.arange(3) * 0.4, "x"),
-            },
+            time=time_coord,
+            spacing=(0.5, 0.3, 0.4),
+            origin=(0.0, 0.0, 0.0),
         ).assign_coords(
             slice_time=xr.DataArray(
                 pose_time_vals, dims=["time", "k"], attrs=timing_attrs

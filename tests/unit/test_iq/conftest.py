@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius.xarray import create_fusi_dataarray, create_iq_dataarray
 
 
 @pytest.fixture
@@ -62,52 +62,37 @@ def sample_iq_dataarray(rng):
     shape = (20, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
 
-    base = xr.DataArray(
+    return create_iq_dataarray(
         data,
-        dims=("time", "k", "j", "i"),
-        coords={
-            "time": xr.DataArray(
-                np.arange(20) * 0.1,
-                dims=("time",),
-                attrs={
-                    "units": "s",
-                    "volume_acquisition_duration": 0.1,
-                    "volume_acquisition_reference": "start",
-                },
-            ),
-            "k": xr.DataArray(
-                np.arange(4),
-                dims=("k",),
-                attrs={"voxdim": 1.0},
-            ),
-            "j": xr.DataArray(
-                np.arange(6),
-                dims=("j",),
-                attrs={"voxdim": 1.0},
-            ),
-            "i": xr.DataArray(
-                np.arange(8),
-                dims=("i",),
-                attrs={"voxdim": 1.0},
-            ),
-        },
+        dims=("time", "z", "y", "x"),
+        time=xr.DataArray(
+            np.arange(20) * 0.1,
+            dims=("time",),
+            attrs={
+                "units": "s",
+                "volume_acquisition_duration": 0.1,
+                "volume_acquisition_reference": "start",
+            },
+        ),
         attrs={
             "compound_sampling_frequency": 10.0,
             "transmit_frequency": 15.625e6,
             "beamforming_sound_velocity": 1540.0,
         },
+        spacing=(0.1, 0.05, 0.05),
+        origin=(0.0, 0.0, 0.0),
     )
-    return add_physical_coords_from_voxel_affine(
-        base,
-        np.diag([0.1, 0.05, 0.05, 1.0]),
-        voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
-            "z": {"units": "mm", "voxdim": 0.1},
-            "y": {"units": "mm", "voxdim": 0.05},
-            "x": {"units": "mm", "voxdim": 0.05},
-        },
-    )
+
+
+@pytest.fixture
+def mismatched_spatial_mask_xarray(sample_iq_dataarray, spatial_mask):
+    """Boolean spatial mask with valid geometry but mismatched `k` coordinates."""
+    return create_fusi_dataarray(
+        spatial_mask,
+        dims=("z", "y", "x"),
+        spacing=(0.1, 0.05, 0.05),
+        origin=(0.0, 0.0, 0.0),
+    ).assign_coords(k=sample_iq_dataarray.coords["k"].values + 1)
 
 
 @pytest.fixture

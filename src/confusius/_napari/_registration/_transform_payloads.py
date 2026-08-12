@@ -19,8 +19,9 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
-    get_voxel_affine_physical_coord_names,
-    has_voxel_affine_geometry,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
 )
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
@@ -129,8 +130,8 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     """
     dims = [str(dim) for dim in reference.dims]
     origin_names = (
-        get_voxel_affine_physical_coord_names(reference)
-        if has_voxel_affine_geometry(reference)
+        get_voxel_affine_world_coord_names(reference)
+        if has_voxel_world_geometry(reference)
         else dims
     )
     return {
@@ -338,7 +339,11 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
 
     spatial_dims = list(normalized.dims[1:])
     if spatial_dims != component_values and len(spatial_dims) == len(component_values):
-        affine = np.asarray(normalized.attrs.get("voxel_to_physical"), dtype=float)
+        affine = (
+            get_voxel_to_world_affine(normalized)
+            if has_voxel_world_geometry(normalized)
+            else np.empty((0, 0), dtype=float)
+        )
         coords: dict[str, xr.DataArray] = {}
         for axis, (old_dim, new_dim) in enumerate(
             zip(spatial_dims, component_values, strict=True)
@@ -355,7 +360,7 @@ def _normalize_loaded_bspline_transform(transform: xr.DataArray) -> xr.DataArray
             errors="ignore",
         ).rename(dict(zip(spatial_dims, component_values, strict=True)))
         normalized = normalized.assign_coords(coords)
-        normalized.attrs.pop("voxel_to_physical", None)
+        normalized.attrs.pop("voxel_to_world", None)
 
     return normalized
 

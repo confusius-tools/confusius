@@ -105,37 +105,31 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
     hemispheres_data[:, :, :2] = 2  # right (RL < 0.1 mm mesh midline)
     hemispheres_data[:, :, 2:] = 1  # left  (RL >= 0.1 mm mesh midline)
 
-    coords = {
-        dim: (
-            np.arange(shape[i]) * resolution_mm,
-            {"voxdim": resolution_mm, "units": "mm"},
-        )
-        for i, dim in enumerate(["z", "y", "x"])
-    }
-
     rgb_lookup: dict[int, list[int]] = {
         997: [200, 200, 200],
         10: [255, 0, 0],
         20: [0, 255, 0],
     }
 
-    da_coords = {d: xr.Variable(d, v, attrs=a) for d, (v, a) in coords.items()}
     reference_da = create_fusi_dataarray(
         np.ones(shape, dtype=np.float32),
         dims=["z", "y", "x"],
-        coords=da_coords,
+        spacing=(resolution_mm, resolution_mm, resolution_mm),
+        origin=(0.0, 0.0, 0.0),
         attrs={"cmap": "gray"},
     )
     annotation_da = create_fusi_dataarray(
         annotation_data,
         dims=["z", "y", "x"],
-        coords=da_coords,
+        spacing=(resolution_mm, resolution_mm, resolution_mm),
+        origin=(0.0, 0.0, 0.0),
         attrs={"rgb_lookup": rgb_lookup},
     )
     hemispheres_da = create_fusi_dataarray(
         hemispheres_data,
         dims=["z", "y", "x"],
-        coords=da_coords,
+        spacing=(resolution_mm, resolution_mm, resolution_mm),
+        origin=(0.0, 0.0, 0.0),
         attrs={"left": 1, "right": 2},
     )
 

@@ -16,10 +16,10 @@ ConfUSIus uses [Xarray](https://docs.xarray.dev/) as its core data structure for
 representing multi-dimensional fUSI data. Xarray provides several advantages over raw
 NumPy arrays:
 
-- **Named dimensions**: Access data using meaningful names (e.g., `time`, `z`, `y`, `x`)
+- **Named dimensions**: Access data using meaningful names (e.g., `time`, `k`, `j`, `i`)
   instead of remembering axis indices.
-- **Coordinates**: Associate physical coordinates with each dimension (e.g., time
-  in seconds, depth in millimeters).
+- **Coordinates**: Associate time and world coordinates with the native dimensions
+  (e.g., `z`, `y`, and `x` in millimeters).
 - **Metadata storage**: Keep acquisition parameters, units, and other metadata alongside
   your data.
 - **Unified API**: Use the same operations regardless of the underlying storage format.
@@ -137,8 +137,9 @@ Zarr for efficient processing.
 
     This will create a Zarr group containing:
 
-    - `iq`: Beamformed IQ data with dimensions `(time, z, y, x)`.
-    - `time`, `z`, `y`, `x`: Coordinate arrays.
+    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
+    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
+    - `z`, `y`, `x`: World coordinates attached to the native voxel dimensions.
     - Voxel sizes (`voxdim`) as per-coordinate attributes on `z`, `y`, and `x`.
     - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
       as provided via keyword arguments.
@@ -167,8 +168,9 @@ Zarr for efficient processing.
 
     This will create a Zarr group containing:
 
-    - `iq`: Beamformed IQ data with dimensions `(time, z, y, x)`.
-    - `time`, `z`, `y`, `x`: Coordinate arrays.
+    - `iq`: Beamformed IQ data with native dimensions `(time, k, j, i)`.
+    - `time`, `k`, `j`, `i`: Native time and voxel-space dimension coordinates.
+    - `z`, `y`, `x`: World coordinates attached to the native voxel dimensions.
     - Voxel sizes (`voxdim`) as per-coordinate attributes on `z`, `y`, and `x`.
     - Metadata attributes (e.g., `transmit_frequency`, `plane_wave_angles`)
       as extracted from the metadata file.
@@ -183,15 +185,13 @@ with [`create_iq_dataarray`][confusius.xarray.create_iq_dataarray]:
 import confusius as cf
 from confusius.validation import validate_iq
 
-raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, z, y, x)
+raw_iq = load_my_iq_file("path/to/iq.mat")  # complex array, (time, k, j, i)
 
 iq = cf.create_iq_dataarray(
     raw_iq,
-    dims=("time", "z", "y", "x"),
+    dims=("time", "k", "j", "i"),
     dt=1 / 500,
-    dz=0.4,
-    dy=0.05,
-    dx=0.1,
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
     volume_acquisition_duration=1 / 500,
     transmit_frequency=15.625e6,
     beamforming_sound_velocity=1540.0,
@@ -231,13 +231,16 @@ Once your data is in Zarr format, load it with [`confusius.load`][confusius.load
 >>> iq_data = cf.load("sub-01_task-awake_iq.zarr", variable="iq")
 >>>
 >>> iq_data
-<xarray.DataArray 'iq' (time: 1168500, z: 1, y: 118, x: 52)> Size: 57GB
+<xarray.DataArray 'iq' (time: 1168500, k: 1, j: 118, i: 52)> Size: 57GB
 dask.array<open_dataset-iq, shape=(1168500, 1, 118, 52), dtype=complex64, chunksize=(300, 1, 118, 52), chunktype=numpy.ndarray>
 Coordinates:
   * time     (time) float64 9MB 5.551 5.553 5.555 ... 2.355e+03 2.355e+03
-  * z        (z) float64 8B 0.0
-  * y        (y) float64 944B 4.656 4.705 4.753 4.802 ... 10.23 10.28 10.33
-  * x        (x) float64 416B -2.671 -2.57 -2.469 -2.369 ... 2.268 2.369 2.469
+  * k        (k) float64 8B 0.0
+    z        (k) float64 8B 0.0
+  * j        (j) float64 944B 0.0 1.0 2.0 3.0 ... 114.0 115.0 116.0 117.0
+    y        (j) float64 944B 4.656 4.705 4.753 4.802 ... 10.23 10.28 10.33
+  * i        (i) float64 416B 0.0 1.0 2.0 3.0 ... 48.0 49.0 50.0 51.0
+    x        (i) float64 416B -2.671 -2.57 -2.469 -2.369 ... 2.268 2.369 2.469
 Attributes:
     transmit_frequency:             15625000.0
     probe_number_of_elements:       128
@@ -277,11 +280,12 @@ different dimensions:
 
 | Mode | Dimensions | Description |
 |------|------------|-------------|
-| `2Dscan` | `(time, z, y, x)` | 2D+t fUSI |
-| `3Dscan` | `(pose, z, y, x)` | Multi-pose anatomical volume |
-| `4Dscan` | `(time, pose, z, y, x)` | Multi-pose time-series (3D+t fUSI) |
+| `2Dscan` | `(time, k, j, i)` | 2D+t fUSI |
+| `3Dscan` | `(pose, k, j, i)` | Multi-pose anatomical volume |
+| `4Dscan` | `(time, pose, k, j, i)` | Multi-pose time-series (3D+t fUSI) |
 
-All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
+World coordinates `z`, `y`, and `x` are in millimeters; the `time` coordinate is in
+seconds.
 
 === "2Dscan"
 
@@ -289,7 +293,7 @@ All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
     >>> import confusius as cf
     >>> da = cf.load("sub-01_task-awake_pwd.source.scan")
     >>> da.dims
-    ('time', 'z', 'y', 'x')
+    ('time', 'k', 'j', 'i')
     ```
 
 === "3Dscan"
@@ -298,7 +302,7 @@ All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
     >>> import confusius as cf
     >>> da = cf.load("sub-01_acq-anat_pwd.source.scan")
     >>> da.dims
-    ('pose', 'z', 'y', 'x')
+    ('pose', 'k', 'j', 'i')
     ```
 
     The `pose` dimension indexes each probe position in the multi-pose acquisition.
@@ -311,7 +315,7 @@ All spatial coordinates are in millimeters; the `time` coordinate is in seconds.
     >>> import confusius as cf
     >>> da = cf.load("sub-01_task-awake_pwd.source.scan")
     >>> da.dims
-    ('time', 'pose', 'z', 'y', 'x')
+    ('time', 'pose', 'k', 'j', 'i')
     ```
 
     In addition to the `time` coordinate (earliest timestamp per block), a
@@ -461,7 +465,7 @@ Use [`confusius.load`][confusius.load] to load NIfTI files as lazy Xarray DataAr
 >>> # Load with automatic fUSI-BIDS sidecar metadata.
 >>> da = cf.load("sub-01_task-awake_pwd.nii.gz")
 >>> da.dims
-('time', 'z', 'y', 'x')
+('time', 'k', 'j', 'i')
 ```
 
 ConfUSIus automatically loads a JSON sidecar file with the same basename (e.g.,
@@ -481,15 +485,13 @@ coordinates, and metadata:
 import confusius as cf
 
 # Replace this with scipy.io.loadmat, h5py, mat73, or your lab's loader.
-raw_power = load_my_mat_file("path/to/power_doppler.mat")  # (x, y, time)
+raw_power = load_my_mat_file("path/to/power_doppler.mat")  # source array, (i, j, time)
 
 power = cf.create_fusi_dataarray(
     raw_power,
-    dims=("x", "y", "time"),  # missing z is added as a singleton dimension
+    dims=("i", "j", "time"),  # missing k is added as a singleton voxel dimension
     dt=1 / 2.5,  # 2.5 Hz frame rate
-    dz=0.4,  # spacing for the singleton z dimension in mm
-    dy=0.05,  # axial voxel size in mm
-    dx=0.1,  # lateral voxel size in mm
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
     attrs={"description": "Power Doppler from my system"},
 )
 ```

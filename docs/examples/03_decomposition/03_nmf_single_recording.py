@@ -101,7 +101,7 @@ data_nmf = xr.concat(
 #
 # - [`maps_`][confusius.decomposition.NMF]: non-negative spatial maps. Because we split
 #   the input into positive and negative channels, the maps here have shape
-#   `(component, sign, z, y, x)`.
+#   `(component, sign, k, j, i)`.
 # - [`fit_transform`][confusius.decomposition.NMF.fit_transform]: non-negative time
 #   courses of shape `(time, component)`.
 

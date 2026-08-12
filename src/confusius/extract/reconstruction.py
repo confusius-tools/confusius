@@ -4,10 +4,11 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_physical_coords_from_voxel_affine,
-    get_voxel_affine_physical_coord_names,
+    add_world_coords_from_voxel_affine,
     get_voxel_affine_spatial_dims,
-    has_voxel_affine_geometry,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
 )
 
 
@@ -120,7 +121,7 @@ def unmask(
             f"mask must be boolean dtype or a single-label integer dtype, got {mask_values.dtype}."
         )
 
-    n_voxels_mask = int(np.count_nonzero(mask_values))
+    n_voxels_mask = np.int64(np.count_nonzero(mask_values)).item()
 
     if isinstance(signals, np.ndarray):
         if signals.shape[-1] != n_voxels_mask:
@@ -193,7 +194,7 @@ def unmask(
 
         output_data = np.full(output_shape, fill_value, dtype=signals.dtype)
 
-        n_extra = int(np.prod([signals.sizes[d] for d in extra_dims]))
+        n_extra = np.int64(np.prod([signals.sizes[d] for d in extra_dims])).item()
         output_flat = output_data.reshape(n_extra, -1)
         signals_flat = signals.values.reshape(n_extra, -1)
         output_flat[:, mask_flat] = signals_flat
@@ -217,11 +218,11 @@ def unmask(
         coords=coords,
         attrs=attrs if attrs is not None else {},
     )
-    if has_voxel_affine_geometry(mask):
-        result = add_physical_coords_from_voxel_affine(
+    if has_voxel_world_geometry(mask):
+        result = add_world_coords_from_voxel_affine(
             result,
-            mask.attrs["voxel_to_physical"],
+            get_voxel_to_world_affine(mask),
             voxel_dims=get_voxel_affine_spatial_dims(mask),
-            physical_coord_names=get_voxel_affine_physical_coord_names(mask),
+            world_coord_names=get_voxel_affine_world_coord_names(mask),
         )
     return result

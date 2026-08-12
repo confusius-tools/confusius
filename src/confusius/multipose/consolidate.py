@@ -12,14 +12,44 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_physical_coords_from_voxel_affine,
-    get_voxel_affine_physical_coord_names,
+    add_world_coords_from_voxel_affine,
     get_voxel_affine_spatial_dims,
-    has_voxel_affine_geometry,
+    get_voxel_affine_world_coord_names,
+    has_voxel_world_geometry,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
 from confusius.validation import ensure_fusi
+
+
+def _reduce_world_coord_along_voxel_dim(
+    coord: xr.DataArray, dim: str, other_voxel_dims: list[str]
+) -> npt.NDArray[np.float64]:
+    """Reduce a world coordinate to a 1D array of positions along one voxel dim.
+
+    World coordinates are `(k, j, i)`-shaped (backed by a single joint
+    `VoxelToWorldIndex` covering all voxel dims, see `confusius._utils.geometry`),
+    but a world coordinate paired with `dim` only genuinely varies along `dim` for
+    axis-aligned geometry; for oblique geometry this takes a representative slice at
+    a fixed reference position in the other voxel dims.
+
+    Parameters
+    ----------
+    coord : xarray.DataArray
+        World coordinate to reduce.
+    dim : str
+        Voxel dimension to keep.
+    other_voxel_dims : list[str]
+        Voxel dimensions to reduce out, at index 0.
+
+    Returns
+    -------
+    numpy.ndarray
+        1D array of positions along `dim`.
+    """
+    if other_voxel_dims:
+        coord = coord.isel(dict.fromkeys(other_voxel_dims, 0))
+    return np.asarray(coord.values, dtype=np.float64)
 
 
 def _build_consolidated_time_coordinate(
@@ -259,10 +289,10 @@ def consolidate_poses(
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
 
-    if has_voxel_affine_geometry(da):
+    if has_voxel_world_geometry(da):
         voxel_dims = list(get_voxel_affine_spatial_dims(da))
-        physical_dims = list(get_voxel_affine_physical_coord_names(da))
-        voxel_to_physical = dict(zip(voxel_dims, physical_dims, strict=True))
+        physical_dims = list(get_voxel_affine_world_coord_names(da))
+        voxel_to_world = dict(zip(voxel_dims, physical_dims, strict=True))
         if sweep_dim not in voxel_dims:
             raise ValueError(
                 f"sweep_dim must be one of the spatial dimensions {voxel_dims!r}; "
@@ -271,8 +301,12 @@ def consolidate_poses(
         sweep_data_dim = sweep_dim
         spatial_dims = voxel_dims
         output_spatial_dims = spatial_dims
-        physical_sweep_dim = voxel_to_physical[sweep_dim]
-        sweep_mm = np.asarray(da.coords[physical_sweep_dim].values, dtype=np.float64)
+        physical_sweep_dim = voxel_to_world[sweep_dim]
+        sweep_mm = _reduce_world_coord_along_voxel_dim(
+            da.coords[physical_sweep_dim],
+            sweep_dim,
+            [d for d in voxel_dims if d != sweep_dim],
+        )
         sweep_coord_attrs = dict(da.coords[physical_sweep_dim].attrs)
     else:
         spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
@@ -398,16 +432,23 @@ def consolidate_poses(
         da.attrs.get("affines", {}), affines_key, affine, new_affine
     )
     new_attrs = {**da.attrs, "affines": new_affines}
-    new_attrs.pop("voxel_to_physical", None)
+    new_attrs.pop("voxel_to_world", None)
     base_coords: dict[str, Any] = {str(sweep_dim): new_sweep}
     for output_dim in other_output_dims:
         coord_name = (
-            voxel_to_physical.get(output_dim, output_dim)
-            if has_voxel_affine_geometry(da)
+            voxel_to_world.get(output_dim, output_dim)
+            if has_voxel_world_geometry(da)
             else output_dim
         )
         if coord_name in da.coords:
             coord = da.coords[coord_name]
+            other_coord_dims = [str(d) for d in coord.dims if d != output_dim]
+            if other_coord_dims:
+                # World coordinates are (k, j, i)-shaped (backed by a single joint
+                # VoxelToWorldIndex covering all voxel dims), but only genuinely vary
+                # along output_dim for axis-aligned geometry; reduce the other voxel
+                # dims to get a 1D coordinate for the output.
+                coord = coord.isel(dict.fromkeys(other_coord_dims, 0))
             base_coords[str(output_dim)] = xr.DataArray(
                 np.asarray(coord.values),
                 dims=[str(output_dim)],
@@ -415,10 +456,8 @@ def consolidate_poses(
             )
 
     output_spatial_dim_names = tuple(str(dim) for dim in output_spatial_dims)
-    physical_coord_names = tuple(
-        str(voxel_to_physical.get(dim, dim))
-        if has_voxel_affine_geometry(da)
-        else str(dim)
+    world_coord_names = tuple(
+        str(voxel_to_world.get(dim, dim)) if has_voxel_world_geometry(da) else str(dim)
         for dim in output_spatial_dims
     )
 
@@ -427,7 +466,7 @@ def consolidate_poses(
         origins: list[float] = []
         spacings: list[float] = []
         for voxel_dim, physical_dim in zip(
-            output_spatial_dims, physical_coord_names, strict=True
+            output_spatial_dims, world_coord_names, strict=True
         ):
             coord = result.coords[voxel_dim]
             values = np.asarray(coord.values, dtype=np.float64)
@@ -437,19 +476,22 @@ def consolidate_poses(
             else:
                 spacing = float(np.median(np.diff(values)))
             spacings.append(spacing)
-            physical_attrs[physical_dim] = dict(coord.attrs)
+            physical_attrs[physical_dim] = {
+                **coord.attrs,
+                "voxdim": np.float64(spacing).item(),
+            }
             result = result.assign_coords(
                 {voxel_dim: np.arange(result.sizes[voxel_dim], dtype=np.float64)}
             )
-        voxel_to_physical_affine = np.eye(len(output_spatial_dim_names) + 1)
-        voxel_to_physical_affine[:-1, :-1] = np.diag(spacings)
-        voxel_to_physical_affine[:-1, -1] = origins
-        return add_physical_coords_from_voxel_affine(
+        voxel_to_world_affine = np.eye(len(output_spatial_dim_names) + 1)
+        voxel_to_world_affine[:-1, :-1] = np.diag(spacings)
+        voxel_to_world_affine[:-1, -1] = origins
+        return add_world_coords_from_voxel_affine(
             result,
-            voxel_to_physical_affine,
+            voxel_to_world_affine,
             voxel_dims=output_spatial_dim_names,
-            physical_coord_names=physical_coord_names,
-            physical_coord_attrs=physical_attrs,
+            world_coord_names=world_coord_names,
+            world_coord_attrs=physical_attrs,
         )
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.

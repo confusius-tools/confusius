@@ -23,29 +23,29 @@ def test_feature_names_in_for_string_feature_labels():
 
 
 @pytest.mark.parametrize("mode", ["temporal", "spatial"])
-def test_fit_transform_matches_fit_then_transform(sample_3dt_volume, mode):
+def test_fit_transform_matches_fit_then_transform(sample_fusi_3dt, mode):
     """fit_transform matches calling fit followed by transform."""
     model_direct = PCA(n_components=6, random_state=0, mode=mode)
-    direct = model_direct.fit_transform(sample_3dt_volume)
+    direct = model_direct.fit_transform(sample_fusi_3dt)
 
     model_two_step = PCA(n_components=6, random_state=0, mode=mode)
-    two_step = model_two_step.fit(sample_3dt_volume).transform(sample_3dt_volume)
+    two_step = model_two_step.fit(sample_fusi_3dt).transform(sample_fusi_3dt)
 
     xr.testing.assert_identical(direct, two_step)
 
 
-def test_wrapper_matches_sklearn_attributes(sample_3dt_volume):
+def test_wrapper_matches_sklearn_attributes(sample_fusi_3dt):
     """Temporal wrapper exposes the same learned quantities as sklearn PCA."""
-    stacked = sample_3dt_volume.transpose("time", "k", "j", "i").stack(
+    stacked = sample_fusi_3dt.transpose("time", "k", "j", "i").stack(
         feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
     sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X)
 
     np.testing.assert_allclose(
-        model.transform(sample_3dt_volume).values,
+        model.transform(sample_fusi_3dt).values,
         sklearn_model.transform(X),
     )
     np.testing.assert_allclose(
@@ -72,43 +72,43 @@ def test_wrapper_matches_sklearn_attributes(sample_3dt_volume):
     np.testing.assert_allclose(model.noise_variance_, sklearn_model.noise_variance_)
 
 
-def test_inverse_transform_reconstructs_with_all_components(sample_3dt_volume):
+def test_inverse_transform_reconstructs_with_all_components(sample_fusi_3dt):
     """Using all components reconstructs the original data."""
     model = PCA(random_state=0)
 
-    signals = model.fit_transform(sample_3dt_volume)
+    signals = model.fit_transform(sample_fusi_3dt)
     reconstructed = model.inverse_transform(signals)
 
-    assert reconstructed.dims == sample_3dt_volume.dims
+    assert reconstructed.dims == sample_fusi_3dt.dims
     np.testing.assert_allclose(
-        reconstructed.coords["time"], sample_3dt_volume.coords["time"]
+        reconstructed.coords["time"], sample_fusi_3dt.coords["time"]
     )
     np.testing.assert_allclose(
-        reconstructed.values, sample_3dt_volume.values, atol=1e-10
+        reconstructed.values, sample_fusi_3dt.values, atol=1e-10
     )
-    assert reconstructed.name == sample_3dt_volume.name
-    assert reconstructed.attrs == sample_3dt_volume.attrs
+    assert reconstructed.name == sample_fusi_3dt.name
+    assert reconstructed.attrs == sample_fusi_3dt.attrs
 
 
-def test_inverse_transform_from_numpy_returns_dataarray(sample_3dt_volume):
+def test_inverse_transform_from_numpy_returns_dataarray(sample_fusi_3dt):
     """inverse_transform accepts ndarray input and returns DataArray."""
     model = PCA(n_components=5, random_state=0)
-    scores = model.fit_transform(sample_3dt_volume).values
+    scores = model.fit_transform(sample_fusi_3dt).values
 
     reconstructed = model.inverse_transform(scores)
 
     assert isinstance(reconstructed, xr.DataArray)
-    assert reconstructed.dims == sample_3dt_volume.dims
+    assert reconstructed.dims == sample_fusi_3dt.dims
     np.testing.assert_array_equal(
-        reconstructed.coords["time"], np.arange(sample_3dt_volume.sizes["time"])
+        reconstructed.coords["time"], np.arange(sample_fusi_3dt.sizes["time"])
     )
 
 
-def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_3dt_volume):
+def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_fusi_3dt):
     """inverse_transform raises when DataArray dims are not time/component."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
     bad = xr.DataArray(
-        np.zeros((sample_3dt_volume.sizes["time"], 4)),
+        np.zeros((sample_fusi_3dt.sizes["time"], 4)),
         dims=["time", "region"],
     )
 
@@ -116,43 +116,43 @@ def test_inverse_transform_raises_for_invalid_dataarray_dims(sample_3dt_volume):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_component_count_mismatch(sample_3dt_volume):
+def test_inverse_transform_raises_for_component_count_mismatch(sample_fusi_3dt):
     """inverse_transform raises when component count differs from fitted PCA."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
-    scores = model.transform(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
+    scores = model.transform(sample_fusi_3dt)
     bad = scores.isel(component=slice(0, 3))
 
     with pytest.raises(ValueError, match="but PCA was fitted with"):
         model.inverse_transform(bad)
 
 
-def test_inverse_transform_raises_for_invalid_numpy_shape(sample_3dt_volume):
+def test_inverse_transform_raises_for_invalid_numpy_shape(sample_fusi_3dt):
     """inverse_transform raises when ndarray input is not 2D."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
 
     with pytest.raises(ValueError, match="must be 2D"):
-        model.inverse_transform(np.zeros((sample_3dt_volume.sizes["time"], 4, 1)))
+        model.inverse_transform(np.zeros((sample_fusi_3dt.sizes["time"], 4, 1)))
 
 
-def test_inverse_transform_raises_for_invalid_input_type(sample_3dt_volume):
+def test_inverse_transform_raises_for_invalid_input_type(sample_fusi_3dt):
     """inverse_transform raises TypeError for unsupported input types."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
 
     with pytest.raises(TypeError, match="DataArray or ndarray"):
         model.inverse_transform([1, 2, 3])  # ty: ignore[invalid-argument-type]
 
 
-def test_fit_requires_time_dimension(sample_3dt_volume):
+def test_fit_requires_time_dimension(sample_fusi_3dt):
     """fit raises when the input has no `time` dimension."""
-    no_time = sample_3dt_volume.isel(time=0, drop=True)
+    no_time = sample_fusi_3dt.isel(time=0, drop=True)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
         PCA().fit(no_time)
 
 
-def test_fit_requires_more_than_one_timepoint(sample_3dt_volume):
+def test_fit_requires_more_than_one_timepoint(sample_fusi_3dt):
     """fit raises when only one timepoint is provided."""
-    single_timepoint = sample_3dt_volume.isel(time=[0])
+    single_timepoint = sample_fusi_3dt.isel(time=[0])
 
     with pytest.raises(ValueError, match="requires more than 1 timepoint"):
         PCA().fit(single_timepoint)
@@ -166,75 +166,75 @@ def test_fit_requires_spatial_dimension():
         PCA().fit(only_time)
 
 
-def test_mask_must_match_full_spatial_dims_in_order(sample_3dt_volume):
+def test_mask_must_match_full_spatial_dims_in_order(sample_fusi_3dt):
     """Mask must span all spatial dims in the stacked feature order."""
     mask = xr.DataArray(
         np.ones(
             (
-                sample_3dt_volume.sizes["j"],
-                sample_3dt_volume.sizes["k"],
-                sample_3dt_volume.sizes["i"],
+                sample_fusi_3dt.sizes["j"],
+                sample_fusi_3dt.sizes["k"],
+                sample_fusi_3dt.sizes["i"],
             ),
             dtype=bool,
         ),
         dims=["j", "k", "i"],
         coords={
-            "j": sample_3dt_volume.coords["j"],
-            "k": sample_3dt_volume.coords["k"],
-            "i": sample_3dt_volume.coords["i"],
+            "j": sample_fusi_3dt.coords["j"],
+            "k": sample_fusi_3dt.coords["k"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
 
     with pytest.raises(ValueError, match="must match all non-time dimensions"):
-        PCA(mask=mask).fit(sample_3dt_volume)
+        PCA(mask=mask).fit(sample_fusi_3dt)
 
 
-def test_fit_rejects_unexpected_fit_params(sample_3dt_volume):
+def test_fit_rejects_unexpected_fit_params(sample_fusi_3dt):
     """fit raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="unexpected keyword argument"):
         PCA().fit(
-            sample_3dt_volume,
-            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),  # ty: ignore[unknown-argument]
+            sample_fusi_3dt,
+            sample_weight=np.ones(sample_fusi_3dt.sizes["time"]),  # ty: ignore[unknown-argument]
         )
 
 
-def test_fit_transform_rejects_unexpected_fit_params(sample_3dt_volume):
+def test_fit_transform_rejects_unexpected_fit_params(sample_fusi_3dt):
     """fit_transform raises when unexpected sklearn-style fit params are provided."""
     with pytest.raises(TypeError, match="Unexpected fit parameters"):
         PCA().fit_transform(
-            sample_3dt_volume,
-            sample_weight=np.ones(sample_3dt_volume.sizes["time"]),
+            sample_fusi_3dt,
+            sample_weight=np.ones(sample_fusi_3dt.sizes["time"]),
         )
 
 
-def test_transform_checks_spatial_layout(sample_3dt_volume):
+def test_transform_checks_spatial_layout(sample_fusi_3dt):
     """transform raises if spatial layout differs from fit."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
-    bad = sample_3dt_volume.isel(i=slice(0, 4))
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
+    bad = sample_fusi_3dt.isel(i=slice(0, 4))
 
     with pytest.raises(ValueError, match="Spatial dimension 'i' has size"):
         model.transform(bad)
 
 
-def test_transform_checks_spatial_dimension_names(sample_3dt_volume):
+def test_transform_checks_spatial_dimension_names(sample_fusi_3dt):
     """transform raises if spatial dimension names differ from fit."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
-    bad = sample_3dt_volume.rename({"i": "region"})
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
+    bad = sample_fusi_3dt.rename({"i": "region"})
 
     with pytest.raises(ValueError, match="spatial dimensions do not match"):
         model.transform(bad)
 
 
-def test_transform_without_time_coordinate_uses_index(sample_3dt_volume):
+def test_transform_without_time_coordinate_uses_index(sample_fusi_3dt):
     """transform falls back to integer time coordinate when absent."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
     no_time_coord = xr.DataArray(
-        sample_3dt_volume.values,
-        dims=sample_3dt_volume.dims,
+        sample_fusi_3dt.values,
+        dims=sample_fusi_3dt.dims,
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
-            "i": sample_3dt_volume.coords["i"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
 
@@ -242,29 +242,29 @@ def test_transform_without_time_coordinate_uses_index(sample_3dt_volume):
 
     np.testing.assert_array_equal(
         transformed.coords["time"].values,
-        np.arange(sample_3dt_volume.sizes["time"]),
+        np.arange(sample_fusi_3dt.sizes["time"]),
     )
 
 
-def test_transform_chunked_time_reports_transform_operation(sample_3dt_volume):
+def test_transform_chunked_time_reports_transform_operation(sample_fusi_3dt):
     """transform chunking error message identifies PCA.transform."""
-    model = PCA(n_components=4, random_state=0).fit(sample_3dt_volume)
-    chunked = sample_3dt_volume.chunk({"time": 5})
+    model = PCA(n_components=4, random_state=0).fit(sample_fusi_3dt)
+    chunked = sample_fusi_3dt.chunk({"time": 5})
 
     with pytest.raises(ValueError, match="PCA.transform requires the full time series"):
         model.transform(chunked)
 
 
-def test_sklearn_interface_fitted_state(sample_3dt_volume):
+def test_sklearn_interface_fitted_state(sample_fusi_3dt):
     """Estimator exposes sklearn fitted-state behavior."""
     model = PCA(n_components=3, random_state=0)
     with pytest.raises(Exception):
         check_is_fitted(model)
 
-    check_is_fitted(model.fit(sample_3dt_volume))
+    check_is_fitted(model.fit(sample_fusi_3dt))
 
 
-def test_fit_failure_does_not_mark_estimator_fitted(sample_3dt_volume, monkeypatch):
+def test_fit_failure_does_not_mark_estimator_fitted(sample_fusi_3dt, monkeypatch):
     """Estimator remains unfitted when underlying sklearn PCA fit fails."""
     import confusius.decomposition.pca as pca_module
 
@@ -275,7 +275,7 @@ def test_fit_failure_does_not_mark_estimator_fitted(sample_3dt_volume, monkeypat
 
     model = PCA(n_components=3, random_state=0)
     with pytest.raises(RuntimeError, match="fit failed"):
-        model.fit(sample_3dt_volume)
+        model.fit(sample_fusi_3dt)
 
     assert not hasattr(model, "_estimator")
     assert not model.__sklearn_is_fitted__()
@@ -320,26 +320,26 @@ def test_set_params_updates_values():
     assert model.mode == "spatial"
 
 
-def test_randomized_solver_reproducible_with_random_state(sample_3dt_volume):
+def test_randomized_solver_reproducible_with_random_state(sample_fusi_3dt):
     """Randomized solver gives reproducible results with fixed random_state."""
     model_1 = PCA(n_components=3, svd_solver="randomized", random_state=0)
     model_2 = PCA(n_components=3, svd_solver="randomized", random_state=0)
 
-    signals_1 = model_1.fit_transform(sample_3dt_volume)
-    signals_2 = model_2.fit_transform(sample_3dt_volume)
+    signals_1 = model_1.fit_transform(sample_fusi_3dt)
+    signals_2 = model_2.fit_transform(sample_fusi_3dt)
 
     np.testing.assert_allclose(signals_1.values, signals_2.values)
     np.testing.assert_allclose(model_1.maps_.values, model_2.maps_.values)
 
 
-def test_spatial_mode_matches_reference_implementation(sample_3dt_volume):
+def test_spatial_mode_matches_reference_implementation(sample_fusi_3dt):
     """Spatial mode matches sklearn PCA fitted on transposed data."""
-    stacked = sample_3dt_volume.transpose("time", "k", "j", "i").stack(
+    stacked = sample_fusi_3dt.transpose("time", "k", "j", "i").stack(
         feature=["k", "j", "i"]
     )
     X = np.asarray(stacked.values, dtype=np.float64)
 
-    model = PCA(n_components=4, random_state=0, mode="spatial").fit(sample_3dt_volume)
+    model = PCA(n_components=4, random_state=0, mode="spatial").fit(sample_fusi_3dt)
     sklearn_model = SklearnPCA(n_components=4, random_state=0).fit(X.T)
 
     spatial_maps = sklearn_model.transform(X.T).T
@@ -348,7 +348,7 @@ def test_spatial_mode_matches_reference_implementation(sample_3dt_volume):
     reference_reconstructed = reference_signals @ spatial_maps + voxel_mean
 
     np.testing.assert_allclose(
-        model.transform(sample_3dt_volume).values,
+        model.transform(sample_fusi_3dt).values,
         reference_signals,
     )
     np.testing.assert_allclose(
@@ -360,68 +360,68 @@ def test_spatial_mode_matches_reference_implementation(sample_3dt_volume):
         voxel_mean,
     )
     np.testing.assert_allclose(
-        model.inverse_transform(model.transform(sample_3dt_volume))
+        model.inverse_transform(model.transform(sample_fusi_3dt))
         .stack(feature=["k", "j", "i"])
         .values,
         reference_reconstructed,
     )
 
 
-def test_fit_raises_for_invalid_mode(sample_3dt_volume):
+def test_fit_raises_for_invalid_mode(sample_fusi_3dt):
     """fit raises for unsupported PCA mode."""
     with pytest.raises(ValueError, match="mode must be 'temporal' or 'spatial'"):
-        PCA(mode="invalid").fit(sample_3dt_volume)  # ty: ignore[invalid-argument-type]
+        PCA(mode="invalid").fit(sample_fusi_3dt)  # ty: ignore[invalid-argument-type]
 
 
-def test_mask_restricts_features(sample_3dt_volume):
+def test_mask_restricts_features(sample_fusi_3dt):
     """mask restricts fitted feature count to selected voxels."""
     mask = xr.DataArray(
         np.zeros(
             (
-                sample_3dt_volume.sizes["k"],
-                sample_3dt_volume.sizes["j"],
-                sample_3dt_volume.sizes["i"],
+                sample_fusi_3dt.sizes["k"],
+                sample_fusi_3dt.sizes["j"],
+                sample_fusi_3dt.sizes["i"],
             ),
             dtype=bool,
         ),
         dims=["k", "j", "i"],
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
-            "i": sample_3dt_volume.coords["i"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
     mask.values[:2, :, :] = True
 
-    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_3dt_volume)
+    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_fusi_3dt)
 
     assert model.n_features_in_ == int(mask.values.sum())
 
 
-def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume):
+def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_fusi_3dt):
     """Masked PCA keeps full geometry and fills outside-mask voxels with zero."""
     mask = xr.DataArray(
         np.zeros(
             (
-                sample_3dt_volume.sizes["k"],
-                sample_3dt_volume.sizes["j"],
-                sample_3dt_volume.sizes["i"],
+                sample_fusi_3dt.sizes["k"],
+                sample_fusi_3dt.sizes["j"],
+                sample_fusi_3dt.sizes["i"],
             ),
             dtype=bool,
         ),
         dims=["k", "j", "i"],
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
-            "i": sample_3dt_volume.coords["i"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
+            "i": sample_fusi_3dt.coords["i"],
         },
     )
     mask.values[:2, :, :] = True
 
-    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_3dt_volume)
-    reconstructed = model.inverse_transform(model.transform(sample_3dt_volume))
+    model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_fusi_3dt)
+    reconstructed = model.inverse_transform(model.transform(sample_fusi_3dt))
 
-    assert reconstructed.dims == sample_3dt_volume.dims
+    assert reconstructed.dims == sample_fusi_3dt.dims
     np.testing.assert_array_equal(
         reconstructed.where(~mask, other=np.nan).fillna(0.0).values,
         0.0,
@@ -436,9 +436,9 @@ def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_3dt_volume)
     )
 
 
-def test_mask_mismatch_raises(sample_3dt_volume):
+def test_mask_mismatch_raises(sample_fusi_3dt):
     """fit raises when mask does not match spatial dimensions."""
     bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
     with pytest.raises(ValueError, match="missing from mask"):
-        PCA(mask=bad_mask).fit(sample_3dt_volume)
+        PCA(mask=bad_mask).fit(sample_fusi_3dt)

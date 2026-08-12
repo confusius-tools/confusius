@@ -27,8 +27,8 @@ For more information on fUSI, check out this review article: [Functional Ultraso
 Neuroimaging](https://www.annualreviews.org/doi/10.1146/annurev-neuro-111020-100706) by
 Montaldo _et al._ (2022).
 
-fUSI data typically consists of large 3D+t datasets (time × z × y × x) acquired from
-fUSI systems (for example, [Iconeus](https://iconeus.com/),
+fUSI data typically consists of large 3D+t datasets acquired from fUSI systems (for
+example, [Iconeus](https://iconeus.com/),
 [AUTC](https://fusi-functional-ultrasound-imaging.com/), EchoFrame, or in-house setups
 based on ultrasound research platforms such as [Verasonics](https://verasonics.com/)).
 

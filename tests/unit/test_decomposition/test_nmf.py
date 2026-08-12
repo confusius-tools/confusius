@@ -8,7 +8,7 @@ import xarray as xr
 from sklearn.decomposition import NMF as SklearnNMF
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.decomposition import NMF
 
 
@@ -54,11 +54,11 @@ def nmf_3dt_volume():
         },
         attrs={"long_name": "Intensity", "units": "a.u."},
     )
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         base,
         np.eye(4),
         voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
+        world_coord_names=("z", "y", "x"),
     )
 
 

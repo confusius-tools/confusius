@@ -11,7 +11,12 @@ import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import get_voxel_affine_physical_coord_names
+from confusius._utils.geometry import (
+    get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
+)
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask
@@ -22,10 +27,10 @@ from confusius.plotting._hover import (
 from confusius.plotting._utils import (
     _auto_fg_color,
     _get_distinct_colors,
+    _materialize_axis_aligned_world_grid_for_display,
     _resolve_font_sizes,
     _style_colorbar,
     coerce_complex_to_magnitude,
-    convert_axis_aligned_voxel_affine_to_physical_grid,
     sort_coords_for_plot,
 )
 from confusius.plotting._utils import (
@@ -77,9 +82,9 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[left], interior, [right]])
 
 
-def _has_voxel_affine_geometry(data: xr.DataArray) -> bool:
+def _has_voxel_world_geometry(data: xr.DataArray) -> bool:
     """Return whether `data` carries voxel-affine geometry metadata."""
-    return "voxel_to_physical" in data.attrs and all(
+    return has_voxel_world_geometry(data) and all(
         str(dim) in {"time", "k", "j", "i"} for dim in data.dims
     )
 
@@ -99,13 +104,13 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
     ValueError
         If voxel-affine data is sliced along an unsupported dimension.
     """
-    if not _has_voxel_affine_geometry(data):
+    if not _has_voxel_world_geometry(data):
         return
 
     valid_slice_modes = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     valid_slice_modes += tuple(
         dim
-        for dim in get_voxel_affine_physical_coord_names(data)
+        for dim in get_voxel_affine_world_coord_names(data)
         if dim not in valid_slice_modes
     )
     if slice_mode not in valid_slice_modes:
@@ -122,15 +127,14 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
 
 
 def _voxel_affine_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
-    """Return voxel-space dimension order implied by the stored affine."""
-    ndim = np.asarray(slice_da.attrs["voxel_to_physical"]).shape[0] - 1
-    dims = tuple(
-        dim for dim in VOXEL_DIMS if dim in slice_da.dims or dim in slice_da.coords
-    )
+    """Return active voxel-space dimension order implied by the stored affine."""
+    affine = get_voxel_to_world_affine(slice_da)
+    ndim = affine.shape[1] - 1
+    dims = get_voxel_affine_spatial_dims(slice_da)
     if len(dims) != ndim:
         raise ValueError(
             "Voxel-affine plotting could not infer voxel dimension order from "
-            f"dims/coords {dims!r} and affine shape {slice_da.attrs['voxel_to_physical'].shape}."
+            f"active dims {dims!r} and affine shape {affine.shape}."
         )
     return dims
 
@@ -162,7 +166,7 @@ def _project_voxel_affine_plane(
     y_centers : (H, W) numpy.ndarray
         In-plane y coordinates of cell centers.
     """
-    affine = np.asarray(slice_da.attrs["voxel_to_physical"], dtype=np.float64)
+    affine = get_voxel_to_world_affine(slice_da)
     dim_order = _voxel_affine_dim_order(slice_da)
     linear = affine[:-1, :-1]
 
@@ -230,14 +234,15 @@ def _resample_voxel_affine_to_physical_grid(
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
     """Resample voxel-affine data onto an axis-aligned physical grid for plotting."""
-    if not _has_voxel_affine_geometry(data) or slice_mode not in {"z", "y", "x"}:
-        return data
+    if not _has_voxel_world_geometry(data) or slice_mode not in {"z", "y", "x"}:
+        converted = _materialize_axis_aligned_world_grid_for_display(data)
+        return converted if slice_mode in converted.dims else data
 
-    physical_dims = get_voxel_affine_physical_coord_names(data)
+    physical_dims = get_voxel_affine_world_coord_names(data)
     if slice_mode not in physical_dims:
         return data
 
-    data = convert_axis_aligned_voxel_affine_to_physical_grid(data)
+    data = _materialize_axis_aligned_world_grid_for_display(data)
     return _shared_resample_voxel_affine_to_physical_grid(data, reference=reference)
 
 
@@ -250,7 +255,7 @@ def _slice_edges_and_centers(
     row/column dimensions. For voxel-affine data, returns 2D corner and center meshes
     obtained by projecting the physical slice into an orthonormal in-plane basis.
     """
-    if _has_voxel_affine_geometry(slice_da):
+    if _has_voxel_world_geometry(slice_da):
         return _project_voxel_affine_plane(slice_da, dim_row, dim_col)
 
     if dim_col in slice_da.coords:
@@ -520,7 +525,7 @@ def _resolve_cmap(
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     """Return axis label for `dim`, including units when available."""
-    if _has_voxel_affine_geometry(da):
+    if _has_voxel_world_geometry(da):
         return f"{dim} in-plane (mm)"
 
     label = dim

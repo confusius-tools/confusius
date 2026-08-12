@@ -60,7 +60,9 @@ class TestConsolidatePoses:
         orig_pt = scan_4d.coords["pose_time"].values  # (T, npose)
         # Recover which original pose each consolidated z-slice came from.
         ptl = np.asarray(scan_4d.attrs["affines"]["physical_to_lab"])
-        z_mm = scan_4d.coords["z"].values
+        # `z` is (k, j, i)-shaped (backed by a single joint VoxelToWorldIndex), but
+        # only genuinely varies along `k` for this axis-aligned scan.
+        z_mm = scan_4d.coords["z"].isel(j=0, i=0).values
         r0 = ptl[:, :3, 0]
         t_lab = ptl[:, :3, 3]
         lab_pos = (
@@ -271,31 +273,16 @@ class TestConsolidatePoses:
         for i in range(npose):
             affines[i, :3, 3][sweep_col] = i * inter_step
 
-        coords: dict[str, xr.DataArray] = {
-            "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
-            **{
-                d: xr.DataArray(
-                    np.arange(sizes[d]) * intra_step,
-                    dims=[d],
-                    attrs={
-                        "units": sweep_unit if d == sweep_dim else "mm",
-                        "voxdim": voxel_size,
-                    },
-                )
-                for d in ("k", "j", "i")
-            },
-        }
         da = create_fusi_dataarray(
             data,
             dims=["pose", "z", "y", "x"],
-            coords={
-                "pose": coords["pose"],
-                "z": coords["k"].rename("z"),
-                "y": coords["j"].rename("y"),
-                "x": coords["i"].rename("x"),
-            },
+            pose=np.arange(npose),
+            spacing=(intra_step, intra_step, intra_step),
+            origin=(0.0, 0.0, 0.0),
+            voxdim=(voxel_size, voxel_size, voxel_size),
             attrs={"affines": {"physical_to_lab": affines}},
         )
+        da.coords[{"k": "z", "j": "y", "i": "x"}[sweep_dim]].attrs["units"] = sweep_unit
 
         result = consolidate_poses(da, sweep_dim=sweep_dim)
 
@@ -304,8 +291,12 @@ class TestConsolidatePoses:
         assert "pose" not in result.dims
         assert result.sizes[sweep_dim] == npose * n_sweep
         physical_sweep_dim = {"k": "z", "j": "y", "i": "x"}[sweep_dim]
-        # Axis-aligned geometry gets an ordinary 1D coordinate on `sweep_dim` alone.
-        sweep_coord = result.coords[physical_sweep_dim]
+        # The physical coordinate is (k, j, i)-shaped (backed by a single joint
+        # VoxelToWorldIndex), but only genuinely varies along sweep_dim for
+        # axis-aligned geometry; reduce the other voxel dims to compare.
+        sweep_coord = result.coords[physical_sweep_dim].isel(
+            dict.fromkeys(other_dims, 0)
+        )
         np.testing.assert_allclose(
             sweep_coord.values,
             np.arange(npose * n_sweep) * intra_step,

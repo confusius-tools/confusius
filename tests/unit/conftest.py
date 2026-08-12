@@ -10,6 +10,7 @@ import pytest
 import xarray as xr
 
 from confusius.io.scan import load_scan
+from confusius.xarray import create_fusi_dataarray, create_iq_dataarray
 
 _SCAN_RNG = np.random.default_rng(42)
 
@@ -562,51 +563,21 @@ def scan_4d_multiblock(scan_4d_multiblock_path: Path) -> xr.DataArray:
 matplotlib.use("Agg", force=True)
 
 
-def _add_voxel_affine_coords(
-    da: xr.DataArray,
-    *,
-    voxel_dims: tuple[str, ...],
-    spacing: tuple[float, ...],
-    origin: tuple[float, ...],
-) -> xr.DataArray:
-    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
-
-    affine = np.eye(len(voxel_dims) + 1, dtype=np.float64)
-    affine[:-1, :-1] = np.diag(spacing)
-    affine[:-1, -1] = origin
-    physical_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
-    return add_physical_coords_from_voxel_affine(
-        da,
-        affine,
-        voxel_dims=voxel_dims,
-        physical_coord_names=physical_names,
-        physical_coord_attrs={
-            name: {"units": "mm", "voxdim": step}
-            for name, step in zip(physical_names, spacing, strict=True)
-        },
-    )
-
-
 @pytest.fixture
 def singleton_registration_volume():
     """Small singleton-slice (k, j, i) volume for registration progress tests."""
     arr = np.zeros((1, 16, 16), dtype=np.float32)
     arr[0, 6:10, 6:10] = 1.0
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         arr,
-        dims=("k", "j", "i"),
-        coords={"k": [0.0], "j": np.arange(16), "i": np.arange(16)},
-    )
-    return _add_voxel_affine_coords(
-        da,
-        voxel_dims=("k", "j", "i"),
+        dims=("z", "y", "x"),
         spacing=(0.1, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
     )
 
 
 @pytest.fixture
-def sample_3d_volume(rng):
+def sample_fusi_3d(rng):
     """3D spatial volume (z, y, x) with consistent spatial coordinates.
 
     Shape: (4, 6, 8) - small enough for fast tests.
@@ -615,141 +586,62 @@ def sample_3d_volume(rng):
     """
     shape = (4, 6, 8)
     data = rng.random(shape)
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         data,
         name="power_doppler",
-        dims=["k", "j", "i"],
-        coords={
-            "k": np.arange(4),
-            "j": np.arange(6),
-            "i": np.arange(8),
-            "time": 0.0,
-        },
-        attrs={
-            "long_name": "Intensity",
-            "units": "a.u.",
-        },
-    )
-    return _add_voxel_affine_coords(
-        da,
-        voxel_dims=("k", "j", "i"),
+        dims=("z", "y", "x"),
+        attrs={"long_name": "Intensity", "units": "a.u."},
         spacing=(0.2, 0.1, 0.05),
         origin=(1.0, 2.0, 3.0),
-    )
+    ).assign_coords(time=0.0)
 
 
 @pytest.fixture
-def sample_3dt_volume(rng):
+def sample_fusi_3dt(rng):
     """3D+t volume (time, z, y, x) with consistent coordinates.
 
     Shape: (10, 4, 6, 8) - small enough for fast tests. Spatial coordinates match
-    sample_3d_volume exactly. Includes name and metadata attributes for testing labels
+    sample_fusi_3d exactly. Includes name and metadata attributes for testing labels
     and units.
     """
     shape = (10, 4, 6, 8)
     data = rng.random(shape)
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         data,
         name="power_doppler",
-        dims=["time", "k", "j", "i"],
-        coords={
-            "time": xr.DataArray(
-                10.0 + np.arange(10) * 0.5,
-                dims=["time"],
-                attrs={"units": "s"},
-            ),
-            "k": np.arange(4),
-            "j": np.arange(6),
-            "i": np.arange(8),
-        },
-        attrs={
-            "long_name": "Intensity",
-            "units": "a.u.",
-        },
-    )
-    return _add_voxel_affine_coords(
-        da,
-        voxel_dims=("k", "j", "i"),
+        dims=("time", "z", "y", "x"),
+        time=xr.DataArray(
+            10.0 + np.arange(10) * 0.5,
+            dims=("time",),
+            attrs={"units": "s"},
+        ),
+        attrs={"long_name": "Intensity", "units": "a.u."},
         spacing=(0.2, 0.1, 0.05),
         origin=(1.0, 2.0, 3.0),
     )
 
 
 @pytest.fixture
-def sample_2dt_volume(sample_3dt_volume):
-    """2D+t volume (time, y, x) with consistent coordinates.
-
-    Shape: (10, 6, 8) - small enough for fast tests. Spatial coordinates match
-    sample_3dt_volume without the z-dimension. Includes name and metadata attributes for
-    testing labels and units.
-    """
-    data = sample_3dt_volume.isel(k=0, drop=True).drop_vars("z")
-    data = (
-        data.drop_vars("voxel_to_physical", errors="ignore")
-        if "voxel_to_physical" in data.coords
-        else data
-    )
-    data.attrs.pop("voxel_to_physical", None)
-    return _add_voxel_affine_coords(
-        data.drop_vars("k", errors="ignore"),
-        voxel_dims=("j", "i"),
-        spacing=(0.1, 0.05),
-        origin=(2.0, 3.0),
-    )
-
-
-@pytest.fixture
-def sample_3dt_volume_complex(rng):
+def sample_iq_3dt(rng):
     """Complex-valued 3D+t volume (time, k, j, i) for IQ processing tests.
 
-    Shape: (10, 4, 6, 8) - matches sample_3dt_volume spatial dimensions. Includes name
+    Shape: (10, 4, 6, 8) - matches sample_fusi_3dt spatial dimensions. Includes name
     and metadata attributes for testing labels and units.
     """
-    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
-
     shape = (10, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)
-    da = xr.DataArray(
+    return create_iq_dataarray(
         data,
         name="iq",
-        dims=["time", "k", "j", "i"],
-        coords={
-            "time": xr.DataArray(
-                np.arange(10) * 0.1,
-                dims=["time"],
-                attrs={"units": "s"},
-            ),
-            "k": xr.DataArray(
-                np.arange(4),
-                dims=["k"],
-                attrs={"voxdim": 1.0},
-            ),
-            "j": xr.DataArray(
-                np.arange(6),
-                dims=["j"],
-                attrs={"voxdim": 1.0},
-            ),
-            "i": xr.DataArray(
-                np.arange(8),
-                dims=["i"],
-                attrs={"voxdim": 1.0},
-            ),
-        },
-        attrs={
-            "long_name": "Complex Signal",
-            "units": "a.u.",
-        },
-    )
-    return add_physical_coords_from_voxel_affine(
-        da,
-        np.diag([0.1, 0.05, 0.05, 1.0]),
-        voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
-            "z": {"units": "mm", "voxdim": 0.1},
-            "y": {"units": "mm", "voxdim": 0.05},
-            "x": {"units": "mm", "voxdim": 0.05},
-        },
+        dims=("time", "z", "y", "x"),
+        time=xr.DataArray(
+            np.arange(10) * 0.1,
+            dims=("time",),
+            attrs={"units": "s"},
+        ),
+        attrs={"long_name": "Complex Signal", "units": "a.u."},
+        spacing=(0.1, 0.05, 0.05),
+        origin=(0.0, 0.0, 0.0),
     )
 
 
@@ -779,19 +671,19 @@ def sample_timeseries(rng):
 
 
 @pytest.fixture
-def spatial_mask(rng, sample_3dt_volume):
+def spatial_mask(rng, sample_fusi_3dt):
     """Boolean spatial mask matching (z, y, x) of sample volumes."""
-    _, z, y, x = sample_3dt_volume.shape
+    _, z, y, x = sample_fusi_3dt.shape
     return rng.random((z, y, x)) > 0.5
 
 
 @pytest.fixture
 def sample_roi_labels():
-    """Integer ROI label map matching `sample_3d_volume`'s spatial grid.
+    """Integer ROI label map matching `sample_fusi_3d`'s spatial grid.
 
     Three named regions with disjoint label ids — small enough for fast tests,
     structured enough that any per-region failure is visible. Coordinates and
-    units match `sample_3d_volume` so the fixtures pair naturally for tests
+    units match `sample_fusi_3d` so the fixtures pair naturally for tests
     combining image + label data.
 
     Attributes mirror what `Atlas` / `labels_from_layer` produce in production:
@@ -803,20 +695,15 @@ def sample_roi_labels():
     values[1, 2:4, 3:5] = 7  # somatosensory.
     values[2, 4:6, 5:8] = 42  # visual.
 
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         values,
         name="roi_labels",
-        dims=["k", "j", "i"],
-        coords={"k": np.arange(4), "j": np.arange(6), "i": np.arange(8)},
+        dims=("z", "y", "x"),
         attrs={
             "long_name": "ROI labels",
             "roi_labels": {3: "motor", 7: "somatosensory", 42: "visual"},
             "rgb_lookup": {3: [0, 0, 255], 7: [255, 0, 0], 42: [0, 255, 0]},
         },
-    )
-    return _add_voxel_affine_coords(
-        da,
-        voxel_dims=("k", "j", "i"),
         spacing=(0.2, 0.1, 0.05),
         origin=(1.0, 2.0, 3.0),
     )
@@ -837,8 +724,8 @@ def integer_nifti_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
 
 
 @pytest.fixture
-def float_nifti_path(tmp_path: Path, sample_3d_volume: xr.DataArray) -> Path:
-    """`sample_3d_volume` written to a NIfTI file.
+def float_nifti_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
+    """`sample_fusi_3d` written to a NIfTI file.
 
     Shared by tests covering float-dtype file loading (CLI, native readers, GUI
     panels) so they all exercise the exact same on-disk data.
@@ -846,10 +733,10 @@ def float_nifti_path(tmp_path: Path, sample_3d_volume: xr.DataArray) -> Path:
     from confusius.io import save_nifti
 
     path = tmp_path / "power_doppler.nii.gz"
-    # sample_3d_volume's scalar `time` coord has no FrameAcquisitionDuration, which
+    # sample_fusi_3d's scalar `time` coord has no FrameAcquisitionDuration, which
     # save_nifti's BIDS sidecar validation requires once VolumeTiming is written;
     # this fixture only needs a plain spatial volume, so drop it before saving.
-    save_nifti(sample_3d_volume.drop_vars("time"), path)
+    save_nifti(sample_fusi_3d.drop_vars("time"), path)
     return path
 
 

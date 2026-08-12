@@ -78,7 +78,7 @@ print(f"Data shape: {doppler.shape}")
 # ## Wrap the raw array with [`create_fusi_dataarray`][cf.create_fusi_dataarray]
 #
 # The MATLAB array is `(time, x, y)` natively: 128 lateral positions matching the probe
-# pitch, and 240 depth samples. ConfUSIus adds the missing singleton `z` axis and
+# pitch, and 240 depth samples. ConfUSIus adds the missing singleton `k` axis and
 # returns the canonical `(time, k, j, i)` layout, with `z`/`y`/`x` attached as physical
 # coordinates. The timestamps have small acquisition jitter, so we pass them as an exact
 # coordinate. Following the authors' analysis code, we use the acoustic wavelength from

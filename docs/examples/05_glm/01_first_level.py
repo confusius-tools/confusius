@@ -102,19 +102,18 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     """Load fUSI data and prepare geometry for analysis and visualization.
 
     The Khallaf et al. 2026 dataset is stored with a different spatial convention than
-    the one ConfUSIus is comfortable with. The main differences are:
+    ConfUSIus. The main differences are:
 
-    - The elevation axis is the "y" axis in the dataset, not "z".
-    - The axial/depth axis is the "z" axis in the dataset, not "y".
-    - The axial/depth direction goes "towards" the transducer, not "away" from it,
-      which is the default in ConfUSIus.
-    - The files' `sform` points to a non-metric physical space and cannot currently be
-      used. Because its `sform_code` is valid, loaded coordinates are nevertheless
-      expressed in that space.
+    - The dataset uses `(k, j, i) = (depth, elevation, lateral)` instead of `(elevation,
+      depth, lateral)`.
+    - The depth direction is toward the transducer instead of away.
+    - The files' `sform` affines target a non-metric custom world space that isn't
+      documented. Because its `sform_code` is non-zero, this affine is used to define
+      the world coordinates.
 
     In this function, we prepare the data as follows:
 
-    1. Transpose "z" and "y".
+    1. Permute "k" and "j".
     2. Match transpose "z" and "y" in the `physical_to_qform` affine.
     3. Apply the `physical_to_qform` to the coordinates to have metric coordinates.
     4. Shift the origin of the coordinates to the corner of the volume (nice to have).
@@ -141,12 +140,12 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     da = da.transpose(*transpose_dims).rename(j="k", k="j")
 
     # Swapping which voxel dim (k vs j) holds which data must be matched by swapping
-    # `voxel_to_physical`'s z/y output rows *and* k/j input columns together, so the
+    # `voxel_to_world`'s z/y output rows *and* k/j input columns together, so the
     # affine's per-axis coefficients (spacing, origin) stay attached to the right data.
     swap_kj_zy = np.eye(4)
     swap_kj_zy[[0, 1]] = swap_kj_zy[[1, 0]]
     da = da.assign_attrs(
-        voxel_to_physical=swap_kj_zy @ da.attrs["voxel_to_physical"] @ swap_kj_zy
+        voxel_to_world=swap_kj_zy @ da.attrs["voxel_to_world"] @ swap_kj_zy
     )
     da, _ = da.fusi.affine.apply(np.eye(4))
 
@@ -175,8 +174,8 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         da.coords[dim].attrs["units"] = "mm"
 
     # 6. Flip the "y" axis to have a depth direction "away" from the transducer, and
-    #    7. flip the "z" axis to match the atlas orientation. Under ConfUSIus's
-    #    voxel-affine (CTI) geometry, `.fusi.affine.apply` alone is sufficient: it
+    #    7. flip the "z" axis to match the atlas orientation. With ConfUSIus
+    #    voxel-to-world geometry, `.fusi.affine.apply` alone is sufficient: it
     #    mirrors the *coordinate values*, which is all that flipping requires. A
     #    decreasing physical coordinate (higher voxel index -> lower z/y) is valid;
     #    there is no need to also reverse the underlying array with `.isel(..., ::-1)`

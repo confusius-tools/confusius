@@ -81,8 +81,8 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     ]
 
     data_array = np.asarray(data)
-    voxel_to_physical_name = {"k": "z", "j": "y", "i": "x"}
-    physical_to_voxel_name = {v: k for k, v in voxel_to_physical_name.items()}
+    voxel_to_world_name = {"k": "z", "j": "y", "i": "x"}
+    physical_to_voxel_name = {v: k for k, v in voxel_to_world_name.items()}
 
     result_dims: list[str] = []
     coords: dict[str, xr.DataArray] = {}
@@ -97,9 +97,9 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
         if dim in physical_to_voxel_name:
             result_dim = physical_to_voxel_name[dim]
             physical_name = dim
-        elif dim in voxel_to_physical_name:
+        elif dim in voxel_to_world_name:
             result_dim = dim
-            physical_name = voxel_to_physical_name[dim]
+            physical_name = voxel_to_world_name[dim]
         else:
             result_dim = dim
             physical_name = ""
@@ -126,17 +126,17 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     if not voxel_dims:
         return result
 
-    from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+    from confusius._utils.geometry import add_world_coords_from_voxel_affine
 
     affine = np.eye(len(voxel_dims) + 1, dtype=float)
     affine[:-1, :-1] = np.diag(affine_scales)
     affine[:-1, -1] = affine_translates
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         result,
         affine,
         voxel_dims=tuple(voxel_dims),
-        physical_coord_names=tuple(physical_names),
-        physical_coord_attrs=physical_attrs,
+        world_coord_names=tuple(physical_names),
+        world_coord_attrs=physical_attrs,
     )
 
 

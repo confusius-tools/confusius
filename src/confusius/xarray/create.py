@@ -10,7 +10,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
 from confusius.validation import validate_fusi, validate_iq
 
@@ -235,12 +235,17 @@ def _coordinate_dataarray(
     if explicit is not None:
         coord_values, attrs = explicit
         _validate_coordinate_shape(dim, coord_values, size)
-    elif dim in spacings:
+    elif dim in spacings and not (
+        dim == TIME_DIM and size == 1 and spacings[dim] is None
+    ):
         step = _require_spacing(dim, spacings[dim])
         origin = origins[dim]
         if origin is None:
             raise ValueError(f"Origin for dimension {dim!r} must be provided.")
         coord_values = origin + np.arange(size) * step
+        attrs = {}
+    elif dim == TIME_DIM and size == 1:
+        coord_values = np.array([origins[dim]])
         attrs = {}
     else:
         coord_values = np.arange(size)
@@ -260,11 +265,12 @@ def _coordinate_dataarray(
                 f"{attrs['volume_acquisition_reference']!r}."
             )
         duration = attrs.get("volume_acquisition_duration", volume_acquisition_duration)
-        attrs["volume_acquisition_duration"] = (
-            _require_spacing(dim, step)
-            if duration is None
-            else _require_positive_finite(duration, "volume_acquisition_duration")
-        )
+        if duration is not None:
+            attrs["volume_acquisition_duration"] = _require_positive_finite(
+                duration, "volume_acquisition_duration"
+            )
+        elif step is not None:
+            attrs["volume_acquisition_duration"] = _require_spacing(dim, step)
 
     return xr.DataArray(coord_values, dims=(dim,), attrs=attrs)
 
@@ -362,95 +368,222 @@ def _spatial_geometry(
     )
 
 
-def create_fusi_dataarray(
-    data: npt.ArrayLike,
-    *,
-    dims: Sequence[str],
-    coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
-    dt: float | None = None,
-    dz: float | None = None,
-    dy: float | None = None,
-    dx: float | None = None,
-    t0: float = 0.0,
-    z0: float | None = None,
-    y0: float | None = None,
-    x0: float | None = None,
-    canonical_order: bool = True,
-    volume_acquisition_reference: VolumeAcquisitionReference = "start",
-    volume_acquisition_duration: float | None = None,
-    name: str | None = None,
-    attrs: dict[str, Any] | None = None,
-    voxel_to_physical: npt.ArrayLike | None = None,
-) -> xr.DataArray:
-    """Build a ConfUSIus fUSI DataArray from a raw array.
+def _spatial_origin_defaults(
+    sizes: Mapping[str, int], spacing: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """Return default world origins for ConfUSIus probe geometry.
 
     Parameters
     ----------
-    data : numpy.typing.ArrayLike
-        Raw array whose rank matches the length of `dims`.
-    dims : sequence[str]
-        Explicit dimension names for each axis. Spatial axes may be supplied as public
-        physical names `z/y/x` or native voxel names `k/j/i`; the returned DataArray
-        always uses native voxel dimensions and CTI-backed physical coordinates.
-    coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
-        Explicit 1D coordinates. Spatial physical coordinates `z/y/x` define the
-        output affine; native voxel coordinates `k/j/i` define the sampled voxel axis.
-    dt : float, optional
-        Spacing of the `time` coordinate, in seconds.
-    dz : float, optional
-        Spacing of the `z` physical coordinate, in millimetres.
-    dy : float, optional
-        Spacing of the `y` physical coordinate, in millimetres.
-    dx : float, optional
-        Spacing of the `x` physical coordinate, in millimetres.
-    t0 : float, default: 0.0
-        Physical position of the first `time` sample, in seconds.
-    z0 : float, optional
-        Physical position of the first `z` voxel's center, in millimetres. If not
-        provided, assumes `z` is the elevation axis and places the origin at the
-        center of the probe surface (see the
-        [Spatial Conventions](../../user-guide/spatial-conventions.md) guide for
-        the exact convention).
-    y0 : float, optional
-        Physical position of the first `y` voxel's center, in millimetres. If not
-        provided, assumes `y` is the depth axis and places the origin at the
-        center of the probe surface.
-    x0 : float, optional
-        Physical position of the first `x` voxel's center, in millimetres. If not
-        provided, assumes `x` is the lateral axis and places the origin at the
-        center of the probe surface.
-    canonical_order : bool, default: True
-        Whether to transpose core dimensions to `(time, pose, k, j, i)` order.
-    volume_acquisition_reference : {"start", "center", "end"}, default: "start"
-        Where within its acquisition window each frame's `time` coordinate is anchored.
-    volume_acquisition_duration : float, optional
-        Duration of a single volume's acquisition window, in seconds.
-    name : str, optional
-        Name assigned to the resulting DataArray.
-    attrs : dict, optional
-        DataArray-level attributes.
-    voxel_to_physical : numpy.typing.ArrayLike, optional
-        Homogeneous affine mapping native voxel coordinates to physical coordinates
-        `z/y/x`. If provided, `dz`/`dy`/`dx`, `z0`/`y0`/`x0`, and any physical
-        `z/y/x` coordinates in `coords` are ignored. Its columns follow the order
-        spatial axes appear in `dims` (matching `data`'s own layout), not canonical
-        `k/j/i` order; a spatial axis missing from `dims` (added as a singleton) is
-        assumed last. Internally re-ordered to canonical `k/j/i` order before use.
+    sizes : mapping[str, int]
+        Spatial voxel sizes keyed by native `k/j/i` dimension name.
+    spacing : tuple[float, float, float]
+        World spacing in `z/y/x` order.
 
     Returns
     -------
-    xarray.DataArray
-        ConfUSIus fUSI DataArray with native voxel dimensions and CTI-backed physical
-        coordinates.
+    tuple[float, float, float]
+        Default origin in `z/y/x` order.
+    """
+    return (
+        -spacing[0] * (sizes["k"] - 1) / 2,
+        spacing[1] / 2,
+        -spacing[2] * (sizes["i"] - 1) / 2,
+    )
+
+
+def _as_spatial_tuple(
+    values: Sequence[float] | None,
+    *,
+    name: str,
+    required: bool = False,
+) -> tuple[float, float, float] | None:
+    """Validate a positive finite `z/y/x` tuple argument.
+
+    Parameters
+    ----------
+    values : sequence[float], optional
+        Candidate tuple values in `z/y/x` order.
+    name : str
+        Argument name used in validation errors.
+    required : bool, default: False
+        Whether to reject missing values.
+
+    Returns
+    -------
+    tuple[float, float, float] or None
+        Validated tuple, or None when not required and not provided.
 
     Raises
     ------
     ValueError
-        If dimensions, coordinates, spacing, timing metadata, or fUSI validation fail.
+        If values are missing when required, have the wrong length, or are not positive
+        and finite.
+    """
+    if values is None:
+        if required:
+            raise ValueError(f"{name} must be provided.")
+        return None
+    if len(values) != len(SPATIAL_DIMS):
+        raise ValueError(f"{name} must have length 3 in z/y/x order.")
+    z, y, x = values
+    return (
+        _require_positive_finite(z, name),
+        _require_positive_finite(y, name),
+        _require_positive_finite(x, name),
+    )
+
+
+def _resolve_voxel_to_world(
+    *,
+    spatial_sizes: Mapping[str, int],
+    spacing: Sequence[float] | None,
+    origin: Sequence[float] | None,
+    direction: npt.ArrayLike | None,
+    voxel_to_world: npt.ArrayLike | None,
+) -> npt.NDArray[np.float64]:
+    """Resolve constructor geometry to one canonical 4x4 affine.
+
+    Parameters
+    ----------
+    spatial_sizes : mapping[str, int]
+        Spatial voxel sizes keyed by native `k/j/i` dimension name.
+    spacing : sequence[float], optional
+        World spacing in `z/y/x` order.
+    origin : sequence[float], optional
+        World origin in `z/y/x` order. If not provided, ConfUSIus probe defaults are
+        used.
+    direction : numpy.typing.ArrayLike, optional
+        3x3 world direction matrix in `z/y/x` row and `k/j/i` column order.
+    voxel_to_world : numpy.typing.ArrayLike, optional
+        4x4 homogeneous affine in `z/y/x` row and `k/j/i` column order.
+
+    Returns
+    -------
+    (4, 4) numpy.ndarray
+        Homogeneous voxel-to-world affine.
+
+    Raises
+    ------
+    ValueError
+        If geometry inputs are ambiguous or invalid.
+    """
+    if voxel_to_world is not None:
+        if spacing is not None or origin is not None or direction is not None:
+            raise ValueError(
+                "voxel_to_world is mutually exclusive with spacing, origin, and "
+                "direction."
+            )
+        affine = np.asarray(voxel_to_world, dtype=np.float64)
+        if affine.shape != (4, 4):
+            raise ValueError(
+                f"voxel_to_world must have shape (4, 4), got {affine.shape}."
+            )
+        if not np.allclose(affine[-1], [0.0, 0.0, 0.0, 1.0]):
+            raise ValueError("voxel_to_world must be a homogeneous affine.")
+        return affine
+
+    resolved_spacing = _as_spatial_tuple(spacing, name="spacing", required=True)
+    assert resolved_spacing is not None
+    if origin is None:
+        resolved_origin = _spatial_origin_defaults(spatial_sizes, resolved_spacing)
+    else:
+        if len(origin) != len(SPATIAL_DIMS):
+            raise ValueError("origin must have length 3 in z/y/x order.")
+        resolved_origin = tuple(float(value) for value in origin)
+        if not np.all(np.isfinite(resolved_origin)):
+            raise ValueError("origin must contain finite values.")
+
+    resolved_direction = (
+        np.eye(3, dtype=np.float64)
+        if direction is None
+        else np.asarray(direction, dtype=np.float64)
+    )
+    if resolved_direction.shape != (3, 3):
+        raise ValueError(
+            f"direction must have shape (3, 3), got {resolved_direction.shape}."
+        )
+    if not np.all(np.isfinite(resolved_direction)):
+        raise ValueError("direction must contain finite values.")
+
+    affine = np.eye(4, dtype=np.float64)
+    affine[:3, :3] = resolved_direction @ np.diag(resolved_spacing)
+    affine[:3, 3] = resolved_origin
+    return affine
+
+
+def create_fusi_dataarray(
+    data: npt.ArrayLike,
+    *,
+    dims: Sequence[str],
+    time: npt.ArrayLike | xr.DataArray | None = None,
+    pose: npt.ArrayLike | xr.DataArray | None = None,
+    extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
+    dt: float | None = None,
+    t0: float = 0.0,
+    spacing: Sequence[float] | None = None,
+    origin: Sequence[float] | None = None,
+    direction: npt.ArrayLike | None = None,
+    voxdim: Sequence[float] | None = None,
+    volume_acquisition_reference: VolumeAcquisitionReference = "start",
+    volume_acquisition_duration: float | None = None,
+    name: str | None = None,
+    attrs: dict[str, Any] | None = None,
+    voxel_to_world: npt.ArrayLike | None = None,
+) -> xr.DataArray:
+    """Build a canonical ConfUSIus fUSI DataArray from a raw array.
+
+    Parameters
+    ----------
+    data : numpy.typing.ArrayLike
+        Raw array whose rank matches `dims`.
+    dims : sequence[str]
+        Input dimension names. Spatial dimensions may be named `z/y/x` or `k/j/i`;
+        the returned DataArray uses native voxel dimensions in canonical core order.
+    time : numpy.typing.ArrayLike or xarray.DataArray, optional
+        Coordinate for the `time` dimension.
+    pose : numpy.typing.ArrayLike or xarray.DataArray, optional
+        Coordinate for the `pose` dimension.
+    extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
+        Coordinates for non-core dimensions only.
+    dt : float, optional
+        Time spacing in seconds, used when `time` is not provided.
+    t0 : float, default: 0.0
+        First time coordinate value when `dt` is used.
+    spacing : sequence[float], optional
+        World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
+    origin : sequence[float], optional
+        World origin in `z/y/x` order. If not provided, ConfUSIus probe defaults are
+        used.
+    direction : numpy.typing.ArrayLike, optional
+        3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
+    voxdim : sequence[float], optional
+        `voxdim` metadata in `z/y/x` order. If not provided, affine column norms are
+        used.
+    volume_acquisition_reference : {"start", "center", "end"}, default: "start"
+        Time reference stored on generated `time` coordinates.
+    volume_acquisition_duration : float, optional
+        Acquisition duration stored on generated `time` coordinates.
+    name : str, optional
+        DataArray name.
+    attrs : dict, optional
+        DataArray attributes.
+    voxel_to_world : numpy.typing.ArrayLike, optional
+        4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
+
+    Returns
+    -------
+    xarray.DataArray
+        Canonical fUSI DataArray with native voxel dimensions and world coordinates.
+
+    Raises
+    ------
+    ValueError
+        If dimensions, coordinates, geometry, timing, or fUSI validation fail.
     """
     dims = tuple(str(dim) for dim in dims)
-    coords = {} if coords is None else dict(coords)
     shape = np.shape(data)
+    extra_coords = {} if extra_coords is None else dict(extra_coords)
 
     if len(set(dims)) != len(dims):
         raise ValueError(f"dims must not contain duplicate names, got {dims!r}.")
@@ -464,149 +597,136 @@ def create_fusi_dataarray(
             f"volume_acquisition_reference must be one of "
             f"{tuple(TIMING_REFERENCE_FACTORS)!r}, got {volume_acquisition_reference!r}."
         )
-    if TIME_DIM not in dims and volume_acquisition_duration is not None:
-        raise ValueError("volume_acquisition_duration requires a 'time' dimension.")
+    if TIME_DIM not in dims and (
+        volume_acquisition_duration is not None or time is not None
+    ):
+        raise ValueError(
+            "time and volume_acquisition_duration require a 'time' dimension."
+        )
 
+    forbidden_extra = set(CORE_DIMS) | set(SPATIAL_DIMS)
+    overlap = sorted(forbidden_extra & set(extra_coords))
+    if overlap:
+        raise ValueError(
+            f"extra_coords must not include core coordinates: {overlap!r}."
+        )
+
+    data_array = np.asarray(data)
     data_dims = tuple(_SPATIAL_TO_VOXEL.get(dim, dim) for dim in dims)
     if len(set(data_dims)) != len(data_dims):
         raise ValueError(
-            "dims must not mix physical and voxel names for the same axis; got "
-            f"{dims!r}."
+            f"dims must not mix world and voxel names for the same axis; got {dims!r}."
         )
+    for dim in VOXEL_DIMS:
+        if dim not in data_dims:
+            data_array = np.expand_dims(data_array, axis=-1)
+            data_dims = (*data_dims, dim)
 
-    spacings = {TIME_DIM: dt, "z": dz, "y": dy, "x": dx}
-    origins = {TIME_DIM: t0, "z": z0, "y": y0, "x": x0}
-
-    data_coords: dict[str, xr.DataArray] = {}
     spatial_sizes = {voxel_dim: 1 for voxel_dim in VOXEL_DIMS}
-    for dim, size in zip(data_dims, shape, strict=True):
+    for dim, size in zip(data_dims, data_array.shape, strict=True):
         if dim in VOXEL_DIMS:
             spatial_sizes[dim] = int(size)
+
+    coord_inputs: dict[str, npt.ArrayLike | xr.DataArray] = dict(extra_coords)
+    if time is not None:
+        coord_inputs[TIME_DIM] = time
+    if pose is not None:
+        coord_inputs["pose"] = pose
+
+    data_coords: dict[str, xr.DataArray] = {}
+    spacings = {TIME_DIM: dt}
+    origins = {TIME_DIM: t0}
+    for dim, size in zip(data_dims, data_array.shape, strict=True):
+        if dim in VOXEL_DIMS:
             continue
         data_coords[dim] = _coordinate_dataarray(
             dim,
             int(size),
-            coords=coords,
+            coords=coord_inputs,
             spacings=spacings,
             origins=origins,
             volume_acquisition_reference=volume_acquisition_reference,
             volume_acquisition_duration=volume_acquisition_duration,
         )
 
-    voxel_coords: dict[str, xr.DataArray] = {}
-    physical_attrs: dict[str, dict[str, Any]] = {}
-    if voxel_to_physical is None:
-        physical_origins: list[float] = []
-        physical_spacings: list[float] = []
-        for physical_dim, voxel_dim in zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True):
-            voxel_coord, physical_origin, physical_spacing, attrs_for_physical = (
-                _spatial_geometry(
-                    physical_dim,
-                    voxel_dim,
-                    spatial_sizes[voxel_dim],
-                    coords=coords,
-                    spacing=spacings[physical_dim],
-                    origin=origins[physical_dim],
-                )
+    resolved_voxel_to_world = _resolve_voxel_to_world(
+        spatial_sizes=spatial_sizes,
+        spacing=spacing,
+        origin=origin,
+        direction=direction,
+        voxel_to_world=voxel_to_world,
+    )
+    if voxdim is None:
+        resolved_voxdim = tuple(
+            _require_positive_finite(value, f"voxdim for dimension {dim!r}")
+            for dim, value in zip(
+                SPATIAL_DIMS,
+                np.linalg.norm(resolved_voxel_to_world[:3, :3], axis=0),
+                strict=True,
             )
-            voxel_coords[voxel_dim] = voxel_coord
-            physical_origins.append(physical_origin)
-            physical_spacings.append(physical_spacing)
-            physical_attrs[physical_dim] = attrs_for_physical
-        resolved_voxel_to_physical = np.eye(len(VOXEL_DIMS) + 1, dtype=np.float64)
-        resolved_voxel_to_physical[:-1, :-1] = np.diag(physical_spacings)
-        resolved_voxel_to_physical[:-1, -1] = physical_origins
+        )
     else:
-        input_voxel_to_physical = np.asarray(voxel_to_physical, dtype=np.float64)
-        expected_shape = (len(VOXEL_DIMS) + 1, len(VOXEL_DIMS) + 1)
-        if input_voxel_to_physical.shape != expected_shape:
-            raise ValueError(
-                f"voxel_to_physical must have shape {expected_shape}, got "
-                f"{input_voxel_to_physical.shape}."
-            )
-        if not np.allclose(input_voxel_to_physical[-1], [0.0, 0.0, 0.0, 1.0]):
-            raise ValueError("voxel_to_physical must be a homogeneous affine.")
+        resolved_voxdim = _as_spatial_tuple(voxdim, name="voxdim", required=True)
+        assert resolved_voxdim is not None
 
-        # voxel_to_physical's columns are given in the order spatial axes appear in
-        # `dims` (matching the caller's raw array layout), not canonical k/j/i order;
-        # any spatial dim missing from `dims` (added as a singleton) is assumed last,
-        # matching where it is appended below. Permute into canonical order here so
-        # the rest of the function (and the resulting attrs) can assume it throughout.
-        input_order = tuple(dim for dim in data_dims if dim in VOXEL_DIMS)
-        input_order += tuple(dim for dim in VOXEL_DIMS if dim not in input_order)
-        column_perm = [input_order.index(dim) for dim in VOXEL_DIMS]
-        resolved_voxel_to_physical = np.eye(len(VOXEL_DIMS) + 1, dtype=np.float64)
-        resolved_voxel_to_physical[:-1, :-1] = input_voxel_to_physical[:-1, :-1][
-            :, column_perm
-        ]
-        resolved_voxel_to_physical[:-1, -1] = input_voxel_to_physical[:-1, -1]
-
-        column_norms = np.linalg.norm(resolved_voxel_to_physical[:-1, :-1], axis=0)
-        for physical_dim, voxel_dim, spacing in zip(
-            SPATIAL_DIMS, VOXEL_DIMS, column_norms, strict=True
-        ):
-            explicit = _coordinate_values_and_attrs(voxel_dim, coords)
-            if explicit is None:
-                voxel_coords[voxel_dim] = xr.DataArray(
-                    np.arange(spatial_sizes[voxel_dim], dtype=float),
-                    dims=(voxel_dim,),
-                )
-            else:
-                values, coord_attrs = explicit
-                _validate_coordinate_shape(voxel_dim, values, spatial_sizes[voxel_dim])
-                voxel_coords[voxel_dim] = xr.DataArray(
-                    values, dims=(voxel_dim,), attrs=coord_attrs
-                )
-            physical_attrs[physical_dim] = {
-                "units": _SPATIAL_UNITS,
-                "voxdim": _require_positive_finite(
-                    spacing, f"voxdim for dimension {physical_dim!r}"
-                ),
-            }
+    voxel_coords = {
+        dim: xr.DataArray(np.arange(spatial_sizes[dim], dtype=float), dims=(dim,))
+        for dim in VOXEL_DIMS
+        if dim in data_dims
+    }
+    physical_attrs = {
+        dim: {"units": _SPATIAL_UNITS, "voxdim": value}
+        for dim, value in zip(SPATIAL_DIMS, resolved_voxdim, strict=True)
+    }
 
     result = xr.DataArray(
-        data,
+        data_array,
         dims=data_dims,
         coords={
             **data_coords,
-            **{d: voxel_coords[d] for d in data_dims if d in VOXEL_DIMS},
+            **{dim: voxel_coords[dim] for dim in data_dims if dim in VOXEL_DIMS},
         },
         name=name,
         attrs={} if attrs is None else dict(attrs),
     )
 
-    for dim in VOXEL_DIMS:
-        if dim not in result.dims:
-            result = result.expand_dims(
-                {dim: voxel_coords[dim].values}, axis=len(result.dims)
-            )
-            result.coords[dim].attrs.update(voxel_coords[dim].attrs)
+    present_voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in result.dims)
+    present_world_names = tuple(
+        world
+        for voxel, world in zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True)
+        if voxel in present_voxel_dims
+    )
+    present_indices = [VOXEL_DIMS.index(dim) for dim in present_voxel_dims]
+    index_affine = np.eye(len(present_voxel_dims) + 1, dtype=np.float64)
+    index_affine[:-1, :-1] = resolved_voxel_to_world[:3, :3][
+        np.ix_(present_indices, present_indices)
+    ]
+    index_affine[:-1, -1] = resolved_voxel_to_world[:3, -1][present_indices]
 
-    result = add_physical_coords_from_voxel_affine(
+    result = add_world_coords_from_voxel_affine(
         result,
-        resolved_voxel_to_physical,
-        voxel_dims=VOXEL_DIMS,
-        physical_coord_names=SPATIAL_DIMS,
-        physical_coord_attrs=physical_attrs,
+        index_affine,
+        voxel_dims=present_voxel_dims,
+        world_coord_names=present_world_names,
+        world_coord_attrs={name: physical_attrs[name] for name in present_world_names},
     )
 
-    if canonical_order:
-        ordered_core = [dim for dim in CORE_DIMS if dim in result.dims]
-        extra_dims = [dim for dim in result.dims if dim not in CORE_DIMS]
-        result = result.transpose(*ordered_core, *extra_dims)
+    extra_dims = [dim for dim in result.dims if dim not in CORE_DIMS]
+    ordered_core = [dim for dim in CORE_DIMS if dim in result.dims]
+    result = result.transpose(*extra_dims, *ordered_core)
 
     regular_spacing_dims = tuple(
         dim
         for dim in CORE_DIMS
         if dim in result.dims
-        and not (dim == TIME_DIM and result.sizes[dim] == 1)
-        and not (dim == TIME_DIM and TIME_DIM in coords)
+        and result.sizes[dim] > 1
+        and not (dim == TIME_DIM and time is not None)
     )
     validate_fusi(
         result,
         require_regular_spacing=True,
         regular_spacing_dims=regular_spacing_dims,
-        require_canonical_dim_order=canonical_order,
+        require_canonical_dim_order=True,
     )
     return result
 
@@ -615,82 +735,68 @@ def create_iq_dataarray(
     data: npt.ArrayLike,
     *,
     dims: Sequence[str],
-    coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
+    time: npt.ArrayLike | xr.DataArray | None = None,
+    pose: npt.ArrayLike | xr.DataArray | None = None,
+    extra_coords: Mapping[str, npt.ArrayLike | xr.DataArray] | None = None,
     dt: float | None = None,
-    dz: float | None = None,
-    dy: float | None = None,
-    dx: float | None = None,
     t0: float = 0.0,
-    z0: float | None = None,
-    y0: float | None = None,
-    x0: float | None = None,
+    spacing: Sequence[float] | None = None,
+    origin: Sequence[float] | None = None,
+    direction: npt.ArrayLike | None = None,
+    voxdim: Sequence[float] | None = None,
     volume_acquisition_reference: VolumeAcquisitionReference = "start",
     volume_acquisition_duration: float | None = None,
     transmit_frequency: float | None = None,
     beamforming_sound_velocity: float | None = None,
     name: str | None = "iq",
     attrs: dict[str, Any] | None = None,
-    voxel_to_physical: npt.ArrayLike | None = None,
+    voxel_to_world: npt.ArrayLike | None = None,
 ) -> xr.DataArray:
     """Build a canonical ConfUSIus IQ DataArray from a raw complex array.
 
     Parameters
     ----------
     data : numpy.typing.ArrayLike
-        Raw complex IQ array whose rank matches the length of `dims`.
+        Raw complex IQ array whose rank matches `dims`.
     dims : sequence[str]
-        Explicit dimension names for each axis of `data`.
-    coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
-        Explicit coordinates. See
-        [create_fusi_dataarray][confusius.xarray.create_fusi_dataarray].
+        Input dimension names. Spatial dimensions may be named `z/y/x` or `k/j/i`.
+    time : numpy.typing.ArrayLike or xarray.DataArray, optional
+        Coordinate for the `time` dimension.
+    pose : numpy.typing.ArrayLike or xarray.DataArray, optional
+        Coordinate for the `pose` dimension.
+    extra_coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray], optional
+        Coordinates for non-core dimensions only.
     dt : float, optional
-        Spacing of the `time` coordinate, in seconds.
-    dz : float, optional
-        Spacing of the `z` physical coordinate, in millimetres.
-    dy : float, optional
-        Spacing of the `y` physical coordinate, in millimetres.
-    dx : float, optional
-        Spacing of the `x` physical coordinate, in millimetres.
+        Time spacing in seconds, used when `time` is not provided.
     t0 : float, default: 0.0
-        Physical position of the first `time` sample, in seconds.
-    z0 : float, optional
-        Physical position of the first `z` voxel's center, in millimetres. If not
-        provided, assumes `z` is the elevation axis and places the origin at the
-        center of the probe surface (see the
-        [Spatial Conventions](../../user-guide/spatial-conventions.md) guide for
-        the exact convention).
-    y0 : float, optional
-        Physical position of the first `y` voxel's center, in millimetres. If not
-        provided, assumes `y` is the depth axis and places the origin at the
-        center of the probe surface.
-    x0 : float, optional
-        Physical position of the first `x` voxel's center, in millimetres. If not
-        provided, assumes `x` is the lateral axis and places the origin at the
-        center of the probe surface.
+        First time coordinate value when `dt` is used.
+    spacing : sequence[float], optional
+        World spacing in `z/y/x` order. Mutually exclusive with `voxel_to_world`.
+    origin : sequence[float], optional
+        World origin in `z/y/x` order.
+    direction : numpy.typing.ArrayLike, optional
+        3x3 direction matrix in world `z/y/x` row and voxel `k/j/i` column order.
+    voxdim : sequence[float], optional
+        `voxdim` metadata in `z/y/x` order.
     volume_acquisition_reference : {"start", "center", "end"}, default: "start"
-        Where within its acquisition window each frame's `time` coordinate is anchored.
+        Time reference stored on generated `time` coordinates.
     volume_acquisition_duration : float, optional
-        Duration of a single volume's acquisition window, in seconds.
+        Acquisition duration stored on generated `time` coordinates.
     transmit_frequency : float, optional
         Ultrasound transmit frequency in hertz.
     beamforming_sound_velocity : float, optional
         Speed of sound assumed during beamforming, in metres per second.
     name : str, default: "iq"
-        Name assigned to the resulting DataArray.
+        DataArray name.
     attrs : dict, optional
-        Additional DataArray-level attributes.
-    voxel_to_physical : numpy.typing.ArrayLike, optional
-        Homogeneous affine mapping native voxel coordinates to physical coordinates
-        `z/y/x`. If provided, `dz`/`dy`/`dx`, `z0`/`y0`/`x0`, and any physical
-        `z/y/x` coordinates in `coords` are ignored. Its columns follow the order
-        spatial axes appear in `dims` (matching `data`'s own layout), not canonical
-        `k/j/i` order; a spatial axis missing from `dims` (added as a singleton) is
-        assumed last. Internally re-ordered to canonical `k/j/i` order before use.
+        DataArray attributes.
+    voxel_to_world : numpy.typing.ArrayLike, optional
+        4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
 
     Returns
     -------
     xarray.DataArray
-        Canonical IQ DataArray with dimensions `(time, k, j, i)`.
+        IQ DataArray with native voxel dimensions and world coordinates.
 
     Raises
     ------
@@ -712,21 +818,20 @@ def create_iq_dataarray(
     result = create_fusi_dataarray(
         data,
         dims=dims,
-        coords=coords,
+        time=time,
+        pose=pose,
+        extra_coords=extra_coords,
         dt=dt,
-        dz=dz,
-        dy=dy,
-        dx=dx,
         t0=t0,
-        z0=z0,
-        y0=y0,
-        x0=x0,
-        canonical_order=True,
+        spacing=spacing,
+        origin=origin,
+        direction=direction,
+        voxdim=voxdim,
         volume_acquisition_reference=volume_acquisition_reference,
         volume_acquisition_duration=volume_acquisition_duration,
         name=name,
         attrs=attrs,
-        voxel_to_physical=voxel_to_physical,
+        voxel_to_world=voxel_to_world,
     )
     validate_iq(result)
     return result

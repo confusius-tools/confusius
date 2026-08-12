@@ -48,12 +48,13 @@ class TestSecondLevelModelFit:
     """Tests for SecondLevelModel.fit."""
 
     def test_fit_2d_spatial(self, spatial_maps_2d):
-        """Fitting `(j, i)` maps yields a contrast map with the same dims/shape."""
+        """Fitting singleton-k `(k, j, i)` maps yields a contrast map with the same
+        dims/shape."""
         model = SecondLevelModel()
         model.fit(spatial_maps_2d)
         z_map = model.compute_contrast("intercept")
-        assert z_map.dims == ("j", "i")
-        assert z_map.shape == (5, 6)
+        assert z_map.dims == ("k", "j", "i")
+        assert z_map.shape == (1, 5, 6)
 
     def test_fit_confounds_pass_through_to_design_matrix(self, spatial_maps, rng):
         """User confounds appear in the design matrix with the user's values."""
@@ -323,10 +324,9 @@ class TestSecondLevelModelErrors:
         with pytest.raises(ValueError, match="dimensions"):
             model.fit(maps)
 
-    def test_spatial_coord_mismatch_raises(self, spatial_maps):
+    def test_spatial_coord_mismatch_raises(self, spatial_maps_with_mismatched_k):
         """Mismatched spatial coordinates between maps raise an informative error."""
-        bad = spatial_maps[1].assign_coords(k=spatial_maps[0].coords["k"] + 10.0)
-        maps = [spatial_maps[0], bad]
+        maps = spatial_maps_with_mismatched_k
         model = SecondLevelModel()
         with pytest.raises(
             ValueError,

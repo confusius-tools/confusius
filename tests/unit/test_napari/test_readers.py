@@ -15,7 +15,7 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -40,18 +40,18 @@ def scan_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def zarr_3d_path(tmp_path: Path, sample_3d_volume: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_3d_volume fixture."""
+def zarr_3d_path(tmp_path: Path, sample_fusi_3d: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_fusi_3d fixture."""
     path = tmp_path / "vol3d.zarr"
-    xr.Dataset({"data": sample_3d_volume}).to_zarr(path, zarr_format=2)
+    xr.Dataset({"data": sample_fusi_3d}).to_zarr(path, zarr_format=2)
     return path
 
 
 @pytest.fixture
-def zarr_4d_path(tmp_path: Path, sample_3dt_volume: xr.DataArray) -> Path:
-    """Zarr store built from the shared sample_3dt_volume fixture."""
+def zarr_4d_path(tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> Path:
+    """Zarr store built from the shared sample_fusi_3dt fixture."""
     path = tmp_path / "vol4d.zarr"
-    xr.Dataset({"data": sample_3dt_volume}).to_zarr(path, zarr_format=2)
+    xr.Dataset({"data": sample_fusi_3dt}).to_zarr(path, zarr_format=2)
     return path
 
 
@@ -131,7 +131,7 @@ class TestReadZarrGating:
 
 
 def _make_voxel_affine_volume() -> xr.DataArray:
-    """Create a small oblique CTI volume for reader tests."""
+    """Create a small oblique volume for reader tests."""
     data = xr.DataArray(
         np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
         dims=["k", "j", "i"],
@@ -141,7 +141,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             "i": [0.0, 1.0, 2.0, 3.0],
         },
     )
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         data,
         np.array(
             [
@@ -152,8 +152,8 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             ]
         ),
         voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
             "z": {"units": "mm"},
             "y": {"units": "mm"},
             "x": {"units": "mm"},
@@ -231,7 +231,7 @@ class TestReaderLayerData:
         assert kwargs["units"] == ["mm", "mm", "mm"]
 
     def test_voxel_affine_is_resampled_to_physical_grid(self, tmp_path: Path) -> None:
-        """Oblique CTI reader output uses an axis-aligned physical grid for napari."""
+        """Oblique reader output uses an axis-aligned world grid for napari."""
         path = tmp_path / "cti.zarr"
         xr.Dataset({"data": _make_voxel_affine_volume()}).to_zarr(path, zarr_format=2)
 
@@ -254,12 +254,12 @@ class TestReaderLayerData:
             dims=["k", "j", "i"],
             coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        data = add_physical_coords_from_voxel_affine(
+        data = add_world_coords_from_voxel_affine(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
             voxel_dims=("k", "j", "i"),
-            physical_coord_names=("z", "y", "x"),
-            physical_coord_attrs={
+            world_coord_names=("z", "y", "x"),
+            world_coord_attrs={
                 "z": {"units": "mm"},
                 "y": {"units": "mm"},
                 "x": {"units": "mm"},

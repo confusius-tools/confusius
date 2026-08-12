@@ -7,7 +7,10 @@ import pytest
 import xarray as xr
 
 import confusius  # noqa: F401  # Import to register accessor.
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    get_voxel_to_world_affine,
+)
 
 
 def _make_voxel_affine_volume() -> xr.DataArray:
@@ -21,7 +24,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             "i": [0.0, 1.0, 2.0, 3.0],
         },
     )
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         base,
         np.array(
             [
@@ -32,8 +35,8 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             ]
         ),
         voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
             "z": {"units": "mm"},
             "y": {"units": "mm"},
             "x": {"units": "mm"},
@@ -263,7 +266,7 @@ class TestOrigin:
                 "i": [100.0, 101.0, 102.0, 103.0],
             },
         )
-        data = add_physical_coords_from_voxel_affine(
+        data = add_world_coords_from_voxel_affine(
             base,
             np.array(
                 [
@@ -274,7 +277,7 @@ class TestOrigin:
                 ]
             ),
             voxel_dims=("k", "j", "i"),
-            physical_coord_names=("z", "y", "x"),
+            world_coord_names=("z", "y", "x"),
         )
 
         assert data.fusi.origin == {
@@ -514,11 +517,11 @@ class TestAffineApplyMethod:
             coords=coords,
             attrs={"affines": affines} if affines is not None else {},
         )
-        return add_physical_coords_from_voxel_affine(
+        return add_world_coords_from_voxel_affine(
             base,
             affine,
             voxel_dims=dims,
-            physical_coord_names=("y", "x") if len(dims) == 2 else ("z", "y", "x"),
+            world_coord_names=("y", "x") if len(dims) == 2 else ("z", "y", "x"),
         )
 
     def test_identity_leaves_coords_unchanged(self):
@@ -700,7 +703,7 @@ class TestAffineApplyMethod:
             coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
             attrs={"affines": {"physical_to_lab": np.eye(3)}},
         )
-        da = add_physical_coords_from_voxel_affine(
+        da = add_world_coords_from_voxel_affine(
             base,
             np.array(
                 [
@@ -710,7 +713,7 @@ class TestAffineApplyMethod:
                 ]
             ),
             voxel_dims=("j", "i"),
-            physical_coord_names=("y", "x"),
+            world_coord_names=("y", "x"),
         )
         shift = np.array(
             [
@@ -723,7 +726,7 @@ class TestAffineApplyMethod:
         result, orientation = da.fusi.affine.apply(shift)
 
         np.testing.assert_allclose(
-            result.attrs["voxel_to_physical"], shift @ da.attrs["voxel_to_physical"]
+            get_voxel_to_world_affine(result), shift @ get_voxel_to_world_affine(da)
         )
         np.testing.assert_allclose(orientation, np.eye(3))
         np.testing.assert_allclose(
@@ -770,7 +773,7 @@ class TestAffineApplyMethod:
             ]
         )
         result, orientation = da.fusi.affine.apply(affine)
-        np.testing.assert_allclose(result.attrs["voxel_to_physical"], affine)
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), affine)
         np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_shear_returns_round_trip_orientation(self):
@@ -780,7 +783,7 @@ class TestAffineApplyMethod:
         shear = np.eye(4)
         shear[0, 1] = 0.5
         result, orientation = da.fusi.affine.apply(shear)
-        np.testing.assert_allclose(result.attrs["voxel_to_physical"], shear)
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), shear)
         np.testing.assert_allclose(orientation, np.eye(4))
 
     def test_axis_permutation_does_not_introduce_spurious_coord_flip(self):
@@ -801,7 +804,7 @@ class TestAffineApplyMethod:
         result, orientation = da.fusi.affine.apply(affine)
 
         np.testing.assert_allclose(
-            result.attrs["voxel_to_physical"], affine @ da.attrs["voxel_to_physical"]
+            get_voxel_to_world_affine(result), affine @ get_voxel_to_world_affine(da)
         )
         np.testing.assert_allclose(orientation, np.eye(4))
 

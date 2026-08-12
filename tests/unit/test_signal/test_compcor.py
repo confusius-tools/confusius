@@ -87,35 +87,35 @@ def test_compute_compcor_with_combined_mask(sample_timeseries):
     assert components.shape == (100, 3)
 
 
-def test_compute_compcor_4d_imaging_acompcor(sample_3dt_volume):
+def test_compute_compcor_4d_imaging_acompcor(sample_fusi_3dt):
     """Test aCompCor on 4D imaging data."""
-    spatial_shape = sample_3dt_volume.shape[1:]
+    spatial_shape = sample_fusi_3dt.shape[1:]
     mask_values = np.zeros(spatial_shape, dtype=bool)
     mask_values[1:3, 2:4, 3:5] = True
-    noise_mask = _create_mask_like(sample_3dt_volume.isel(time=0), mask_values)
+    noise_mask = _create_mask_like(sample_fusi_3dt.isel(time=0), mask_values)
 
     components = compute_compcor_confounds(
-        sample_3dt_volume,
+        sample_fusi_3dt,
         noise_mask=noise_mask,
         n_components=3,
         detrend=False,
     )
 
     # Check shape: (time, n_components)
-    assert components.shape == (sample_3dt_volume.sizes["time"], 3)
+    assert components.shape == (sample_fusi_3dt.sizes["time"], 3)
 
 
-def test_compute_compcor_4d_imaging_tcompcor(sample_3dt_volume):
+def test_compute_compcor_4d_imaging_tcompcor(sample_fusi_3dt):
     """Test tCompCor on 4D imaging data."""
     components = compute_compcor_confounds(
-        sample_3dt_volume,
+        sample_fusi_3dt,
         variance_threshold=0.2,
         n_components=3,
         detrend=False,
     )
 
     # Check shape
-    assert components.shape == (sample_3dt_volume.sizes["time"], 3)
+    assert components.shape == (sample_fusi_3dt.sizes["time"], 3)
 
 
 def test_compute_compcor_xarray_noise_mask(sample_timeseries):
@@ -257,22 +257,22 @@ def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
 
 
-def test_compute_compcor_mask_size_mismatch_after_flatten(sample_3dt_volume):
+def test_compute_compcor_mask_size_mismatch_after_flatten(sample_fusi_3dt):
     """Test error when a subset-dimension mask flattens to the wrong size."""
     noise_mask = xr.DataArray(
         np.ones(
-            (sample_3dt_volume.sizes["k"], sample_3dt_volume.sizes["j"]), dtype=bool
+            (sample_fusi_3dt.sizes["k"], sample_fusi_3dt.sizes["j"]), dtype=bool
         ),
         dims=["k", "j"],
         coords={
-            "k": sample_3dt_volume.coords["k"],
-            "j": sample_3dt_volume.coords["j"],
+            "k": sample_fusi_3dt.coords["k"],
+            "j": sample_fusi_3dt.coords["j"],
         },
     )
 
     with pytest.raises(ValueError, match="Noise mask size"):
         compute_compcor_confounds(
-            sample_3dt_volume,
+            sample_fusi_3dt,
             noise_mask=noise_mask,
             n_components=3,
         )

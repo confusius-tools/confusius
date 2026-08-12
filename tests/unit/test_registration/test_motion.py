@@ -199,25 +199,14 @@ class TestExtractMotionParameters:
 class TestComputeFramewiseDisplacement:
     """Tests for compute_framewise_displacement function."""
 
-    def test_identical_transforms_zero_fd(self, sample_2d_dataarray_spatial):
+    def test_identical_transforms_zero_fd(self, sample_3d_dataarray_spatial):
         """Identical affines produce zero framewise displacement."""
-        affines = [np.eye(3), np.eye(3)]
-        fd = compute_framewise_displacement(affines, sample_2d_dataarray_spatial)
+        affines = [np.eye(4), np.eye(4)]
+        fd = compute_framewise_displacement(affines, sample_3d_dataarray_spatial)
 
         assert_allclose(fd["mean_fd"], [0.0, 0.0])
         assert_allclose(fd["max_fd"], [0.0, 0.0])
         assert_allclose(fd["rms_fd"], [0.0, 0.0])
-
-    def test_known_translation_displacement_2d(self, sample_2d_dataarray_spatial):
-        """Known 2D translation produces correct FD (Euclidean distance)."""
-        t1 = np.eye(3)
-        t2 = _translation_affine_2d(3.0, 4.0)
-        fd = compute_framewise_displacement([t1, t2], sample_2d_dataarray_spatial)
-
-        assert_allclose(fd["mean_fd"][0], 5.0, atol=1e-6)
-        assert_allclose(fd["max_fd"][0], 5.0, atol=1e-6)
-        assert_allclose(fd["rms_fd"][0], 5.0, atol=1e-6)
-        assert fd["mean_fd"][-1] == 0.0
 
     def test_known_translation_displacement_3d(self, sample_3d_dataarray_spatial):
         """Known 3D translation produces correct FD."""
@@ -229,46 +218,31 @@ class TestComputeFramewiseDisplacement:
         assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
         assert_allclose(fd["max_fd"][0], 3.0, atol=1e-6)
 
-    def test_with_mask(self, sample_2d_dataarray_spatial):
+    def test_with_mask(self, sample_3d_dataarray_spatial):
         """Mask restricts FD computation to masked voxels."""
-        t1 = np.eye(3)
-        t2 = _translation_affine_2d(3.0, 4.0)
-        mask = np.zeros(sample_2d_dataarray_spatial.shape, dtype=bool)
-        mask[2:8, 2:8] = True
+        t1 = np.eye(4)
+        t2 = np.eye(4)
+        t2[:3, 3] = [1.0, 2.0, 2.0]
+        mask = np.zeros(sample_3d_dataarray_spatial.shape, dtype=bool)
+        mask[:, 2:8, 2:8] = True
         fd = compute_framewise_displacement(
-            [t1, t2], sample_2d_dataarray_spatial, mask=mask
+            [t1, t2], sample_3d_dataarray_spatial, mask=mask
         )
 
-        assert_allclose(fd["mean_fd"][0], 5.0, atol=1e-6)
+        assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
 
     def test_rejects_reference_affine_dimensionality_mismatch(
-        self, sample_2d_dataarray_spatial
+        self, sample_3d_dataarray_spatial
     ):
         """Reference dimensionality must match affine dimensionality."""
         import pytest
 
         with pytest.raises(ValueError, match="dimensionality must match"):
-            compute_framewise_displacement([np.eye(4)], sample_2d_dataarray_spatial)
+            compute_framewise_displacement([np.eye(3)], sample_3d_dataarray_spatial)
 
 
 class TestCreateMotionDataframe:
     """Tests for create_motion_dataframe function."""
-
-    def test_2d_dataframe_columns(self, sample_2d_dataarray_spatial):
-        """2D affines produce DataFrame with correct columns."""
-        affines = [np.eye(3), _translation_affine_2d(2.0, 3.0)]
-        df = create_motion_dataframe(affines, sample_2d_dataarray_spatial)
-
-        expected_cols = [
-            "rotation",
-            "trans_x",
-            "trans_y",
-            "mean_fd",
-            "max_fd",
-            "rms_fd",
-        ]
-        assert list(df.columns) == expected_cols
-        assert len(df) == 2
 
     def test_singleton_z_dataframe_keeps_all_3d_motion_columns(
         self, sample_3d_dataarray_spatial
@@ -338,36 +312,6 @@ class TestCreateMotionDataframe:
         ]
         assert list(df.columns) == expected_cols
 
-    def test_2d_dataframe_reorders_translations_to_named_axes(
-        self, sample_2d_dataarray_spatial
-    ):
-        """2D translations follow physical x/y names, not raw voxel axis names."""
-        df = create_motion_dataframe(
-            [np.eye(3), _translation_affine_2d(2.0, 3.0)],
-            sample_2d_dataarray_spatial,
-        )
-
-        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
-
-    def test_2d_dataframe_uses_present_named_axes(self, sample_2d_dataarray_spatial):
-        """2D tables use the physical axes exposed by voxel-affine geometry."""
-        df = create_motion_dataframe(
-            [np.eye(3), _translation_affine_2d(2.0, 3.0)],
-            sample_2d_dataarray_spatial,
-        )
-
-        assert list(df.columns) == [
-            "rotation",
-            "trans_x",
-            "trans_y",
-            "mean_fd",
-            "max_fd",
-            "rms_fd",
-        ]
-        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
-
     def test_3d_dataframe_reorders_translations_to_named_axes(
         self, sample_3d_dataarray_spatial
     ):
@@ -417,31 +361,33 @@ class TestCreateMotionDataframe:
         with pytest.raises(ValueError, match="3 or 6 columns"):
             create_motion_dataframe([np.eye(3)], sample_2d_dataarray_spatial)
 
-    def test_time_coords_as_index(self, sample_2d_dataarray_spatial):
+    def test_time_coords_as_index(self, sample_3d_dataarray_spatial):
         """Time coordinates are used as DataFrame index."""
-        affines = [np.eye(3), np.eye(3)]
+        affines = [np.eye(4), np.eye(4)]
         time_coords = np.array([0.0, 0.5])
         df = create_motion_dataframe(
-            affines, sample_2d_dataarray_spatial, time_coords=time_coords
+            affines, sample_3d_dataarray_spatial, time_coords=time_coords
         )
 
         assert df.index.name == "time"
         assert_array_equal(df.index, time_coords)
 
-    def test_no_time_coords_uses_frame_index(self, sample_2d_dataarray_spatial):
+    def test_no_time_coords_uses_frame_index(self, sample_3d_dataarray_spatial):
         """Without time coords, index is named 'frame'."""
-        df = create_motion_dataframe([np.eye(3)], sample_2d_dataarray_spatial)
+        df = create_motion_dataframe([np.eye(4)], sample_3d_dataarray_spatial)
         assert df.index.name == "frame"
 
-    def test_motion_values_correct(self, sample_2d_dataarray_spatial):
+    def test_motion_values_correct(self, sample_3d_dataarray_spatial):
         """Motion parameter values are correctly populated."""
-        affines = [np.eye(3), _translation_affine_2d(2.0, 3.0)]
-        df = create_motion_dataframe(affines, sample_2d_dataarray_spatial)
+        affines = [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)]
+        df = create_motion_dataframe(affines, sample_3d_dataarray_spatial)
 
-        assert_allclose(df.iloc[0]["rotation"], 0.0, atol=1e-6)
+        assert_allclose(df.iloc[0]["rot_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_y"], 0.0, atol=1e-6)
+        assert_allclose(df.iloc[0]["trans_z"], 0.0, atol=1e-6)
 
-        assert_allclose(df.iloc[1]["rotation"], 0.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)

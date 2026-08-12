@@ -17,10 +17,11 @@ from confusius._utils.coordinates import (
     get_grid_info_from_dataarray,
 )
 from confusius._utils.geometry import (
-    get_voxel_affine_physical_coord_names,
+    add_world_coords_from_voxel_affine,
     get_voxel_affine_spatial_dims,
-    has_voxel_affine_geometry,
-    restore_physical_coords_from_voxel_affine,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
 )
 
 if TYPE_CHECKING:
@@ -109,7 +110,7 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     """
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
 
-    if has_voxel_affine_geometry(da):
+    if has_voxel_world_geometry(da):
         spacing_dict = da.fusi.spacing
         undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
         if undefined_dims:
@@ -195,7 +196,7 @@ def _voxel_affine_plane_center(data: xr.DataArray) -> np.ndarray:
     return np.array(
         [
             float(np.asarray(data.coords[name].values).mean())
-            for name in get_voxel_affine_physical_coord_names(data)
+            for name in get_voxel_affine_world_coord_names(data)
         ],
         dtype=np.float64,
     )
@@ -238,7 +239,7 @@ def build_voxel_affine_plane_initial_transform(
         If either input is not a 3D voxel-affine slab with exactly one singleton
         spatial dimension.
     """
-    if not has_voxel_affine_geometry(fixed) or not has_voxel_affine_geometry(moving):
+    if not has_voxel_world_geometry(fixed) or not has_voxel_world_geometry(moving):
         raise ValueError(
             "Voxel-affine plane initialization requires voxel-affine geometry on "
             "both fixed and moving data."
@@ -318,21 +319,19 @@ def replace_spatial_geometry_attrs(
 
     Notes
     -----
-    This copies both `attrs["affines"]` and the canonical voxel-affine geometry
-    attribute `attrs["voxel_to_physical"]` when present on `reference`. If the
-    reference uses voxel-affine geometry, lazy CTI-backed physical coordinates are
-    rebuilt on the returned DataArray so its coordinate index matches the copied
-    metadata.
+    This copies `attrs["affines"]`. If the reference uses voxel-world geometry,
+    VoxelToWorldIndex-backed world coordinates are rebuilt on the returned DataArray.
     """
     replace_affines_attr(result, reference)
 
-    if "voxel_to_physical" in reference.attrs:
-        result.attrs["voxel_to_physical"] = np.asarray(
-            reference.attrs["voxel_to_physical"], dtype=np.float64
+    result.attrs.pop("voxel_to_world", None)
+    if has_voxel_world_geometry(reference):
+        return add_world_coords_from_voxel_affine(
+            result,
+            get_voxel_to_world_affine(reference),
+            voxel_dims=get_voxel_affine_spatial_dims(reference),
+            world_coord_names=get_voxel_affine_world_coord_names(reference),
         )
-        return restore_physical_coords_from_voxel_affine(result)
-
-    result.attrs.pop("voxel_to_physical", None)
     return result
 
 
@@ -454,10 +453,10 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     has_time = "time" in da.dims
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-    if has_voxel_affine_geometry(da):
+    if has_voxel_world_geometry(da):
         spatial_dims, spacing = get_defined_spatial_spacing(da)
         origin_dict = da.fusi.origin
-        origin_names = get_voxel_affine_physical_coord_names(da)
+        origin_names = get_voxel_affine_world_coord_names(da)
         origin = tuple(origin_dict[d] for d in origin_names)
     else:
         grid = get_grid_info_from_dataarray(
@@ -483,7 +482,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     image.SetSpacing(tuple(spacing))
     image.SetOrigin(tuple(origin))
-    if has_voxel_affine_geometry(da):
+    if has_voxel_world_geometry(da):
         image.SetDirection(
             np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist()
         )

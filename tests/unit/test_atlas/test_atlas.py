@@ -56,7 +56,7 @@ class TestBuilder:
             atlas_ds.atlas.hemispheres,
         ]:
             assert da.dims == ("k", "j", "i")
-            assert "voxel_to_physical" in da.attrs
+            assert type(da.xindexes["x"]).__name__ == "VoxelToWorldIndex"
 
         for dim, voxel_dim in zip(["z", "y", "x"], ["k", "j", "i"], strict=True):
             coord = atlas_ds.atlas.annotation.coords[dim]

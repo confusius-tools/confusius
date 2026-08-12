@@ -11,10 +11,11 @@ import xarray as xr
 from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
-    get_voxel_affine_physical_coord_names,
-    get_voxel_affine_spacing,
     get_voxel_affine_spatial_dims,
-    has_voxel_affine_geometry,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    get_voxel_world_spacing,
+    has_voxel_world_geometry,
 )
 from confusius._utils.validation import require_dataarray
 from confusius.validation.time_series import (
@@ -57,34 +58,33 @@ def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
     ValueError
         If voxel-affine metadata is missing or inconsistent.
     """
-    if not has_voxel_affine_geometry(da):
+    if not has_voxel_world_geometry(da):
         raise ValueError(
             "DataArray must use native voxel dimensions `k/j/i` with "
-            "`attrs['voxel_to_physical']`, derived physical coordinates, and "
-            "defined spatial spacing."
+            "VoxelToWorldIndex-backed world coordinates and defined spatial spacing."
         )
 
     voxel_dims = get_voxel_affine_spatial_dims(da)
     expected_shape = (len(voxel_dims) + 1, len(voxel_dims) + 1)
-    affine = np.asarray(da.attrs["voxel_to_physical"])
+    affine = get_voxel_to_world_affine(da)
     if affine.shape != expected_shape:
         raise ValueError(
-            "voxel_to_physical must have shape "
+            "voxel_to_world must have shape "
             f"{expected_shape} for voxel-affine dimensions {voxel_dims!r}, got "
             f"{affine.shape}."
         )
 
-    physical_coord_names = get_voxel_affine_physical_coord_names(da)
-    for name, dim in zip(physical_coord_names, voxel_dims, strict=True):
+    world_coord_names = get_voxel_affine_world_coord_names(da)
+    for name, dim in zip(world_coord_names, voxel_dims, strict=True):
         if name not in da.coords:
             raise ValueError(
                 f"Voxel-affine data is missing physical coordinate {name!r}."
             )
         coord = da.coords[name]
-        if coord.dims not in {voxel_dims, (dim,)}:
+        if set(coord.dims) not in ({dim}, set(voxel_dims)):
             raise ValueError(
                 f"Voxel-affine coordinate {name!r} must have dims {voxel_dims!r} "
-                f"or {(dim,)!r}, got {coord.dims!r}."
+                f"(in any order) or {(dim,)!r}, got {coord.dims!r}."
             )
 
 
@@ -254,7 +254,7 @@ def _validate_regular_spacing(
             f"{missing_dims!r}. Present dims: {tuple(str(dim) for dim in da.dims)!r}."
         )
 
-    voxel_spacing = get_voxel_affine_spacing(da)
+    voxel_spacing = get_voxel_world_spacing(da)
     for dim in dims_to_check:
         if dim not in da.coords:
             raise ValueError(
@@ -323,9 +323,9 @@ def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
         result = result.expand_dims({dim: [coord.item()]}, axis=axis)
         result.coords[dim].attrs.update(attrs)
 
-    from confusius._utils.geometry import restore_physical_coords_from_voxel_affine
+    from confusius._utils.geometry import restore_world_coords_from_voxel_affine
 
-    return restore_physical_coords_from_voxel_affine(result)
+    return restore_world_coords_from_voxel_affine(result)
 
 
 def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
@@ -381,7 +381,7 @@ def validate_fusi(
     ----------
     data : xarray.DataArray
         DataArray to validate. It must use native voxel dimensions `k`, `j`, `i` and
-        CTI-backed physical coordinates `z`, `y`, `x`.
+        world coordinates `z`, `y`, `x`.
     require_time : bool, default: False
         Whether to require a `time` dimension with more than one timepoint.
     require_unchunked_time : bool, default: False
@@ -461,7 +461,7 @@ def validate_fusi(
     if require_canonical_dim_order:
         _validate_canonical_core_dim_order(data)
 
-    physical_coords = get_voxel_affine_physical_coord_names(data)
+    physical_coords = get_voxel_affine_world_coord_names(data)
     singleton_spatial_dims = tuple(
         name
         for name, dim in zip(physical_coords, spatial_dims, strict=True)

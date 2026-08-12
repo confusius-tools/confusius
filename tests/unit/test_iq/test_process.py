@@ -9,7 +9,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.iq.process import (
     compute_axial_velocity_volume,
     compute_bmode_volume,
@@ -44,19 +44,18 @@ class TestComputeProcessedVolumeTimes:
         time_values = np.asarray(time_values, dtype=np.float64)
         return create_iq_dataarray(
             np.ones((time_values.size, 1, 1, 1), dtype=np.complex128),
-            dims=("time", "k", "j", "i"),
-            coords={
-                "time": xr.DataArray(
-                    time_values,
-                    dims=("time",),
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_duration": volume_acquisition_duration,
-                        "volume_acquisition_reference": volume_acquisition_reference,
-                    },
-                )
-            },
-            voxel_to_physical=np.eye(4),
+            dims=("time", "z", "y", "x"),
+            time=xr.DataArray(
+                time_values,
+                dims=("time",),
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_duration": volume_acquisition_duration,
+                    "volume_acquisition_reference": volume_acquisition_reference,
+                },
+            ),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
         )
 
     @pytest.mark.parametrize(
@@ -574,12 +573,12 @@ class TestProcessIqToPowerDoppler:
             dims=("time", "j", "i"),
             coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
         )
-        iq = add_physical_coords_from_voxel_affine(
+        iq = add_world_coords_from_voxel_affine(
             base,
             np.diag([0.1, 0.05, 1.0]),
             voxel_dims=("j", "i"),
-            physical_coord_names=("y", "x"),
-            physical_coord_attrs={
+            world_coord_names=("y", "x"),
+            world_coord_attrs={
                 "y": {"units": "mm", "voxdim": 0.1},
                 "x": {"units": "mm", "voxdim": 0.05},
             },
@@ -600,12 +599,12 @@ class TestProcessIqToPowerDoppler:
                 "i": np.arange(8),
             },
         )
-        iq = add_physical_coords_from_voxel_affine(
+        iq = add_world_coords_from_voxel_affine(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             voxel_dims=("k", "j", "i"),
-            physical_coord_names=("z", "y", "x"),
-            physical_coord_attrs={
+            world_coord_names=("z", "y", "x"),
+            world_coord_attrs={
                 "z": {"units": "mm", "voxdim": 0.1},
                 "y": {"units": "mm", "voxdim": 0.05},
                 "x": {"units": "mm", "voxdim": 0.05},
@@ -1149,13 +1148,11 @@ class TestDataArrayClutterMask:
         assert_allclose(result.values[0], expected[0])
 
     def test_dataarray_mask_coordinate_mismatch_raises(
-        self, sample_iq_dataarray, spatial_mask
+        self, sample_iq_dataarray, mismatched_spatial_mask_xarray
     ):
         """DataArray mask with mismatched coordinates raises ValueError."""
         iq = sample_iq_dataarray
-
-        mask_dataarray = iq.isel(time=0, drop=True).copy(data=spatial_mask)
-        mask_dataarray = mask_dataarray.assign_coords(k=mask_dataarray.coords["k"] + 1)
+        mask_dataarray = mismatched_spatial_mask_xarray
 
         with pytest.raises(
             ValueError,
@@ -1242,12 +1239,12 @@ class TestProcessIqToBmode:
             dims=("time", "j", "i"),
             coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
         )
-        iq = add_physical_coords_from_voxel_affine(
+        iq = add_world_coords_from_voxel_affine(
             base,
             np.diag([0.1, 0.05, 1.0]),
             voxel_dims=("j", "i"),
-            physical_coord_names=("y", "x"),
-            physical_coord_attrs={
+            world_coord_names=("y", "x"),
+            world_coord_attrs={
                 "y": {"units": "mm", "voxdim": 0.1},
                 "x": {"units": "mm", "voxdim": 0.05},
             },
@@ -1268,12 +1265,12 @@ class TestProcessIqToBmode:
                 "i": np.arange(8),
             },
         )
-        iq = add_physical_coords_from_voxel_affine(
+        iq = add_world_coords_from_voxel_affine(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             voxel_dims=("k", "j", "i"),
-            physical_coord_names=("z", "y", "x"),
-            physical_coord_attrs={
+            world_coord_names=("z", "y", "x"),
+            world_coord_attrs={
                 "z": {"units": "mm", "voxdim": 0.1},
                 "y": {"units": "mm", "voxdim": 0.05},
                 "x": {"units": "mm", "voxdim": 0.05},

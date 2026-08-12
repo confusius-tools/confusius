@@ -10,6 +10,13 @@ import xarray as xr
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
+)
 from confusius.extract import extract_with_mask, unmask
 from confusius.validation import validate_mask, validate_time_series
 
@@ -346,7 +353,9 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             Boolean mask selecting features used for fitting/projection.
         """
         self.spatial_dims_ = spatial_dims
-        self._spatial_sizes_ = {dim: int(X.sizes[dim]) for dim in self.spatial_dims_}
+        self._spatial_sizes_ = {
+            dim: np.int64(X.sizes[dim]).item() for dim in self.spatial_dims_
+        }
         template = X.transpose("time", *self.spatial_dims_).isel(time=0, drop=True)
         self._reconstruction_mask_ = xr.DataArray(
             feature_mask.reshape(tuple(template.sizes[d] for d in self.spatial_dims_)),
@@ -356,18 +365,17 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
                 for d in self.spatial_dims_
                 if d in template.coords
             },
-            # `unmask` restores physical z/y/x coordinates on its output when the mask
-            # carries voxel-affine geometry, so this attr must survive to be usable
-            # downstream (e.g. for plotting `maps_`).
-            attrs=(
-                {"voxel_to_physical": template.attrs["voxel_to_physical"]}
-                if "voxel_to_physical" in template.attrs
-                else {}
-            ),
         )
+        if has_voxel_world_geometry(template):
+            self._reconstruction_mask_ = add_world_coords_from_voxel_affine(
+                self._reconstruction_mask_,
+                get_voxel_to_world_affine(template),
+                voxel_dims=get_voxel_affine_spatial_dims(template),
+                world_coord_names=get_voxel_affine_world_coord_names(template),
+            )
         self._fit_attrs_ = dict(X.attrs)
         self._fit_name_ = X.name
-        self.n_features_in_ = int(X_proc.shape[1])
+        self.n_features_in_ = np.int64(X_proc.shape[1]).item()
 
     def _store_feature_names(self, X: xr.DataArray) -> None:
         """Store `feature_names_in_` if the single spatial coordinate is string-valued.

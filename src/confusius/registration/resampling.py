@@ -8,9 +8,9 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_physical_coords_from_voxel_affine,
-    get_voxel_affine_physical_coord_names,
-    has_voxel_affine_geometry,
+    add_world_coords_from_voxel_affine,
+    get_voxel_affine_world_coord_names,
+    has_voxel_world_geometry,
 )
 from confusius.registration._utils import (
     dataarray_to_sitk_image,
@@ -181,7 +181,7 @@ def resample_volume(
         dims = ["time"] + list(dims)
 
     attrs = moving.attrs.copy()
-    attrs.pop("voxel_to_physical", None)
+    attrs.pop("voxel_to_world", None)
     result = xr.DataArray(
         registered_arr,
         coords=coords,
@@ -190,9 +190,9 @@ def resample_volume(
     )
 
     spatial_dims = tuple(str(d) for d in dims if str(d) != "time")
-    physical_coord_names = (
-        get_voxel_affine_physical_coord_names(moving)
-        if has_voxel_affine_geometry(moving)
+    world_coord_names = (
+        get_voxel_affine_world_coord_names(moving)
+        if has_voxel_world_geometry(moving)
         else tuple(spatial_dims)
     )
     output_affine = np.eye(ndim + 1, dtype=np.float64)
@@ -202,14 +202,14 @@ def resample_volume(
         else np.diag(spacing)
     )
     output_affine[:-1, -1] = np.asarray(origin, dtype=np.float64)
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         result,
         output_affine,
         voxel_dims=spatial_dims,
-        physical_coord_names=physical_coord_names,
-        physical_coord_attrs={
+        world_coord_names=world_coord_names,
+        world_coord_attrs={
             name: {"units": moving.coords[name].attrs.get("units"), "voxdim": step}
-            for name, step in zip(physical_coord_names, spacing, strict=True)
+            for name, step in zip(world_coord_names, spacing, strict=True)
             if name in moving.coords
         },
     )
@@ -309,8 +309,8 @@ def resample_like(
     shape = [int(reference.sizes[dim]) for dim in dims]
     origin_dict = reference.fusi.origin
     origin_names = (
-        get_voxel_affine_physical_coord_names(reference)
-        if has_voxel_affine_geometry(reference)
+        get_voxel_affine_world_coord_names(reference)
+        if has_voxel_world_geometry(reference)
         else dims
     )
     origin = [origin_dict[dim] for dim in origin_names]

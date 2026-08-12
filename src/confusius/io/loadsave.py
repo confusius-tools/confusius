@@ -4,11 +4,16 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import xarray as xr
 
 import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    has_voxel_world_geometry,
+)
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
     make_attrs_zarr_safe,
@@ -16,6 +21,48 @@ from confusius.io._utils import (
 )
 from confusius.io.utils import check_path
 from confusius.validation import ensure_fusi
+
+
+def _restore_voxel_world_index_from_coords(data: xr.DataArray) -> xr.DataArray:
+    """Rebuild voxel-to-world geometry from serialized affine-like world coordinates."""
+    if has_voxel_world_geometry(data):
+        return data
+    voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
+    world_names = ("z", "y", "x")[-len(voxel_dims) :]
+    if len(voxel_dims) < 2 or any(name not in data.coords for name in world_names):
+        return data
+
+    voxel_mesh = np.meshgrid(
+        *(np.asarray(data.coords[dim].values, dtype=np.float64) for dim in voxel_dims),
+        indexing="ij",
+    )
+    design = np.stack(
+        [mesh.ravel() for mesh in voxel_mesh] + [np.ones(voxel_mesh[0].size)], axis=1
+    )
+    affine = np.eye(len(voxel_dims) + 1, dtype=np.float64)
+    try:
+        broadcast_world = xr.broadcast(*(data.coords[name] for name in world_names))
+    except ValueError:
+        return data
+    for row, coord in enumerate(broadcast_world):
+        if set(coord.dims) != set(voxel_dims):
+            return data
+        coeffs, *_ = np.linalg.lstsq(
+            design,
+            np.asarray(coord.transpose(*voxel_dims).values, dtype=np.float64).ravel(),
+            rcond=None,
+        )
+        affine[row, :] = coeffs
+    affine[np.isclose(affine, 0.0, atol=1e-12)] = 0.0
+
+    attrs = {name: data.coords[name].attrs for name in world_names}
+    return add_world_coords_from_voxel_affine(
+        data,
+        affine,
+        voxel_dims=voxel_dims,
+        world_coord_names=world_names,
+        world_coord_attrs=attrs,
+    )
 
 
 def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.DataArray:
@@ -67,6 +114,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         data_array = (
             ds[variable] if variable is not None else ds[next(iter(ds.data_vars))]
         )
+        data_array = _restore_voxel_world_index_from_coords(data_array)
     else:
         raise ValueError(
             f"Unsupported file extension in {name!r}. Supported"

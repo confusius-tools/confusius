@@ -10,7 +10,7 @@ import pandas as pd
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.atlas._physical_to_base_transform import (
     PhysicalToBaseTransform,
     _apply_physical_to_base_transform,
@@ -482,12 +482,12 @@ class AtlasAccessor:
                 self.reference.coords.get(name, xr.Variable((), 0.0)).attrs
             )
             physical_attrs[name]["voxdim"] = float(step)
-        reference = add_physical_coords_from_voxel_affine(
+        reference = add_world_coords_from_voxel_affine(
             reference,
             affine,
             voxel_dims=tuple(dims),
-            physical_coord_names=physical_names,
-            physical_coord_attrs=physical_attrs,
+            world_coord_names=physical_names,
+            world_coord_attrs=physical_attrs,
         )
         return self.resample_like(
             reference,
@@ -790,12 +790,17 @@ def get_atlas_mesh(
         vertices_mm, faces = _drop_vertices_outside_grid(vertices_mm, faces, reference)
 
     if side != "both":
+        from confusius.plotting._utils import (
+            _materialize_axis_aligned_world_grid_for_display,
+        )
+
+        hemispheres_grid = _materialize_axis_aligned_world_grid_for_display(hemispheres)
         sel = {
             d: xr.DataArray(vertices_mm[:, i], dims="point")
             for i, d in enumerate("zyx")
         }
         side_value = hemispheres.attrs[side]
-        hem_points = hemispheres.sel(sel, method="nearest").compute()
+        hem_points = hemispheres_grid.sel(sel, method="nearest").compute()
 
         keep_idx = np.where(hem_points == side_value)[0]
         old_to_new = np.full(len(vertices_mm), -1, dtype=np.int64)

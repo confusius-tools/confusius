@@ -92,12 +92,12 @@ def convert_dataarray_to_layer_data(
         Napari layer type inferred from `da.dtype`.
     """
     from confusius.plotting._utils import (
-        convert_axis_aligned_voxel_affine_to_physical_grid,
+        _materialize_axis_aligned_world_grid_for_display,
         resample_voxel_affine_to_physical_grid,
     )
 
     source_da = da
-    da = convert_axis_aligned_voxel_affine_to_physical_grid(da)
+    da = _materialize_axis_aligned_world_grid_for_display(da)
     da = resample_voxel_affine_to_physical_grid(da)
     all_dims = list(da.dims)
 

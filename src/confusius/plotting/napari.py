@@ -15,7 +15,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
-from confusius._utils.geometry import has_voxel_affine_geometry
+from confusius._utils.geometry import has_voxel_world_geometry
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
@@ -39,24 +39,41 @@ def _get_napari_scale_translate_units(
     all_dims = list(data.dims)
 
     coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    fusi_spacing = data.fusi.spacing if has_voxel_affine_geometry(data) else {}
+    fusi_spacing = data.fusi.spacing if has_voxel_world_geometry(data) else {}
     spacing = {
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
     }
     origin = data.fusi.origin
     physical_dim = {"k": "z", "j": "y", "i": "x"}
-    scale = [spacing[str(dim)] for dim in all_dims]
-    translate = [
-        origin[physical_dim.get(str(dim), str(dim))]
-        if physical_dim.get(str(dim), str(dim)) in origin
-        else (
-            float(np.asarray(data.coords[dim].values, dtype=float)[0])
-            if dim in data.coords
-            else 0.0
-        )
-        for dim in all_dims
-    ]
+    scale: list[float] = []
+    translate: list[float] = []
+    for dim in all_dims:
+        dim_name = str(dim)
+        world_name = physical_dim.get(dim_name, dim_name)
+        world_coord = data.coords.get(world_name)
+        if world_coord is not None and world_coord.dims == (dim,):
+            values = np.asarray(world_coord.values, dtype=float)
+            scale.append(
+                spacing.get(
+                    dim_name,
+                    np.float64(world_coord.attrs.get("voxdim", 1.0)).item(),
+                )
+            )
+            translate.append(np.float64(values[0]).item())
+        else:
+            scale.append(spacing[dim_name])
+            translate.append(
+                origin[world_name]
+                if world_name in origin
+                else (
+                    np.float64(
+                        np.asarray(data.coords[dim].values, dtype=float)[0]
+                    ).item()
+                    if dim in data.coords
+                    else 0.0
+                )
+            )
     units = [
         data.coords[dim].attrs.get("units") if dim in data.coords else None
         for dim in all_dims
@@ -81,7 +98,7 @@ def plot_napari(
         Input data array to visualize. Standard physical-grid arrays typically use
         dimensions such as `(time, z, y, x)`. ConfUSIus-loaded arrays may instead
         carry native voxel dimensions such as `(time, k, j, i)` together with linked
-        physical `z/y/x` coordinates and `attrs["voxel_to_physical"]`. Use
+        physical `z/y/x` coordinates and `attrs["voxel_to_world"]`. Use
         `dim_order` to specify a different displayed spatial ordering. Can be image
         data or label/mask data (e.g., ROIs, segmentations).
     show_colorbar : bool, default: True
@@ -370,7 +387,9 @@ def draw_napari_labels(
     spatial_translate = [
         origin[physical_dim.get(dim, dim)]
         if physical_dim.get(dim, dim) in origin
-        else (float(data.coords[dim].values[0]) if dim in data.coords else 0.0)
+        else (
+            np.float64(data.coords[dim].values[0]).item() if dim in data.coords else 0.0
+        )
         for dim in spatial_dims
     ]
     spatial_shape = tuple(data.sizes[d] for d in spatial_dims)
@@ -472,10 +491,11 @@ def labels_from_layer(
     unique_labels = unique_labels[unique_labels != 0]
     rgb_lookup: dict[int, list[int]] = {}
     for label in unique_labels:
-        rgba = labels_layer.get_color(int(label))
+        label_id = np.int64(label).item()
+        rgba = labels_layer.get_color(label_id)
         if rgba is not None:
             # Store 0-255 RGB (drop alpha) to match the atlas annotation convention.
-            rgb_lookup[int(label)] = [round(c * 255) for c in rgba[:3]]
+            rgb_lookup[label_id] = [round(c * 255) for c in rgba[:3]]
 
     # Build one layer per label so the output matches the stacked mask format
     # returned by the atlas accessor's get_masks: dims=["mask", *spatial_dims] with the
@@ -497,7 +517,7 @@ def labels_from_layer(
             **{
                 key: value
                 for key, value in data.attrs.items()
-                if key == "voxel_to_physical"
+                if key == "voxel_to_world"
             },
             "long_name": "Drawn label map",
             "labels_layer_name": labels_layer.name,

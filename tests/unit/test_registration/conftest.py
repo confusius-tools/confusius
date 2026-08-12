@@ -3,36 +3,15 @@
 import numpy as np
 import pytest
 import SimpleITK as sitk
-import xarray as xr
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
-
-
-def _add_voxel_affine(
-    data: xr.DataArray,
-    voxel_dims: tuple[str, ...],
-    spacing: tuple[float, ...],
-) -> xr.DataArray:
-    affine = np.eye(len(voxel_dims) + 1, dtype=np.float64)
-    affine[:-1, :-1] = np.diag(spacing)
-    physical_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
-    return add_physical_coords_from_voxel_affine(
-        data,
-        affine,
-        voxel_dims=voxel_dims,
-        physical_coord_names=physical_names,
-        physical_coord_attrs={
-            name: {"units": "mm", "voxdim": step}
-            for name, step in zip(physical_names, spacing, strict=True)
-        },
-    )
+from confusius.xarray import create_fusi_dataarray
 
 
 @pytest.fixture
 def sample_2d_image():
-    """2D NumPy array with a bright square in the centre (32x32)."""
-    img = np.zeros((32, 32), dtype=np.float32)
-    img[12:20, 12:20] = 100.0
+    """Single-slice 3D NumPy array with a bright square in the centre (1x32x32)."""
+    img = np.zeros((1, 32, 32), dtype=np.float32)
+    img[:, 12:20, 12:20] = 100.0
     return img
 
 
@@ -46,41 +25,38 @@ def sample_3d_array():
 
 @pytest.fixture
 def sample_2d_dataarray_spatial(sample_2d_image):
-    """Spatial (j, i) DataArray wrapping sample_2d_image with 0.1 mm spacing."""
-    da = xr.DataArray(
+    """Singleton-k (k, j, i) DataArray wrapping sample_2d_image with 0.1 mm spacing."""
+    return create_fusi_dataarray(
         sample_2d_image,
-        dims=("j", "i"),
-        coords={"j": np.arange(32), "i": np.arange(32)},
+        dims=("z", "y", "x"),
+        spacing=(1.0, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
     )
-    return _add_voxel_affine(da, ("j", "i"), (0.1, 0.1))
 
 
 @pytest.fixture
 def sample_3d_dataarray_spatial(sample_3d_array):
     """Spatial (k, j, i) DataArray wrapping sample_3d_array with unit spacing."""
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         sample_3d_array,
-        dims=("k", "j", "i"),
-        coords={"k": np.arange(16), "j": np.arange(16), "i": np.arange(16)},
+        dims=("z", "y", "x"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
     )
-    return _add_voxel_affine(da, ("k", "j", "i"), (1.0, 1.0, 1.0))
 
 
 @pytest.fixture
 def sample_2d_dataarray(sample_2d_image):
-    """2D+time DataArray (5 frames) for volumewise registration tests."""
+    """Singleton-k+time DataArray (5 frames) for volumewise registration tests."""
     n_frames = 5
     data = np.stack([sample_2d_image] * n_frames, axis=0)
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         data,
-        dims=("time", "j", "i"),
-        coords={
-            "time": np.arange(n_frames) * 0.1,
-            "j": np.arange(32),
-            "i": np.arange(32),
-        },
+        dims=("time", "z", "y", "x"),
+        time=np.arange(n_frames) * 0.1,
+        spacing=(1.0, 0.1, 0.1),
+        origin=(0.0, 0.0, 0.0),
     )
-    return _add_voxel_affine(da, ("j", "i"), (0.1, 0.1))
 
 
 @pytest.fixture
@@ -88,17 +64,13 @@ def sample_3d_dataarray(sample_3d_array):
     """3D+time DataArray (3 frames) for volumewise registration tests."""
     n_frames = 3
     data = np.stack([sample_3d_array] * n_frames, axis=0)
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         data,
-        dims=("time", "k", "j", "i"),
-        coords={
-            "time": np.arange(n_frames) * 0.1,
-            "k": np.arange(16),
-            "j": np.arange(16),
-            "i": np.arange(16),
-        },
+        dims=("time", "z", "y", "x"),
+        time=np.arange(n_frames) * 0.1,
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
     )
-    return _add_voxel_affine(da, ("k", "j", "i"), (1.0, 1.0, 1.0))
 
 
 @pytest.fixture

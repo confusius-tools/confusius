@@ -24,7 +24,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.io.utils import check_path
 
 SCAN_V2_MAGIC = b"scan"
@@ -365,7 +365,7 @@ def _make_scan_voxel_coords(
 
 def _attach_scan_voxel_affine_geometry(
     data: xr.DataArray,
-    voxel_to_physical: npt.NDArray[np.float64],
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Attach lazy physical `(z, y, x)` coordinates derived from scan voxel space.
 
@@ -373,25 +373,32 @@ def _attach_scan_voxel_affine_geometry(
     ----------
     data : xarray.DataArray
         Scan data carrying 1D voxel-space coordinates `k`, `j`, `i`.
-    voxel_to_physical : (4, 4) numpy.ndarray
+    voxel_to_world : (4, 4) numpy.ndarray
         Affine mapping zero-based ConfUSIus voxel coordinates to physical probe space.
 
     Returns
     -------
     xarray.DataArray
-        DataArray with lazy physical coordinates attached and the affine stored in
-        `attrs["voxel_to_physical"]`.
+        DataArray with lazy world coordinates attached.
     """
-    data.attrs["voxel_to_physical"] = np.asarray(voxel_to_physical, dtype=np.float64)
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         data,
-        voxel_to_physical,
+        voxel_to_world,
         voxel_dims=VOXEL_DIMS,
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
-            "z": {"units": "mm", "voxdim": float(abs(voxel_to_physical[0, 0]))},
-            "y": {"units": "mm", "voxdim": float(abs(voxel_to_physical[1, 1]))},
-            "x": {"units": "mm", "voxdim": float(abs(voxel_to_physical[2, 2]))},
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
+            "z": {
+                "units": "mm",
+                "voxdim": np.float64(abs(voxel_to_world[0, 0])).item(),
+            },
+            "y": {
+                "units": "mm",
+                "voxdim": np.float64(abs(voxel_to_world[1, 1])).item(),
+            },
+            "x": {
+                "units": "mm",
+                "voxdim": np.float64(abs(voxel_to_world[2, 2])).item(),
+            },
         },
     )
 
@@ -665,7 +672,7 @@ def _load_scan_v1(
         )
 
         voxel_coords = _make_scan_voxel_coords(size_x, size_y, size_z)
-        voxel_to_physical = _build_voxel_to_confusius_physical(voxels_to_probe)
+        voxel_to_world = _build_voxel_to_confusius_physical(voxels_to_probe)
         physical_to_lab = _build_physical_to_lab(probe_to_lab)
 
         attrs: dict[str, Any] = {
@@ -684,11 +691,11 @@ def _load_scan_v1(
 
         if mode == "2Dscan":
             data_array = _load_2dscan_voxel_affine(
-                h5, raw_lazy, voxel_coords, attrs, voxel_to_physical
+                h5, raw_lazy, voxel_coords, attrs, voxel_to_world
             )
         elif mode == "3Dscan":
             data_array = _load_3dscan_voxel_affine(
-                raw_lazy, voxel_coords, attrs, npose, voxel_to_physical
+                raw_lazy, voxel_coords, attrs, npose, voxel_to_world
             )
         elif mode == "4Dscan":
             data_array = _load_4dscan_voxel_affine(
@@ -698,7 +705,7 @@ def _load_scan_v1(
                 attrs,
                 npose,
                 nblock_repeat,
-                voxel_to_physical,
+                voxel_to_world,
             )
         else:
             raise ValueError(
@@ -934,7 +941,7 @@ def _load_2dscan_voxel_affine(
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
-    voxel_to_physical: npt.NDArray[np.float64],
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Build a voxel-affine DataArray for `2Dscan` mode."""
     data_lazy = da.transpose(raw_lazy, [0, 2, 1, 3])
@@ -956,7 +963,7 @@ def _load_2dscan_voxel_affine(
         coords=coords,
         attrs=attrs,
     )
-    return _attach_scan_voxel_affine_geometry(result, voxel_to_physical)
+    return _attach_scan_voxel_affine_geometry(result, voxel_to_world)
 
 
 def _load_3dscan_voxel_affine(
@@ -964,7 +971,7 @@ def _load_3dscan_voxel_affine(
     voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     npose: int,
-    voxel_to_physical: npt.NDArray[np.float64],
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Build a voxel-affine DataArray for `3Dscan` mode."""
     sq = da.squeeze(raw_lazy, axis=1)
@@ -979,7 +986,7 @@ def _load_3dscan_voxel_affine(
         coords=coords,
         attrs=attrs,
     )
-    return _attach_scan_voxel_affine_geometry(result, voxel_to_physical)
+    return _attach_scan_voxel_affine_geometry(result, voxel_to_world)
 
 
 def _load_4dscan_voxel_affine(
@@ -989,7 +996,7 @@ def _load_4dscan_voxel_affine(
     attrs: dict[str, Any],
     npose: int,
     nblock_repeat: int,
-    voxel_to_physical: npt.NDArray[np.float64],
+    voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Build a voxel-affine DataArray for `4Dscan` mode."""
     nscan_repeat = raw_lazy.shape[0]
@@ -1025,7 +1032,7 @@ def _load_4dscan_voxel_affine(
         coords=coords,
         attrs=attrs,
     )
-    return _attach_scan_voxel_affine_geometry(result, voxel_to_physical)
+    return _attach_scan_voxel_affine_geometry(result, voxel_to_world)
 
 
 def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
@@ -1270,7 +1277,7 @@ def _load_scan_v2(
     -------
     xarray.DataArray
         Lazy DataArray with dims `(time, k, j, i)` or `(time, pose, k, j, i)` and
-        physical coordinates derived from `attrs["voxel_to_physical"]` (depth origin
+        physical coordinates derived from `attrs["voxel_to_world"]` (depth origin
         from the header when found; lateral/elevation centered on zero — see
         `load_scan` Notes).
 
@@ -1337,7 +1344,7 @@ def _load_scan_v2(
         dims = ["time", "pose", "k", "j", "i"]
 
     coords = _build_scan_v2_coords(meta, n_time_total, npose)
-    voxel_to_physical = _build_scan_v2_voxel_to_physical(meta)
+    voxel_to_world = _build_scan_v2_voxel_to_world(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
     physical_to_lab = acquisition.pop("_physical_to_lab", None)
@@ -1346,7 +1353,7 @@ def _load_scan_v2(
         attrs["affines"]["physical_to_lab"] = physical_to_lab
 
     data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
-    data_array = _attach_scan_voxel_affine_geometry(data_array, voxel_to_physical)
+    data_array = _attach_scan_voxel_affine_geometry(data_array, voxel_to_world)
     data_array.name = attrs.get("iconeus_scan") or path.stem
     return data_array
 
@@ -1559,7 +1566,7 @@ def _read_scan_v2_acquisition(
     return result
 
 
-def _build_scan_v2_voxel_to_physical(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
+def _build_scan_v2_voxel_to_world(meta: dict[str, Any]) -> npt.NDArray[np.float64]:
     """Build a v2 affine from ConfUSIus voxel coordinates to physical space.
 
     Parameters
@@ -1582,10 +1589,10 @@ def _build_scan_v2_voxel_to_physical(meta: dict[str, Any]) -> npt.NDArray[np.flo
     z0 = -((size_y - 1) / 2) * dz_mm
     y0 = meta.get("depth_start_mm", 0.0)
 
-    voxel_to_physical = np.eye(4, dtype=np.float64)
-    voxel_to_physical[:3, :3] = np.diag([dz_mm, dy_mm, dx_mm])
-    voxel_to_physical[:3, 3] = [z0, y0, x0]
-    return voxel_to_physical
+    voxel_to_world = np.eye(4, dtype=np.float64)
+    voxel_to_world[:3, :3] = np.diag([dz_mm, dy_mm, dx_mm])
+    voxel_to_world[:3, 3] = [z0, y0, x0]
+    return voxel_to_world
 
 
 def _build_scan_v2_coords(

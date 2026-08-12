@@ -126,111 +126,111 @@ class TestPlotStatMapVisualRegression:
 
 class TestPlotStatMap:
     def test_returns_volume_plotter_with_one_panel_per_slice(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        stat_map = _signed_stat_map(sample_fusi_3d)
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="z")
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["k"]
+        assert len(rendered) == sample_fusi_3d.sizes["k"]
         # Background + overlay were both drawn on every panel.
         assert all(len(ax.collections) == 2 for ax in rendered)
 
-    def test_forwards_slice_mode(self, sample_3d_volume, matplotlib_pyplot):
-        stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="y")
+    def test_forwards_slice_mode(self, sample_fusi_3d, matplotlib_pyplot):
+        stat_map = _signed_stat_map(sample_fusi_3d)
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="y")
         assert plotter.slice_mode == "y"
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["j"]
+        assert len(rendered) == sample_fusi_3d.sizes["j"]
 
     def test_overlay_sets_no_explicit_alpha_by_default(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
         """The default sets no explicit alpha, letting the colormap's own alpha
         through (the default colormaps are opaque)."""
-        stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        stat_map = _signed_stat_map(sample_fusi_3d)
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="z")
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() is None
 
     def test_explicit_alpha_blends_overlay_with_background(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_3d_volume, slice_mode="z", alpha=0.5
+            stat_map, bg_volume=sample_fusi_3d, slice_mode="z", alpha=0.5
         )
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.get_alpha() == 0.5
 
     def test_overlay_uses_coolwarm_by_default_for_signed_data(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        stat_map = _signed_stat_map(sample_fusi_3d)
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="z")
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("coolwarm")
 
     def test_default_bounds_are_symmetric_min_max_for_signed_data(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        stat_map = _signed_stat_map(sample_fusi_3d)
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="z")
         norm = _axes(plotter).ravel()[0].collections[-1].norm
         assert norm.vmax == 10.0
         assert norm.vmin == -10.0
 
     def test_explicit_vmin_and_vmax_cap_the_symmetric_range(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmin=-5.0, vmax=5.0
+            stat_map, bg_volume=sample_fusi_3d, slice_mode="z", vmin=-5.0, vmax=5.0
         )
         norm = _axes(plotter).ravel()[0].collections[-1].norm
         assert norm.vmax == 5.0
         assert norm.vmin == -5.0
 
     def test_vmax_alone_does_not_cap_the_range_when_data_min_is_larger(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
         """vmin defaults to the data's actual min when not given, so a lone vmax
         smaller than |data min| does not shrink the symmetric range."""
-        stat_map = _signed_stat_map(sample_3d_volume)  # min=-10, max=10
+        stat_map = _signed_stat_map(sample_fusi_3d)  # min=-10, max=10
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_3d_volume, slice_mode="z", vmax=5.0
+            stat_map, bg_volume=sample_fusi_3d, slice_mode="z", vmax=5.0
         )
         norm = _axes(plotter).ravel()[0].collections[-1].norm
         assert norm.vmax == 10.0
         assert norm.vmin == -10.0
 
     def test_auto_range_uses_sequential_range_and_viridis_for_nonneg_data(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _nonneg_stat_map(sample_3d_volume)  # min=0, max=10
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        stat_map = _nonneg_stat_map(sample_fusi_3d)  # min=0, max=10
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="z")
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("viridis")
         assert overlay.norm.vmin == 0.0
         assert overlay.norm.vmax == 10.0
 
     def test_auto_range_uses_sequential_range_and_viridis_r_for_nonpos_data(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = -_nonneg_stat_map(sample_3d_volume)  # min=-10, max=0
-        plotter = plot_stat_map(stat_map, bg_volume=sample_3d_volume, slice_mode="z")
+        stat_map = -_nonneg_stat_map(sample_fusi_3d)  # min=-10, max=0
+        plotter = plot_stat_map(stat_map, bg_volume=sample_fusi_3d, slice_mode="z")
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("viridis_r")
         assert overlay.norm.vmin == -10.0
         assert overlay.norm.vmax == 0.0
 
     def test_auto_range_false_disables_zero_anchoring(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(
             stat_map,
-            bg_volume=sample_3d_volume,
+            bg_volume=sample_fusi_3d,
             slice_mode="z",
             vmin=-2.0,
             vmax=5.0,
@@ -242,20 +242,20 @@ class TestPlotStatMap:
         assert overlay.norm.vmax == 5.0
 
     def test_explicit_cmap_is_used_as_is_regardless_of_sign(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _nonneg_stat_map(sample_3d_volume)
+        stat_map = _nonneg_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(
-            stat_map, bg_volume=sample_3d_volume, slice_mode="z", cmap="hot"
+            stat_map, bg_volume=sample_fusi_3d, slice_mode="z", cmap="hot"
         )
         overlay = _axes(plotter).ravel()[0].collections[-1]
         assert overlay.cmap.name.startswith("hot")
 
-    def test_threshold_masks_overlay(self, sample_3d_volume, matplotlib_pyplot):
-        stat_map = _signed_stat_map(sample_3d_volume)
+    def test_threshold_masks_overlay(self, sample_fusi_3d, matplotlib_pyplot):
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(
             stat_map,
-            bg_volume=sample_3d_volume,
+            bg_volume=sample_fusi_3d,
             slice_mode="z",
             threshold=9.0,
             threshold_mode="lower",
@@ -265,12 +265,12 @@ class TestPlotStatMap:
         assert np.ma.is_masked(arr)
 
     def test_bg_kwargs_forwarded_to_background_layer(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(
             stat_map,
-            bg_volume=sample_3d_volume,
+            bg_volume=sample_fusi_3d,
             slice_mode="z",
             bg_kwargs={"cmap": "hot", "vmin": 0.0, "vmax": 1.0},
         )
@@ -280,13 +280,13 @@ class TestPlotStatMap:
         assert background.norm.vmax == 1.0
 
     def test_dataarray_alpha_validated_against_stat_map_not_bg_volume(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
         """alpha (a DataArray) only needs to match stat_map; bg_volume may differ."""
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         alpha = xr.ones_like(stat_map) * 0.5
         # bg_volume deliberately has a coarser, non-matching x grid.
-        bg_volume = sample_3d_volume.isel(i=slice(0, 4))
+        bg_volume = sample_fusi_3d.isel(i=slice(0, 4))
 
         plotter = plot_stat_map(
             stat_map, bg_volume=bg_volume, slice_mode="z", alpha=alpha
@@ -295,9 +295,9 @@ class TestPlotStatMap:
         assert overlay.get_alpha() == pytest.approx(0.5)
 
     def test_without_background_plots_stat_map_alone(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = plot_stat_map(stat_map, slice_mode="z")
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == stat_map.sizes["k"]
@@ -311,22 +311,22 @@ class TestStatMapAccessor:
     """Tests for the `data.fusi.plot.stat_map()` accessor wrapper."""
 
     def test_accessor_forwards_to_plot_stat_map(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
         import confusius  # noqa: F401 - register accessor.
 
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = stat_map.fusi.plot.stat_map(
-            bg_volume=sample_3d_volume, slice_mode="z"
+            bg_volume=sample_fusi_3d, slice_mode="z"
         )
         assert isinstance(plotter, VolumePlotter)
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
-        assert len(rendered) == sample_3d_volume.sizes["k"]
+        assert len(rendered) == sample_fusi_3d.sizes["k"]
 
-    def test_accessor_without_background(self, sample_3d_volume, matplotlib_pyplot):
+    def test_accessor_without_background(self, sample_fusi_3d, matplotlib_pyplot):
         import confusius  # noqa: F401 - register accessor.
 
-        stat_map = _signed_stat_map(sample_3d_volume)
+        stat_map = _signed_stat_map(sample_fusi_3d)
         plotter = stat_map.fusi.plot.stat_map(slice_mode="z")
         rendered = [ax for ax in _axes(plotter).ravel() if ax.collections]
         assert len(rendered) == stat_map.sizes["k"]

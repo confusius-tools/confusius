@@ -4,6 +4,12 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
+)
 from confusius.validation import validate_mask, validate_matching_coordinates
 
 
@@ -146,41 +152,46 @@ def test_validate_matching_coordinates_raises_on_shape_mismatch():
         validate_matching_coordinates(left, right, "time")
 
 
-def test_validate_mask_accepts_scalar_attached_coordinate(sample_3dt_volume):
+def test_validate_mask_accepts_scalar_attached_coordinate(sample_fusi_3dt):
     """Single selected masks validate even if they keep a scalar `mask` coord."""
-    spatial_dims = sample_3dt_volume.dims[1:]
+    spatial_dims = sample_fusi_3dt.dims[1:]
     mask = xr.DataArray(
-        np.zeros((2, *sample_3dt_volume.shape[1:]), dtype=int),
+        np.zeros((2, *sample_fusi_3dt.shape[1:]), dtype=int),
         dims=("mask", *spatial_dims),
         coords={
             "mask": ["roi_a", "roi_b"],
             **{
                 name: coord
-                for name, coord in sample_3dt_volume.coords.items()
+                for name, coord in sample_fusi_3dt.coords.items()
                 if set(coord.dims).issubset(spatial_dims)
             },
         },
-        attrs={"voxel_to_physical": sample_3dt_volume.attrs["voxel_to_physical"]},
+    )
+    mask = add_world_coords_from_voxel_affine(
+        mask,
+        get_voxel_to_world_affine(sample_fusi_3dt),
+        voxel_dims=get_voxel_affine_spatial_dims(sample_fusi_3dt),
+        world_coord_names=get_voxel_affine_world_coord_names(sample_fusi_3dt),
     )
     mask[0, 0, :, :] = 1
 
-    validate_mask(mask.isel(mask=0), sample_3dt_volume)
+    validate_mask(mask.isel(mask=0), sample_fusi_3dt)
 
 
-def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_3dt_volume):
+def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_fusi_3dt):
     """`require_exact_dims=True` accepts masks over all non-time dimensions."""
-    mask = xr.ones_like(sample_3dt_volume.isel(time=0, drop=True), dtype=bool)
+    mask = xr.ones_like(sample_fusi_3dt.isel(time=0, drop=True), dtype=bool)
 
-    validate_mask(mask, sample_3dt_volume, require_exact_dims=True)
+    validate_mask(mask, sample_fusi_3dt, require_exact_dims=True)
 
 
-def test_validate_mask_require_exact_dims_rejects_subset_dims(sample_3dt_volume):
+def test_validate_mask_require_exact_dims_rejects_subset_dims(sample_fusi_3dt):
     """`require_exact_dims=True` rejects subset spatial masks."""
     mask = xr.DataArray(
-        np.ones(sample_3dt_volume.sizes["i"], dtype=bool),
+        np.ones(sample_fusi_3dt.sizes["i"], dtype=bool),
         dims=["i"],
-        coords={"i": sample_3dt_volume.coords["i"]},
+        coords={"i": sample_fusi_3dt.coords["i"]},
     )
 
     with pytest.raises(ValueError, match="must match all non-time dimensions"):
-        validate_mask(mask, sample_3dt_volume, require_exact_dims=True)
+        validate_mask(mask, sample_fusi_3dt, require_exact_dims=True)

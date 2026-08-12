@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._utils.geometry import get_voxel_to_world_affine
 from confusius.io.scan import PHYSICAL_TO_PROBE_PERMUTATION, load_bps, load_scan
 
 _RNG = np.random.default_rng(42)
@@ -151,7 +152,7 @@ class TestLoadScan2D:
         assert da.coords["z"].dims == ("k",)
         assert da.coords["y"].dims == ("j",)
         assert da.coords["x"].dims == ("i",)
-        assert da.attrs["voxel_to_physical"].shape == (4, 4)
+        assert get_voxel_to_world_affine(da).shape == (4, 4)
         np.testing.assert_allclose(
             da.coords["x"].values,
             1e3

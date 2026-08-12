@@ -31,13 +31,18 @@ This object is not a dense deformation field sampled on every voxel of the movin
 fixed image. Instead, it stores the sparse B-spline coefficient lattice that defines
 the smooth deformation.
 
-A dense displacement field is represented the same way, minus the B-spline-specific
-attributes:
+A dense displacement field is a canonical ConfUSIus DataArray (built with
+[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]) with an extra
+leading `component` dimension:
 
-- **dims**: `("component", <spatial dims>)`.
-- **coords**: `component` is labeled by the spatial dim names, and each
-  spatial axis stores the physical mm positions of every voxel.
-- **attrs**: `{"type": "displacement_field_transform", "direction": [[...], ...]}`.
+- **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
+- **coords**: `component` is labeled by the spatial dim names, each spatial axis
+  carries its native voxel index, and the derived physical `z`/`y`/`x` coordinates
+  give the physical mm position of every voxel.
+- **attrs**: `{"type": "displacement_field_transform"}`. The voxel-to-world affine
+  lives on the coordinate index (like any other CTI-backed DataArray), not in
+  `attrs`; orientation is folded into it rather than stored separately, and can be
+  recovered with `.fusi.direction`.
 
 Unlike the sparse B-spline coefficient lattice, a displacement field stores one
 displacement vector per voxel of an explicit grid. It is produced by sampling a B-spline
@@ -58,10 +63,9 @@ import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
-    add_physical_coords_from_voxel_affine,
-    get_voxel_affine_physical_coord_names,
     get_voxel_affine_spatial_dims,
-    has_voxel_affine_geometry,
+    get_voxel_affine_world_coord_names,
+    has_voxel_world_geometry,
 )
 from confusius.registration._utils import (
     expand_thin_dims,
@@ -73,6 +77,7 @@ from confusius.validation import (
     ensure_fusi,
     validate_matching_spatial_units,
 )
+from confusius.xarray.create import create_fusi_dataarray
 
 if TYPE_CHECKING:
     import SimpleITK as sitk
@@ -433,35 +438,16 @@ def sample_displacement_field_like(
     )
 
     dims, spacing = get_defined_spatial_spacing(reference)
-    origin_dict = reference.fusi.origin
-    result = sample_displacement_field(
+    origin_dict = _dim_keyed_origin(reference)
+    return sample_displacement_field(
         transform,
         shape=[int(reference.sizes[dim]) for dim in dims],
         spacing=spacing,
-        origin=(
-            [origin_dict[dim] for dim in dims]
-            if not has_voxel_affine_geometry(reference)
-            else [o for d, o in origin_dict.items() if d != "time"]
-        ),
+        origin=[origin_dict[dim] for dim in dims],
         dims=dims,
         direction=reference.fusi.direction,
         sitk_threads=sitk_threads,
     )
-    result = result.assign_coords(
-        {
-            dim: reference.coords[dim]
-            for dim in reference.dims
-            if dim in reference.coords
-        }
-    )
-    if has_voxel_affine_geometry(reference):
-        result = add_physical_coords_from_voxel_affine(
-            result,
-            reference.attrs["voxel_to_physical"],
-            voxel_dims=tuple(dims),
-            physical_coord_names=get_voxel_affine_physical_coord_names(reference),
-        )
-    return result
 
 
 def invert_displacement_field(
@@ -542,20 +528,10 @@ def invert_displacement_field(
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
     origin = [_dim_keyed_origin(field_grid)[d] for d in dims]
-    direction = np.asarray(
-        field.attrs.get("direction", np.eye(len(dims))), dtype=np.float64
-    )
-    result = _sitk_displacement_field_to_dataarray(
+    direction = field_grid.fusi.direction
+    return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
     )
-    if has_voxel_affine_geometry(field_grid):
-        result = add_physical_coords_from_voxel_affine(
-            result,
-            field_grid.attrs["voxel_to_physical"],
-            voxel_dims=tuple(dims),
-            physical_coord_names=get_voxel_affine_physical_coord_names(field_grid),
-        )
-    return result
 
 
 def _sitk_displacement_field_to_dataarray(
@@ -597,31 +573,23 @@ def _sitk_displacement_field_to_dataarray(
     # in _dataarray_to_sitk_displacement_field.
     array = sitk.GetArrayFromImage(field).T
 
-    # Store spacing as a 'voxdim' coordinate attribute (the codebase-wide convention;
-    # see e.g. confusius.io.load_nifti) rather than relying on consumers to recover it
-    # via coords[d].diff(d).mean(). fUSI data routinely carries a singleton spatial
-    # axis (a single 2D slice stored as a (1, y, x) array), for which diff() is empty
-    # and .mean() silently returns NaN.
-    coords: dict[str, object] = {
-        "component": ("component", np.array(dims, dtype=np.str_), {})
-    }
-    for i, d in enumerate(dims):
-        coords[d] = (
-            d,
-            origin[i] + np.arange(shape[i]) * spacing[i],
-            {"voxdim": float(spacing[i])},
-        )
+    ndim = len(dims)
+    direction_matrix = np.asarray(direction, dtype=np.float64).reshape(ndim, ndim)
+    # Direction and spacing compose the same way create_fusi_dataarray's own
+    # `direction` parameter does: each column of the (orthonormal) direction matrix
+    # scaled by the corresponding axis spacing. Building the full affine directly (and
+    # passing it as voxel_to_world) rather than create_fusi_dataarray's separate
+    # spacing/origin/direction lets `dims` be in any order, not just canonical z/y/x.
+    voxel_to_world = np.eye(ndim + 1, dtype=np.float64)
+    voxel_to_world[:-1, :-1] = direction_matrix * np.asarray(spacing, dtype=np.float64)
+    voxel_to_world[:-1, -1] = origin
 
-    return xr.DataArray(
+    return create_fusi_dataarray(
         array,
-        dims=["component", *dims],
-        coords=coords,
-        attrs={
-            "type": "displacement_field_transform",
-            "direction": np.asarray(direction, dtype=np.float64)
-            .reshape(len(dims), len(dims))
-            .tolist(),
-        },
+        dims=("component", *dims),
+        extra_coords={"component": np.array(dims, dtype=np.str_)},
+        voxel_to_world=voxel_to_world,
+        attrs={"type": "displacement_field_transform"},
     )
 
 
@@ -643,10 +611,10 @@ def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
         Origin keyed by `data`'s own dimension names.
     """
     origin = data.fusi.origin
-    if not has_voxel_affine_geometry(data):
+    if not has_voxel_world_geometry(data):
         return origin
     voxel_dims = get_voxel_affine_spatial_dims(data)
-    physical_names = get_voxel_affine_physical_coord_names(data)
+    physical_names = get_voxel_affine_world_coord_names(data)
     return {
         **origin,
         **{
@@ -683,11 +651,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
     origin = [_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
-    direction = np.asarray(
-        da.attrs.get("direction", np.eye(len(spatial_dims))), dtype=np.float64
-    )
-    if direction.shape != (len(spatial_dims), len(spatial_dims)):
-        direction = np.eye(len(spatial_dims), dtype=np.float64)
+    direction = field_grid.fusi.direction
 
     # .T maps the first DataArray axis to SimpleITK's physical x-axis, matching the
     # convention used throughout confusius.registration (see dataarray_to_sitk_image).

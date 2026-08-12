@@ -10,7 +10,7 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.atlas._structures import _build_rgb_lookup
 
 if TYPE_CHECKING:
@@ -42,9 +42,9 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         dim: xr.Variable(dim, np.arange(shape[i], dtype=np.float64))
         for i, dim in enumerate(VOXEL_DIMS)
     }
-    voxel_to_physical = np.eye(4, dtype=np.float64)
-    voxel_to_physical[:-1, :-1] = np.diag(resolution_mm)
-    physical_coord_attrs = {name: {"units": "mm"} for name in SPATIAL_DIMS}
+    voxel_to_world = np.eye(4, dtype=np.float64)
+    voxel_to_world[:-1, :-1] = np.diag(resolution_mm)
+    world_coord_attrs = {name: {"units": "mm"} for name in SPATIAL_DIMS}
 
     rgb_lookup = _build_rgb_lookup(atlas.structures)
     cmap, norm = build_atlas_cmap_and_norm(rgb_lookup)
@@ -54,12 +54,12 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     }
 
     def _with_physical_coords(data: xr.DataArray) -> xr.DataArray:
-        return add_physical_coords_from_voxel_affine(
+        return add_world_coords_from_voxel_affine(
             data,
-            voxel_to_physical,
+            voxel_to_world,
             voxel_dims=VOXEL_DIMS,
-            physical_coord_names=SPATIAL_DIMS,
-            physical_coord_attrs=physical_coord_attrs,
+            world_coord_names=SPATIAL_DIMS,
+            world_coord_attrs=world_coord_attrs,
         )
 
     reference = _with_physical_coords(

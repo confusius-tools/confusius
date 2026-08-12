@@ -12,9 +12,9 @@ from confusius.io.loadsave import load, save
 
 
 @pytest.fixture
-def saveable_volume(sample_3d_volume: xr.DataArray) -> xr.DataArray:
+def saveable_volume(sample_fusi_3d: xr.DataArray) -> xr.DataArray:
     """Canonical fUSI volume accepted by public save APIs."""
-    return sample_3d_volume.copy(deep=True)
+    return sample_fusi_3d.copy(deep=True)
 
 
 class TestLoadDispatch:

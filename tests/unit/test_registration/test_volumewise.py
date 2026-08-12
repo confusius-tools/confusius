@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
 
@@ -123,7 +123,7 @@ class TestRegisterVolumewise:
                 stop_condition="done",
                 status="completed",
             )
-            return _volume.copy(), np.eye(3), diagnostics
+            return _volume.copy(), np.eye(4), diagnostics
 
         monkeypatch.setattr(
             "confusius.registration.volumewise.register_volume",
@@ -165,7 +165,7 @@ class TestRegisterVolumewise:
                 stop_condition="done",
                 status="completed",
             )
-            return volume.copy(), np.eye(3), diagnostics
+            return volume.copy(), np.eye(4), diagnostics
 
         class _FakeParallel:
             def __init__(self, *args, **kwargs):
@@ -221,7 +221,7 @@ class TestRegisterVolumewise:
     @pytest.mark.parametrize(
         ("data_fixture", "dims"),
         [
-            ("sample_2d_dataarray", ("time", "j", "i")),
+            ("sample_2d_dataarray", ("time", "k", "j", "i")),
             ("sample_3d_dataarray", ("time", "k", "j", "i")),
         ],
     )
@@ -236,29 +236,30 @@ class TestRegisterVolumewise:
         assert_allclose(result.values, data.values, atol=1e-3)
 
     def test_2d_recovers_known_shift(self, sample_2d_image):
-        """2D registration recovers a known translation."""
+        """Registration of a singleton-k volume recovers a known translation."""
         # Create data with a shifted frame.
         n_frames = 3
         shift_x, shift_y = 2, 3
 
         frames = [sample_2d_image.copy() for _ in range(n_frames)]
         # Shift frame 1 by rolling (simulates translation).
-        frames[1] = np.roll(np.roll(frames[1], shift_y, axis=0), shift_x, axis=1)
+        frames[1] = np.roll(np.roll(frames[1], shift_y, axis=1), shift_x, axis=2)
 
         data = xr.DataArray(
             np.stack(frames, axis=0),
-            dims=("time", "j", "i"),
+            dims=("time", "k", "j", "i"),
             coords={
                 "time": np.arange(n_frames) * 0.1,
+                "k": [0],
                 "j": np.arange(32),
                 "i": np.arange(32),
             },
         )
-        data = add_physical_coords_from_voxel_affine(
+        data = add_world_coords_from_voxel_affine(
             data,
-            np.diag([1.0, 1.0, 1.0]),
-            voxel_dims=("j", "i"),
-            physical_coord_names=("y", "x"),
+            np.diag([1.0, 1.0, 1.0, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            world_coord_names=("z", "y", "x"),
         )
 
         result = register_volumewise(
@@ -317,15 +318,15 @@ class TestRegisterVolumewise:
             sample_2d_dataarray, n_jobs=1, transform="rigid"
         )
 
-        # Motion params should have rotation column in both cases.
-        assert "rotation" in result_no_rot.attrs["motion_params"].columns
-        assert "rotation" in result_with_rot.attrs["motion_params"].columns
+        # Motion params should have rotation columns in both cases.
+        assert "rot_x" in result_no_rot.attrs["motion_params"].columns
+        assert "rot_x" in result_with_rot.attrs["motion_params"].columns
 
     def test_singleton_dimension_handling(self, sample_2d_image):
         """Singleton spatial dimensions are handled correctly."""
         # Create data with a singleton k dimension (2D slice in 3D array).
         data = xr.DataArray(
-            sample_2d_image[np.newaxis, np.newaxis, :, :].repeat(3, axis=0),
+            sample_2d_image[np.newaxis, :, :, :].repeat(3, axis=0),
             dims=("time", "k", "j", "i"),
             coords={
                 "time": np.arange(3) * 0.1,
@@ -334,11 +335,11 @@ class TestRegisterVolumewise:
                 "i": np.arange(32),
             },
         )
-        data = add_physical_coords_from_voxel_affine(
+        data = add_world_coords_from_voxel_affine(
             data,
             np.diag([0.2, 0.1, 0.1, 1.0]),
             voxel_dims=("k", "j", "i"),
-            physical_coord_names=("z", "y", "x"),
+            world_coord_names=("z", "y", "x"),
         )
 
         result = register_volumewise(data, n_jobs=1)
@@ -354,24 +355,25 @@ class TestRegisterVolumewise:
         """Output dimension order matches input regardless of internal transposition."""
         # Create data with non-standard dimension order.
         data = xr.DataArray(
-            np.stack([sample_2d_image] * 3, axis=2),
-            dims=("j", "i", "time"),
+            np.stack([sample_2d_image] * 3, axis=3),
+            dims=("k", "j", "i", "time"),
             coords={
+                "k": [0],
                 "j": np.arange(32),
                 "i": np.arange(32),
                 "time": np.arange(3) * 0.1,
             },
         )
-        data = add_physical_coords_from_voxel_affine(
+        data = add_world_coords_from_voxel_affine(
             data,
-            np.diag([0.1, 0.1, 1.0]),
-            voxel_dims=("j", "i"),
-            physical_coord_names=("y", "x"),
+            np.diag([0.2, 0.1, 0.1, 1.0]),
+            voxel_dims=("k", "j", "i"),
+            world_coord_names=("z", "y", "x"),
         )
 
         result = register_volumewise(data, n_jobs=1)
 
-        assert result.dims == ("j", "i", "time")
+        assert result.dims == ("k", "j", "i", "time")
         # Identical frames should produce nearly identical output.
         assert_allclose(result.values, data.values, atol=1e-3)
 

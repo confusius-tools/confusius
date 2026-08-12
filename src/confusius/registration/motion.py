@@ -178,13 +178,13 @@ def _get_motion_parameter_columns(
         If `params` does not have 6 columns.
     """
     from confusius._utils.geometry import (
-        get_voxel_affine_physical_coord_names,
-        has_voxel_affine_geometry,
+        get_voxel_affine_world_coord_names,
+        has_voxel_world_geometry,
     )
 
     spatial_dims = (
-        get_voxel_affine_physical_coord_names(reference)
-        if has_voxel_affine_geometry(reference)
+        get_voxel_affine_world_coord_names(reference)
+        if has_voxel_world_geometry(reference)
         else tuple(str(dim) for dim in reference.dims)
     )
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
@@ -281,13 +281,13 @@ def compute_framewise_displacement(
     ndim = affines_validated[0].shape[0] - 1
 
     from confusius._utils.geometry import (
-        get_voxel_affine_physical_coord_names,
-        has_voxel_affine_geometry,
+        get_voxel_affine_world_coord_names,
+        has_voxel_world_geometry,
     )
 
     spatial_names = (
-        get_voxel_affine_physical_coord_names(reference)
-        if has_voxel_affine_geometry(reference)
+        get_voxel_affine_world_coord_names(reference)
+        if has_voxel_world_geometry(reference)
         else tuple(str(dim) for dim in reference.dims)
     )
     if len(spatial_names) != ndim:
@@ -296,7 +296,7 @@ def compute_framewise_displacement(
             f"{len(spatial_names)}D reference and {ndim}D affines."
         )
 
-    if has_voxel_affine_geometry(reference):
+    if has_voxel_world_geometry(reference):
         coord_arrays = [
             np.asarray(reference.coords[name].values, dtype=float)
             for name in spatial_names

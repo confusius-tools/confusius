@@ -5,9 +5,10 @@ from typing import Literal
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_physical_coords_from_voxel_affine,
-    get_voxel_affine_physical_coord_names,
+    add_world_coords_from_voxel_affine,
     get_voxel_affine_spatial_dims,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
 )
 from confusius._utils.timing import interpolate_timeseries
 from confusius.validation import ensure_fusi
@@ -144,14 +145,14 @@ def correct_slice_timings(
 
     out = da.copy(data=result.data)
     del out.coords[timing_coord_name]
-    physical_coord_names = tuple(get_voxel_affine_physical_coord_names(da))
-    out = out.drop_vars(physical_coord_names, errors="ignore")
-    return add_physical_coords_from_voxel_affine(
+    world_coord_names = tuple(get_voxel_affine_world_coord_names(da))
+    out = out.drop_vars(world_coord_names, errors="ignore")
+    return add_world_coords_from_voxel_affine(
         out,
-        da.attrs["voxel_to_physical"],
+        get_voxel_to_world_affine(da),
         voxel_dims=tuple(get_voxel_affine_spatial_dims(da)),
-        physical_coord_names=physical_coord_names,
-        physical_coord_attrs={
-            name: dict(da.coords[name].attrs) for name in physical_coord_names
+        world_coord_names=world_coord_names,
+        world_coord_attrs={
+            name: dict(da.coords[name].attrs) for name in world_coord_names
         },
     )

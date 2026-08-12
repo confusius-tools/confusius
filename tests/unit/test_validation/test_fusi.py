@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import add_world_coords_from_voxel_affine
 from confusius.validation import validate_fusi_dataarray
 
 
@@ -21,7 +21,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
         },
     )
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         base,
         np.array(
             [
@@ -32,8 +32,8 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             ]
         ),
         voxel_dims=("k", "j", "i"),
-        physical_coord_names=("z", "y", "x"),
-        physical_coord_attrs={
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
             "z": {"units": "mm", "voxdim": 2.0},
             "y": {"units": "mm", "voxdim": 6.0},
             "x": {"units": "mm", "voxdim": 4.0},
@@ -91,10 +91,9 @@ def test_validate_fusi_dataarray_rejects_voxel_affine_missing_physical_coord() -
         good.values,
         dims=good.dims,
         coords={dim: good.coords[dim] for dim in ("k", "j", "i")},
-        attrs={"voxel_to_physical": good.attrs["voxel_to_physical"]},
     )
 
-    with pytest.raises(ValueError, match="missing physical coordinate 'z'"):
+    with pytest.raises(ValueError, match="VoxelToWorldIndex-backed"):
         validate_fusi_dataarray(bad)
 
 
@@ -119,12 +118,12 @@ def test_validate_fusi_dataarray_requires_minimum_spatial_dims() -> None:
         dims=("j", "i"),
         coords={"j": [0.0, 2.0, 4.0], "i": [0.0, 1.0, 2.0, 3.0]},
     )
-    bad = add_physical_coords_from_voxel_affine(
+    bad = add_world_coords_from_voxel_affine(
         base,
         np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
         voxel_dims=("j", "i"),
-        physical_coord_names=("y", "x"),
-        physical_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
+        world_coord_names=("y", "x"),
+        world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
     )
 
     with pytest.raises(ValueError, match="at least 3 spatial dimensions"):

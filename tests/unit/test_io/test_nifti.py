@@ -10,7 +10,10 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import add_physical_coords_from_voxel_affine
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    get_voxel_to_world_affine,
+)
 from confusius.io.nifti import load_nifti, save_nifti
 from confusius.xarray import create_fusi_dataarray as _create_fusi_dataarray
 from confusius.xarray.affine import apply_affine
@@ -22,33 +25,66 @@ def create_fusi_dataarray(
     coords=None,
     **kwargs,
 ) -> xr.DataArray:
-    """Create CTI-backed test DataArrays with unit default spatial coords."""
+    """Create test DataArrays with unit default spatial geometry."""
     coords = dict(coords or {})
-    for dim, size in zip(dims, np.shape(data), strict=True):
-        if dim in {"z", "y", "x"} and dim not in coords:
-            coords[dim] = xr.Variable(
-                dim,
-                np.arange(size, dtype=np.float64),
-                attrs={"units": "mm", "voxdim": 1.0},
-            )
-    if "time" in dims and "time" not in coords:
+    time = coords.get("time")
+    pose = coords.get("pose")
+    if "time" in dims and time is None:
         kwargs.setdefault("dt", 1.0)
+    spacing = []
+    origin = []
     for dim in ("z", "y", "x"):
-        if dim not in coords:
-            kwargs.setdefault(f"d{dim}", 1.0)
-    kwargs.setdefault("canonical_order", False)
-    return _create_fusi_dataarray(data, dims=dims, coords=coords, **kwargs)
+        coord = coords.get(dim)
+        if coord is None:
+            origin.append(kwargs.pop(f"{dim}0", 0.0))
+            spacing.append(kwargs.pop(f"d{dim}", 1.0))
+            continue
+        values = np.asarray(coord.values if hasattr(coord, "values") else coord)
+        origin.append(float(values[0]))
+        if values.size > 1:
+            diffs = np.diff(values.astype(float))
+            step = float(np.median(diffs))
+            if not np.allclose(diffs, step):
+                raise ValueError(f"Spacing for dimension {dim!r} is required")
+            spacing.append(step)
+        else:
+            spacing.append(1.0)
+    extra_coords = {
+        key: value
+        for key, value in coords.items()
+        if key not in {"time", "pose", "z", "y", "x", "k", "j", "i"}
+    }
+    kwargs.pop("canonical_order", None)
+    if "voxel_to_world" in kwargs:
+        return _create_fusi_dataarray(
+            data,
+            dims=dims,
+            time=time,
+            pose=pose,
+            extra_coords=extra_coords,
+            **kwargs,
+        )
+    return _create_fusi_dataarray(
+        data,
+        dims=dims,
+        time=time,
+        pose=pose,
+        extra_coords=extra_coords,
+        spacing=tuple(spacing),
+        origin=tuple(origin),
+        **kwargs,
+    )
 
 
 def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
     """Attach test voxel-affine geometry to a k/j/i DataArray."""
     voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
     physical_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
-    return add_physical_coords_from_voxel_affine(
+    return add_world_coords_from_voxel_affine(
         data,
         np.eye(len(voxel_dims) + 1),
         voxel_dims=voxel_dims,
-        physical_coord_names=physical_names,
+        world_coord_names=physical_names,
     )
 
 
@@ -875,7 +911,7 @@ class TestLoadNifti:
     def test_load_nifti_coordinate_affine_sform_forces_sform(
         self, tmp_path: Path
     ) -> None:
-        """`coordinate_affine="sform"` makes sform define CTI geometry."""
+        """`coordinate_affine="sform"` makes sform define coordinate geometry."""
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         qform = np.diag([5.0, 6.0, 7.0, 1.0])
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
@@ -889,7 +925,7 @@ class TestLoadNifti:
 
         np.testing.assert_allclose(da.coords["z"].values, [0.0, 4.0])
         np.testing.assert_allclose(
-            da.attrs["voxel_to_physical"][:3, :3], np.diag([4.0, 3.0, 2.0])
+            get_voxel_to_world_affine(da)[:3, :3], np.diag([4.0, 3.0, 2.0])
         )
         assert "physical_to_sform" in da.attrs["affines"]
         assert "physical_to_qform" in da.attrs["affines"]
@@ -897,7 +933,7 @@ class TestLoadNifti:
     def test_load_nifti_coordinate_affine_qform_forces_qform(
         self, tmp_path: Path
     ) -> None:
-        """`coordinate_affine="qform"` makes qform define CTI geometry."""
+        """`coordinate_affine="qform"` makes qform define coordinate geometry."""
         sform = np.diag([2.0, 3.0, 4.0, 1.0])
         qform = np.diag([5.0, 6.0, 7.0, 1.0])
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
@@ -911,7 +947,7 @@ class TestLoadNifti:
 
         np.testing.assert_allclose(da.coords["z"].values, [0.0, 7.0])
         np.testing.assert_allclose(
-            da.attrs["voxel_to_physical"][:3, :3], np.diag([7.0, 6.0, 5.0])
+            get_voxel_to_world_affine(da)[:3, :3], np.diag([7.0, 6.0, 5.0])
         )
         assert "physical_to_qform" in da.attrs["affines"]
         assert "physical_to_sform" in da.attrs["affines"]
@@ -1203,16 +1239,16 @@ class TestLoadNifti:
 class TestSaveNifti:
     """Tests for `save_nifti` function."""
 
-    def test_save_invalid_extension_raises(self, tmp_path, sample_3d_volume):
+    def test_save_invalid_extension_raises(self, tmp_path, sample_fusi_3d):
         """Saving rejects paths without a NIfTI extension."""
-        da = sample_3d_volume.drop_vars("time")
+        da = sample_fusi_3d.drop_vars("time")
 
         with pytest.raises(ValueError, match=r"\.nii or \.nii\.gz"):
             save_nifti(da, tmp_path / "not_nifti.json")
 
-    def test_save_non_4x4_affine_raises(self, tmp_path, sample_3d_volume) -> None:
+    def test_save_non_4x4_affine_raises(self, tmp_path, sample_fusi_3d) -> None:
         """A stored affine in `da.attrs["affines"]` with the wrong shape raises `ValueError`."""
-        da = sample_3d_volume.drop_vars("time")
+        da = sample_fusi_3d.drop_vars("time")
         da.attrs["affines"] = {"physical_to_qform": np.zeros((3, 3))}
 
         with pytest.raises(ValueError, match="must have shape"):
@@ -1639,7 +1675,7 @@ class TestSaveNifti:
         da = create_fusi_dataarray(
             np.zeros((2, 3, 4), dtype=np.float32),
             dims=["z", "y", "x"],
-            voxel_to_physical=np.diag([1.0, 1.0, -1.0, 1.0]),
+            voxel_to_world=np.diag([1.0, 1.0, -1.0, 1.0]),
         )
 
         output_path = tmp_path / "negative_x.nii.gz"
@@ -1665,9 +1701,9 @@ class TestSaveNifti:
                 },
             )
 
-    def test_save_creates_sidecar(self, tmp_path, sample_3d_volume):
+    def test_save_creates_sidecar(self, tmp_path, sample_fusi_3d):
         """Saving always creates a JSON sidecar alongside the NIfTI file."""
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         da.attrs["task_name"] = "test"
         da.attrs["custom"] = "value"
 
@@ -1682,13 +1718,13 @@ class TestSaveNifti:
         assert "RepetitionTime" not in sidecar
 
     def test_save_drops_non_json_serializable_attrs(
-        self, tmp_path, sample_3d_volume
+        self, tmp_path, sample_fusi_3d
     ) -> None:
         """Non-JSON-serializable attrs (e.g. matplotlib colormaps) are dropped, not
         stringified, and do not prevent the sidecar from being written."""
         from matplotlib.colors import ListedColormap
 
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         da.attrs["cmap"] = ListedColormap(["red", "blue"])
         da.attrs["task_name"] = "test"
 
@@ -1705,10 +1741,10 @@ class TestSaveNifti:
         assert sidecar["TaskName"] == "test"
 
     def test_save_maps_processing_metadata_to_sidecar_fields(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Processing metadata uses BIDS fields or ConfUSIus-prefixed equivalents."""
-        da = sample_3dt_volume.copy()
+        da = sample_fusi_3dt.copy()
         # Use non-uniform time to force VolumeTiming (instead of RepetitionTime) in the
         # sidecar — BIDS disallows FrameAcquisitionDuration alongside RepetitionTime.
         da = da.assign_coords(
@@ -1764,10 +1800,10 @@ class TestSaveNifti:
         assert "volume_acquisition_reference" not in sidecar
 
     def test_save_maps_probe_and_beamforming_metadata(
-        self, tmp_path, sample_3d_volume
+        self, tmp_path, sample_fusi_3d
     ) -> None:
         """Canonical probe and beamforming metadata use standard fUSI-BIDS fields."""
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         da.attrs["probe_number_of_elements"] = 128
         da.attrs["beamforming_sound_velocity"] = 1520.0
 
@@ -1783,9 +1819,9 @@ class TestSaveNifti:
         assert "probe_number_of_elements" not in sidecar
         assert "beamforming_sound_velocity" not in sidecar
 
-    def test_save_sidecar_serializes_extra_affines(self, tmp_path, sample_3d_volume):
+    def test_save_sidecar_serializes_extra_affines(self, tmp_path, sample_fusi_3d):
         """Extra affines that are not qform/sform are written to the sidecar."""
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         da.attrs["affines"] = {
             "physical_to_template": np.array(
                 [
@@ -1812,7 +1848,7 @@ class TestSaveNifti:
         ]
 
     def test_save_sidecar_omits_affines_written_to_header(
-        self, tmp_path, sample_3d_volume
+        self, tmp_path, sample_fusi_3d
     ):
         """Affines already written to qform/sform are omitted from the sidecar."""
         template_affine = np.array(
@@ -1839,7 +1875,7 @@ class TestSaveNifti:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         da.attrs["affines"] = {
             "physical_to_template": template_affine,
             "physical_to_scanner": scanner_affine,
@@ -1902,19 +1938,20 @@ class TestSaveNifti:
             [0.0, 0.0, 0.0, 1.0],
         ]
 
-    def test_save_invalid_time_units_raises(self, tmp_path, sample_3dt_volume):
+    def test_save_invalid_time_units_raises(self, tmp_path, sample_fusi_3dt):
         """Saving rejects unsupported time units."""
-        da = sample_3dt_volume.copy()
+        da = sample_fusi_3dt.copy()
         da.coords["time"].attrs["units"] = "fortnight"
 
         with pytest.raises(ValueError, match="Unknown time unit"):
             save_nifti(da, tmp_path / "invalid_time_units.nii.gz")
 
     def test_save_single_volume_time_coord_uses_volume_timing(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """A single time point is stored via `VolumeTiming`, not `RepetitionTime`."""
-        da = sample_3dt_volume.isel(time=slice(0, 1)).copy()
+        da = sample_fusi_3dt.isel(time=slice(0, 1)).copy()
+        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
         output_path = tmp_path / "single_volume.nii.gz"
 
@@ -1940,10 +1977,12 @@ class TestSaveNifti:
         np.testing.assert_allclose(loaded.coords["time"].values, [10.0])
 
     def test_save_single_volume_without_duration_omits_frame_acquisition_duration(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """A single time point without metadata does not invent a frame duration."""
-        da = sample_3dt_volume.isel(time=slice(0, 1)).copy()
+        da = sample_fusi_3dt.isel(time=slice(0, 1)).copy()
+        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
+        da.coords["time"].attrs.pop("volume_acquisition_duration", None)
 
         output_path = tmp_path / "single_volume_no_duration.nii.gz"
         with pytest.warns(UserWarning, match="FrameAcquisitionDuration is REQUIRED"):
@@ -1957,10 +1996,12 @@ class TestSaveNifti:
         assert "FrameAcquisitionDuration" not in sidecar
 
     def test_save_scalar_time_coordinate_without_time_dim(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Saving a 3D slice with scalar `time` coord writes single-volume timing."""
-        da = sample_3dt_volume.isel(time=0).copy()
+        da = sample_fusi_3dt.isel(time=0).copy()
+        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
+        da.coords["time"].attrs.pop("volume_acquisition_duration", None)
         output_path = tmp_path / "scalar_time_coord.nii.gz"
 
         with pytest.warns(UserWarning, match="FrameAcquisitionDuration is REQUIRED"):
@@ -1973,10 +2014,10 @@ class TestSaveNifti:
         assert sidecar["VolumeTiming"] == [10.0]
         assert "RepetitionTime" not in sidecar
 
-    def test_save_boolean_data_writes_uint8(self, tmp_path, sample_3d_volume) -> None:
+    def test_save_boolean_data_writes_uint8(self, tmp_path, sample_fusi_3d) -> None:
         """Boolean payloads are stored as uint8 because NIfTI does not support bool."""
-        threshold = float(sample_3d_volume.mean().item())
-        da = sample_3d_volume.drop_vars("time") > threshold
+        threshold = float(sample_fusi_3d.mean().item())
+        da = sample_fusi_3d.drop_vars("time") > threshold
         output_path = tmp_path / "bool_payload.nii.gz"
 
         save_nifti(da, output_path)
@@ -1988,9 +2029,9 @@ class TestSaveNifti:
             da.values.transpose(2, 1, 0).astype(np.uint8),
         )
 
-    def test_save_nifti2_writes_nifti2_image(self, tmp_path, sample_3d_volume) -> None:
+    def test_save_nifti2_writes_nifti2_image(self, tmp_path, sample_fusi_3d) -> None:
         """Saving with `nifti_version=2` produces a NIfTI-2 image."""
-        da = sample_3d_volume.drop_vars("time")
+        da = sample_fusi_3d.drop_vars("time")
 
         output_path = tmp_path / "output_nifti2.nii"
         save_nifti(da, output_path, nifti_version=2)
@@ -1999,10 +2040,10 @@ class TestSaveNifti:
         assert isinstance(loaded, nib.nifti2.Nifti2Image)
 
     def test_save_valid_derived_metadata_emits_no_validation_warning(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Valid derived timing metadata does not trigger BIDS validation warnings."""
-        da = sample_3dt_volume.copy()
+        da = sample_fusi_3dt.copy()
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
 
         output_path = tmp_path / "invalid_metadata.nii.gz"
@@ -2084,10 +2125,11 @@ class TestSaveNifti:
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(0.4)
 
     def test_save_serializes_consistent_2d_slice_time_coordinate(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """A 2D absolute `slice_time` is exported when onset-relative timing is constant."""
-        da = sample_3dt_volume.copy()
+        da = sample_fusi_3dt.copy()
+        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         time_values = da.coords["time"].values
         da = da.assign_coords(
             slice_time=xr.DataArray(
@@ -2115,10 +2157,11 @@ class TestSaveNifti:
         assert sidecar["SliceEncodingDirection"] == "k"
 
     def test_save_skips_inconsistent_2d_slice_time_coordinate(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """A 2D `slice_time` is omitted when relative slice timing varies across volumes."""
-        da = sample_3dt_volume.copy()
+        da = sample_fusi_3dt.copy()
+        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         time_values = da.coords["time"].values
         varying_offsets = np.tile(np.array([0.0, 0.1, 0.2, 0.3]), (da.sizes["time"], 1))
         varying_offsets[1, -1] += 0.05
@@ -2151,10 +2194,10 @@ class TestSaveNifti:
         assert "SliceEncodingDirection" not in sidecar
 
     def test_save_serializes_1d_slice_time_with_scalar_time_coordinate(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """A 1D absolute `slice_time` is exported for scalar-time 3D snapshots."""
-        da = sample_3dt_volume.isel(time=0).copy()
+        da = sample_fusi_3dt.isel(time=0).copy()
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
         da.coords["time"].attrs["volume_acquisition_reference"] = "start"
         da = da.assign_coords(
@@ -2341,18 +2384,18 @@ class TestSaveNifti:
         assert "SliceTiming" not in sidecar
 
     def test_save_invalid_2d_slice_time_shape_warns(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """A non-1D/non-2D `slice_time` is rejected with a warning."""
-        da = sample_3dt_volume.copy()
+        da = sample_fusi_3dt.copy()
         da.coords["time"].attrs["volume_acquisition_reference"] = "start"
         da = da.assign_coords(
             slice_time=xr.DataArray(
                 np.zeros(
                     (
-                        sample_3dt_volume.sizes["time"],
-                        sample_3dt_volume.sizes["k"],
-                        sample_3dt_volume.sizes["j"],
+                        sample_fusi_3dt.sizes["time"],
+                        sample_fusi_3dt.sizes["k"],
+                        sample_fusi_3dt.sizes["j"],
                     )
                 ),
                 dims=("time", "k", "j"),
@@ -2486,7 +2529,7 @@ class TestSaveNifti:
             save_nifti(da, tmp_path / "invalid_time_reference.nii.gz")
 
     def test_save_nifti_validation_runtime_error_warns(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Unexpected sidecar validation failures degrade to a warning when saving."""
         output_path = tmp_path / "save_validation_runtime_error.nii.gz"
@@ -2497,7 +2540,7 @@ class TestSaveNifti:
             ),
             pytest.warns(UserWarning, match="validation warning when saving: boom"),
         ):
-            save_nifti(sample_3dt_volume, output_path)
+            save_nifti(sample_fusi_3dt, output_path)
 
     def test_named_qform_selects_requested_affine(self, tmp_path):
         """`qform=` selects the requested affine key from `attrs['affines']`."""
@@ -2791,10 +2834,10 @@ class TestRoundtrip:
             reloaded.header.get_sform(coded=True)[0], sform, atol=1e-4
         )
 
-    def test_roundtrip_3d(self, tmp_path, sample_3d_volume):
+    def test_roundtrip_3d(self, tmp_path, sample_fusi_3d):
         """Save and load preserves 3D data and attributes."""
         # Drop scalar time coordinate for pure 3D test
-        original = sample_3d_volume.drop_vars("time")
+        original = sample_fusi_3d.drop_vars("time")
 
         nifti_path = tmp_path / "roundtrip_3d.nii.gz"
         save_nifti(original, nifti_path)
@@ -3011,10 +3054,10 @@ class TestRoundtrip:
         ] == pytest.approx(4.6)
 
     def test_save_uses_time_coordinate_frame_acquisition_duration(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Irregular timings use `time.attrs['volume_acquisition_duration']`."""
-        original = sample_3dt_volume.isel(time=slice(0, 4)).copy()
+        original = sample_fusi_3dt.isel(time=slice(0, 4)).copy()
         original = original.assign_coords(
             time=xr.DataArray(
                 [0.0, 1.5, 2.8, 4.6],
@@ -3040,10 +3083,10 @@ class TestRoundtrip:
         assert sidecar["FrameAcquisitionDuration"] == pytest.approx(1.5)
 
     def test_save_irregular_time_approximates_frame_acquisition_duration_from_spacing(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Irregular timings fall back to median time spacing when no better duration exists."""
-        original = sample_3dt_volume.isel(time=slice(0, 4)).copy()
+        original = sample_fusi_3dt.isel(time=slice(0, 4)).copy()
         original = original.assign_coords(
             time=xr.DataArray([0.0, 1.5, 2.8, 4.6], dims=["time"], attrs={"units": "s"})
         )
@@ -3090,9 +3133,9 @@ class TestRoundtrip:
             loaded.coords["time"].values, [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
         )
 
-    def test_roundtrip_4d(self, tmp_path, sample_3dt_volume):
+    def test_roundtrip_4d(self, tmp_path, sample_fusi_3dt):
         """Save/load roundtrip preserves 4D data and non-derived BIDS attrs."""
-        original = sample_3dt_volume.copy()
+        original = sample_fusi_3dt.copy()
         original.attrs.update(
             {
                 "task_name": "rest",
@@ -3111,9 +3154,9 @@ class TestRoundtrip:
         assert loaded.attrs["manufacturer"] == "Verasonics"
         assert loaded.attrs["probe_central_frequency"] == 15.0
 
-    def test_roundtrip_preserves_units(self, tmp_path, sample_3d_volume):
+    def test_roundtrip_preserves_units(self, tmp_path, sample_fusi_3d):
         """Spatial units survive a save/load roundtrip."""
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         for dim in ("z", "y", "x"):
             da.coords[dim].attrs["units"] = "um"
 
@@ -3148,9 +3191,9 @@ class TestRoundtrip:
         assert da.attrs.get("instrument") == "probe_A"
         assert da.attrs.get("session") == 42
 
-    def test_save_converts_time_to_seconds(self, tmp_path, sample_3dt_volume):
+    def test_save_converts_time_to_seconds(self, tmp_path, sample_fusi_3dt):
         """Time values are converted to seconds when saving for BIDS compliance."""
-        original = sample_3dt_volume.copy()
+        original = sample_fusi_3dt.copy()
         original = original.assign_coords(
             time=xr.DataArray(
                 np.arange(original.sizes["time"]) * 1000.0,
@@ -3171,12 +3214,12 @@ class TestRoundtrip:
         assert "DelayAfterTrigger" not in sidecar
 
     def test_save_converts_processing_duration_attrs_to_seconds(
-        self, tmp_path, sample_3dt_volume
+        self, tmp_path, sample_fusi_3dt
     ) -> None:
         """Processing duration and stride attrs are converted to seconds in sidecar."""
-        da = sample_3dt_volume.copy().assign_coords(
+        da = sample_fusi_3dt.copy().assign_coords(
             time=xr.DataArray(
-                np.arange(sample_3dt_volume.sizes["time"]) * 100.0,
+                np.arange(sample_fusi_3dt.sizes["time"]) * 100.0,
                 dims=["time"],
                 attrs={"units": "ms"},
             )
@@ -3212,9 +3255,9 @@ class TestRoundtrip:
         assert sidecar["ConfUSIusBmodeIntegrationDuration"] == pytest.approx(0.1)
         assert sidecar["ConfUSIusBmodeIntegrationStride"] == pytest.approx(0.06)
 
-    def test_save_warns_on_inconsistent_spatial_units(self, tmp_path, sample_3d_volume):
+    def test_save_warns_on_inconsistent_spatial_units(self, tmp_path, sample_fusi_3d):
         """Saving warns when spatial dimensions have different units."""
-        da = sample_3d_volume.drop_vars("time").copy()
+        da = sample_fusi_3d.drop_vars("time").copy()
         da.coords["x"].attrs["units"] = "m"
 
         nifti_path = tmp_path / "mixed_units.nii.gz"
