@@ -190,14 +190,11 @@ class FUSIAccessor:
         >>> data = xr.DataArray(
         ...     np.zeros((3, 10, 20)),
         ...     dims=["k", "j", "i"],
-        ...     coords={"k": [0, 1, 2], "j": np.arange(10), "i": np.arange(20)},
+        ...     coords={"k": np.arange(3), "j": np.arange(10), "i": np.arange(20)},
         ... )
-        >>> data = data.assign_coords(
-        ...     z=("k", np.array([0.0, 0.2, 0.4])),
-        ...     y=("j", np.arange(10) * 0.1),
-        ...     x=("i", np.arange(20) * 0.05),
+        >>> data = data.fusi.affine.set_voxel_to_world(
+        ...     np.diag([0.2, 0.1, 0.05, 1.0])
         ... )
-        >>> data.attrs["voxel_to_world"] = np.diag([0.2, 0.1, 0.05, 1.0])
         >>> data.fusi.spacing
         {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
@@ -234,7 +231,7 @@ class FUSIAccessor:
 
         Non-spatial dimensions use their first coordinate value. Spatial origin is
         returned in world coordinate order as the world location of the first
-        sampled voxel under the stored `voxel_to_world` affine.
+        sampled voxel under the DataArray's voxel-to-world affine.
 
         Returns
         -------
@@ -249,16 +246,12 @@ class FUSIAccessor:
         >>> data = xr.DataArray(
         ...     np.zeros((3, 10, 20)),
         ...     dims=["k", "j", "i"],
-        ...     coords={"k": [0, 1, 2], "j": np.arange(10), "i": np.arange(20)},
+        ...     coords={"k": np.arange(3), "j": np.arange(10), "i": np.arange(20)},
         ... )
-        >>> data = data.assign_coords(
-        ...     z=("k", np.array([0.0, 0.2, 0.4])),
-        ...     y=("j", 2.0 + np.arange(10) * 0.1),
-        ...     x=("i", 3.0 + np.arange(20) * 0.05),
-        ... )
-        >>> data.attrs["voxel_to_world"] = np.array(
+        >>> voxel_to_world = np.array(
         ...     [[0.2, 0.0, 0.0, 1.0], [0.0, 0.1, 0.0, 2.0], [0.0, 0.0, 0.05, 3.0], [0.0, 0.0, 0.0, 1.0]]
         ... )
+        >>> data = data.fusi.affine.set_voxel_to_world(voxel_to_world)
         >>> data.fusi.origin
         {'z': 1.0, 'y': 2.0, 'x': 3.0}
         """

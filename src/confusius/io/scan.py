@@ -1275,7 +1275,7 @@ def _load_scan_v2(
     -------
     xarray.DataArray
         Lazy DataArray with dims `(time, k, j, i)` or `(time, pose, k, j, i)` and
-        world coordinates derived from `attrs["voxel_to_world"]` (depth origin
+        world coordinates derived from a `VoxelToWorldIndex` affine (depth origin
         from the header when found; lateral/elevation centered on zero — see
         `load_scan` Notes).
 

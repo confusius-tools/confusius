@@ -98,7 +98,7 @@ def plot_napari(
         Input data array to visualize. Standard world-grid arrays typically use
         dimensions such as `(time, z, y, x)`. ConfUSIus-loaded arrays may instead
         carry native voxel dimensions such as `(time, k, j, i)` together with linked
-        world `z/y/x` coordinates and `attrs["voxel_to_world"]`. Use
+        world `z/y/x` coordinates derived from a `VoxelToWorldIndex`. Use
         `dim_order` to specify a different displayed spatial ordering. Can be image
         data or label/mask data (e.g., ROIs, segmentations).
     show_colorbar : bool, default: True

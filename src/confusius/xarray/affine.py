@@ -78,15 +78,15 @@ def apply_affine(
 ) -> xr.DataArray:
     """Apply a world-space affine to voxel-affine geometry.
 
-    The transform is composed into `attrs["voxel_to_world"]`, derived world
-    coordinates are regenerated, and existing `attrs["affines"]` entries are
+    The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
+    world coordinates are regenerated, and existing `attrs["affines"]` entries are
     re-expressed against the new world frame. Per-pose `(npose, N, N)` stacks
     are handled by NumPy broadcasting.
 
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan with voxel-affine geometry in `attrs["voxel_to_world"]`.
+        Input scan with voxel-affine geometry (a `VoxelToWorldIndex`).
     affine : numpy.ndarray, shape (N, N), or str
         Homogeneous world-space affine matrix to apply. If a string, it is
         looked up as a key in `da.attrs["affines"]`.
@@ -106,8 +106,8 @@ def apply_affine(
     ------
     ValueError
         If `da` lacks voxel-affine geometry, if `affine` shape does not match
-        `attrs["voxel_to_world"]`, or if `affine` is a string and `da` has no
-        `"affines"` entry in `attrs`.
+        the DataArray's voxel-to-world affine, or if `affine` is a string and
+        `da` has no `"affines"` entry in `attrs`.
     KeyError
         If `affine` is a string not present in `da.attrs["affines"]`.
 
@@ -116,14 +116,16 @@ def apply_affine(
     >>> import numpy as np
     >>> import xarray as xr
     >>> import confusius  # noqa: F401
-    >>> from confusius._utils.geometry import add_world_coords_from_voxel_affine
-    >>> data = add_world_coords_from_voxel_affine(
-    ...     xr.DataArray(np.zeros((3, 4)), dims=["j", "i"]), np.eye(3)
+    >>> data = xr.DataArray(
+    ...     np.zeros((3, 4)),
+    ...     dims=["j", "i"],
+    ...     coords={"j": np.arange(3), "i": np.arange(4)},
     ... )
+    >>> data = data.fusi.affine.set_voxel_to_world(np.eye(3))
     >>> shift = np.eye(3)
     >>> shift[:2, 2] = [10.0, 5.0]
     >>> result = data.fusi.affine.apply(shift)
-    >>> float(result.attrs["voxel_to_world"][0, 2])
+    >>> float(result.fusi.affine.voxel_to_world[0, 2])
     10.0
     """
     applied_key = affine if isinstance(affine, str) else None
@@ -444,10 +446,10 @@ class FUSIAffineAccessor:
     ) -> xr.DataArray:
         """Apply a world-space affine to voxel-affine geometry.
 
-        The transform is composed into `attrs["voxel_to_world"]`, derived world
-        coordinates are regenerated, and existing `attrs["affines"]` entries are
-        re-expressed against the new world frame. Per-pose `(npose, N, N)` stacks
-        are handled by NumPy broadcasting.
+        The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
+        world coordinates are regenerated, and existing `attrs["affines"]` entries
+        are re-expressed against the new world frame. Per-pose `(npose, N, N)`
+        stacks are handled by NumPy broadcasting.
 
         Parameters
         ----------
@@ -470,8 +472,8 @@ class FUSIAffineAccessor:
         ------
         ValueError
             If `self` lacks voxel-affine geometry, if `affine` shape does not match
-            `attrs["voxel_to_world"]`, or if `affine` is a string and `self` has
-            no `"affines"` entry in `attrs`.
+            the DataArray's voxel-to-world affine, or if `affine` is a string and
+            `self` has no `"affines"` entry in `attrs`.
         KeyError
             If `affine` is a string not present in `self.attrs["affines"]`.
 
@@ -480,14 +482,16 @@ class FUSIAffineAccessor:
         >>> import numpy as np
         >>> import xarray as xr
         >>> import confusius  # noqa: F401
-        >>> from confusius._utils.geometry import add_world_coords_from_voxel_affine
-        >>> data = add_world_coords_from_voxel_affine(
-        ...     xr.DataArray(np.zeros((3, 4)), dims=["j", "i"]), np.eye(3)
+        >>> data = xr.DataArray(
+        ...     np.zeros((3, 4)),
+        ...     dims=["j", "i"],
+        ...     coords={"j": np.arange(3), "i": np.arange(4)},
         ... )
+        >>> data = data.fusi.affine.set_voxel_to_world(np.eye(3))
         >>> shift = np.eye(3)
         >>> shift[:2, 2] = [10.0, 5.0]
         >>> result = data.fusi.affine.apply(shift)
-        >>> float(result.attrs["voxel_to_world"][0, 2])
+        >>> float(result.fusi.affine.voxel_to_world[0, 2])
         10.0
         """
         return apply_affine(self._obj, affine, inplace=inplace)
