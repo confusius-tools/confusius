@@ -207,7 +207,6 @@ def resample_volume(
     voxel_to_world_arr[:ndim, ndim] = output_origin
 
     attrs = moving.attrs.copy()
-    attrs.pop("voxel_to_world", None)
     result = create_fusi_dataarray(
         registered_arr,
         dims=("time", *VOXEL_DIMS) if has_time else VOXEL_DIMS,

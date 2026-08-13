@@ -26,7 +26,6 @@ from confusius.timing import (
     VolumeAcquisitionReference,
     convert_time_reference,
     get_representative_time_step,
-    get_time_coord_to_seconds_factor,
 )
 from confusius.validation import (
     ensure_fusi,
@@ -191,9 +190,11 @@ def _normalize_spatial_kernel(
 def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
     """Return the input IQ volume acquisition duration in coordinate units.
 
-    Prefers the explicit `volume_acquisition_duration` stored on the time coordinate.
-    Falls back to the scanner provenance attribute `compound_sampling_frequency`, then
-    to the representative time step of the `time` coordinate.
+    `ensure_iq` (called by every public entry point before this helper runs) already
+    infers and fills `volume_acquisition_duration` on the `time` coordinate whenever
+    it can be — from `compound_sampling_frequency` or the representative `time` step
+    (see [ensure_time_acquisition_attrs][confusius.timing.ensure_time_acquisition_attrs])
+    — so this only needs to read it back.
 
     Parameters
     ----------
@@ -204,36 +205,16 @@ def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
     -------
     float
         Volume acquisition duration in the same units as the `time` coordinate.
+
+    Raises
+    ------
+    ValueError
+        If `volume_acquisition_duration` could not be inferred (a single `time` point
+        with no `compound_sampling_frequency`).
     """
     duration = iq.coords["time"].attrs.get("volume_acquisition_duration")
     if isinstance(duration, int | float) and duration > 0:
         return float(duration)
-
-    compound_sampling_frequency = iq.attrs.get("compound_sampling_frequency")
-    if (
-        isinstance(compound_sampling_frequency, int | float)
-        and compound_sampling_frequency > 0
-    ):
-        warnings.warn(
-            "Using `compound_sampling_frequency` to infer `volume_acquisition_duration`. "
-            "Prefer an explicit `volume_acquisition_duration` on the time coordinate.",
-            stacklevel=find_stack_level(),
-        )
-        return 1.0 / (
-            float(compound_sampling_frequency) * get_time_coord_to_seconds_factor(iq)
-        )
-
-    time_step, approximate = get_representative_time_step(iq)
-    if time_step is not None:
-        warning = (
-            "Using the representative `time` coordinate spacing to infer "
-            "`volume_acquisition_duration`. Prefer an explicit "
-            "`volume_acquisition_duration` on the time coordinate."
-        )
-        if approximate:
-            warning += " Since timings are irregular, the inferred duration is based on a median approximation."
-        warnings.warn(warning, stacklevel=find_stack_level())
-        return float(time_step)
 
     raise ValueError(
         "Cannot determine volume acquisition duration: neither "

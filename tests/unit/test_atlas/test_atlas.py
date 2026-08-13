@@ -13,20 +13,28 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 import confusius as cf
+from confusius._utils.coordinates import get_grid_info_from_dataarray
+from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas
 
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
-    """Build a displacement-field transform DataArray on `reference`'s grid."""
-    dims = [str(d) for d in reference.dims]
+    """Build a displacement-field transform DataArray on `reference`'s world grid."""
+    dims = list(get_voxel_to_world_coord_names(reference))
+    grid_info = get_grid_info_from_dataarray(reference)
     return xr.DataArray(
         data,
         dims=["component", *dims],
         coords={
             "component": np.array(dims, dtype=np.str_),
-            **{d: reference.coords[d] for d in dims},
+            **{
+                dim: grid_info["origin"][axis]
+                + np.arange(grid_info["shape"][axis], dtype=np.float64)
+                * grid_info["spacing"][axis]
+                for axis, dim in enumerate(dims)
+            },
         },
         attrs={"type": "displacement_field_transform"},
     )

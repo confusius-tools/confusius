@@ -576,6 +576,7 @@ class TestFirstLevelModelErrors:
             np.eye(4),
             voxel_dims=("i", "j", "k"),
             world_coord_names=("x", "y", "z"),
+            world_coord_attrs={name: {"units": "mm"} for name in ("x", "y", "z")},
         )
         model = FirstLevelModel(noise_model="ols", mask=mask)
         with pytest.raises(ValueError, match="match all non-time dimensions"):

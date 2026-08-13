@@ -15,10 +15,11 @@ import numpy.typing as npt
 import xarray as xr
 from scipy.interpolate import interpn
 
-from confusius._utils.geometry import (
-    get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
+from confusius._utils.coordinates import (
+    get_coordinate_spacings,
+    get_grid_info_from_dataarray,
 )
+from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius.registration.bspline import sample_displacement_field_like
 
 WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
@@ -137,11 +138,22 @@ def _compose_world_to_base_transforms(
     if isinstance(old_transform, np.ndarray) and isinstance(new_transform, np.ndarray):
         return old_transform @ new_transform
 
-    dims = [str(dim) for dim in new_reference.dims]
+    # World dim names/coordinates, not `new_reference.dims`/voxel `k`/`j`/`i` coordinate
+    # values: displacement components and interpolation both operate in world mm. The
+    # index-derived world coordinate is N-D even for an axis-aligned grid (it depends on
+    # all voxel dims jointly), so a plain per-axis 1D vector is built from the grid's
+    # shape/spacing/origin instead of read directly off `new_reference.coords`.
+    dims = list(get_voxel_to_world_coord_names(new_reference))
+    grid_info = get_grid_info_from_dataarray(new_reference)
     grid = np.meshgrid(
         *[
-            np.asarray(new_reference.coords[dim].values, dtype=np.float64)
-            for dim in dims
+            origin + np.arange(size, dtype=np.float64) * spacing
+            for size, spacing, origin in zip(
+                grid_info["shape"],
+                grid_info["spacing"],
+                grid_info["origin"],
+                strict=True,
+            )
         ],
         indexing="ij",
     )
@@ -156,7 +168,14 @@ def _compose_world_to_base_transforms(
     )
 
     coords: dict = {"component": np.array(dims, dtype=np.str_)}
-    coords.update({dim: new_reference.coords[dim] for dim in dims})
+    coords.update(
+        {
+            dim: grid_info["origin"][axis]
+            + np.arange(grid_info["shape"][axis], dtype=np.float64)
+            * grid_info["spacing"][axis]
+            for axis, dim in enumerate(dims)
+        }
+    )
     return xr.DataArray(
         displacement,
         dims=["component", *dims],
@@ -184,7 +203,9 @@ def _interpolate_displacement_field(
         domain and its one-voxel edge-padded margin are returned as NaN.
     """
     spatial_dims = [str(dim) for dim in field.dims[1:]]
-    spacing = field.fusi.spacing
+    # `field` is a plain displacement grid over world dims (component, z, y, x), not a
+    # canonical fUSI DataArray, so it never carries a voxel-to-world index.
+    spacing = get_coordinate_spacings(field)
 
     # Pad the field by one voxel (edge replication) at each end of every spatial dim, so
     # points within one voxel of a boundary, as barely-outside mesh vertices are, can
@@ -331,11 +352,7 @@ def _drop_vertices_outside_grid(
     faces : numpy.ndarray
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
-    dims = (
-        list(get_voxel_to_world_coord_names(reference))
-        if has_voxel_to_world_index(reference)
-        else [str(dim) for dim in reference.dims]
-    )
+    dims = list(get_voxel_to_world_coord_names(reference))
     spacing = reference.fusi.spacing
     inside = np.ones(len(vertices), dtype=bool)
     for axis, dim in enumerate(dims):

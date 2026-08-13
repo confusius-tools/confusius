@@ -62,6 +62,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
+from confusius._utils.coordinates import get_coordinate_origins
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
@@ -527,7 +528,13 @@ def invert_displacement_field(
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
     origin = [_get_dim_keyed_origin(field_grid)[d] for d in dims]
-    direction = field_grid.fusi.direction
+    # Displacement fields are plain world grids without a voxel-to-world index (see
+    # `_compose_world_to_base_transforms`), so they are always axis-aligned.
+    direction = np.asarray(
+        field_grid.fusi.direction
+        if has_voxel_to_world_index(field_grid)
+        else np.eye(len(dims))
+    )
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
     )
@@ -609,9 +616,9 @@ def _get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     dict[str, float]
         Origin keyed by `data`'s own dimension names.
     """
-    origin = data.fusi.origin
     if not has_voxel_to_world_index(data):
-        return origin
+        return get_coordinate_origins(data)
+    origin = data.fusi.origin
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     world_names = get_voxel_to_world_coord_names(data)
     return {
@@ -650,7 +657,13 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
     origin = [_get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
-    direction = field_grid.fusi.direction
+    # Displacement fields are plain world grids without a voxel-to-world index (see
+    # `_compose_world_to_base_transforms`), so they are always axis-aligned.
+    direction = (
+        field_grid.fusi.direction
+        if has_voxel_to_world_index(field_grid)
+        else np.eye(len(spatial_dims))
+    )
 
     # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
     # convention used throughout confusius.registration (see dataarray_to_sitk_image).

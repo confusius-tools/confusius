@@ -12,7 +12,11 @@ from napari.utils.colormaps import DirectLabelColormap, ensure_colormap
 from napari.utils.notifications import show_warning
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.coordinates import (
+    get_coordinate_origins,
+    get_coordinate_spacings_best_effort,
+)
+from confusius._utils.geometry import has_voxel_to_world_index
 
 
 def infer_layer_type(dtype: npt.DTypeLike) -> Literal["image", "labels"]:
@@ -96,6 +100,9 @@ def convert_dataarray_to_layer_data(
         resample_to_axis_aligned_world_grid,
     )
 
+    # `da` may or may not carry a voxel-to-world index past this point:
+    # materialization strips it for display (napari's scale/translate model can't
+    # represent oblique geometry), for both axis-aligned and oblique input alike.
     source_da = da
     da = _materialize_axis_aligned_world_grid_for_display(da)
     da = resample_to_axis_aligned_world_grid(da)
@@ -107,12 +114,14 @@ def convert_dataarray_to_layer_data(
             f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
             "(positions along this axis may be approximate)."
         )
-    origin = da.fusi.origin
+    origin = (
+        da.fusi.origin if has_voxel_to_world_index(da) else get_coordinate_origins(da)
+    )
 
     scale: list[float] = [spacing[str(d)] for d in all_dims]
     translate: list[float] = [
-        origin[d]
-        if d in origin
+        origin[str(d)]
+        if str(d) in origin
         else (
             float(np.asarray(da.coords[d].values, dtype=float)[0])
             if d in da.coords

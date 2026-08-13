@@ -249,7 +249,15 @@ class TestRegisterVolumewise:
             np.stack(frames, axis=0),
             dims=("time", "k", "j", "i"),
             coords={
-                "time": np.arange(n_frames) * 0.1,
+                "time": xr.DataArray(
+                    np.arange(n_frames) * 0.1,
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 0.1,
+                    },
+                ),
                 "k": [0],
                 "j": np.arange(32),
                 "i": np.arange(32),
@@ -260,6 +268,7 @@ class TestRegisterVolumewise:
             np.diag([1.0, 1.0, 1.0, 1.0]),
             voxel_dims=("k", "j", "i"),
             world_coord_names=("z", "y", "x"),
+            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 
         result = register_volumewise(
@@ -329,7 +338,15 @@ class TestRegisterVolumewise:
             sample_2d_image[np.newaxis, :, :, :].repeat(3, axis=0),
             dims=("time", "k", "j", "i"),
             coords={
-                "time": np.arange(3) * 0.1,
+                "time": xr.DataArray(
+                    np.arange(3) * 0.1,
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 0.1,
+                    },
+                ),
                 "k": [0],
                 "j": np.arange(32),
                 "i": np.arange(32),
@@ -340,6 +357,7 @@ class TestRegisterVolumewise:
             np.diag([0.2, 0.1, 0.1, 1.0]),
             voxel_dims=("k", "j", "i"),
             world_coord_names=("z", "y", "x"),
+            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 
         result = register_volumewise(data, n_jobs=1)
@@ -361,7 +379,15 @@ class TestRegisterVolumewise:
                 "k": [0],
                 "j": np.arange(32),
                 "i": np.arange(32),
-                "time": np.arange(3) * 0.1,
+                "time": xr.DataArray(
+                    np.arange(3) * 0.1,
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 0.1,
+                    },
+                ),
             },
         )
         data = attach_voxel_to_world_index(
@@ -369,6 +395,7 @@ class TestRegisterVolumewise:
             np.diag([0.2, 0.1, 0.1, 1.0]),
             voxel_dims=("k", "j", "i"),
             world_coord_names=("z", "y", "x"),
+            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 
         result = register_volumewise(data, n_jobs=1)

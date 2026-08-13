@@ -576,7 +576,19 @@ class TestProcessIqToPowerDoppler:
         base = xr.DataArray(
             rng.random((10, 4, 6)) + 1j * rng.random((10, 4, 6)),
             dims=("time", "j", "i"),
-            coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
+            coords={
+                "time": xr.DataArray(
+                    np.arange(10),
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 1.0,
+                    },
+                ),
+                "j": np.arange(4),
+                "i": np.arange(6),
+            },
         )
         iq = attach_voxel_to_world_index(
             base,
@@ -588,7 +600,9 @@ class TestProcessIqToPowerDoppler:
                 "x": {"units": "mm", "voxdim": 0.05},
             },
         )
-        with pytest.raises(ValueError, match="must include all native voxel dimensions"):
+        with pytest.raises(
+            ValueError, match="must include all native voxel dimensions"
+        ):
             process_iq_to_power_doppler(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -598,7 +612,15 @@ class TestProcessIqToPowerDoppler:
             data,
             dims=("time", "k", "j", "i"),
             coords={
-                "time": np.arange(10),
+                "time": xr.DataArray(
+                    np.arange(10),
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 1.0,
+                    },
+                ),
                 "k": np.arange(4),
                 "j": np.arange(6),
                 "i": np.arange(8),
@@ -715,9 +737,7 @@ class TestProcessIqToPowerDoppler:
             time=xr.DataArray(np.arange(20) * 0.1, dims=("time",))
         )
 
-        with pytest.warns(
-            UserWarning, match="no `units` attribute|compound_sampling_frequency"
-        ):
+        with pytest.warns(UserWarning, match="missing"):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=10, bmode_window_stride=5
             )
@@ -739,7 +759,7 @@ class TestProcessIqToPowerDoppler:
             )
         )
 
-        with pytest.warns(UserWarning, match="compound_sampling_frequency"):
+        with pytest.warns(UserWarning, match="volume_acquisition_duration"):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=10, bmode_window_stride=5
             )
@@ -753,15 +773,16 @@ class TestProcessIqToPowerDoppler:
     def test_varying_window_durations_warn_and_store_median(self, sample_iq_dataarray):
         """Variable output-window durations warn and store the median metadata value."""
         iq = sample_iq_dataarray.isel(time=slice(0, 5)).assign_coords(
-            time=xr.DataArray([0.0, 1.0, 3.0, 4.0, 7.0], dims=("time",))
+            time=xr.DataArray(
+                [0.0, 1.0, 3.0, 4.0, 7.0],
+                dims=("time",),
+                attrs={"units": "s", "volume_acquisition_reference": "start"},
+            )
         )
 
         with pytest.warns(
             UserWarning,
-            match=(
-                "no `units` attribute|compound_sampling_frequency|"
-                "B-mode integration (duration|stride) varies"
-            ),
+            match="volume_acquisition_duration|B-mode integration (duration|stride) varies",
         ):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=2, bmode_window_stride=1
@@ -778,7 +799,11 @@ class TestProcessIqToPowerDoppler:
             time=xr.DataArray(
                 [0.0, 0.1, 0.25, 0.35, 0.5] + list(np.arange(6, 21) * 0.1),
                 dims=("time",),
-                attrs={"units": "s"},
+                attrs={
+                    "units": "s",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 0.1,
+                },
             )
         )
 
@@ -812,7 +837,7 @@ class TestProcessIqToPowerDoppler:
         iq = sample_iq_dataarray.copy()
         iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
 
-        with pytest.warns(UserWarning, match="compound_sampling_frequency"):
+        with pytest.warns(UserWarning, match="volume_acquisition_duration"):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=1, bmode_window_stride=1
             )
@@ -829,9 +854,7 @@ class TestProcessIqToPowerDoppler:
         iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
         iq.attrs.pop("compound_sampling_frequency", None)
 
-        with pytest.warns(
-            UserWarning, match="representative `time` coordinate spacing"
-        ):
+        with pytest.warns(UserWarning, match="volume_acquisition_duration"):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=1, bmode_window_stride=1
             )
@@ -845,19 +868,21 @@ class TestProcessIqToPowerDoppler:
     ) -> None:
         """Irregular timing emits warnings about approximate timing metadata."""
         iq = sample_iq_dataarray.copy()
-        iq.coords["time"].attrs.pop("volume_acquisition_duration", None)
         iq.attrs.pop("compound_sampling_frequency", None)
         iq = iq.assign_coords(
             time=xr.DataArray(
                 [0.0, 0.1, 0.25, 0.45] + list(np.arange(5, 21) * 0.1),
                 dims=("time",),
-                attrs={"units": "s"},
+                attrs={"units": "s", "volume_acquisition_reference": "start"},
             )
         )
 
         with pytest.warns(
             UserWarning,
-            match="median approximation|B-mode integration stride varies",
+            match=(
+                "volume_acquisition_duration|median approximation|"
+                "B-mode integration stride varies"
+            ),
         ):
             result = process_iq_to_bmode(
                 iq, bmode_window_width=1, bmode_window_stride=1
@@ -1282,7 +1307,19 @@ class TestProcessIqToBmode:
         base = xr.DataArray(
             rng.random((10, 4, 6)) + 1j * rng.random((10, 4, 6)),
             dims=("time", "j", "i"),
-            coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
+            coords={
+                "time": xr.DataArray(
+                    np.arange(10),
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 1.0,
+                    },
+                ),
+                "j": np.arange(4),
+                "i": np.arange(6),
+            },
         )
         iq = attach_voxel_to_world_index(
             base,
@@ -1294,7 +1331,9 @@ class TestProcessIqToBmode:
                 "x": {"units": "mm", "voxdim": 0.05},
             },
         )
-        with pytest.raises(ValueError, match="must include all native voxel dimensions"):
+        with pytest.raises(
+            ValueError, match="must include all native voxel dimensions"
+        ):
             process_iq_to_bmode(iq)
 
     def test_non_complex_data_raises(self, rng):
@@ -1304,7 +1343,15 @@ class TestProcessIqToBmode:
             data,
             dims=("time", "k", "j", "i"),
             coords={
-                "time": np.arange(10),
+                "time": xr.DataArray(
+                    np.arange(10),
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 1.0,
+                    },
+                ),
                 "k": np.arange(4),
                 "j": np.arange(6),
                 "i": np.arange(8),

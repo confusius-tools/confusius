@@ -14,7 +14,10 @@ import napari
 import numpy as np
 import xarray as xr
 
-from confusius._utils.coordinates import get_coordinate_spacings_best_effort
+from confusius._utils.coordinates import (
+    get_coordinate_origins,
+    get_coordinate_spacings_best_effort,
+)
 from confusius._utils.geometry import has_voxel_to_world_index
 from confusius._utils.napari import (
     build_direct_label_colormap,
@@ -26,6 +29,7 @@ from confusius.plotting._utils import (
     resample_to_axis_aligned_world_grid,
     sort_coords_for_plot,
 )
+from confusius.timing import ensure_time_acquisition_attrs
 
 if TYPE_CHECKING:
     from napari import Viewer
@@ -35,16 +39,27 @@ if TYPE_CHECKING:
 def _get_napari_scale_translate_units(
     data: xr.DataArray,
 ) -> tuple[list[float], list[float], list[str | None], list[str], dict[str, float]]:
-    """Return napari layer geometry metadata for `data`."""
+    """Return napari layer geometry metadata for `data`.
+
+    `data` may or may not carry a voxel-to-world index here: this runs after
+    `resample_to_axis_aligned_world_grid`, which materializes oblique
+    voxel-to-world data onto plain world dims for display (napari's `scale`/
+    `translate` model can't represent oblique geometry), shedding the index in
+    the process -- while axis-aligned voxel-to-world input keeps it. Both states
+    are legitimate here, so spacing/origin are read via the plain-coordinate
+    helpers with a voxel-to-world-aware override, not via `.fusi.spacing`/
+    `.fusi.origin` (which now require an index unconditionally).
+    """
     all_dims = list(data.dims)
 
     coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    fusi_spacing = data.fusi.spacing if has_voxel_to_world_index(data) else {}
+    has_index = has_voxel_to_world_index(data)
+    fusi_spacing = data.fusi.spacing if has_index else {}
     spacing = {
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
     }
-    origin = data.fusi.origin
+    origin = data.fusi.origin if has_index else get_coordinate_origins(data)
     world_dim = {"k": "z", "j": "y", "i": "x"}
     scale: list[float] = []
     translate: list[float] = []
@@ -74,10 +89,16 @@ def _get_napari_scale_translate_units(
                     else 0.0
                 )
             )
-    units = [
-        data.coords[dim].attrs.get("units") if dim in data.coords else None
-        for dim in all_dims
-    ]
+    units: list[str | None] = []
+    for dim in all_dims:
+        dim_name = str(dim)
+        world_name = world_dim.get(dim_name, dim_name)
+        if world_name in data.coords:
+            units.append(data.coords[world_name].attrs.get("units"))
+        elif dim in data.coords:
+            units.append(data.coords[dim].attrs.get("units"))
+        else:
+            units.append(None)
     return scale, translate, units, non_uniform, spacing
 
 
@@ -95,12 +116,10 @@ def plot_napari(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array to visualize. Standard world-grid arrays typically use
-        dimensions such as `(time, z, y, x)`. ConfUSIus-loaded arrays may instead
-        carry native voxel dimensions such as `(time, k, j, i)` together with linked
-        world `z/y/x` coordinates derived from a `VoxelToWorldIndex`. Use
-        `dim_order` to specify a different displayed spatial ordering. Can be image
-        data or label/mask data (e.g., ROIs, segmentations).
+        Input data array to visualize. Must carry a `VoxelToWorldIndex` (native
+        voxel dimensions `(..., time, pose, k, j, i)` deriving world `z/y/x`
+        coordinates). Use `dim_order` to specify a different displayed spatial
+        ordering. Can be image data or label/mask data (e.g., ROIs, segmentations).
     show_colorbar : bool, default: True
         Whether to show the colorbar. Only applies to image layers.
     show_scale_bar : bool, default: True
@@ -134,11 +153,10 @@ def plot_napari(
     -----
     Complex-valued data is converted to magnitude (`abs(data)`) before display.
 
-    ConfUSIus uses an in-memory geometry model with native voxel dimensions and
-    linked world coordinates. Napari display always uses world `z/y/x` axes.
-    Axis-aligned data is promoted to a plain world grid without interpolation.
-    Oblique or sheared data is resampled to an axis-aligned world grid because
-    napari's simple `scale`/`translate` model cannot represent cross-axis mixing.
+    Napari display always uses world `z/y/x` axes. Axis-aligned data is promoted to
+    a plain world grid without interpolation. Oblique or sheared data is resampled
+    to an axis-aligned world grid because this display path does not yet pass
+    `data.fusi.affine`'s rotation/shear through as a napari layer `affine`.
 
     If all displayed dimensions have coordinates, their spacing is used as the scale
     parameter for napari to ensure correct world scaling. If any displayed dimension
@@ -165,14 +183,9 @@ def plot_napari(
     Examples
     --------
     >>> import confusius as cf
-    >>> import xarray as xr
     >>> from confusius.plotting import plot_napari
-    >>> data = xr.open_zarr("output.zarr")["iq"]
+    >>> data = cf.load("output.nii.gz")
     >>> viewer, layer = plot_napari(data)
-
-    >>> # ConfUSIus-loaded arrays can be plotted directly.
-    >>> cti_data = cf.load("output.nii.gz")
-    >>> viewer, layer = plot_napari(cti_data)
 
     >>> # Custom contrast limits
     >>> viewer, layer = plot_napari(data, contrast_limits=(0, 100))
@@ -185,7 +198,7 @@ def plot_napari(
     >>> viewer, layer = plot_napari(data2, viewer=viewer)
 
     >>> # Display ROI labels (e.g., segmentation mask)
-    >>> roi_mask = xr.open_zarr("output.zarr")["roi_mask"]
+    >>> roi_mask = cf.load("roi_mask.nii.gz")
     >>> viewer, layer = plot_napari(roi_mask, layer_type="labels")
 
     >>> # Overlay labels on existing image
@@ -196,6 +209,9 @@ def plot_napari(
         raise ValueError(
             f"Unknown layer_type: {layer_type!r}. Expected 'image' or 'labels'."
         )
+    if not has_voxel_to_world_index(data):
+        raise ValueError("DataArray must have a voxel-to-world index.")
+    data = ensure_time_acquisition_attrs(data)
 
     source_data = data
     data = resample_to_axis_aligned_world_grid(data)
@@ -361,15 +377,16 @@ def draw_napari_labels(
 
     Examples
     --------
-    >>> import xarray as xr
-    >>> import confusius  # Register accessor.
-    >>> pwd = xr.open_zarr("output.zarr")["power_doppler"].compute()
+    >>> import confusius as cf
+    >>> pwd = cf.load("power_doppler.nii.gz")
     >>> # Display the time-averaged image and add an interactive Labels layer.
     >>> viewer, labels_layer = draw_napari_labels(pwd.mean("time"))
     >>> # … paint labels in the viewer …
     >>> # Convert painted labels to an integer label map DataArray.
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     """
+    if not has_voxel_to_world_index(data):
+        raise ValueError("DataArray must have a voxel-to-world index.")
     viewer, _ = plot_napari(data, viewer=viewer, **kwargs)
 
     # Reuse the same spatial scale and translate that plot_napari computed for

@@ -5,6 +5,32 @@
 This is a **beta package** under rapid iteration. Backward compatibility is not a
 concern, feel free to make breaking API changes when they improve the design.
 
+## Data Model
+
+A ConfUSIus fUSI `xarray.DataArray` is **always**:
+
+- Dims `(...extra, time, pose, k, j, i)`, where `time` and `pose` are optional and
+  extra non-spatial dims are allowed before them, but `k`/`j`/`i` (native voxel
+  indices) are always present and always last.
+- A `VoxelToWorldIndex` attached to those `k`/`j`/`i` dims, which lazily derives the
+  world coordinates `z`/`y`/`x` from a single voxel-to-world affine
+  (`confusius._utils.geometry.VoxelToWorldIndex`/`VoxelToWorldTransform`). World
+  coordinates are never stored directly; they are always this index's output.
+
+**There is no second supported data shape.** Do not add "either plain z/y/x dims or
+k/j/i with a voxel-to-world index" branches, dual-support fallbacks for arrays without
+a `VoxelToWorldIndex`, or code that silently degrades to plain-coordinate handling
+when `has_voxel_to_world_index(data)` is `False`. If a function receives a DataArray
+that isn't in this canonical form, it should raise (`ensure_fusi`/`validate_fusi`, or a
+direct `has_voxel_to_world_index` check that raises), not fall back to an alternate
+code path.
+
+The only legitimate exception is genuine I/O boundary code (e.g. `io/nifti.py`,
+`io/scan.py`) whose actual job is constructing the voxel-to-world index from an
+external, not-yet-canonical file format — that code inherently runs before the index
+exists. Once construction is done, the result must be canonical; nothing downstream of
+that boundary should special-case "no index" as a supported state.
+
 ## Release Process
 
 Use the `/release NEW_VERSION` skill (`.claude/skills/release/SKILL.md`) to perform a

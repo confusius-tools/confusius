@@ -5,7 +5,10 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import attach_voxel_to_world_index
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+)
 from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -140,16 +143,19 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [0.0, 0.0, 0.0], rtol=1e-5)
         viewer.close()
 
-    def test_scale_falls_back_to_1_when_no_coords(self, make_napari_viewer):
-        """Dims without coordinates use scale=1.0 and translate=0.0."""
-        da = xr.DataArray(np.zeros((4, 6, 8), dtype=np.float32), dims=["z", "y", "x"])
+    def test_scale_falls_back_to_1_when_no_coords(
+        self, sample_fusi_3d, make_napari_viewer
+    ):
+        """A dim without a coordinate uses scale=1.0 and translate=0.0."""
+        da = sample_fusi_3d.expand_dims({"channel": 2})
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning):
             _, layer = plot_napari(
                 da, viewer=viewer, show_colorbar=False, show_scale_bar=False
             )
 
-        npt.assert_allclose(layer.scale, [1.0, 1.0, 1.0], rtol=1e-5)
+        assert layer.scale[0] == pytest.approx(1.0)
+        assert layer.translate[0] == pytest.approx(0.0)
         viewer.close()
 
     def test_dim_order_reorders_4d_display_axes(
@@ -209,14 +215,11 @@ class TestPlotNapari:
             plot_napari(sample_fusi_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
     def test_non_uniform_spatial_coords_warn(self, sample_fusi_3d, make_napari_viewer):
-        data = xr.DataArray(
-            sample_fusi_3d.values,
-            dims=("z", "y", "x"),
-            coords={
-                "z": _world_coord_1d(sample_fusi_3d, "z"),
-                "y": [2.0, 2.1, 2.4, 2.6, 2.7, 2.9],
-                "x": _world_coord_1d(sample_fusi_3d, "x"),
-            },
+        data = attach_voxel_to_world_index(
+            sample_fusi_3d.assign_coords(j=[2.0, 2.1, 2.4, 2.6, 2.7, 2.9]),
+            get_voxel_to_world_affine(sample_fusi_3d),
+            voxel_dims=("k", "j", "i"),
+            world_coord_names=("z", "y", "x"),
         )
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning, match="non-uniform spacing"):
@@ -245,10 +248,15 @@ class TestPlotNapari:
     def test_labels_without_viewer_create_one_and_cast_to_int(
         self, make_napari_viewer, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        labels = xr.DataArray(
-            np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32),
-            dims=["y", "x"],
-            coords={"y": [0.0, 1.0], "x": [0.0, 1.0]},
+        labels = attach_voxel_to_world_index(
+            xr.DataArray(
+                np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32),
+                dims=["j", "i"],
+                coords={"j": [0.0, 1.0], "i": [0.0, 1.0]},
+            ),
+            np.eye(3),
+            voxel_dims=("j", "i"),
+            world_coord_names=("y", "x"),
         )
         viewer = make_napari_viewer()
         monkeypatch.setattr("confusius.plotting.napari.napari.Viewer", lambda: viewer)
@@ -318,11 +326,16 @@ class TestPlotNapari:
         bar) at one labelled and one background voxel.
         """
         roi_labels = {7: "somatosensory", 42: "visual"}
-        labels = xr.DataArray(
-            np.array([[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]),
-            dims=["y", "x"],
-            coords={"y": [0.0, 0.5, 1.0, 1.5], "x": [0.0, 0.5, 1.0, 1.5]},
-            attrs={"roi_labels": roi_labels},
+        labels = attach_voxel_to_world_index(
+            xr.DataArray(
+                np.array([[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]),
+                dims=["j", "i"],
+                coords={"j": [0.0, 1.0, 2.0, 3.0], "i": [0.0, 1.0, 2.0, 3.0]},
+                attrs={"roi_labels": roi_labels},
+            ),
+            np.diag([0.5, 0.5, 1.0]),
+            voxel_dims=("j", "i"),
+            world_coord_names=("y", "x"),
         )
 
         viewer = make_napari_viewer()

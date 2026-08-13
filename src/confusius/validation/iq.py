@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._dims import TIME_DIM, VOXEL_DIMS
-from confusius.validation.fusi import ensure_fusi, validate_fusi
+from confusius.validation.fusi import ensure_fusi
 
 _REQUIRED_DIMS = (TIME_DIM, *VOXEL_DIMS)
 """Required dimensions and coordinates that all IQ data must have."""
@@ -64,7 +64,13 @@ def validate_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> None:
     TypeError
         If the IQ data is not complex-valued.
     """
-    validate_fusi(
+    # `ensure_fusi` (not `validate_fusi`) so metadata gaps (units, voxdim, timing
+    # attrs) that a canonically-constructed DataArray would never have are filled in
+    # rather than rejected, matching how any other caller of a fUSI DataArray is
+    # expected to canonicalize first. The canonicalized copy is only used for these
+    # checks; `iq` itself, and this function's own "pure check" contract, are
+    # unaffected.
+    iq = ensure_fusi(
         iq,
         require_time=False,
         allow_pose=False,

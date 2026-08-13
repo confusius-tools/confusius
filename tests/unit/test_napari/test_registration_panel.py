@@ -34,12 +34,12 @@ from confusius._napari._registration._transform_payloads import (
     make_bspline_transform_payload,
     save_transform_payload,
 )
-from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.registration import (
     RegistrationDiagnostics,
     resample_like,
     resample_volume,
 )
+from confusius.xarray import create_fusi_dataarray
 
 
 @pytest.fixture
@@ -82,36 +82,6 @@ def _FakeDiagnostics(
         n_iterations=n_iterations,
         stop_condition=stop_condition,
         status=cast("Any", status),
-    )
-
-
-def _make_cti_volume(
-    data: np.ndarray,
-    *,
-    spacing: tuple[float, ...],
-    origin: tuple[float, ...] | None = None,
-) -> xr.DataArray:
-    dims = ("k", "j", "i")[-data.ndim :]
-    origin = (0.0,) * data.ndim if origin is None else origin
-    da = xr.DataArray(
-        data,
-        dims=dims,
-        coords={
-            dim: np.arange(size) for dim, size in zip(dims, data.shape, strict=True)
-        },
-    )
-    affine = np.eye(data.ndim + 1, dtype=float)
-    affine[:-1, :-1] = np.diag(spacing)
-    affine[:-1, -1] = origin
-    return attach_voxel_to_world_index(
-        da,
-        affine,
-        voxel_dims=dims,
-        world_coord_names=("z", "y", "x")[-data.ndim :],
-        world_coord_attrs={
-            name: {"units": "mm", "voxdim": step}
-            for name, step in zip(("z", "y", "x")[-data.ndim :], spacing, strict=True)
-        },
     )
 
 
@@ -340,18 +310,13 @@ class TestOperationMode:
     def test_scale_preprocessing_resets_gamma_for_previews(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
-            np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+        moving_data = create_fusi_dataarray(
+            np.ones((4, 6), dtype=np.float32), dims=("y", "x"), spacing=(1.0, 0.2, 0.1)
         )
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             2 * np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords=moving_data.coords,
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
         fixed_layer = real_viewer.add_image(fixed.values, name="fixed")
@@ -388,19 +353,15 @@ class TestOperationMode:
     def test_create_volume_progress_plotter_preserves_camera_view(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = create_fusi_dataarray(
             np.ones((5, 4, 6), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords={
-                "z": xr.DataArray(np.arange(5) * 0.3, dims=["z"]),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("z", "y", "x"),
+            spacing=(0.3, 0.2, 0.1),
         )
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             2 * np.ones((5, 4, 6), dtype=np.float32),
-            dims=["z", "y", "x"],
-            coords=moving_data.coords,
+            dims=("z", "y", "x"),
+            spacing=(0.3, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
         fixed_layer = real_viewer.add_image(fixed.values, name="fixed")
@@ -942,8 +903,8 @@ class TestTransforms:
         )
 
     def test_bspline_payload_missing_spatial_axis_is_rejected(self, tmp_path):
-        reference = _make_cti_volume(
-            np.ones((3, 4), dtype=np.float32), spacing=(0.2, 0.1)
+        reference = create_fusi_dataarray(
+            np.ones((3, 4), dtype=np.float32), dims=("y", "x"), spacing=(1.0, 0.2, 0.1)
         )
         transform = _make_bspline_transform()
         payload = make_bspline_transform_payload(
@@ -1005,13 +966,10 @@ class TestTransforms:
     def test_apply_transform_uses_bspline_payload(
         self, viewer, registration_panel, monkeypatch
     ):
-        moving = xr.DataArray(
+        moving = create_fusi_dataarray(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
         )
         transform = _make_bspline_transform().astype(float)
         payload = make_bspline_transform_payload(
@@ -1038,17 +996,11 @@ class TestTransforms:
         _install_immediate_thread_worker(monkeypatch)
 
         output_grid = get_output_grid_from_payload(payload)
-        expected = xr.DataArray(
+        expected = create_fusi_dataarray(
             np.full(output_grid["shape"], 7.0, dtype=np.float32),
-            dims=output_grid["dims"],
-            coords={
-                dim: xr.DataArray(
-                    output_grid["origin"][i]
-                    + np.arange(output_grid["shape"][i]) * output_grid["spacing"][i],
-                    dims=[dim],
-                )
-                for i, dim in enumerate(output_grid["dims"])
-            },
+            dims=("z", "y", "x"),
+            spacing=output_grid["spacing"],
+            origin=output_grid["origin"],
         )
 
         def _fake_resample_volume(*args: Any, **kwargs: Any) -> xr.DataArray:
@@ -1072,8 +1024,10 @@ class TestTransforms:
     def test_apply_transform_layers_keep_grid_units_and_singleton_spacing(
         self, viewer, registration_panel, monkeypatch
     ):
-        target = _make_cti_volume(
-            np.zeros((1, 5, 7), dtype=np.float32), spacing=(0.4, 0.3, 0.3)
+        target = create_fusi_dataarray(
+            np.zeros((1, 5, 7), dtype=np.float32),
+            dims=("z", "y", "x"),
+            spacing=(0.4, 0.3, 0.3),
         )
         moving = target.copy()
         payload = make_affine_transform_payload(
@@ -1115,8 +1069,11 @@ class TestTransforms:
     def test_apply_inverse_transform_uses_inverse_affine_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = _make_cti_volume(
-            np.zeros((2, 20, 20), dtype=np.float32), spacing=(0.3, 0.2, 0.1)
+        source = create_fusi_dataarray(
+            np.zeros((2, 20, 20), dtype=np.float32),
+            dims=("z", "y", "x"),
+            spacing=(0.3, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         source.values[:, 5:10, 6:11] = 1.0
         affine = np.array(
@@ -1175,21 +1132,15 @@ class TestTransforms:
     def test_apply_inverse_transform_uses_approximate_inverse_bspline_and_input_grid(
         self, viewer, registration_panel, monkeypatch
     ):
-        source = xr.DataArray(
+        source = create_fusi_dataarray(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
         )
-        target = xr.DataArray(
+        target = create_fusi_dataarray(
             np.arange(30, dtype=np.float32).reshape(5, 6),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(5) * 0.3, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.15, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.3, 0.15),
         )
         bspline = _make_bspline_transform().astype(float)
         payload = make_bspline_transform_payload(
@@ -1236,17 +1187,11 @@ class TestTransforms:
             },
             attrs={"type": "displacement_field_transform"},
         )
-        expected = xr.DataArray(
+        expected = create_fusi_dataarray(
             np.full(input_grid["shape"], 9.0, dtype=np.float32),
-            dims=input_grid["dims"],
-            coords={
-                dim: xr.DataArray(
-                    input_grid["origin"][i]
-                    + np.arange(input_grid["shape"][i]) * input_grid["spacing"][i],
-                    dims=[dim],
-                )
-                for i, dim in enumerate(input_grid["dims"])
-            },
+            dims=("z", "y", "x"),
+            spacing=input_grid["spacing"],
+            origin=input_grid["origin"],
         )
 
         def _fake_sample_displacement_field(
@@ -1311,14 +1256,11 @@ class TestVolumewiseProgress:
     def test_setup_updates_progress_bar_and_output_layer(
         self, viewer, registration_panel
     ):
-        moving = xr.DataArray(
+        moving = create_fusi_dataarray(
             np.linspace(-2.0, 3.0, 3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("time", "y", "x"),
+            time=np.arange(3, dtype=float),
+            spacing=(1.0, 0.2, 0.1),
         )
         moving_layer = viewer.add_image(
             moving.values,
@@ -1342,13 +1284,10 @@ class TestVolumewiseProgress:
             np.full(moving.shape, float(moving.min()), dtype=np.float32),
         )
 
-        frame = xr.DataArray(
+        frame = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
         )
         progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
 
@@ -1363,13 +1302,11 @@ class TestFinishedCallbacks:
     def test_volume_result_adds_new_layer_with_transform_metadata(
         self, viewer, registration_panel
     ):
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         registered = fixed.copy()
         transform = np.eye(3)
@@ -1409,13 +1346,11 @@ class TestFinishedCallbacks:
     def test_volume_result_adds_bspline_transform_metadata(
         self, viewer, registration_panel
     ):
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             np.ones((3, 4), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         registered = fixed.copy()
         transform = _make_bspline_transform()
@@ -1450,24 +1385,20 @@ class TestFinishedCallbacks:
     def test_volume_result_replaces_preview_layer(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = create_fusi_dataarray(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         moving = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="moving"
         )
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         fixed_layer = real_viewer.add_image(
             np.ones((4, 6), dtype=np.float32), name="fixed"
@@ -1520,8 +1451,9 @@ class TestFinishedCallbacks:
     def test_create_volume_progress_plotter_applies_initial_transform_to_preview_layers(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = _make_cti_volume(
+        moving_data = create_fusi_dataarray(
             np.arange(24, dtype=np.float32).reshape(1, 4, 6),
+            dims=("z", "y", "x"),
             spacing=(0.2, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
@@ -1563,24 +1495,20 @@ class TestFinishedCallbacks:
     def test_progress_layer_data_updates_on_iteration(
         self, real_viewer, real_registration_panel
     ):
-        moving_data = xr.DataArray(
+        moving_data = create_fusi_dataarray(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         moving = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="moving"
         )
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             np.zeros((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         fixed_layer = real_viewer.add_image(
             np.zeros((4, 6), dtype=np.float32), name="fixed"
@@ -1596,7 +1524,7 @@ class TestFinishedCallbacks:
             scale_mode="off",
         )
 
-        next_arr = np.full((4, 6), 0.5, dtype=np.float32)
+        next_arr = np.full((1, 4, 6), 0.5, dtype=np.float32)
         update_progress_layer(real_registration_panel, next_arr)
         np.testing.assert_array_equal(
             np.asarray(real_viewer.layers["Registered (rigid)"].data), next_arr
@@ -1614,14 +1542,12 @@ class TestFinishedCallbacks:
         assert "Registered (rigid)" not in {layer.name for layer in real_viewer.layers}
 
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
-        moving = xr.DataArray(
+        moving = create_fusi_dataarray(
             np.zeros((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords={
-                "time": xr.DataArray(np.arange(3), dims=["time"]),
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("time", "y", "x"),
+            time=np.arange(3, dtype=float),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         moving_layer = viewer.add_image(
             moving.values,
@@ -1636,12 +1562,8 @@ class TestFinishedCallbacks:
             scale_mode="off",
         )
 
-        registered = xr.DataArray(
-            np.ones((3, 4, 6), dtype=np.float32),
-            dims=["time", "y", "x"],
-            coords=moving.coords,
-            attrs={"motion_params": object()},
-        )
+        registered = moving.copy(data=np.ones((3, 1, 4, 6), dtype=np.float32))
+        registered.attrs["motion_params"] = object()
         payload = {
             "operation": "register_volumewise",
             "moving_layer_name": "series",
@@ -1670,13 +1592,11 @@ class TestFinishedCallbacks:
         )
 
     def test_unique_transform_and_result_names(self, viewer, registration_panel):
-        fixed = xr.DataArray(
+        fixed = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=["y", "x"],
-            coords={
-                "y": xr.DataArray(np.arange(4) * 0.2, dims=["y"]),
-                "x": xr.DataArray(np.arange(6) * 0.1, dims=["x"]),
-            },
+            dims=("y", "x"),
+            spacing=(1.0, 0.2, 0.1),
+            origin=(0.0, 0.0, 0.0),
         )
         payload = {
             "operation": "register_volume",

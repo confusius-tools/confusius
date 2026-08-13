@@ -209,14 +209,7 @@ def _materialize_axis_aligned_world_grid_for_display(
     if not has_axis_aligned_voxel_to_world_index(data):
         if has_voxel_to_world_index(data):
             return data
-        voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-        world_dims = ("z", "y", "x")[-len(voxel_dims) :]
-        if len(voxel_dims) >= 2 and all(
-            name in data.coords and data.coords[name].dims == (dim,)
-            for dim, name in zip(voxel_dims, world_dims, strict=True)
-        ):
-            dim_map = dict(zip(voxel_dims, world_dims, strict=True))
-        elif any(
+        if any(
             isinstance(index, VoxelToWorldIndex) for index in data.xindexes.values()
         ):
             coords = {
@@ -230,14 +223,11 @@ def _materialize_axis_aligned_world_grid_for_display(
                 name=data.name,
                 attrs=data.attrs.copy(),
             )
-            result.attrs.pop("voxel_to_world", None)
             return result
         else:
             return data
     else:
-        voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
         world_dims = get_voxel_to_world_coord_names(data)
-        dim_map = dict(zip(voxel_dims, world_dims, strict=True))
 
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     dim_map = dict(zip(voxel_dims, world_dims, strict=True))
@@ -266,7 +256,6 @@ def _materialize_axis_aligned_world_grid_for_display(
             data.coords[result_dim] if str(dim) in dim_map else data.coords[str(dim)]
         )
         result.coords[result_dim].attrs = dict(source_coord.attrs)
-    result.attrs.pop("voxel_to_world", None)
     return result
 
 
@@ -386,7 +375,6 @@ def resample_to_axis_aligned_world_grid(
         )
 
     result = _materialize_axis_aligned_world_grid_for_display(result)
-    result.attrs.pop("voxel_to_world", None)
     for dim in world_dims:
         result.coords[dim].attrs = data.coords[dim].attrs.copy()
     return result

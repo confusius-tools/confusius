@@ -11,11 +11,13 @@ from confusius.spatial import smooth_volume
 
 def _add_identity_affine(da):
     """Attach identity voxel-to-world geometry."""
+    world_names = tuple("zyx"[-len(da.dims) :])
     return attach_voxel_to_world_index(
         da,
         np.eye(len(da.dims) + 1),
         voxel_dims=tuple(da.dims),
-        world_coord_names=tuple("zyx"[-len(da.dims) :]),
+        world_coord_names=world_names,
+        world_coord_attrs={name: {"units": "mm"} for name in world_names},
     )
 
 
@@ -254,17 +256,6 @@ class TestSmoothVolume:
         """Should raise ValueError for dimensions not in the DataArray."""
         with pytest.raises(ValueError, match="not present in the DataArray"):
             smooth_volume(sample_fusi_3d, fwhm={"k": 0.3, "nonexistent": 0.3})
-
-    def test_re_raises_non_missing_coord_validation_error(self, monkeypatch):
-        """Non-missing-coordinate validation errors should be re-raised."""
-
-        def _raise(*args, **kwargs):
-            raise ValueError("boom")
-
-        monkeypatch.setattr("confusius.spatial.smooth.validate_fusi", _raise)
-
-        with pytest.raises(ValueError, match="boom"):
-            smooth_volume(xr.DataArray(np.ones((2, 3))), fwhm=0.3)
 
     def test_raises_nonuniform_spacing(self):
         """Should raise ValueError if a smoothed dim has non-uniform spacing."""

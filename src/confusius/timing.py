@@ -228,6 +228,85 @@ def get_representative_time_step(
     )
 
 
+def ensure_time_acquisition_attrs(data: xr.DataArray) -> xr.DataArray:
+    """Fill in default metadata attrs on `data`'s `time` coordinate.
+
+    Every ConfUSIus fUSI DataArray with a `time` dimension carries
+    `volume_acquisition_reference`, `volume_acquisition_duration`, and `units` on its
+    `time` coordinate. Data built without going through
+    [create_fusi_dataarray][confusius.xarray.create_fusi_dataarray] or an I/O loader
+    (e.g. a `time` coordinate assembled by hand) may still be missing them; this fills
+    in `"start"` and `"s"`, respectively. `volume_acquisition_duration` is inferred, in
+    priority order, from `data.attrs["compound_sampling_frequency"]` (the scanner's own
+    reported per-volume acquisition rate, set by I/O loaders such as AUTC and
+    EchoFrame — more authoritative than derived timestamp spacing) and otherwise from
+    the representative `time` step.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to fill in.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` unchanged when it has no `time` dimension or its time coordinate already
+        carries all three attrs. Otherwise a copy with `volume_acquisition_reference`
+        defaulted to `"start"`, `units` defaulted to `"s"`, and
+        `volume_acquisition_duration` defaulted per the priority order above, when it
+        can be inferred.
+
+    Warns
+    -----
+    UserWarning
+        If any attr was missing and defaulted, naming which ones and what they were
+        defaulted to.
+    """
+    if TIME_DIM not in data.dims or TIME_DIM not in data.coords:
+        return data
+    attrs = data.coords[TIME_DIM].attrs
+    if (
+        "volume_acquisition_reference" in attrs
+        and "volume_acquisition_duration" in attrs
+        and "units" in attrs
+    ):
+        return data
+
+    new_attrs = dict(attrs)
+    defaulted: list[str] = []
+    if "volume_acquisition_reference" not in new_attrs:
+        new_attrs["volume_acquisition_reference"] = "start"
+        defaulted.append("volume_acquisition_reference")
+    if "units" not in new_attrs:
+        new_attrs["units"] = "s"
+        defaulted.append("units")
+    if "volume_acquisition_duration" not in new_attrs:
+        compound_sampling_frequency = data.attrs.get("compound_sampling_frequency")
+        if isinstance(compound_sampling_frequency, int | float) and (
+            compound_sampling_frequency > 0
+        ):
+            # Read the resolved `units` from `new_attrs` (possibly just defaulted
+            # above), not `data`, to avoid `get_time_coord_to_seconds_factor` warning
+            # about the coordinate's original, possibly-still-missing `units`.
+            new_attrs["volume_acquisition_duration"] = 1.0 / (
+                float(compound_sampling_frequency)
+                * _get_time_unit_to_seconds_factor(new_attrs["units"])
+            )
+            defaulted.append("volume_acquisition_duration")
+        else:
+            duration, _ = get_representative_time_step(data)
+            if duration is not None and duration > 0:
+                new_attrs["volume_acquisition_duration"] = duration
+                defaulted.append("volume_acquisition_duration")
+    if defaulted:
+        defaults_used = {key: new_attrs[key] for key in defaulted}
+        warnings.warn(
+            f"'time' coordinate is missing {defaulted}; defaulting to {defaults_used}.",
+            stacklevel=find_stack_level(),
+        )
+    return data.assign_coords({TIME_DIM: data.coords[TIME_DIM].assign_attrs(new_attrs)})
+
+
 def convert_time_reference(
     time: npt.ArrayLike,
     volume_duration: float | npt.ArrayLike,

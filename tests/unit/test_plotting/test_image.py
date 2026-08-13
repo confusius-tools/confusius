@@ -744,35 +744,6 @@ class TestCentersToEdges:
 class TestPlottingUtilsVoxelToWorldHelpers:
     """Tests for shared voxel-to-world display helpers in `plotting._utils`."""
 
-    def test_materialize_renames_plain_parallel_world_coords(self):
-        """Plain `k/j/i` data carrying independent, already-matching `z/y/x`
-        coordinates is renamed onto those world dims directly.
-
-        This covers data that never went through
-        [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
-        (no `voxel_to_world` affine, no `VoxelToWorldIndex`) but happens to carry
-        ordinary 1D `z/y/x` coordinates parallel to its `k/j/i` dims.
-        """
-        data = xr.DataArray(
-            np.zeros((2, 3, 4)),
-            dims=["k", "j", "i"],
-            coords={
-                "k": [0.0, 1.0],
-                "j": [0.0, 1.0, 2.0],
-                "i": [0.0, 1.0, 2.0, 3.0],
-                "z": ("k", [10.0, 10.4]),
-                "y": ("j", [20.0, 20.3, 20.6]),
-                "x": ("i", [30.0, 30.25, 30.5, 30.75]),
-            },
-        )
-
-        result = _materialize_axis_aligned_world_grid_for_display(data)
-
-        assert result.dims == ("z", "y", "x")
-        npt.assert_array_equal(result.coords["z"].values, [10.0, 10.4])
-        npt.assert_array_equal(result.coords["y"].values, [20.0, 20.3, 20.6])
-        npt.assert_array_equal(result.coords["x"].values, [30.0, 30.25, 30.5, 30.75])
-
     def test_resample_with_plain_reference_missing_a_world_dim_defaults_grid(self):
         """A plain reference DataArray missing one world coordinate falls back to
         an origin of 0.0 and spacing of 1.0 for that axis, instead of raising.
@@ -792,16 +763,16 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         assert result.sizes["z"] == 2
         npt.assert_array_equal(result.coords["z"].values, [0.0, 1.0])
 
-    def test_resample_falls_back_to_affine_derived_spacing_when_voxdim_missing(self):
-        """When a world coordinate has no `voxdim` attribute, spacing is derived
-        from the voxel-to-world affine instead of raising.
+    def test_resample_derives_spacing_from_affine_not_materialized_array_axis(self):
+        """Resampled spacing matches the voxel-to-world affine, not a naive diff
+        along the materialized (k, j, i)-shaped world-coordinate array's last axis.
 
         `z` and `y` here depend only on the `k`/`j` voxel axes, never on the
-        trailing `i` axis -- so a fallback that differenced the materialized
-        (k, j, i)-shaped world-coordinate array along its last axis (the default
-        `numpy.diff` behaviour) would see zero variation and divide by zero
-        downstream. Assert the exact spacing values (matching `.fusi.spacing`),
-        not just that resampling doesn't crash.
+        trailing `i` axis -- so a spacing computation that differenced the
+        materialized (k, j, i)-shaped world-coordinate array along its last axis
+        (the default `numpy.diff` behaviour) would see zero variation and divide
+        by zero downstream. Assert the exact spacing values (matching
+        `.fusi.spacing`), not just that resampling doesn't crash.
         """
         from confusius.plotting._utils import resample_to_axis_aligned_world_grid
 
@@ -823,11 +794,8 @@ class TestPlottingUtilsVoxelToWorldHelpers:
             voxel_to_world,
             voxel_dims=("k", "j", "i"),
             world_coord_names=("z", "y", "x"),
+            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
-        # attach_voxel_to_world_index auto-populates "voxdim"; strip it so the
-        # affine-derived spacing fallback is actually exercised.
-        for dim in ("z", "y", "x"):
-            data.coords[dim].attrs.pop("voxdim", None)
 
         result = resample_to_axis_aligned_world_grid(data)
 

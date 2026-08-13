@@ -196,53 +196,15 @@ class TestFUSIAccessor:
 class TestOrigin:
     """Tests for fusi.origin."""
 
-    def test_returns_correct_origin(self):
-        """Returns the first coordinate value for each dimension."""
-        data = xr.DataArray(
-            np.zeros((10, 20)),
-            dims=["y", "x"],
-            coords={"y": np.arange(10) * 0.2 + 1.0, "x": np.arange(20) * 0.1 + 5.0},
-        )
-        assert data.fusi.origin == {"y": pytest.approx(1.0), "x": pytest.approx(5.0)}
-
-    def test_zero_origin(self):
-        """Returns 0.0 when coordinates start at zero."""
+    def test_origin_raises_without_voxel_to_world_index(self):
+        """A plain DataArray without a voxel-to-world index raises ValueError."""
         data = xr.DataArray(
             np.zeros((10, 20)),
             dims=["y", "x"],
             coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
         )
-        assert data.fusi.origin == {"y": pytest.approx(0.0), "x": pytest.approx(0.0)}
-
-    def test_missing_coord_warns_and_returns_zero(self):
-        """Missing coordinate warns and falls back to 0.0."""
-        data = xr.DataArray(np.zeros((5, 10)), dims=["y", "x"])
-        with pytest.warns(UserWarning, match="no coordinate"):
-            origin = data.fusi.origin
-        assert origin["y"] == pytest.approx(0.0)
-        assert origin["x"] == pytest.approx(0.0)
-
-    def test_spacing_dim_order_preserved(self):
-        """Returned dict keys follow DataArray dimension order."""
-        data = xr.DataArray(
-            np.zeros((5, 10, 20)),
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.arange(5) * 0.5 + 2.0,
-                "y": np.arange(10) * 0.2 + 1.0,
-                "x": np.arange(20) * 0.1,
-            },
-        )
-        assert list(data.fusi.origin.keys()) == ["z", "y", "x"]
-
-    def test_single_point_coordinate(self):
-        """Single-point coordinate returns its value as origin."""
-        data = xr.DataArray(
-            np.zeros((1, 10)),
-            dims=["z", "x"],
-            coords={"z": [3.5], "x": np.arange(10) * 0.1},
-        )
-        assert data.fusi.origin["z"] == pytest.approx(3.5)
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            _ = data.fusi.origin
 
     def test_voxel_to_world_origin_uses_first_sampled_voxel(self):
         """Voxel-to-world origin is the world location of array index zero."""
@@ -288,78 +250,15 @@ class TestOrigin:
 
     """Tests for fusi.spacing."""
 
-    @pytest.fixture
-    def uniform_2d_data(self):
-        """2D DataArray with uniform spacing."""
-        return xr.DataArray(
+    def test_spacing_raises_without_voxel_to_world_index(self):
+        """A plain DataArray without a voxel-to-world index raises ValueError."""
+        data = xr.DataArray(
             np.zeros((10, 20)),
             dims=["y", "x"],
             coords={"y": np.arange(10) * 0.2, "x": np.arange(20) * 0.1},
         )
-
-    def test_returns_correct_spacing(self, uniform_2d_data):
-        """Returns correct spacing values for uniformly spaced coordinates."""
-        assert uniform_2d_data.fusi.spacing == {
-            "y": pytest.approx(0.2),
-            "x": pytest.approx(0.1),
-        }
-
-    def test_includes_all_dims(self):
-        """All dimensions, including time, are included."""
-        data = xr.DataArray(
-            np.zeros((5, 10)),
-            dims=["time", "x"],
-            coords={"time": np.arange(5) * 0.5, "x": np.arange(10) * 0.1},
-        )
-        assert data.fusi.spacing == {
-            "time": pytest.approx(0.5),
-            "x": pytest.approx(0.1),
-        }
-
-    def test_non_uniform_warns_and_returns_none(self):
-        """Non-uniform coordinate raises UserWarning and returns None."""
-        coords = np.array([0.0, 0.1, 0.3, 0.7])
-        data = xr.DataArray(np.zeros(4), dims=["x"], coords={"x": coords})
-        with pytest.warns(UserWarning, match="non-uniform"):
-            spacing = data.fusi.spacing
-        assert spacing["x"] is None
-
-    def test_single_point_with_voxdim_uses_attr(self):
-        """Single-point coordinate uses voxdim attribute when present."""
-        y_coord = xr.DataArray([0.0], dims=["y"], attrs={"voxdim": 0.3})
-        data = xr.DataArray(
-            np.zeros((1, 10)),
-            dims=["y", "x"],
-            coords={"y": y_coord, "x": np.arange(10) * 0.1},
-        )
-        spacing = data.fusi.spacing
-        assert spacing["y"] == pytest.approx(0.3)
-        assert spacing["x"] == pytest.approx(0.1)
-
-    def test_single_point_without_voxdim_warns_and_returns_none(self):
-        """Single-point coordinate without voxdim warns and returns None."""
-        data = xr.DataArray(
-            np.zeros((1, 10)),
-            dims=["y", "x"],
-            coords={"y": [0.0], "x": np.arange(10) * 0.1},
-        )
-        with pytest.warns(UserWarning, match="single coordinate point"):
-            spacing = data.fusi.spacing
-        assert spacing["y"] is None
-        assert spacing["x"] == pytest.approx(0.1)
-
-    def test_dim_order_preserved(self):
-        """Returned dict keys follow DataArray dimension order."""
-        data = xr.DataArray(
-            np.zeros((5, 10, 20)),
-            dims=["z", "y", "x"],
-            coords={
-                "z": np.arange(5) * 0.5,
-                "y": np.arange(10) * 0.2,
-                "x": np.arange(20) * 0.1,
-            },
-        )
-        assert list(data.fusi.spacing.keys()) == ["z", "y", "x"]
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            _ = data.fusi.spacing
 
     def test_voxel_to_world_spacing_uses_world_step_lengths(self):
         """Voxel-to-world spacing comes from voxel steps and affine column norms."""

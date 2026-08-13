@@ -360,7 +360,9 @@ class TestReferenceWarning:
         )
         time_values = sample_fusi_3dt.coords["time"].values.astype(np.float64).copy()
         time_values[2:] += 0.02
-        irregular = sample_fusi_3dt.assign_coords(time=("time", time_values))
+        irregular = sample_fusi_3dt.assign_coords(
+            time=("time", time_values, sample_fusi_3dt.coords["time"].attrs)
+        )
         with pytest.warns(UserWarning, match="non-uniform spacing"):
             _, irregular_layer = plot_napari(
                 irregular,
@@ -391,7 +393,9 @@ class TestReferenceWarning:
         )
         time_values = sample_fusi_3dt.coords["time"].values.astype(np.float64).copy()
         time_values[2:] += 0.02
-        irregular = sample_fusi_3dt.assign_coords(time=("time", time_values))
+        irregular = sample_fusi_3dt.assign_coords(
+            time=("time", time_values, sample_fusi_3dt.coords["time"].attrs)
+        )
         with pytest.warns(UserWarning, match="non-uniform spacing"):
             _, irregular_layer = plot_napari(
                 irregular,

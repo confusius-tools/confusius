@@ -182,6 +182,11 @@ class FUSIAccessor:
             Spacing per dimension. Returns `None` for dimensions with non-uniform or
             undefined spacing, with a warning.
 
+        Raises
+        ------
+        ValueError
+            If `self` does not carry a voxel-to-world index.
+
         Examples
         --------
         >>> import xarray as xr
@@ -198,17 +203,14 @@ class FUSIAccessor:
         >>> data.fusi.spacing
         {'k': 0.2, 'j': 0.1, 'i': 0.05}
         """
-        from confusius._utils.coordinates import (
-            get_coordinate_spacing_info,
-            get_coordinate_spacings,
-        )
+        from confusius._utils.coordinates import get_coordinate_spacing_info
         from confusius._utils.geometry import (
             get_voxel_to_world_index_spacing,
             has_voxel_to_world_index,
         )
 
         if not has_voxel_to_world_index(self._obj):
-            return get_coordinate_spacings(self._obj)
+            raise ValueError("DataArray must have a voxel-to-world index.")
 
         voxel_spacing = get_voxel_to_world_index_spacing(self._obj)
         missing_dims = [
@@ -238,6 +240,11 @@ class FUSIAccessor:
         dict[str, float]
             Origin metadata for the DataArray.
 
+        Raises
+        ------
+        ValueError
+            If `self` does not carry a voxel-to-world index.
+
         Examples
         --------
         >>> import xarray as xr
@@ -263,7 +270,7 @@ class FUSIAccessor:
         )
 
         if not has_voxel_to_world_index(self._obj):
-            return get_coordinate_origins(self._obj)
+            raise ValueError("DataArray must have a voxel-to-world index.")
 
         voxel_dims = set(get_voxel_to_world_spatial_dims(self._obj))
         regular_origin = get_coordinate_origins(self._obj)
@@ -283,21 +290,22 @@ class FUSIAccessor:
         Returns
         -------
         numpy.ndarray
-            Identity for axis-aligned data. For voxel-to-world data, the columns are the
+            Identity for axis-aligned data. For oblique data, the columns are the
             unit world-space directions of the voxel axes.
-        """
-        import numpy as np
 
+        Raises
+        ------
+        ValueError
+            If `self` does not carry a voxel-to-world index.
+        """
         from confusius._utils.geometry import (
             get_voxel_to_world_orientation_matrix,
             has_voxel_to_world_index,
         )
 
-        if has_voxel_to_world_index(self._obj):
-            return get_voxel_to_world_orientation_matrix(self._obj)
-
-        ndim = len([dim for dim in self._obj.dims if dim in {"z", "y", "x"}])
-        return np.eye(ndim, dtype=np.float64)
+        if not has_voxel_to_world_index(self._obj):
+            raise ValueError("DataArray must have a voxel-to-world index.")
+        return get_voxel_to_world_orientation_matrix(self._obj)
 
     @property
     def affine(self) -> FUSIAffineAccessor:

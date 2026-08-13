@@ -834,7 +834,6 @@ def attach_voxel_to_world_index(
         world_coord_attrs=world_coord_attrs,
     )
     result = base.assign_coords(xr.Coordinates.from_xindex(index))
-    result.attrs.pop("voxel_to_world", None)
 
     if world_coord_attrs is not None:
         for name, attrs in world_coord_attrs.items():
@@ -853,6 +852,41 @@ def attach_voxel_to_world_index(
             result.coords[name].attrs["voxdim"] = voxdim
             index.world_coord_attrs.setdefault(name, {})["voxdim"] = voxdim
 
+    return result
+
+
+def update_voxel_to_world_coord_attrs(
+    data: xr.DataArray, attrs_by_name: Mapping[Hashable, Mapping[str, Any]]
+) -> xr.DataArray:
+    """Update attrs on `data`'s index-derived world coordinates.
+
+    World coordinates are index-derived: any operation that touches the index (e.g.
+    `.assign_coords()` on an unrelated coordinate) re-derives them from the
+    `VoxelToWorldIndex`'s own stored `world_coord_attrs`, silently discarding a plain
+    in-place `data.coords[name].attrs[...] = ...` mutation the next time that happens.
+    This updates both the coordinate's own attrs and the index's stored copy, so the
+    update survives.
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to update. Must carry a voxel-to-world index.
+    attrs_by_name : mapping[Hashable, mapping[str, Any]]
+        Attrs to merge in, keyed by world coordinate name.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` with the given attrs merged into each named world coordinate, on both
+        the coordinate itself and the underlying index.
+    """
+    result = data.copy()
+    for index in _collect_voxel_to_world_indexes(result):
+        for name, attrs in attrs_by_name.items():
+            if name not in result.coords:
+                continue
+            result.coords[name].attrs.update(attrs)
+            index.world_coord_attrs.setdefault(name, {}).update(attrs)
     return result
 
 

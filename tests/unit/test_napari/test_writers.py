@@ -62,7 +62,11 @@ def _meta_from_layer(
         return float(coord.isel(others).values.reshape(-1)[0])
 
     translate = [_origin(d) for d in da.dims]
-    units = [da[d].attrs.get("units") for d in da.dims] if include_units else None
+    units = (
+        [da.coords[world_dim.get(str(d), str(d))].attrs.get("units") for d in da.dims]
+        if include_units
+        else None
+    )
     return {
         "axis_labels": list(da.dims),
         "scale": scale,
@@ -126,22 +130,30 @@ class TestWriteNiftiWithDataArray:
 
 
 class TestWriteNiftiFromReconstruction:
+    """Reconstructing from bare napari layer state (scale/translate/units) can never
+    carry ConfUSIus-specific acquisition-timing attrs -- a plain napari layer has no
+    concept of them -- so the writer's own `ensure_fusi` call always has to default
+    them here, unlike the "carries the original DataArray" path above.
+    """
+
     def test_returns_path_list(
         self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
     ) -> None:
         """write_nifti returns path list when reconstructing from layer state."""
         path = str(tmp_path / "out.nii.gz")
-        result = write_nifti(
-            path, sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        with pytest.warns(UserWarning, match="missing"):
+            result = write_nifti(
+                path, sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         assert result == [path]
 
     def test_file_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
         """NIfTI file is created when reconstructing from layer state."""
         path = tmp_path / "out.nii.gz"
-        write_nifti(
-            str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        with pytest.warns(UserWarning, match="missing"):
+            write_nifti(
+                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         assert path.exists()
 
     def test_roundtrip_values(
@@ -151,9 +163,10 @@ class TestWriteNiftiFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(
-            str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        with pytest.warns(UserWarning, match="missing"):
+            write_nifti(
+                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-5)
 
@@ -164,9 +177,10 @@ class TestWriteNiftiFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(
-            str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        with pytest.warns(UserWarning, match="missing"):
+            write_nifti(
+                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
@@ -246,20 +260,29 @@ class TestWriteZarrWithDataArray:
 
 
 class TestWriteZarrFromReconstruction:
+    """See `TestWriteNiftiFromReconstruction`'s docstring: reconstructing from bare
+    napari layer state always makes the writer's `ensure_fusi` call default the
+    acquisition-timing attrs, since a plain napari layer has no concept of them.
+    """
+
     def test_returns_path_list(
         self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
     ) -> None:
         """write_zarr returns path list when reconstructing from layer state."""
         path = str(tmp_path / "out.zarr")
-        result = write_zarr(
-            path, sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        with pytest.warns(UserWarning, match="missing"):
+            result = write_zarr(
+                path, sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         assert result == [path]
 
     def test_store_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
         """Zarr store directory is created when reconstructing from layer state."""
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt))
+        with pytest.warns(UserWarning, match="missing"):
+            write_zarr(
+                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         assert path.is_dir()
 
     def test_roundtrip_values(
@@ -269,7 +292,10 @@ class TestWriteZarrFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt))
+        with pytest.warns(UserWarning, match="missing"):
+            write_zarr(
+                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-6)
 
@@ -280,7 +306,10 @@ class TestWriteZarrFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt))
+        with pytest.warns(UserWarning, match="missing"):
+            write_zarr(
+                str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
+            )
         loaded = load(path)
         coord_pairs = (("time", "time"), ("z", "z"), ("y", "y"), ("x", "x"))
         for loaded_dim, sample_dim in coord_pairs:

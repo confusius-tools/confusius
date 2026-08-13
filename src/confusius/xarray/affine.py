@@ -165,15 +165,24 @@ def apply_affine(
             new_affines[stored_key] = arr
 
     new_attrs = dict(da.attrs)
-    new_attrs.pop("voxel_to_world", None)
     if "affines" in da.attrs:
         new_attrs["affines"] = new_affines
 
     voxel_dims = get_voxel_to_world_spatial_dims(da)
+    world_coord_names = get_voxel_to_world_coord_names(da)
+    # `voxdim` is excluded: it must be recomputed from the new affine (see #244), not
+    # carried over stale. `attach_voxel_to_world_index` already does that itself when
+    # `world_coord_attrs` doesn't set it explicitly.
+    world_coord_attrs = {
+        name: {k: v for k, v in da.coords[name].attrs.items() if k != "voxdim"}
+        for name in world_coord_names
+    }
     result = attach_voxel_to_world_index(
         da.assign_attrs(new_attrs),
         affine_array @ voxel_to_world,
         voxel_dims=voxel_dims,
+        world_coord_names=world_coord_names,
+        world_coord_attrs=world_coord_attrs,
     )
     if inplace:
         da.coords.update(result.coords)

@@ -284,7 +284,6 @@ def consolidate_poses(
             f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
             f"got {sweep_dim!r}."
         )
-    sweep_col = spatial_dims.index(sweep_dim)
 
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
@@ -432,7 +431,6 @@ def consolidate_poses(
         da.attrs.get("affines", {}), affines_key, affine, new_affine
     )
     new_attrs = {**da.attrs, "affines": new_affines}
-    new_attrs.pop("voxel_to_world", None)
     base_coords: dict[str, Any] = {str(sweep_dim): new_sweep}
     for output_dim in other_output_dims:
         coord_name = (

@@ -1062,6 +1062,7 @@ def _promote_nifti_to_voxel_to_world(data_array: xr.DataArray) -> xr.DataArray:
             voxel_to_world,
             voxel_dims=native_voxel_dims,
             world_coord_names=world_names,
+            world_coord_attrs={name: {"units": "mm"} for name in world_names},
         )
         dim_order = [dim for dim in ("time", "k", "j", "i") if dim in result.dims]
         return result.transpose(*dim_order)
@@ -1074,7 +1075,7 @@ def _promote_nifti_to_voxel_to_world(data_array: xr.DataArray) -> xr.DataArray:
     voxel_dims = tuple(dim for dim in VOXEL_DIMS[-len(spatial_dims) :])
     rename_map = dict(zip(spatial_dims, voxel_dims, strict=True))
     world_coord_attrs = {
-        dim: dict(data_array.coords[dim].attrs)
+        dim: {"units": "mm", **data_array.coords[dim].attrs}
         for dim in spatial_dims
         if dim in data_array.coords
     }

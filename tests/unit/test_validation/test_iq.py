@@ -21,7 +21,11 @@ class TestValidateIqDataArray:
                 "time": xr.DataArray(
                     np.arange(10) * 0.1,
                     dims=("time",),
-                    attrs={"units": "s"},
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 0.1,
+                    },
                 ),
                 "k": xr.DataArray(
                     np.arange(4),

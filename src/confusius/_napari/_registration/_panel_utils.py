@@ -12,7 +12,8 @@ from qtpy.QtCore import QRegularExpression
 from qtpy.QtGui import QValidator
 from qtpy.QtWidgets import QDoubleSpinBox, QSizePolicy, QWidget
 
-from confusius._dims import SPATIAL_DIMS, TIME_DIM
+from confusius._dims import SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.xarray.scale import db_scale, power_scale
 
 if TYPE_CHECKING:
@@ -111,7 +112,7 @@ def _normalize_layer_sequence(values: Any, ndim: int, fill: Any) -> list[Any]:
 
 
 def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
-    """Reconstruct a DataArray from the current napari layer state.
+    """Reconstruct a canonical fUSI DataArray from the current napari layer state.
 
     Parameters
     ----------
@@ -122,7 +123,11 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
     -------
     xarray.DataArray
         DataArray reconstructed from the layer's current axis labels, scale, translate,
-        and units.
+        and units. Every ConfUSIus DataArray always carries all three voxel dims
+        `k`/`j`/`i` plus a voxel-to-world index, so when the layer reports fewer than 3
+        spatial axes, leading singleton voxel dims are padded in (axis-aligned, unit
+        scale). The affine itself is derived from the layer's scale/translate (a plain
+        napari layer has no rotation/shear, so it is always axis-aligned).
     """
     data = np.asarray(layer.data)
     ndim = data.ndim
@@ -148,9 +153,28 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
     raw_units = _normalize_layer_sequence(getattr(layer, "units", None), ndim, None)
     units = [None if u is None or str(u) == "pixel" else str(u) for u in raw_units]
 
+    n_spatial = min(ndim, len(VOXEL_DIMS))
+    n_leading = ndim - n_spatial
+    n_pad = len(VOXEL_DIMS) - n_spatial
+
+    # Every ConfUSIus DataArray always carries all three voxel dims k/j/i, so when the
+    # layer reports fewer than 3 spatial axes, pad with leading singleton voxel dims
+    # (axis-aligned, unit scale) instead of building a partial-dim DataArray.
+    data = np.expand_dims(data, axis=tuple(range(n_leading, n_leading + n_pad)))
+    dims = (*axis_labels[:n_leading], *VOXEL_DIMS)
+    world_coord_names = (*SPATIAL_DIMS[:n_pad], *axis_labels[n_leading:])
+    padded_scale = [1.0] * n_pad + scale[n_leading:]
+    padded_translate = [0.0] * n_pad + translate[n_leading:]
+    padded_units: list[str | None] = [None] * n_pad + units[n_leading:]
+
     coords: dict[str, xr.DataArray] = {}
     for dim, n, spacing, origin, unit in zip(
-        axis_labels, data.shape, scale, translate, units, strict=False
+        axis_labels[:n_leading],
+        data.shape[:n_leading],
+        scale[:n_leading],
+        translate[:n_leading],
+        units[:n_leading],
+        strict=False,
     ):
         attrs: dict[str, Any] = {"voxdim": abs(spacing)}
         if unit is not None:
@@ -158,8 +182,26 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
         coords[dim] = xr.DataArray(
             origin + np.arange(n) * spacing, dims=[dim], attrs=attrs
         )
+    for dim, n in zip(VOXEL_DIMS, data.shape[n_leading:], strict=True):
+        coords[dim] = xr.DataArray(np.arange(n), dims=[dim])
 
-    return xr.DataArray(data, dims=axis_labels, coords=coords)
+    da = xr.DataArray(data, dims=dims, coords=coords)
+
+    voxel_to_world = np.eye(len(VOXEL_DIMS) + 1)
+    voxel_to_world[: len(VOXEL_DIMS), : len(VOXEL_DIMS)] = np.diag(padded_scale)
+    voxel_to_world[: len(VOXEL_DIMS), len(VOXEL_DIMS)] = padded_translate
+    world_coord_attrs = {
+        dim: {"units": unit}
+        for dim, unit in zip(world_coord_names, padded_units, strict=True)
+        if unit is not None
+    }
+    return attach_voxel_to_world_index(
+        da,
+        voxel_to_world,
+        voxel_dims=VOXEL_DIMS,
+        world_coord_names=world_coord_names,
+        world_coord_attrs=world_coord_attrs,
+    )
 
 
 def _is_registration_source_layer(layer: Layer) -> bool:

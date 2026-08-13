@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
+from confusius._utils.coordinates import get_coordinate_origins, get_coordinate_spacings
 from confusius._utils.geometry import (
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
@@ -128,22 +129,37 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     OutputGridPayload
         JSON-serializable output-grid description.
     """
-    dims = [str(dim) for dim in reference.dims]
-    origin_names = (
-        get_voxel_to_world_coord_names(reference)
-        if has_voxel_to_world_index(reference)
-        else dims
+    voxel_dims = [str(dim) for dim in reference.dims]
+    # `reference` may be a plain napari layer's DataArray, reconstructed without a
+    # voxel-to-world index (see `_reconstruct_layer_dataarray`), not just a canonical
+    # ConfUSIus DataArray.
+    has_index = has_voxel_to_world_index(reference)
+    # Reported as world dim names (matching the convention used everywhere a plain
+    # displacement-field/grid DataArray is built, e.g. `_compose_world_to_base_transforms`
+    # and `sample_displacement_field_like`), not `reference`'s own (voxel) dims.
+    dims = list(get_voxel_to_world_coord_names(reference)) if has_index else voxel_dims
+    spacing = (
+        reference.fusi.spacing if has_index else get_coordinate_spacings(reference)
     )
+    origin = reference.fusi.origin if has_index else get_coordinate_origins(reference)
+    resolved_spacing: dict[str, float] = {}
+    for dim in voxel_dims:
+        dim_spacing = spacing[dim]
+        if dim_spacing is None:
+            raise ValueError(
+                f"'reference' has undefined spacing for dimension {dim!r}."
+            )
+        resolved_spacing[dim] = dim_spacing
     return {
         "dims": dims,
-        "shape": [int(reference.sizes[dim]) for dim in dims],
-        "spacing": [float(reference.fusi.spacing[dim]) for dim in dims],
-        "origin": [float(reference.fusi.origin[dim]) for dim in origin_names],
+        "shape": [int(reference.sizes[dim]) for dim in voxel_dims],
+        "spacing": [resolved_spacing[dim] for dim in voxel_dims],
+        "origin": [float(origin[dim]) for dim in dims],
         "units": [
             cast("str | None", reference.coords[dim].attrs.get("units"))
             if dim in reference.coords
             else None
-            for dim in origin_names
+            for dim in dims
         ],
     }
 

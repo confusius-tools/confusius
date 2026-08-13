@@ -11,6 +11,7 @@ import xarray as xr
 
 from confusius._napari._time_overlay import _TimeOverlay
 from confusius.plotting import plot_napari
+from confusius.xarray import create_fusi_dataarray
 
 
 @pytest.fixture
@@ -39,18 +40,12 @@ def _make_4d_da(
     """Create a minimal 4D DataArray with the given time coordinates."""
     shape = (len(time_coords), 4, 6, 8)
     data = rng.random(shape).astype(np.float32)
-    z0, y0, x0 = spatial_translate
-    return xr.DataArray(
+    return create_fusi_dataarray(
         data,
-        dims=["time", "z", "y", "x"],
-        coords={
-            "time": xr.DataArray(
-                time_coords, dims=["time"], attrs={"units": time_units}
-            ),
-            "z": xr.DataArray(z0 + np.arange(4) * 0.2, dims=["z"]),
-            "y": xr.DataArray(y0 + np.arange(6) * 0.1, dims=["y"]),
-            "x": xr.DataArray(x0 + np.arange(8) * 0.05, dims=["x"]),
-        },
+        dims=("time", "z", "y", "x"),
+        time=xr.DataArray(time_coords, dims=["time"], attrs={"units": time_units}),
+        spacing=(0.2, 0.1, 0.05),
+        origin=spatial_translate,
     )
 
 

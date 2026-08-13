@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Hashable, Sequence
 from typing import Any, Literal
 
@@ -11,13 +12,15 @@ import xarray as xr
 from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
-    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_spacing,
     get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
+    update_voxel_to_world_coord_attrs,
 )
+from confusius._utils.stack import find_stack_level
 from confusius._utils.validation import require_dataarray
+from confusius.timing import ensure_time_acquisition_attrs
 from confusius.validation.time_series import (
     validate_required_time_dimension,
     validate_timepoint_count,
@@ -46,7 +49,7 @@ def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
 
 
 def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
-    """Validate that a DataArray has voxel-to-world index consistent with its shape.
+    """Validate that a DataArray has voxel-to-world index consistent with its dims.
 
     Parameters
     ----------
@@ -56,7 +59,7 @@ def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
     Raises
     ------
     ValueError
-        If voxel-to-world metadata is missing or inconsistent.
+        If voxel-to-world index is missing or inconsistent.
     """
     if not has_voxel_to_world_index(da):
         raise ValueError(
@@ -64,14 +67,13 @@ def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
             "VoxelToWorldIndex-backed world coordinates and defined spatial spacing."
         )
 
+    # Set membership only, not order: dim order is a separate concern covered by the
+    # opt-in `require_canonical_dim_order` check below.
     voxel_dims = get_voxel_to_world_spatial_dims(da)
-    expected_shape = (len(voxel_dims) + 1, len(voxel_dims) + 1)
-    affine = get_voxel_to_world_affine(da)
-    if affine.shape != expected_shape:
+    if set(voxel_dims) != set(VOXEL_DIMS):
         raise ValueError(
-            "voxel_to_world must have shape "
-            f"{expected_shape} for voxel-to-world dimensions {voxel_dims!r}, got "
-            f"{affine.shape}."
+            f"Voxel-to-world index must cover native voxel dimensions {VOXEL_DIMS!r}, "
+            f"got {voxel_dims!r}."
         )
 
     # World coordinate existence/dims are not checked here: they are guaranteed by
@@ -318,7 +320,52 @@ def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
 
     from confusius._utils.geometry import restore_voxel_to_world_index
 
-    return restore_voxel_to_world_index(result)
+    result = restore_voxel_to_world_index(result)
+    result = _ensure_spatial_metadata_attrs(result)
+    return ensure_time_acquisition_attrs(result)
+
+
+def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
+    """Fill in default `units` metadata on the world spatial coordinates.
+
+    Every ConfUSIus fUSI DataArray carries `units` on its world (`z`/`y`/`x`)
+    coordinates (`voxdim` is already guaranteed there by
+    [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
+    itself). Data built without going through it may still be missing `units`; this
+    fills in `"mm"` (the project-wide world-coordinate unit).
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to fill in.
+
+    Returns
+    -------
+    xarray.DataArray
+        `data` unchanged when it does not carry a voxel-to-world index or its world
+        coordinates already carry `units`. Otherwise a copy with `units` filled in.
+
+    Warns
+    -----
+    UserWarning
+        If any world coordinate was missing `units` and defaulted to `"mm"`.
+    """
+    if not has_voxel_to_world_index(data):
+        return data
+
+    world_coords = get_voxel_to_world_coord_names(data)
+    missing = [name for name in world_coords if "units" not in data.coords[name].attrs]
+    if not missing:
+        return data
+
+    result = update_voxel_to_world_coord_attrs(
+        data, {name: {"units": "mm"} for name in missing}
+    )
+    warnings.warn(
+        f"World coordinate(s) {missing} missing 'units'; defaulting to 'mm'.",
+        stacklevel=find_stack_level(),
+    )
+    return result
 
 
 def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
@@ -362,9 +409,6 @@ def validate_fusi(
     regular_spacing_tolerance: float = 1e-2,
     regular_spacing_dims: RegularSpacingDims = "space",
     require_canonical_dim_order: bool = False,
-    require_spatial_voxdim: bool = False,
-    require_spatial_units: bool = False,
-    require_time_units: bool = False,
 ) -> None:
     """Validate that a DataArray follows the ConfUSIus fUSI data model.
 
@@ -393,12 +437,6 @@ def validate_fusi(
         Dimensions that must satisfy regular-spacing checks.
     require_canonical_dim_order : bool, default: False
         Whether core dimensions must appear in canonical order.
-    require_spatial_voxdim : bool, default: False
-        Whether present world spatial coordinates must define `voxdim` metadata.
-    require_spatial_units : bool, default: False
-        Whether present world spatial coordinates must define `units` metadata.
-    require_time_units : bool, default: False
-        Whether the `time` coordinate must define `units` metadata when present.
 
     Raises
     ------
@@ -428,6 +466,17 @@ def validate_fusi(
     if require_uniform_time:
         validate_uniform_time(data, "fUSI validation", uniformity_tolerance)
 
+    if TIME_DIM in data.dims and TIME_DIM in data.coords:
+        time_attrs = data.coords[TIME_DIM].attrs
+        if "volume_acquisition_reference" not in time_attrs:
+            raise ValueError(
+                "'time' coordinate is missing 'volume_acquisition_reference'."
+            )
+        if data.sizes[TIME_DIM] > 1 and "volume_acquisition_duration" not in time_attrs:
+            raise ValueError(
+                "'time' coordinate is missing 'volume_acquisition_duration'."
+            )
+
     if not allow_pose and POSE_DIM in data.dims:
         raise ValueError("DataArray must not have a 'pose' dimension.")
 
@@ -446,16 +495,7 @@ def validate_fusi(
         _validate_canonical_core_dim_order(data)
 
     world_coords = get_voxel_to_world_coord_names(data)
-    singleton_spatial_dims = tuple(
-        name
-        for name, dim in zip(world_coords, spatial_dims, strict=True)
-        if data.sizes[dim] == 1
-    )
-    if require_spatial_voxdim:
-        _validate_required_coordinate_attrs(data, spatial_dims, "voxdim")
-    else:
-        _validate_required_coordinate_attrs(data, singleton_spatial_dims, "voxdim")
-    if require_spatial_units:
-        _validate_required_coordinate_attrs(data, world_coords, "units")
-    if require_time_units and TIME_DIM in data.dims:
+    _validate_required_coordinate_attrs(data, world_coords, "voxdim")
+    _validate_required_coordinate_attrs(data, world_coords, "units")
+    if TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")

@@ -48,7 +48,11 @@ def _make_voxel_to_world_time_series() -> xr.DataArray:
         time=xr.DataArray(
             np.arange(6, dtype=float) * 0.5,
             dims=("time",),
-            attrs={"units": "s"},
+            attrs={
+                "units": "s",
+                "volume_acquisition_reference": "start",
+                "volume_acquisition_duration": 0.5,
+            },
         )
     )
     return volume.transpose("time", "k", "j", "i")
@@ -166,6 +170,25 @@ def test_validate_fusi_rejects_2d_voxel_to_world_data() -> None:
         validate_fusi(bad)
 
 
+def test_validate_fusi_rejects_voxel_to_world_index_missing_voxel_dim() -> None:
+    """Canonical fUSI geometry must map all `k/j/i` dimensions."""
+    base = xr.DataArray(
+        np.zeros((2, 3, 4), dtype=np.float32),
+        dims=("k", "j", "i"),
+        coords={"k": [0.0, 1.0], "j": [0.0, 2.0, 4.0], "i": [0.0, 1.0, 2.0, 3.0]},
+    )
+    bad = attach_voxel_to_world_index(
+        base,
+        np.array([[3.0, 0.0, 20.0], [0.0, 4.0, 30.0], [0.0, 0.0, 1.0]]),
+        voxel_dims=("j", "i"),
+        world_coord_names=("y", "x"),
+        world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
+    )
+
+    with pytest.raises(ValueError, match="must cover native voxel dimensions"):
+        validate_fusi(bad)
+
+
 def test_validate_fusi_can_require_time() -> None:
     """`require_time=True` rejects arrays without a time dimension."""
     spatial = _make_voxel_to_world_time_series().isel(time=0, drop=True)
@@ -232,8 +255,13 @@ def test_validate_fusi_can_require_regular_spacing() -> None:
 
 def test_validate_fusi_regular_spacing_can_target_space_dims_only() -> None:
     """Space-only regular-spacing checks ignore irregular time sampling."""
-    bad_time = _make_voxel_to_world_time_series().assign_coords(
-        time=np.array([0.0, 0.5, 1.0, 1.7, 2.2, 2.8], dtype=float)
+    base = _make_voxel_to_world_time_series()
+    bad_time = base.assign_coords(
+        time=xr.DataArray(
+            np.array([0.0, 0.5, 1.0, 1.7, 2.2, 2.8], dtype=float),
+            dims=("time",),
+            attrs=base.coords["time"].attrs,
+        )
     )
 
     validate_fusi(
@@ -243,12 +271,15 @@ def test_validate_fusi_regular_spacing_can_target_space_dims_only() -> None:
     )
 
 
-def test_validate_fusi_regular_spacing_core_checks_time_when_present() -> (
-    None
-):
+def test_validate_fusi_regular_spacing_core_checks_time_when_present() -> None:
     """`core` mode includes `time` and rejects irregular time spacing."""
-    bad_time = _make_voxel_to_world_time_series().assign_coords(
-        time=np.array([0.0, 0.5, 1.0, 1.7, 2.2, 2.8], dtype=float)
+    base = _make_voxel_to_world_time_series()
+    bad_time = base.assign_coords(
+        time=xr.DataArray(
+            np.array([0.0, 0.5, 1.0, 1.7, 2.2, 2.8], dtype=float),
+            dims=("time",),
+            attrs=base.coords["time"].attrs,
+        )
     )
 
     with pytest.raises(ValueError, match="must have regular spacing"):
@@ -259,37 +290,42 @@ def test_validate_fusi_regular_spacing_core_checks_time_when_present() -> (
         )
 
 
-def test_validate_fusi_can_require_spatial_voxdim() -> None:
-    """Spatial `voxdim` metadata can be enforced explicitly."""
+def test_validate_fusi_rejects_missing_spatial_voxdim() -> None:
+    """World spatial `voxdim` metadata is always required."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
-    del bad.coords["k"].attrs["voxdim"]
+    del bad.coords["z"].attrs["voxdim"]
 
     with pytest.raises(ValueError, match="missing required 'voxdim' metadata"):
-        validate_fusi(bad, require_spatial_voxdim=True)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_can_require_coordinate_units() -> None:
-    """Coordinate `units` metadata can be enforced explicitly."""
+def test_validate_fusi_rejects_missing_time_units() -> None:
+    """`time` coordinate `units` metadata is always required."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
     del bad.coords["time"].attrs["units"]
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
-        validate_fusi(bad, require_time_units=True)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_can_require_spatial_units() -> None:
-    """Spatial `units` metadata can be enforced explicitly."""
+def test_validate_fusi_rejects_missing_spatial_units() -> None:
+    """World spatial `units` metadata is always required."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
     del bad.coords["x"].attrs["units"]
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
-        validate_fusi(bad, require_spatial_units=True)
+        validate_fusi(bad)
 
 
 def test_validate_fusi_rejects_non_finite_numeric_coordinate() -> None:
     """Numeric coordinates must be finite."""
-    bad = _make_voxel_to_world_time_series().assign_coords(
-        time=np.array([0.0, 0.5, np.nan, 1.5, 2.0, 2.5], dtype=float)
+    base = _make_voxel_to_world_time_series()
+    bad = base.assign_coords(
+        time=xr.DataArray(
+            np.array([0.0, 0.5, np.nan, 1.5, 2.0, 2.5], dtype=float),
+            dims=("time",),
+            attrs=base.coords["time"].attrs,
+        )
     )
 
     with pytest.raises(ValueError, match="non-finite numeric values"):

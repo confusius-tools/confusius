@@ -98,6 +98,7 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
         np.eye(len(voxel_dims) + 1),
         voxel_dims=voxel_dims,
         world_coord_names=world_names,
+        world_coord_attrs={name: {"units": "mm"} for name in world_names},
     )
 
 
@@ -398,8 +399,14 @@ class TestLoadNifti:
         assert da.coords["y"].attrs["units"] == "mm"
         assert da.coords["x"].attrs["units"] == "mm"
 
-    def test_load_nifti_unknown_units_omits_units_attr(self, tmp_path: Path) -> None:
-        """Coordinates have no 'units' attr when the NIfTI header declares unknown."""
+    def test_load_nifti_unknown_units_assumes_mm(self, tmp_path: Path) -> None:
+        """Coordinates default to 'mm' when the NIfTI header declares unknown units.
+
+        ConfUSIus world coordinates are always mm; every canonical DataArray carries
+        `units` on its world coordinates (see
+        [ensure_fusi][confusius.validation.ensure_fusi]), regardless of what a source
+        NIfTI file's header does or doesn't declare.
+        """
         data = np.random.default_rng(0).random((4, 3, 2)).astype(np.float32)
         # Default nibabel image has xyzt_units=0 (unknown).
         img = nib.Nifti1Image(data, np.eye(4))
@@ -409,8 +416,8 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert "units" not in da.coords["z"].attrs
-        assert "units" not in da.coords["y"].attrs
+        assert da.coords["z"].attrs["units"] == "mm"
+        assert da.coords["y"].attrs["units"] == "mm"
 
     def test_load_nifti_creates_slice_time_coordinate_from_sidecar(
         self, tmp_path: Path
@@ -2107,19 +2114,10 @@ class TestSaveNifti:
     ) -> None:
         """A single time point is stored via `VolumeTiming`, not `RepetitionTime`."""
         da = sample_fusi_3dt.isel(time=slice(0, 1)).copy()
-        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         da.coords["time"].attrs["volume_acquisition_duration"] = 0.25
         output_path = tmp_path / "single_volume.nii.gz"
 
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            save_nifti(da, output_path)
-
-        assert any(
-            "Coordinate 'time' has no `volume_acquisition_reference` attribute"
-            in str(w.message)
-            for w in caught
-        )
+        save_nifti(da, output_path)
 
         sidecar_path = tmp_path / "single_volume.json"
         with open(sidecar_path) as f:
@@ -2137,7 +2135,6 @@ class TestSaveNifti:
     ) -> None:
         """A single time point without metadata does not invent a frame duration."""
         da = sample_fusi_3dt.isel(time=slice(0, 1)).copy()
-        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         da.coords["time"].attrs.pop("volume_acquisition_duration", None)
 
         output_path = tmp_path / "single_volume_no_duration.nii.gz"
@@ -2285,7 +2282,6 @@ class TestSaveNifti:
     ) -> None:
         """A 2D absolute `slice_time` is exported when onset-relative timing is constant."""
         da = sample_fusi_3dt.copy()
-        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         time_values = da.coords["time"].values
         da = da.assign_coords(
             slice_time=xr.DataArray(
@@ -2296,15 +2292,7 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_2d.nii.gz"
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            save_nifti(da, output_path)
-
-        assert any(
-            "Coordinate 'time' has no `volume_acquisition_reference` attribute"
-            in str(w.message)
-            for w in caught
-        )
+        save_nifti(da, output_path)
 
         with open(tmp_path / "slice_time_2d.json") as f:
             sidecar = json.load(f)
@@ -2317,7 +2305,6 @@ class TestSaveNifti:
     ) -> None:
         """A 2D `slice_time` is omitted when relative slice timing varies across volumes."""
         da = sample_fusi_3dt.copy()
-        da.coords["time"].attrs.pop("volume_acquisition_reference", None)
         time_values = da.coords["time"].values
         varying_offsets = np.tile(np.array([0.0, 0.1, 0.2, 0.3]), (da.sizes["time"], 1))
         varying_offsets[1, -1] += 0.05
@@ -2330,18 +2317,8 @@ class TestSaveNifti:
         )
 
         output_path = tmp_path / "slice_time_2d_inconsistent.nii.gz"
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        with pytest.warns(UserWarning, match="cannot represent per-volume variation"):
             save_nifti(da, output_path)
-
-        assert any(
-            "Coordinate 'time' has no `volume_acquisition_reference` attribute"
-            in str(w.message)
-            for w in caught
-        )
-        assert any(
-            "cannot represent per-volume variation" in str(w.message) for w in caught
-        )
 
         with open(tmp_path / "slice_time_2d_inconsistent.json") as f:
             sidecar = json.load(f)
@@ -2383,7 +2360,11 @@ class TestSaveNifti:
                     "time": xr.DataArray(
                         [0.0, 1.0],
                         dims=["time"],
-                        attrs={"units": "s", "volume_acquisition_reference": "start"},
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 1.0,
+                        },
                     ),
                     "k": np.arange(4, dtype=float),
                     "j": np.arange(3, dtype=float),
@@ -2579,7 +2560,11 @@ class TestSaveNifti:
                     "time": xr.DataArray(
                         [0.0, 1.0],
                         dims=["time"],
-                        attrs={"units": "s", "volume_acquisition_reference": "start"},
+                        attrs={
+                            "units": "s",
+                            "volume_acquisition_reference": "start",
+                            "volume_acquisition_duration": 1.0,
+                        },
                     ),
                     "k": np.arange(4, dtype=float),
                     "j": np.arange(3, dtype=float),
@@ -3322,22 +3307,23 @@ class TestRoundtrip:
         """Irregular timings fall back to median time spacing when no better duration exists."""
         original = sample_fusi_3dt.isel(time=slice(0, 4)).copy()
         original = original.assign_coords(
-            time=xr.DataArray([0.0, 1.5, 2.8, 4.6], dims=["time"], attrs={"units": "s"})
+            time=xr.DataArray(
+                [0.0, 1.5, 2.8, 4.6],
+                dims=["time"],
+                attrs={"units": "s", "volume_acquisition_reference": "start"},
+            )
         )
 
         nifti_path = tmp_path / "approx_frame_duration.nii.gz"
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
+        # `ensure_fusi` (called at `save_nifti` entry) infers the missing
+        # `volume_acquisition_duration` from the median `time` spacing before
+        # nifti.py's own equivalent fallback ever runs; the non-uniform-sampling
+        # warning is unrelated and still fires normally.
+        with pytest.warns(UserWarning) as record:
             save_nifti(original, nifti_path)
-
-        assert any("non-uniform sampling" in str(w.message) for w in caught)
-        assert any(
-            "Approximating it from the median time spacing" in str(w.message)
-            for w in caught
-        )
-        assert not any(
-            "validation warning when saving" in str(w.message) for w in caught
-        )
+        messages = [str(w.message) for w in record]
+        assert any("volume_acquisition_duration" in m for m in messages)
+        assert any("non-uniform sampling" in m for m in messages)
 
         sidecar_path = tmp_path / "approx_frame_duration.json"
         with open(sidecar_path) as f:
@@ -3432,7 +3418,11 @@ class TestRoundtrip:
             time=xr.DataArray(
                 np.arange(original.sizes["time"]) * 1000.0,
                 dims=["time"],
-                attrs={"units": "ms"},
+                attrs={
+                    "units": "ms",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 1000.0,
+                },
             )
         )
 
@@ -3455,7 +3445,11 @@ class TestRoundtrip:
             time=xr.DataArray(
                 np.arange(sample_fusi_3dt.sizes["time"]) * 100.0,
                 dims=["time"],
-                attrs={"units": "ms"},
+                attrs={
+                    "units": "ms",
+                    "volume_acquisition_reference": "start",
+                    "volume_acquisition_duration": 100.0,
+                },
             )
         )
         da.attrs.update(
