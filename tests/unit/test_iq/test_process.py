@@ -9,7 +9,11 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import (
+    add_world_coords_from_voxel_affine,
+    get_voxel_to_world_affine,
+    has_voxel_world_geometry,
+)
 from confusius.iq.process import (
     compute_axial_velocity_volume,
     compute_bmode_volume,
@@ -20,6 +24,7 @@ from confusius.iq.process import (
     process_iq_to_bmode,
     process_iq_to_power_doppler,
 )
+from confusius.validation import ensure_fusi
 from confusius.xarray import create_iq_dataarray
 
 
@@ -911,6 +916,29 @@ class TestProcessIqToPowerDoppler:
             doppler_window_stride=5,
         )
 
+    def test_output_preserves_voxel_affine_geometry(self, sample_iq_dataarray):
+        """Output carries over the input's voxel-affine geometry, not just its shape.
+
+        Regression test: constructing the output via a bare `xr.DataArray(coords=...)`
+        with the input's derived `z`/`y`/`x` coordinates silently drops the
+        `VoxelToWorldIndex` backing them, since spatial processing only ever resamples
+        the `time` axis.
+        """
+        result = process_iq_to_power_doppler(
+            sample_iq_dataarray,
+            clutter_window_width=20,
+            clutter_window_stride=5,
+            doppler_window_width=4,
+            doppler_window_stride=2,
+        )
+
+        assert has_voxel_world_geometry(result)
+        assert_allclose(
+            get_voxel_to_world_affine(result),
+            get_voxel_to_world_affine(sample_iq_dataarray),
+        )
+        ensure_fusi(result)
+
 
 class TestProcessIqToAxialVelocity:
     """Tests for process_iq_to_axial_velocity function."""
@@ -1079,6 +1107,23 @@ class TestProcessIqToAxialVelocity:
         )
 
         assert result.attrs["axial_velocity_spatial_kernel"] == (1, 3, 5)
+
+    def test_output_preserves_voxel_affine_geometry(self, sample_iq_dataarray):
+        """Output carries over the input's voxel-affine geometry, not just its shape."""
+        result = process_iq_to_axial_velocity(
+            sample_iq_dataarray,
+            clutter_window_width=20,
+            clutter_window_stride=5,
+            velocity_window_width=4,
+            velocity_window_stride=2,
+        )
+
+        assert has_voxel_world_geometry(result)
+        assert_allclose(
+            get_voxel_to_world_affine(result),
+            get_voxel_to_world_affine(sample_iq_dataarray),
+        )
+        ensure_fusi(result)
 
 
 class TestDataArrayClutterMask:
@@ -1337,3 +1382,18 @@ class TestProcessIqToBmode:
         mock_fn.assert_called_once_with(
             iq, bmode_window_width=10, bmode_window_stride=5
         )
+
+    def test_output_preserves_voxel_affine_geometry(self, sample_iq_dataarray):
+        """Output carries over the input's voxel-affine geometry, not just its shape."""
+        result = process_iq_to_bmode(
+            sample_iq_dataarray,
+            bmode_window_width=10,
+            bmode_window_stride=5,
+        )
+
+        assert has_voxel_world_geometry(result)
+        assert_allclose(
+            get_voxel_to_world_affine(result),
+            get_voxel_to_world_affine(sample_iq_dataarray),
+        )
+        ensure_fusi(result)
