@@ -1185,25 +1185,6 @@ def get_voxel_world_direction_matrix(data: xr.DataArray) -> npt.NDArray[np.float
     return get_affine_orientation_matrix(get_voxel_to_world_affine(data))
 
 
-def get_affine_origin(
-    voxel_to_world: npt.ArrayLike,
-) -> npt.NDArray[np.float64]:
-    """Return the world location of the voxel-space origin.
-
-    Parameters
-    ----------
-    voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to world space.
-
-    Returns
-    -------
-    (N,) numpy.ndarray
-        World coordinates corresponding to voxel-space origin `(0, ..., 0)`.
-    """
-    affine = np.asarray(voxel_to_world, dtype=np.float64)
-    return affine[:-1, -1].copy()
-
-
 def get_affine_axis_vectors(
     voxel_to_world: npt.ArrayLike,
     voxel_dims: tuple[str, ...],

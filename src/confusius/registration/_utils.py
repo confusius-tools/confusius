@@ -49,43 +49,6 @@ def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
     )
 
 
-def validate_registration_dataarray(
-    da: xr.DataArray,
-    *,
-    require_spatial_only: bool = False,
-    minimum_spatial_dims: int = 2,
-) -> None:
-    """Validate generic image geometry accepted by registration helpers.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        DataArray to validate.
-    require_spatial_only : bool, default: False
-        Whether to reject a `time` dimension.
-    minimum_spatial_dims : int, default: 2
-        Minimum number of non-time dimensions required.
-
-    Raises
-    ------
-    ValueError
-        If dimensions are not strings, include unsupported non-spatial axes, or do not
-        provide enough spatial axes.
-    """
-    if any(not isinstance(dim, str) for dim in da.dims):
-        raise ValueError("All dimensions must be strings.")
-    if require_spatial_only and "time" in da.dims:
-        raise ValueError("Expected a spatial-only DataArray, got a time dimension.")
-
-    spatial_dims = [dim for dim in da.dims if dim != "time"]
-    if len(spatial_dims) < minimum_spatial_dims:
-        raise ValueError(
-            f"DataArray must have at least {minimum_spatial_dims} spatial dimensions."
-        )
-    if len(spatial_dims) > 3:
-        raise ValueError("Registration supports at most 3 spatial dimensions.")
-
-
 def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float]]:
     """Return spatial dims and their defined spacings for registration.
 

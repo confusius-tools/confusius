@@ -387,31 +387,6 @@ def get_grid_info_from_dataarray(
     }
 
 
-def get_grid_kwargs_from_dataarray(
-    data: xr.DataArray,
-    dims: Sequence[str] | None = None,
-    *,
-    error_prefix: str = "Cannot build grid kwargs because spacing is undefined",
-) -> GridKwargs:
-    """Return grid kwargs for legacy callers.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Spatial reference DataArray.
-    dims : sequence[str], optional
-        Dimensions to extract, in the desired output order.
-    error_prefix : str, default: "Cannot build grid kwargs because spacing is undefined"
-        Start of the error message raised when spacing is undefined.
-
-    Returns
-    -------
-    GridKwargs
-        Dictionary with `shape`, `spacing`, `origin`, and `dims` keys.
-    """
-    return get_grid_info_from_dataarray(data, dims=dims, error_prefix=error_prefix)
-
-
 def get_axis_aligned_affine(
     translation: npt.NDArray[np.floating],
     zoom: npt.NDArray[np.floating],
@@ -434,51 +409,3 @@ def get_axis_aligned_affine(
     affine[:3, :3] = np.diag(np.asarray(zoom, dtype=np.float64))
     affine[:3, 3] = np.asarray(translation, dtype=np.float64)
     return affine
-
-
-def get_affine_in_axis_aligned_space(
-    affine: npt.NDArray[np.floating],
-    translation: npt.NDArray[np.floating],
-    zoom: npt.NDArray[np.floating],
-) -> npt.NDArray[np.float64]:
-    """Change an affine's input space to axis-aligned world coordinates.
-
-    `affine` is assumed to map coordinates from a reference space, such as voxel
-    indices, to an output space. `translation` and `zoom` define an axis-aligned affine
-    that maps coordinates in the same reference space as `affine` to world
-    coordinates:
-
-    ```python
-    world = diag(zoom) @ voxel + translation
-    ```
-
-    This function returns a transform that maps axis-aligned world coordinates to the
-    same output coordinate system:
-
-    ```python
-    result = affine @ inv(get_axis_aligned_affine(translation, zoom))
-    ```
-
-    Thus, for any voxel coordinate `v`:
-
-    ```python
-    result @ world(v) == affine @ v
-    ```
-
-    Parameters
-    ----------
-    affine : (4, 4) or (..., 4, 4) numpy.ndarray
-        Affine(s) to re-express. Leading batch axes are preserved.
-    translation : (3,) numpy.ndarray
-        Translation of the axis-aligned reference frame.
-    zoom : (3,) numpy.ndarray
-        Per-axis scale of the axis-aligned reference frame.
-
-    Returns
-    -------
-    (4, 4) or (..., 4, 4) numpy.ndarray
-        Transform from axis-aligned world coordinates to the same output coordinate
-        system as `affine`.
-    """
-    inv_reference = np.linalg.inv(get_axis_aligned_affine(translation, zoom))
-    return np.asarray(affine, dtype=np.float64) @ inv_reference

@@ -8,7 +8,7 @@ import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
-from confusius._utils.coordinates import get_grid_kwargs_from_dataarray
+from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius._utils.geometry import (
     add_world_coords_from_voxel_affine,
     get_affine_orientation_matrix,
@@ -18,7 +18,6 @@ from confusius.registration._utils import (
     build_voxel_affine_plane_initial_transform,
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
-    validate_registration_dataarray,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -150,34 +149,6 @@ def _make_voxel_affine_3d_slab_flipped_normal() -> xr.DataArray:
             "x": {"units": "mm"},
         },
     )
-
-
-class TestValidateRegistrationDataarray:
-    """Input validation for validate_registration_dataarray."""
-
-    def test_non_string_dims_raises(self):
-        """Non-string dimension names are rejected."""
-        da = xr.DataArray(np.zeros((2, 2)), dims=(0, 1))
-        with pytest.raises(ValueError, match="must be strings"):
-            validate_registration_dataarray(da)
-
-    def test_time_dimension_rejected_when_spatial_only_required(self):
-        """A `time` dimension is rejected when `require_spatial_only=True`."""
-        da = xr.DataArray(np.zeros((2, 3, 3)), dims=("time", "j", "i"))
-        with pytest.raises(ValueError, match="spatial-only"):
-            validate_registration_dataarray(da, require_spatial_only=True)
-
-    def test_too_few_spatial_dims_raises(self):
-        """Fewer than `minimum_spatial_dims` spatial axes are rejected."""
-        da = xr.DataArray(np.zeros(5), dims=("i",))
-        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
-            validate_registration_dataarray(da)
-
-    def test_too_many_spatial_dims_raises(self):
-        """More than 3 spatial axes are rejected."""
-        da = xr.DataArray(np.zeros((2, 2, 2, 2)), dims=("a", "b", "c", "d"))
-        with pytest.raises(ValueError, match="at most 3 spatial dimensions"):
-            validate_registration_dataarray(da)
 
 
 class TestRegisterVolumeValidation:
@@ -1444,7 +1415,7 @@ class TestDisplacementField:
             sample_2d_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        grid = get_grid_info_from_dataarray(sample_2d_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
         assert field.attrs["type"] == "displacement_field_transform"
@@ -1465,7 +1436,7 @@ class TestDisplacementField:
         )
 
         by_grid = sample_displacement_field(
-            bspline_tx, **get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+            bspline_tx, **get_grid_info_from_dataarray(sample_2d_dataarray_spatial)
         )
         by_reference = sample_displacement_field_like(
             bspline_tx, sample_2d_dataarray_spatial
@@ -1581,7 +1552,7 @@ class TestDisplacementField:
             sample_2d_dataarray_spatial,
             transform_type="bspline",
         )
-        grid = get_grid_kwargs_from_dataarray(sample_2d_dataarray_spatial)
+        grid = get_grid_info_from_dataarray(sample_2d_dataarray_spatial)
         field = sample_displacement_field(bspline_tx, **grid)
 
         resample_grid = _resample_volume_grid_kwargs(sample_2d_dataarray_spatial)
@@ -1613,7 +1584,7 @@ class TestDisplacementField:
         )
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
-        grid = get_grid_kwargs_from_dataarray(fixed)
+        grid = get_grid_info_from_dataarray(fixed)
         field = sample_displacement_field(bspline_tx, **grid)
         assert not np.isnan(field.values).any()
 
@@ -1649,7 +1620,7 @@ class TestDisplacementField:
         )
         _, bspline_tx, _ = register_volume(moving, fixed, transform_type="bspline")
 
-        grid = get_grid_kwargs_from_dataarray(fixed)
+        grid = get_grid_info_from_dataarray(fixed)
         field = sample_displacement_field(bspline_tx, **grid)
         inverse_field = invert_displacement_field(field)
 

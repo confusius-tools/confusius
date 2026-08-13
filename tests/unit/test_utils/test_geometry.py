@@ -12,7 +12,6 @@ from confusius._utils.geometry import (
     get_affine_axis_scalings,
     get_affine_axis_vectors,
     get_affine_orientation_matrix,
-    get_affine_origin,
     get_voxel_affine_world_coord_names,
     get_voxel_to_world_affine,
     get_voxel_world_origin,
@@ -136,9 +135,7 @@ def test_oblique_coordinate_transform_index_selection_uses_world_coords() -> Non
     assert selected.item() == data.sel(k=2.0, j=3.0, i=3.0).item()
 
 
-def test_affine_geometry_helpers_extract_origin_vectors_scalings_and_orientation() -> (
-    None
-):
+def test_affine_geometry_helpers_extract_vectors_scalings_and_orientation() -> None:
     """Affine geometry helpers expose the linear part in world-space form."""
     voxel_to_world = np.array(
         [
@@ -149,7 +146,6 @@ def test_affine_geometry_helpers_extract_origin_vectors_scalings_and_orientation
         ]
     )
 
-    assert_allclose(get_affine_origin(voxel_to_world), [10.0, 20.0, 30.0])
     assert_allclose(
         get_affine_axis_vectors(voxel_to_world, ("k", "j", "i"))["k"],
         [2.0, 0.0, 0.0],
