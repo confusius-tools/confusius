@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import attach_voxel_to_world_index
-from confusius.validation import canonicalize_fusi, validate_fusi_dataarray
+from confusius.validation import canonicalize_fusi, validate_fusi
 
 
 def _make_voxel_to_world_volume() -> xr.DataArray:
@@ -54,25 +54,25 @@ def _make_voxel_to_world_time_series() -> xr.DataArray:
     return volume.transpose("time", "k", "j", "i")
 
 
-def test_validate_fusi_dataarray_accepts_valid_3d() -> None:
+def test_validate_fusi_accepts_valid_3d() -> None:
     """A canonical 3D ConfUSIus volume validates successfully."""
-    validate_fusi_dataarray(_make_voxel_to_world_volume())
+    validate_fusi(_make_voxel_to_world_volume())
 
 
-def test_validate_fusi_dataarray_accepts_valid_3dt() -> None:
+def test_validate_fusi_accepts_valid_3dt() -> None:
     """A canonical 3D+t ConfUSIus volume validates successfully."""
-    validate_fusi_dataarray(_make_voxel_to_world_time_series())
+    validate_fusi(_make_voxel_to_world_time_series())
 
 
-def test_validate_fusi_dataarray_rejects_non_dataarray() -> None:
+def test_validate_fusi_rejects_non_dataarray() -> None:
     """Non-DataArray inputs raise `TypeError`."""
     bad_data: Any = np.zeros((2, 2))
 
     with pytest.raises(TypeError, match="xarray.DataArray"):
-        validate_fusi_dataarray(bad_data)
+        validate_fusi(bad_data)
 
 
-def test_validate_fusi_dataarray_rejects_plain_world_grid() -> None:
+def test_validate_fusi_rejects_plain_world_grid() -> None:
     """Plain z/y/x dimension arrays are not valid fUSI data."""
     data = xr.DataArray(
         np.zeros((2, 3, 4), dtype=np.float32),
@@ -80,11 +80,11 @@ def test_validate_fusi_dataarray_rejects_plain_world_grid() -> None:
         coords={"z": [0.0, 1.0], "y": [0.0, 1.0, 2.0], "x": [0.0, 1.0, 2.0, 3.0]},
     )
 
-    with pytest.raises(ValueError, match="native voxel dimensions `k/j/i`"):
-        validate_fusi_dataarray(data)
+    with pytest.raises(ValueError, match="must include all native voxel dimensions"):
+        validate_fusi(data)
 
 
-def test_validate_fusi_dataarray_rejects_voxel_to_world_missing_world_coord() -> None:
+def test_validate_fusi_rejects_voxel_to_world_missing_world_coord() -> None:
     """Voxel-to-world geometry requires linked world coordinates."""
     good = _make_voxel_to_world_volume()
     bad = xr.DataArray(
@@ -94,21 +94,11 @@ def test_validate_fusi_dataarray_rejects_voxel_to_world_missing_world_coord() ->
     )
 
     with pytest.raises(ValueError, match="VoxelToWorldIndex-backed"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_rejects_mismatched_affine_shape_after_fixing_dim() -> (
-    None
-):
-    """A rectangular voxel-to-world affine from a fixed oblique dim is rejected.
-
-    Fixing one voxel dim of an oblique (non-axis-aligned) volume via a scalar
-    `isel` folds that dim's contribution into the translation rather than
-    dropping it, leaving `get_voxel_to_world_affine` genuinely rectangular
-    (3 world rows, 2 active voxel columns) while `get_voxel_to_world_spatial_dims`
-    only reports the 2 remaining active dims. The expected square shape derived
-    from those active dims therefore no longer matches the affine's actual shape.
-    """
+def test_validate_fusi_rejects_scalar_indexed_voxel_dim() -> None:
+    """Canonical fUSI data must keep all native voxel dimensions active."""
     base = xr.DataArray(
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("k", "j", "i"),
@@ -139,26 +129,26 @@ def test_validate_fusi_dataarray_rejects_mismatched_affine_shape_after_fixing_di
     )
     fixed = data.isel(k=0)
 
-    with pytest.raises(ValueError, match=r"voxel_to_world must have shape \(3, 3\)"):
-        validate_fusi_dataarray(fixed)
+    with pytest.raises(ValueError, match="must include all native voxel dimensions"):
+        validate_fusi(fixed)
 
 
-def test_validate_fusi_dataarray_allows_extra_dims_by_default() -> None:
+def test_validate_fusi_allows_extra_dims_by_default() -> None:
     """Extra non-core dimensions are allowed by default."""
     data = _make_voxel_to_world_time_series().expand_dims(region=["roi"])
-    validate_fusi_dataarray(data)
+    validate_fusi(data)
 
 
-def test_validate_fusi_dataarray_can_forbid_extra_dims() -> None:
+def test_validate_fusi_can_forbid_extra_dims() -> None:
     """Extra non-core dimensions can be rejected explicitly."""
     data = _make_voxel_to_world_time_series().expand_dims(region=["roi"])
 
     with pytest.raises(ValueError, match="Unexpected dimensions"):
-        validate_fusi_dataarray(data, allow_extra_dims=False)
+        validate_fusi(data, allow_extra_dims=False)
 
 
-def test_validate_fusi_dataarray_requires_minimum_spatial_dims() -> None:
-    """At least the configured number of voxel spatial dimensions must be present."""
+def test_validate_fusi_rejects_2d_voxel_to_world_data() -> None:
+    """Canonical fUSI data must include all `k/j/i` voxel dimensions."""
     base = xr.DataArray(
         np.zeros((3, 4), dtype=np.float32),
         dims=("j", "i"),
@@ -172,45 +162,45 @@ def test_validate_fusi_dataarray_requires_minimum_spatial_dims() -> None:
         world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
     )
 
-    with pytest.raises(ValueError, match="at least 3 spatial dimensions"):
-        validate_fusi_dataarray(bad, minimum_spatial_dims=3)
+    with pytest.raises(ValueError, match="must include all native voxel dimensions"):
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_can_require_time() -> None:
+def test_validate_fusi_can_require_time() -> None:
     """`require_time=True` rejects arrays without a time dimension."""
     spatial = _make_voxel_to_world_time_series().isel(time=0, drop=True)
 
     with pytest.raises(ValueError, match="must have a 'time' dimension"):
-        validate_fusi_dataarray(spatial, require_time=True)
+        validate_fusi(spatial, require_time=True)
 
 
-def test_validate_fusi_dataarray_can_forbid_pose() -> None:
+def test_validate_fusi_can_forbid_pose() -> None:
     """`allow_pose=False` rejects multi-pose arrays."""
     data = _make_voxel_to_world_volume().expand_dims(pose=[0, 1])
 
     with pytest.raises(ValueError, match="must not have a 'pose' dimension"):
-        validate_fusi_dataarray(data, allow_pose=False)
+        validate_fusi(data, allow_pose=False)
 
 
-def test_validate_fusi_dataarray_rejects_missing_dimension_coordinate() -> None:
+def test_validate_fusi_rejects_missing_dimension_coordinate() -> None:
     """Every core dimension must have a same-named coordinate."""
     bad = _make_voxel_to_world_time_series().drop_vars("i")
 
     with pytest.raises(ValueError, match="Missing required coordinate"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_allows_missing_extra_dimension_coordinate() -> None:
+def test_validate_fusi_allows_missing_extra_dimension_coordinate() -> None:
     """Missing extra-dimension coordinates are allowed."""
     bad = (
         _make_voxel_to_world_time_series()
         .expand_dims(region=["roi"])
         .drop_vars("region")
     )
-    validate_fusi_dataarray(bad)
+    validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_rejects_non_numeric_core_coordinate() -> None:
+def test_validate_fusi_rejects_non_numeric_core_coordinate() -> None:
     """Core dimension coordinates must be numeric."""
     n_i = _make_voxel_to_world_time_series().sizes["i"]
     labels = np.array([f"v{i}" for i in range(n_i)], dtype=object)
@@ -219,41 +209,41 @@ def test_validate_fusi_dataarray_rejects_non_numeric_core_coordinate() -> None:
     )
 
     with pytest.raises(ValueError, match="must be numeric"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_can_require_canonical_dim_order() -> None:
+def test_validate_fusi_can_require_canonical_dim_order() -> None:
     """Canonical core dimension order can be enforced explicitly."""
     reordered = _make_voxel_to_world_time_series().transpose("j", "i", "time", "k")
 
     with pytest.raises(ValueError, match="not in canonical ConfUSIus order"):
-        validate_fusi_dataarray(reordered, require_canonical_dim_order=True)
+        validate_fusi(reordered, require_canonical_dim_order=True)
 
 
-def test_validate_fusi_dataarray_can_require_regular_spacing() -> None:
+def test_validate_fusi_can_require_regular_spacing() -> None:
     """Regular-spacing mode rejects non-uniform voxel coordinates."""
     bad = _make_voxel_to_world_time_series().assign_coords(
         j=np.array([0.0, 2.5, 4.0], dtype=float)
     )
 
     with pytest.raises(ValueError, match="must have regular spacing"):
-        validate_fusi_dataarray(bad, require_regular_spacing=True)
+        validate_fusi(bad, require_regular_spacing=True)
 
 
-def test_validate_fusi_dataarray_regular_spacing_can_target_space_dims_only() -> None:
+def test_validate_fusi_regular_spacing_can_target_space_dims_only() -> None:
     """Space-only regular-spacing checks ignore irregular time sampling."""
     bad_time = _make_voxel_to_world_time_series().assign_coords(
         time=np.array([0.0, 0.5, 1.0, 1.7, 2.2, 2.8], dtype=float)
     )
 
-    validate_fusi_dataarray(
+    validate_fusi(
         bad_time,
         require_regular_spacing=True,
         regular_spacing_dims="space",
     )
 
 
-def test_validate_fusi_dataarray_regular_spacing_core_checks_time_when_present() -> (
+def test_validate_fusi_regular_spacing_core_checks_time_when_present() -> (
     None
 ):
     """`core` mode includes `time` and rejects irregular time spacing."""
@@ -262,83 +252,75 @@ def test_validate_fusi_dataarray_regular_spacing_core_checks_time_when_present()
     )
 
     with pytest.raises(ValueError, match="must have regular spacing"):
-        validate_fusi_dataarray(
+        validate_fusi(
             bad_time,
             require_regular_spacing=True,
             regular_spacing_dims="core",
         )
 
 
-def test_validate_fusi_dataarray_can_require_spatial_voxdim() -> None:
+def test_validate_fusi_can_require_spatial_voxdim() -> None:
     """Spatial `voxdim` metadata can be enforced explicitly."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
     del bad.coords["k"].attrs["voxdim"]
 
     with pytest.raises(ValueError, match="missing required 'voxdim' metadata"):
-        validate_fusi_dataarray(bad, require_spatial_voxdim=True)
+        validate_fusi(bad, require_spatial_voxdim=True)
 
 
-def test_validate_fusi_dataarray_can_require_coordinate_units() -> None:
+def test_validate_fusi_can_require_coordinate_units() -> None:
     """Coordinate `units` metadata can be enforced explicitly."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
     del bad.coords["time"].attrs["units"]
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
-        validate_fusi_dataarray(bad, require_time_units=True)
+        validate_fusi(bad, require_time_units=True)
 
 
-def test_validate_fusi_dataarray_can_require_spatial_units() -> None:
+def test_validate_fusi_can_require_spatial_units() -> None:
     """Spatial `units` metadata can be enforced explicitly."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)
     del bad.coords["x"].attrs["units"]
 
     with pytest.raises(ValueError, match="missing required 'units' metadata"):
-        validate_fusi_dataarray(bad, require_spatial_units=True)
+        validate_fusi(bad, require_spatial_units=True)
 
 
-def test_validate_fusi_dataarray_rejects_non_finite_numeric_coordinate() -> None:
+def test_validate_fusi_rejects_non_finite_numeric_coordinate() -> None:
     """Numeric coordinates must be finite."""
     bad = _make_voxel_to_world_time_series().assign_coords(
         time=np.array([0.0, 0.5, np.nan, 1.5, 2.0, 2.5], dtype=float)
     )
 
     with pytest.raises(ValueError, match="non-finite numeric values"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_rejects_non_string_dimension_names() -> None:
+def test_validate_fusi_rejects_non_string_dimension_names() -> None:
     """Dimension names must be strings."""
     bad = xr.DataArray(np.zeros((2, 3, 4), dtype=np.float32), dims=("time", "j", 1))
 
     with pytest.raises(ValueError, match="All dimensions must be strings"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_rejects_non_monotonic_core_coordinate() -> None:
+def test_validate_fusi_rejects_non_monotonic_core_coordinate() -> None:
     """Core dimension coordinates must be strictly monotonic-increasing."""
     bad = _make_voxel_to_world_time_series().assign_coords(
         i=xr.DataArray([0.0, 2.0, 1.0, 3.0], dims=("i",))
     )
 
     with pytest.raises(ValueError, match="must be strictly monotonic-increasing"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
-def test_validate_fusi_dataarray_rejects_invalid_minimum_spatial_dims() -> None:
-    """`minimum_spatial_dims` outside [0, 3] is rejected before any data is checked."""
-    with pytest.raises(
-        ValueError, match="minimum_spatial_dims must be between 0 and 3 inclusive"
-    ):
-        validate_fusi_dataarray(_make_voxel_to_world_volume(), minimum_spatial_dims=4)
-
-
-def test_validate_fusi_dataarray_rejects_non_dimension_coordinate() -> None:
+def test_validate_fusi_rejects_non_dimension_coordinate() -> None:
     """Dimension coordinates must be 1D along their own dimension."""
     data = _make_voxel_to_world_time_series()
     bad = data.assign_coords(i=xr.DataArray(np.arange(data.sizes["j"]), dims=("j",)))
 
     with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
-        validate_fusi_dataarray(bad)
+        validate_fusi(bad)
 
 
 def test_canonicalize_fusi_restores_scalar_indexed_voxel_dim() -> None:

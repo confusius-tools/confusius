@@ -261,7 +261,7 @@ class TestSmoothVolume:
         def _raise(*args, **kwargs):
             raise ValueError("boom")
 
-        monkeypatch.setattr("confusius.spatial.smooth.validate_fusi_dataarray", _raise)
+        monkeypatch.setattr("confusius.spatial.smooth.validate_fusi", _raise)
 
         with pytest.raises(ValueError, match="boom"):
             smooth_volume(xr.DataArray(np.ones((2, 3))), fwhm=0.3)

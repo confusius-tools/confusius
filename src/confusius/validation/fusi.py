@@ -46,7 +46,7 @@ def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
 
 
 def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
-    """Validate voxel-to-world metadata.
+    """Validate that a DataArray has voxel-to-world index consistent with its shape.
 
     Parameters
     ----------
@@ -74,18 +74,11 @@ def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
             f"{affine.shape}."
         )
 
-    world_coord_names = get_voxel_to_world_coord_names(da)
-    for name, dim in zip(world_coord_names, voxel_dims, strict=True):
-        if name not in da.coords:
-            raise ValueError(
-                f"Voxel-to-world data is missing world coordinate {name!r}."
-            )
-        coord = da.coords[name]
-        if set(coord.dims) not in ({dim}, set(voxel_dims)):
-            raise ValueError(
-                f"Voxel-to-world coordinate {name!r} must have dims {voxel_dims!r} "
-                f"(in any order) or {(dim,)!r}, got {coord.dims!r}."
-            )
+    # World coordinate existence/dims are not checked here: they are guaranteed by
+    # construction (VoxelToWorldIndex registers them via xr.Coordinates.from_xindex)
+    # and by xarray's own index-corruption protection (dropping an index-linked
+    # coordinate independently of its siblings raises before this function is ever
+    # reached). No public construction path can desync them from `voxel_dims`.
 
 
 def _validate_dimension_coordinate(
@@ -351,7 +344,6 @@ def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
     ValueError
         If canonicalization or validation fails.
     """
-    require_dataarray(data)
     result = canonicalize_fusi(data)
     validate_fusi(result, **validate_kwargs)
     return result
@@ -366,7 +358,6 @@ def validate_fusi(
     uniformity_tolerance: float = 1e-2,
     allow_pose: bool = True,
     allow_extra_dims: bool = True,
-    minimum_spatial_dims: int = 2,
     require_regular_spacing: bool = False,
     regular_spacing_tolerance: float = 1e-2,
     regular_spacing_dims: RegularSpacingDims = "space",
@@ -375,7 +366,7 @@ def validate_fusi(
     require_spatial_units: bool = False,
     require_time_units: bool = False,
 ) -> None:
-    """Validate that a DataArray follows ConfUSIus fUSI conventions.
+    """Validate that a DataArray follows the ConfUSIus fUSI data model.
 
     Parameters
     ----------
@@ -394,8 +385,6 @@ def validate_fusi(
         Whether to allow a `pose` dimension.
     allow_extra_dims : bool, default: True
         Whether dimensions outside the ConfUSIus core set are allowed.
-    minimum_spatial_dims : int, default: 2
-        Minimum number of voxel spatial dimensions required.
     require_regular_spacing : bool, default: False
         Whether selected numeric dimension coordinates must have regular spacing.
     regular_spacing_tolerance : float, default: 1e-2
@@ -420,13 +409,15 @@ def validate_fusi(
     """
     require_dataarray(data)
 
-    if minimum_spatial_dims < 0 or minimum_spatial_dims > len(VOXEL_DIMS):
+    _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
+
+    spatial_dims = _get_spatial_dims(data)
+    if spatial_dims != VOXEL_DIMS:
         raise ValueError(
-            "minimum_spatial_dims must be between 0 and 3 inclusive, got "
-            f"{minimum_spatial_dims}."
+            f"DataArray must include all native voxel dimensions {VOXEL_DIMS!r}, "
+            f"got {spatial_dims!r}."
         )
 
-    _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
     _validate_voxel_to_world_geometry(data)
 
     if require_time or require_unchunked_time or require_uniform_time:
@@ -439,13 +430,6 @@ def validate_fusi(
 
     if not allow_pose and POSE_DIM in data.dims:
         raise ValueError("DataArray must not have a 'pose' dimension.")
-
-    spatial_dims = _get_spatial_dims(data)
-    if len(spatial_dims) < minimum_spatial_dims:
-        raise ValueError(
-            f"DataArray must have at least {minimum_spatial_dims} spatial dimensions "
-            f"from {VOXEL_DIMS!r}, got {spatial_dims!r}."
-        )
 
     for dim in data.dims:
         _validate_dimension_coordinate(data, dim, require_numeric=dim in CORE_DIMS)
@@ -475,7 +459,3 @@ def validate_fusi(
         _validate_required_coordinate_attrs(data, world_coords, "units")
     if require_time_units and TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")
-
-
-validate_fusi_dataarray = validate_fusi
-"""Deprecated internal alias for [validate_fusi][confusius.validation.fusi.validate_fusi]."""

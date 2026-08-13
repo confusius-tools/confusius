@@ -2,12 +2,7 @@
 
 from confusius.validation.atlas import validate_atlas
 from confusius.validation.coordinates import validate_matching_coordinates
-from confusius.validation.fusi import (
-    canonicalize_fusi,
-    ensure_fusi,
-    validate_fusi,
-    validate_fusi_dataarray,
-)
+from confusius.validation.fusi import canonicalize_fusi, ensure_fusi, validate_fusi
 from confusius.validation.iq import ensure_iq, validate_iq, validate_iq_dataarray
 from confusius.validation.mask import validate_labels, validate_mask
 from confusius.validation.time_series import validate_time_series
@@ -19,7 +14,6 @@ __all__ = [
     "ensure_iq",
     "validate_atlas",
     "validate_fusi",
-    "validate_fusi_dataarray",
     "validate_iq",
     "validate_iq_dataarray",
     "validate_labels",

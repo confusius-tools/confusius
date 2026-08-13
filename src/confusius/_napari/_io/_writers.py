@@ -113,7 +113,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
 
     # A voxel-to-world index requires at least 2 active voxel dims; a single
     # recognized world dim (e.g. a 1D napari labels layer) falls back to a plain
-    # coordinate below, matching validate_fusi's minimum_spatial_dims invariant.
+    # coordinate below.
     build_voxel_to_world_index = sum(1 for spec in axis_specs if spec[1]) >= 2
 
     result_dims: list[str] = []

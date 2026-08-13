@@ -40,8 +40,6 @@ def ensure_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> xr.Data
         If `iq` is not complex-valued.
     """
     iq = ensure_fusi(iq, require_time=False)
-    if any(dim not in iq.dims for dim in VOXEL_DIMS):
-        raise ValueError("IQ data must have at least 3 spatial dimensions.")
     iq = iq.transpose(*_REQUIRED_DIMS)
     validate_iq(iq, require_velocity_attrs=require_velocity_attrs)
     return iq
