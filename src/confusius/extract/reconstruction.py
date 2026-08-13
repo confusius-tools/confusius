@@ -4,11 +4,11 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 
 
@@ -57,7 +57,7 @@ def unmask(
     -------
     xarray.DataArray
         Reconstructed DataArray with shape `(..., *mask.dims)`, where spatial
-        dimensions and coordinates come from the mask. For a voxel-affine mask (native
+        dimensions and coordinates come from the mask. For a voxel-to-world mask (native
         voxel dims `k`/`j`/`i`), the derived world `z`/`y`/`x` coordinates are
         restored on the result as well.
 
@@ -218,17 +218,17 @@ def unmask(
         coords=coords,
         attrs=attrs if attrs is not None else {},
     )
-    if has_voxel_world_geometry(mask):
-        world_coord_names = get_voxel_affine_world_coord_names(mask)
+    if has_voxel_to_world_index(mask):
+        world_coord_names = get_voxel_to_world_coord_names(mask)
         world_coord_attrs = {
             name: dict(mask.coords[name].attrs)
             for name in world_coord_names
             if name in mask.coords
         }
-        result = add_world_coords_from_voxel_affine(
+        result = attach_voxel_to_world_index(
             result,
             get_voxel_to_world_affine(mask),
-            voxel_dims=get_voxel_affine_spatial_dims(mask),
+            voxel_dims=get_voxel_to_world_spatial_dims(mask),
             world_coord_names=world_coord_names,
             world_coord_attrs=world_coord_attrs,
         )

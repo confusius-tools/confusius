@@ -7,10 +7,10 @@ import xarray as xr
 from numpy.testing import assert_allclose
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
 )
 from confusius.extract import extract_with_labels
 from confusius.signal import censor_samples, interpolate_samples
@@ -245,11 +245,11 @@ def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_
             },
         },
     )
-    labels = add_world_coords_from_voxel_affine(
+    labels = attach_voxel_to_world_index(
         labels,
         get_voxel_to_world_affine(sample_fusi_3dt),
-        voxel_dims=get_voxel_affine_spatial_dims(sample_fusi_3dt),
-        world_coord_names=get_voxel_affine_world_coord_names(sample_fusi_3dt),
+        voxel_dims=get_voxel_to_world_spatial_dims(sample_fusi_3dt),
+        world_coord_names=get_voxel_to_world_coord_names(sample_fusi_3dt),
     )
     signals = extract_with_labels(sample_fusi_3dt, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
@@ -364,11 +364,11 @@ def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_3dt):
             },
         },
     )
-    labels = add_world_coords_from_voxel_affine(
+    labels = attach_voxel_to_world_index(
         labels,
         get_voxel_to_world_affine(sample_fusi_3dt),
-        voxel_dims=get_voxel_affine_spatial_dims(sample_fusi_3dt),
-        world_coord_names=get_voxel_affine_world_coord_names(sample_fusi_3dt),
+        voxel_dims=get_voxel_to_world_spatial_dims(sample_fusi_3dt),
+        world_coord_names=get_voxel_to_world_coord_names(sample_fusi_3dt),
     )
     signals = extract_with_labels(sample_fusi_3dt, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)

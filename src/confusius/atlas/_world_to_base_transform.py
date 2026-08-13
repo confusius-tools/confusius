@@ -16,8 +16,8 @@ import xarray as xr
 from scipy.interpolate import interpn
 
 from confusius._utils.geometry import (
-    get_voxel_affine_world_coord_names,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    has_voxel_to_world_index,
 )
 from confusius.registration.bspline import sample_displacement_field_like
 
@@ -332,8 +332,8 @@ def _drop_vertices_outside_grid(
         Faces whose three vertices all survived, reindexed into the new vertex array.
     """
     dims = (
-        list(get_voxel_affine_world_coord_names(reference))
-        if has_voxel_world_geometry(reference)
+        list(get_voxel_to_world_coord_names(reference))
+        if has_voxel_to_world_index(reference)
         else [str(dim) for dim in reference.dims]
     )
     spacing = reference.fusi.spacing

@@ -225,10 +225,10 @@ class TestConsolidatePoses:
     def test_sweep_dim_outside_voxel_dims_raises(self, scan_3d: xr.DataArray) -> None:
         """consolidate_poses rejects a sweep_dim that is a real dim but not a voxel dim.
 
-        `scan_3d` has voxel-affine (CTI) geometry over `k`/`j`/`i`. Adding an extra
+        `scan_3d` has voxel-to-world (CTI) geometry over `k`/`j`/`i`. Adding an extra
         dimension `w` makes it pass the initial "is sweep_dim one of da's non-time/
         non-pose dims" check (since `w` is such a dim), but `w` is absent from the
-        voxel-affine geometry's own voxel dims, so the has_voxel_world_geometry branch
+        voxel-to-world geometry's own voxel dims, so the has_voxel_to_world_index branch
         must reject it with a message naming only the true voxel dims.
         """
         da = scan_3d.expand_dims({"w": 2})

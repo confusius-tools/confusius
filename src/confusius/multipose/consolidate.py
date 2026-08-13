@@ -12,10 +12,10 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
-    has_voxel_world_geometry,
+    attach_voxel_to_world_index,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
@@ -289,9 +289,9 @@ def consolidate_poses(
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
 
-    if has_voxel_world_geometry(da):
-        voxel_dims = list(get_voxel_affine_spatial_dims(da))
-        world_dims = list(get_voxel_affine_world_coord_names(da))
+    if has_voxel_to_world_index(da):
+        voxel_dims = list(get_voxel_to_world_spatial_dims(da))
+        world_dims = list(get_voxel_to_world_coord_names(da))
         voxel_to_world = dict(zip(voxel_dims, world_dims, strict=True))
         if sweep_dim not in voxel_dims:
             raise ValueError(
@@ -437,7 +437,7 @@ def consolidate_poses(
     for output_dim in other_output_dims:
         coord_name = (
             voxel_to_world.get(output_dim, output_dim)
-            if has_voxel_world_geometry(da)
+            if has_voxel_to_world_index(da)
             else output_dim
         )
         if coord_name in da.coords:
@@ -457,7 +457,7 @@ def consolidate_poses(
 
     output_spatial_dim_names = tuple(str(dim) for dim in output_spatial_dims)
     world_coord_names = tuple(
-        str(voxel_to_world.get(dim, dim)) if has_voxel_world_geometry(da) else str(dim)
+        str(voxel_to_world.get(dim, dim)) if has_voxel_to_world_index(da) else str(dim)
         for dim in output_spatial_dims
     )
 
@@ -486,7 +486,7 @@ def consolidate_poses(
         voxel_to_world_affine = np.eye(len(output_spatial_dim_names) + 1)
         voxel_to_world_affine[:-1, :-1] = np.diag(spacings)
         voxel_to_world_affine[:-1, -1] = origins
-        return add_world_coords_from_voxel_affine(
+        return attach_voxel_to_world_index(
             result,
             voxel_to_world_affine,
             voxel_dims=output_spatial_dim_names,

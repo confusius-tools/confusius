@@ -9,10 +9,10 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.iq.clutter_filters import (
@@ -87,13 +87,13 @@ def _attach_iq_output_geometry(
     time: xr.DataArray,
     attrs: dict[str, Any],
 ) -> xr.DataArray:
-    """Build a processed-IQ output DataArray, carrying over `iq`'s voxel-affine geometry.
+    """Build a processed-IQ output DataArray, carrying over `iq`'s voxel-to-world geometry.
 
     Processing only ever resamples the `time` axis (via sliding windows); the spatial
     voxel dims and their sizes are always unchanged from `iq`. Copying `iq.coords["z"]`
     (etc.) directly into a fresh `xr.DataArray(coords=...)` call would silently drop
     the `VoxelToWorldIndex` backing those derived coordinates, so the voxel dims are
-    reattached explicitly here via `add_world_coords_from_voxel_affine`.
+    reattached explicitly here via `attach_voxel_to_world_index`.
 
     Parameters
     ----------
@@ -112,10 +112,10 @@ def _attach_iq_output_geometry(
     Returns
     -------
     xarray.DataArray
-        Output DataArray with `iq`'s voxel-affine geometry (native voxel dims and
+        Output DataArray with `iq`'s voxel-to-world geometry (native voxel dims and
         derived world coordinates) reattached.
     """
-    spatial_dims = get_voxel_affine_spatial_dims(iq)
+    spatial_dims = get_voxel_to_world_spatial_dims(iq)
     result_da = xr.DataArray(
         result,
         name=name,
@@ -123,13 +123,13 @@ def _attach_iq_output_geometry(
         coords={"time": time, **{dim: iq.coords[dim] for dim in spatial_dims}},
         attrs=attrs,
     )
-    world_coord_names = get_voxel_affine_world_coord_names(iq)
+    world_coord_names = get_voxel_to_world_coord_names(iq)
     world_coord_attrs = {
         coord_name: dict(iq.coords[coord_name].attrs)
         for coord_name in world_coord_names
         if coord_name in iq.coords
     }
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         result_da,
         get_voxel_to_world_affine(iq),
         voxel_dims=spatial_dims,
@@ -1311,7 +1311,7 @@ def process_iq_to_power_doppler(
     -------
     (clutter_windows * doppler_windows, k, j, i) xarray.DataArray
         Power Doppler volumes as an Xarray DataArray with updated time coordinates and
-        `iq`'s voxel-affine geometry carried over, where `clutter_windows` is the
+        `iq`'s voxel-to-world geometry carried over, where `clutter_windows` is the
         number of clutter filter sliding windows and `doppler_windows` is the number
         of power Doppler sliding windows per clutter window.
 
@@ -1489,7 +1489,7 @@ def process_iq_to_bmode(
     -------
     (windows, k, j, i) xarray.DataArray
         B-mode volumes as an Xarray DataArray with updated time coordinates and `iq`'s
-        voxel-affine geometry carried over, where `windows` is the number of sliding
+        voxel-to-world geometry carried over, where `windows` is the number of sliding
         windows.
     """
     import dask.array as da
@@ -1644,7 +1644,7 @@ def process_iq_to_axial_velocity(
     -------
     (clutter_windows * velocity_windows, k, j, i) xarray.DataArray
         Axial velocity volumes as an Xarray DataArray with updated time coordinates
-        and `iq`'s voxel-affine geometry carried over, where `clutter_windows` is the
+        and `iq`'s voxel-to-world geometry carried over, where `clutter_windows` is the
         number of clutter filter sliding windows and `velocity_windows` is the number
         of velocity sliding windows per clutter window.
         Velocity values are in meters per second.

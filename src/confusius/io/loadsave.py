@@ -11,11 +11,11 @@ import confusius.io.nifti as _nifti
 import confusius.io.scan as _scan
 from confusius._utils.atlas import restore_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
@@ -43,7 +43,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     [`build_atlas_cmap_and_norm`][confusius._utils.atlas.build_atlas_cmap_and_norm] so
     atlas-derived masks and annotations keep their canonical colors after reload.
 
-    A Zarr-saved voxel-affine DataArray stores `attrs["voxel_to_world"]` instead of
+    A Zarr-saved voxel-to-world DataArray stores `attrs["voxel_to_world"]` instead of
     dense `z`/`y`/`x` coordinate arrays (see
     [`save`][confusius.io.save]); this rebuilds the world coordinates and
     `VoxelToWorldIndex` from that affine.
@@ -85,9 +85,9 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
                 data_array.attrs.pop("voxel_to_world"), dtype=np.float64
             )
             world_coord_attrs = data_array.attrs.pop("world_coord_attrs", None)
-            voxel_dims = get_voxel_affine_spatial_dims(data_array)
+            voxel_dims = get_voxel_to_world_spatial_dims(data_array)
             world_coord_names = ("z", "y", "x")[-len(voxel_dims) :]
-            data_array = add_world_coords_from_voxel_affine(
+            data_array = attach_voxel_to_world_index(
                 data_array,
                 voxel_to_world,
                 voxel_dims=voxel_dims,
@@ -113,7 +113,7 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     - **NIfTI** (`.nii`, `.nii.gz`): saved via
       [`save_nifti`][confusius.io.save_nifti].
     - **Zarr** (`.zarr`): saved via
-      [`xarray.DataArray.to_zarr`][xarray.DataArray.to_zarr]. Voxel-affine geometry is
+      [`xarray.DataArray.to_zarr`][xarray.DataArray.to_zarr]. Voxel-to-world geometry is
       stored as `attrs["voxel_to_world"]` rather than dense `z`/`y`/`x` coordinate
       arrays, since those are cheaply derived from the affine on load and, for
       oblique geometry, would otherwise duplicate a full dense array per axis.
@@ -141,9 +141,9 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
     if name.endswith(".zarr"):
         data_array = ensure_fusi(data_array)
         data_array = data_array.copy(deep=False)
-        if has_voxel_world_geometry(data_array):
+        if has_voxel_to_world_index(data_array):
             voxel_to_world = get_voxel_to_world_affine(data_array)
-            world_coord_names = get_voxel_affine_world_coord_names(data_array)
+            world_coord_names = get_voxel_to_world_coord_names(data_array)
             world_coord_attrs = {
                 coord_name: dict(data_array.coords[coord_name].attrs)
                 for coord_name in world_coord_names

@@ -6,7 +6,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.glm import FirstLevelModel, make_first_level_design_matrix
 from confusius.glm._models import OLSModel
 from confusius.glm.first_level import _flatten_spatial
@@ -560,8 +560,8 @@ class TestFirstLevelModelErrors:
         )
         # create_fusi_dataarray always canonicalizes to (k, j, i), so a mask missing
         # a spatial dim can no longer be built through it; build the mismatch (wrong
-        # dim order) via add_world_coords_from_voxel_affine directly instead, which
-        # still carries real voxel-affine geometry but doesn't reorder dims.
+        # dim order) via attach_voxel_to_world_index directly instead, which
+        # still carries real voxel-to-world geometry but doesn't reorder dims.
         mask_data = xr.DataArray(
             np.ones((data.sizes["i"], data.sizes["j"], data.sizes["k"]), dtype=bool),
             dims=("i", "j", "k"),
@@ -571,7 +571,7 @@ class TestFirstLevelModelErrors:
                 "k": data.coords["k"],
             },
         )
-        mask = add_world_coords_from_voxel_affine(
+        mask = attach_voxel_to_world_index(
             mask_data,
             np.eye(4),
             voxel_dims=("i", "j", "k"),

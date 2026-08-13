@@ -10,7 +10,7 @@ import xarray as xr
 
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.atlas._structures import _build_rgb_lookup
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common voxel-affine `(k, j, i)` grid, with world `z`/`y`/`x` coordinates
+        on a common voxel-to-world `(k, j, i)` grid, with world `z`/`y`/`x` coordinates
         in millimetres.
     """
     metadata = atlas.metadata
@@ -54,7 +54,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     }
 
     def _with_world_coords(data: xr.DataArray) -> xr.DataArray:
-        return add_world_coords_from_voxel_affine(
+        return attach_voxel_to_world_index(
             data,
             voxel_to_world,
             voxel_dims=VOXEL_DIMS,
@@ -146,7 +146,7 @@ def fetch_brainglobe_atlas(
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common voxel-affine `(k, j, i)` grid with world `z`/`y`/`x` coordinates
+        on a common voxel-to-world `(k, j, i)` grid with world `z`/`y`/`x` coordinates
         in millimetres, and the `.atlas` accessor for structure queries, masks, and
         meshes.
 

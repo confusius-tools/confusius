@@ -23,10 +23,10 @@ from confusius._utils.coordinates import (
     get_representative_step,
 )
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_world_spacing,
-    has_voxel_world_geometry,
+    get_voxel_to_world_index_spacing,
+    has_voxel_to_world_index,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.bids import (
@@ -416,7 +416,7 @@ def _create_spatial_coords_from_nifti(
             primary_prefix = "sform" if sform_valid else "qform"
         secondary_prefix = "qform" if primary_prefix == "sform" else "sform"
 
-        # CTI voxel-affine geometry represents the full primary affine (any
+        # CTI voxel-to-world geometry represents the full primary affine (any
         # rotation/shear included) exactly, so it becomes `voxel_to_world`
         # directly -- no axis-aligned-only decomposition, and no separate rotation
         # residual to store for the primary form (unlike the old z/y/x model,
@@ -450,7 +450,7 @@ def _create_spatial_coords_from_nifti(
             if space_unit is not None:
                 coord_attrs["units"] = space_unit
             # Placeholder axis-aligned coordinates for the intermediate DataArray;
-            # `_promote_nifti_to_voxel_affine` rebuilds the true (possibly
+            # `_promote_nifti_to_voxel_to_world` rebuilds the true (possibly
             # rotated) z/y/x coordinates from `_primary_voxel_to_world` and
             # discards these.
             step = float(voxel_sizes.get(dim, 1.0))
@@ -1016,8 +1016,8 @@ def _squeeze_synthetic_singleton_dims(
     return data_array.squeeze(dim="time", drop=True)
 
 
-def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
-    """Convert loaded NIfTI coordinates to the voxel-affine model.
+def _promote_nifti_to_voxel_to_world(data_array: xr.DataArray) -> xr.DataArray:
+    """Convert loaded NIfTI coordinates to the voxel-to-world model.
 
     Parameters
     ----------
@@ -1057,7 +1057,7 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
                 for dim in native_voxel_dims
             }
         )
-        result = add_world_coords_from_voxel_affine(
+        result = attach_voxel_to_world_index(
             result,
             voxel_to_world,
             voxel_dims=native_voxel_dims,
@@ -1124,7 +1124,7 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
     for dim in voxel_dims:
         result = result.assign_coords({dim: np.arange(result.sizes[dim], dtype=float)})
 
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         result,
         voxel_to_world,
         voxel_dims=voxel_dims,
@@ -1359,7 +1359,7 @@ def load_nifti(
     data_array = _squeeze_synthetic_singleton_dims(
         data_array, drop_time=drop_synthetic_time
     )
-    return _promote_nifti_to_voxel_affine(data_array)
+    return _promote_nifti_to_voxel_to_world(data_array)
 
 
 def _infer_repetition_time(
@@ -1696,7 +1696,7 @@ def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any
         dimensions.
     """
     current_dims = tuple(str(dim) for dim in data_array.dims)
-    if has_voxel_world_geometry(data_array):
+    if has_voxel_to_world_index(data_array):
         extras = [d for d in current_dims if d not in (*VOXEL_DIMS, "time")]
     else:
         _, extras = _split_nifti_dims(current_dims)
@@ -1809,7 +1809,7 @@ def _prepare_data_for_nifti(
     data = np.asarray(data_array)
     current_dims = tuple(str(dim) for dim in data_array.dims)
 
-    if has_voxel_world_geometry(data_array):
+    if has_voxel_to_world_index(data_array):
         canonical_order = [*reversed(VOXEL_DIMS), "time"]
         extras = [d for d in current_dims if d not in canonical_order]
     else:
@@ -1835,7 +1835,7 @@ def _prepare_data_for_nifti(
 
     nifti_spatial_dims = (
         tuple(reversed(VOXEL_DIMS))
-        if has_voxel_world_geometry(data_array)
+        if has_voxel_to_world_index(data_array)
         else ("x", "y", "z")
     )
     for insert_pos, dim in enumerate(nifti_spatial_dims):
@@ -1872,8 +1872,8 @@ def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
         needed for the NIfTI header.
     """
     spatial_spacings: list[float] = []
-    if has_voxel_world_geometry(data_array):
-        voxel_spacings = get_voxel_world_spacing(data_array)
+    if has_voxel_to_world_index(data_array):
+        voxel_spacings = get_voxel_to_world_index_spacing(data_array)
         return [float(voxel_spacings.get(dim) or 1.0) for dim in reversed(VOXEL_DIMS)]
 
     for dim in ("x", "y", "z"):
@@ -2073,7 +2073,7 @@ def _build_nifti_voxel_to_world_affine(
     spatial_spacings: list[float],
 ) -> npt.NDArray[np.floating]:
     """Build the NIfTI voxel-to-world affine for serialized grid geometry."""
-    if not has_voxel_world_geometry(data_array):
+    if not has_voxel_to_world_index(data_array):
         origin = np.array(
             [
                 float(data_array.coords[dim][0]) if dim in data_array.coords else 0.0
@@ -2099,7 +2099,7 @@ def _build_nifti_voxel_to_world_affine(
             step, approximate = get_representative_step(coord)
             if approximate or step is None:
                 raise ValueError(
-                    "Saving voxel-affine data to NIfTI requires regularly sampled "
+                    "Saving voxel-to-world data to NIfTI requires regularly sampled "
                     f"voxel coordinates, but {dim!r} is irregular."
                 )
             start = float(coord[0])

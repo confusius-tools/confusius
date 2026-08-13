@@ -1,6 +1,6 @@
 """Registration module for fUSI data."""
 
-from confusius.registration._utils import build_voxel_affine_plane_initial_transform
+from confusius.registration._utils import build_voxel_to_world_plane_initial_transform
 from confusius.registration.affines import compose_affine, decompose_affine
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -32,7 +32,7 @@ __all__ = [
     "RegistrationDiagnostics",
     "RegistrationProgress",
     "VolumewiseProgressReporter",
-    "build_voxel_affine_plane_initial_transform",
+    "build_voxel_to_world_plane_initial_transform",
     "compose_affine",
     "compute_framewise_displacement",
     "create_motion_dataframe",

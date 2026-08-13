@@ -11,11 +11,11 @@ import xarray as xr
 from confusius._dims import CORE_DIMS, POSE_DIM, TIME_DIM, VOXEL_DIMS
 from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
     get_voxel_to_world_affine,
-    get_voxel_world_spacing,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_index_spacing,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius._utils.validation import require_dataarray
 from confusius.validation.time_series import (
@@ -45,8 +45,8 @@ def _get_spatial_dims(da: xr.DataArray) -> tuple[str, ...]:
     return tuple(dim for dim in VOXEL_DIMS if dim in da.dims)
 
 
-def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
-    """Validate voxel-affine metadata.
+def _validate_voxel_to_world_geometry(da: xr.DataArray) -> None:
+    """Validate voxel-to-world metadata.
 
     Parameters
     ----------
@@ -56,32 +56,34 @@ def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
     Raises
     ------
     ValueError
-        If voxel-affine metadata is missing or inconsistent.
+        If voxel-to-world metadata is missing or inconsistent.
     """
-    if not has_voxel_world_geometry(da):
+    if not has_voxel_to_world_index(da):
         raise ValueError(
             "DataArray must use native voxel dimensions `k/j/i` with "
             "VoxelToWorldIndex-backed world coordinates and defined spatial spacing."
         )
 
-    voxel_dims = get_voxel_affine_spatial_dims(da)
+    voxel_dims = get_voxel_to_world_spatial_dims(da)
     expected_shape = (len(voxel_dims) + 1, len(voxel_dims) + 1)
     affine = get_voxel_to_world_affine(da)
     if affine.shape != expected_shape:
         raise ValueError(
             "voxel_to_world must have shape "
-            f"{expected_shape} for voxel-affine dimensions {voxel_dims!r}, got "
+            f"{expected_shape} for voxel-to-world dimensions {voxel_dims!r}, got "
             f"{affine.shape}."
         )
 
-    world_coord_names = get_voxel_affine_world_coord_names(da)
+    world_coord_names = get_voxel_to_world_coord_names(da)
     for name, dim in zip(world_coord_names, voxel_dims, strict=True):
         if name not in da.coords:
-            raise ValueError(f"Voxel-affine data is missing world coordinate {name!r}.")
+            raise ValueError(
+                f"Voxel-to-world data is missing world coordinate {name!r}."
+            )
         coord = da.coords[name]
         if set(coord.dims) not in ({dim}, set(voxel_dims)):
             raise ValueError(
-                f"Voxel-affine coordinate {name!r} must have dims {voxel_dims!r} "
+                f"Voxel-to-world coordinate {name!r} must have dims {voxel_dims!r} "
                 f"(in any order) or {(dim,)!r}, got {coord.dims!r}."
             )
 
@@ -252,7 +254,7 @@ def _validate_regular_spacing(
             f"{missing_dims!r}. Present dims: {tuple(str(dim) for dim in da.dims)!r}."
         )
 
-    voxel_spacing = get_voxel_world_spacing(da)
+    voxel_spacing = get_voxel_to_world_index_spacing(da)
     for dim in dims_to_check:
         if dim not in da.coords:
             raise ValueError(
@@ -321,9 +323,9 @@ def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
         result = result.expand_dims({dim: [coord.item()]}, axis=axis)
         result.coords[dim].attrs.update(attrs)
 
-    from confusius._utils.geometry import restore_world_coords_from_voxel_affine
+    from confusius._utils.geometry import restore_voxel_to_world_index
 
-    return restore_world_coords_from_voxel_affine(result)
+    return restore_voxel_to_world_index(result)
 
 
 def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
@@ -425,7 +427,7 @@ def validate_fusi(
         )
 
     _validate_core_dimension_names(data, allow_extra_dims=allow_extra_dims)
-    _validate_voxel_affine_geometry(data)
+    _validate_voxel_to_world_geometry(data)
 
     if require_time or require_unchunked_time or require_uniform_time:
         validate_required_time_dimension(data)
@@ -459,7 +461,7 @@ def validate_fusi(
     if require_canonical_dim_order:
         _validate_canonical_core_dim_order(data)
 
-    world_coords = get_voxel_affine_world_coord_names(data)
+    world_coords = get_voxel_to_world_coord_names(data)
     singleton_spatial_dims = tuple(
         name
         for name, dim in zip(world_coords, spatial_dims, strict=True)

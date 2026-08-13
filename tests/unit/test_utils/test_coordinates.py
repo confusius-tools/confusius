@@ -37,8 +37,8 @@ def test_get_grid_info_requires_singleton_spacing():
             get_grid_info_from_dataarray(data)
 
 
-def test_get_grid_info_requires_regular_spacing_for_voxel_affine_dataarray():
-    """Irregular voxel-space coordinates on voxel-affine data raise, like plain data."""
+def test_get_grid_info_requires_regular_spacing_for_voxel_to_world_dataarray():
+    """Irregular voxel-space coordinates on voxel-to-world data raise, like plain data."""
     import confusius  # noqa: F401
 
     data = xr.DataArray(
@@ -51,5 +51,3 @@ def test_get_grid_info_requires_regular_spacing_for_voxel_affine_dataarray():
 
     with pytest.raises(ValueError, match="spacing is undefined.*j"):
         get_grid_info_from_dataarray(data)
-
-

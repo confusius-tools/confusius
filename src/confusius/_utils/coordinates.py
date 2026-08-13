@@ -340,18 +340,18 @@ def get_grid_info_from_dataarray(
     dims = [str(dim) for dim in data.dims] if dims is None else list(dims)
 
     from confusius._utils.geometry import (
-        get_voxel_affine_spatial_dims,
-        get_voxel_affine_world_coord_names,
-        get_voxel_world_origin,
-        has_voxel_world_geometry,
+        get_voxel_to_world_coord_names,
+        get_voxel_to_world_index_origin,
+        get_voxel_to_world_spatial_dims,
+        has_voxel_to_world_index,
     )
 
-    if has_voxel_world_geometry(data):
+    if has_voxel_to_world_index(data):
         spacings = data.fusi.spacing
-        origin = get_voxel_world_origin(data)
+        origin = get_voxel_to_world_index_origin(data)
         coord_origins = get_coordinate_origins(data)
-        world_names = get_voxel_affine_world_coord_names(data)
-        voxel_dims = get_voxel_affine_spatial_dims(data)
+        world_names = get_voxel_to_world_coord_names(data)
+        voxel_dims = get_voxel_to_world_spatial_dims(data)
         origins = [
             origin[world_names[voxel_dims.index(dim)]]
             if dim in voxel_dims

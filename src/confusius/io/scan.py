@@ -24,7 +24,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.io.utils import check_path
 
 SCAN_V2_MAGIC = b"scan"
@@ -363,7 +363,7 @@ def _make_scan_voxel_coords(
     }
 
 
-def _attach_scan_voxel_affine_geometry(
+def _attach_scan_voxel_to_world_geometry(
     data: xr.DataArray,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
@@ -381,7 +381,7 @@ def _attach_scan_voxel_affine_geometry(
     xarray.DataArray
         DataArray with lazy world coordinates attached.
     """
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         data,
         voxel_to_world,
         voxel_dims=VOXEL_DIMS,
@@ -688,15 +688,15 @@ def _load_scan_v1(
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
 
         if mode == "2Dscan":
-            data_array = _load_2dscan_voxel_affine(
+            data_array = _load_2dscan_voxel_to_world(
                 h5, raw_lazy, voxel_coords, attrs, voxel_to_world
             )
         elif mode == "3Dscan":
-            data_array = _load_3dscan_voxel_affine(
+            data_array = _load_3dscan_voxel_to_world(
                 raw_lazy, voxel_coords, attrs, npose, voxel_to_world
             )
         elif mode == "4Dscan":
-            data_array = _load_4dscan_voxel_affine(
+            data_array = _load_4dscan_voxel_to_world(
                 h5,
                 raw_lazy,
                 voxel_coords,
@@ -934,14 +934,14 @@ def _load_4dscan(
     )
 
 
-def _load_2dscan_voxel_affine(
+def _load_2dscan_voxel_to_world(
     h5: h5py.File,
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a voxel-affine DataArray for `2Dscan` mode."""
+    """Build a voxel-to-world DataArray for `2Dscan` mode."""
     data_lazy = da.transpose(raw_lazy, [0, 2, 1, 3])
     time: npt.NDArray[np.float64] = np.array(
         h5["/acqMetaData/time"][()], dtype=np.float64
@@ -961,17 +961,17 @@ def _load_2dscan_voxel_affine(
         coords=coords,
         attrs=attrs,
     )
-    return _attach_scan_voxel_affine_geometry(result, voxel_to_world)
+    return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
-def _load_3dscan_voxel_affine(
+def _load_3dscan_voxel_to_world(
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     npose: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a voxel-affine DataArray for `3Dscan` mode."""
+    """Build a voxel-to-world DataArray for `3Dscan` mode."""
     sq = da.squeeze(raw_lazy, axis=1)
     data_lazy = da.transpose(sq, [0, 2, 1, 3])
     coords: dict[str, Any] = {
@@ -984,10 +984,10 @@ def _load_3dscan_voxel_affine(
         coords=coords,
         attrs=attrs,
     )
-    return _attach_scan_voxel_affine_geometry(result, voxel_to_world)
+    return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
-def _load_4dscan_voxel_affine(
+def _load_4dscan_voxel_to_world(
     h5: h5py.File,
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],
@@ -996,7 +996,7 @@ def _load_4dscan_voxel_affine(
     nblock_repeat: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a voxel-affine DataArray for `4Dscan` mode."""
+    """Build a voxel-to-world DataArray for `4Dscan` mode."""
     nscan_repeat = raw_lazy.shape[0]
     n_time = nscan_repeat * nblock_repeat
 
@@ -1030,7 +1030,7 @@ def _load_4dscan_voxel_affine(
         coords=coords,
         attrs=attrs,
     )
-    return _attach_scan_voxel_affine_geometry(result, voxel_to_world)
+    return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
 def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
@@ -1351,7 +1351,7 @@ def _load_scan_v2(
         attrs["affines"]["world_to_lab"] = world_to_lab
 
     data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
-    data_array = _attach_scan_voxel_affine_geometry(data_array, voxel_to_world)
+    data_array = _attach_scan_voxel_to_world_geometry(data_array, voxel_to_world)
     data_array.name = attrs.get("iconeus_scan") or path.stem
     return data_array
 

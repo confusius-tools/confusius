@@ -111,7 +111,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
             )
         )
 
-    # Voxel-affine (CTI) geometry requires at least 2 active voxel dims; a single
+    # Voxel-to-world (CTI) geometry requires at least 2 active voxel dims; a single
     # recognized world dim (e.g. a 1D napari labels layer) falls back to a plain
     # coordinate below, matching validate_fusi's minimum_spatial_dims invariant.
     build_cti = sum(1 for spec in axis_specs if spec[1]) >= 2
@@ -145,12 +145,12 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     if not voxel_dims:
         return result
 
-    from confusius._utils.geometry import add_world_coords_from_voxel_affine
+    from confusius._utils.geometry import attach_voxel_to_world_index
 
     affine = np.eye(len(voxel_dims) + 1, dtype=float)
     affine[:-1, :-1] = np.diag(affine_scales)
     affine[:-1, -1] = affine_translates
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         result,
         affine,
         voxel_dims=tuple(voxel_dims),

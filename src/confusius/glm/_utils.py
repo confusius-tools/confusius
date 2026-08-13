@@ -390,10 +390,10 @@ def to_spatial_dataarray(
     name : str
         Value for the `long_name` DataArray attribute.
     voxel_to_world : numpy.typing.ArrayLike, optional
-        Homogeneous voxel-to-world affine to reattach as proper voxel-affine (CTI)
+        Homogeneous voxel-to-world affine to reattach as proper voxel-to-world (CTI)
         geometry. World coordinates cannot be carried over as plain values (unlike
         `coords`) because they are backed by a custom `VoxelToWorldIndex` that a bare
-        coordinate assignment does not reconstruct. If not provided, no voxel-affine
+        coordinate assignment does not reconstruct. If not provided, no voxel-to-world
         geometry is attached.
     voxel_dims : tuple of str, optional
         Voxel dimension names in `voxel_to_world` column order. Required when
@@ -435,9 +435,9 @@ def to_spatial_dataarray(
     )
 
     if voxel_to_world is not None and voxel_dims is not None:
-        from confusius._utils.geometry import add_world_coords_from_voxel_affine
+        from confusius._utils.geometry import attach_voxel_to_world_index
 
-        result = add_world_coords_from_voxel_affine(
+        result = attach_voxel_to_world_index(
             result,
             voxel_to_world,
             voxel_dims=voxel_dims,

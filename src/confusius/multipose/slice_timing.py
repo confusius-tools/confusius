@@ -5,10 +5,10 @@ from typing import Literal
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
 )
 from confusius._utils.timing import interpolate_timeseries
 from confusius.validation import ensure_fusi
@@ -145,12 +145,12 @@ def correct_slice_timings(
 
     out = da.copy(data=result.data)
     del out.coords[timing_coord_name]
-    world_coord_names = tuple(get_voxel_affine_world_coord_names(da))
+    world_coord_names = tuple(get_voxel_to_world_coord_names(da))
     out = out.drop_vars(world_coord_names, errors="ignore")
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         out,
         get_voxel_to_world_affine(da),
-        voxel_dims=tuple(get_voxel_affine_spatial_dims(da)),
+        voxel_dims=tuple(get_voxel_to_world_spatial_dims(da)),
         world_coord_names=world_coord_names,
         world_coord_attrs={
             name: dict(da.coords[name].attrs) for name in world_coord_names

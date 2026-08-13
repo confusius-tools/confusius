@@ -10,12 +10,12 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
+    attach_voxel_to_world_index,
     get_affine_orientation_matrix,
     get_voxel_to_world_affine,
 )
 from confusius.registration._utils import (
-    build_voxel_affine_plane_initial_transform,
+    build_voxel_to_world_plane_initial_transform,
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
 )
@@ -30,8 +30,8 @@ from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
 
 
-def _make_voxel_affine_2d() -> xr.DataArray:
-    """Create a small 2D voxel-affine test image."""
+def _make_voxel_to_world_2d() -> xr.DataArray:
+    """Create a small 2D voxel-to-world test image."""
     yy, xx = np.mgrid[-1.0:1.0:32j, -1.0:1.0:40j]
     values = np.exp(-((xx - 0.2) ** 2 + (yy + 0.1) ** 2) / 0.15).astype(np.float32)
     base = xr.DataArray(
@@ -42,7 +42,7 @@ def _make_voxel_affine_2d() -> xr.DataArray:
             "i": np.arange(values.shape[1], dtype=np.float64),
         },
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         base,
         np.array(
             [
@@ -74,11 +74,11 @@ def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
     }
 
 
-def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
-    """Attach identity voxel-affine geometry to a test array."""
+def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
+    """Attach identity voxel-to-world geometry to a test array."""
     voxel_dims = tuple(str(dim) for dim in data.dims if str(dim) in {"k", "j", "i"})
     world_names = {1: ("x",), 2: ("y", "x"), 3: ("z", "y", "x")}[len(voxel_dims)]
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         data,
         np.eye(len(voxel_dims) + 1),
         voxel_dims=voxel_dims,
@@ -87,8 +87,8 @@ def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
     )
 
 
-def _make_voxel_affine_3d_slab() -> xr.DataArray:
-    """Create a small 3D voxel-affine slab with a singleton slice dimension."""
+def _make_voxel_to_world_3d_slab() -> xr.DataArray:
+    """Create a small 3D voxel-to-world slab with a singleton slice dimension."""
     base = xr.DataArray(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
@@ -98,7 +98,7 @@ def _make_voxel_affine_3d_slab() -> xr.DataArray:
             "i": np.arange(6, dtype=np.float64),
         },
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         base,
         np.array(
             [
@@ -119,8 +119,8 @@ def _make_voxel_affine_3d_slab() -> xr.DataArray:
     )
 
 
-def _make_voxel_affine_3d_slab_flipped_normal() -> xr.DataArray:
-    """Voxel-affine slab like `_make_voxel_affine_3d_slab` with the k-axis normal flipped."""
+def _make_voxel_to_world_3d_slab_flipped_normal() -> xr.DataArray:
+    """Voxel-to-world slab like `_make_voxel_to_world_3d_slab` with the k-axis normal flipped."""
     base = xr.DataArray(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
@@ -130,7 +130,7 @@ def _make_voxel_affine_3d_slab_flipped_normal() -> xr.DataArray:
             "i": np.arange(6, dtype=np.float64),
         },
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         base,
         np.array(
             [
@@ -341,9 +341,9 @@ class TestRegisterVolumeValidation:
 class TestSimpleITKGeometry:
     """SimpleITK conversion preserves ConfUSIus spatial geometry."""
 
-    def test_dataarray_to_sitk_image_sets_voxel_affine_origin_spacing_direction(self):
-        """Voxel-affine DataArrays map to SimpleITK origin/spacing/direction."""
-        data = _make_voxel_affine_2d()
+    def test_dataarray_to_sitk_image_sets_voxel_to_world_origin_spacing_direction(self):
+        """Voxel-to-world DataArrays map to SimpleITK origin/spacing/direction."""
+        data = _make_voxel_to_world_2d()
 
         image = dataarray_to_sitk_image(data)
 
@@ -355,10 +355,10 @@ class TestSimpleITKGeometry:
         )
 
     def test_dataarray_to_sitk_image_regular_dataarray_uses_grid_info(self):
-        """Non-voxel-affine DataArrays derive spacing/origin from grid coordinates.
+        """Non-voxel-to-world DataArrays derive spacing/origin from grid coordinates.
 
         Uses `z`/`y`/`x` dims with plain regular coordinates and no `voxel_to_world`
-        index, which is outside `has_voxel_world_geometry`'s `k`/`j`/`i`-only voxel
+        index, which is outside `has_voxel_to_world_index`'s `k`/`j`/`i`-only voxel
         dims, forcing `dataarray_to_sitk_image` down its `get_grid_info_from_dataarray`
         fallback branch.
         """
@@ -377,8 +377,8 @@ class TestSimpleITKGeometry:
         assert_allclose(image.GetSpacing(), (1.0, 0.2, 0.3))
         assert_allclose(image.GetOrigin(), (0.0, 0.0, 0.0))
 
-    def test_undefined_voxel_affine_spacing_raises_repair_hint(self):
-        """An irregular voxel-affine coordinate raises a `voxdim`-repair error."""
+    def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
+        """An irregular voxel-to-world coordinate raises a `voxdim`-repair error."""
         base = xr.DataArray(
             np.zeros((4, 5)),
             dims=("j", "i"),
@@ -387,7 +387,7 @@ class TestSimpleITKGeometry:
                 "i": np.arange(5, dtype=np.float64),
             },
         )
-        da = add_world_coords_from_voxel_affine(
+        da = attach_voxel_to_world_index(
             base,
             np.eye(3),
             voxel_dims=("j", "i"),
@@ -447,7 +447,7 @@ class TestRegisterVolumeOutput:
         """
         img = np.zeros((20, 40), dtype=np.float32)
         img[6:14, 10:30] = 100.0
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 img,
                 dims=("j", "i"),
@@ -513,10 +513,10 @@ class TestRegisterVolumeOutput:
             fixed.attrs["affines"]["world_to_lab"],
         )
 
-    def test_resample_true_inherits_fixed_voxel_affine_geometry(self):
-        """resample=True output inherits voxel-affine geometry from the fixed grid."""
-        moving = _make_voxel_affine_2d()
-        fixed = _make_voxel_affine_2d()
+    def test_resample_true_inherits_fixed_voxel_to_world_geometry(self):
+        """resample=True output inherits voxel-to-world geometry from the fixed grid."""
+        moving = _make_voxel_to_world_2d()
+        fixed = _make_voxel_to_world_2d()
 
         result, _, _ = register_volume(
             moving,
@@ -705,7 +705,7 @@ class TestRegisterVolumeAccuracy:
         """Registration recovers a known 3D translation."""
         shifted = np.roll(sample_3d_array, 2, axis=0)
         spacing = (1.0, 1.0, 1.0)
-        fixed = _add_identity_voxel_affine(
+        fixed = _add_identity_voxel_to_world(
             xr.DataArray(
                 sample_3d_array,
                 dims=("k", "j", "i"),
@@ -758,7 +758,7 @@ class TestRegisterVolumeThinDims:
         """3D volume with depth=1 (coronal fUSI scan) registers without error."""
         arr = np.zeros((1, 32, 32), dtype=np.float32)
         arr[0, 12:20, 12:20] = 1.0
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 arr,
                 dims=("k", "j", "i"),
@@ -776,7 +776,7 @@ class TestRegisterVolumeThinDims:
         """resample=True preserves the original shape for a depth-1 volume."""
         arr = np.zeros((1, 32, 32), dtype=np.float32)
         arr[0, 12:20, 12:20] = 1.0
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 arr,
                 dims=("k", "j", "i"),
@@ -810,7 +810,7 @@ class TestRegisterVolumeThinDims:
         """3D volume with depth=2 (below the 4-voxel threshold) registers without error."""
         arr = np.zeros((2, 16, 16), dtype=np.float32)
         arr[:, 6:10, 6:10] = 1.0
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 arr,
                 dims=("k", "j", "i"),
@@ -973,9 +973,9 @@ class TestInitialization:
                 initialization=np.eye(3),  # wrong: 2D affine for 3D images
             )
 
-    def test_plane_initializer_aligns_voxel_affine_slabs(self):
-        """The voxel-affine slab initializer rotates and translates planes into coincidence."""
-        fixed = _make_voxel_affine_3d_slab()
+    def test_plane_initializer_aligns_voxel_to_world_slabs(self):
+        """The voxel-to-world slab initializer rotates and translates planes into coincidence."""
+        fixed = _make_voxel_to_world_3d_slab()
         rotation = np.array(
             [
                 [np.cos(np.deg2rad(2.5)), -np.sin(np.deg2rad(2.5)), 0.0, 0.0],
@@ -990,7 +990,7 @@ class TestInitialization:
         expected_transform = translation @ rotation
         moving = fixed.fusi.affine.apply(expected_transform)
 
-        initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
+        initial_transform = build_voxel_to_world_plane_initial_transform(fixed, moving)
         seeded = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
 
         assert_allclose(initial_transform, expected_transform, atol=1e-10)
@@ -1001,20 +1001,20 @@ class TestInitialization:
 
     def test_plane_initializer_identity_rotation_for_parallel_normals(self):
         """Parallel slice normals use the identity-rotation shortcut."""
-        fixed = _make_voxel_affine_3d_slab()
-        moving = _make_voxel_affine_3d_slab()
+        fixed = _make_voxel_to_world_3d_slab()
+        moving = _make_voxel_to_world_3d_slab()
 
-        initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
+        initial_transform = build_voxel_to_world_plane_initial_transform(fixed, moving)
 
         assert_allclose(initial_transform[:3, :3], np.eye(3), atol=1e-10)
         assert_allclose(initial_transform[:3, 3], 0.0, atol=1e-10)
 
     def test_plane_initializer_flips_antiparallel_normals(self):
         """Antiparallel slice normals fall back to the axis-flip rotation formula."""
-        fixed = _make_voxel_affine_3d_slab()
-        moving = _make_voxel_affine_3d_slab_flipped_normal()
+        fixed = _make_voxel_to_world_3d_slab()
+        moving = _make_voxel_to_world_3d_slab_flipped_normal()
 
-        initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
+        initial_transform = build_voxel_to_world_plane_initial_transform(fixed, moving)
         rotation = initial_transform[:3, :3]
 
         # The rotation must be a proper rotation (orthogonal, determinant 1) that maps
@@ -1027,7 +1027,7 @@ class TestInitialization:
         )
 
     def test_plane_initializer_requires_single_singleton_dim(self):
-        """A voxel-affine slab without exactly one singleton spatial axis is rejected."""
+        """A voxel-to-world slab without exactly one singleton spatial axis is rejected."""
         base = xr.DataArray(
             np.zeros((2, 5, 6), dtype=np.float32),
             dims=("k", "j", "i"),
@@ -1037,12 +1037,12 @@ class TestInitialization:
                 "i": np.arange(6, dtype=np.float64),
             },
         )
-        fixed = _add_identity_voxel_affine(base)
+        fixed = _add_identity_voxel_to_world(base)
         with pytest.raises(ValueError, match="exactly one singleton"):
-            build_voxel_affine_plane_initial_transform(fixed, fixed)
+            build_voxel_to_world_plane_initial_transform(fixed, fixed)
 
-    def test_plane_initializer_requires_voxel_affine_geometry(self):
-        """Non-voxel-affine inputs (plain z/y/x dims, no voxel_to_world index) are rejected."""
+    def test_plane_initializer_requires_voxel_to_world_geometry(self):
+        """Non-voxel-to-world inputs (plain z/y/x dims, no voxel_to_world index) are rejected."""
         da = xr.DataArray(
             np.zeros((1, 5, 6), dtype=np.float32),
             dims=("z", "y", "x"),
@@ -1052,18 +1052,18 @@ class TestInitialization:
                 "x": np.arange(6, dtype=np.float64),
             },
         )
-        with pytest.raises(ValueError, match="voxel-affine geometry"):
-            build_voxel_affine_plane_initial_transform(da, da)
+        with pytest.raises(ValueError, match="requires a voxel-to-world index"):
+            build_voxel_to_world_plane_initial_transform(da, da)
 
-    def test_plane_initializer_requires_3d_voxel_affine(self):
-        """Non-3D voxel-affine inputs are rejected."""
-        da = _make_voxel_affine_2d()
-        with pytest.raises(ValueError, match="matching 3D voxel-affine"):
-            build_voxel_affine_plane_initial_transform(da, da)
+    def test_plane_initializer_requires_3d_voxel_to_world(self):
+        """Non-3D voxel-to-world inputs are rejected."""
+        da = _make_voxel_to_world_2d()
+        with pytest.raises(ValueError, match="matching 3D voxel-to-world"):
+            build_voxel_to_world_plane_initial_transform(da, da)
 
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
         """A supplied initial affine is used directly, without extra centering shift."""
-        fixed = _add_identity_voxel_affine(
+        fixed = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.arange(16, dtype=np.float32).reshape(4, 4),
                 dims=("j", "i"),
@@ -1073,7 +1073,7 @@ class TestInitialization:
                 },
             )
         )
-        moving = _add_identity_voxel_affine(
+        moving = _add_identity_voxel_to_world(
             xr.DataArray(
                 fixed.values.copy(),
                 dims=fixed.dims,
@@ -1468,7 +1468,7 @@ class TestDisplacementField:
             ],
             dtype=np.float64,
         )
-        fixed = _make_voxel_affine_3d_slab().fusi.affine.apply(rotation)
+        fixed = _make_voxel_to_world_3d_slab().fusi.affine.apply(rotation)
         _, bspline_tx, _ = register_volume(fixed, fixed, transform_type="bspline")
 
         field = sample_displacement_field_like(bspline_tx, fixed)
@@ -1512,7 +1512,7 @@ class TestDisplacementField:
         array = np.broadcast_to(translation[:, None, None, None], (3, *shape)).astype(
             np.float64
         )
-        field = _add_identity_voxel_affine(
+        field = _add_identity_voxel_to_world(
             xr.DataArray(
                 array.copy(),
                 dims=["component", *dims],
@@ -1762,9 +1762,9 @@ class TestResampleLike:
             reference.attrs["affines"]["world_to_lab"],
         )
 
-    def test_inherits_reference_voxel_affine_geometry(self):
+    def test_inherits_reference_voxel_to_world_geometry(self):
         """resample_like output inherits reference's grid, not moving's."""
-        moving = _make_voxel_affine_3d_slab()
+        moving = _make_voxel_to_world_3d_slab()
         reference = moving.fusi.affine.apply(
             np.array(
                 [
@@ -1797,7 +1797,7 @@ class TestResampleLike:
         strided from a larger array; the correct grid must come from
         `reference.fusi.origin`/`.fusi.spacing`, which account for the crop/stride.
         """
-        base = _add_identity_voxel_affine(
+        base = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.arange(4 * 20 * 20, dtype=np.float32).reshape(4, 20, 20),
                 dims=("k", "j", "i"),
@@ -1973,7 +1973,7 @@ class TestRegisterVolumeFillValue:
         """Out-of-FOV voxels in the registered output are filled with fill_value."""
         # moving is a small sub-region of fixed; after registration the output grid
         # is fixed-sized, so voxels outside moving's FOV must be filled.
-        fixed = _add_identity_voxel_affine(
+        fixed = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.ones((16, 16), dtype=np.float32),
                 dims=("j", "i"),
@@ -1981,7 +1981,7 @@ class TestRegisterVolumeFillValue:
             )
         )
         # moving covers only the central 8x8 region.
-        moving = _add_identity_voxel_affine(
+        moving = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.ones((8, 8), dtype=np.float32) * 2.0,
                 dims=("j", "i"),
@@ -2000,14 +2000,14 @@ class TestRegisterVolumeFillValue:
 
     def test_default_fill_value_is_moving_min(self):
         """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""
-        fixed = _add_identity_voxel_affine(
+        fixed = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.ones((16, 16), dtype=np.float32),
                 dims=("j", "i"),
                 coords={"j": np.arange(16) * 0.1, "i": np.arange(16) * 0.1},
             )
         )
-        moving = _add_identity_voxel_affine(
+        moving = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.ones((8, 8), dtype=np.float32) * 2.0,
                 dims=("j", "i"),

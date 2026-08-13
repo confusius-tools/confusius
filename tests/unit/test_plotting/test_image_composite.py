@@ -9,7 +9,6 @@ from confusius.plotting import VolumePlotter, plot_composite
 from confusius.plotting._utils import _materialize_axis_aligned_world_grid_for_display
 from confusius.xarray import create_fusi_dataarray
 
-
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
 
@@ -289,9 +288,7 @@ class TestAddCompositeValidation:
 
     def test_requires_slice_mode_dim(self, sample_fusi_3d, matplotlib_pyplot):
         with pytest.raises(ValueError, match="slice_mode"):
-            VolumePlotter(slice_mode="t").add_composite(
-                sample_fusi_3d, sample_fusi_3d
-            )
+            VolumePlotter(slice_mode="t").add_composite(sample_fusi_3d, sample_fusi_3d)
 
     def test_invalid_normalize_raises(self, sample_fusi_3d, matplotlib_pyplot):
         with pytest.raises(ValueError, match="normalization strategy"):

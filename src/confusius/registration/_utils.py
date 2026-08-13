@@ -17,9 +17,9 @@ from confusius._utils.coordinates import (
     get_grid_info_from_dataarray,
 )
 from confusius._utils.geometry import (
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     """
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
 
-    if has_voxel_world_geometry(da):
+    if has_voxel_to_world_index(da):
         spacing_dict = da.fusi.spacing
         undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
         if undefined_dims:
@@ -152,41 +152,41 @@ def _rotation_matrix_aligning_vectors(
     )
 
 
-def _voxel_affine_plane_center(data: xr.DataArray) -> np.ndarray:
-    """Return the world center point of a voxel-affine slab."""
+def _get_voxel_to_world_plane_center(data: xr.DataArray) -> np.ndarray:
+    """Return the world center point of a voxel-to-world slab."""
     return np.array(
         [
             float(np.asarray(data.coords[name].values).mean())
-            for name in get_voxel_affine_world_coord_names(data)
+            for name in get_voxel_to_world_coord_names(data)
         ],
         dtype=np.float64,
     )
 
 
-def _voxel_affine_slice_normal(data: xr.DataArray) -> np.ndarray:
-    """Return the world-space normal of a singleton voxel-affine slab."""
-    voxel_dims = get_voxel_affine_spatial_dims(data)
+def _get_voxel_to_world_slice_normal(data: xr.DataArray) -> np.ndarray:
+    """Return the world-space normal of a singleton voxel-to-world slab."""
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
     singleton_axes = [i for i, dim in enumerate(voxel_dims) if data.sizes[dim] == 1]
     if len(singleton_axes) != 1:
         raise ValueError(
-            "Voxel-affine plane initialization requires exactly one singleton "
+            "Voxel-to-world plane initialization requires exactly one singleton "
             f"spatial dimension, got sizes {[data.sizes[dim] for dim in voxel_dims]!r}."
         )
     return np.asarray(data.fusi.direction, dtype=np.float64)[:, singleton_axes[0]]
 
 
-def build_voxel_affine_plane_initial_transform(
+def build_voxel_to_world_plane_initial_transform(
     fixed: xr.DataArray,
     moving: xr.DataArray,
 ) -> np.ndarray:
-    """Build a rigid fixed-to-moving initializer for thin voxel-affine slabs.
+    """Build a rigid fixed-to-moving initializer for thin voxel-to-world slabs.
 
     Parameters
     ----------
     fixed : xarray.DataArray
-        Fixed voxel-affine slab.
+        Fixed voxel-to-world slab.
     moving : xarray.DataArray
-        Moving voxel-affine slab.
+        Moving voxel-to-world slab.
 
     Returns
     -------
@@ -197,29 +197,29 @@ def build_voxel_affine_plane_initial_transform(
     Raises
     ------
     ValueError
-        If either input is not a 3D voxel-affine slab with exactly one singleton
+        If either input is not a 3D voxel-to-world slab with exactly one singleton
         spatial dimension.
     """
-    if not has_voxel_world_geometry(fixed) or not has_voxel_world_geometry(moving):
+    if not has_voxel_to_world_index(fixed) or not has_voxel_to_world_index(moving):
         raise ValueError(
-            "Voxel-affine plane initialization requires voxel-affine geometry on "
+            "Voxel-to-world plane initialization requires a voxel-to-world index on "
             "both fixed and moving data."
         )
 
-    fixed_dims = get_voxel_affine_spatial_dims(fixed)
-    moving_dims = get_voxel_affine_spatial_dims(moving)
+    fixed_dims = get_voxel_to_world_spatial_dims(fixed)
+    moving_dims = get_voxel_to_world_spatial_dims(moving)
     if fixed_dims != moving_dims or len(fixed_dims) != 3:
         raise ValueError(
-            "Voxel-affine plane initialization requires matching 3D voxel-affine "
+            "Voxel-to-world plane initialization requires matching 3D voxel-to-world "
             f"dimensions, got fixed={fixed_dims!r} and moving={moving_dims!r}."
         )
 
-    fixed_normal = _voxel_affine_slice_normal(fixed)
-    moving_normal = _voxel_affine_slice_normal(moving)
+    fixed_normal = _get_voxel_to_world_slice_normal(fixed)
+    moving_normal = _get_voxel_to_world_slice_normal(moving)
     rotation = _rotation_matrix_aligning_vectors(fixed_normal, moving_normal)
 
-    fixed_center = _voxel_affine_plane_center(fixed)
-    moving_center = _voxel_affine_plane_center(moving)
+    fixed_center = _get_voxel_to_world_plane_center(fixed)
+    moving_center = _get_voxel_to_world_plane_center(moving)
     translation = moving_center - rotation @ fixed_center
 
     transform = np.eye(4, dtype=np.float64)
@@ -378,10 +378,10 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     has_time = "time" in da.dims
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-    if has_voxel_world_geometry(da):
+    if has_voxel_to_world_index(da):
         _, spacing = get_defined_spatial_spacing(da)
         origin_dict = da.fusi.origin
-        origin_names = get_voxel_affine_world_coord_names(da)
+        origin_names = get_voxel_to_world_coord_names(da)
         origin = tuple(origin_dict[d] for d in origin_names)
     else:
         grid = get_grid_info_from_dataarray(
@@ -407,7 +407,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     image.SetSpacing(tuple(spacing))
     image.SetOrigin(tuple(origin))
-    if has_voxel_world_geometry(da):
+    if has_voxel_to_world_index(da):
         image.SetDirection(
             np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist()
         )

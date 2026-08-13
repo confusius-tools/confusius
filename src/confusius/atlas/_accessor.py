@@ -10,7 +10,7 @@ import pandas as pd
 import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
@@ -48,7 +48,7 @@ class AtlasAccessor:
     ----------
     ds : xarray.Dataset
         Atlas Dataset with `reference`, `annotation`, and `hemispheres` data variables on
-        a common voxel-affine `(k, j, i)` grid, and the atlas metadata in `attrs`.
+        a common voxel-to-world `(k, j, i)` grid, and the atlas metadata in `attrs`.
     """
 
     def __init__(self, ds: xr.Dataset) -> None:
@@ -482,7 +482,7 @@ class AtlasAccessor:
                 self.reference.coords.get(name, xr.Variable((), 0.0)).attrs
             )
             world_attrs[name]["voxdim"] = float(step)
-        reference = add_world_coords_from_voxel_affine(
+        reference = attach_voxel_to_world_index(
             reference,
             affine,
             voxel_dims=tuple(dims),

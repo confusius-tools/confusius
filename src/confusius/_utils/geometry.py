@@ -760,7 +760,7 @@ def _is_axis_aligned_affine(voxel_to_world: npt.ArrayLike) -> bool:
     return np.allclose(linear, diagonal, rtol=1e-10, atol=1e-12)
 
 
-def add_world_coords_from_voxel_affine(
+def attach_voxel_to_world_index(
     data: xr.DataArray,
     voxel_to_world: npt.ArrayLike,
     *,
@@ -840,7 +840,9 @@ def add_world_coords_from_voxel_affine(
             if name in result.coords:
                 result.coords[name].attrs.update(dict(attrs))
 
-    world_spacings = get_world_spacings(voxel_coords, voxel_to_world_array)
+    world_spacings = get_voxel_to_world_spacings_from_coords(
+        voxel_coords, voxel_to_world_array
+    )
     for i, (dim, name) in enumerate(zip(voxel_dims, world_coord_names, strict=True)):
         spacing = world_spacings[dim]
         if spacing is None:
@@ -899,7 +901,7 @@ def _fold_fixed_dims_into_affine(
     return reduced
 
 
-def _collect_voxel_world_indexes(data: xr.DataArray) -> list[VoxelToWorldIndex]:
+def _collect_voxel_to_world_indexes(data: xr.DataArray) -> list[VoxelToWorldIndex]:
     """Return the unique `VoxelToWorldIndex` objects present on `data`.
 
     Parameters
@@ -937,7 +939,7 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-world DataArray.
+        Voxel-to-world DataArray.
 
     Returns
     -------
@@ -953,16 +955,16 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     Raises
     ------
     ValueError
-        If `data` does not carry voxel-world geometry.
+        If `data` does not carry voxel-to-world geometry.
     """
-    indexes = _collect_voxel_world_indexes(data)
+    indexes = _collect_voxel_to_world_indexes(data)
     active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
     if (
         len(active_dims) not in {2, 3}
         or len(set(active_dims)) != len(active_dims)
         or not set(active_dims).issubset(set(VOXEL_DIMS))
     ):
-        raise ValueError("DataArray must have voxel-world geometry.")
+        raise ValueError("DataArray must have a voxel-to-world index.")
     index = indexes[0]
     return _fold_fixed_dims_into_affine(
         index.voxel_to_world,
@@ -972,13 +974,13 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     )
 
 
-def restore_world_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArray:
-    """Rebuild voxel-affine geometry for a dimension restored after being fixed.
+def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
+    """Rebuild voxel-to-world geometry for a dimension restored after being fixed.
 
     Parameters
     ----------
     data : xarray.DataArray
-        DataArray that may carry voxel-affine geometry with a dimension fixed by a
+        DataArray that may carry voxel-to-world geometry with a dimension fixed by a
         prior scalar `isel` selection, since restored as an array dimension (e.g. via
         `DataArray.expand_dims`).
 
@@ -990,7 +992,7 @@ def restore_world_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArray:
         original affine (see
         [VoxelToWorldIndex.fixed_voxel_coords][confusius._utils.geometry.VoxelToWorldIndex.fixed_voxel_coords]).
     """
-    for index in _collect_voxel_world_indexes(data):
+    for index in _collect_voxel_to_world_indexes(data):
         if not (
             set(index.voxel_dims).issubset(set(VOXEL_DIMS)) and index.fixed_voxel_coords
         ):
@@ -1010,7 +1012,7 @@ def restore_world_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArray:
             for name in world_coord_names
             if name in data.coords
         }
-        return add_world_coords_from_voxel_affine(
+        return attach_voxel_to_world_index(
             data,
             index.voxel_to_world,
             voxel_dims=all_dims,
@@ -1020,8 +1022,8 @@ def restore_world_coords_from_voxel_affine(data: xr.DataArray) -> xr.DataArray:
     return data
 
 
-def has_axis_aligned_voxel_world_geometry(data: xr.DataArray) -> bool:
-    """Return whether `data` has voxel-affine geometry with no cross-axis mixing.
+def has_axis_aligned_voxel_to_world_index(data: xr.DataArray) -> bool:
+    """Return whether `data` has voxel-to-world geometry with no cross-axis mixing.
 
     Parameters
     ----------
@@ -1031,16 +1033,16 @@ def has_axis_aligned_voxel_world_geometry(data: xr.DataArray) -> bool:
     Returns
     -------
     bool
-        Whether `data` carries voxel-affine geometry and its `voxel_to_world`
+        Whether `data` carries voxel-to-world geometry and its `voxel_to_world`
         affine is axis-aligned.
     """
-    if not has_voxel_world_geometry(data):
+    if not has_voxel_to_world_index(data):
         return False
     return _is_axis_aligned_affine(get_voxel_to_world_affine(data))
 
 
-def has_voxel_world_geometry(data: xr.DataArray) -> bool:
-    """Return whether a DataArray carries canonical voxel-affine metadata.
+def has_voxel_to_world_index(data: xr.DataArray) -> bool:
+    """Return whether a DataArray carries canonical voxel-to-world metadata.
 
     Parameters
     ----------
@@ -1053,7 +1055,7 @@ def has_voxel_world_geometry(data: xr.DataArray) -> bool:
         Whether `data` stores a `voxel_to_world` affine and has 2D or 3D voxel-space
         dimensions drawn from `confusius._dims.VOXEL_DIMS`.
     """
-    indexes = _collect_voxel_world_indexes(data)
+    indexes = _collect_voxel_to_world_indexes(data)
     active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
     return (
         len(active_dims) in {2, 3}
@@ -1062,8 +1064,8 @@ def has_voxel_world_geometry(data: xr.DataArray) -> bool:
     )
 
 
-def get_voxel_affine_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
-    """Return voxel-space dimensions present on a voxel-affine DataArray.
+def get_voxel_to_world_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
+    """Return voxel-space dimensions present on a voxel-to-world DataArray.
 
     Parameters
     ----------
@@ -1075,15 +1077,15 @@ def get_voxel_affine_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
     tuple[str, ...]
         Present voxel-space dimensions in canonical affine column order.
     """
-    indexes = _collect_voxel_world_indexes(data)
+    indexes = _collect_voxel_to_world_indexes(data)
     active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
     if active_dims and set(active_dims).issubset(set(VOXEL_DIMS)):
         return active_dims
     return tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
 
 
-def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
-    """Return world coordinate names exposed by voxel-affine geometry.
+def get_voxel_to_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
+    """Return world coordinate names exposed by voxel-to-world geometry.
 
     Parameters
     ----------
@@ -1095,7 +1097,7 @@ def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
     tuple[str, ...]
         World coordinate names in affine row order.
     """
-    indexes = _collect_voxel_world_indexes(data)
+    indexes = _collect_voxel_to_world_indexes(data)
     active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
     if (
         active_dims
@@ -1103,7 +1105,7 @@ def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
         and set(active_dims).issubset(set(VOXEL_DIMS))
     ):
         return tuple(str(name) for index in indexes for name in index.world_coord_names)
-    voxel_dims = get_voxel_affine_spatial_dims(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
     default_names = tuple({"k": "z", "j": "y", "i": "x"}[dim] for dim in voxel_dims)
     world_coord_names = tuple(
         name
@@ -1115,13 +1117,13 @@ def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
     return default_names
 
 
-def get_voxel_world_origin(data: xr.DataArray) -> dict[str, float]:
+def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     """Return the world location of the first sampled voxel.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-affine DataArray.
+        Voxel-to-world DataArray.
 
     Returns
     -------
@@ -1134,8 +1136,8 @@ def get_voxel_world_origin(data: xr.DataArray) -> dict[str, float]:
     sampled voxel, not necessarily the affine translation at voxel-space `(0, ..., 0)`.
     The two coincide only when the voxel coordinates themselves start at zero.
     """
-    voxel_dims = get_voxel_affine_spatial_dims(data)
-    world_coord_names = get_voxel_affine_world_coord_names(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    world_coord_names = get_voxel_to_world_coord_names(data)
     first_voxel = np.array(
         [
             np.float64(np.asarray(data.coords[dim].values)[0]).item()
@@ -1150,31 +1152,35 @@ def get_voxel_world_origin(data: xr.DataArray) -> dict[str, float]:
     }
 
 
-def get_voxel_world_spacing(data: xr.DataArray) -> dict[str, float | None]:
-    """Return world spacing per voxel-space axis for a voxel-affine DataArray.
+def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | None]:
+    """Return world spacing per voxel-space axis for a voxel-to-world DataArray.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-affine DataArray.
+        Voxel-to-world DataArray.
 
     Returns
     -------
     dict[str, float | None]
         World spacing keyed by voxel-space dimension.
     """
-    voxel_dims = get_voxel_affine_spatial_dims(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
     voxel_coords = {dim: data.coords[dim].values for dim in voxel_dims}
-    return get_world_spacings(voxel_coords, get_voxel_to_world_affine(data))
+    return get_voxel_to_world_spacings_from_coords(
+        voxel_coords, get_voxel_to_world_affine(data)
+    )
 
 
-def get_voxel_world_direction_matrix(data: xr.DataArray) -> npt.NDArray[np.float64]:
-    """Return the world-space direction matrix of a voxel-affine DataArray.
+def get_voxel_to_world_orientation_matrix(
+    data: xr.DataArray,
+) -> npt.NDArray[np.float64]:
+    """Return the world-space direction matrix of a voxel-to-world DataArray.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-affine DataArray.
+        Voxel-to-world DataArray.
 
     Returns
     -------
@@ -1258,7 +1264,7 @@ def get_affine_orientation_matrix(
     return linear
 
 
-def get_world_spacings(
+def get_voxel_to_world_spacings_from_coords(
     voxel_coords: Mapping[str, npt.ArrayLike],
     voxel_to_world: npt.ArrayLike,
 ) -> dict[str, float | None]:

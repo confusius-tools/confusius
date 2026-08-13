@@ -5,7 +5,7 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
@@ -21,7 +21,7 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     return coord.isel(others).values
 
 
-def _make_voxel_affine_volume() -> xr.DataArray:
+def _make_voxel_to_world_volume() -> xr.DataArray:
     """Create a small oblique volume for napari display tests."""
     data = xr.DataArray(
         np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
@@ -40,7 +40,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         data,
         voxel_to_world,
         voxel_dims=("k", "j", "i"),
@@ -94,9 +94,9 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
-    def test_voxel_affine_resamples_to_world_grid(self, make_napari_viewer):
+    def test_voxel_to_world_resamples_to_world_grid(self, make_napari_viewer):
         """Oblique volumes are displayed on an axis-aligned world grid in napari."""
-        data = _make_voxel_affine_volume()
+        data = _make_voxel_to_world_volume()
         viewer = make_napari_viewer()
         _, layer = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
@@ -108,7 +108,7 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [10.0, 20.0, 30.0], rtol=1e-5)
         viewer.close()
 
-    def test_axis_aligned_voxel_affine_uses_native_display_by_default(
+    def test_axis_aligned_voxel_to_world_uses_native_display_by_default(
         self, make_napari_viewer
     ):
         """Axis-aligned data keeps native k/j/i display by default in napari."""
@@ -117,7 +117,7 @@ class TestPlotNapari:
             dims=["k", "j", "i"],
             coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
             voxel_dims=("k", "j", "i"),
@@ -208,9 +208,7 @@ class TestPlotNapari:
         with pytest.raises(ValueError, match="Unknown layer_type"):
             plot_napari(sample_fusi_3d, layer_type="bogus")  # ty: ignore[invalid-argument-type]
 
-    def test_non_uniform_spatial_coords_warn(
-        self, sample_fusi_3d, make_napari_viewer
-    ):
+    def test_non_uniform_spatial_coords_warn(self, sample_fusi_3d, make_napari_viewer):
         data = xr.DataArray(
             sample_fusi_3d.values,
             dims=("z", "y", "x"),
@@ -281,9 +279,7 @@ class TestPlotNapari:
             )
 
         assert np.issubdtype(np.asarray(layer.data).dtype, np.floating)
-        npt.assert_allclose(
-            np.asarray(layer.data), np.abs(sample_iq_3dt.data)
-        )
+        npt.assert_allclose(np.asarray(layer.data), np.abs(sample_iq_3dt.data))
         viewer.close()
 
     def test_non_monotonic_coords_are_sorted_before_napari(

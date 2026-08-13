@@ -63,9 +63,9 @@ import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius.registration._utils import (
     expand_thin_dims,
@@ -403,7 +403,7 @@ def sample_displacement_field_like(
         [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
         DataArray defining the output grid. Must be a 3D spatial volume (no time
-        dimension) with either dimensions `z`, `y`, `x` or voxel-affine dimensions
+        dimension) with either dimensions `z`, `y`, `x` or voxel-to-world dimensions
         `k`, `j`, `i`. When spatial coordinate `units` metadata is present on both
         `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
@@ -594,9 +594,9 @@ def _sitk_displacement_field_to_dataarray(
 
 
 def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
-    """Return `.fusi.origin`, re-keyed by dimension name for voxel-affine data.
+    """Return `.fusi.origin`, re-keyed by dimension name for voxel-to-world data.
 
-    `.fusi.origin` keys voxel-affine spatial dims by their world coordinate name
+    `.fusi.origin` keys voxel-to-world spatial dims by their world coordinate name
     (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used elsewhere
     (e.g. `.fusi.spacing`, `data.dims`). This aligns the two conventions.
 
@@ -611,10 +611,10 @@ def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
         Origin keyed by `data`'s own dimension names.
     """
     origin = data.fusi.origin
-    if not has_voxel_world_geometry(data):
+    if not has_voxel_to_world_index(data):
         return origin
-    voxel_dims = get_voxel_affine_spatial_dims(data)
-    world_names = get_voxel_affine_world_coord_names(data)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    world_names = get_voxel_to_world_coord_names(data)
     return {
         **origin,
         **{

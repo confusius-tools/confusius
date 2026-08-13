@@ -5,13 +5,13 @@ import pytest
 import scipy.ndimage
 import xarray as xr
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.spatial import smooth_volume
 
 
 def _add_identity_affine(da):
-    """Attach identity voxel-affine geometry."""
-    return add_world_coords_from_voxel_affine(
+    """Attach identity voxel-to-world geometry."""
+    return attach_voxel_to_world_index(
         da,
         np.eye(len(da.dims) + 1),
         voxel_dims=tuple(da.dims),

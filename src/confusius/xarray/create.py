@@ -10,7 +10,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
 from confusius.validation import validate_fusi, validate_iq
 
@@ -601,7 +601,7 @@ def create_fusi_dataarray(
     ]
     index_affine[:-1, -1] = resolved_voxel_to_world[:3, -1][present_indices]
 
-    result = add_world_coords_from_voxel_affine(
+    result = attach_voxel_to_world_index(
         result,
         index_affine,
         voxel_dims=present_voxel_dims,

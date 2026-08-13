@@ -18,10 +18,10 @@ import xarray as xr
 from sklearn.base import BaseEstimator
 
 from confusius._utils.geometry import (
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
     get_voxel_to_world_affine,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius.glm._contrasts import Contrast
 from confusius.glm._models import OLSModel, RegressionResults
@@ -291,15 +291,15 @@ class SecondLevelModel(BaseEstimator):
         }
         self._input_attrs: dict[str, object] = consensus_attrs(maps)
 
-        if has_voxel_world_geometry(ref):
+        if has_voxel_to_world_index(ref):
             self._voxel_to_world: npt.NDArray[np.float64] | None = (
                 get_voxel_to_world_affine(ref)
             )
-            self._voxel_dims: tuple[str, ...] | None = get_voxel_affine_spatial_dims(
+            self._voxel_dims: tuple[str, ...] | None = get_voxel_to_world_spatial_dims(
                 ref
             )
             self._world_coord_names: tuple[str, ...] | None = (
-                get_voxel_affine_world_coord_names(ref)
+                get_voxel_to_world_coord_names(ref)
             )
             self._world_coord_attrs: dict[str, dict[str, object]] | None = {
                 name: dict(ref.coords[name].attrs)

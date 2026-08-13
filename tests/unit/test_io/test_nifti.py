@@ -11,7 +11,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
 )
 from confusius.io.nifti import load_nifti, save_nifti
@@ -89,11 +89,11 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     return coord.isel(others).values
 
 
-def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
-    """Attach test voxel-affine geometry to a k/j/i DataArray."""
+def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
+    """Attach test voxel-to-world geometry to a k/j/i DataArray."""
     voxel_dims = tuple(dim for dim in ("k", "j", "i") if dim in data.dims)
     world_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         data,
         np.eye(len(voxel_dims) + 1),
         voxel_dims=voxel_dims,
@@ -976,7 +976,7 @@ class TestLoadNifti:
     def test_load_nifti_rotated_affine_voxel_to_world(self, tmp_path: Path) -> None:
         """A rotated sform composes fully into `voxel_to_world` (no decomposition).
 
-        CTI voxel-affine geometry represents rotations exactly, so the sform's 90°
+        CTI voxel-to-world geometry represents rotations exactly, so the sform's 90°
         rotation (mapping voxel x->world y, voxel y->world -x) is not dropped into
         a residual "world_to_sform" entry -- it lands directly in
         `voxel_to_world`. Sform is primary here (with no valid qform), so it has no
@@ -1314,7 +1314,7 @@ class TestLoadNifti:
         When the sidecar renames the 5th/6th NIfTI axes to native voxel dim names
         (`j`, `i`) and the canonical spatial axes are all singleton, the loaded
         DataArray already carries native voxel dims, so
-        `_promote_nifti_to_voxel_affine` builds `voxel_to_world` directly from those
+        `_promote_nifti_to_voxel_to_world` builds `voxel_to_world` directly from those
         dims instead of renaming `z`/`y`/`x`.
         """
         data = np.arange(1 * 1 * 1 * 1 * 3 * 2, dtype=np.float32).reshape(
@@ -1342,12 +1342,12 @@ class TestLoadNifti:
             da.coords["x"].values, [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
         )
 
-    def test_load_nifti_1d_data_skips_voxel_affine_promotion(
+    def test_load_nifti_1d_data_skips_voxel_to_world_promotion(
         self, tmp_path: Path
     ) -> None:
         """A genuinely 1D NIfTI (only `x`) is left unpromoted (fewer than 2 spatial dims).
 
-        `_promote_nifti_to_voxel_affine` only renames `z`/`y`/`x` into voxel dims
+        `_promote_nifti_to_voxel_to_world` only renames `z`/`y`/`x` into voxel dims
         when 2 or 3 spatial dims are present; with a single spatial axis it drops
         the now-unused `_primary_voxel_to_world` attr and returns the DataArray
         unchanged.
@@ -1368,7 +1368,7 @@ class TestLoadNifti:
     ) -> None:
         """An extra axis sidecar-named `k` collides with the promoted `z` voxel dim.
 
-        `_promote_nifti_to_voxel_affine` tries to move the pre-existing extra `k`
+        `_promote_nifti_to_voxel_to_world` tries to move the pre-existing extra `k`
         dim out of the way using a `dim5_name`/`dim6_name`/`dim7_name` fallback, but
         those attrs are already popped from `attrs` by the time load reaches this
         step (they were consumed to build extra-dim coordinates), so the fallback
@@ -2375,7 +2375,7 @@ class TestSaveNifti:
 
     def test_save_1d_slice_time_requires_scalar_time_coordinate(self, tmp_path) -> None:
         """A 1D `slice_time` on time-series data is rejected for BIDS export."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 4, 3, 2), dtype=np.float32),
                 dims=["time", "k", "j", "i"],
@@ -2406,7 +2406,7 @@ class TestSaveNifti:
 
     def test_save_1d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 1D `slice_time` without `time` cannot be exported to BIDS."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((4, 3, 2), dtype=np.float32),
                 dims=["k", "j", "i"],
@@ -2432,7 +2432,7 @@ class TestSaveNifti:
 
     def test_save_1d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
         """A scalar-time snapshot without frame duration cannot export `SliceTiming`."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((4, 3, 2), dtype=np.float32),
                 dims=["k", "j", "i"],
@@ -2468,7 +2468,7 @@ class TestSaveNifti:
         self, tmp_path
     ) -> None:
         """A 1D `slice_time` honors its own acquisition reference metadata."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 3, 2), dtype=np.float32),
                 dims=["k", "j", "i"],
@@ -2507,7 +2507,7 @@ class TestSaveNifti:
 
     def test_save_invalid_1d_slice_time_dimension_is_skipped(self, tmp_path) -> None:
         """A 1D `slice_time` on a non-spatial dimension is skipped silently."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 4, 3, 2), dtype=np.float32),
                 dims=["channel", "k", "j", "i"],
@@ -2570,7 +2570,7 @@ class TestSaveNifti:
 
     def test_save_2d_slice_time_on_non_spatial_dim_is_skipped(self, tmp_path) -> None:
         """A 2D `slice_time` with a non-spatial companion dimension is skipped."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 2, 4, 3, 2), dtype=np.float32),
                 dims=["channel", "time", "k", "j", "i"],
@@ -2601,7 +2601,7 @@ class TestSaveNifti:
 
     def test_save_2d_slice_time_without_time_coordinate_warns(self, tmp_path) -> None:
         """A 2D `slice_time` without a `time` coordinate cannot be exported."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((2, 4, 3, 2), dtype=np.float32),
                 dims=["time", "k", "j", "i"],
@@ -2624,7 +2624,7 @@ class TestSaveNifti:
 
     def test_save_2d_slice_time_without_frame_duration_warns(self, tmp_path) -> None:
         """A single-volume 2D `slice_time` needs an explicit frame duration."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((1, 4, 3, 2), dtype=np.float32),
                 dims=["time", "k", "j", "i"],
@@ -2659,7 +2659,7 @@ class TestSaveNifti:
 
     def test_save_invalid_time_reference_raises(self, tmp_path) -> None:
         """Saving rejects invalid `volume_acquisition_reference` values."""
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((4, 3, 2), dtype=np.float32),
                 dims=["k", "j", "i"],
@@ -2919,17 +2919,17 @@ class TestSaveNifti:
         expected_sform = get_voxel_to_world_affine(da)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
         np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
 
-    def test_save_voxel_affine_data_missing_voxel_dim_inserts_singleton(
+    def test_save_voxel_to_world_data_missing_voxel_dim_inserts_singleton(
         self, tmp_path: Path
     ) -> None:
-        """Saving voxel-affine data missing a native voxel dim inserts it as size 1.
+        """Saving voxel-to-world data missing a native voxel dim inserts it as size 1.
 
         Unlike `test_save_2d_dataarray` (whose fixture already carries a singleton
         `j`/`k` dim from `create_fusi_dataarray`), this DataArray genuinely has no
         `j` dim at all, so `_prepare_data_for_nifti` must insert the missing NIfTI
         spatial axis itself.
         """
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.arange(4 * 6, dtype=np.float32).reshape(4, 6),
                 dims=("k", "i"),
@@ -2947,8 +2947,8 @@ class TestSaveNifti:
         np.testing.assert_array_equal(np.asarray(loaded.dataobj)[:, 0, :], da.values.T)
 
     def test_save_empty_voxel_coordinate_raises(self, tmp_path: Path) -> None:
-        """Saving a voxel-affine DataArray with an empty voxel coordinate raises."""
-        da = _add_identity_voxel_affine(
+        """Saving a voxel-to-world DataArray with an empty voxel coordinate raises."""
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((0, 4, 6), dtype=np.float32),
                 dims=("k", "j", "i"),
@@ -2964,13 +2964,13 @@ class TestSaveNifti:
             save_nifti(da, tmp_path / "empty_k.nii.gz")
 
     def test_save_irregular_voxel_coordinate_raises(self, tmp_path: Path) -> None:
-        """Saving a voxel-affine DataArray with irregular voxel spacing raises.
+        """Saving a voxel-to-world DataArray with irregular voxel spacing raises.
 
         NIfTI's `pixdim`-based grid geometry requires a single regular step per
         axis; a native voxel coordinate that is not regularly sampled cannot be
         represented and must be rejected rather than silently approximated.
         """
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 np.zeros((4, 3, 2), dtype=np.float32),
                 dims=("k", "j", "i"),
@@ -3132,7 +3132,7 @@ class TestRoundtrip:
         """Explicit end-reference duration avoids spurious validation warnings."""
         rng = np.random.default_rng(0)
         time_values = np.array([0.4, 2.8, 5.2, 7.6])
-        da = _add_identity_voxel_affine(
+        da = _add_identity_voxel_to_world(
             xr.DataArray(
                 rng.random((4, 4, 3, 2)).astype(np.float32),
                 dims=["time", "k", "j", "i"],

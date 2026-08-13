@@ -6,14 +6,14 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
+    attach_voxel_to_world_index,
     get_affine_orientation_matrix,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
     get_voxel_to_world_affine,
-    get_voxel_world_origin,
-    get_voxel_world_spacing,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_index_origin,
+    get_voxel_to_world_index_spacing,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ def apply_affine(
     affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
 ) -> xr.DataArray:
-    """Apply a world-space affine to voxel-affine geometry.
+    """Apply a world-space affine to voxel-to-world geometry.
 
     The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
     world coordinates are regenerated, and existing `attrs["affines"]` entries are
@@ -86,7 +86,7 @@ def apply_affine(
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan with voxel-affine geometry (a `VoxelToWorldIndex`).
+        Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`).
     affine : numpy.ndarray, shape (N, N), or str
         Homogeneous world-space affine matrix to apply. If a string, it is
         looked up as a key in `da.attrs["affines"]`.
@@ -105,7 +105,7 @@ def apply_affine(
     Raises
     ------
     ValueError
-        If `da` lacks voxel-affine geometry, if `affine` shape does not match
+        If `da` lacks voxel-to-world geometry, if `affine` shape does not match
         the DataArray's voxel-to-world affine, or if `affine` is a string and
         `da` has no `"affines"` entry in `attrs`.
     KeyError
@@ -137,13 +137,13 @@ def apply_affine(
         affine = da.attrs["affines"][applied_key]
     affine_array = np.asarray(affine, dtype=np.float64)
 
-    if not has_voxel_world_geometry(da):
-        raise ValueError("DataArray must have voxel-affine geometry.")
+    if not has_voxel_to_world_index(da):
+        raise ValueError("DataArray must have a voxel-to-world index.")
 
     voxel_to_world = get_voxel_to_world_affine(da)
     if affine_array.shape != voxel_to_world.shape:
         raise ValueError(
-            "voxel-affine data requires an affine with shape matching "
+            "voxel-to-world data requires an affine with shape matching "
             f"voxel_to_world {voxel_to_world.shape}, got {affine_array.shape}."
         )
 
@@ -169,8 +169,8 @@ def apply_affine(
     if "affines" in da.attrs:
         new_attrs["affines"] = new_affines
 
-    voxel_dims = get_voxel_affine_spatial_dims(da)
-    result = add_world_coords_from_voxel_affine(
+    voxel_dims = get_voxel_to_world_spatial_dims(da)
+    result = attach_voxel_to_world_index(
         da.assign_attrs(new_attrs),
         affine_array @ voxel_to_world,
         voxel_dims=voxel_dims,
@@ -186,7 +186,7 @@ def apply_affine(
 def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     """Rebase voxel coordinates to dense positions without moving world coordinates.
 
-    A voxel-affine DataArray's stored `voxel_to_world` affine is defined in terms of
+    A voxel-to-world DataArray's stored `voxel_to_world` affine is defined in terms of
     voxel *coordinate values*, which stay unchanged across cropping or striding by
     design (see [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
     Because of this, the affine generally does not describe where voxel *position*
@@ -201,7 +201,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     Parameters
     ----------
     da : xarray.DataArray
-        Input scan with voxel-affine geometry.
+        Input scan with voxel-to-world geometry.
 
     Returns
     -------
@@ -212,23 +212,23 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     Raises
     ------
     ValueError
-        If `da` lacks voxel-affine geometry, or if world spacing is undefined for
+        If `da` lacks voxel-to-world geometry, or if world spacing is undefined for
         any voxel dimension.
     """
-    if not has_voxel_world_geometry(da):
-        raise ValueError("DataArray must have voxel-affine geometry.")
+    if not has_voxel_to_world_index(da):
+        raise ValueError("DataArray must have a voxel-to-world index.")
 
-    voxel_dims = get_voxel_affine_spatial_dims(da)
-    world_coord_names = get_voxel_affine_world_coord_names(da)
+    voxel_dims = get_voxel_to_world_spatial_dims(da)
+    world_coord_names = get_voxel_to_world_coord_names(da)
 
-    spacing = get_voxel_world_spacing(da)
+    spacing = get_voxel_to_world_index_spacing(da)
     missing_spacing = [dim for dim in voxel_dims if spacing[dim] is None]
     if missing_spacing:
         raise ValueError(
             f"Cannot reindex voxels because spacing is undefined for dimensions "
             f"{missing_spacing!r}."
         )
-    origin = get_voxel_world_origin(da)
+    origin = get_voxel_to_world_index_origin(da)
     direction = get_affine_orientation_matrix(get_voxel_to_world_affine(da))
 
     ndim = len(voxel_dims)
@@ -244,7 +244,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     reindexed = da.assign_coords(
         {dim: np.arange(da.sizes[dim], dtype=np.float64) for dim in voxel_dims}
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         reindexed,
         new_affine,
         voxel_dims=voxel_dims,
@@ -271,7 +271,7 @@ def reindex_voxels_like(
     Parameters
     ----------
     data : xarray.DataArray
-        Input scan with voxel-affine geometry, physically aligned with `reference`.
+        Input scan with voxel-to-world geometry, physically aligned with `reference`.
     reference : xarray.DataArray
         DataArray whose voxel labels and affine `data` should adopt.
     atol : float, default: 1e-6
@@ -288,17 +288,17 @@ def reindex_voxels_like(
     Raises
     ------
     ValueError
-        If `data` or `reference` lacks voxel-affine geometry, if their voxel
+        If `data` or `reference` lacks voxel-to-world geometry, if their voxel
         dimensions or shapes differ, or if their world coordinates do not match
         within `atol`.
     """
-    if not has_voxel_world_geometry(data):
-        raise ValueError("data must have voxel-affine geometry.")
-    if not has_voxel_world_geometry(reference):
-        raise ValueError("reference must have voxel-affine geometry.")
+    if not has_voxel_to_world_index(data):
+        raise ValueError("data must have a voxel-to-world index.")
+    if not has_voxel_to_world_index(reference):
+        raise ValueError("reference must have a voxel-to-world index.")
 
-    voxel_dims = get_voxel_affine_spatial_dims(data)
-    reference_voxel_dims = get_voxel_affine_spatial_dims(reference)
+    voxel_dims = get_voxel_to_world_spatial_dims(data)
+    reference_voxel_dims = get_voxel_to_world_spatial_dims(reference)
     if voxel_dims != reference_voxel_dims:
         raise ValueError(
             f"data and reference must have the same voxel dimensions; got "
@@ -312,8 +312,8 @@ def reindex_voxels_like(
             f"got {shape!r} and {reference_shape!r}."
         )
 
-    world_coord_names = get_voxel_affine_world_coord_names(data)
-    reference_world_coord_names = get_voxel_affine_world_coord_names(reference)
+    world_coord_names = get_voxel_to_world_coord_names(data)
+    reference_world_coord_names = get_voxel_to_world_coord_names(reference)
     for name, reference_name in zip(
         world_coord_names, reference_world_coord_names, strict=True
     ):
@@ -334,7 +334,7 @@ def reindex_voxels_like(
         if name in reference.coords
     }
     relabeled = data.assign_coords({dim: reference.coords[dim] for dim in voxel_dims})
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         relabeled,
         get_voxel_to_world_affine(reference),
         voxel_dims=voxel_dims,
@@ -386,8 +386,8 @@ class FUSIAffineAccessor:
         xarray.DataArray
             DataArray with rebuilt VoxelToWorldIndex-backed coordinates.
         """
-        voxel_dims = get_voxel_affine_spatial_dims(self._obj)
-        result = add_world_coords_from_voxel_affine(
+        voxel_dims = get_voxel_to_world_spatial_dims(self._obj)
+        result = attach_voxel_to_world_index(
             self._obj,
             voxel_to_world,
             voxel_dims=voxel_dims,
@@ -444,7 +444,7 @@ class FUSIAffineAccessor:
         affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
     ) -> xr.DataArray:
-        """Apply a world-space affine to voxel-affine geometry.
+        """Apply a world-space affine to voxel-to-world geometry.
 
         The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
         world coordinates are regenerated, and existing `attrs["affines"]` entries
@@ -471,7 +471,7 @@ class FUSIAffineAccessor:
         Raises
         ------
         ValueError
-            If `self` lacks voxel-affine geometry, if `affine` shape does not match
+            If `self` lacks voxel-to-world geometry, if `affine` shape does not match
             the DataArray's voxel-to-world affine, or if `affine` is a string and
             `self` has no `"affines"` entry in `attrs`.
         KeyError

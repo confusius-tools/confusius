@@ -23,6 +23,7 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     others = {d: 0 for d in coord.dims if d != dim}
     return coord.isel(others).values
 
+
 _RNG = np.random.default_rng(42)
 
 _SIZE_X = 8
@@ -150,10 +151,10 @@ class TestLoadScan2D:
         """2Dscan produces DataArray with dims (time, k, j, i)."""
         assert scan_2d.dims == ("time", "k", "j", "i")
 
-    def test_voxel_affine_model_uses_voxel_dims_and_1d_world_coords(
+    def test_voxel_to_world_model_uses_voxel_dims_and_1d_world_coords(
         self, scan_2d_path: Path
     ) -> None:
-        """Axis-aligned voxel-affine loading exposes `k/j/i` plus derived world coords."""
+        """Axis-aligned voxel-to-world loading exposes `k/j/i` plus derived world coords."""
         da = load_scan(scan_2d_path)
 
         assert da.dims == ("time", "k", "j", "i")
@@ -670,9 +671,7 @@ class TestLoadScanWithBPS:
     ) -> np.ndarray:
         """Compose fixture-space probe and BPS affines into the expected result."""
         world_to_lab = (
-            WORLD_TO_PROBE_PERMUTATION.T
-            @ probe_to_lab
-            @ WORLD_TO_PROBE_PERMUTATION
+            WORLD_TO_PROBE_PERMUTATION.T @ probe_to_lab @ WORLD_TO_PROBE_PERMUTATION
         )
         world_to_lab[..., :3, 3] *= 1e3
         brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)

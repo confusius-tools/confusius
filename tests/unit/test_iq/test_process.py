@@ -10,9 +10,9 @@ import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    has_voxel_world_geometry,
+    has_voxel_to_world_index,
 )
 from confusius.iq.process import (
     compute_axial_velocity_volume,
@@ -578,7 +578,7 @@ class TestProcessIqToPowerDoppler:
             dims=("time", "j", "i"),
             coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
         )
-        iq = add_world_coords_from_voxel_affine(
+        iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 1.0]),
             voxel_dims=("j", "i"),
@@ -604,7 +604,7 @@ class TestProcessIqToPowerDoppler:
                 "i": np.arange(8),
             },
         )
-        iq = add_world_coords_from_voxel_affine(
+        iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             voxel_dims=("k", "j", "i"),
@@ -916,8 +916,8 @@ class TestProcessIqToPowerDoppler:
             doppler_window_stride=5,
         )
 
-    def test_output_preserves_voxel_affine_geometry(self, sample_iq_dataarray):
-        """Output carries over the input's voxel-affine geometry, not just its shape.
+    def test_output_preserves_voxel_to_world_geometry(self, sample_iq_dataarray):
+        """Output carries over the input's voxel-to-world geometry, not just its shape.
 
         Regression test: constructing the output via a bare `xr.DataArray(coords=...)`
         with the input's derived `z`/`y`/`x` coordinates silently drops the
@@ -932,7 +932,7 @@ class TestProcessIqToPowerDoppler:
             doppler_window_stride=2,
         )
 
-        assert has_voxel_world_geometry(result)
+        assert has_voxel_to_world_index(result)
         assert_allclose(
             get_voxel_to_world_affine(result),
             get_voxel_to_world_affine(sample_iq_dataarray),
@@ -1108,8 +1108,8 @@ class TestProcessIqToAxialVelocity:
 
         assert result.attrs["axial_velocity_spatial_kernel"] == (1, 3, 5)
 
-    def test_output_preserves_voxel_affine_geometry(self, sample_iq_dataarray):
-        """Output carries over the input's voxel-affine geometry, not just its shape."""
+    def test_output_preserves_voxel_to_world_geometry(self, sample_iq_dataarray):
+        """Output carries over the input's voxel-to-world geometry, not just its shape."""
         result = process_iq_to_axial_velocity(
             sample_iq_dataarray,
             clutter_window_width=20,
@@ -1118,7 +1118,7 @@ class TestProcessIqToAxialVelocity:
             velocity_window_stride=2,
         )
 
-        assert has_voxel_world_geometry(result)
+        assert has_voxel_to_world_index(result)
         assert_allclose(
             get_voxel_to_world_affine(result),
             get_voxel_to_world_affine(sample_iq_dataarray),
@@ -1284,7 +1284,7 @@ class TestProcessIqToBmode:
             dims=("time", "j", "i"),
             coords={"time": np.arange(10), "j": np.arange(4), "i": np.arange(6)},
         )
-        iq = add_world_coords_from_voxel_affine(
+        iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 1.0]),
             voxel_dims=("j", "i"),
@@ -1310,7 +1310,7 @@ class TestProcessIqToBmode:
                 "i": np.arange(8),
             },
         )
-        iq = add_world_coords_from_voxel_affine(
+        iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             voxel_dims=("k", "j", "i"),
@@ -1383,15 +1383,15 @@ class TestProcessIqToBmode:
             iq, bmode_window_width=10, bmode_window_stride=5
         )
 
-    def test_output_preserves_voxel_affine_geometry(self, sample_iq_dataarray):
-        """Output carries over the input's voxel-affine geometry, not just its shape."""
+    def test_output_preserves_voxel_to_world_geometry(self, sample_iq_dataarray):
+        """Output carries over the input's voxel-to-world geometry, not just its shape."""
         result = process_iq_to_bmode(
             sample_iq_dataarray,
             bmode_window_width=10,
             bmode_window_stride=5,
         )
 
-        assert has_voxel_world_geometry(result)
+        assert has_voxel_to_world_index(result)
         assert_allclose(
             get_voxel_to_world_affine(result),
             get_voxel_to_world_affine(sample_iq_dataarray),

@@ -10,9 +10,9 @@ import xarray as xr
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
     VoxelToWorldIndex,
-    get_voxel_affine_world_coord_names,
-    has_axis_aligned_voxel_world_geometry,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    has_axis_aligned_voxel_to_world_index,
+    has_voxel_to_world_index,
 )
 from confusius._utils.stack import find_stack_level
 
@@ -188,12 +188,12 @@ def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray
 def _materialize_axis_aligned_world_grid_for_display(
     data: xr.DataArray,
 ) -> xr.DataArray:
-    """Expose axis-aligned voxel-affine data on plain world `z/y/x` dims.
+    """Expose axis-aligned voxel-to-world data on plain world `z/y/x` dims.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Axis-aligned voxel-affine DataArray.
+        Axis-aligned voxel-to-world DataArray.
 
     Returns
     -------
@@ -202,8 +202,8 @@ def _materialize_axis_aligned_world_grid_for_display(
         `z/y/x`, with the linked world coordinates promoted to dimension
         coordinates and `voxel_to_world` removed from attrs.
     """
-    if not has_axis_aligned_voxel_world_geometry(data):
-        if has_voxel_world_geometry(data):
+    if not has_axis_aligned_voxel_to_world_index(data):
+        if has_voxel_to_world_index(data):
             return data
         voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
         world_dims = ("z", "y", "x")[-len(voxel_dims) :]
@@ -232,7 +232,7 @@ def _materialize_axis_aligned_world_grid_for_display(
             return data
     else:
         voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-        world_dims = get_voxel_affine_world_coord_names(data)
+        world_dims = get_voxel_to_world_coord_names(data)
         dim_map = dict(zip(voxel_dims, world_dims, strict=True))
 
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
@@ -266,17 +266,17 @@ def _materialize_axis_aligned_world_grid_for_display(
     return result
 
 
-def resample_voxel_affine_to_world_grid(
+def resample_to_axis_aligned_world_grid(
     data: xr.DataArray,
     *,
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    """Resample voxel-affine data onto an axis-aligned world grid for display.
+    """Resample voxel-to-world data onto an axis-aligned world grid for display.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Three-dimensional or three-dimensional-plus-time voxel-affine DataArray.
+        Three-dimensional or three-dimensional-plus-time voxel-to-world DataArray.
     reference : xarray.DataArray, optional
         Axis-aligned world-grid DataArray to reuse as the resampling target.
         If not provided, a new plotting grid is synthesized from `data`'s world
@@ -285,19 +285,19 @@ def resample_voxel_affine_to_world_grid(
     Returns
     -------
     xarray.DataArray
-        Axis-aligned world-grid DataArray when `data` has voxel-affine geometry;
+        Axis-aligned world-grid DataArray when `data` has voxel-to-world geometry;
         otherwise the original input.
     """
-    if not has_voxel_world_geometry(data) or has_axis_aligned_voxel_world_geometry(
+    if not has_voxel_to_world_index(data) or has_axis_aligned_voxel_to_world_index(
         data
     ):
         return data
 
     from confusius.registration import resample_like, resample_volume
 
-    world_dims = get_voxel_affine_world_coord_names(data)
+    world_dims = get_voxel_to_world_coord_names(data)
     if reference is not None:
-        if not has_voxel_world_geometry(reference):
+        if not has_voxel_to_world_index(reference):
             from confusius.xarray import create_fusi_dataarray
 
             reference_dims = tuple(str(dim) for dim in reference.dims)

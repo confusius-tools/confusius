@@ -164,7 +164,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     # 2. Apply the `world_to_qform` affine to the coordinates to have metric
     #    coordinates. This is the affine that settles which world row (z/y/x) each
     #    voxel column ends up mapping to, so it is applied in full (rotation
-    #    included) -- CTI voxel-affine geometry can represent rotations exactly,
+    #    included) -- CTI voxel-to-world geometry can represent rotations exactly,
     #    unlike a plain z/y/x DataArray's independent 1D coordinates.
     da.fusi.affine.apply(da.affines["world_to_qform"], inplace=True)
 

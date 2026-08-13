@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
 
@@ -255,7 +255,7 @@ class TestRegisterVolumewise:
                 "i": np.arange(32),
             },
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.diag([1.0, 1.0, 1.0, 1.0]),
             voxel_dims=("k", "j", "i"),
@@ -335,7 +335,7 @@ class TestRegisterVolumewise:
                 "i": np.arange(32),
             },
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.diag([0.2, 0.1, 0.1, 1.0]),
             voxel_dims=("k", "j", "i"),
@@ -364,7 +364,7 @@ class TestRegisterVolumewise:
                 "time": np.arange(3) * 0.1,
             },
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.diag([0.2, 0.1, 0.1, 1.0]),
             voxel_dims=("k", "j", "i"),

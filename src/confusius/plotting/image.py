@@ -12,10 +12,10 @@ import xarray as xr
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import (
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
     get_voxel_to_world_affine,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
@@ -34,7 +34,7 @@ from confusius.plotting._utils import (
     sort_coords_for_plot,
 )
 from confusius.plotting._utils import (
-    resample_voxel_affine_to_world_grid as _shared_resample_voxel_affine_to_world_grid,
+    resample_to_axis_aligned_world_grid as _shared_resample_to_axis_aligned_world_grid,
 )
 from confusius.signal import clean
 from confusius.validation import validate_matching_coordinates, validate_time_series
@@ -82,15 +82,15 @@ def _centers_to_edges(centers: np.ndarray) -> np.ndarray:
     return np.concatenate([[left], interior, [right]])
 
 
-def _has_voxel_world_geometry(data: xr.DataArray) -> bool:
-    """Return whether `data` carries voxel-affine geometry metadata."""
-    return has_voxel_world_geometry(data) and all(
+def _has_plottable_voxel_to_world_index(data: xr.DataArray) -> bool:
+    """Return whether `data` carries voxel-to-world geometry metadata."""
+    return has_voxel_to_world_index(data) and all(
         str(dim) in {"time", "k", "j", "i"} for dim in data.dims
     )
 
 
-def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
-    """Validate slice selection semantics for voxel-affine data.
+def _validate_voxel_to_world_slice_mode(data: xr.DataArray, slice_mode: str) -> None:
+    """Validate slice selection semantics for voxel-to-world data.
 
     Parameters
     ----------
@@ -102,49 +102,49 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
     Raises
     ------
     ValueError
-        If voxel-affine data is sliced along an unsupported dimension.
+        If voxel-to-world data is sliced along an unsupported dimension.
     """
-    if not _has_voxel_world_geometry(data):
+    if not _has_plottable_voxel_to_world_index(data):
         return
 
     valid_slice_modes = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     valid_slice_modes += tuple(
         dim
-        for dim in get_voxel_affine_world_coord_names(data)
+        for dim in get_voxel_to_world_coord_names(data)
         if dim not in valid_slice_modes
     )
     if slice_mode not in valid_slice_modes:
         raise ValueError(
-            "Voxel-affine plotting supports only native voxel-plane slicing or "
+            "Voxel-to-world plotting supports only native voxel-plane slicing or "
             f"world z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
             f"modes: {valid_slice_modes!r}."
         )
     spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
     if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
         raise ValueError(
-            "World z/y/x slicing for voxel-affine plotting requires 3D data."
+            "World z/y/x slicing for voxel-to-world plotting requires 3D data."
         )
 
 
-def _voxel_affine_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
+def _get_voxel_to_world_dim_order(slice_da: xr.DataArray) -> tuple[str, ...]:
     """Return active voxel-space dimension order implied by the stored affine."""
     affine = get_voxel_to_world_affine(slice_da)
     ndim = affine.shape[1] - 1
-    dims = get_voxel_affine_spatial_dims(slice_da)
+    dims = get_voxel_to_world_spatial_dims(slice_da)
     if len(dims) != ndim:
         raise ValueError(
-            "Voxel-affine plotting could not infer voxel dimension order from "
+            "Voxel-to-world plotting could not infer voxel dimension order from "
             f"active dims {dims!r} and affine shape {affine.shape}."
         )
     return dims
 
 
-def _project_voxel_affine_plane(
+def _project_voxel_to_world_plane(
     slice_da: xr.DataArray,
     dim_row: str,
     dim_col: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Project a voxel-affine 2D slice into an in-plane orthonormal basis.
+    """Project a voxel-to-world 2D slice into an in-plane orthonormal basis.
 
     Parameters
     ----------
@@ -167,7 +167,7 @@ def _project_voxel_affine_plane(
         In-plane y coordinates of cell centers.
     """
     affine = get_voxel_to_world_affine(slice_da)
-    dim_order = _voxel_affine_dim_order(slice_da)
+    dim_order = _get_voxel_to_world_dim_order(slice_da)
     linear = affine[:-1, :-1]
 
     row_vals = (
@@ -190,7 +190,7 @@ def _project_voxel_affine_plane(
     row_perp_norm = np.linalg.norm(row_perp)
     if np.isclose(row_perp_norm, 0.0):
         raise ValueError(
-            f"Voxel-affine plotting requires non-collinear plane axes, got {dim_row!r} "
+            f"Voxel-to-world plotting requires non-collinear plane axes, got {dim_row!r} "
             f"and {dim_col!r}."
         )
     e2 = row_perp / row_perp_norm
@@ -226,22 +226,26 @@ def _project_voxel_affine_plane(
     return x_edges, y_edges, x_centers, y_centers
 
 
-def _resample_voxel_affine_to_world_grid(
+def _resample_to_axis_aligned_world_grid(
     data: xr.DataArray,
     slice_mode: str,
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    """Resample voxel-affine data onto an axis-aligned world grid for plotting."""
-    if not _has_voxel_world_geometry(data) or slice_mode not in {"z", "y", "x"}:
+    """Resample voxel-to-world data onto an axis-aligned world grid for plotting."""
+    if not _has_plottable_voxel_to_world_index(data) or slice_mode not in {
+        "z",
+        "y",
+        "x",
+    }:
         converted = _materialize_axis_aligned_world_grid_for_display(data)
         return converted if slice_mode in converted.dims else data
 
-    world_dims = get_voxel_affine_world_coord_names(data)
+    world_dims = get_voxel_to_world_coord_names(data)
     if slice_mode not in world_dims:
         return data
 
     data = _materialize_axis_aligned_world_grid_for_display(data)
-    return _shared_resample_voxel_affine_to_world_grid(data, reference=reference)
+    return _shared_resample_to_axis_aligned_world_grid(data, reference=reference)
 
 
 def _slice_edges_and_centers(
@@ -250,11 +254,11 @@ def _slice_edges_and_centers(
     """Return plotting geometry for a 2D slice.
 
     For standard axis-aligned data, returns 1D edge/center coordinates for the plotted
-    row/column dimensions. For voxel-affine data, returns 2D corner and center meshes
+    row/column dimensions. For voxel-to-world data, returns 2D corner and center meshes
     obtained by projecting the world slice into an orthonormal in-plane basis.
     """
-    if _has_voxel_world_geometry(slice_da):
-        return _project_voxel_affine_plane(slice_da, dim_row, dim_col)
+    if _has_plottable_voxel_to_world_index(slice_da):
+        return _project_voxel_to_world_plane(slice_da, dim_row, dim_col)
 
     if dim_col in slice_da.coords:
         x_centers = slice_da.coords[dim_col].values.astype(float)
@@ -523,7 +527,7 @@ def _resolve_cmap(
 
 def _build_axis_label(da: xr.DataArray, dim: str) -> str:
     """Return axis label for `dim`, including units when available."""
-    if _has_voxel_world_geometry(da):
+    if _has_plottable_voxel_to_world_index(da):
         return f"{dim} in-plane (mm)"
 
     label = dim
@@ -856,8 +860,8 @@ class VolumePlotter:
     def _prepare_slice_inputs(self, data: xr.DataArray, *, caller: str) -> xr.DataArray:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
-        _validate_voxel_affine_slice_mode(data, self.slice_mode)
-        data = _resample_voxel_affine_to_world_grid(
+        _validate_voxel_to_world_slice_mode(data, self.slice_mode)
+        data = _resample_to_axis_aligned_world_grid(
             data,
             self.slice_mode,
             reference=self._world_grid_reference,
@@ -1715,8 +1719,8 @@ class VolumePlotter:
                 )
             return self
 
-        _validate_voxel_affine_slice_mode(mask, self.slice_mode)
-        mask = _resample_voxel_affine_to_world_grid(
+        _validate_voxel_to_world_slice_mode(mask, self.slice_mode)
+        mask = _resample_to_axis_aligned_world_grid(
             mask, self.slice_mode, reference=self._world_grid_reference
         )
 

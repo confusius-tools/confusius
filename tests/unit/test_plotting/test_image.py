@@ -9,7 +9,7 @@ import numpy.testing as npt
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.plotting import (
     VolumePlotter,
     plot_carpet,
@@ -31,8 +31,8 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     return coord.isel(others).values
 
 
-def _make_voxel_affine_volume() -> xr.DataArray:
-    """Create a small voxel-affine test volume with an oblique slice geometry."""
+def _make_voxel_to_world_volume() -> xr.DataArray:
+    """Create a small voxel-to-world test volume with an oblique slice geometry."""
     data = xr.DataArray(
         np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
         dims=["k", "j", "i"],
@@ -50,7 +50,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             [0.0, 0.0, 0.0, 1.0],
         ]
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         data,
         voxel_to_world,
         voxel_dims=("k", "j", "i"),
@@ -111,10 +111,10 @@ class TestPlotVolume:
         with pytest.raises(ValueError, match="3D"):
             plot_volume(data, slice_mode="z")
 
-    def test_voxel_affine_2d_world_slice_mode_raises(self, matplotlib_pyplot):
-        """World z/y/x slicing on 2D voxel-affine data raises ValueError.
+    def test_voxel_to_world_2d_world_slice_mode_raises(self, matplotlib_pyplot):
+        """World z/y/x slicing on 2D voxel-to-world data raises ValueError.
 
-        World-coordinate slicing requires a full 3D voxel-affine volume; a 2D
+        World-coordinate slicing requires a full 3D voxel-to-world volume; a 2D
         oblique plane has no third axis to resolve against a world grid.
         """
         data = xr.DataArray(
@@ -122,7 +122,7 @@ class TestPlotVolume:
             dims=["j", "i"],
             coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
             voxel_dims=("j", "i"),
@@ -487,9 +487,7 @@ class TestPlotVolume:
         # Verify the slice was plotted
         assert len(_axes(plotter)[0, 0].collections) == 1
 
-    def test_scalar_slice_mode_from_selection(
-        self, sample_fusi_3d, matplotlib_pyplot
-    ):
+    def test_scalar_slice_mode_from_selection(self, sample_fusi_3d, matplotlib_pyplot):
         """plot_volume accepts a scalar slice_mode coordinate (issue #295).
 
         Selecting a single index (isel(z=1)) drops z to a scalar coordinate; it
@@ -526,11 +524,11 @@ class TestPlotVolume:
             (y_sorted[-1] + dy / 2, y_sorted[0] - dy / 2)
         )
 
-    def test_voxel_affine_slice_geometry_returns_2d_meshes(self):
-        """Voxel-affine slice geometry is projected to 2D corner meshes."""
+    def test_voxel_to_world_slice_geometry_returns_2d_meshes(self):
+        """Voxel-to-world slice geometry is projected to 2D corner meshes."""
         from confusius.plotting.image import _slice_edges_and_centers
 
-        data = _make_voxel_affine_volume().isel(k=0)
+        data = _make_voxel_to_world_volume().isel(k=0)
         x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
             data, "j", "i"
         )
@@ -540,7 +538,7 @@ class TestPlotVolume:
         assert x_centers.shape == (data.sizes["j"], data.sizes["i"])
         assert y_centers.shape == (data.sizes["j"], data.sizes["i"])
 
-    def test_voxel_affine_slice_geometry_folds_in_extra_active_dimension(self):
+    def test_voxel_to_world_slice_geometry_folds_in_extra_active_dimension(self):
         """Projection folds in a third active (non-row/col) voxel dimension.
 
         Selecting with a list index (`isel(k=[0])`) keeps `k` as a genuine size-1
@@ -549,7 +547,7 @@ class TestPlotVolume:
         """
         from confusius.plotting.image import _slice_edges_and_centers
 
-        data = _make_voxel_affine_volume().isel(k=[0])
+        data = _make_voxel_to_world_volume().isel(k=[0])
         assert "k" in data.dims
 
         x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
@@ -564,7 +562,7 @@ class TestPlotVolume:
         assert not np.allclose(x_centers, 0.0)
         assert not np.allclose(y_centers, 0.0)
 
-    def test_voxel_affine_collinear_plane_axes_raises(self):
+    def test_voxel_to_world_collinear_plane_axes_raises(self):
         """Projecting onto collinear in-plane axes raises ValueError.
 
         When the world-space directions of the two requested display dimensions
@@ -588,7 +586,7 @@ class TestPlotVolume:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             voxel_to_world,
             voxel_dims=("k", "j", "i"),
@@ -602,11 +600,11 @@ class TestPlotVolume:
         with pytest.raises(ValueError, match="non-collinear plane axes"):
             _slice_edges_and_centers(data.isel(k=0), "j", "i")
 
-    def test_voxel_affine_volume_uses_projected_plane_coordinates(
+    def test_voxel_to_world_volume_uses_projected_plane_coordinates(
         self, matplotlib_pyplot
     ):
-        """Voxel-affine volumes plot native planes in projected in-plane coords."""
-        data = _make_voxel_affine_volume()
+        """Voxel-to-world volumes plot native planes in projected in-plane coords."""
+        data = _make_voxel_to_world_volume()
         plotter = plot_volume(
             data,
             slice_mode="k",
@@ -624,11 +622,11 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "i in-plane (mm)"
         assert ax.get_ylabel() == "j in-plane (mm)"
 
-    def test_voxel_affine_volume_resamples_for_world_slice_mode(
+    def test_voxel_to_world_volume_resamples_for_world_slice_mode(
         self, matplotlib_pyplot
     ):
-        """Voxel-affine volumes plot world z-slices after axis-aligned resampling."""
-        data = _make_voxel_affine_volume()
+        """Voxel-to-world volumes plot world z-slices after axis-aligned resampling."""
+        data = _make_voxel_to_world_volume()
         z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
 
         plotter = plot_volume(
@@ -644,13 +642,13 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "x (mm)"
         assert ax.get_ylabel() == "y (mm)"
 
-    def test_voxel_affine_world_resampling_preserves_per_axis_spacing(self):
+    def test_voxel_to_world_world_resampling_preserves_per_axis_spacing(self):
         """The first world display grid keeps each axis's own world spacing."""
-        from confusius.plotting.image import _resample_voxel_affine_to_world_grid
+        from confusius.plotting.image import _resample_to_axis_aligned_world_grid
 
-        data = _make_voxel_affine_volume()
+        data = _make_voxel_to_world_volume()
 
-        result = _resample_voxel_affine_to_world_grid(data, "z")
+        result = _resample_to_axis_aligned_world_grid(data, "z")
 
         for dim in ("z", "y", "x"):
             spacing = float(
@@ -658,16 +656,16 @@ class TestPlotVolume:
             )
             assert spacing == pytest.approx(float(data.coords[dim].attrs["voxdim"]))
 
-    def test_axis_aligned_voxel_affine_world_slice_promotes_world_dims(self):
+    def test_axis_aligned_voxel_to_world_world_slice_promotes_world_dims(self):
         """Axis-aligned geometry uses world dims directly for world slicing."""
-        from confusius.plotting.image import _resample_voxel_affine_to_world_grid
+        from confusius.plotting.image import _resample_to_axis_aligned_world_grid
 
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
             coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
             voxel_dims=("k", "j", "i"),
@@ -679,36 +677,36 @@ class TestPlotVolume:
             },
         )
 
-        result = _resample_voxel_affine_to_world_grid(data, "z")
+        result = _resample_to_axis_aligned_world_grid(data, "z")
 
         assert result.dims == ("z", "y", "x")
         assert "voxel_to_world" not in result.attrs
 
-    def test_voxel_affine_world_slice_mode_outside_available_world_dims_is_noop(
+    def test_voxel_to_world_world_slice_mode_outside_available_world_dims_is_noop(
         self,
     ):
         """Requesting a world slice_mode absent from the data's own world dims
         returns the data unchanged instead of attempting to resample.
 
-        2D voxel-affine data only exposes `y`/`x` world coordinates; asking to
+        2D voxel-to-world data only exposes `y`/`x` world coordinates; asking to
         resample onto `z` (a name the data has no geometry for) must be a no-op
         rather than erroring or fabricating a `z` grid.
         """
-        from confusius.plotting.image import _resample_voxel_affine_to_world_grid
+        from confusius.plotting.image import _resample_to_axis_aligned_world_grid
 
         data = xr.DataArray(
             np.arange(3 * 4, dtype=float).reshape(3, 4),
             dims=["j", "i"],
             coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
             voxel_dims=("j", "i"),
             world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
 
-        result = _resample_voxel_affine_to_world_grid(data, "z")
+        result = _resample_to_axis_aligned_world_grid(data, "z")
 
         assert result is data
 
@@ -743,15 +741,15 @@ class TestCentersToEdges:
         np.testing.assert_array_almost_equal(edges, expected)
 
 
-class TestPlottingUtilsVoxelAffineHelpers:
-    """Tests for shared voxel-affine display helpers in `plotting._utils`."""
+class TestPlottingUtilsVoxelToWorldHelpers:
+    """Tests for shared voxel-to-world display helpers in `plotting._utils`."""
 
     def test_materialize_renames_plain_parallel_world_coords(self):
         """Plain `k/j/i` data carrying independent, already-matching `z/y/x`
         coordinates is renamed onto those world dims directly.
 
         This covers data that never went through
-        [add_world_coords_from_voxel_affine][confusius._utils.geometry.add_world_coords_from_voxel_affine]
+        [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
         (no `voxel_to_world` affine, no `VoxelToWorldIndex`) but happens to carry
         ordinary 1D `z/y/x` coordinates parallel to its `k/j/i` dims.
         """
@@ -779,9 +777,9 @@ class TestPlottingUtilsVoxelAffineHelpers:
         """A plain reference DataArray missing one world coordinate falls back to
         an origin of 0.0 and spacing of 1.0 for that axis, instead of raising.
         """
-        from confusius.plotting._utils import resample_voxel_affine_to_world_grid
+        from confusius.plotting._utils import resample_to_axis_aligned_world_grid
 
-        data = _make_voxel_affine_volume()
+        data = _make_voxel_to_world_volume()
         # `z` is a real dimension but carries no coordinate values at all.
         reference = xr.DataArray(
             np.zeros((2, 3, 4)),
@@ -789,7 +787,7 @@ class TestPlottingUtilsVoxelAffineHelpers:
             coords={"y": [0.0, 1.0, 2.0], "x": [0.0, 1.0, 2.0, 3.0]},
         )
 
-        result = resample_voxel_affine_to_world_grid(data, reference=reference)
+        result = resample_to_axis_aligned_world_grid(data, reference=reference)
 
         assert result.sizes["z"] == 2
         npt.assert_array_equal(result.coords["z"].values, [0.0, 1.0])
@@ -798,7 +796,7 @@ class TestPlottingUtilsVoxelAffineHelpers:
         """When a world coordinate has no `voxdim` attribute, spacing is derived
         from the median difference between coordinate values instead of raising.
         """
-        from confusius.plotting._utils import resample_voxel_affine_to_world_grid
+        from confusius.plotting._utils import resample_to_axis_aligned_world_grid
 
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
@@ -815,18 +813,18 @@ class TestPlottingUtilsVoxelAffineHelpers:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             voxel_to_world,
             voxel_dims=("k", "j", "i"),
             world_coord_names=("z", "y", "x"),
         )
-        # add_world_coords_from_voxel_affine auto-populates "voxdim"; strip it so
+        # attach_voxel_to_world_index auto-populates "voxdim"; strip it so
         # the spacing fallback (median coordinate difference) is exercised.
         for dim in ("z", "y", "x"):
             data.coords[dim].attrs.pop("voxdim", None)
 
-        result = resample_voxel_affine_to_world_grid(data)
+        result = resample_to_axis_aligned_world_grid(data)
 
         for dim in ("z", "y", "x"):
             spacing = float(np.diff(result.coords[dim].values)[0])
@@ -866,11 +864,11 @@ class TestVolumePlotterAddVolume:
                 cmap="viridis",
             )
 
-    def test_voxel_affine_world_overlay_reuses_first_display_grid(
+    def test_voxel_to_world_world_overlay_reuses_first_display_grid(
         self, sample_fusi_3d, matplotlib_pyplot
     ):
         """World-coordinate overlays resample onto the first plotted world grid."""
-        overlay = add_world_coords_from_voxel_affine(
+        overlay = attach_voxel_to_world_index(
             sample_fusi_3d.copy().assign_coords(
                 k=_world_coord_1d(sample_fusi_3d, "z"),
                 j=_world_coord_1d(sample_fusi_3d, "y"),

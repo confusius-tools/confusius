@@ -15,7 +15,7 @@ import numpy as np
 import xarray as xr
 
 from confusius._utils.coordinates import get_coordinate_spacings_best_effort
-from confusius._utils.geometry import has_voxel_world_geometry
+from confusius._utils.geometry import has_voxel_to_world_index
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
@@ -23,7 +23,7 @@ from confusius._utils.napari import (
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
-    resample_voxel_affine_to_world_grid,
+    resample_to_axis_aligned_world_grid,
     sort_coords_for_plot,
 )
 
@@ -39,7 +39,7 @@ def _get_napari_scale_translate_units(
     all_dims = list(data.dims)
 
     coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    fusi_spacing = data.fusi.spacing if has_voxel_world_geometry(data) else {}
+    fusi_spacing = data.fusi.spacing if has_voxel_to_world_index(data) else {}
     spacing = {
         dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
         for dim, fallback in coordinate_spacing.items()
@@ -198,7 +198,7 @@ def plot_napari(
         )
 
     source_data = data
-    data = resample_voxel_affine_to_world_grid(data)
+    data = resample_to_axis_aligned_world_grid(data)
 
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None

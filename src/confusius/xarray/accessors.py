@@ -203,14 +203,14 @@ class FUSIAccessor:
             get_coordinate_spacings,
         )
         from confusius._utils.geometry import (
-            get_voxel_world_spacing,
-            has_voxel_world_geometry,
+            get_voxel_to_world_index_spacing,
+            has_voxel_to_world_index,
         )
 
-        if not has_voxel_world_geometry(self._obj):
+        if not has_voxel_to_world_index(self._obj):
             return get_coordinate_spacings(self._obj)
 
-        voxel_spacing = get_voxel_world_spacing(self._obj)
+        voxel_spacing = get_voxel_to_world_index_spacing(self._obj)
         missing_dims = [
             str(dim) for dim in self._obj.dims if str(dim) not in voxel_spacing
         ]
@@ -257,15 +257,15 @@ class FUSIAccessor:
         """
         from confusius._utils.coordinates import get_coordinate_origins
         from confusius._utils.geometry import (
-            get_voxel_affine_spatial_dims,
-            get_voxel_world_origin,
-            has_voxel_world_geometry,
+            get_voxel_to_world_index_origin,
+            get_voxel_to_world_spatial_dims,
+            has_voxel_to_world_index,
         )
 
-        if not has_voxel_world_geometry(self._obj):
+        if not has_voxel_to_world_index(self._obj):
             return get_coordinate_origins(self._obj)
 
-        voxel_dims = set(get_voxel_affine_spatial_dims(self._obj))
+        voxel_dims = set(get_voxel_to_world_spatial_dims(self._obj))
         regular_origin = get_coordinate_origins(self._obj)
         return {
             **{
@@ -273,7 +273,7 @@ class FUSIAccessor:
                 for dim_str in (str(dim) for dim in self._obj.dims)
                 if dim_str not in voxel_dims
             },
-            **get_voxel_world_origin(self._obj),
+            **get_voxel_to_world_index_origin(self._obj),
         }
 
     @property
@@ -283,18 +283,18 @@ class FUSIAccessor:
         Returns
         -------
         numpy.ndarray
-            Identity for axis-aligned data. For voxel-affine data, the columns are the
+            Identity for axis-aligned data. For voxel-to-world data, the columns are the
             unit world-space directions of the voxel axes.
         """
         import numpy as np
 
         from confusius._utils.geometry import (
-            get_voxel_world_direction_matrix,
-            has_voxel_world_geometry,
+            get_voxel_to_world_orientation_matrix,
+            has_voxel_to_world_index,
         )
 
-        if has_voxel_world_geometry(self._obj):
-            return get_voxel_world_direction_matrix(self._obj)
+        if has_voxel_to_world_index(self._obj):
+            return get_voxel_to_world_orientation_matrix(self._obj)
 
         ndim = len([dim for dim in self._obj.dims if dim in {"z", "y", "x"}])
         return np.eye(ndim, dtype=np.float64)
@@ -340,7 +340,7 @@ class FUSIAccessor:
         Raises
         ------
         ValueError
-            If `self` lacks voxel-affine geometry, or if world spacing is
+            If `self` lacks voxel-to-world geometry, or if world spacing is
             undefined for any voxel dimension.
 
         Examples
@@ -348,13 +348,13 @@ class FUSIAccessor:
         >>> import numpy as np
         >>> import xarray as xr
         >>> import confusius  # noqa: F401
-        >>> from confusius._utils.geometry import add_world_coords_from_voxel_affine
+        >>> from confusius._utils.geometry import attach_voxel_to_world_index
         >>> base = xr.DataArray(
         ...     np.zeros((3, 4)),
         ...     dims=["j", "i"],
         ...     coords={"j": np.arange(3.0) + 2.0, "i": np.arange(4.0) + 1.0},
         ... )
-        >>> data = add_world_coords_from_voxel_affine(
+        >>> data = attach_voxel_to_world_index(
         ...     base, np.eye(3), voxel_dims=("j", "i")
         ... )
         >>> reindexed = data.fusi.reindex_voxels()
@@ -393,7 +393,7 @@ class FUSIAccessor:
         Raises
         ------
         ValueError
-            If `self` or `reference` lacks voxel-affine geometry, if their voxel
+            If `self` or `reference` lacks voxel-to-world geometry, if their voxel
             dimensions or shapes differ, or if their world coordinates do not
             match within `atol`.
         """

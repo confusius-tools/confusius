@@ -11,11 +11,11 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from confusius._utils.geometry import (
-    add_world_coords_from_voxel_affine,
-    get_voxel_affine_spatial_dims,
-    get_voxel_affine_world_coord_names,
+    attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
 from confusius.extract import extract_with_mask, unmask
 from confusius.validation import validate_mask, validate_time_series
@@ -366,12 +366,12 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
                 if d in template.coords
             },
         )
-        if has_voxel_world_geometry(template):
-            world_coord_names = get_voxel_affine_world_coord_names(template)
-            self._reconstruction_mask_ = add_world_coords_from_voxel_affine(
+        if has_voxel_to_world_index(template):
+            world_coord_names = get_voxel_to_world_coord_names(template)
+            self._reconstruction_mask_ = attach_voxel_to_world_index(
                 self._reconstruction_mask_,
                 get_voxel_to_world_affine(template),
-                voxel_dims=get_voxel_affine_spatial_dims(template),
+                voxel_dims=get_voxel_to_world_spatial_dims(template),
                 world_coord_names=world_coord_names,
                 world_coord_attrs={
                     name: dict(template.coords[name].attrs)

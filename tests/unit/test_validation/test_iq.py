@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.validation import validate_iq_dataarray
 
 
@@ -44,7 +44,7 @@ class TestValidateIqDataArray:
                 "beamforming_sound_velocity": 1540.0,
             },
         )
-        return add_world_coords_from_voxel_affine(
+        return attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
             voxel_dims=("k", "j", "i"),

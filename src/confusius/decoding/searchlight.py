@@ -33,8 +33,8 @@ from sklearn.model_selection import (
 )
 
 from confusius._utils.geometry import (
-    get_voxel_affine_world_coord_names,
-    has_voxel_world_geometry,
+    get_voxel_to_world_coord_names,
+    has_voxel_to_world_index,
 )
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
@@ -64,15 +64,15 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
 
     Notes
     -----
-    For voxel-affine geometry, `mask.dims` are the native voxel dims (`k`/`j`/`i`),
+    For voxel-to-world geometry, `mask.dims` are the native voxel dims (`k`/`j`/`i`),
     whose own coordinates are dense integer indices, not world distances; the
     world `z`/`y`/`x` coordinates (used instead here) are what `radius` is measured
     against.
     """
     dims = tuple(str(dim) for dim in mask.dims)
 
-    if has_voxel_world_geometry(mask):
-        coord_names = get_voxel_affine_world_coord_names(mask)
+    if has_voxel_to_world_index(mask):
+        coord_names = get_voxel_to_world_coord_names(mask)
         invalid = [
             name
             for name in coord_names

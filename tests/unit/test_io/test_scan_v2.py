@@ -11,8 +11,8 @@ import xarray as xr
 
 from confusius.io.scan import (
     _SCAN_V2_OFFSETS,
-    WORLD_TO_PROBE_PERMUTATION,
     SCAN_V2_MAGIC,
+    WORLD_TO_PROBE_PERMUTATION,
     load_bps,
     load_scan,
 )
@@ -35,6 +35,8 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
         return coord.values
     others = {d: 0 for d in coord.dims if d != dim}
     return coord.isel(others).values
+
+
 _DT = 0.4
 _DX_M = 0.00011
 _DY_M = 0.0004
@@ -366,7 +368,7 @@ class TestLoadScanV2:
     """Tests for load_scan dispatching to the binary v2 loader."""
 
     def test_dims(self, scan_v2: xr.DataArray) -> None:
-        """Single-pose v2 produces voxel-affine dims (time, k, j, i)."""
+        """Single-pose v2 produces voxel-to-world dims (time, k, j, i)."""
         assert scan_v2.dims == ("time", "k", "j", "i")
 
     def test_shape(self, scan_v2: xr.DataArray) -> None:
@@ -477,7 +479,7 @@ class TestLoadScanV2Multipose:
     """Tests for multi-pose v2 files (inferred layout)."""
 
     def test_dims(self, scan_v2_multipose_path: Path) -> None:
-        """Multi-pose v2 produces voxel-affine dims (time, pose, k, j, i)."""
+        """Multi-pose v2 produces voxel-to-world dims (time, pose, k, j, i)."""
         da = load_scan(scan_v2_multipose_path)
         assert da.dims == ("time", "pose", "k", "j", "i")
 
@@ -652,9 +654,7 @@ class TestLoadScanV2WithBPS:
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
-        with pytest.raises(
-            ValueError, match="no world_to_lab affine could be built"
-        ):
+        with pytest.raises(ValueError, match="no world_to_lab affine could be built"):
             load_scan(path, bps_path=bps_path)
 
 

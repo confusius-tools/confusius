@@ -243,7 +243,7 @@ class TestComputeFramewiseDisplacement:
     def test_handles_reference_with_non_canonical_dim_order(self):
         """A reference whose spatial dims are not in canonical k/j/i order still works.
 
-        Transposing a *non-cubic* reference makes the voxel-affine world
+        Transposing a *non-cubic* reference makes the voxel-to-world world
         coordinates' materialized `.values` shape disagree with `reference.shape`
         (a quirk of the CTI-backed lazy coordinates), which is what routes
         `compute_framewise_displacement` through its `numpy.meshgrid` fallback
@@ -367,23 +367,23 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["rot_y"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
 
-    def test_2d_voxel_affine_reference_gives_3_column_motion_summary(self):
-        """A genuinely 2D voxel-affine reference exercises the 3-column motion path.
+    def test_2d_voxel_to_world_reference_gives_3_column_motion_summary(self):
+        """A genuinely 2D voxel-to-world reference exercises the 3-column motion path.
 
         `_get_motion_parameter_columns` special-cases `params.shape[1] == 3`, which
         only arises for (3, 3) affines paired with a reference exposing exactly 2
-        voxel-affine spatial dimensions (no singleton third axis).
+        voxel-to-world spatial dimensions (no singleton third axis).
         """
         import xarray as xr
 
-        from confusius._utils.geometry import add_world_coords_from_voxel_affine
+        from confusius._utils.geometry import attach_voxel_to_world_index
 
         base = xr.DataArray(
             np.zeros((4, 5)),
             dims=["j", "i"],
             coords={"j": np.arange(4.0), "i": np.arange(5.0)},
         )
-        reference = add_world_coords_from_voxel_affine(
+        reference = attach_voxel_to_world_index(
             base, np.eye(3), voxel_dims=("j", "i"), world_coord_names=("y", "x")
         )
 

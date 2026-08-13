@@ -8,7 +8,7 @@ import xarray as xr
 from sklearn.decomposition import FastICA as SklearnFastICA
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.decomposition import FastICA
 
 
@@ -49,7 +49,7 @@ def sample_fusi_3dt():
         },
         attrs={"long_name": "Intensity", "units": "a.u."},
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         da,
         np.diag([0.2, 0.1, 0.05, 1.0]),
         voxel_dims=("k", "j", "i"),

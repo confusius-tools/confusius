@@ -34,7 +34,7 @@ from confusius._napari._registration._transform_payloads import (
     make_bspline_transform_payload,
     save_transform_payload,
 )
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.registration import (
     RegistrationDiagnostics,
     resample_like,
@@ -103,7 +103,7 @@ def _make_cti_volume(
     affine = np.eye(data.ndim + 1, dtype=float)
     affine[:-1, :-1] = np.diag(spacing)
     affine[:-1, -1] = origin
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         da,
         affine,
         voxel_dims=dims,

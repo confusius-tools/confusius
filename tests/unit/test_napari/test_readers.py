@@ -15,7 +15,7 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
-from confusius._utils.geometry import add_world_coords_from_voxel_affine
+from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.io.loadsave import save
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ class TestReadZarrGating:
 # ---------------------------------------------------------------------------
 
 
-def _make_voxel_affine_volume() -> xr.DataArray:
+def _make_voxel_to_world_volume() -> xr.DataArray:
     """Create a small oblique volume for reader tests."""
     data = xr.DataArray(
         np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
@@ -142,7 +142,7 @@ def _make_voxel_affine_volume() -> xr.DataArray:
             "i": [0.0, 1.0, 2.0, 3.0],
         },
     )
-    return add_world_coords_from_voxel_affine(
+    return attach_voxel_to_world_index(
         data,
         np.array(
             [
@@ -231,10 +231,10 @@ class TestReaderLayerData:
 
         assert kwargs["units"] == ["mm", "mm", "mm"]
 
-    def test_voxel_affine_is_resampled_to_world_grid(self, tmp_path: Path) -> None:
+    def test_voxel_to_world_is_resampled_to_world_grid(self, tmp_path: Path) -> None:
         """Oblique reader output uses an axis-aligned world grid for napari."""
         path = tmp_path / "cti.zarr"
-        save(_make_voxel_affine_volume(), path)
+        save(_make_voxel_to_world_volume(), path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -246,7 +246,7 @@ class TestReaderLayerData:
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
         npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
 
-    def test_axis_aligned_voxel_affine_uses_world_display_by_default(
+    def test_axis_aligned_voxel_to_world_uses_world_display_by_default(
         self, tmp_path: Path
     ) -> None:
         """Axis-aligned reader output uses world z/y/x display by default."""
@@ -255,7 +255,7 @@ class TestReaderLayerData:
             dims=["k", "j", "i"],
             coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        data = add_world_coords_from_voxel_affine(
+        data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
             voxel_dims=("k", "j", "i"),

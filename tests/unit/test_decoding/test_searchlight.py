@@ -87,14 +87,14 @@ def test_matches_brute_force_reference(decoding_volume, full_mask, rng):
     np.testing.assert_allclose(actual, expected)
 
 
-def test_matches_brute_force_reference_with_voxel_affine_geometry(rng):
-    """SearchLight measures `radius` against world coordinates for voxel-affine masks.
+def test_matches_brute_force_reference_with_voxel_to_world_geometry(rng):
+    """SearchLight measures `radius` against world coordinates for voxel-to-world masks.
 
     `decoding_volume`/`full_mask` use plain z/y/x dims with 1D coordinates, which
-    only exercises `_get_masked_coordinates`'s non-voxel-affine fallback. A mask
+    only exercises `_get_masked_coordinates`'s non-voxel-to-world fallback. A mask
     built through `create_fusi_dataarray` instead carries native k/j/i voxel
     dimensions with CTI-backed z/y/x world coordinates, exercising the
-    voxel-affine branch. The reference here is built from those world
+    voxel-to-world branch. The reference here is built from those world
     coordinates, not the raw k/j/i voxel indices `mask.dims` carries: if
     `_get_masked_coordinates` silently fell back to voxel indices, this would
     disagree because z spacing (1.0 mm) differs from y/x spacing (0.2 mm).
