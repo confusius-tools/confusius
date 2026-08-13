@@ -275,7 +275,7 @@ def _coordinate_dataarray(
     return xr.DataArray(coord_values, dims=(dim,), attrs=attrs)
 
 
-def _spatial_origin_defaults(
+def _get_spatial_origin_defaults(
     sizes: Mapping[str, int], spacing: tuple[float, float, float]
 ) -> tuple[float, float, float]:
     """Return default world origins for ConfUSIus probe geometry.
@@ -385,7 +385,7 @@ def _resolve_voxel_to_world(
 
     resolved_spacing = _validate_spatial_tuple(spacing, name="spacing")
     if origin is None:
-        resolved_origin = _spatial_origin_defaults(spatial_sizes, resolved_spacing)
+        resolved_origin = _get_spatial_origin_defaults(spatial_sizes, resolved_spacing)
     else:
         if len(origin) != len(SPATIAL_DIMS):
             raise ValueError("origin must have length 3 in z/y/x order.")

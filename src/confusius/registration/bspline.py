@@ -437,7 +437,7 @@ def sample_displacement_field_like(
     )
 
     dims, spacing = get_defined_spatial_spacing(reference)
-    origin_dict = _dim_keyed_origin(reference)
+    origin_dict = _get_dim_keyed_origin(reference)
     return sample_displacement_field(
         transform,
         shape=[int(reference.sizes[dim]) for dim in dims],
@@ -526,7 +526,7 @@ def invert_displacement_field(
 
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [_dim_keyed_origin(field_grid)[d] for d in dims]
+    origin = [_get_dim_keyed_origin(field_grid)[d] for d in dims]
     direction = field_grid.fusi.direction
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
@@ -592,7 +592,7 @@ def _sitk_displacement_field_to_dataarray(
     )
 
 
-def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
+def _get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     """Return `.fusi.origin`, re-keyed by dimension name for voxel-to-world data.
 
     `.fusi.origin` keys voxel-to-world spatial dims by their world coordinate name
@@ -649,7 +649,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
 
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
-    origin = [_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
+    origin = [_get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
     direction = field_grid.fusi.direction
 
     # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
