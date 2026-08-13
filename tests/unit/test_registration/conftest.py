@@ -46,6 +46,38 @@ def sample_3d_dataarray_spatial(sample_3d_array):
 
 
 @pytest.fixture
+def sample_3d_texture_array():
+    """3D NumPy array with several off-centre cubes of different sizes (32x32x32).
+
+    Unlike `sample_3d_array`'s single centred cube, this scatters asymmetric
+    features across the volume so every region -- including each B-spline
+    control point's compact support -- has non-flat image content to constrain
+    it. A single blob on an otherwise empty background leaves most control
+    points with near-zero gradient information, which is what makes
+    `mesh_size=(10, 10, 10)` (this project's default) numerically unstable on
+    `sample_3d_array` or `sample_2d_image`.
+    """
+    vol = np.zeros((32, 32, 32), dtype=np.float32)
+    vol[4:10, 4:10, 4:10] = 60.0
+    vol[20:28, 6:12, 18:24] = 100.0
+    vol[8:14, 20:26, 6:12] = 80.0
+    vol[18:24, 20:30, 20:26] = 40.0
+    vol[14:18, 14:18, 14:18] = 120.0
+    return vol
+
+
+@pytest.fixture
+def sample_3d_dataarray_texture_spatial(sample_3d_texture_array):
+    """Spatial (k, j, i) DataArray wrapping sample_3d_texture_array with unit spacing."""
+    return create_fusi_dataarray(
+        sample_3d_texture_array,
+        dims=("z", "y", "x"),
+        spacing=(1.0, 1.0, 1.0),
+        origin=(0.0, 0.0, 0.0),
+    )
+
+
+@pytest.fixture
 def sample_2d_dataarray(sample_2d_image):
     """Singleton-k+time DataArray (5 frames) for volumewise registration tests."""
     n_frames = 5

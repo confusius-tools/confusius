@@ -1192,61 +1192,83 @@ class TestResampleVolumeWithBspline:
     """Tests for resample_volume and resample_like with a B-spline DataArray transform."""
 
     def test_resample_like_with_bspline_matches_direct_resample(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_3d_texture_array, sample_3d_dataarray_texture_spatial
     ):
-        """resample_like with a B-spline DataArray matches register_volume(resample=True)."""
+        """resample_like with a B-spline DataArray matches register_volume(resample=True).
+
+        Uses `sample_3d_texture_array` (non-singleton, several scattered features)
+        rather than the singleton-z `sample_2d_image`, so every axis actually
+        supports a control-point grid and no control point is left without any
+        image gradient to constrain it. `mesh_size`/`learning_rate` are kept coarse
+        and fixed (not this project's `mesh_size=(10, 10, 10)`/`"auto"` defaults) so
+        the test stays fast and deterministic -- it only checks that resampling via
+        the returned transform matches `register_volume`'s own direct resample, not
+        registration accuracy, so a coarse mesh is enough.
+        """
         rng = np.random.default_rng(0)
-        shift = rng.integers(3, 6, size=2)
+        shift = rng.integers(3, 6, size=3)
         shifted = np.roll(
-            np.roll(sample_2d_image, int(shift[0]), axis=1), int(shift[1]), axis=2
+            sample_3d_texture_array, tuple(int(s) for s in shift), axis=(0, 1, 2)
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
-            attrs=sample_2d_dataarray_spatial.attrs,
+            dims=sample_3d_dataarray_texture_spatial.dims,
+            coords=sample_3d_dataarray_texture_spatial.coords,
+            attrs=sample_3d_dataarray_texture_spatial.attrs,
         )
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_3d_dataarray_texture_spatial,
             transform_type="bspline",
+            mesh_size=(2, 2, 2),
+            learning_rate=0.5,
+            number_of_iterations=5,
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
+        result = resample_like(moving, sample_3d_dataarray_texture_spatial, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
     def test_resample_like_with_composite_bspline_matches_direct_resample(
-        self, sample_2d_image, sample_2d_dataarray_spatial
+        self, sample_3d_texture_array, sample_3d_dataarray_texture_spatial
     ):
-        """resample_like with composite B-spline matches register_volume(resample=True)."""
+        """resample_like with composite B-spline matches register_volume(resample=True).
+
+        See `test_resample_like_with_bspline_matches_direct_resample` for why this
+        uses the scattered-feature `sample_3d_texture_array` and a coarse, fixed
+        mesh/learning rate instead of a singleton-z fixture and this project's
+        `mesh_size=(10, 10, 10)`/`"auto"` defaults.
+        """
         rng = np.random.default_rng(1)
-        shift = rng.integers(2, 4, size=2)
+        shift = rng.integers(2, 4, size=3)
         shifted = np.roll(
-            np.roll(sample_2d_image, int(shift[0]), axis=1), int(shift[1]), axis=2
+            sample_3d_texture_array, tuple(int(s) for s in shift), axis=(0, 1, 2)
         )
         moving = xr.DataArray(
             shifted,
-            dims=sample_2d_dataarray_spatial.dims,
-            coords=sample_2d_dataarray_spatial.coords,
-            attrs=sample_2d_dataarray_spatial.attrs,
+            dims=sample_3d_dataarray_texture_spatial.dims,
+            coords=sample_3d_dataarray_texture_spatial.coords,
+            attrs=sample_3d_dataarray_texture_spatial.attrs,
         )
         # First pass: affine registration.
         _, affine_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_3d_dataarray_texture_spatial,
             transform_type="affine",
         )
         # Second pass: B-spline refinement on top of the affine.
         resampled_direct, bspline_tx, _ = register_volume(
             moving,
-            sample_2d_dataarray_spatial,
+            sample_3d_dataarray_texture_spatial,
             transform_type="bspline",
             initialization=affine_tx,
+            mesh_size=(2, 2, 2),
+            learning_rate=0.5,
+            number_of_iterations=5,
             resample=True,
         )
         assert isinstance(bspline_tx, xr.DataArray)
-        result = resample_like(moving, sample_2d_dataarray_spatial, bspline_tx)
+        result = resample_like(moving, sample_3d_dataarray_texture_spatial, bspline_tx)
         np.testing.assert_allclose(result.values, resampled_direct.values, atol=1e-5)
 
 
