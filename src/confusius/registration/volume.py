@@ -396,15 +396,15 @@ def register_volume(
 
     Voxel spacing and origin are automatically extracted from the DataArray coordinates.
     Both inputs must be spatial-only (no `time` dimension). Single-slice recordings are
-    supported as 3D volumes with a singleton `z` axis.
+    supported as 3D volumes with a singleton `k` axis.
 
     Parameters
     ----------
     moving : xarray.DataArray
-        Volume to register to `fixed`. Must be a 3D volume with dimensions `z`, `y`, `x`
-        (single-slice recordings use a singleton `z` axis).
+        Volume to register to `fixed`. Must be a 3D volume with dimensions `k`, `j`, `i`
+        (single-slice recordings use a singleton `k` axis).
     fixed : xarray.DataArray
-        Reference volume. Must be a 3D volume with dimensions `z`, `y`, `x`. Need not
+        Reference volume. Must be a 3D volume with dimensions `k`, `j`, `i`. Need not
         have the same shape as `moving`.
         When spatial coordinate `units` metadata is present on both `moving` and
         `fixed`, it must match.
@@ -548,7 +548,7 @@ def register_volume(
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
         returns an `xarray.DataArray` containing the B-spline control-point grid, not a
         dense deformation field. The first dimension is `component` with length 3,
-        followed by spatial dimensions in ConfUSIus order (`("z", "y", "x")`). The
+        followed by spatial dimensions in ConfUSIus order (`("k", "j", "i")`). The
         coordinate values along each spatial axis are
         the world positions of the control points. Attributes include `type =
         "bspline_transform"`, the spline `order`, and the control-grid `direction`
@@ -565,7 +565,7 @@ def register_volume(
     ------
     ValueError
         If either input contains a `time` dimension or does not contain the spatial
-        dimensions `z`, `y`, and `x`.
+        dimensions `k`, `j`, and `i`.
     ValueError
         If `moving` or `fixed` contains NaN values.
     ValueError

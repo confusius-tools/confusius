@@ -2,9 +2,9 @@
 
 A B-spline control-point grid is represented as a DataArray with:
 
-- **dims**: `("component", <spatial dims>)` — e.g. `("component", "z", "y", "x")`.
+- **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
 - **coords**: `component` is labeled by the spatial dim names
-  (e.g. `("z", "y", "x")`), and each spatial axis stores the world mm
+  (e.g. `("k", "j", "i")`), and each spatial axis stores the world mm
   positions of the control-point grid.
 - **attrs**:
 
@@ -403,9 +403,8 @@ def sample_displacement_field_like(
         [`register_volume`][confusius.registration.register_volume].
     reference : xarray.DataArray
         DataArray defining the output grid. Must be a 3D spatial volume (no time
-        dimension) with either dimensions `z`, `y`, `x` or voxel-to-world dimensions
-        `k`, `j`, `i`. When spatial coordinate `units` metadata is present on both
-        `transform` and `reference`, they must match.
+        dimension) with dimensions `k`, `j`, `i`. When spatial coordinate `units`
+        metadata is present on both `transform` and `reference`, they must match.
     sitk_threads : int, default: -1
         Number of threads SimpleITK may use internally. Negative values resolve to
         `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2` means
@@ -420,7 +419,7 @@ def sample_displacement_field_like(
     ------
     ValueError
         If `reference` contains a `time` dimension or does not contain the spatial
-        dimensions `z`, `y`, and `x`.
+        dimensions `k`, `j`, and `i`.
     """
     if "time" in reference.dims:
         raise ValueError(

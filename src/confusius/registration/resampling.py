@@ -244,11 +244,11 @@ def resample_like(
     ----------
     moving : xarray.DataArray
         3D spatial DataArray to resample, or a 3D+t DataArray with a time dimension
-        (single-slice recordings use a singleton `z` axis). If a time dimension is
+        (single-slice recordings use a singleton `k` axis). If a time dimension is
         present, the same transform is applied to all time points.
     reference : xarray.DataArray
         DataArray defining the output grid. Must be a 3D spatial volume with dimensions
-        `z`, `y`, `x` (no time dimension). When spatial coordinate `units` metadata is
+        `k`, `j`, `i` (no time dimension). When spatial coordinate `units` metadata is
         present on both `moving` and `reference`, they must match.
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
@@ -274,9 +274,12 @@ def resample_like(
     default_value : float, optional
         Alias for `fill_value` kept for compatibility with older branch code. If both
         values are provided, `fill_value` takes precedence.
-    sitk_threads : int, default: os.cpu_count() or 1
-        Number of threads SimpleITK may use for the `Resample` call.
-        Defaults to all available CPUs.
+    sitk_threads : int, default: -1
+        Number of threads SimpleITK may use internally. Negative values resolve to
+        `max(1, os.cpu_count() + 1 + sitk_threads)`, so `-1` means all CPUs, `-2`
+        means all minus one, and so on. You may want to set this to a lower value or
+        `1` when running multiple registrations in parallel (e.g. with joblib) to
+        avoid over-subscribing the CPU.
 
     Returns
     -------
@@ -290,7 +293,7 @@ def resample_like(
     ------
     ValueError
         If `reference` contains a `time` dimension or does not contain the spatial
-        dimensions `z`, `y`, and `x`.
+        dimensions `k`, `j`, and `i`.
     """
     if "time" in reference.dims:
         raise ValueError(
