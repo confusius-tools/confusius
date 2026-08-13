@@ -15,10 +15,10 @@ from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReferenc
 from confusius.validation import validate_fusi, validate_iq
 
 _SPATIAL_UNITS = "mm"
-"""World units attached to the `z`, `y`, and `x` coordinates."""
+"""Physical units attached to the `z`, `y`, and `x` coordinates."""
 
 _TIME_UNITS = "s"
-"""World units attached to the `time` coordinate."""
+"""Physical units attached to the `time` coordinate."""
 
 _SPATIAL_TO_VOXEL = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
 """Mapping from public world spatial axis names to native voxel dimension names."""

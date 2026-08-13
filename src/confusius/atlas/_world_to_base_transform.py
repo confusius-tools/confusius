@@ -231,7 +231,7 @@ def _invert_displacement_field_at_points(
     max_iterations : int, default: 20
         Maximum number of fixed-point updates.
     tolerance : float, default: 1e-6
-        Convergence threshold on the maximum point update, in world units.
+        Convergence threshold on the maximum point update, in physical units.
 
     Returns
     -------

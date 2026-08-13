@@ -44,7 +44,7 @@ def test_get_time_coord_to_seconds_factor_warns_for_missing_units() -> None:
 
 
 def test_get_representative_time_step_converts_to_seconds() -> None:
-    """Representative time-step estimation can operate in world units."""
+    """Representative time-step estimation can operate in physical units."""
     data = xr.DataArray(
         np.arange(4),
         dims=("time",),

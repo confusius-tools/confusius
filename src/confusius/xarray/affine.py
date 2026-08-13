@@ -273,7 +273,7 @@ def reindex_voxels_like(
     reference : xarray.DataArray
         DataArray whose voxel labels and affine `data` should adopt.
     atol : float, default: 1e-6
-        Absolute tolerance, in `reference`'s world units, for the world-coordinate
+        Absolute tolerance, in `reference`'s physical units, for the world-coordinate
         alignment check between `data` and `reference`.
 
     Returns

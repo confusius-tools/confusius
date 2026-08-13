@@ -114,7 +114,7 @@ Reading the output from top to bottom, a DataArray has four components:
   calling `.compute()` or accessing `.values`).
 - **Coordinates**: timestamps and world positions, typically in seconds and millimeters.
   The world coordinates `z`, `y`, and `x` are derived from the voxel-to-world geometry
-  and enable `.sel(y=slice(0, 2.5))` to work in world units rather than array indices.
+  and enable `.sel(y=slice(0, 2.5))` to work in physical units rather than array indices.
 - **Attributes**: acquisition metadata as a flat key-value dictionary. Attributes are
   preserved through most ConfUSIus operations, and some are required for certain
   functions (e.g., `transmit_frequency` is needed for velocity calculations).

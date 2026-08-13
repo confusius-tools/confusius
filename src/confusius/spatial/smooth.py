@@ -39,7 +39,7 @@ def smooth_volume(
 ) -> xr.DataArray:
     """Smooth a DataArray spatially using a Gaussian kernel.
 
-    FWHM values are specified in world units and converted to voxel-space sigma
+    FWHM values are specified in physical units and converted to voxel-space sigma
     values using the coordinate spacing of each dimension. Smoothing is only applied to
     dimensions with uniform coordinate spacing.
 
@@ -89,7 +89,7 @@ def smooth_volume(
     $$
 
     where $\\Delta$ is the coordinate spacing for that dimension, in the same
-    world units as `fwhm`.
+    physical units as `fwhm`.
 
     Smoothing is applied via
     [`scipy.ndimage.gaussian_filter`][scipy.ndimage.gaussian_filter] with zero sigma for

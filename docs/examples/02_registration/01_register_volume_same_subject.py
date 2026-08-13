@@ -162,7 +162,7 @@ ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
 _ = ax.set_title(diagnostics.stop_condition)
 
 # %% [markdown]
-# The resulting rigid transform is encoded in world units and can be reused, composed
+# The resulting rigid transform is encoded in physical units and can be reused, composed
 # with other transforms, or applied to additional volumes from the same session with
 # [`resample_volume`][confusius.registration.resample_volume].
 

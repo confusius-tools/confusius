@@ -24,8 +24,8 @@ from confusius._dims import SPATIAL_DIMS, TIME_DIM
 _NAPARI_GENERIC_AXIS = re.compile(r"^axis -?\d+$")
 """Matches napari's default generic axis labels (e.g. 'axis -4', 'axis -3', ...)."""
 
-_NAPARI_NON_WORLD_UNITS = frozenset({"pixel"})
-"""Napari units that indicate the absence of world units."""
+_NAPARI_NON_PHYSICAL_UNITS = frozenset({"pixel"})
+"""Napari units that indicate the absence of physical units."""
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -73,10 +73,10 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     translate: list[float] = list(meta.get("translate") or ([0.0] * ndim))
 
     # Napari may pass pint Unit objects rather than strings. Convert to str and treat
-    # non-world units ('pixel') as absent.
+    # non-physical units ('pixel') as absent.
     raw_units = meta.get("units") or ([None] * ndim)
     units: list[str | None] = [
-        None if u is None or str(u) in _NAPARI_NON_WORLD_UNITS else str(u)
+        None if u is None or str(u) in _NAPARI_NON_PHYSICAL_UNITS else str(u)
         for u in raw_units
     ]
 

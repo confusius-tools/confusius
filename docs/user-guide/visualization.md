@@ -526,9 +526,11 @@ plotter.add_contours(atlas_fusi.annotation)
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-light.png#only-light)
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-dark.png#only-dark)
 
-Coordinate matching is done in world units, matching contour coordinates with those
-of the previously plotted volume. Slices present in the mask but absent from the volume
-are skipped with a warning.
+Coordinate matching is done along the plotter's `slice_mode`: world coordinates
+(`z`/`y`/`x`) when `slice_mode` is a physical dim, or voxel indices (`k`/`j`/`i`) when
+it's a native voxel dim, matching contour coordinates with those of the previously
+plotted volume. Slices present in the mask but absent from the volume are skipped with
+a warning.
 
 ### Contours-only Grid
 

@@ -256,7 +256,7 @@ def resample_like(
         the reference world space to moving world space (pull/inverse convention).
 
         - **Affine** (`numpy.ndarray`): homogeneous matrix whose translation entries
-          are expressed in the same world units as `moving` and `reference`.
+          are expressed in the same physical units as `moving` and `reference`.
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
         - **Displacement field** (`xarray.DataArray`): dense field with `attrs["type"]
           == "displacement_field_transform"`.

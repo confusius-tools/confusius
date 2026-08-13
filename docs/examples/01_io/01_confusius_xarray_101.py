@@ -102,7 +102,7 @@ first_50_volumes
 # %% [markdown]
 # Here we define a region of interest (ROI) in world coordinates. This is often more
 # meaningful than index-based slicing because the bounds are expressed directly in
-# world units (e.g., millimeters) rather than in terms of array indices, which may
+# physical units (e.g., millimeters) rather than in terms of array indices, which may
 # not be as intuitive to interpret.
 
 # %%

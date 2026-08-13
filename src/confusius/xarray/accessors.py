@@ -388,7 +388,7 @@ class FUSIAccessor:
         reference : xarray.DataArray
             DataArray whose voxel labels and affine `self` should adopt.
         atol : float, default: 1e-6
-            Absolute tolerance, in `reference`'s world units, for the
+            Absolute tolerance, in `reference`'s physical units, for the
             world-coordinate alignment check between `self` and `reference`.
 
         Returns
