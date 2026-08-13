@@ -10,7 +10,11 @@ import xarray as xr
 from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
     VoxelToWorldIndex,
+    get_affine_axis_scalings,
+    get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
+    get_voxel_to_world_index_spacing,
+    get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
 )
@@ -331,6 +335,26 @@ def resample_to_axis_aligned_world_grid(
             np.eye(len(world_dims) + 1, dtype=np.float64),
         )
     else:
+        # `data` is oblique here (axis-aligned data already returned above), so
+        # `data.coords[dim]` for a world dim is (k, j, i)-shaped, not 1D. A
+        # representative per-axis spacing therefore can't come from
+        # `np.diff(values)` (which would default to differencing along the last
+        # voxel axis, regardless of which world axis `dim` actually corresponds
+        # to) -- derive it from the affine instead, the same way `.fusi.spacing`
+        # does: world distance between consecutive sampled voxels along the
+        # matching voxel axis, falling back to the affine's per-one-voxel-unit
+        # scale when the voxel-space sampling itself is irregular.
+        voxel_dims = get_voxel_to_world_spatial_dims(data)
+        voxel_to_world_affine = get_voxel_to_world_affine(data)
+        index_spacing = get_voxel_to_world_index_spacing(data)
+        axis_scalings = get_affine_axis_scalings(voxel_to_world_affine, voxel_dims)
+        world_dim_spacing = {
+            world_dim: index_spacing[voxel_dim]
+            if index_spacing[voxel_dim] is not None
+            else axis_scalings[voxel_dim]
+            for world_dim, voxel_dim in zip(world_dims, voxel_dims, strict=True)
+        }
+
         spacing: list[float] = []
         origin: list[float] = []
         shape: list[int] = []
@@ -340,7 +364,7 @@ def resample_to_axis_aligned_world_grid(
             upper = np.float64(np.max(values)).item()
             dim_spacing = data.coords[dim].attrs.get("voxdim")
             if dim_spacing is None:
-                dim_spacing = np.float64(np.median(np.abs(np.diff(values)))).item()
+                dim_spacing = world_dim_spacing[dim]
             dim_spacing = np.float64(dim_spacing).item()
             origin.append(lower)
             spacing.append(dim_spacing)

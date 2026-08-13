@@ -792,9 +792,16 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         assert result.sizes["z"] == 2
         npt.assert_array_equal(result.coords["z"].values, [0.0, 1.0])
 
-    def test_resample_falls_back_to_median_spacing_when_voxdim_missing(self):
+    def test_resample_falls_back_to_affine_derived_spacing_when_voxdim_missing(self):
         """When a world coordinate has no `voxdim` attribute, spacing is derived
-        from the median difference between coordinate values instead of raising.
+        from the voxel-to-world affine instead of raising.
+
+        `z` and `y` here depend only on the `k`/`j` voxel axes, never on the
+        trailing `i` axis -- so a fallback that differenced the materialized
+        (k, j, i)-shaped world-coordinate array along its last axis (the default
+        `numpy.diff` behaviour) would see zero variation and divide by zero
+        downstream. Assert the exact spacing values (matching `.fusi.spacing`),
+        not just that resampling doesn't crash.
         """
         from confusius.plotting._utils import resample_to_axis_aligned_world_grid
 
@@ -803,13 +810,11 @@ class TestPlottingUtilsVoxelToWorldHelpers:
             dims=["k", "j", "i"],
             coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
         )
-        # Every world axis varies along the trailing (i) dimension so the
-        # median-of-diff fallback (computed along the last axis) is non-zero.
         voxel_to_world = np.array(
             [
-                [0.4, 0.05, 0.1, 10.0],
-                [0.1, 0.3, 0.05, 20.0],
-                [0.05, 0.05, 0.25, 30.0],
+                [0.4, 0.1, 0.0, 10.0],
+                [0.2, 0.3, 0.0, 20.0],
+                [0.0, 0.0, 0.25, 30.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
@@ -819,16 +824,17 @@ class TestPlottingUtilsVoxelToWorldHelpers:
             voxel_dims=("k", "j", "i"),
             world_coord_names=("z", "y", "x"),
         )
-        # attach_voxel_to_world_index auto-populates "voxdim"; strip it so
-        # the spacing fallback (median coordinate difference) is exercised.
+        # attach_voxel_to_world_index auto-populates "voxdim"; strip it so the
+        # affine-derived spacing fallback is actually exercised.
         for dim in ("z", "y", "x"):
             data.coords[dim].attrs.pop("voxdim", None)
 
         result = resample_to_axis_aligned_world_grid(data)
 
-        for dim in ("z", "y", "x"):
+        expected_spacing = data.fusi.spacing
+        for dim, voxel_dim in zip(("z", "y", "x"), ("k", "j", "i"), strict=True):
             spacing = float(np.diff(result.coords[dim].values)[0])
-            assert spacing > 0.0
+            assert spacing == pytest.approx(expected_spacing[voxel_dim])
 
 
 class TestVolumePlotterAddVolume:
