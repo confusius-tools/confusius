@@ -225,7 +225,7 @@ class TestConsolidatePoses:
     def test_sweep_dim_outside_voxel_dims_raises(self, scan_3d: xr.DataArray) -> None:
         """consolidate_poses rejects a sweep_dim that is a real dim but not a voxel dim.
 
-        `scan_3d` has voxel-to-world (CTI) geometry over `k`/`j`/`i`. Adding an extra
+        `scan_3d` has a voxel-to-world index over `k`/`j`/`i`. Adding an extra
         dimension `w` makes it pass the initial "is sweep_dim one of da's non-time/
         non-pose dims" check (since `w` is such a dim), but `w` is absent from the
         voxel-to-world geometry's own voxel dims, so the has_voxel_to_world_index branch
@@ -333,7 +333,7 @@ class TestConsolidatePoses:
 
         With only one voxel along an output spatial dimension, there is no pair of
         consecutive positions from which to infer spacing via `numpy.diff`, so
-        the output CTI construction must fall back to the coordinate's own
+        the output voxel-to-world index construction must fall back to the coordinate's own
         `voxdim` attribute instead.
         """
         npose = 3

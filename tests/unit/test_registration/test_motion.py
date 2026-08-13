@@ -245,7 +245,7 @@ class TestComputeFramewiseDisplacement:
 
         Transposing a *non-cubic* reference makes the voxel-to-world world
         coordinates' materialized `.values` shape disagree with `reference.shape`
-        (a quirk of the CTI-backed lazy coordinates), which is what routes
+        (a quirk of the voxel-to-world-index-backed lazy coordinates), which is what routes
         `compute_framewise_displacement` through its `numpy.meshgrid` fallback
         instead of the fast-path direct `.ravel()` stacking. A cubic reference
         would not exercise this: its transposed shape happens to equal its

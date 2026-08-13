@@ -139,10 +139,11 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     # *named* k/j/i, independent of its world axis position, and transposes to
     # canonical order internally. So swapping the k/j *labels* on the still-raw
     # array is enough; the underlying values never need to move. (Avoid
-    # `.transpose().rename()` on the already-CTI-backed array instead, which hits
-    # an upstream xarray bug: CoordinateTransformIndexingAdapter.shape ignores the
-    # adapter's own transposed dim order and returns the untransposed transform's
-    # shape, desyncing dims from shape.)
+    # `.transpose().rename()` on the already voxel-to-world-index-backed array
+    # instead, which hits an upstream xarray bug:
+    # CoordinateTransformIndexingAdapter.shape ignores the adapter's own transposed
+    # dim order and returns the untransposed transform's shape, desyncing dims from
+    # shape.)
     relabeled_dims = tuple({"k": "j", "j": "k"}.get(dim, dim) for dim in da.dims)
 
     # `voxel_to_world`'s columns still need the matching k/j swap, so that column 0
@@ -164,7 +165,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     # 2. Apply the `world_to_qform` affine to the coordinates to have metric
     #    coordinates. This is the affine that settles which world row (z/y/x) each
     #    voxel column ends up mapping to, so it is applied in full (rotation
-    #    included) -- CTI voxel-to-world geometry can represent rotations exactly,
+    #    included) -- the voxel-to-world index can represent rotations exactly,
     #    unlike a plain z/y/x DataArray's independent 1D coordinates.
     da.fusi.affine.apply(da.affines["world_to_qform"], inplace=True)
 

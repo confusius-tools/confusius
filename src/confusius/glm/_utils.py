@@ -390,8 +390,8 @@ def to_spatial_dataarray(
     name : str
         Value for the `long_name` DataArray attribute.
     voxel_to_world : numpy.typing.ArrayLike, optional
-        Homogeneous voxel-to-world affine to reattach as proper voxel-to-world (CTI)
-        geometry. World coordinates cannot be carried over as plain values (unlike
+        Homogeneous voxel-to-world affine to reattach as a proper voxel-to-world
+        index. World coordinates cannot be carried over as plain values (unlike
         `coords`) because they are backed by a custom `VoxelToWorldIndex` that a bare
         coordinate assignment does not reconstruct. If not provided, no voxel-to-world
         geometry is attached.

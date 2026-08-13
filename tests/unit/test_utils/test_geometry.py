@@ -498,7 +498,7 @@ def test_add_world_coords_validates_voxel_dims_and_coordinates() -> None:
 
 
 def test_get_voxel_to_world_affine_raises_without_voxel_to_world_geometry() -> None:
-    """`get_voxel_to_world_affine` raises for a DataArray without CTI geometry."""
+    """`get_voxel_to_world_affine` raises for a DataArray without a voxel-to-world index."""
     data = xr.DataArray(np.zeros((3, 4)), dims=("y", "x"))
 
     with pytest.raises(ValueError, match="must have a voxel-to-world index"):

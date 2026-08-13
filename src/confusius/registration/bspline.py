@@ -40,9 +40,9 @@ leading `component` dimension:
   carries its native voxel index, and the derived world `z`/`y`/`x` coordinates
   give the world mm position of every voxel.
 - **attrs**: `{"type": "displacement_field_transform"}`. The voxel-to-world affine
-  lives on the coordinate index (like any other CTI-backed DataArray), not in
-  `attrs`; orientation is folded into it rather than stored separately, and can be
-  recovered with `.fusi.direction`.
+  lives on the coordinate index (like any other voxel-to-world-index-backed
+  DataArray), not in `attrs`; orientation is folded into it rather than stored
+  separately, and can be recovered with `.fusi.direction`.
 
 Unlike the sparse B-spline coefficient lattice, a displacement field stores one
 displacement vector per voxel of an explicit grid. It is produced by sampling a B-spline

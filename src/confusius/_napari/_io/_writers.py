@@ -111,10 +111,10 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
             )
         )
 
-    # Voxel-to-world (CTI) geometry requires at least 2 active voxel dims; a single
+    # A voxel-to-world index requires at least 2 active voxel dims; a single
     # recognized world dim (e.g. a 1D napari labels layer) falls back to a plain
     # coordinate below, matching validate_fusi's minimum_spatial_dims invariant.
-    build_cti = sum(1 for spec in axis_specs if spec[1]) >= 2
+    build_voxel_to_world_index = sum(1 for spec in axis_specs if spec[1]) >= 2
 
     result_dims: list[str] = []
     coords: dict[str, xr.DataArray] = {}
@@ -125,7 +125,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     world_attrs: dict[str, dict[str, Any]] = {}
 
     for result_dim, world_name, n, axis_scale, axis_translate, attrs in axis_specs:
-        if world_name and build_cti:
+        if world_name and build_voxel_to_world_index:
             result_dims.append(result_dim)
             coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
             voxel_dims.append(result_dim)

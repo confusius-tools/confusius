@@ -133,8 +133,9 @@ class VoxelToWorldIndex(Index):
     per-axis selection (slices, single labels, independent per-axis queries) directly
     against the joint transform's diagonal — rather than delegating to
     `xarray.indexes.CoordinateTransformIndex.sel`, which only supports `nearest`,
-    point-wise, all-axes-at-once queries. That's what a plain (non-CTI) coordinate
-    would offer, and it's what most axis-aligned fUSI data (the common case) expects.
+    point-wise, all-axes-at-once queries. That's what a plain, non-index-backed
+    coordinate would offer, and it's what most axis-aligned fUSI data (the common
+    case) expects.
 
     Parameters
     ----------

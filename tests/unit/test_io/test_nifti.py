@@ -976,7 +976,7 @@ class TestLoadNifti:
     def test_load_nifti_rotated_affine_voxel_to_world(self, tmp_path: Path) -> None:
         """A rotated sform composes fully into `voxel_to_world` (no decomposition).
 
-        CTI voxel-to-world geometry represents rotations exactly, so the sform's 90°
+        The voxel-to-world index represents rotations exactly, so the sform's 90°
         rotation (mapping voxel x->world y, voxel y->world -x) is not dropped into
         a residual "world_to_sform" entry -- it lands directly in
         `voxel_to_world`. Sform is primary here (with no valid qform), so it has no
@@ -1825,8 +1825,8 @@ class TestSaveNifti:
         """Regular negative spatial coords round-trip through the NIfTI affine.
 
         `voxdim` itself is unsigned magnitude (matching `get_affine_axis_scalings`'s
-        convention used everywhere else in CTI geometry) -- the sign lives in the
-        direction matrix / affine entries, not in `voxdim`.
+        convention used everywhere else with the voxel-to-world index) -- the sign
+        lives in the direction matrix / affine entries, not in `voxdim`.
         """
         da = create_fusi_dataarray(
             np.zeros((2, 3, 4), dtype=np.float32),

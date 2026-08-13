@@ -93,7 +93,7 @@ def test_matches_brute_force_reference_with_voxel_to_world_geometry(rng):
     `decoding_volume`/`full_mask` use plain z/y/x dims with 1D coordinates, which
     only exercises `_get_masked_coordinates`'s non-voxel-to-world fallback. A mask
     built through `create_fusi_dataarray` instead carries native k/j/i voxel
-    dimensions with CTI-backed z/y/x world coordinates, exercising the
+    dimensions with voxel-to-world-index-backed z/y/x world coordinates, exercising the
     voxel-to-world branch. The reference here is built from those world
     coordinates, not the raw k/j/i voxel indices `mask.dims` carries: if
     `_get_masked_coordinates` silently fell back to voxel indices, this would

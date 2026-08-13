@@ -416,7 +416,7 @@ def _create_spatial_coords_from_nifti(
             primary_prefix = "sform" if sform_valid else "qform"
         secondary_prefix = "qform" if primary_prefix == "sform" else "sform"
 
-        # CTI voxel-to-world geometry represents the full primary affine (any
+        # The voxel-to-world index represents the full primary affine (any
         # rotation/shear included) exactly, so it becomes `voxel_to_world`
         # directly -- no axis-aligned-only decomposition, and no separate rotation
         # residual to store for the primary form (unlike the old z/y/x model,
