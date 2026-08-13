@@ -223,17 +223,38 @@ def _normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sum(a0 * b0) / denom)
 
 
+def _axis_values(data, coord_name: str) -> np.ndarray:
+    """Return axis coordinate values for a voxel-affine world coordinate."""
+    coord = data.coords[coord_name]
+    if coord.ndim == 1:
+        return np.asarray(coord.values, dtype=float)
+    voxel_dim = {"z": "k", "y": "j", "x": "i"}[coord_name]
+    indexers = {dim: 0 for dim in coord.dims if dim != voxel_dim}
+    return np.asarray(coord.isel(indexers).values, dtype=float)
+
+
+def _isel_axis(data, coord_name: str, index: int):
+    """Select by dense position along a voxel-affine world coordinate."""
+    dim = (
+        coord_name
+        if coord_name in data.dims
+        else {"z": "k", "y": "j", "x": "i"}[coord_name]
+    )
+    return data.isel({dim: index})
+
+
 def _best_matching_z_coordinate(reference_2d, volume_3d) -> float:
     """Find the z coordinate in `volume_3d` best matching `reference_2d`."""
+    z_values = _axis_values(volume_3d, "z")
     scores = [
         _normalized_correlation(
             np.asarray(reference_2d.values),
-            np.asarray(volume_3d.isel(z=i).values),
+            np.asarray(_isel_axis(volume_3d, "z", i).values),
         )
-        for i in range(volume_3d.sizes["z"])
+        for i in range(z_values.size)
     ]
     best_idx = int(np.argmax(scores))
-    return float(volume_3d["z"].values[best_idx])
+    return float(z_values[best_idx])
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +311,7 @@ if not structure_tree_csv.exists():
     )
 
 atlas_mask = cf.load(atlas_path).compute().round().astype(np.int32)
-target_z = _best_matching_z_coordinate(_mean_display.isel(z=0), angio)
+target_z = _best_matching_z_coordinate(_isel_axis(_mean_display, "z", 0), angio)
 atlas_slice = atlas_mask.sel(z=[target_z], method="nearest")
 
 atlas_labels = np.unique(np.asarray(atlas_mask.values))
@@ -318,7 +339,7 @@ GUI_POINT_LEFT = np.array([0.0, left_y, left_x])
 GUI_POINT_RIGHT = np.array([0.0, right_y, right_x])
 console.print(
     "  Using atlas z="
-    f"{float(atlas_slice['z'].values[0]):.3f} "
+    f"{atlas_slice.fusi.origin['z']:.3f} "
     f"for acq-slice{_SLICE_INDEX:02d} {_ROI_STRUCTURE_NAME} ROIs "
     f"({len(GUI_LABEL_IDS)} labels)"
 )
@@ -1170,7 +1191,7 @@ try:
 
     # --- Labels layer aligned to the fUSI spatial axes, two painted regions. ---
     da_meta9 = fusi9.metadata["xarray"]
-    spatial9 = [i for i, d in enumerate(da_meta9.dims) if d in ("pose", "z", "y", "x")]
+    spatial9 = [i for i, d in enumerate(da_meta9.dims) if d != "time"]
     spatial_shape9 = tuple(da_meta9.shape[i] for i in spatial9)
     spatial_scale9 = tuple(float(fusi9.scale[i]) for i in spatial9)
     spatial_translate9 = tuple(float(fusi9.translate[i]) for i in spatial9)

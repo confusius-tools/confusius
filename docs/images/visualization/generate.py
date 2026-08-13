@@ -245,17 +245,38 @@ def _normalized_correlation(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.sum(a0 * b0) / denom)
 
 
+def _axis_values(data, coord_name: str) -> np.ndarray:
+    """Return axis coordinate values for a voxel-affine world coordinate."""
+    coord = data.coords[coord_name]
+    if coord.ndim == 1:
+        return np.asarray(coord.values, dtype=float)
+    voxel_dim = {"z": "k", "y": "j", "x": "i"}[coord_name]
+    indexers = {dim: 0 for dim in coord.dims if dim != voxel_dim}
+    return np.asarray(coord.isel(indexers).values, dtype=float)
+
+
+def _isel_axis(data, coord_name: str, index: int):
+    """Select by dense position along a voxel-affine world coordinate."""
+    dim = (
+        coord_name
+        if coord_name in data.dims
+        else {"z": "k", "y": "j", "x": "i"}[coord_name]
+    )
+    return data.isel({dim: index})
+
+
 def _best_matching_z_coordinate(reference_2d, volume_3d) -> float:
     """Find the z coordinate in `volume_3d` best matching `reference_2d`."""
+    z_values = _axis_values(volume_3d, "z")
     scores = [
         _normalized_correlation(
             np.asarray(reference_2d.values),
-            np.asarray(volume_3d.isel(z=i).values),
+            np.asarray(_isel_axis(volume_3d, "z", i).values),
         )
-        for i in range(volume_3d.sizes["z"])
+        for i in range(z_values.size)
     ]
     best_idx = int(np.argmax(scores))
-    return float(volume_3d["z"].values[best_idx])
+    return float(z_values[best_idx])
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +318,7 @@ console.print("Loading angiography (3D volume)")
 vol_3d = cf.load(_ANGIO_PATH).compute()
 vol_3d_name = "Angiography"
 console.print(f"  {vol_3d.dims}, shape {dict(vol_3d.sizes)}")
-_z_values = np.asarray(vol_3d["z"].values, dtype=float)
+_z_values = _axis_values(vol_3d, "z")
 if _z_values.size >= 5:
     _margin_idx = max(1, int(round(0.12 * (_z_values.size - 1))))
     _z_start = float(_z_values[_margin_idx])
@@ -341,28 +362,32 @@ if atlas_mask_path is not None:
     console.print("Loading atlas mask")
     atlas_mask = cf.load(atlas_mask_path).compute()
 
-    if "z" in atlas_mask.dims and "z" in mean_vol.dims:
-        if atlas_mask.sizes["z"] != mean_vol.sizes["z"]:
-            if mean_vol.sizes["z"] == 1 and vol_3d.sizes.get("z", 0) > 1:
-                target_z = _best_matching_z_coordinate(mean_vol.isel(z=0), vol_3d)
-                source_z = float(
-                    atlas_mask["z"].sel(z=target_z, method="nearest").item()
+    if "z" in atlas_mask.coords and "z" in mean_vol.coords:
+        if _axis_values(atlas_mask, "z").size != _axis_values(mean_vol, "z").size:
+            if (
+                _axis_values(mean_vol, "z").size == 1
+                and _axis_values(vol_3d, "z").size > 1
+            ):
+                target_z = _best_matching_z_coordinate(
+                    _isel_axis(mean_vol, "z", 0), vol_3d
                 )
                 atlas_mask = atlas_mask.sel(z=[target_z], method="nearest")
-                atlas_mask = atlas_mask.assign_coords(z=mean_vol["z"])
+                source_z = atlas_mask.fusi.origin["z"]
+                atlas_mask = mean_vol.copy(data=np.asarray(atlas_mask.data))
                 console.print(
                     "  Matched atlas slice by image similarity: "
-                    f"run z={float(mean_vol['z'].item()):.3f} -> atlas z={source_z:.3f}."
+                    f"run z={float(mean_vol['z'].mean()):.3f} -> atlas z={source_z:.3f}."
                 )
             else:
                 source_z = np.asarray(
                     atlas_mask["z"].sel(z=mean_vol["z"], method="nearest").values
                 )
                 atlas_mask = atlas_mask.sel(z=mean_vol["z"], method="nearest")
-                atlas_mask = atlas_mask.assign_coords(z=mean_vol["z"])
+                if atlas_mask.shape == mean_vol.shape:
+                    atlas_mask = mean_vol.copy(data=np.asarray(atlas_mask.data))
                 console.print(
                     "  Matched atlas z slice(s) "
-                    f"{source_z.tolist()} to fUSI z {np.asarray(mean_vol['z'].values).tolist()}."
+                    f"{np.unique(source_z).tolist()} to fUSI z {np.unique(np.asarray(mean_vol['z'].values)).tolist()}."
                 )
 
     atlas_mask = atlas_mask.round().astype(np.int32)
@@ -498,7 +523,7 @@ try:
         colormap="gray",
         contrast_limits=_ANGIO_DB_LIMITS,
         name=vol_3d_name,
-        dim_order=("z", "y", "x"),
+        dim_order=("k", "j", "i"),
     )
     viewer_orbit.dims.ndisplay = 3
 
@@ -650,7 +675,7 @@ _ANGIO_PATH_2 = (
 vol_3d_2 = cf.load(_ANGIO_PATH_2).compute()
 # Every third elevation slice keeps the figure compact while still showing the
 # anatomical depth range.
-composite_slices = list(np.asarray(vol_3d["z"].values, dtype=float)[::3][:-1])
+composite_slices = list(_axis_values(vol_3d, "z")[::3][:-1])
 
 for bg_color, suffix in [("white", "light"), ("black", "dark")]:
     plotter_composite = vol_3d.fusi.plot.composite(
