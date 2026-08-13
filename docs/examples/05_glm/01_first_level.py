@@ -217,8 +217,6 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
 # %%
 fusi_list = [_load_and_prepare_fusi(pwd_path) for pwd_path in pwd_paths]
 
-fusi_list[0].mean("time").fusi.plot.volume(slice_mode="z", show_axes=False).show()
-
 # %% [markdown]
 # Averaging each run over time and then across runs gives a single, high-SNR
 # power-Doppler volume. This averaged image carries no task information, but it is a
@@ -248,12 +246,12 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 # transform we estimate maps the recording directly to the atlas space, with no further
 # composition needed.
 #
-# The registration itself is the single `transform` affine. We initialize the
-# registration from a coarse manual alignment (`napari_transform`) that we previously
-# obtained using [napari's manual transform
-# tool](https://napari.org/stable/howtos/layers/image.html#buttons).
-# The call returns the resampled moving image, the estimated transform, and a
-# diagnostics object; here we only keep the transform.
+# The registration itself gives us the transform between template and average fUSI
+# image. We initialize the registration from a coarse manual alignment
+# (`napari_transform`) that we previously obtained using [napari's manual transform
+# tool](https://napari.org/stable/howtos/layers/image.html#buttons). The call returns
+# the resampled moving image, the estimated transform, and a diagnostics object; here we
+# only keep the transform.
 #
 # !!! note
 #     Registration results are sensitive to their arguments. See the
@@ -261,29 +259,22 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 #     for guidance on inspecting convergence and tuning the optimizer.
 
 # %%
-atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
-resampled_template = cf.registration.resample_like(
-    template_pepe_mariani,
-    atlas.reference,
-    np.linalg.inv(template_pepe_mariani.affines["physical_to_sform"]),
-)
-
+# Copied and pasted transform after manual transformation in napari.
 napari_transform = np.array(
     [
-        [1.0, 0.0, 0.0, -22.192993148810338],
-        [0.0, 1.0, 0.0, -42.348147264866085],
-        [0.0, 0.0, 1.0, -6.372680321602125],
+        [7.96845195e-01, 1.42854004e-01, -3.83286557e-04, 2.48554433e01],
+        [-1.12364739e-01, 8.50118815e-01, -7.18591162e-05, 3.43594205e01],
+        [3.26392590e-04, 3.23725114e-04, 1.00007398e00, 6.61602528e00],
         [0.0, 0.0, 0.0, 1.0],
     ]
 )
 
-_, transform, _ = cf.registration.register_volume(
-    average_fusi.isel(k=slice(10, -10)),
-    template_pepe_mariani.isel(k=slice(10, -10)).fusi.scale.db(),
+_, template_to_fusi_transform, _ = cf.registration.register_volume(
+    average_fusi,
+    template_pepe_mariani,
     transform_type="affine",
     learning_rate="auto",
-    initialization=napari_transform,
-    show_progress=True,
+    initialization=np.linalg.inv(napari_transform),
 )
 
 # %% [markdown]
@@ -295,21 +286,19 @@ _, transform, _ = cf.registration.register_volume(
 # GLM input).
 
 # %%
-average_fusi.affines["physical_to_sform"] = np.linalg.inv(transform)
+atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
+atlas_to_fusi_transform = template_to_fusi_transform @ np.linalg.inv(
+    template_pepe_mariani.affines["physical_to_sform"]
+)
 
 resampled_average_in_atlas = cf.registration.resample_like(
-    average_fusi,
-    atlas.annotation,
-    np.linalg.inv(average_fusi.affines["physical_to_sform"]),
+    average_fusi, atlas.annotation, atlas_to_fusi_transform
 )
 
 resampled_fusi_list = []
 for fusi in fusi_list:
-    fusi.affines["physical_to_sform"] = average_fusi.affines["physical_to_sform"]
     resampled_fusi = cf.registration.resample_like(
-        fusi,
-        atlas.annotation,
-        np.linalg.inv(fusi.affines["physical_to_sform"]),
+        fusi, atlas.annotation, atlas_to_fusi_transform
     )
     resampled_fusi_list.append(resampled_fusi)
 
@@ -374,7 +363,7 @@ confounds = [
 
 # %%
 glm = cf.glm.FirstLevelModel(
-    smoothing_fwhm={"k": 0.3, "j": 0.3, "i": 0.3},
+    smoothing_fwhm=0.3,
     hrf_model=modified_claron2021,
     drift_model="cosine",
     low_cutoff=0.01,
@@ -419,7 +408,6 @@ _ = cf.plotting.plot_design_matrix(
 # nuisance columns.
 
 # %%
-
 _ = cf.plotting.plot_contrast_matrix(
     "active", design_matrix, cmap="coolwarm", bg_color=bg_color
 )
@@ -436,17 +424,16 @@ z_1d = resampled_average_in_atlas.z.isel(j=0, i=0).values
 slice_coords = z_1d[(z_1d > 5.5) & (z_1d < 9)][::4]
 
 cmap = "berlin" if is_dark_theme else None
-vmax = 10
-fig = cf.plotting.plot_stat_map(
+plotter = cf.plotting.plot_stat_map(
     z_score,
     slice_coords=slice_coords,
     nrows=3,
-    vmax=vmax,
+    vmax=10,
     bg_color=bg_color,
     cmap=cmap,
     fontsize=20,
 )
-_ = fig.add_contours(
+_ = plotter.add_contours(
     atlas.annotation,
     linewidths=0.6,
     slice_coords=slice_coords,
@@ -508,8 +495,7 @@ adjusted_p_values = cf.stats.adjust_pvalues(
 # anatomical context.
 
 # %% tags=["thumbnail"]
-
-fig = cf.plotting.plot_stat_map(
+plotter = cf.plotting.plot_stat_map(
     z_score,
     bg_volume=resampled_average_in_atlas.fusi.scale.db(),
     slice_coords=slice_coords,
@@ -520,7 +506,7 @@ fig = cf.plotting.plot_stat_map(
     cmap=cmap,
     fontsize=20,
 )
-_ = fig.add_contours(
+_ = plotter.add_contours(
     atlas.annotation,
     linewidths=0.6,
     slice_coords=slice_coords,
