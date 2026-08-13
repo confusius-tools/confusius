@@ -54,7 +54,7 @@ Attributes:
     species:           Mus musculus
     orientation:       asr
     structures:        root (997) ...
-    physical_to_base:  [[1. 0. 0. 0.] ...
+    world_to_base:  [[1. 0. 0. 0.] ...
 ```
 
 Coordinates are in millimeters, so an atlas plots and registers against fUSI recordings
@@ -185,7 +185,7 @@ plotter.add_contours(atlas.atlas.annotation.sel(z=slice(6, 6)))
 
 Many BrainGlobe atlases bundle a triangular surface mesh per region.
 [`get_mesh`][confusius.atlas.AtlasAccessor.get_mesh] returns the mesh as a `(vertices,
-faces)` pair in the atlas's physical space (millimeters), ready to hand to any 3D viewer.
+faces)` pair in the atlas's world space (millimeters), ready to hand to any 3D viewer.
 napari's `add_surface` takes exactly that pair:
 
 ```python
@@ -198,7 +198,7 @@ napari.Viewer(ndisplay=3).add_surface(surface_data)
 ![Whole-brain surface mesh of the Allen mouse atlas in napari](../images/atlas/atlas-mesh-root.png)
 
 Pass `side="left"` or `side="right"` to clip the mesh to one hemisphere. Because meshes
-come back in the atlas's current physical space, they stay aligned with the volumes after
+come back in the atlas's current world space, they stay aligned with the volumes after
 a resample (see below).
 
 ## Masks for Regional Analysis

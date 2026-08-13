@@ -72,7 +72,7 @@ def test_validate_fusi_dataarray_rejects_non_dataarray() -> None:
         validate_fusi_dataarray(bad_data)
 
 
-def test_validate_fusi_dataarray_rejects_plain_physical_grid() -> None:
+def test_validate_fusi_dataarray_rejects_plain_world_grid() -> None:
     """Plain z/y/x dimension arrays are not valid fUSI data."""
     data = xr.DataArray(
         np.zeros((2, 3, 4), dtype=np.float32),
@@ -84,8 +84,8 @@ def test_validate_fusi_dataarray_rejects_plain_physical_grid() -> None:
         validate_fusi_dataarray(data)
 
 
-def test_validate_fusi_dataarray_rejects_voxel_affine_missing_physical_coord() -> None:
-    """Voxel-to-physical geometry requires linked physical coordinates."""
+def test_validate_fusi_dataarray_rejects_voxel_affine_missing_world_coord() -> None:
+    """Voxel-to-world geometry requires linked world coordinates."""
     good = _make_voxel_affine_volume()
     bad = xr.DataArray(
         good.values,

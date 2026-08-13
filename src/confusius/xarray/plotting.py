@@ -99,7 +99,7 @@ class FUSIPlotAccessor:
         Notes
         -----
         If all spatial dimensions have coordinates, their spacing is used as the scale
-        parameter for napari to ensure correct physical scaling. If any spatial dimension
+        parameter for napari to ensure correct world scaling. If any spatial dimension
         is missing coordinates, no scaling is applied. The spacing is computed as the
         median difference between consecutive coordinate values.
 

@@ -15,16 +15,16 @@ from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReferenc
 from confusius.validation import validate_fusi, validate_iq
 
 _SPATIAL_UNITS = "mm"
-"""Physical units attached to the `z`, `y`, and `x` coordinates."""
+"""World units attached to the `z`, `y`, and `x` coordinates."""
 
 _TIME_UNITS = "s"
-"""Physical units attached to the `time` coordinate."""
+"""World units attached to the `time` coordinate."""
 
 _SPATIAL_TO_VOXEL = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
-"""Mapping from public physical spatial axis names to native voxel dimension names."""
+"""Mapping from public world spatial axis names to native voxel dimension names."""
 
 _VOXEL_TO_SPATIAL = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
-"""Mapping from native voxel dimension names to physical spatial coordinate names."""
+"""Mapping from native voxel dimension names to world spatial coordinate names."""
 
 
 def _require_positive_finite(
@@ -276,7 +276,7 @@ def _coordinate_dataarray(
 
 
 def _spatial_geometry(
-    physical_dim: str,
+    world_dim: str,
     voxel_dim: str,
     size: int,
     *,
@@ -284,12 +284,12 @@ def _spatial_geometry(
     spacing: float | None,
     origin: float | None,
 ) -> tuple[xr.DataArray, float, float, dict[str, Any]]:
-    """Build a voxel coordinate and physical affine parameters for one axis.
+    """Build a voxel coordinate and world affine parameters for one axis.
 
     Parameters
     ----------
-    physical_dim : str
-        Physical coordinate name (`z`, `y`, or `x`).
+    world_dim : str
+        World coordinate name (`z`, `y`, or `x`).
     voxel_dim : str
         Native voxel dimension name (`k`, `j`, or `i`).
     size : int
@@ -297,22 +297,22 @@ def _spatial_geometry(
     coords : mapping[str, numpy.typing.ArrayLike or xarray.DataArray]
         Explicit coordinate mapping.
     spacing : float, optional
-        Physical spacing for the axis.
+        World spacing for the axis.
     origin : float, optional
-        Physical position of the first voxel's center. If not provided, defaults to
-        the ConfUSIus convention for `physical_dim`: probe-centered (symmetric around
+        World position of the first voxel's center. If not provided, defaults to
+        the ConfUSIus convention for `world_dim`: probe-centered (symmetric around
         zero) for `z`/`x`, or a half-voxel past the probe surface at `y=0` for `y`.
 
     Returns
     -------
     voxel_coord : xarray.DataArray
         Native voxel-space dimension coordinate.
-    physical_origin : float
-        Physical coordinate origin.
-    physical_spacing : float
-        Physical coordinate spacing per voxel index.
-    physical_attrs : dict[str, Any]
-        Attributes for the derived physical coordinate.
+    world_origin : float
+        World coordinate origin.
+    world_spacing : float
+        World coordinate spacing per voxel index.
+    world_attrs : dict[str, Any]
+        Attributes for the derived world coordinate.
 
     Raises
     ------
@@ -327,44 +327,44 @@ def _spatial_geometry(
         voxel_values, voxel_attrs = voxel_explicit
         _validate_coordinate_shape(voxel_dim, voxel_values, size)
 
-    physical_explicit = _coordinate_values_and_attrs(physical_dim, coords)
-    if physical_explicit is None:
-        physical_spacing = _require_spacing(physical_dim, spacing)
+    world_explicit = _coordinate_values_and_attrs(world_dim, coords)
+    if world_explicit is None:
+        world_spacing = _require_spacing(world_dim, spacing)
         if origin is not None:
-            physical_origin = origin
-        elif physical_dim == "y":
+            world_origin = origin
+        elif world_dim == "y":
             # Depth is probe-surface-referenced: the surface sits at y=0, so the
             # first voxel's center is half a voxel past it.
-            physical_origin = physical_spacing / 2
+            world_origin = world_spacing / 2
         else:
             # Elevation (z) and lateral (x) are probe-centered: the voxel grid is
             # symmetric around zero.
-            physical_origin = -physical_spacing * (size - 1) / 2
-        physical_attrs: dict[str, Any] = {}
+            world_origin = -world_spacing * (size - 1) / 2
+        world_attrs: dict[str, Any] = {}
     else:
-        physical_values, physical_attrs = physical_explicit
-        _validate_coordinate_shape(physical_dim, physical_values, size)
-        step = _regular_step(physical_values)
+        world_values, world_attrs = world_explicit
+        _validate_coordinate_shape(world_dim, world_values, size)
+        step = _regular_step(world_values)
         if step is None:
             step = spacing
-        if step is None and "voxdim" in physical_attrs:
-            physical_spacing = _require_positive_finite(
-                physical_attrs["voxdim"], f"voxdim for dimension {physical_dim!r}"
+        if step is None and "voxdim" in world_attrs:
+            world_spacing = _require_positive_finite(
+                world_attrs["voxdim"], f"voxdim for dimension {world_dim!r}"
             )
         else:
-            physical_spacing = _require_spacing(physical_dim, step)
-        physical_origin = float(physical_values[0])
+            world_spacing = _require_spacing(world_dim, step)
+        world_origin = float(world_values[0])
 
-    physical_attrs.setdefault("units", _SPATIAL_UNITS)
-    physical_attrs["voxdim"] = _require_positive_finite(
-        physical_attrs.get("voxdim", physical_spacing),
-        f"voxdim for dimension {physical_dim!r}",
+    world_attrs.setdefault("units", _SPATIAL_UNITS)
+    world_attrs["voxdim"] = _require_positive_finite(
+        world_attrs.get("voxdim", world_spacing),
+        f"voxdim for dimension {world_dim!r}",
     )
     return (
         xr.DataArray(voxel_values, dims=(voxel_dim,), attrs=voxel_attrs),
-        physical_origin,
-        physical_spacing,
-        physical_attrs,
+        world_origin,
+        world_spacing,
+        world_attrs,
     )
 
 
@@ -665,7 +665,7 @@ def create_fusi_dataarray(
         for dim in VOXEL_DIMS
         if dim in data_dims
     }
-    physical_attrs = {
+    world_attrs = {
         dim: {"units": _SPATIAL_UNITS, "voxdim": value}
         for dim, value in zip(SPATIAL_DIMS, resolved_voxdim, strict=True)
     }
@@ -699,7 +699,7 @@ def create_fusi_dataarray(
         index_affine,
         voxel_dims=present_voxel_dims,
         world_coord_names=present_world_names,
-        world_coord_attrs={name: physical_attrs[name] for name in present_world_names},
+        world_coord_attrs={name: world_attrs[name] for name in present_world_names},
     )
 
     extra_dims = [dim for dim in result.dims if dim not in CORE_DIMS]

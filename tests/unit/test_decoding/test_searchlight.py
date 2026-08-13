@@ -176,18 +176,18 @@ def test_scores_geometry_and_metadata(decoding_volume, full_mask, rng):
 
 
 def test_scores_preserve_input_attrs_and_affines(decoding_volume, full_mask, rng):
-    """`scores_` keeps the input's attrs, notably affines, so it stays in physical space."""
+    """`scores_` keeps the input's attrs, notably affines, so it stays in world space."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
     affine = np.diag([0.2, 0.2, 1.0, 1.0])
     data = decoding_volume.copy()
-    data.attrs = {**data.attrs, "affines": {"physical_to_brain": affine}}
+    data.attrs = {**data.attrs, "affines": {"world_to_brain": affine}}
 
     searchlight = SearchLight(mask=full_mask, estimator=Ridge(), radius=0.25, cv=3).fit(
         data, y
     )
 
     np.testing.assert_array_equal(
-        searchlight.scores_.attrs["affines"]["physical_to_brain"], affine
+        searchlight.scores_.attrs["affines"]["world_to_brain"], affine
     )
     # The score map describes the score, not the input signal.
     assert searchlight.scores_.attrs["long_name"] == "Searchlight CV score"
@@ -397,7 +397,7 @@ def test_warns_on_degenerate_neighborhoods(decoding_volume, full_mask, rng):
 
 
 def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
-    """Radius uses physical coordinates, so the anisotropic z axis is excluded.
+    """Radius uses world coordinates, so the anisotropic z axis is excluded.
 
     `z` voxels are 1.0 apart while `y` and `x` are 0.2 apart, so a radius of 0.25 must
     select in-plane neighbors only: each interior voxel gets itself plus its 4 in-plane

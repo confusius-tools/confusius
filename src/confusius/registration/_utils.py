@@ -99,7 +99,7 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     spatial_dims : list[str]
         Spatial dimension names in DataArray order.
     spacing : list[float]
-        Physical spacing for each spatial dimension.
+        World spacing for each spatial dimension.
 
     Raises
     ------
@@ -190,7 +190,7 @@ def _rotation_matrix_aligning_vectors(
 
 
 def _voxel_affine_plane_center(data: xr.DataArray) -> np.ndarray:
-    """Return the physical center point of a voxel-affine slab."""
+    """Return the world center point of a voxel-affine slab."""
     return np.array(
         [
             float(np.asarray(data.coords[name].values).mean())
@@ -201,7 +201,7 @@ def _voxel_affine_plane_center(data: xr.DataArray) -> np.ndarray:
 
 
 def _voxel_affine_slice_normal(data: xr.DataArray) -> np.ndarray:
-    """Return the physical-space normal of a singleton voxel-affine slab."""
+    """Return the world-space normal of a singleton voxel-affine slab."""
     voxel_dims = get_voxel_affine_spatial_dims(data)
     singleton_axes = [i for i, dim in enumerate(voxel_dims) if data.sizes[dim] == 1]
     if len(singleton_axes) != 1:
@@ -228,7 +228,7 @@ def build_voxel_affine_plane_initial_transform(
     Returns
     -------
     (4, 4) numpy.ndarray
-        Rigid transform in physical space mapping fixed coordinates into moving
+        Rigid transform in world space mapping fixed coordinates into moving
         coordinates.
 
     Raises
@@ -282,7 +282,7 @@ def replace_affines_attr(result: xr.DataArray, reference: xr.DataArray) -> None:
     result : xarray.DataArray
         DataArray whose affine metadata should be updated in place.
     reference : xarray.DataArray
-        DataArray providing the physical-to-reference affines for the output grid.
+        DataArray providing the world-to-reference affines for the output grid.
 
     Notes
     -----
@@ -393,7 +393,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     """Convert a spatial or spatiotemporal DataArray to a SimpleITK image.
 
     Uses the transpose convention: `da.values.T` is passed to `GetImageFromArray`,
-    so that the first DataArray axis maps to SimpleITK's physical x-axis. For data
+    so that the first DataArray axis maps to SimpleITK's world x-axis. For data
     with a time dimension, the time dimension is converted to a vector image channel
     dimension.
 
@@ -458,7 +458,7 @@ def expand_thin_dims(img: "sitk.Image", min_size: int = 4) -> "sitk.Image":
     inversion fail when a spatial dimension is smaller than a handful of voxels
     (common for 2D+t fUSI recordings with a 1-voxel depth). This helper replicates
     thin dimensions so that the image is safe to process, while preserving the
-    physical extent (spacing is divided by the expansion factor, keeping
+    world extent (spacing is divided by the expansion factor, keeping
     `size * spacing` constant).
 
     Parameters

@@ -91,7 +91,7 @@ def register_volumewise(
         - `None`: uses the identity transform.
 
     optimizer_weights : list of float, optional
-        Per-parameter weights applied on top of the auto-estimated physical shift
+        Per-parameter weights applied on top of the auto-estimated world shift
         scales. If not provided, identity weights are used. A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of transform
         parameters (3 for 2D rigid, 6 for 3D rigid, 6 for 2D affine, 12 for 3D affine).

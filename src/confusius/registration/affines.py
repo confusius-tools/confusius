@@ -248,7 +248,7 @@ def sitk_linear_transform_to_affine(
     Returns
     -------
     (N+1, N+1) numpy.ndarray
-        Homogeneous affine matrix in physical space mapping fixed-space points
+        Homogeneous affine matrix in world space mapping fixed-space points
         to moving-space points (pull/inverse convention used by SimpleITK's
         `Resample`).
 

@@ -17,7 +17,7 @@ _REQUIRED_ATLAS_DATA_VARS = ("reference", "annotation", "hemispheres")
 _REQUIRED_ATLAS_ATTRS = ("structures",)
 """Attributes every atlas Dataset must carry.
 
-Only `structures` is unconditionally required. The `physical_to_base` transform and usable
+Only `structures` is unconditionally required. The `world_to_base` transform and usable
 region meshes are required only when validating for mesh operations
 (`require_mesh_use=True`); the descriptive metadata the builder adds (`name`, `citation`,
 `species`, `orientation`) is optional.
@@ -28,9 +28,9 @@ def _validate_variable_affines(ds: xr.Dataset) -> None:
     """Check that same-named affines agree across the Dataset's data variables.
 
     Each data variable may carry an `attrs["affines"]` dict mapping a name (e.g.
-    `physical_to_sform`) to a matrix. Two variables that both define an affine of a given
+    `world_to_sform`) to a matrix. Two variables that both define an affine of a given
     name describe the same grid, so those matrices must be equal; a mismatch means the
-    variables are not on a common physical frame and the atlas is invalid.
+    variables are not on a common world frame and the atlas is invalid.
 
     Parameters
     ----------
@@ -59,7 +59,7 @@ def _validate_variable_affines(ds: xr.Dataset) -> None:
                 raise ValueError(
                     f"Atlas variables disagree on affine '{affine_name}': "
                     f"'{first_var}' and '{var_name}' hold different matrices, so they are "
-                    "not on a common physical frame."
+                    "not on a common world frame."
                 )
 
 
@@ -113,8 +113,8 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
        `species`, `orientation`) is not required.
     6. **Affines**: where two data variables both define an affine of the same name (in
        `attrs["affines"]`), the matrices must be equal — a mismatch means the variables
-       are not on a common physical frame.
-    7. **Mesh use** (only when `require_mesh_use` is set): `attrs["physical_to_base"]` — the
+       are not on a common world frame.
+    7. **Mesh use** (only when `require_mesh_use` is set): `attrs["world_to_base"]` — the
        pull mesh transform get_mesh needs — is present, and at least one structure
        references a mesh file that exists on disk.
 
@@ -123,7 +123,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     ds : xarray.Dataset
         Dataset to validate as an atlas.
     require_mesh_use : bool, default: False
-        Whether to also require the machinery `get_mesh` needs: the `physical_to_base`
+        Whether to also require the machinery `get_mesh` needs: the `world_to_base`
         transform attribute and at least one existing region mesh file.
 
     Raises
@@ -134,7 +134,7 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     ValueError
         If any required data variable or attribute is missing, if the variables do not
         share dimensions that are a subset of `(z, y, x)`, if `attrs["structures"]` is not a
-        brainglobe `StructuresDict`, or if `require_mesh_use` is set and `physical_to_base`
+        brainglobe `StructuresDict`, or if `require_mesh_use` is set and `world_to_base`
         or usable region meshes are absent.
 
     Examples
@@ -203,10 +203,10 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
         )
 
     if require_mesh_use:
-        if "physical_to_base" not in ds.attrs:
+        if "world_to_base" not in ds.attrs:
             raise ValueError(
-                "Atlas Dataset is missing 'physical_to_base', required for mesh operations "
+                "Atlas Dataset is missing 'world_to_base', required for mesh operations "
                 "(require_mesh_use=True): it is the transform get_mesh uses to place mesh "
-                "vertices in the atlas's physical space."
+                "vertices in the atlas's world space."
             )
         _validate_meshes_available(ds.attrs["structures"])

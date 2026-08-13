@@ -66,7 +66,7 @@ class _VideoArray:
         the spatial axes.
     step : int, default: 1
         Show every *step*-th frame (temporal subsampling).  Logical
-        frame `t` maps to physical frame `t * step`.
+        frame `t` maps to world frame `t * step`.
     time_dim : int, default: 0
         Position of the time axis in the output shape.
     h_dim : int or None, optional
@@ -638,7 +638,7 @@ class VideoPanel(QWidget):
         )
 
         # Time scale = frame_step / fps.  Each logical frame spans
-        # `frame_step` physical frames, so consecutive data points are
+        # `frame_step` world frames, so consecutive data points are
         # `frame_step / fps` seconds apart.
         time_scale = frame_step / entry.fps if entry.fps > 0 else 1.0
         # Isotropic spatial scale (video pixels are square).
@@ -808,8 +808,8 @@ class VideoPanel(QWidget):
             return None
 
         dim_name = self._axis_labels[dim_idx]
-        physical_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
-        coord_name = physical_dim if physical_dim in xr_da.coords else dim_name
+        world_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
+        coord_name = world_dim if world_dim in xr_da.coords else dim_name
         if coord_name not in xr_da.coords:
             return None
 
@@ -840,9 +840,9 @@ class VideoPanel(QWidget):
             y_step = float(np.median(np.diff(coords)))
         else:
             dim_name = self._axis_labels[vertical_dim]
-            physical_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
+            world_dim = {"k": "z", "j": "y", "i": "x"}.get(dim_name, dim_name)
             xr_da = self._ref_layer.metadata["xarray"]  # type: ignore
-            coord_name = physical_dim if physical_dim in xr_da.coords else dim_name
+            coord_name = world_dim if world_dim in xr_da.coords else dim_name
             y_step = float(xr_da.coords[coord_name].attrs.get("voxdim", 1.0))
 
         fusi_extent = (y_max - y_min) + abs(y_step)

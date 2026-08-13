@@ -342,11 +342,11 @@ def _create_spatial_coords_from_nifti(
     Selects the primary affine (sform preferred over qform when both are valid)
     and builds one coordinate per spatial dimension. When a valid affine is
     available, each axis starts at `affine[col, 3]` (origin) and is stepped by
-    the true voxel size (from `decompose_affine`). The physical coordinate frame
+    the true voxel size (from `decompose_affine`). The world coordinate frame
     is defined by the primary affine's translation and zoom; every affine
     (primary and secondary) is re-expressed against that shared frame and stored
     in the returned attributes, so a secondary qform keeps its relationship to
-    the physical coordinates.
+    the world coordinates.
 
     When both sform and qform codes are zero, coordinates are built from
     pixdim only (origin 0, step = voxel size). A warning is emitted and no
@@ -427,19 +427,19 @@ def _create_spatial_coords_from_nifti(
         # along that axis (index 0 zeroes out that column's contribution).
         #
         # The primary form has no named `attrs["affines"]` entry: it is not a
-        # separately tracked relationship, it *is* the array's own physical frame,
+        # separately tracked relationship, it *is* the array's own world frame,
         # so on save it always mirrors the current `voxel_to_world` (see
         # `_build_selected_nifti_affine`'s `affine_key=None` fallback). Only the
         # secondary form is a genuinely distinct, named relationship, so only it
-        # gets one: secondary = physical_to_<secondary> @ primary, so
-        # physical_to_<secondary> = secondary @ inv(primary).
+        # gets one: secondary = world_to_<secondary> @ primary, so
+        # world_to_<secondary> = secondary @ inv(primary).
         extra_attrs["_primary_voxel_to_world"] = primary_affine[[2, 1, 0, 3]][
             :, [2, 1, 0, 3]
         ]
         affines_dict: dict[str, npt.NDArray[np.floating]] = {}
         if secondary_affine is not None:
-            physical_to_secondary = secondary_affine @ np.linalg.inv(primary_affine)
-            affines_dict[f"physical_to_{secondary_prefix}"] = physical_to_secondary[
+            world_to_secondary = secondary_affine @ np.linalg.inv(primary_affine)
+            affines_dict[f"world_to_{secondary_prefix}"] = world_to_secondary[
                 [2, 1, 0, 3]
             ][:, [2, 1, 0, 3]]
 
@@ -1027,27 +1027,27 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
     Returns
     -------
     xarray.DataArray
-        DataArray with voxel dims `k`/`j`/`i` plus physical `z`/`y`/`x` coordinates.
+        DataArray with voxel dims `k`/`j`/`i` plus world `z`/`y`/`x` coordinates.
     """
     native_voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data_array.dims)
-    singleton_physical_dims = [
+    singleton_world_dims = [
         dim
         for dim in ("z", "y", "x")
         if dim in data_array.dims and data_array.sizes[dim] == 1
     ]
-    if len(native_voxel_dims) in {2, 3} and singleton_physical_dims:
-        data_array = data_array.squeeze(dim=singleton_physical_dims, drop=True)
-        physical_names = tuple(("z", "y", "x")[-len(native_voxel_dims) :])
-        physical_values = {
-            physical: np.asarray(data_array.coords[voxel].values, dtype=np.float64)
-            for voxel, physical in zip(native_voxel_dims, physical_names, strict=True)
+    if len(native_voxel_dims) in {2, 3} and singleton_world_dims:
+        data_array = data_array.squeeze(dim=singleton_world_dims, drop=True)
+        world_names = tuple(("z", "y", "x")[-len(native_voxel_dims) :])
+        world_values = {
+            world: np.asarray(data_array.coords[voxel].values, dtype=np.float64)
+            for voxel, world in zip(native_voxel_dims, world_names, strict=True)
             if voxel in data_array.coords
         }
         spacing = [
             float(np.median(np.diff(values))) if values.size > 1 else 1.0
-            for values in physical_values.values()
+            for values in world_values.values()
         ]
-        origin = [float(values[0]) for values in physical_values.values()]
+        origin = [float(values[0]) for values in world_values.values()]
         voxel_to_world = np.eye(len(native_voxel_dims) + 1, dtype=np.float64)
         voxel_to_world[:-1, :-1] = np.diag(spacing)
         voxel_to_world[:-1, -1] = origin
@@ -1061,7 +1061,7 @@ def _promote_nifti_to_voxel_affine(data_array: xr.DataArray) -> xr.DataArray:
             result,
             voxel_to_world,
             voxel_dims=native_voxel_dims,
-            world_coord_names=physical_names,
+            world_coord_names=world_names,
         )
         dim_order = [dim for dim in ("time", "k", "j", "i") if dim in result.dims]
         return result.transpose(*dim_order)
@@ -1206,13 +1206,13 @@ def load_nifti(
         - `"qform"` forces the qform to define the in-memory coordinate geometry.
 
         The non-selected valid header affine is still preserved in
-        `data_array.attrs["affines"]` as a physical-to-world transform.
+        `data_array.attrs["affines"]` as a world-to-world transform.
 
     Returns
     -------
     xarray.DataArray
         Lazy DataArray with voxel-space dimensions in ConfUSIus order (`k`, `j`, `i`
-        plus optional `time`) and physical coordinates `z`, `y`, `x`. Data is wrapped
+        plus optional `time`) and world coordinates `z`, `y`, `x`. Data is wrapped
         in a Dask array for out-of-core computation.
 
     Notes
@@ -1221,24 +1221,24 @@ def load_nifti(
     `i` and derived world coordinates `z`, `y`, `x`. `coordinate_affine` controls which
     NIfTI header affine defines that voxel-to-world mapping.
 
-    Physical-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
+    World-to-world affines are stored in `da.attrs["affines"]`, a dict keyed by
     affine name. Each value is a 4×4 affine in ConfUSIus `(z, y, x)` convention that
-    maps **physical coordinates** (as stored in `da.coords`) to world-space
-    coordinates. Apply as `da.attrs["affines"]["physical_to_sform"] @ np.array([pz, py,
+    maps **world coordinates** (as stored in `da.coords`) to world-space
+    coordinates. Apply as `da.attrs["affines"]["world_to_sform"] @ np.array([pz, py,
     px, 1.0])` to get `[wz, wy, wx, 1]`, where `pz`, `py`, `px` come from
     `da.coords["z"]`, `da.coords["y"]`, `da.coords["x"]` respectively.
 
     Unlike the NIfTI affine (which maps voxel *indices* to world space), the
-    `physical_to_*` affines are invariant to any slicing or downsampling because they
-    operate on physical positions, not grid indices.
+    `world_to_*` affines are invariant to any slicing or downsampling because they
+    operate on world positions, not grid indices.
 
     With `coordinate_affine="auto"`, affine selection follows NIfTI conventions:
 
     - If `sform_code > 0`: sform is used as the primary affine; a
-      `"physical_to_sform"` entry is written. When `qform_code > 0` as well, a
-      `"physical_to_qform"` entry is also stored as secondary.
+      `"world_to_sform"` entry is written. When `qform_code > 0` as well, a
+      `"world_to_qform"` entry is also stored as secondary.
     - Else, if only `qform_code > 0`: qform is used as the primary affine; only
-      `"physical_to_qform"` is written.
+      `"world_to_qform"` is written.
     - If both codes are zero: a warning is emitted, coordinates are built from
       `pixdim` only (origin 0, step = voxel size), and no `"affines"` entry is
       stored in `da.attrs`.
@@ -1339,8 +1339,8 @@ def load_nifti(
     if "slice_time" in coords:
         coords["slice_time"] = coords["slice_time"].rename(
             {
-                dim: physical_dim
-                for dim, physical_dim in {"k": "z", "j": "y", "i": "x"}.items()
+                dim: world_dim
+                for dim, world_dim in {"k": "z", "j": "y", "i": "x"}.items()
                 if dim in coords["slice_time"].dims
             }
         )
@@ -1633,20 +1633,20 @@ def _build_nifti_affine(
     T: npt.NDArray[np.floating],
     Z: npt.NDArray[np.floating],
 ) -> npt.NDArray[np.floating]:
-    """Reconstruct a NIfTI affine from a stored ConfUSIus physical-to-world transform.
+    """Reconstruct a NIfTI affine from a stored ConfUSIus world-to-world transform.
 
-    Reverses the ConfUSIus `(z, y, x)` permutation, then composes the physical-to-world
-    transform with the voxel-to-physical map built from the origin `T` and spacing `Z`
+    Reverses the ConfUSIus `(z, y, x)` permutation, then composes the world-to-world
+    transform with the voxel-to-world map built from the origin `T` and spacing `Z`
     to rebuild the full NIfTI affine. Falls back to a diagonal affine when no transform
     is given.
 
     Parameters
     ----------
     transform : (4, 4) numpy.ndarray or None
-        Physical-to-world affine in ConfUSIus `(z, y, x)` convention, or `None` to use a
+        World-to-world affine in ConfUSIus `(z, y, x)` convention, or `None` to use a
         fallback diagonal affine.
     T : (3,) numpy.ndarray
-        Origin of the physical coordinates for each NIfTI axis `(x, y, z)`, in the
+        Origin of the world coordinates for each NIfTI axis `(x, y, z)`, in the
         spatial units of the DataArray coordinates.
     Z : (3,) numpy.ndarray
         Voxel spacing for each NIfTI axis `(x, y, z)`, in the spatial units of the
@@ -1658,7 +1658,7 @@ def _build_nifti_affine(
         Full NIfTI affine mapping voxel indices to world-space coordinates.
     """
     if transform is not None:
-        # Compose the full physical-to-world transform with the voxel-to-physical
+        # Compose the full world-to-world transform with the voxel-to-world
         # map (origin T, spacing Z). Taking only the 3x3 block and substituting T
         # for the translation would drop a secondary form's own origin, corrupting
         # e.g. a qform whose origin differs from the primary (coordinate) origin.
@@ -2072,7 +2072,7 @@ def _build_nifti_voxel_to_world_affine(
     *,
     spatial_spacings: list[float],
 ) -> npt.NDArray[np.floating]:
-    """Build the NIfTI voxel-to-physical affine for serialized grid geometry."""
+    """Build the NIfTI voxel-to-world affine for serialized grid geometry."""
     if not has_voxel_world_geometry(data_array):
         origin = np.array(
             [
@@ -2195,8 +2195,8 @@ def _prepare_nifti_xforms(
     selected_keys = {"qform": qform, "sform": sform}
     explicit_codes = {"qform": qform_code, "sform": sform_code}
     default_affine_keys = {
-        "qform": "physical_to_qform",
-        "sform": "physical_to_sform",
+        "qform": "world_to_qform",
+        "sform": "world_to_sform",
     }
     resolved_codes: dict[str, int] = {}
     header_affines: dict[str, npt.NDArray[np.floating] | None] = {}
@@ -2507,7 +2507,7 @@ def save_nifti(
         larger files and arrays with dimension sizes greater than 32,767.
     qform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI qform. When not
-        provided, `"physical_to_qform"` is used if present; otherwise qform falls back
+        provided, `"world_to_qform"` is used if present; otherwise qform falls back
         to the coordinate-defining voxel geometry (`voxel_to_world`) directly.
 
         If the coordinate-defining affine contains shear, qform writing is disabled
@@ -2515,7 +2515,7 @@ def save_nifti(
         written to sform instead.
     sform : str, optional
         Key in `data_array.attrs["affines"]` to write into the NIfTI sform. When not
-        provided, `"physical_to_sform"` is used if present; otherwise sform also falls
+        provided, `"world_to_sform"` is used if present; otherwise sform also falls
         back to `voxel_to_world` directly (like qform), unless disabled via
         `sform_code=0` or `attrs["sform_code"] = 0`.
     qform_code : int, optional
@@ -2548,7 +2548,7 @@ def save_nifti(
     >>> da = xr.DataArray(np.random.rand(10, 32, 1, 64),
     ...                   dims=["time", "z", "y", "x"])
     >>> cf.io.save_nifti(da, "output.nii.gz")
-    >>> cf.io.save_nifti(da, "output.nii.gz", sform="physical_to_template")
+    >>> cf.io.save_nifti(da, "output.nii.gz", sform="world_to_template")
     """
     data_array = ensure_fusi(data_array)
     path = Path(path)

@@ -110,7 +110,7 @@ class FirstLevelModel(BaseEstimator):
         [`get_representative_step`][confusius._utils.get_representative_step]).
         Increase this value to tolerate slight timestamp jitter.
     smoothing_fwhm : float or dict[str, float], optional
-        Full width at half maximum of the Gaussian smoothing kernel, in the physical
+        Full width at half maximum of the Gaussian smoothing kernel, in the world
         units of the spatial coordinates, applied to each run before model fitting. A
         scalar smooths all non-`time` dimensions (caution if the data has a `pose`
         dimension); a dict maps dimension names to per-dimension FWHM.
@@ -212,7 +212,7 @@ class FirstLevelModel(BaseEstimator):
             z, y, x)`).
         events : pandas.DataFrame or list of pandas.DataFrame, optional
             Events table(s) with `onset`, `duration`, and `trial_type` columns. Onsets
-            are in the same physical time units as the `time` coordinate of `run_data`.
+            are in the same world time units as the `time` coordinate of `run_data`.
         confounds : pandas.DataFrame, numpy.ndarray, or list, optional
             Confound regressors per run.
         design_matrices : pandas.DataFrame or list of pandas.DataFrame, optional

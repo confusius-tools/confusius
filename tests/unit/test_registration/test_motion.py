@@ -315,7 +315,7 @@ class TestCreateMotionDataframe:
     def test_3d_dataframe_reorders_translations_to_named_axes(
         self, sample_3d_dataarray_spatial
     ):
-        """3D translations follow physical x/y/z names, not raw voxel axis names."""
+        """3D translations follow world x/y/z names, not raw voxel axis names."""
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)],
             sample_3d_dataarray_spatial,
@@ -328,7 +328,7 @@ class TestCreateMotionDataframe:
     def test_3d_dataframe_reorders_rotations_to_named_axes(
         self, sample_3d_dataarray_spatial
     ):
-        """3D rotations follow physical x/y/z names, not raw voxel axis names."""
+        """3D rotations follow world x/y/z names, not raw voxel axis names."""
         angle = 0.1
         df = create_motion_dataframe(
             [np.eye(4), _rotation_affine_3d_first_axis(angle)],

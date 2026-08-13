@@ -43,7 +43,7 @@ from confusius.validation import validate_mask, validate_time_series
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
-    """Physical coordinates of the `True` voxels of a mask.
+    """World coordinates of the `True` voxels of a mask.
 
     Parameters
     ----------
@@ -65,8 +65,8 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     Notes
     -----
     For voxel-affine geometry, `mask.dims` are the native voxel dims (`k`/`j`/`i`),
-    whose own coordinates are dense integer indices, not physical distances; the
-    physical `z`/`y`/`x` coordinates (used instead here) are what `radius` is measured
+    whose own coordinates are dense integer indices, not world distances; the
+    world `z`/`y`/`x` coordinates (used instead here) are what `radius` is measured
     against.
     """
     dims = tuple(str(dim) for dim in mask.dims)
@@ -420,7 +420,7 @@ class SearchLight(BaseEstimator):
         in coordinate units.
     radius : float, default: 1.0
         Neighborhood radius, in the units of the data's spatial coordinates. Check
-        `X[dim].attrs.get("units")` if unsure. Radii are measured in physical
+        `X[dim].attrs.get("units")` if unsure. Radii are measured in world
         coordinates rather than voxel indices, so anisotropic voxels behave correctly.
     process_mask : xarray.DataArray, optional
         Boolean mask selecting the voxels that act as neighborhood *centers*. Must be
@@ -451,7 +451,7 @@ class SearchLight(BaseEstimator):
         Mean cross-validation score at each `process_mask` center, in the spatial
         geometry of `process_mask`. Voxels outside `process_mask` are `numpy.nan`. The
         input's attributes are carried over, including any `affines`, so the map stays in
-        the same physical space. `long_name` is set to `"Searchlight CV score"` and
+        the same world space. `long_name` is set to `"Searchlight CV score"` and
         `units` to the metric implied by `scoring`: the scorer string when one is given,
         otherwise `"accuracy"` for a classifier or `"R²"` for a regressor. A callable
         scorer leaves `units` unset.
@@ -664,7 +664,7 @@ class SearchLight(BaseEstimator):
         )
 
         # Carry the input's attributes over, notably any `affines`, so the score map
-        # stays in the same physical space. Override the semantic attributes to describe
+        # stays in the same world space. Override the semantic attributes to describe
         # the score itself rather than the input signal.
         attrs = {**dict(X_ordered.attrs), "long_name": "Searchlight CV score"}
         units = _score_units(self.scoring, classifier=classifier)

@@ -29,7 +29,7 @@ def test_reexpress_affine_against_own_frame_strips_axis_aligned_part():
     """Re-expressing an affine against its own (T, Z) yields the orientation block.
 
     For affine = [[D @ diag(Z), T]], reexpress(affine, T, Z) must equal
-    [[D, T - D @ T]] (the orientation-only physical affine).
+    [[D, T - D @ T]] (the orientation-only world affine).
     """
     D = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])  # 90 deg.
     Z = np.array([2.0, 3.0, 4.0])

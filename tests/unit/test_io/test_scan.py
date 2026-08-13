@@ -9,7 +9,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import get_voxel_to_world_affine
-from confusius.io.scan import PHYSICAL_TO_PROBE_PERMUTATION, load_bps, load_scan
+from confusius.io.scan import WORLD_TO_PROBE_PERMUTATION, load_bps, load_scan
 
 _VOXEL_DIM_BY_WORLD_NAME = {"z": "k", "y": "j", "x": "i"}
 
@@ -150,10 +150,10 @@ class TestLoadScan2D:
         """2Dscan produces DataArray with dims (time, k, j, i)."""
         assert scan_2d.dims == ("time", "k", "j", "i")
 
-    def test_voxel_affine_model_uses_voxel_dims_and_1d_physical_coords(
+    def test_voxel_affine_model_uses_voxel_dims_and_1d_world_coords(
         self, scan_2d_path: Path
     ) -> None:
-        """Axis-aligned voxel-affine loading exposes `k/j/i` plus derived physical coords."""
+        """Axis-aligned voxel-affine loading exposes `k/j/i` plus derived world coords."""
         da = load_scan(scan_2d_path)
 
         assert da.dims == ("time", "k", "j", "i")
@@ -194,7 +194,7 @@ class TestLoadScan2D:
             ),
             rtol=1e-10,
         )
-        assert da.attrs["affines"]["physical_to_lab"].shape == (4, 4)
+        assert da.attrs["affines"]["world_to_lab"].shape == (4, 4)
 
     def test_shape(self, scan_2d: xr.DataArray) -> None:
         """2Dscan shape matches (T, sizeY, sizeZ, sizeX)."""
@@ -285,14 +285,14 @@ class TestLoadScan2D:
         """iconeus_scan_mode attr equals '2Dscan'."""
         assert scan_2d.attrs["iconeus_scan_mode"] == "2Dscan"
 
-    def test_physical_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
-        """physical_to_lab affine has shape (4, 4) for 2Dscan."""
-        A = np.asarray(scan_2d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
+        """world_to_lab affine has shape (4, 4) for 2Dscan."""
+        A = np.asarray(scan_2d.attrs["affines"]["world_to_lab"])
         assert A.shape == (4, 4)
 
-    def test_physical_to_lab_translation_in_mm(self, scan_2d: xr.DataArray) -> None:
-        """physical_to_lab translation column is in mm and in ConfUSIus axis order."""
-        A = np.asarray(scan_2d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_translation_in_mm(self, scan_2d: xr.DataArray) -> None:
+        """world_to_lab translation column is in mm and in ConfUSIus axis order."""
+        A = np.asarray(scan_2d.attrs["affines"]["world_to_lab"])
         # probeToLab translation is (x_lab, y_lab, z_lab) = (lateral, elevation, axial)
         # in metres. After P^T @ probeToLab @ P the translation is reordered to
         # ConfUSIus order (z_conf, y_conf, x_conf) = (elevation, -axial, lateral) and
@@ -377,9 +377,9 @@ class TestLoadScan3D:
         """3Dscan has no time coordinate."""
         assert "time" not in scan_3d.coords
 
-    def test_physical_to_lab_shape(self, scan_3d: xr.DataArray) -> None:
-        """physical_to_lab affine has shape (npose, 4, 4) for 3Dscan."""
-        A = np.asarray(scan_3d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_shape(self, scan_3d: xr.DataArray) -> None:
+        """world_to_lab affine has shape (npose, 4, 4) for 3Dscan."""
+        A = np.asarray(scan_3d.attrs["affines"]["world_to_lab"])
         assert A.shape == (_NPOSE, 4, 4)
 
     def test_data_values_preserved(self, scan_3d_path: Path) -> None:
@@ -513,9 +513,9 @@ class TestLoadScan4D:
         assert sliced.coords["pose_time"].dims == ("time",)
         assert sliced.coords["pose_time"].shape == (_T,)
 
-    def test_physical_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
-        """physical_to_lab affine has shape (npose, 4, 4) for 4Dscan."""
-        A = np.asarray(scan_4d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
+        """world_to_lab affine has shape (npose, 4, 4) for 4Dscan."""
+        A = np.asarray(scan_4d.attrs["affines"]["world_to_lab"])
         assert A.shape == (_NPOSE, 4, 4)
 
     def test_data_values_preserved(self, scan_4d_path: Path) -> None:
@@ -594,18 +594,18 @@ class TestLoadScanErrors:
 
 
 # ---------------------------------------------------------------------------
-# Tests: physical_to_lab correctness
+# Tests: world_to_lab correctness
 # ---------------------------------------------------------------------------
 
 
-class TestPhysicalToLab:
-    """Tests for the physical_to_lab affine computation."""
+class TestWorldToLab:
+    """Tests for the world_to_lab affine computation."""
 
-    def test_physical_to_lab_maps_coords_to_lab(self, scan_2d: xr.DataArray) -> None:
-        """physical_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
-        A = np.asarray(scan_2d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_maps_coords_to_lab(self, scan_2d: xr.DataArray) -> None:
+        """world_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
+        A = np.asarray(scan_2d.attrs["affines"]["world_to_lab"])
 
-        # physical_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
+        # world_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -614,9 +614,9 @@ class TestPhysicalToLab:
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
 
-    def test_physical_to_lab_per_pose_values(self, scan_3d: xr.DataArray) -> None:
-        """Each per-pose physical_to_lab slice matches the corresponding probeToLab."""
-        A = np.asarray(scan_3d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_per_pose_values(self, scan_3d: xr.DataArray) -> None:
+        """Each per-pose world_to_lab slice matches the corresponding probeToLab."""
+        A = np.asarray(scan_3d.attrs["affines"]["world_to_lab"])
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -625,16 +625,16 @@ class TestPhysicalToLab:
             expected[:3, 3] *= 1e3
             np.testing.assert_allclose(A[i], expected, rtol=1e-10)
 
-    def test_physical_to_lab_non_identity_rotation(
+    def test_world_to_lab_non_identity_rotation(
         self, scan_2d_rotated: xr.DataArray
     ) -> None:
-        """physical_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
+        """world_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
 
-        With a 90° Y-rotation in probeToLab, the rotation block of physical_to_lab
+        With a 90° Y-rotation in probeToLab, the rotation block of world_to_lab
         must equal P^T @ R_y90 @ P, confirming that non-identity rotations are handled
         correctly and the output remains in ConfUSIus axis order.
         """
-        A = np.asarray(scan_2d_rotated.attrs["affines"]["physical_to_lab"])
+        A = np.asarray(scan_2d_rotated.attrs["affines"]["world_to_lab"])
 
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
@@ -646,7 +646,7 @@ class TestPhysicalToLab:
 
 
 # ---------------------------------------------------------------------------
-# Tests: BPS sidecar (physical_to_brain affine)
+# Tests: BPS sidecar (world_to_brain affine)
 # ---------------------------------------------------------------------------
 
 
@@ -659,24 +659,24 @@ class TestLoadScanWithBPS:
     ) -> np.ndarray:
         """Re-express a BrainToLab affine on the lab side in ConfUSIus zyx mm."""
         mm_to_m = np.diag([1e-3, 1e-3, 1e-3, 1.0])
-        confusius_lab_to_iconeus_lab = mm_to_m @ PHYSICAL_TO_PROBE_PERMUTATION
+        confusius_lab_to_iconeus_lab = mm_to_m @ WORLD_TO_PROBE_PERMUTATION
         return np.linalg.inv(confusius_lab_to_iconeus_lab) @ brain_to_lab
 
     @classmethod
-    def _expected_physical_to_brain(
+    def _expected_world_to_brain(
         cls,
         probe_to_lab: np.ndarray,
         brain_to_lab: np.ndarray,
     ) -> np.ndarray:
         """Compose fixture-space probe and BPS affines into the expected result."""
-        physical_to_lab = (
-            PHYSICAL_TO_PROBE_PERMUTATION.T
+        world_to_lab = (
+            WORLD_TO_PROBE_PERMUTATION.T
             @ probe_to_lab
-            @ PHYSICAL_TO_PROBE_PERMUTATION
+            @ WORLD_TO_PROBE_PERMUTATION
         )
-        physical_to_lab[..., :3, 3] *= 1e3
+        world_to_lab[..., :3, 3] *= 1e3
         brain_to_confusius_lab = cls._expected_brain_to_confusius_lab(brain_to_lab)
-        return np.linalg.inv(brain_to_confusius_lab) @ physical_to_lab
+        return np.linalg.inv(brain_to_confusius_lab) @ world_to_lab
 
     def test_load_bps_reexpresses_lab_side(
         self, bps_path: Path, brain_to_lab: np.ndarray
@@ -686,13 +686,13 @@ class TestLoadScanWithBPS:
         result = load_bps(bps_path)
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 
-    def test_physical_to_brain_matches_expected_2d_affine(
+    def test_world_to_brain_matches_expected_2d_affine(
         self, scan_2d_path: Path, bps_path: Path, brain_to_lab: np.ndarray
     ) -> None:
-        """2Dscan physical_to_brain matches the expected affine from fixture metadata."""
+        """2Dscan world_to_brain matches the expected affine from fixture metadata."""
         da = load_scan(scan_2d_path, bps_path=bps_path)
-        expected = self._expected_physical_to_brain(_PROBE_TO_LAB_SINGLE, brain_to_lab)
-        result = np.asarray(da.attrs["affines"]["physical_to_brain"])
+        expected = self._expected_world_to_brain(_PROBE_TO_LAB_SINGLE, brain_to_lab)
+        result = np.asarray(da.attrs["affines"]["world_to_brain"])
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 
     @pytest.mark.parametrize(
@@ -702,7 +702,7 @@ class TestLoadScanWithBPS:
             ("scan_4d_path", _PROBE_TO_LAB_MULTI),
         ],
     )
-    def test_physical_to_brain_matches_expected_multipose_affines(
+    def test_world_to_brain_matches_expected_multipose_affines(
         self,
         request: pytest.FixtureRequest,
         scan_path: str,
@@ -710,10 +710,10 @@ class TestLoadScanWithBPS:
         bps_path: Path,
         brain_to_lab: np.ndarray,
     ) -> None:
-        """3Dscan and 4Dscan physical_to_brain stacks match fixture-derived affines."""
+        """3Dscan and 4Dscan world_to_brain stacks match fixture-derived affines."""
         da = load_scan(request.getfixturevalue(scan_path), bps_path=bps_path)
-        expected = self._expected_physical_to_brain(probe_to_lab, brain_to_lab)
-        result = np.asarray(da.attrs["affines"]["physical_to_brain"])
+        expected = self._expected_world_to_brain(probe_to_lab, brain_to_lab)
+        result = np.asarray(da.attrs["affines"]["world_to_brain"])
         np.testing.assert_allclose(result, expected, rtol=1e-10, atol=1e-12)
 
     def test_missing_bps_path_raises(self, scan_2d_path: Path, tmp_path: Path) -> None:

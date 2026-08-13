@@ -51,7 +51,7 @@ def resample_volume(
     *coordinate values*, which stay unchanged across cropping or striding (see
     [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]) — it does not
     generally describe where the array's *position* `(0, ..., 0)` sits, or the
-    physical distance between consecutive *positions*, once the array has been
+    world distance between consecutive *positions*, once the array has been
     cropped or strided. Use `reference.fusi.spacing`/`reference.fusi.origin` (as
     [`resample_like`][confusius.registration.resample_like] does) to derive a
     position-anchored grid from an existing DataArray.
@@ -67,7 +67,7 @@ def resample_volume(
         [`register_volume`][confusius.registration.register_volume].
 
         - **Affine** (`numpy.ndarray`): homogeneous `(4, 4)` matrix mapping output
-          (fixed) physical coordinates to moving physical coordinates (pull/inverse
+          (fixed) world coordinates to moving world coordinates (pull/inverse
           convention).
         - **B-spline** (`xarray.DataArray`): control-point DataArray with `attrs["type"]
           == "bspline_transform"` as returned by `register_volume(transform="bspline")`.
@@ -80,12 +80,12 @@ def resample_volume(
     output_shape : sequence of int
         Number of voxels along each output voxel axis, in native `k/j/i` order.
     output_spacing : sequence of float
-        Physical distance between consecutive voxel positions along each output voxel
+        World distance between consecutive voxel positions along each output voxel
         axis, in native `k/j/i` order.
     output_origin : numpy.typing.ArrayLike
-        Physical location of output voxel position `(0, 0, 0)`, in `z/y/x` order.
+        World location of output voxel position `(0, 0, 0)`, in `z/y/x` order.
     output_direction : numpy.typing.ArrayLike, optional
-        `(3, 3)` matrix whose columns are the unit physical-space direction of each
+        `(3, 3)` matrix whose columns are the unit world-space direction of each
         output voxel axis, in native `k/j/i` column order. If not provided, defaults
         to the identity (axis-aligned output grid).
     interpolation : {"linear", "nearest", "bspline"}, default: "linear"
@@ -253,10 +253,10 @@ def resample_like(
     transform : (4, 4) numpy.ndarray or xarray.DataArray
         Registration transform, as returned by
         [`register_volume`][confusius.registration.register_volume]. Maps points from
-        the reference physical space to moving physical space (pull/inverse convention).
+        the reference world space to moving world space (pull/inverse convention).
 
         - **Affine** (`numpy.ndarray`): homogeneous matrix whose translation entries
-          are expressed in the same physical units as `moving` and `reference`.
+          are expressed in the same world units as `moving` and `reference`.
         - **B-spline** (`xarray.DataArray`): control-point DataArray.
         - **Displacement field** (`xarray.DataArray`): dense field with `attrs["type"]
           == "displacement_field_transform"`.
@@ -282,7 +282,7 @@ def resample_like(
     -------
     xarray.DataArray
         Resampled volume on the grid of `reference`, with `reference`'s coordinates and
-        dimensions, `moving`'s non-spatial attributes, and physical-space affines
+        dimensions, `moving`'s non-spatial attributes, and world-space affines
         inherited from `reference`. If `moving` had a time dimension, the output will
         also have a time dimension.
 
@@ -339,7 +339,7 @@ def resample_like(
     # labels), which physically matches reference's grid but not necessarily its
     # voxel labels (e.g. reference may itself be cropped or strided from a larger
     # array). Adopt reference's own labels and affine so the two are directly
-    # alignable by voxel label as well as by physical position.
+    # alignable by voxel label as well as by world position.
     result = reindex_voxels_like(result, reference)
     replace_affines_attr(result, reference)
     return result

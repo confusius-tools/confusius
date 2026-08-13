@@ -22,7 +22,7 @@ The probe at each pose can image a 2D plane or a 3D volume, depending on the pro
 
 Multiple fUSI systems support this approach, including Iconeus, EchoFrame, and AUTC.
 ConfUSIus represents multi-pose data with a `pose` dimension and per-pose affine
-transformations that record the physical position of each pose.
+transformations that record the world position of each pose.
 
 !!! warning "Rotational sweeps are not yet supported"
     [`consolidate_poses`][confusius.multipose.consolidate_poses] requires a
@@ -65,7 +65,7 @@ elevation slices per pose—translated across multiple regularly spaced position
       * y        (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.702 8.801 8.899 8.998
       * x        (x) float64 512B -3.465 -3.355 -3.245 -3.135 ... 3.245 3.455 3.465
     Attributes:
-        affines:            {'physical_to_lab': ...}  # shape (15, 4, 4)
+        affines:            {'world_to_lab': ...}  # shape (15, 4, 4)
         scan_mode:          3Dscan
         ...
     ```
@@ -89,7 +89,7 @@ elevation slices per pose—translated across multiple regularly spaced position
       * y          (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.801 8.899 8.998
       * x          (x) float64 512B -3.465 -3.355 -3.245 ... 3.245 3.355 3.465
     Attributes:
-        affines:            {'physical_to_lab': ...}  # shape (4, 4, 4)
+        affines:            {'world_to_lab': ...}  # shape (4, 4, 4)
         scan_mode:          4Dscan
         ...
     ```
@@ -103,7 +103,7 @@ For other fUSI systems, multi-pose data must be assembled manually: load or cons
 one DataArray per pose, stack them along a new `pose` dimension, and populate
 `da.attrs["affines"]` with a `(npose, 4, 4)` array of per-pose affines.
 
-## Physical Coordinates and Affines
+## World Coordinates and Affines
 
 Spatial coordinates in a multi-pose DataArray are **pose-relative**: the `z` coordinate
 (or whichever dimension is being swept) is defined in the probe frame and is the same for
@@ -111,7 +111,7 @@ every pose. The per-pose affines stored in `da.attrs["affines"]` map these probe
 coordinates to a common world space and record how each pose is positioned in that space.
 
 For Iconeus SCAN files, [`load_scan`][confusius.io.load_scan] automatically stores a
-`physical_to_lab` affine of shape `(npose, 4, 4)`—one matrix per pose.
+`world_to_lab` affine of shape `(npose, 4, 4)`—one matrix per pose.
 
 ## The `pose_time` Coordinate
 
@@ -156,7 +156,7 @@ steps:
       * y        (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.702 8.801 8.899 8.998
       * x        (x) float64 512B -3.465 -3.355 -3.245 -3.135 ... 3.245 3.355 3.465
     Attributes:
-        affines:            {'physical_to_lab': ...}  # shape (4, 4)
+        affines:            {'world_to_lab': ...}  # shape (4, 4)
         scan_mode:          3Dscan
         ...
     ```
@@ -180,7 +180,7 @@ steps:
       * y          (y) float64 576B 2.0 2.099 2.197 2.296 ... 8.801 8.899 8.998
       * x          (x) float64 512B -3.465 -3.355 -3.245 ... 3.245 3.355 3.465
     Attributes:
-        affines:            {'physical_to_lab': ...}  # shape (4, 4)
+        affines:            {'world_to_lab': ...}  # shape (4, 4)
         scan_mode:          4Dscan
         ...
     ```
@@ -199,7 +199,7 @@ may need adjusting depending on your setup:
 
 - **`sweep_dim`** (default: `"z"`): the spatial dimension being swept across poses.
   Change this if your sweep is along a different axis.
-- **`affines_key`** (default: `"physical_to_lab"`): the key into `da.attrs["affines"]`
+- **`affines_key`** (default: `"world_to_lab"`): the key into `da.attrs["affines"]`
   that holds the per-pose affine stack. Change this if your affines are stored under a
   different key.
 
@@ -208,7 +208,7 @@ may need adjusting depending on your setup:
 volume = cf.multipose.consolidate_poses(
     da,
     sweep_dim="x",
-    affines_key="physical_to_scanner",
+    affines_key="world_to_scanner",
 )
 ```
 

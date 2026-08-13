@@ -34,7 +34,7 @@ from confusius.plotting._utils import (
     sort_coords_for_plot,
 )
 from confusius.plotting._utils import (
-    resample_voxel_affine_to_physical_grid as _shared_resample_voxel_affine_to_physical_grid,
+    resample_voxel_affine_to_world_grid as _shared_resample_voxel_affine_to_world_grid,
 )
 from confusius.signal import clean
 from confusius.validation import validate_matching_coordinates, validate_time_series
@@ -116,13 +116,13 @@ def _validate_voxel_affine_slice_mode(data: xr.DataArray, slice_mode: str) -> No
     if slice_mode not in valid_slice_modes:
         raise ValueError(
             "Voxel-affine plotting supports only native voxel-plane slicing or "
-            f"physical z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
+            f"world z/y/x slicing, got slice_mode={slice_mode!r}. Supported "
             f"modes: {valid_slice_modes!r}."
         )
     spatial_dims = [dim for dim in data.dims if dim in {"k", "j", "i"}]
     if slice_mode in {"z", "y", "x"} and len(spatial_dims) != 3:
         raise ValueError(
-            "Physical z/y/x slicing for voxel-affine plotting requires 3D data."
+            "World z/y/x slicing for voxel-affine plotting requires 3D data."
         )
 
 
@@ -214,11 +214,9 @@ def _project_voxel_affine_plane(
         homogeneous = np.stack(
             [*voxel_components, np.ones_like(row_grid, dtype=float)], axis=0
         ).reshape(len(dim_order) + 1, -1)
-        physical = (affine @ homogeneous).reshape((affine.shape[0], *row_grid.shape))[
-            :-1
-        ]
-        origin = physical[:, 0, 0][:, np.newaxis, np.newaxis]
-        rel = physical - origin
+        world = (affine @ homogeneous).reshape((affine.shape[0], *row_grid.shape))[:-1]
+        origin = world[:, 0, 0][:, np.newaxis, np.newaxis]
+        rel = world - origin
         x = np.tensordot(e1, rel, axes=(0, 0))
         y = np.tensordot(e2, rel, axes=(0, 0))
         return x, y
@@ -228,22 +226,22 @@ def _project_voxel_affine_plane(
     return x_edges, y_edges, x_centers, y_centers
 
 
-def _resample_voxel_affine_to_physical_grid(
+def _resample_voxel_affine_to_world_grid(
     data: xr.DataArray,
     slice_mode: str,
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    """Resample voxel-affine data onto an axis-aligned physical grid for plotting."""
+    """Resample voxel-affine data onto an axis-aligned world grid for plotting."""
     if not _has_voxel_world_geometry(data) or slice_mode not in {"z", "y", "x"}:
         converted = _materialize_axis_aligned_world_grid_for_display(data)
         return converted if slice_mode in converted.dims else data
 
-    physical_dims = get_voxel_affine_world_coord_names(data)
-    if slice_mode not in physical_dims:
+    world_dims = get_voxel_affine_world_coord_names(data)
+    if slice_mode not in world_dims:
         return data
 
     data = _materialize_axis_aligned_world_grid_for_display(data)
-    return _shared_resample_voxel_affine_to_physical_grid(data, reference=reference)
+    return _shared_resample_voxel_affine_to_world_grid(data, reference=reference)
 
 
 def _slice_edges_and_centers(
@@ -253,7 +251,7 @@ def _slice_edges_and_centers(
 
     For standard axis-aligned data, returns 1D edge/center coordinates for the plotted
     row/column dimensions. For voxel-affine data, returns 2D corner and center meshes
-    obtained by projecting the physical slice into an orthonormal in-plane basis.
+    obtained by projecting the world slice into an orthonormal in-plane basis.
     """
     if _has_voxel_world_geometry(slice_da):
         return _project_voxel_affine_plane(slice_da, dim_row, dim_col)
@@ -693,7 +691,7 @@ class VolumePlotter:
         self._axis_ylims: dict[int, tuple[float, float]] = {}
 
         self._hover_manager = _HoverManager()
-        self._physical_grid_reference: xr.DataArray | None = None
+        self._world_grid_reference: xr.DataArray | None = None
 
     def _ensure_figure(
         self,
@@ -859,10 +857,10 @@ class VolumePlotter:
         """Coerce complex, squeeze, validate `slice_mode`/3D, and sort display coords."""
         data = coerce_complex_to_magnitude(data, caller=caller)
         _validate_voxel_affine_slice_mode(data, self.slice_mode)
-        data = _resample_voxel_affine_to_physical_grid(
+        data = _resample_voxel_affine_to_world_grid(
             data,
             self.slice_mode,
-            reference=self._physical_grid_reference,
+            reference=self._world_grid_reference,
         )
         # A single-index selection (e.g. data.sel(z=6)) drops slice_mode to a scalar
         # coordinate; promote it back to a size-1 dimension so it plots like data.sel(z=[6]).
@@ -1134,8 +1132,8 @@ class VolumePlotter:
             roi_labels if roi_labels is not None else data.attrs.get("roi_labels")
         )
         data = self._prepare_slice_inputs(data, caller="VolumePlotter.add_volume")
-        if self.slice_mode in {"z", "y", "x"} and self._physical_grid_reference is None:
-            self._physical_grid_reference = data
+        if self.slice_mode in {"z", "y", "x"} and self._world_grid_reference is None:
+            self._world_grid_reference = data
 
         display_dims = [str(d) for d in data.dims if d != self.slice_mode]
         dim_row, dim_col = display_dims[0], display_dims[1]
@@ -1718,8 +1716,8 @@ class VolumePlotter:
             return self
 
         _validate_voxel_affine_slice_mode(mask, self.slice_mode)
-        mask = _resample_voxel_affine_to_physical_grid(
-            mask, self.slice_mode, reference=self._physical_grid_reference
+        mask = _resample_voxel_affine_to_world_grid(
+            mask, self.slice_mode, reference=self._world_grid_reference
         )
 
         # A single-index selection (e.g. mask.sel(z=6)) drops slice_mode to a scalar
@@ -1853,25 +1851,25 @@ class VolumePlotter:
                     if len(contour) < 2:
                         continue
 
-                    # Map pixel indices to physical coordinates.
+                    # Map pixel indices to world coordinates.
                     # Contours are at pixel boundaries, so we need to interpolate
                     # between coordinate centers to get edge positions.
                     # contour[:, 0] is row (y) index, contour[:, 1] is col (x) index
                     x_idx = contour[:, 1]
                     y_idx = contour[:, 0]
-                    x_physical = np.interp(
+                    x_world = np.interp(
                         x_idx,
                         np.arange(len(x_coords)),
                         x_coords,
                     )
-                    y_physical = np.interp(
+                    y_world = np.interp(
                         y_idx,
                         np.arange(len(y_coords)),
                         y_coords,
                     )
                     ax.plot(
-                        x_physical,
-                        y_physical,
+                        x_world,
+                        y_world,
                         color=color,
                         linewidth=linewidths,
                         linestyle=linestyles,
@@ -1892,7 +1890,7 @@ class VolumePlotter:
             if not match_coordinates:
                 ax.set_aspect("equal")
 
-                # Compute limits from physical coordinates, not from auto-scaled
+                # Compute limits from world coordinates, not from auto-scaled
                 # matplotlib limits, which may include padding.
                 x_edges = _centers_to_edges(x_coords)
                 y_edges = _centers_to_edges(y_coords)
@@ -1986,7 +1984,7 @@ def plot_contours(
     """Plot mask contours as a grid of 2D slice panels.
 
     Displays contour lines for each labeled region in `mask` across a grid of subplots.
-    Each panel shows the contours for one slice along `slice_mode`, drawn in physical
+    Each panel shows the contours for one slice along `slice_mode`, drawn in world
     coordinates when available.
 
     Parameters
@@ -2065,7 +2063,7 @@ def plot_contours(
     Notes
     -----
     Contours are computed with `skimage.measure.find_contours` on a binary mask for each
-    label, then mapped to physical coordinates via linear interpolation between
+    label, then mapped to world coordinates via linear interpolation between
     coordinate centers. Each panel has `aspect="equal"` so that 1 unit in x matches 1
     unit in y.
 
@@ -2146,7 +2144,7 @@ def plot_volume(
     """Plot 2D slices of a volume using matplotlib.
 
     Displays a series of 2D slices extracted along `slice_mode` as a grid of subplots.
-    Each slice is rendered using physical coordinates for axis ticks when available.
+    Each slice is rendered using world coordinates for axis ticks when available.
 
     Parameters
     ----------
@@ -2266,7 +2264,7 @@ def plot_volume(
     -----
     Rendering is done with [`pcolormesh`][matplotlib.pyplot.pcolormesh], which accepts
     coordinate arrays directly and therefore handles non-uniform coordinate spacing
-    correctly. Because each panel is drawn in physical coordinate space, multiple calls
+    correctly. Because each panel is drawn in world coordinate space, multiple calls
     with different `axes` elements will overlay correctly as long as the displayed
     dimensions are the same.
 

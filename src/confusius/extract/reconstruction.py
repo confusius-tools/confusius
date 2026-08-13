@@ -58,7 +58,7 @@ def unmask(
     xarray.DataArray
         Reconstructed DataArray with shape `(..., *mask.dims)`, where spatial
         dimensions and coordinates come from the mask. For a voxel-affine mask (native
-        voxel dims `k`/`j`/`i`), the derived physical `z`/`y`/`x` coordinates are
+        voxel dims `k`/`j`/`i`), the derived world `z`/`y`/`x` coordinates are
         restored on the result as well.
 
     Raises

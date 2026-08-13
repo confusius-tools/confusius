@@ -44,7 +44,7 @@ def test_get_time_coord_to_seconds_factor_warns_for_missing_units() -> None:
 
 
 def test_get_representative_time_step_converts_to_seconds() -> None:
-    """Representative time-step estimation can operate in physical units."""
+    """Representative time-step estimation can operate in world units."""
     data = xr.DataArray(
         np.arange(4),
         dims=("time",),
@@ -95,7 +95,7 @@ def test_convert_time_reference_rejects_invalid_reference() -> None:
 
 
 def test_convert_time_reference_shifts_with_reference_factor() -> None:
-    """Reference conversion preserves the expected physical offset."""
+    """Reference conversion preserves the expected world offset."""
     converted = convert_time_reference(
         np.array([0.0, 1.0]),
         volume_duration=0.2,

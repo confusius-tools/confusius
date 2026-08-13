@@ -8,8 +8,8 @@ ConfUSIus works with three kinds of coordinate systems:
 
 - the **voxel space**, linked to the underlying array storage and indexed by integer
   voxel coordinates,
-- the **physical space** embedded in every DataArray's coordinates,
-- and any number of **reference spaces** (atlas, scanner, etc.) linked to the physical
+- the **world space** embedded in every DataArray's coordinates,
+- and any number of **reference spaces** (atlas, scanner, etc.) linked to the world
   space through affine transforms stored in `attrs["affines"]`.
 
 Understanding these three spaces and the axis-ordering convention used throughout
@@ -23,7 +23,7 @@ config:
 ---
 flowchart LR
     V["<b>Voxel space</b><br>(integer indices)"]
-    P["<b>Physical space</b><br>(probe-relative)"]
+    P["<b>World space</b><br>(probe-relative)"]
     W1["<b>Scanner space</b>"]
     ellipsis{{"..."}}
     W2["<b>Atlas space</b>"]
@@ -41,7 +41,7 @@ flowchart LR
 Every ConfUSIus DataArray that represents a fUSI recording uses the dimension order
 `(time, z, y, x)`, where:
 
-| Dimension | Physical axis | Typical size |
+| Dimension | World axis | Typical size |
 |---|---|---|
 | `time` | Acquisition time | Thousands |
 | `z` | Elevation (stacking direction) | 1 for 2D acquisitions |
@@ -73,7 +73,7 @@ This ordering is motivated by several considerations.
 - **Alignment with neuroanatomical atlases:** For coronal preclinical fUSI,
   `(z, y, x) = (elevation, axial/depth, lateral)` maps to
   `(antero-posterior, superior-inferior, left-right)`, sharing the first two axes with
-  [BrainGlobe](https://brainglobe.info) atlases (e.g. Allen CCFv3). The physical →
+  [BrainGlobe](https://brainglobe.info) atlases (e.g. Allen CCFv3). The world →
   reference affine captures any remaining orientation difference (e.g. a lateral
   mirror).
 - **Visualization:** Most visualization tools (e.g. napari) expect the last two axes to
@@ -88,19 +88,19 @@ Voxel space has its origin at voxel `(0, 0, 0)` and integer indices along each
 spatial axis. It is the natural indexing space of the underlying array: DataArrays can
 be indexed in voxel space using the standard Xarray integer-location indexer (`.isel`).
 
-### Physical Space
+### World Space
 
-The physical space is the coordinate system embedded in the DataArray's dimension
+The world space is the coordinate system embedded in the DataArray's dimension
 coordinates. Its axes are `(z, y, x)` corresponding to `(elevation, axial/depth,
 lateral)`. The unit of the coordinates is determined by the `units` attribute of each
 coordinate array and is not fixed by ConfUSIus — millimeters are typical for fUSI, but
 any consistent unit can be used.
 
 The origin is typically the center of the probe surface, but users are free to define
-any physical space they find convenient. What matters is that the coordinate values
-are internally consistent and carry a meaningful physical scale.
+any world space they find convenient. What matters is that the coordinate values
+are internally consistent and carry a meaningful world scale.
 
-Physical coordinates are set at data-loading time and depend on the source format:
+World coordinates are set at data-loading time and depend on the source format:
 
 - **EchoFrame**: Lateral and axial coordinates are read from the acquisition metadata
   file.
@@ -112,7 +112,7 @@ Physical coordinates are set at data-loading time and depend on the source forma
   positive and increases with depth.
 - **NIfTI**: Coordinates are derived from the translation and scale components of the
   "best" affine transformation found in the file header.
-- **Hand-constructed DataArrays**: The physical space is whatever the user assigns to
+- **Hand-constructed DataArrays**: The world space is whatever the user assigns to
   the dimension coordinates.
 
 !!! tip "The "best" NIfTI affine"
@@ -130,7 +130,7 @@ size along that dimension:
 da.coords["y"].attrs["voxdim"]  # native axial voxel size.
 ```
 
-This is set at load time alongside the physical coordinates and is preserved through
+This is set at load time alongside the world coordinates and is preserved through
 any Xarray operation that propagates coordinate attributes. It is particularly useful
 after downsampling: the coordinate values themselves reflect the new, coarser spacing,
 but `voxdim` retains the original acquisition resolution. It is used wherever native
@@ -149,53 +149,53 @@ da_slice = da_down.isel(z=0)
 
 ### Reference Spaces
 
-ConfUSIus stores affine transformations between the DataArray's physical space and any
-other reference physical space in `da.attrs["affines"]`, a dictionary keyed by affine
+ConfUSIus stores affine transformations between the DataArray's world space and any
+other reference world space in `da.attrs["affines"]`, a dictionary keyed by affine
 name. These target spaces can be external coordinate systems defined by other tools or
 standards, for example an atlas space (Allen CCFv3), a scanner space, or a user-defined
 stereotactic space. Each value is a `(4, 4)` homogeneous matrix in `(z, y, x)`
-convention that maps a physical-space point to the corresponding point in the reference
+convention that maps a world-space point to the corresponding point in the reference
 space:
 
 ```python
 A @ [pz, py, px, 1] = [rz, ry, rx, 1]
 ```
 
-where `(pz, py, px)` are the physical coordinates stored in `da.coords`.
+where `(pz, py, px)` are the world coordinates stored in `da.coords`.
 
 Several loaders populate `da.attrs["affines"]` automatically:
 
 - **NIfTI**: NIfTI files store `qform` and `sform` affines in their header that map
   voxel indices to reference coordinates. [`load_nifti`][confusius.io.load_nifti] reads
-  the relevant affine(s), converts them from voxel → reference to physical → reference
-  form, and stores them under the keys `"physical_to_sform"` and/or
-  `"physical_to_qform"` depending on which codes are valid in the header. When a file
-  declares both forms, the physical coordinates come from the primary (usually `sform`)
-  affine, and `physical_to_{secondary}` (usually `physical_to_qform`) is anchored to
-  that same physical space, so both keys map the one set of coordinates in `da.coords`,
+  the relevant affine(s), converts them from voxel → reference to world → reference
+  form, and stores them under the keys `"world_to_sform"` and/or
+  `"world_to_qform"` depending on which codes are valid in the header. When a file
+  declares both forms, the world coordinates come from the primary (usually `sform`)
+  affine, and `world_to_{secondary}` (usually `world_to_qform`) is anchored to
+  that same world space, so both keys map the one set of coordinates in `da.coords`,
   just to different reference spaces. When saving back to NIfTI,
   [`save_nifti`][confusius.io.save_nifti] can write any named affine in
   `attrs["affines"]` to the header via its `qform=` and `sform=` arguments, with
-  `"physical_to_qform"` and `"physical_to_sform"` used as convenience fallbacks.
+  `"world_to_qform"` and `"world_to_sform"` used as convenience fallbacks.
 - **Iconeus SCAN**: [`load_scan`][confusius.io.load_scan] stores a
-  `"physical_to_lab"` affine mapping ConfUSIus physical coordinates `(z, y, x)` to the
+  `"world_to_lab"` affine mapping ConfUSIus world coordinates `(z, y, x)` to the
   Iconeus lab coordinate system. For multi-pose acquisitions (`3Dscan`, `4Dscan`),
   one affine per pose is stored, with shape `(npose, 4, 4)`.
 
 Registration transforms are handled separately from `attrs["affines"]`.
 [`register_volume`][confusius.registration.register_volume] returns the estimated
 transform explicitly; for linear registration it follows the SimpleITK pull convention
-and maps fixed physical coordinates to moving physical coordinates. That pull transform
+and maps fixed world coordinates to moving world coordinates. That pull transform
 is useful for resampling, but it is not stored automatically in `attrs["affines"]`.
 
 When registration is run with `resample=True`, the returned DataArray already lives on
 the fixed/reference grid. In that case ConfUSIus copies `fixed.attrs["affines"]` onto
-the result, so any named physical-space relationships already attached to the
+the result, so any named world-space relationships already attached to the
 fixed/reference DataArray are preserved automatically.
 
-!!! question "Why physical → reference, not voxel → reference?"
+!!! question "Why world → reference, not voxel → reference?"
     The standard NIfTI affine maps **voxel indices → reference coordinates**. ConfUSIus
-    uses a **physical → reference** affine instead, for one practical reason: it is
+    uses a **world → reference** affine instead, for one practical reason: it is
     **invariant to slicing and downsampling**.
 
     A voxel → reference affine encodes the origin as the reference position of voxel
@@ -203,32 +203,32 @@ fixed/reference DataArray are preserved automatically.
     `.isel(y=slice(10, 50))`—voxel `(0,0,0)` is no longer in the array, and the affine
     silently points to the wrong location.
 
-    A physical → reference affine operates on the coordinate values already stored in
+    A world → reference affine operates on the coordinate values already stored in
     `da.coords`. Those values travel with the data through any Xarray operation that
     preserves coordinates, so the affine remains valid without any adjustment.
 
     [`save_nifti`][confusius.io.save_nifti] reconstructs the full voxel → reference
-    NIfTI affine internally by composing the physical → reference affine with the
-    voxel → physical map built from the dimension coordinate origin and spacing. Using
+    NIfTI affine internally by composing the world → reference affine with the
+    voxel → world map built from the dimension coordinate origin and spacing. Using
     the full affine (not just its orientation) means each affine keeps its own origin, so
     a file with distinct `sform` and `qform` round-trips faithfully.
 
-## Switching Physical Spaces
+## Switching World Spaces
 
-The physical space is a *choice of coordinate frame*, not a fixed property of the data.
-When a DataArray carries an affine from its current physical space (described by its
+The world space is a *choice of coordinate frame*, not a fixed property of the data.
+When a DataArray carries an affine from its current world space (described by its
 coordinates) to a reference space in `attrs["affines"]`, you can use
 [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] to re-express its
-physical coordinates in that reference frame.
+world coordinates in that reference frame.
 
-ConfUSIus physical coordinates are stored as three independent 1D arrays, so they can
+ConfUSIus world coordinates are stored as three independent 1D arrays, so they can
 encode scaling and translation but not rotations and shears. Consequently,
 [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] may perform either a
-complete or partial change of physical frame:
+complete or partial change of world frame:
 
 - If the affine can be represented by the coordinate arrays (that is, it is
   axis-aligned), [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply]
-  absorbs the full transform. The requested reference frame becomes the new physical
+  absorbs the full transform. The requested reference frame becomes the new world
   frame, and the returned `orientation` is the identity.
 - If the affine contains axis-mixing components (rotation or shear),
   [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] absorbs only the
@@ -242,14 +242,14 @@ for registration by expressing datasets in approximately the same frame. Any ret
 residual orientation must still be included when comparing or registering datasets.
 
 Take the `sform`/`qform` example from [Reference Spaces](#reference-spaces). A NIfTI
-file with `sform_code > 0` anchors its physical space to the `sform` frame, absorbing
+file with `sform_code > 0` anchors its world space to the `sform` frame, absorbing
 only its axis-aligned part. The remaining orientation component of `sform` is carried on
-the `physical_to_sform` affine attribute, while `physical_to_qform` records the mapping
-of the physical space to the `qform` frame.
+the `world_to_sform` affine attribute, while `world_to_qform` records the mapping
+of the world space to the `qform` frame.
 
-The following example uses an axis-aligned `sform`, so `physical_to_sform` is the
+The following example uses an axis-aligned `sform`, so `world_to_sform` is the
 identity. The `qform` is shifted by +10 along `z` and +5 along `y` relative to the
-`sform`, so `physical_to_qform` contains only a translation:
+`sform`, so `world_to_qform` contains only a translation:
 
 ```pycon
 >>> da.coords["z"].values
@@ -258,22 +258,22 @@ array([0., 1., 2.])
 >>> da.coords["y"].values
 array([0., 1., 2., 3.])
 >>>
->>> da.attrs["affines"]["physical_to_sform"]  # identity
+>>> da.attrs["affines"]["world_to_sform"]  # identity
 array([[1., 0., 0., 0.],
        [0., 1., 0., 0.],
        [0., 0., 1., 0.],
        [0., 0., 0., 1.]])
 >>>
->>> da.attrs["affines"]["physical_to_qform"]  # (+10, +5) shift in (z, y):
+>>> da.attrs["affines"]["world_to_qform"]  # (+10, +5) shift in (z, y):
 array([[ 1.,  0.,  0., 10.],
        [ 0.,  1.,  0.,  5.],
        [ 0.,  0.,  1.,  0.],
        [ 0.,  0.,  0.,  1.]])
 ```
 
-Applying `physical_to_qform` absorbs the translation into the coordinate arrays. The
-`qform` frame therefore becomes the new physical frame: `physical_to_qform` becomes the
-identity, while every other stored affine is re-expressed relative to the new physical
+Applying `world_to_qform` absorbs the translation into the coordinate arrays. The
+`qform` frame therefore becomes the new world frame: `world_to_qform` becomes the
+identity, while every other stored affine is re-expressed relative to the new world
 coordinates.
 
 === "`confusius.xarray.apply_affine`"
@@ -281,13 +281,13 @@ coordinates.
     ```python
     import confusius as cf
 
-    da_q, orientation = cf.xarray.apply_affine(da, da.attrs["affines"]["physical_to_qform"])
+    da_q, orientation = cf.xarray.apply_affine(da, da.attrs["affines"]["world_to_qform"])
     ```
 
 === "Xarray accessor"
 
     ```python
-    da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
+    da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["world_to_qform"])
     ```
 
 ```pycon
@@ -297,13 +297,13 @@ array([10., 11., 12.])
 >>> da_q.coords["y"].values
 array([5., 6., 7., 8.])
 >>>
->>> da_q.attrs["affines"]["physical_to_sform"]  # (-10, -5) shift back to sform
+>>> da_q.attrs["affines"]["world_to_sform"]  # (-10, -5) shift back to sform
 array([[  1.,   0.,   0., -10.],
        [  0.,   1.,   0.,  -5.],
        [  0.,   0.,   1.,   0.],
        [  0.,   0.,   0.,   1.]])
 >>>
->>> da_q.attrs["affines"]["physical_to_qform"]  # identity, the new physical frame
+>>> da_q.attrs["affines"]["world_to_qform"]  # identity, the new world frame
 array([[1., 0., 0., 0.],
        [0., 1., 0., 0.],
        [0., 0., 1., 0.],
@@ -316,16 +316,16 @@ array([[1., 0., 0., 0.],
        [0., 0., 0., 1.]])
 ```
 
-Because `orientation` is the identity, the change of physical frame is complete.
+Because `orientation` is the identity, the change of world frame is complete.
 
 ### Rotations and Shears
 
 Independent one-dimensional coordinate arrays cannot represent a transform that mixes
-axes. For example, consider a `physical_to_qform` containing a 90° rotation in the
+axes. For example, consider a `world_to_qform` containing a 90° rotation in the
 `(z, y)` plane:
 
 ```pycon
->>> da.attrs["affines"]["physical_to_qform"]
+>>> da.attrs["affines"]["world_to_qform"]
 array([[ 0., -1.,  0.,  0.],
        [ 1.,  0.,  0.,  0.],
        [ 0.,  0.,  1.,  0.],
@@ -337,7 +337,7 @@ coordinate arrays remain unchanged because none of this rotation can be represen
 independent changes to `z`, `y`, and `x`:
 
 ```pycon
->>> da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["physical_to_qform"])
+>>> da_q, orientation = da.fusi.affine.apply(da.attrs["affines"]["world_to_qform"])
 >>> da_q.coords["z"].values
 array([0., 1., 2.])
 >>> da_q.coords["y"].values
@@ -355,12 +355,12 @@ array([[ 0., -1.,  0.,  0.],
 ```
 
 Because the residual is non-identity, the DataArray has not been fully re-anchored to
-the `qform` frame. The stored affines remain valid relative to the unchanged physical
+the `qform` frame. The stored affines remain valid relative to the unchanged world
 coordinates:
 
 ```python
-da_q.attrs["affines"]["physical_to_sform"]  # identity
-da_q.attrs["affines"]["physical_to_qform"]  # unchanged 90° rotation
+da_q.attrs["affines"]["world_to_sform"]  # identity
+da_q.attrs["affines"]["world_to_qform"]  # unchanged 90° rotation
 ```
 
 In general, [`.fusi.affine.apply`][confusius.xarray.FUSIAffineAccessor.apply] absorbs
@@ -368,7 +368,7 @@ the diagonal scale and translation components into the coordinate arrays and ret
 remaining axis-mixing component, such that
 
 ```python
-orientation @ new_physical == affine @ old_physical
+orientation @ new_world == affine @ old_world
 ```
 
 Always check the returned `orientation`. When it is non-identity, retain or compose it

@@ -93,8 +93,8 @@ def test_affine_wrappers_forward_calls(monkeypatch, sample_fusi_3dt):
     monkeypatch.setattr("confusius.xarray.affine.affine_to", _to)
     monkeypatch.setattr("confusius.xarray.affine.apply_affine", _apply)
 
-    assert sample_fusi_3dt.fusi.affine.to(other, via="physical_to_lab") is expected_to
-    assert calls["to"] == (sample_fusi_3dt, other, "physical_to_lab")
+    assert sample_fusi_3dt.fusi.affine.to(other, via="world_to_lab") is expected_to
+    assert calls["to"] == (sample_fusi_3dt, other, "world_to_lab")
 
     assert sample_fusi_3dt.fusi.affine.apply(affine, inplace=True) is expected_apply
     assert calls["apply"] == (sample_fusi_3dt, affine, True)

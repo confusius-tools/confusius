@@ -24,8 +24,8 @@ from confusius._dims import SPATIAL_DIMS, TIME_DIM
 _NAPARI_GENERIC_AXIS = re.compile(r"^axis -?\d+$")
 """Matches napari's default generic axis labels (e.g. 'axis -4', 'axis -3', ...)."""
 
-_NAPARI_NOPHYSICAL_UNITS = frozenset({"pixel"})
-"""Napari units that indicate the absence of physical units."""
+_NAPARI_NON_WORLD_UNITS = frozenset({"pixel"})
+"""Napari units that indicate the absence of world units."""
 
 if TYPE_CHECKING:
     import xarray as xr
@@ -49,7 +49,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     Returns
     -------
     xarray.DataArray
-        DataArray with physical coordinates derived from the layer state.
+        DataArray with world coordinates derived from the layer state.
     """
     import xarray as xr
 
@@ -73,29 +73,29 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     translate: list[float] = list(meta.get("translate") or ([0.0] * ndim))
 
     # Napari may pass pint Unit objects rather than strings. Convert to str and treat
-    # non-physical units ('pixel') as absent.
+    # non-world units ('pixel') as absent.
     raw_units = meta.get("units") or ([None] * ndim)
     units: list[str | None] = [
-        None if u is None or str(u) in _NAPARI_NOPHYSICAL_UNITS else str(u)
+        None if u is None or str(u) in _NAPARI_NON_WORLD_UNITS else str(u)
         for u in raw_units
     ]
 
     data_array = np.asarray(data)
     voxel_to_world_name = {"k": "z", "j": "y", "i": "x"}
-    physical_to_voxel_name = {v: k for k, v in voxel_to_world_name.items()}
+    world_to_voxel_name = {v: k for k, v in voxel_to_world_name.items()}
 
     axis_specs: list[tuple[str, str, int, float, float, dict[str, Any]]] = []
     for axis, dim in enumerate(axis_labels):
         n = data_array.shape[axis]
-        if dim in physical_to_voxel_name:
-            result_dim = physical_to_voxel_name[dim]
-            physical_name = dim
+        if dim in world_to_voxel_name:
+            result_dim = world_to_voxel_name[dim]
+            world_name = dim
         elif dim in voxel_to_world_name:
             result_dim = dim
-            physical_name = voxel_to_world_name[dim]
+            world_name = voxel_to_world_name[dim]
         else:
             result_dim = dim
-            physical_name = ""
+            world_name = ""
 
         attrs: dict[str, Any] = {"voxdim": abs(float(scale[axis]))}
         if units[axis] is not None:
@@ -103,7 +103,7 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
         axis_specs.append(
             (
                 result_dim,
-                physical_name,
+                world_name,
                 n,
                 float(scale[axis]),
                 float(translate[axis]),
@@ -112,29 +112,29 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
         )
 
     # Voxel-affine (CTI) geometry requires at least 2 active voxel dims; a single
-    # recognized physical dim (e.g. a 1D napari labels layer) falls back to a plain
+    # recognized world dim (e.g. a 1D napari labels layer) falls back to a plain
     # coordinate below, matching validate_fusi's minimum_spatial_dims invariant.
     build_cti = sum(1 for spec in axis_specs if spec[1]) >= 2
 
     result_dims: list[str] = []
     coords: dict[str, xr.DataArray] = {}
     voxel_dims: list[str] = []
-    physical_names: list[str] = []
+    world_names: list[str] = []
     affine_scales: list[float] = []
     affine_translates: list[float] = []
-    physical_attrs: dict[str, dict[str, Any]] = {}
+    world_attrs: dict[str, dict[str, Any]] = {}
 
-    for result_dim, physical_name, n, axis_scale, axis_translate, attrs in axis_specs:
-        if physical_name and build_cti:
+    for result_dim, world_name, n, axis_scale, axis_translate, attrs in axis_specs:
+        if world_name and build_cti:
             result_dims.append(result_dim)
             coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
             voxel_dims.append(result_dim)
-            physical_names.append(physical_name)
+            world_names.append(world_name)
             affine_scales.append(axis_scale)
             affine_translates.append(axis_translate)
-            physical_attrs[physical_name] = attrs
+            world_attrs[world_name] = attrs
         else:
-            final_dim = physical_name or result_dim
+            final_dim = world_name or result_dim
             result_dims.append(final_dim)
             coord_values = axis_translate + np.arange(n) * axis_scale
             coords[final_dim] = xr.DataArray(
@@ -154,8 +154,8 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
         result,
         affine,
         voxel_dims=tuple(voxel_dims),
-        world_coord_names=tuple(physical_names),
-        world_coord_attrs=physical_attrs,
+        world_coord_names=tuple(world_names),
+        world_coord_attrs=world_attrs,
     )
 
 

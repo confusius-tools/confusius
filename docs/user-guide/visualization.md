@@ -18,7 +18,7 @@ generation**:
 | [`plot_carpet`][confusius.plotting.plot_carpet] / [`.fusi.plot.carpet()`][confusius.xarray.FUSIPlotAccessor.carpet] | Matplotlib | Voxel time-series raster (quality control) |
 | [`plot_matrix`][confusius.plotting.plot_matrix] | Matplotlib | Any square 2D matrix (e.g. correlation, connectivity, or statistical matrices) |
 
-All functions accept DataArrays and use physical coordinates for axis scaling
+All functions accept DataArrays and use world coordinates for axis scaling
 automatically. The [Xarray accessor](xarray.md) variants (`.fusi.plot.*`) offer a more
 concise syntax; both call the same underlying functions.
 
@@ -129,7 +129,7 @@ the controls and features.
     viewer, layer = cf.plotting.plot_napari(pwd)
     ```
 
-This opens a napari viewer with a scale bar, colorbar, and correct physical scaling
+This opens a napari viewer with a scale bar, colorbar, and correct world scaling
 across axes. The viewer is fully interactive: you can zoom, pan, and scroll through time
 and elevation slices with the sliders or mouse wheel.
 
@@ -242,7 +242,7 @@ viewer, labels_layer = cf.plotting.draw_napari_labels(
 )
 ```
 
-The Labels layer is aligned to the same physical coordinate frame as the image layer, so
+The Labels layer is aligned to the same world coordinate frame as the image layer, so
 the spatial scale and origin are consistent regardless of voxel size or data origin.
 
 ![napari viewer with two painted ROI regions](../images/visualization/napari-draw-labels.png)
@@ -526,7 +526,7 @@ plotter.add_contours(atlas_fusi.annotation)
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-light.png#only-light)
 ![Power Doppler volume with Allen atlas region contours overlaid](../images/visualization/volume-with-contours-dark.png#only-dark)
 
-Coordinate matching is done in physical units, matching contour coordinates with those
+Coordinate matching is done in world units, matching contour coordinates with those
 of the previously plotted volume. Slices present in the mask but absent from the volume
 are skipped with a warning.
 

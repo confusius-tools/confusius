@@ -57,7 +57,7 @@ def sample_iq_dataarray(rng):
     """Create sample xarray DataArray with IQ data.
 
     Shape: (20, 4, 6, 8) with canonical `(time, k, j, i)` coordinates and linked
-    physical `z/y/x` coordinates.
+    world `z/y/x` coordinates.
     """
     shape = (20, 4, 6, 8)
     data = rng.random(shape) + 1j * rng.random(shape)

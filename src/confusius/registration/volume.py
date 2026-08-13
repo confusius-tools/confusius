@@ -235,7 +235,7 @@ def _translate_registration_runtime_error(
 
     parts = [
         "SimpleITK could not compute valid optimizer scales for this registration.",
-        "Some transform parameters have near-zero physical effect, so the gradient-descent optimizer cannot choose a stable step size.",
+        "Some transform parameters have near-zero world effect, so the gradient-descent optimizer cannot choose a stable step size.",
     ]
     if transform_type == "bspline":
         parts.append(
@@ -458,7 +458,7 @@ def register_volume(
         For `transform_type="bspline"`, centering modes are ignored but affine
         initialization is supported.
     optimizer_weights : list of float, optional
-        Per-parameter weights applied on top of the auto-estimated physical shift
+        Per-parameter weights applied on top of the auto-estimated world shift
         scales. `None` uses identity weights (all ones). A list is passed directly to
         SimpleITK's `SetOptimizerWeights`; its length must match the number of
         transform parameters (6 for rigid, 12 for affine). The weight for each
@@ -538,19 +538,19 @@ def register_volume(
     -------
     registered : xarray.DataArray
         When `resample=True`, the moving volume resampled onto the fixed grid with
-        coordinates matching `fixed` and physical-space affines inherited from `fixed`.
+        coordinates matching `fixed` and world-space affines inherited from `fixed`.
         When `resample=False`, the original moving volume with its original coordinates
         and attributes.
     transform : (4, 4) numpy.ndarray or xarray.DataArray or None
         Estimated registration transform. For linear transforms (`"translation"`,
-        `"rigid"`, `"affine"`), returns a homogeneous `(4, 4)` affine matrix in physical
+        `"rigid"`, `"affine"`), returns a homogeneous `(4, 4)` affine matrix in world
         space. Follows SimpleITK's pull/inverse convention: the matrix maps fixed-space
         coordinates to moving-space coordinates. For `transform_type="bspline"`,
         returns an `xarray.DataArray` containing the B-spline control-point grid, not a
         dense deformation field. The first dimension is `component` with length 3,
         followed by spatial dimensions in ConfUSIus order (`("z", "y", "x")`). The
         coordinate values along each spatial axis are
-        the physical positions of the control points. Attributes include `type =
+        the world positions of the control points. Attributes include `type =
         "bspline_transform"`, the spline `order`, and the control-grid `direction`
         matrix. When an affine `initialization` was also supplied, the DataArray also
         includes `attrs["affines"]["bspline_initialization"]` so that the full
@@ -682,7 +682,7 @@ def register_volume(
     )
 
     # Normalise parameter scales so that a unit step in each parameter produces the same
-    # physical displacement. This is always applied regardless of learning_rate, so a
+    # world displacement. This is always applied regardless of learning_rate, so a
     # user-supplied float is interpreted in these normalised units. If registration
     # diverges, reduce learning_rate accordingly.
     registration.SetOptimizerScalesFromPhysicalShift()
@@ -877,7 +877,7 @@ def register_volume(
     if resample:
         # result already carries fixed's own VoxelToWorldIndex (reused from
         # fixed.coords above), so only the unrelated attrs["affines"] metadata --
-        # fixed's relationship to other physical reference frames -- needs swapping
+        # fixed's relationship to other world reference frames -- needs swapping
         # in for moving's.
         replace_affines_attr(result, fixed)
 

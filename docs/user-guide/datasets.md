@@ -332,7 +332,7 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     atlas = fetch_brainglobe_atlas("allen_mouse_50um")
     resampled_atlas = atlas.atlas.resample_like(
         template,
-        template.attrs["affines"]["physical_to_sform"],
+        template.attrs["affines"]["world_to_sform"],
     )
     ```
 
@@ -352,7 +352,7 @@ Existing local files are never re-downloaded—`refresh=True` only adds what is 
     atlas = fetch_brainglobe_atlas("allen_mouse_100um")
     resampled_atlas = atlas.atlas.resample_like(
         template,
-        template.attrs["affines"]["physical_to_sform"],
+        template.attrs["affines"]["world_to_sform"],
     )
     ```
 

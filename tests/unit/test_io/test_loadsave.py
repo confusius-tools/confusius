@@ -161,7 +161,7 @@ class TestSaveZarrSanitizesAttrs:
     def test_nested_numpy_affines_round_trip(self, tmp_path, saveable_volume):
         """`attrs["affines"]` numpy arrays survive a round-trip and reload as arrays."""
         affines = {
-            "physical_to_world": np.eye(4),
+            "world_to_custom": np.eye(4),
             "stack": np.arange(32.0).reshape(2, 4, 4),
         }
         da = saveable_volume.assign_attrs(affines=affines)

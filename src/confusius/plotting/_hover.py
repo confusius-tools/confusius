@@ -33,9 +33,9 @@ class _SliceLayer:
     """One sample-able 2D array attached to a single axes."""
 
     x_coords: np.ndarray
-    """Sorted (ascending) physical coordinates of the column dimension."""
+    """Sorted (ascending) world coordinates of the column dimension."""
     y_coords: np.ndarray
-    """Sorted (ascending) physical coordinates of the row dimension."""
+    """Sorted (ascending) world coordinates of the row dimension."""
     data_2d: np.ndarray
     """The values to sample, shape `(len(y_coords), len(x_coords))`."""
     role: Literal["volume", "labels"]
@@ -114,9 +114,9 @@ class _HoverManager:
         ax : matplotlib.axes.Axes
             The axes the slice is drawn on.
         x_coords : (W,) numpy.ndarray
-            Ascending physical coordinates of the column dimension.
+            Ascending world coordinates of the column dimension.
         y_coords : (H,) numpy.ndarray
-            Ascending physical coordinates of the row dimension.
+            Ascending world coordinates of the row dimension.
         data_2d : (H, W) numpy.ndarray
             Numeric values sampled at `(y_coords, x_coords)`.
         role : {"volume", "labels"}

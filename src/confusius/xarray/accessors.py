@@ -171,8 +171,8 @@ class FUSIAccessor:
         """Coordinate spacing for all dimensions.
 
         Spacing is reported in DataArray dimension order. For native voxel dimensions
-        `k/j/i`, each voxel-space dimension receives its physical step length derived
-        from the voxel-to-physical affine column norm and the 1D voxel-coordinate
+        `k/j/i`, each voxel-space dimension receives its world step length derived
+        from the voxel-to-world affine column norm and the 1D voxel-coordinate
         step. A coordinate is considered uniform if every interval is within 1% of the
         median interval (per-interval `|diff - median| <= 0.01 * |median|`).
 
@@ -230,10 +230,10 @@ class FUSIAccessor:
 
     @property
     def origin(self) -> dict[str, float]:
-        """Physical origin metadata for the DataArray.
+        """World origin metadata for the DataArray.
 
         Non-spatial dimensions use their first coordinate value. Spatial origin is
-        returned in physical coordinate order as the physical location of the first
+        returned in world coordinate order as the world location of the first
         sampled voxel under the stored `voxel_to_world` affine.
 
         Returns
@@ -285,13 +285,13 @@ class FUSIAccessor:
 
     @property
     def direction(self):
-        """Physical-space direction matrix for the present spatial geometry.
+        """World-space direction matrix for the present spatial geometry.
 
         Returns
         -------
         numpy.ndarray
             Identity for axis-aligned data. For voxel-affine data, the columns are the
-            unit physical-space directions of the voxel axes.
+            unit world-space directions of the voxel axes.
         """
         import numpy as np
 
@@ -342,12 +342,12 @@ class FUSIAccessor:
         -------
         xarray.DataArray
             DataArray with voxel coordinates rebased to `0, 1, ..., dim - 1` and an
-            updated `voxel_to_world` affine. Physical coordinates are unchanged.
+            updated `voxel_to_world` affine. World coordinates are unchanged.
 
         Raises
         ------
         ValueError
-            If `self` lacks voxel-affine geometry, or if physical spacing is
+            If `self` lacks voxel-affine geometry, or if world spacing is
             undefined for any voxel dimension.
 
         Examples
@@ -388,20 +388,20 @@ class FUSIAccessor:
         reference : xarray.DataArray
             DataArray whose voxel labels and affine `self` should adopt.
         atol : float, default: 1e-6
-            Absolute tolerance, in `reference`'s physical units, for the
+            Absolute tolerance, in `reference`'s world units, for the
             world-coordinate alignment check between `self` and `reference`.
 
         Returns
         -------
         xarray.DataArray
             `self` with voxel coordinates and `voxel_to_world` replaced by
-            `reference`'s. Physical coordinates are unchanged.
+            `reference`'s. World coordinates are unchanged.
 
         Raises
         ------
         ValueError
             If `self` or `reference` lacks voxel-affine geometry, if their voxel
-            dimensions or shapes differ, or if their physical coordinates do not
+            dimensions or shapes differ, or if their world coordinates do not
             match within `atol`.
         """
         from confusius.xarray.affine import reindex_voxels_like

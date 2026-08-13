@@ -15,7 +15,7 @@ labeling and coordinate tracking, but at the cost of needing a complex reimpleme
 of many array operations and losing access to the broader scientific Python ecosystem.
 
 [Xarray](https://xarray.dev/) solves this by wrapping arrays with named dimensions and
-physical coordinates, while [maintaining compatibility](https://xarray.dev/#ecosystem)
+world coordinates, while [maintaining compatibility](https://xarray.dev/#ecosystem)
 with the Python scientific ecosystem. With Xarray, operations become self-documenting:
 
 ```python
@@ -30,7 +30,7 @@ Coordinates also carry metadata through transformations, so voxel sizes, timesta
 acquisition parameters travel with the data rather than being stored separately.
 
 ```python
-# Select a depth range by physical coordinate (mm), not by index.
+# Select a depth range by world coordinate (mm), not by index.
 shallow = pwd.sel(y=slice(0, 2.5))
 
 # Coordinates are updated automatically, no manual bookkeeping needed.
@@ -204,7 +204,7 @@ shape.
 
 This recovery only works when the missing voxel dimension is still represented by scalar
 world-coordinate geometry. A manually constructed bare `(time, j, i)` array with no
-voxel-to-world geometry is rejected because ConfUSIus cannot infer its physical position,
+voxel-to-world geometry is rejected because ConfUSIus cannot infer its world position,
 units, or voxel size.
 
 ## The `.fusi` Accessor
@@ -261,7 +261,7 @@ Currently, two global helpers are available:
   ```
 
   This is typically used for computing the affine transformation corresponding to the
-  physical coordinates of the DataArray, for example when saving to NIfTI.
+  world coordinates of the DataArray, for example when saving to NIfTI.
 
 ### IQ Processing ([`.fusi.iq`][confusius.xarray.FUSIIQAccessor])
 

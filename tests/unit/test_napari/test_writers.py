@@ -52,11 +52,11 @@ def _meta_from_layer(
     """
     import confusius  # noqa: F401 — registers .fusi accessor
 
-    physical_dim = {"k": "z", "j": "y", "i": "x"}
+    world_dim = {"k": "z", "j": "y", "i": "x"}
     scale = [da.fusi.spacing[d] or 1.0 for d in da.dims]
 
     def _origin(dim: Hashable) -> float:
-        name = physical_dim.get(str(dim), str(dim))
+        name = world_dim.get(str(dim), str(dim))
         coord = da.coords[name]
         others = {d: 0 for d in coord.dims if d != dim}
         return float(coord.isel(others).values.reshape(-1)[0])

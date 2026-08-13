@@ -231,7 +231,7 @@ class TestReaderLayerData:
 
         assert kwargs["units"] == ["mm", "mm", "mm"]
 
-    def test_voxel_affine_is_resampled_to_physical_grid(self, tmp_path: Path) -> None:
+    def test_voxel_affine_is_resampled_to_world_grid(self, tmp_path: Path) -> None:
         """Oblique reader output uses an axis-aligned world grid for napari."""
         path = tmp_path / "cti.zarr"
         save(_make_voxel_affine_volume(), path)
@@ -246,10 +246,10 @@ class TestReaderLayerData:
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
         npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
 
-    def test_axis_aligned_voxel_affine_uses_physical_display_by_default(
+    def test_axis_aligned_voxel_affine_uses_world_display_by_default(
         self, tmp_path: Path
     ) -> None:
-        """Axis-aligned reader output uses physical z/y/x display by default."""
+        """Axis-aligned reader output uses world z/y/x display by default."""
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],

@@ -612,7 +612,7 @@ def convert_autc_dats_to_zarr(
     - `x`: Lateral coordinate array in probe-relative mm.
 
     Spatial coordinates (`z`, `y`, `x`) follow the ConfUSIus probe-relative
-    coordinate system: physical distances in millimeters along each voxel axis, with the
+    coordinate system: world distances in millimeters along each voxel axis, with the
     origin at the center of the probe face. Unlike EchoFrame data (where coordinates are
     embedded in the metadata file), AUTC data carries no spatial calibration, so
     `lateral_coords` and `axial_coords` must be supplied by the caller. Omitting

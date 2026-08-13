@@ -1,18 +1,18 @@
-"""Geometry helpers for voxel-space to physical-space transforms.
+"""Geometry helpers for voxel-space to world-space transforms.
 
 This module prototypes a geometry model where a DataArray keeps 1D voxel-space
 coordinates (for example `i`, `j`, `k`) and stores a single affine that maps
-those voxel-space coordinates into physical-space coordinates (for example
+those voxel-space coordinates into world-space coordinates (for example
 `x`, `y`, `z`).
 
-The derived physical coordinates are always exposed lazily via a single joint
+The derived world coordinates are always exposed lazily via a single joint
 [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex] backed by Xarray's
 `CoordinateTransformIndex`, for both axis-aligned and oblique affines — see
 `VoxelToWorldIndex`'s docstring for why a single shared index (rather than one per
 axis) is required for compatibility with `.stack()`. For axis-aligned affines,
 `VoxelToWorldIndex.sel` reimplements ordinary per-axis `.sel()` (slices, single
 labels) directly against the joint transform, so it stays as ergonomic as a plain
-1D coordinate despite each physical coordinate technically depending on every voxel
+1D coordinate despite each world coordinate technically depending on every voxel
 dimension.
 """
 
@@ -175,7 +175,7 @@ class VoxelToWorldIndex(Index):
         """Voxel-space coordinate value pinned by a prior scalar `isel` selection.
 
         The dimension was removed as an array dimension (e.g. by `.isel(k=0)`) but
-        its contribution to the physical coordinates is still tracked exactly, so it
+        its contribution to the world coordinates is still tracked exactly, so it
         can later be reinstated by
         [canonicalize_fusi][confusius.validation.canonicalize_fusi].
 
@@ -229,10 +229,10 @@ class VoxelToWorldIndex(Index):
             Ordered mapping from voxel dimension name to its 1D voxel-space
             coordinates.
         voxel_to_world : numpy.typing.ArrayLike
-            Homogeneous affine mapping voxel-space coordinates to physical-space
+            Homogeneous affine mapping voxel-space coordinates to world-space
             coordinates.
         world_coord_names : tuple[Hashable, ...], optional
-            Names of the physical-space coordinates exposed by the index. If not
+            Names of the world-space coordinates exposed by the index. If not
             provided, defaults to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
         world_coord_attrs : mapping[Any, mapping[str, Any]], optional
             Attributes to attach to the derived world coordinates, keyed by world
@@ -459,24 +459,24 @@ class VoxelToWorldIndex(Index):
 
 
 class VoxelToWorldTransform(CoordinateTransform):
-    """Coordinate transform from voxel-space coordinates to physical space.
+    """Coordinate transform from voxel-space coordinates to world space.
 
     The transform combines:
 
     1. a dense array-position -> voxel-space lookup using the 1D coordinate arrays
        attached to each dimension, and
-    2. a homogeneous affine that maps voxel-space coordinates to physical-space
+    2. a homogeneous affine that maps voxel-space coordinates to world-space
        coordinates.
 
     This lets a dense array with dimensions like `(j, i)` or `(k, j, i)` carry
     irregular voxel-space coordinates such as `i = [0, 2, 3]`, while still exposing
-    exact physical coordinates through Xarray's
+    exact world coordinates through Xarray's
     `CoordinateTransformIndex`.
 
     Dimensions can become "fixed" (see `fixed_voxel_coords`) when a scalar `isel`
     selection removes them as array dimensions. The affine itself is never reduced —
     it always covers `all_dims`, the full original set of voxel dimensions — so a
-    fixed dimension's contribution to the physical coordinates stays exact, and a
+    fixed dimension's contribution to the world coordinates stays exact, and a
     fixed dimension can later be reinstated (e.g. by
     [canonicalize_fusi][confusius.validation.canonicalize_fusi]) without any loss of
     precision.
@@ -486,12 +486,12 @@ class VoxelToWorldTransform(CoordinateTransform):
     voxel_coords : mapping[str, array-like]
         Ordered mapping from active dimension name to its 1D voxel-space coordinates.
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel-space coordinates to physical-space
+        Homogeneous affine mapping voxel-space coordinates to world-space
         coordinates, covering all of `all_dims` (not just the active `voxel_coords`).
         The input column order must match `all_dims`. The output row order must match
         `world_coord_names`.
     world_coord_names : tuple[Hashable, ...], optional
-        Names of the physical-space coordinates exposed by the transform. If not
+        Names of the world-space coordinates exposed by the transform. If not
         provided, defaults to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
     fixed_voxel_coords : mapping[str, float], optional
         Voxel-space coordinate value pinned for each dimension that was removed as an
@@ -581,7 +581,7 @@ class VoxelToWorldTransform(CoordinateTransform):
         self._all_dims = all_dims
 
     def forward(self, dim_positions: dict[str, Any]) -> dict[Hashable, Any]:
-        """Transform dense array positions into physical coordinates.
+        """Transform dense array positions into world coordinates.
 
         Parameters
         ----------
@@ -591,7 +591,7 @@ class VoxelToWorldTransform(CoordinateTransform):
         Returns
         -------
         dict[Hashable, Any]
-            Physical-space coordinate values keyed by `self.coord_names`.
+            World-space coordinate values keyed by `self.coord_names`.
         """
         active_values = {
             dim: self.voxel_coords[dim][np.asarray(dim_positions[dim])]
@@ -614,7 +614,7 @@ class VoxelToWorldTransform(CoordinateTransform):
         return {name: transformed[i] for i, name in enumerate(self.coord_names)}
 
     def reverse(self, coord_labels: dict[Hashable, Any]) -> dict[str, Any]:
-        """Transform physical coordinates back into dense array positions.
+        """Transform world coordinates back into dense array positions.
 
         The returned positions are floating-point dense positions. Xarray rounds them
         during nearest-neighbour selection.
@@ -622,17 +622,17 @@ class VoxelToWorldTransform(CoordinateTransform):
         Parameters
         ----------
         coord_labels : dict[Hashable, Any]
-            Physical-space coordinate labels keyed by `self.coord_names`.
+            World-space coordinate labels keyed by `self.coord_names`.
 
         Returns
         -------
         dict[str, Any]
             Dense array positions keyed by `self.dims`.
         """
-        physical_values = [np.asarray(coord_labels[name]) for name in self.coord_names]
-        shape = np.asarray(physical_values[0]).shape
+        world_values = [np.asarray(coord_labels[name]) for name in self.coord_names]
+        shape = np.asarray(world_values[0]).shape
         ones = np.ones(shape, dtype=np.float64)
-        stacked = np.stack([*physical_values, ones], axis=0).reshape(
+        stacked = np.stack([*world_values, ones], axis=0).reshape(
             len(self.coord_names) + 1, -1
         )
         voxel_values = (np.linalg.inv(self.voxel_to_world) @ stacked).reshape(
@@ -747,7 +747,7 @@ def _is_axis_aligned_affine(voxel_to_world: npt.ArrayLike) -> bool:
     Parameters
     ----------
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to physical space.
+        Homogeneous affine mapping voxel space to world space.
 
     Returns
     -------
@@ -768,29 +768,29 @@ def add_world_coords_from_voxel_affine(
     world_coord_names: tuple[Hashable, ...] | None = None,
     world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Attach physical coordinates to a DataArray.
+    """Attach world coordinates to a DataArray.
 
     Parameters
     ----------
     data : xarray.DataArray
         Input array that already carries 1D voxel-space coordinates on `voxel_dims`.
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel-space coordinates to physical-space
+        Homogeneous affine mapping voxel-space coordinates to world-space
         coordinates.
     voxel_dims : tuple[str, ...]
         Dimension names whose coordinates define voxel space. The order determines the
         affine input-space column order.
     world_coord_names : tuple[Hashable, ...], optional
-        Names of the physical coordinates to attach lazily. If not provided, defaults
+        Names of the world coordinates to attach lazily. If not provided, defaults
         to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
-        Attributes to attach to the derived physical coordinates, keyed by physical
+        Attributes to attach to the derived world coordinates, keyed by world
         coordinate name.
 
     Returns
     -------
     xarray.DataArray
-        A new DataArray with derived physical coordinates attached. Axis-aligned
+        A new DataArray with derived world coordinates attached. Axis-aligned
         affines produce ordinary 1D coordinates; oblique affines produce lazily
         generated coordinates attached via a `CoordinateTransformIndex`.
 
@@ -840,9 +840,9 @@ def add_world_coords_from_voxel_affine(
             if name in result.coords:
                 result.coords[name].attrs.update(dict(attrs))
 
-    physical_spacings = get_world_spacings(voxel_coords, voxel_to_world_array)
+    world_spacings = get_world_spacings(voxel_coords, voxel_to_world_array)
     for i, (dim, name) in enumerate(zip(voxel_dims, world_coord_names, strict=True)):
-        spacing = physical_spacings[dim]
+        spacing = world_spacings[dim]
         if spacing is None:
             spacing = np.linalg.norm(voxel_to_world_array[:-1, i])
         if name in result.coords and "voxdim" not in result.coords[name].attrs:
@@ -1083,7 +1083,7 @@ def get_voxel_affine_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
 
 
 def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
-    """Return physical coordinate names exposed by voxel-affine geometry.
+    """Return world coordinate names exposed by voxel-affine geometry.
 
     Parameters
     ----------
@@ -1093,7 +1093,7 @@ def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
     Returns
     -------
     tuple[str, ...]
-        Physical coordinate names in affine row order.
+        World coordinate names in affine row order.
     """
     indexes = _collect_voxel_world_indexes(data)
     active_dims = tuple(dim for index in indexes for dim in index.voxel_dims)
@@ -1116,7 +1116,7 @@ def get_voxel_affine_world_coord_names(data: xr.DataArray) -> tuple[str, ...]:
 
 
 def get_voxel_world_origin(data: xr.DataArray) -> dict[str, float]:
-    """Return the physical location of the first sampled voxel.
+    """Return the world location of the first sampled voxel.
 
     Parameters
     ----------
@@ -1126,11 +1126,11 @@ def get_voxel_world_origin(data: xr.DataArray) -> dict[str, float]:
     Returns
     -------
     dict[str, float]
-        Physical origin keyed by physical coordinate name.
+        World origin keyed by world coordinate name.
 
     Notes
     -----
-    This returns the physical location of array index `(0, ..., 0)`, i.e. the first
+    This returns the world location of array index `(0, ..., 0)`, i.e. the first
     sampled voxel, not necessarily the affine translation at voxel-space `(0, ..., 0)`.
     The two coincide only when the voxel coordinates themselves start at zero.
     """
@@ -1151,7 +1151,7 @@ def get_voxel_world_origin(data: xr.DataArray) -> dict[str, float]:
 
 
 def get_voxel_world_spacing(data: xr.DataArray) -> dict[str, float | None]:
-    """Return physical spacing per voxel-space axis for a voxel-affine DataArray.
+    """Return world spacing per voxel-space axis for a voxel-affine DataArray.
 
     Parameters
     ----------
@@ -1161,7 +1161,7 @@ def get_voxel_world_spacing(data: xr.DataArray) -> dict[str, float | None]:
     Returns
     -------
     dict[str, float | None]
-        Physical spacing keyed by voxel-space dimension.
+        World spacing keyed by voxel-space dimension.
     """
     voxel_dims = get_voxel_affine_spatial_dims(data)
     voxel_coords = {dim: data.coords[dim].values for dim in voxel_dims}
@@ -1169,7 +1169,7 @@ def get_voxel_world_spacing(data: xr.DataArray) -> dict[str, float | None]:
 
 
 def get_voxel_world_direction_matrix(data: xr.DataArray) -> npt.NDArray[np.float64]:
-    """Return the physical-space direction matrix of a voxel-affine DataArray.
+    """Return the world-space direction matrix of a voxel-affine DataArray.
 
     Parameters
     ----------
@@ -1179,7 +1179,7 @@ def get_voxel_world_direction_matrix(data: xr.DataArray) -> npt.NDArray[np.float
     Returns
     -------
     (N, N) numpy.ndarray
-        Unit direction vectors in physical-space row order and voxel-space column
+        Unit direction vectors in world-space row order and voxel-space column
         order.
     """
     return get_affine_orientation_matrix(get_voxel_to_world_affine(data))
@@ -1188,17 +1188,17 @@ def get_voxel_world_direction_matrix(data: xr.DataArray) -> npt.NDArray[np.float
 def get_affine_origin(
     voxel_to_world: npt.ArrayLike,
 ) -> npt.NDArray[np.float64]:
-    """Return the physical location of the voxel-space origin.
+    """Return the world location of the voxel-space origin.
 
     Parameters
     ----------
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to physical space.
+        Homogeneous affine mapping voxel space to world space.
 
     Returns
     -------
     (N,) numpy.ndarray
-        Physical coordinates corresponding to voxel-space origin `(0, ..., 0)`.
+        World coordinates corresponding to voxel-space origin `(0, ..., 0)`.
     """
     affine = np.asarray(voxel_to_world, dtype=np.float64)
     return affine[:-1, -1].copy()
@@ -1208,19 +1208,19 @@ def get_affine_axis_vectors(
     voxel_to_world: npt.ArrayLike,
     voxel_dims: tuple[str, ...],
 ) -> dict[str, npt.NDArray[np.float64]]:
-    """Return the physical step vector for one voxel-space unit along each axis.
+    """Return the world step vector for one voxel-space unit along each axis.
 
     Parameters
     ----------
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to physical space.
+        Homogeneous affine mapping voxel space to world space.
     voxel_dims : tuple[str, ...]
         Voxel-space dimension names in affine column order.
 
     Returns
     -------
     dict[str, numpy.ndarray]
-        Physical step vectors keyed by voxel-space dimension name.
+        World step vectors keyed by voxel-space dimension name.
     """
     affine = np.asarray(voxel_to_world, dtype=np.float64)
     linear = affine[:-1, :-1]
@@ -1231,12 +1231,12 @@ def get_affine_axis_scalings(
     voxel_to_world: npt.ArrayLike,
     voxel_dims: tuple[str, ...],
 ) -> dict[str, float]:
-    """Return physical distance per one voxel-space unit along each axis.
+    """Return world distance per one voxel-space unit along each axis.
 
     Parameters
     ----------
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to physical space.
+        Homogeneous affine mapping voxel space to world space.
     voxel_dims : tuple[str, ...]
         Voxel-space dimension names in affine column order.
 
@@ -1255,17 +1255,17 @@ def get_affine_axis_scalings(
 def get_affine_orientation_matrix(
     voxel_to_world: npt.ArrayLike,
 ) -> npt.NDArray[np.float64]:
-    """Return unit physical-space axis directions from a voxel-to-physical affine.
+    """Return unit world-space axis directions from a voxel-to-world affine.
 
     Parameters
     ----------
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to physical space.
+        Homogeneous affine mapping voxel space to world space.
 
     Returns
     -------
     (N, N) numpy.ndarray
-        Matrix whose columns are unit physical-space vectors for each voxel-space axis.
+        Matrix whose columns are unit world-space vectors for each voxel-space axis.
         Zero-length columns are preserved as zeros.
     """
     affine = np.asarray(voxel_to_world, dtype=np.float64)
@@ -1281,19 +1281,19 @@ def get_world_spacings(
     voxel_coords: Mapping[str, npt.ArrayLike],
     voxel_to_world: npt.ArrayLike,
 ) -> dict[str, float | None]:
-    """Return physical spacing for regularly sampled voxel axes.
+    """Return world spacing for regularly sampled voxel axes.
 
     Parameters
     ----------
     voxel_coords : mapping[str, array-like]
         Ordered mapping from voxel-space dimension name to its 1D coordinates.
     voxel_to_world : (N+1, N+1) numpy.ndarray
-        Homogeneous affine mapping voxel space to physical space.
+        Homogeneous affine mapping voxel space to world space.
 
     Returns
     -------
     dict[str, float | None]
-        Physical spacing keyed by voxel-space dimension. Returns `None` only when the
+        World spacing keyed by voxel-space dimension. Returns `None` only when the
         voxel-space coordinate is irregular. For singleton voxel axes, the spacing is
         inferred from one voxel-space unit along that affine column.
     """

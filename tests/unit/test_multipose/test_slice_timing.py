@@ -62,7 +62,7 @@ def _make_consolidated_da(
         time=time_coord,
         spacing=(0.2, 0.3, 0.4),
         origin=(0.0, 0.0, 0.0),
-        attrs={"affines": {"physical_to_lab": np.eye(4)}},
+        attrs={"affines": {"world_to_lab": np.eye(4)}},
         name="scan_data",
     )
     return result.assign_coords(
@@ -188,7 +188,7 @@ class TestCorrectSliceTiming:
             ),
             spacing=(0.2, 0.1, 0.1),
             origin=(0.0, 0.0, 0.0),
-            attrs={"affines": {"physical_to_lab": np.eye(4)}},
+            attrs={"affines": {"world_to_lab": np.eye(4)}},
         ).assign_coords(
             slice_time=xr.DataArray(
                 slice_time_vals, dims=["time", "k"], attrs={"units": "s"}

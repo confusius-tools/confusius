@@ -239,7 +239,7 @@ def convert_time_reference(
     Parameters
     ----------
     time : array_like
-        Input timings in any physical time unit.
+        Input timings in any world time unit.
     volume_duration : float or array_like
         Duration of one volume in the same units as `time`. May be a scalar or one
         duration per input timing.

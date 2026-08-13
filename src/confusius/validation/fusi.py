@@ -77,9 +77,7 @@ def _validate_voxel_affine_geometry(da: xr.DataArray) -> None:
     world_coord_names = get_voxel_affine_world_coord_names(da)
     for name, dim in zip(world_coord_names, voxel_dims, strict=True):
         if name not in da.coords:
-            raise ValueError(
-                f"Voxel-affine data is missing physical coordinate {name!r}."
-            )
+            raise ValueError(f"Voxel-affine data is missing world coordinate {name!r}.")
         coord = da.coords[name]
         if set(coord.dims) not in ({dim}, set(voxel_dims)):
             raise ValueError(
@@ -405,9 +403,9 @@ def validate_fusi(
     require_canonical_dim_order : bool, default: False
         Whether core dimensions must appear in canonical order.
     require_spatial_voxdim : bool, default: False
-        Whether present physical spatial coordinates must define `voxdim` metadata.
+        Whether present world spatial coordinates must define `voxdim` metadata.
     require_spatial_units : bool, default: False
-        Whether present physical spatial coordinates must define `units` metadata.
+        Whether present world spatial coordinates must define `units` metadata.
     require_time_units : bool, default: False
         Whether the `time` coordinate must define `units` metadata when present.
 
@@ -461,10 +459,10 @@ def validate_fusi(
     if require_canonical_dim_order:
         _validate_canonical_core_dim_order(data)
 
-    physical_coords = get_voxel_affine_world_coord_names(data)
+    world_coords = get_voxel_affine_world_coord_names(data)
     singleton_spatial_dims = tuple(
         name
-        for name, dim in zip(physical_coords, spatial_dims, strict=True)
+        for name, dim in zip(world_coords, spatial_dims, strict=True)
         if data.sizes[dim] == 1
     )
     if require_spatial_voxdim:
@@ -472,7 +470,7 @@ def validate_fusi(
     else:
         _validate_required_coordinate_attrs(data, singleton_spatial_dims, "voxdim")
     if require_spatial_units:
-        _validate_required_coordinate_attrs(data, physical_coords, "units")
+        _validate_required_coordinate_attrs(data, world_coords, "units")
     if require_time_units and TIME_DIM in data.dims:
         _validate_required_coordinate_attrs(data, (TIME_DIM,), "units")
 

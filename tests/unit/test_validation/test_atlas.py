@@ -42,7 +42,7 @@ def _make_atlas(
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": StructuresDict(structures),
-            "physical_to_base": np.eye(4),
+            "world_to_base": np.eye(4),
         },
     )
 
@@ -105,27 +105,27 @@ def test_missing_metadata_attrs_pass() -> None:
     validate_atlas(ds)
 
 
-def test_missing_physical_to_base_passes_without_mesh_use() -> None:
-    """physical_to_base is not required unless validating for mesh use."""
+def test_missing_world_to_base_passes_without_mesh_use() -> None:
+    """world_to_base is not required unless validating for mesh use."""
     ds = _make_atlas()
-    del ds.attrs["physical_to_base"]
+    del ds.attrs["world_to_base"]
     validate_atlas(ds)
 
 
 def test_require_mesh_use_passes(tmp_path) -> None:
-    """An atlas with physical_to_base and an existing mesh file passes mesh-use checks."""
+    """An atlas with world_to_base and an existing mesh file passes mesh-use checks."""
     obj = tmp_path / "997.obj"
     obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
     ds = _make_atlas(mesh_filename=str(obj))
     validate_atlas(ds, require_mesh_use=True)
 
 
-def test_require_mesh_use_missing_physical_to_base_raises(tmp_path) -> None:
+def test_require_mesh_use_missing_world_to_base_raises(tmp_path) -> None:
     obj = tmp_path / "997.obj"
     obj.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n")
     ds = _make_atlas(mesh_filename=str(obj))
-    del ds.attrs["physical_to_base"]
-    with pytest.raises(ValueError, match="physical_to_base"):
+    del ds.attrs["world_to_base"]
+    with pytest.raises(ValueError, match="world_to_base"):
         validate_atlas(ds, require_mesh_use=True)
 
 
@@ -141,19 +141,19 @@ def test_matching_variable_affines_pass() -> None:
     ds = _make_atlas()
     aff = np.eye(4)
     aff[0, 3] = 5.0
-    ds["reference"].attrs["affines"] = {"physical_to_sform": aff}
-    ds["annotation"].attrs["affines"] = {"physical_to_sform": aff.copy()}
+    ds["reference"].attrs["affines"] = {"world_to_sform": aff}
+    ds["annotation"].attrs["affines"] = {"world_to_sform": aff.copy()}
     validate_atlas(ds)
 
 
 def test_mismatched_variable_affines_raise() -> None:
     """Two variables disagreeing on a same-named affine are invalid."""
     ds = _make_atlas()
-    ds["reference"].attrs["affines"] = {"physical_to_sform": np.eye(4)}
+    ds["reference"].attrs["affines"] = {"world_to_sform": np.eye(4)}
     other = np.eye(4)
     other[0, 3] = 5.0
-    ds["hemispheres"].attrs["affines"] = {"physical_to_sform": other}
-    with pytest.raises(ValueError, match="physical_to_sform"):
+    ds["hemispheres"].attrs["affines"] = {"world_to_sform": other}
+    with pytest.raises(ValueError, match="world_to_sform"):
         validate_atlas(ds)
 
 

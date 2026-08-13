@@ -229,7 +229,7 @@ def compute_framewise_displacement(
     affines : list[numpy.ndarray]
         List of affine matrices, one per frame.
     reference : xarray.DataArray
-        Spatial DataArray defining the physical grid (spacing and origin derived from
+        Spatial DataArray defining the world grid (spacing and origin derived from
         its coordinates).
     mask : numpy.ndarray, optional
         Boolean mask indicating which voxels to include. If not provided, uses all
@@ -361,7 +361,7 @@ def create_motion_dataframe(
     affines : list[numpy.ndarray]
         List of affine matrices from registration.
     reference : xarray.DataArray
-        Spatial DataArray defining the physical grid for framewise displacement
+        Spatial DataArray defining the world grid for framewise displacement
         computation.
     mask : numpy.ndarray, optional
         Boolean mask for FD computation.

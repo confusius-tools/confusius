@@ -6,7 +6,7 @@ reference them without duplicating string literals.
 """
 
 SPATIAL_DIMS: tuple[str, ...] = ("z", "y", "x")
-"""Physical spatial dimension names in ConfUSIus order."""
+"""World spatial dimension names in ConfUSIus order."""
 
 VOXEL_DIMS: tuple[str, ...] = ("k", "j", "i")
 """Native voxel-space dimension names in ConfUSIus order."""

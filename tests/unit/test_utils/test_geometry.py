@@ -15,10 +15,10 @@ from confusius._utils.geometry import (
 )
 
 
-def test_axis_aligned_voxel_affine_computes_correct_physical_coords() -> None:
-    """Axis-aligned voxel-affine geometry computes correct physical coords.
+def test_axis_aligned_voxel_affine_computes_correct_world_coords() -> None:
+    """Axis-aligned voxel-affine geometry computes correct world coords.
 
-    Physical coordinates are backed by a single joint index spanning all voxel
+    World coordinates are backed by a single joint index spanning all voxel
     dimensions (see [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]
     for why), so each is `(k, j, i)`-shaped even though, for an axis-aligned affine,
     its value only actually varies along its own paired voxel dimension.
@@ -92,7 +92,7 @@ def test_axis_aligned_voxel_affine_uses_voxel_to_world_index() -> None:
     result.stack(space=("k", "j", "i"))
 
 
-def test_oblique_coordinate_transform_index_selection_uses_physical_coords() -> None:
+def test_oblique_coordinate_transform_index_selection_uses_world_coords() -> None:
     """Oblique voxel-affine geometry still uses pointwise world selection."""
     data = xr.DataArray(
         np.arange(24).reshape(2, 3, 4),
@@ -133,7 +133,7 @@ def test_oblique_coordinate_transform_index_selection_uses_physical_coords() -> 
 def test_affine_geometry_helpers_extract_origin_vectors_scalings_and_orientation() -> (
     None
 ):
-    """Affine geometry helpers expose the linear part in physical-space form."""
+    """Affine geometry helpers expose the linear part in world-space form."""
     voxel_to_world = np.array(
         [
             [2.0, 1.0, 0.0, 10.0],
@@ -168,7 +168,7 @@ def test_affine_geometry_helpers_extract_origin_vectors_scalings_and_orientation
 
 
 def test_get_world_spacings_singleton_axis_uses_affine_column_norm() -> None:
-    """Singleton voxel axes still have a physical per-voxel spacing from the affine."""
+    """Singleton voxel axes still have a world per-voxel spacing from the affine."""
     voxel_coords = {
         "k": [0.0],
         "j": [0.0, 2.0, 4.0],
@@ -189,7 +189,7 @@ def test_get_world_spacings_singleton_axis_uses_affine_column_norm() -> None:
 
 
 def test_get_world_spacings_returns_none_for_irregular_voxel_axes() -> None:
-    """Physical spacing is undefined when voxel-space sampling is irregular."""
+    """World spacing is undefined when voxel-space sampling is irregular."""
     voxel_coords = {
         "k": [0.0, 1.0, 2.0],
         "j": [0.0, 2.0, 4.0],
@@ -210,7 +210,7 @@ def test_get_world_spacings_returns_none_for_irregular_voxel_axes() -> None:
 
 
 def test_get_voxel_world_origin_uses_first_sampled_voxel() -> None:
-    """Voxel-affine origin is the physical location of array index zero."""
+    """Voxel-affine origin is the world location of array index zero."""
     data = xr.DataArray(
         np.zeros((2, 3, 4)),
         dims=("k", "j", "i"),

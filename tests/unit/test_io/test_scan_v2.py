@@ -11,7 +11,7 @@ import xarray as xr
 
 from confusius.io.scan import (
     _SCAN_V2_OFFSETS,
-    PHYSICAL_TO_PROBE_PERMUTATION,
+    WORLD_TO_PROBE_PERMUTATION,
     SCAN_V2_MAGIC,
     load_bps,
     load_scan,
@@ -429,8 +429,8 @@ class TestLoadScanV2:
         for dim in ("x", "y", "z"):
             assert scan_v2.coords[dim].attrs["units"] == "mm"
 
-    def test_no_physical_to_lab(self, scan_v2: xr.DataArray) -> None:
-        """v2 carries an empty affines dict (no physical_to_lab yet)."""
+    def test_no_world_to_lab(self, scan_v2: xr.DataArray) -> None:
+        """v2 carries an empty affines dict (no world_to_lab yet)."""
         assert scan_v2.attrs["affines"] == {}
 
     def test_scan_format_attr(self, scan_v2: xr.DataArray) -> None:
@@ -568,18 +568,18 @@ class TestLoadScanV2Acquisition:
         assert scan_v2_acq.attrs["svd_low_cutoff"] == _SVD_CUTOFF
         assert scan_v2_acq.attrs["power_doppler_integration_window"] == _PD_WINDOW
 
-    def test_physical_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
-        """physical_to_lab is built from the 6DOF pose, matching the v1 permutation."""
+    def test_world_to_lab_from_pose(self, scan_v2_acq: xr.DataArray) -> None:
+        """world_to_lab is built from the 6DOF pose, matching the v1 permutation."""
         tx, ty, tz, _, _, rz = _POSE
         cz, sz = math.cos(rz), math.sin(rz)
         probe_to_lab = np.eye(4)
         probe_to_lab[:3, :3] = [[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]]
         probe_to_lab[:3, 3] = (tx, ty, tz)
-        perm = np.asarray(PHYSICAL_TO_PROBE_PERMUTATION)
+        perm = np.asarray(WORLD_TO_PROBE_PERMUTATION)
         expected = perm.T @ probe_to_lab @ perm
         expected[:3, 3] *= 1e3
 
-        affine = np.asarray(scan_v2_acq.attrs["affines"]["physical_to_lab"])
+        affine = np.asarray(scan_v2_acq.attrs["affines"]["world_to_lab"])
         np.testing.assert_allclose(affine, expected, atol=1e-9)
 
     def test_affine_skipped_on_implausible_pose(self, tmp_path: Path) -> None:
@@ -590,7 +590,7 @@ class TestLoadScanV2Acquisition:
         )
         da = load_scan(path)
         assert "probe_model" in da.attrs
-        assert "physical_to_lab" not in da.attrs["affines"]
+        assert "world_to_lab" not in da.attrs["affines"]
 
     def test_acquisition_absent_when_block_missing(self, scan_v2: xr.DataArray) -> None:
         """Without a valid acquisition block, probe/sequence fields are not emitted.
@@ -633,27 +633,27 @@ class TestLoadScanV2WithBPS:
         _write_scan_v2(path, _raw_payload(), acquisition=True)
         return path
 
-    def test_physical_to_brain_composed(
+    def test_world_to_brain_composed(
         self, scan_v2_acq_path: Path, bps_path: Path
     ) -> None:
-        """bps_path adds a physical_to_brain affine composed from physical_to_lab."""
-        physical_to_lab = np.asarray(
-            load_scan(scan_v2_acq_path).attrs["affines"]["physical_to_lab"]
+        """bps_path adds a world_to_brain affine composed from world_to_lab."""
+        world_to_lab = np.asarray(
+            load_scan(scan_v2_acq_path).attrs["affines"]["world_to_lab"]
         )
         da = load_scan(scan_v2_acq_path, bps_path=bps_path)
-        expected = np.linalg.inv(load_bps(bps_path)) @ physical_to_lab
+        expected = np.linalg.inv(load_bps(bps_path)) @ world_to_lab
         np.testing.assert_allclose(
-            da.attrs["affines"]["physical_to_brain"], expected, atol=1e-12
+            da.attrs["affines"]["world_to_brain"], expected, atol=1e-12
         )
 
     def test_bps_rejected_without_affine(self, tmp_path: Path, bps_path: Path) -> None:
-        """bps_path raises when no physical_to_lab affine could be built."""
+        """bps_path raises when no world_to_lab affine could be built."""
         path = tmp_path / "scan_v2_noaffine.scan"
         _write_scan_v2(
             path, _raw_payload(), acquisition=True, corrupt_acquisition="pose"
         )
         with pytest.raises(
-            ValueError, match="no physical_to_lab affine could be built"
+            ValueError, match="no world_to_lab affine could be built"
         ):
             load_scan(path, bps_path=bps_path)
 

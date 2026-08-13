@@ -39,7 +39,7 @@ def smooth_volume(
 ) -> xr.DataArray:
     """Smooth a DataArray spatially using a Gaussian kernel.
 
-    FWHM values are specified in physical units and converted to voxel-space sigma
+    FWHM values are specified in world units and converted to voxel-space sigma
     values using the coordinate spacing of each dimension. Smoothing is only applied to
     dimensions with uniform coordinate spacing.
 
@@ -54,7 +54,7 @@ def smooth_volume(
             dimensions, e.g. `data.chunk({"time": 10})` when smoothing spatial axes.
 
     fwhm : float or dict[str, float]
-        Full width at half maximum of the Gaussian kernel in physical unit. A scalar
+        Full width at half maximum of the Gaussian kernel in world unit. A scalar
         applies the same FWHM to all dimensions except `"time"`. A dict maps dimension
         names to per-dimension FWHM values, e.g. `{"z": 0.5, "y": 0.2, "x": 0.2}`;
         only the listed dimensions are smoothed. Dimensions of length 1 are left
@@ -89,7 +89,7 @@ def smooth_volume(
     $$
 
     where $\\Delta$ is the coordinate spacing for that dimension, in the same
-    physical units as `fwhm`.
+    world units as `fwhm`.
 
     Smoothing is applied via
     [`scipy.ndimage.gaussian_filter`][scipy.ndimage.gaussian_filter] with zero sigma for

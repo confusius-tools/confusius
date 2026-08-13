@@ -542,10 +542,10 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "i in-plane (mm)"
         assert ax.get_ylabel() == "j in-plane (mm)"
 
-    def test_voxel_affine_volume_resamples_for_physical_slice_mode(
+    def test_voxel_affine_volume_resamples_for_world_slice_mode(
         self, matplotlib_pyplot
     ):
-        """Voxel-affine volumes plot physical z-slices after axis-aligned resampling."""
+        """Voxel-affine volumes plot world z-slices after axis-aligned resampling."""
         data = _make_voxel_affine_volume()
         z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
 
@@ -562,13 +562,13 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "x (mm)"
         assert ax.get_ylabel() == "y (mm)"
 
-    def test_voxel_affine_physical_resampling_preserves_per_axis_spacing(self):
-        """The first physical display grid keeps each axis's own physical spacing."""
-        from confusius.plotting.image import _resample_voxel_affine_to_physical_grid
+    def test_voxel_affine_world_resampling_preserves_per_axis_spacing(self):
+        """The first world display grid keeps each axis's own world spacing."""
+        from confusius.plotting.image import _resample_voxel_affine_to_world_grid
 
         data = _make_voxel_affine_volume()
 
-        result = _resample_voxel_affine_to_physical_grid(data, "z")
+        result = _resample_voxel_affine_to_world_grid(data, "z")
 
         for dim in ("z", "y", "x"):
             spacing = float(
@@ -576,9 +576,9 @@ class TestPlotVolume:
             )
             assert spacing == pytest.approx(float(data.coords[dim].attrs["voxdim"]))
 
-    def test_axis_aligned_voxel_affine_physical_slice_promotes_physical_dims(self):
+    def test_axis_aligned_voxel_affine_world_slice_promotes_world_dims(self):
         """Axis-aligned geometry uses world dims directly for world slicing."""
-        from confusius.plotting.image import _resample_voxel_affine_to_physical_grid
+        from confusius.plotting.image import _resample_voxel_affine_to_world_grid
 
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
@@ -597,7 +597,7 @@ class TestPlotVolume:
             },
         )
 
-        result = _resample_voxel_affine_to_physical_grid(data, "z")
+        result = _resample_voxel_affine_to_world_grid(data, "z")
 
         assert result.dims == ("z", "y", "x")
         assert "voxel_to_world" not in result.attrs
@@ -666,7 +666,7 @@ class TestVolumePlotterAddVolume:
                 cmap="viridis",
             )
 
-    def test_voxel_affine_physical_overlay_reuses_first_display_grid(
+    def test_voxel_affine_world_overlay_reuses_first_display_grid(
         self, sample_fusi_3d, matplotlib_pyplot
     ):
         """World-coordinate overlays resample onto the first plotted world grid."""

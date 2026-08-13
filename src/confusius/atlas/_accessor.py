@@ -11,16 +11,16 @@ import xarray as xr
 
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import add_world_coords_from_voxel_affine
-from confusius.atlas._physical_to_base_transform import (
-    PhysicalToBaseTransform,
-    _apply_physical_to_base_transform,
-    _compose_physical_to_base_transforms,
-    _drop_vertices_outside_grid,
-)
 from confusius.atlas._structures import (
     _build_lookup_df,
     _get_descendant_ids,
     _resolve_region_id,
+)
+from confusius.atlas._world_to_base_transform import (
+    WorldToBaseTransform,
+    _apply_world_to_base_transform,
+    _compose_world_to_base_transforms,
+    _drop_vertices_outside_grid,
 )
 from confusius.registration.resampling import resample_like as resample_like_da
 from confusius.validation.atlas import validate_atlas
@@ -94,20 +94,20 @@ class AtlasAccessor:
         return self._ds["hemispheres"]
 
     @property
-    def _physical_to_base_transform(self) -> PhysicalToBaseTransform:
-        """Pull transform mapping the atlas's physical space back to base atlas space.
+    def _world_to_base_transform(self) -> WorldToBaseTransform:
+        """Pull transform mapping the atlas's world space back to base atlas space.
 
-        Held directly in `attrs["physical_to_base"]` as either a `(4, 4)` numpy affine or a
+        Held directly in `attrs["world_to_base"]` as either a `(4, 4)` numpy affine or a
         dense displacement-field DataArray after a nonlinear resample. It is returned as-is
         — the mesh-warping helpers consume the pull form (they invert the affine, or invert
-        the field per point, when mapping base vertices into physical space).
+        the field per point, when mapping base vertices into world space).
 
         Returns
         -------
         numpy.ndarray or xarray.DataArray
             The `(4, 4)` pull affine, or the dense displacement-field DataArray.
         """
-        return self._ds.attrs["physical_to_base"]
+        return self._ds.attrs["world_to_base"]
 
     # ── Structure metadata ────────────────────────────────────────────────────
 
@@ -279,7 +279,7 @@ class AtlasAccessor:
         """Return vertex coordinates and face indices for a region's mesh.
 
         Reads the region's OBJ mesh, transforms its vertices from micron space to the
-        DataArrays' current physical space (millimetres), then optionally drops
+        DataArrays' current world space (millimetres), then optionally drops
         out-of-grid vertices and clips to one hemisphere. The mesh comes from the
         structure's `mesh_filename`: for a freshly fetched atlas this points into the
         BrainGlobe cache; for an atlas loaded with
@@ -293,19 +293,19 @@ class AtlasAccessor:
         side : {"left", "right", "both"}, default: "both"
             Hemisphere to include. `"both"` keeps the full mesh. `"left"` and `"right"`
             keep only vertices whose nearest `hemispheres` voxel carries that side's label
-            (`hemispheres.attrs["left"]` / `["right"]`), sampled in the current physical
+            (`hemispheres.attrs["left"]` / `["right"]`), sampled in the current world
             space. Faces are kept only when all three of their vertices survive, so the
             cut face is not closed. Sampling the hemisphere map makes this
             orientation-agnostic and correct after an arbitrary resample.
         clip : bool, default: True
             Whether to clip the final mesh to the current reference grid. If `False`,
-            the mesh will still be transformed to the current physical space, but the
+            the mesh will still be transformed to the current world space, but the
             bounding box will not be respected.
 
         Returns
         -------
         vertices : numpy.ndarray, shape (N, 3)
-            Vertex coordinates in the current physical space (millimetres). After a
+            Vertex coordinates in the current world space (millimetres). After a
             nonlinear resample, vertices warped outside the reference grid are dropped.
         faces : numpy.ndarray, shape (M, 3)
             Zero-indexed triangle face indices (int32).
@@ -324,7 +324,7 @@ class AtlasAccessor:
     def resample_like(
         self,
         reference: xr.DataArray,
-        transform: PhysicalToBaseTransform,
+        transform: WorldToBaseTransform,
         *,
         reference_interpolation: Literal["linear", "nearest", "bspline"] = "linear",
         sitk_threads: int = -1,
@@ -338,9 +338,9 @@ class AtlasAccessor:
         - `reference`: resampled with `reference_interpolation`.
         - `annotation` and `hemispheres`: resampled with nearest-neighbour
           to preserve integer labels.
-        - Meshes returned by `get_mesh` will also be in the new physical space.
+        - Meshes returned by `get_mesh` will also be in the new world space.
 
-        `reference` and any DataArray transform must use the same physical coordinate
+        `reference` and any DataArray transform must use the same world coordinate
         units when such metadata is defined.
 
         Parameters
@@ -349,7 +349,7 @@ class AtlasAccessor:
             Target grid. Must be 2D or 3D and must not have a `time` dimension.
         transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
             Pull/inverse transform returned by `register_volume`, mapping `reference`
-            physical coordinates to atlas physical coordinates.
+            world coordinates to atlas world coordinates.
 
             - **Affine** (`numpy.ndarray`): homogeneous matrix.
             - **B-spline** (`xarray.DataArray`): control-point DataArray.
@@ -364,8 +364,8 @@ class AtlasAccessor:
         Returns
         -------
         xarray.Dataset
-            New atlas Dataset on `reference`'s grid. The composed physical→base pull
-            transform is stored in the `attrs["physical_to_base"]` attribute — a numpy
+            New atlas Dataset on `reference`'s grid. The composed world→base pull
+            transform is stored in the `attrs["world_to_base"]` attribute — a numpy
             affine, or a displacement-field DataArray when `transform` (or a previously
             composed one) is nonlinear.
 
@@ -403,8 +403,8 @@ class AtlasAccessor:
             sitk_threads=sitk_threads,
         )
 
-        composed = _compose_physical_to_base_transforms(
-            self._physical_to_base_transform, transform, reference, self.reference
+        composed = _compose_world_to_base_transforms(
+            self._world_to_base_transform, transform, reference, self.reference
         )
 
         data_vars: dict[str, xr.DataArray] = {
@@ -412,17 +412,17 @@ class AtlasAccessor:
             "annotation": resampled_ann,
             "hemispheres": resampled_hemi,
         }
-        # `composed` is the pull (physical→base) transform: a numpy affine when both inputs
+        # `composed` is the pull (world→base) transform: a numpy affine when both inputs
         # are affine, otherwise a dense displacement-field DataArray. Either rides directly
-        # in the single `physical_to_base` attr.
+        # in the single `world_to_base` attr.
         new_attrs = dict(self._ds.attrs)
-        new_attrs["physical_to_base"] = composed
+        new_attrs["world_to_base"] = composed
 
         return xr.Dataset(data_vars, attrs=new_attrs)
 
     def resample(
         self,
-        transform: PhysicalToBaseTransform,
+        transform: WorldToBaseTransform,
         *,
         shape: Sequence[int],
         spacing: Sequence[float],
@@ -441,15 +441,15 @@ class AtlasAccessor:
         Parameters
         ----------
         transform : (N+1, N+1) numpy.ndarray or xarray.DataArray
-            Pull transform mapping output physical coordinates to the current atlas
-            physical coordinates. Affine, B-spline, or displacement-field, as for
+            Pull transform mapping output world coordinates to the current atlas
+            world coordinates. Affine, B-spline, or displacement-field, as for
             [`resample_like`][confusius.atlas.AtlasAccessor.resample_like].
         shape : sequence of int
             Number of voxels along each output axis, in `dims` order.
         spacing : sequence of float
             Voxel spacing along each output axis, in `dims` order.
         origin : sequence of float
-            Physical origin along each output axis, in `dims` order.
+            World origin along each output axis, in `dims` order.
         dims : sequence of str
             Dimension names of the output atlas grid.
         reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
@@ -475,19 +475,19 @@ class AtlasAccessor:
         affine = np.eye(len(dims) + 1, dtype=np.float64)
         affine[:-1, :-1] = np.diag(spacing)
         affine[:-1, -1] = origin
-        physical_names = tuple({"k": "z", "j": "y", "i": "x"}[dim] for dim in dims)
-        physical_attrs = {}
-        for dim, name, step in zip(dims, physical_names, spacing, strict=True):
-            physical_attrs[name] = dict(
+        world_names = tuple({"k": "z", "j": "y", "i": "x"}[dim] for dim in dims)
+        world_attrs = {}
+        for dim, name, step in zip(dims, world_names, spacing, strict=True):
+            world_attrs[name] = dict(
                 self.reference.coords.get(name, xr.Variable((), 0.0)).attrs
             )
-            physical_attrs[name]["voxdim"] = float(step)
+            world_attrs[name]["voxdim"] = float(step)
         reference = add_world_coords_from_voxel_affine(
             reference,
             affine,
             voxel_dims=tuple(dims),
-            world_coord_names=physical_names,
-            world_coord_attrs=physical_attrs,
+            world_coord_names=world_names,
+            world_coord_attrs=world_attrs,
         )
         return self.resample_like(
             reference,
@@ -707,7 +707,7 @@ def get_atlas_mesh(
     """Return vertex coordinates and face indices for a region's mesh.
 
     Reads the region's OBJ mesh, transforms its vertices from micron space to the atlas's
-    physical space (millimetres), then optionally drops out-of-grid vertices and clips to
+    world space (millimetres), then optionally drops out-of-grid vertices and clips to
     one hemisphere. The mesh comes from the structure's `mesh_filename`: for a freshly
     fetched atlas this points into the BrainGlobe cache; for an atlas loaded with
     [`load_atlas`][confusius.io.load_atlas] it points at the mesh bundled
@@ -722,18 +722,18 @@ def get_atlas_mesh(
     side : {"left", "right", "both"}, default: "both"
         Hemisphere to include. `"both"` keeps the full mesh. `"left"` and `"right"` keep
         only vertices whose nearest `hemispheres` voxel carries that side's label
-        (`hemispheres.attrs["left"]` / `["right"]`), sampled in the atlas's physical space.
+        (`hemispheres.attrs["left"]` / `["right"]`), sampled in the atlas's world space.
         Faces are kept only when all three of their vertices survive, so the cut face is
         not closed. Sampling the hemisphere map makes this orientation-agnostic and correct
         after an arbitrary resample.
     clip : bool, default: True
         Whether to clip the final mesh to the reference grid. If `False`, the mesh is still
-        transformed to the atlas's physical space, but the bounding box is not respected.
+        transformed to the atlas's world space, but the bounding box is not respected.
 
     Returns
     -------
     vertices : numpy.ndarray, shape (N, 3)
-        Vertex coordinates in the atlas's physical space (millimetres). After a nonlinear
+        Vertex coordinates in the atlas's world space (millimetres). After a nonlinear
         resample, vertices warped outside the reference grid are dropped.
     faces : numpy.ndarray, shape (M, 3)
         Zero-indexed triangle face indices (int32).
@@ -756,7 +756,7 @@ def get_atlas_mesh(
     structures = ds.attrs["structures"]
     reference = ds["reference"]
     hemispheres = ds["hemispheres"]
-    physical_to_base = ds.attrs["physical_to_base"]
+    world_to_base = ds.attrs["world_to_base"]
 
     rid = _resolve_region_id(structures, region)
     info = structures[rid]
@@ -782,9 +782,7 @@ def get_atlas_mesh(
 
     vertices_mm = vertices_um * 1e-3  # Convert microns to millimetres.
 
-    vertices_mm = _apply_physical_to_base_transform(
-        physical_to_base, vertices_mm, reference
-    )
+    vertices_mm = _apply_world_to_base_transform(world_to_base, vertices_mm, reference)
 
     if clip:
         vertices_mm, faces = _drop_vertices_outside_grid(vertices_mm, faces, reference)

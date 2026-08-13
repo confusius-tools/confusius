@@ -106,9 +106,9 @@ the frame centered on the scan.
     depending on user hardware and operating system). Use **Frame step** to reduce the
     effective frame rate if playback is choppy or buffering.
 
-The time scale of each video layer is `frame_step / fps` seconds, so the napari
-time slider and the time overlay continue to report physical seconds regardless
-of the chosen step.
+The time scale of each video layer is `frame_step / fps` seconds, so the napari time
+slider and the time overlay continue to report time in seconds regardless of the chosen
+step.
 
 !!! note "Time axis is kept out of the displayed dims"
     The panel installs a guard that prevents napari from ever placing the time
@@ -277,8 +277,7 @@ Select a layer from the **Layer** dropdown, check the metrics you want, and clic
 
 === "Spatial metrics"
 
-    Spatial map metrics are added as new image layers in the napari layer list, with
-    correct physical scale and origin preserved.
+    Spatial map metrics are added as new image layers in the napari layer list.
 
     **CV**
     : Coefficient of variation map.

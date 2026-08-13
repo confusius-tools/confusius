@@ -93,12 +93,12 @@ def convert_dataarray_to_layer_data(
     """
     from confusius.plotting._utils import (
         _materialize_axis_aligned_world_grid_for_display,
-        resample_voxel_affine_to_physical_grid,
+        resample_voxel_affine_to_world_grid,
     )
 
     source_da = da
     da = _materialize_axis_aligned_world_grid_for_display(da)
-    da = resample_voxel_affine_to_physical_grid(da)
+    da = resample_voxel_affine_to_world_grid(da)
     all_dims = list(da.dims)
 
     spacing, non_uniform = get_coordinate_spacings_best_effort(da)

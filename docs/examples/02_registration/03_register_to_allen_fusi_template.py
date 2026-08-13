@@ -70,7 +70,7 @@ moving
 # close enough to allow the registration algorithm to converge to a good solution.
 #
 # [`register_volume`][confusius.registration.register_volume] expects a transform
-# mapping `fixed` (template) physical coordinates to `moving` (recording) physical
+# mapping `fixed` (template) world coordinates to `moving` (recording) world
 # coordinates, so we invert the napari affine—which instead describes how to place the
 # recording *into* the template's coordinate system—before using it as `initialization`.
 
@@ -147,7 +147,7 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 # ## Resample the Allen atlas onto the recording's native grid
 #
 # The template is not itself expressed in Allen space, but it carries the affine
-# transform to get there in `template.attrs["affines"]["physical_to_sform"]`. Composing
+# transform to get there in `template.attrs["affines"]["world_to_sform"]`. Composing
 # it with the inverse of the estimated registration affine gives a single transform from
 # the recording's native coordinates directly to Allen atlas coordinates.
 #
@@ -156,8 +156,8 @@ _ = fig.suptitle("Template (red) / recording (cyan)")
 # call.
 
 # %%
-physical_to_sform = template.attrs["affines"]["physical_to_sform"]
-subject_to_atlas = physical_to_sform @ np.linalg.inv(affine)
+world_to_sform = template.attrs["affines"]["world_to_sform"]
+subject_to_atlas = world_to_sform @ np.linalg.inv(affine)
 
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um", check_latest=False)
 resampled_atlas = atlas.atlas.resample_like(moving, subject_to_atlas)

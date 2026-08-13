@@ -200,7 +200,7 @@ def test_open_rat_registration_pair_loads_two_layers_with_qform(monkeypatch, tmp
                 initial_status="Checking sample cache...",
                 files_resolver=lambda progress_callback=None: rat_layers,
                 gamma=0.4,
-                affine_key="physical_to_qform",
+                affine_key="world_to_qform",
             )
         },
     )
@@ -223,7 +223,7 @@ def test_open_rat_registration_pair_loads_two_layers_with_qform(monkeypatch, tmp
 
     layers = open_rat_registration_pair_sample()
     assert len(layers) == 2
-    assert seen_affine_keys == ["physical_to_qform", "physical_to_qform"]
+    assert seen_affine_keys == ["world_to_qform", "world_to_qform"]
     assert layers[0][1]["colormap"] == "red"
     assert layers[0][1]["blending"] == "additive"
     assert layers[1][1]["colormap"] == "cyan"
@@ -253,9 +253,9 @@ def test_load_sample_dataarray_applies_affine_when_requested(monkeypatch, tmp_pa
 
     monkeypatch.setattr("confusius._napari._sample.load", lambda path: _Loaded())
 
-    result = _load_sample_dataarray(tmp_path / "sample.nii.gz", "physical_to_qform")
+    result = _load_sample_dataarray(tmp_path / "sample.nii.gz", "world_to_qform")
     assert result is transformed
-    assert applied == ["physical_to_qform"]
+    assert applied == ["world_to_qform"]
 
 
 def test_resolve_awake_mouse_recording(monkeypatch, tmp_path):

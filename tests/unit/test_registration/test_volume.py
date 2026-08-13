@@ -77,13 +77,13 @@ def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
 def _add_identity_voxel_affine(data: xr.DataArray) -> xr.DataArray:
     """Attach identity voxel-affine geometry to a test array."""
     voxel_dims = tuple(str(dim) for dim in data.dims if str(dim) in {"k", "j", "i"})
-    physical_names = {1: ("x",), 2: ("y", "x"), 3: ("z", "y", "x")}[len(voxel_dims)]
+    world_names = {1: ("x",), 2: ("y", "x"), 3: ("z", "y", "x")}[len(voxel_dims)]
     return add_world_coords_from_voxel_affine(
         data,
         np.eye(len(voxel_dims) + 1),
         voxel_dims=voxel_dims,
-        world_coord_names=physical_names,
-        world_coord_attrs={name: {"units": "mm"} for name in physical_names},
+        world_coord_names=world_names,
+        world_coord_attrs={name: {"units": "mm"} for name in world_names},
     )
 
 
@@ -359,7 +359,7 @@ class TestRegisterVolumeOutput:
         )
 
     def test_bspline_control_point_domain_matches_each_axis_extent(self):
-        """Each axis's control-point domain scales with its own physical extent.
+        """Each axis's control-point domain scales with its own world extent.
 
         Regression test for a bug where `sitk_bspline_to_dataarray` assumed
         SimpleITK reverses axis order relative to the DataArray (`(x, y, z)` vs.
@@ -367,7 +367,7 @@ class TestRegisterVolumeOutput:
         `dataarray_to_sitk_image`) never reverses axes: sitk axis `i` maps directly
         to DataArray dim `i`. On an anisotropic image, the erroneous reversal
         swapped the y/x control-point grids: `y`'s spacing was computed from `x`'s
-        physical domain and vice versa. Isotropic test fixtures never exposed this
+        world domain and vice versa. Isotropic test fixtures never exposed this
         because swapping equal-sized, equal-spacing axes is a no-op.
         """
         img = np.zeros((20, 40), dtype=np.float32)
@@ -393,10 +393,10 @@ class TestRegisterVolumeOutput:
             bspline_tx.coords["i"].values[-1] - bspline_tx.coords["i"].values[0]
         )
         # The control-point domain is padded beyond the image FOV for boundary
-        # support, so spans are somewhat larger than the raw physical extent (9.5 mm
+        # support, so spans are somewhat larger than the raw world extent (9.5 mm
         # for y, 3.9 mm for x). Padding scales with each axis's own extent (same mesh
         # size, so padding is proportional to domain size), so the span ratio should
-        # track the physical extent ratio (9.5 / 3.9 ~= 2.44) rather than being
+        # track the world extent ratio (9.5 / 3.9 ~= 2.44) rather than being
         # swapped with the other axis's.
         assert y_span / x_span == pytest.approx(9.5 / 3.9, rel=0.3)
 
@@ -419,11 +419,11 @@ class TestRegisterVolumeOutput:
         )
 
     def test_resample_true_inherits_fixed_affines(self, sample_2d_dataarray_spatial):
-        """resample=True output inherits physical-space affines from `fixed`."""
+        """resample=True output inherits world-space affines from `fixed`."""
         moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16)).copy()
         fixed = sample_2d_dataarray_spatial.copy()
-        moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
-        fixed.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
+        moving.attrs["affines"] = {"world_to_lab": np.diag([2.0, 2.0, 1.0])}
+        fixed.attrs["affines"] = {"world_to_lab": np.diag([3.0, 3.0, 1.0])}
 
         result, _, _ = register_volume(
             moving,
@@ -434,8 +434,8 @@ class TestRegisterVolumeOutput:
 
         assert "registration" not in result.attrs
         assert_allclose(
-            result.attrs["affines"]["physical_to_lab"],
-            fixed.attrs["affines"]["physical_to_lab"],
+            result.attrs["affines"]["world_to_lab"],
+            fixed.attrs["affines"]["world_to_lab"],
         )
 
     def test_resample_true_inherits_fixed_voxel_affine_geometry(self):
@@ -1537,18 +1537,18 @@ class TestResampleLike:
         )
 
     def test_inherits_reference_affines(self, sample_2d_dataarray_spatial):
-        """resample_like output inherits physical-space affines from `reference`."""
+        """resample_like output inherits world-space affines from `reference`."""
         moving = sample_2d_dataarray_spatial.isel(j=slice(16), i=slice(16)).copy()
         reference = sample_2d_dataarray_spatial.copy()
-        moving.attrs["affines"] = {"physical_to_lab": np.diag([2.0, 2.0, 1.0])}
-        reference.attrs["affines"] = {"physical_to_lab": np.diag([3.0, 3.0, 1.0])}
+        moving.attrs["affines"] = {"world_to_lab": np.diag([2.0, 2.0, 1.0])}
+        reference.attrs["affines"] = {"world_to_lab": np.diag([3.0, 3.0, 1.0])}
 
         result = resample_like(moving, reference, np.eye(4))
 
         assert "registration" not in result.attrs
         assert_allclose(
-            result.attrs["affines"]["physical_to_lab"],
-            reference.attrs["affines"]["physical_to_lab"],
+            result.attrs["affines"]["world_to_lab"],
+            reference.attrs["affines"]["world_to_lab"],
         )
 
     def test_inherits_reference_voxel_affine_geometry(self):
@@ -1580,7 +1580,7 @@ class TestResampleLike:
         """resample_like places output at reference's actual grid, not its stale affine.
 
         Regression test: `reference.voxel_to_world` describes voxel-space *values*
-        (crop/stride-invariant by design), not the physical location of `reference`'s
+        (crop/stride-invariant by design), not the world location of `reference`'s
         array *positions*. Deriving the output grid straight from that affine silently
         misplaced the resampled content whenever `reference` had been cropped or
         strided from a larger array; the correct grid must come from

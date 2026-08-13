@@ -1,8 +1,8 @@
-"""Physical-to-base transforms for atlas resampling (affine and nonlinear).
+"""World-to-base transforms for atlas resampling (affine and nonlinear).
 
-An atlas physical-to-base transform is a *pull* transform, following the same convention
-as `confusius.registration`: it maps a point in the atlas's physical space back to its
-base (BrainGlobe OBJ) physical space. Affine transforms are homogeneous `(4, 4)` matrices;
+An atlas world-to-base transform is a *pull* transform, following the same convention
+as `confusius.registration`: it maps a point in the atlas's world space back to its
+base (BrainGlobe OBJ) world space. Affine transforms are homogeneous `(4, 4)` matrices;
 nonlinear transforms are B-spline or dense displacement-field DataArrays. All points,
 vertices, and displacement components are in DataArray dim order `(z, y, x)`: component `i`
 of a displacement field displaces along axis `dims[i]`.
@@ -21,8 +21,8 @@ from confusius._utils.geometry import (
 )
 from confusius.registration.bspline import sample_displacement_field_like
 
-PhysicalToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
-"""Pull transform mapping the atlas's physical coordinates back to base atlas space.
+WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
+"""Pull transform mapping the atlas's world coordinates back to base atlas space.
 
 Affine transforms use homogeneous `(4, 4)` matrices; nonlinear transforms use B-spline or
 displacement-field DataArrays (`attrs["type"]` in `{"bspline_transform",
@@ -30,8 +30,8 @@ displacement-field DataArrays (`attrs["type"]` in `{"bspline_transform",
 """
 
 
-def _validate_physical_to_base_transform(transform: PhysicalToBaseTransform) -> None:
-    """Raise ValueError if `transform` is not a valid physical-to-base transform.
+def _validate_world_to_base_transform(transform: WorldToBaseTransform) -> None:
+    """Raise ValueError if `transform` is not a valid world-to-base transform.
 
     Parameters
     ----------
@@ -61,11 +61,11 @@ def _validate_physical_to_base_transform(transform: PhysicalToBaseTransform) -> 
 
 
 def _transform_points(
-    transform: PhysicalToBaseTransform,
+    transform: WorldToBaseTransform,
     points: npt.NDArray[np.float64],
     reference: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Apply a pull transform to physical points.
+    """Apply a pull transform to world points.
 
     Parameters
     ----------
@@ -73,7 +73,7 @@ def _transform_points(
         Pull transform mapping points from `reference` space into some moving/base
         space.
     points : (N, D) numpy.ndarray
-        Physical points in DataArray dim order `(z, y, x)`.
+        World points in DataArray dim order `(z, y, x)`.
     reference : xarray.DataArray
         Reference grid on which nonlinear transforms live.
 
@@ -82,7 +82,7 @@ def _transform_points(
     numpy.ndarray
         Transformed points with shape `(N, D)`.
     """
-    _validate_physical_to_base_transform(transform)
+    _validate_world_to_base_transform(transform)
 
     if isinstance(transform, np.ndarray):
         n_points, ndim = points.shape
@@ -96,20 +96,20 @@ def _transform_points(
     return points + displacement
 
 
-def _compose_physical_to_base_transforms(
-    old_transform: PhysicalToBaseTransform,
-    new_transform: PhysicalToBaseTransform,
+def _compose_world_to_base_transforms(
+    old_transform: WorldToBaseTransform,
+    new_transform: WorldToBaseTransform,
     new_reference: xr.DataArray,
     old_reference: xr.DataArray,
-) -> PhysicalToBaseTransform:
+) -> WorldToBaseTransform:
     """Compose mesh pull transforms as `old_transform ∘ new_transform`.
 
     Parameters
     ----------
     old_transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the current atlas physical space to the base atlas space.
+        Pull transform from the current atlas world space to the base atlas space.
     new_transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the new atlas physical space to the current atlas space.
+        Pull transform from the new atlas world space to the current atlas space.
     new_reference : xarray.DataArray
         Reference grid of the new atlas space.
     old_reference : xarray.DataArray
@@ -118,7 +118,7 @@ def _compose_physical_to_base_transforms(
     Returns
     -------
     numpy.ndarray or xarray.DataArray
-        Pull transform from the new atlas physical space to the base atlas space. Affine
+        Pull transform from the new atlas world space to the base atlas space. Affine
         when both inputs are affine, otherwise a dense displacement field on
         `new_reference`'s grid.
     """
@@ -168,14 +168,14 @@ def _compose_physical_to_base_transforms(
 def _interpolate_displacement_field(
     field: xr.DataArray, points: npt.NDArray[np.float64]
 ) -> npt.NDArray[np.float64]:
-    """Interpolate a dense displacement field at physical points.
+    """Interpolate a dense displacement field at world points.
 
     Parameters
     ----------
     field : xarray.DataArray
         Dense displacement field with dimensions `("component", *spatial_dims)`.
     points : (N, D) numpy.ndarray
-        Physical points in the same axis order as `field.dims[1:]`.
+        World points in the same axis order as `field.dims[1:]`.
 
     Returns
     -------
@@ -231,7 +231,7 @@ def _invert_displacement_field_at_points(
     max_iterations : int, default: 20
         Maximum number of fixed-point updates.
     tolerance : float, default: 1e-6
-        Convergence threshold on the maximum point update, in physical units.
+        Convergence threshold on the maximum point update, in world units.
 
     Returns
     -------
@@ -259,20 +259,20 @@ def _invert_displacement_field_at_points(
     return fixed_points
 
 
-def _apply_physical_to_base_transform(
-    transform: PhysicalToBaseTransform,
+def _apply_world_to_base_transform(
+    transform: WorldToBaseTransform,
     vertices: npt.NDArray[np.float64],
     reference: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Transform mesh vertices from base atlas space into the atlas's physical space.
+    """Transform mesh vertices from base atlas space into the atlas's world space.
 
     Parameters
     ----------
     transform : numpy.ndarray or xarray.DataArray
-        Pull transform from the atlas's physical space back to the base atlas physical
+        Pull transform from the atlas's world space back to the base atlas world
         space.
     vertices : (N, 3) numpy.ndarray
-        Mesh vertices expressed in the base atlas physical coordinates (millimetres).
+        Mesh vertices expressed in the base atlas world coordinates (millimetres).
     reference : xarray.DataArray
         The atlas's reference grid. Used to sample B-spline transforms into a dense
         displacement field when needed.
@@ -280,7 +280,7 @@ def _apply_physical_to_base_transform(
     Returns
     -------
     numpy.ndarray
-        Mesh vertices in the atlas's physical space.
+        Mesh vertices in the atlas's world space.
     """
     if isinstance(transform, np.ndarray):
         n_vertices, ndim = vertices.shape

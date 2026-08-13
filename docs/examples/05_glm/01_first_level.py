@@ -92,7 +92,7 @@ events
 # This dataset is stored with a spatial convention that differs from the [spatial
 # convention that ConfUSIus assumes](../../../user-guide/spatial-conventions/) (the axes
 # are labelled differently, the depth direction is flipped, and the stored
-# physical-space affine is not metric). We correct these differences so the data conform
+# world-space affine is not metric). We correct these differences so the data conform
 # to ConfUSIus's spatial convention. The collapsed `_load_and_prepare_fusi` helper
 # explains each step; otherwise, continue to the next cell.
 
@@ -115,10 +115,10 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
 
     1. Permute "k" and "j" so native voxel dim `k` carries elevation and `j` carries
        depth.
-    2. Apply the `physical_to_qform` affine to the coordinates to have metric
+    2. Apply the `world_to_qform` affine to the coordinates to have metric
        coordinates.
     3. Cyclically permute "z", "y", "x" in world space so elevation lands on `z`,
-       depth on `y`, and lateral on `x` (`physical_to_qform` leaves them on `x`,
+       depth on `y`, and lateral on `x` (`world_to_qform` leaves them on `x`,
        `z`, and `y` respectively).
     4. Flip "x" to restore a proper (non-reflective) direction matrix.
     5. Flip "y" to have a depth direction "away" from the transducer, and flip "z"
@@ -136,7 +136,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
 
     # 1. Relabel the k/j axes (no data copy needed): `create_fusi_dataarray` accepts
     # `dims` in any order -- it builds world coordinates from whichever dim is
-    # *named* k/j/i, independent of its physical axis position, and transposes to
+    # *named* k/j/i, independent of its world axis position, and transposes to
     # canonical order internally. So swapping the k/j *labels* on the still-raw
     # array is enough; the underlying values never need to move. (Avoid
     # `.transpose().rename()` on the already-CTI-backed array instead, which hits
@@ -161,14 +161,14 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
         name=str(da.name) if da.name is not None else None,
     )
 
-    # 2. Apply the `physical_to_qform` affine to the coordinates to have metric
-    #    coordinates. This is the affine that settles which physical row (z/y/x) each
+    # 2. Apply the `world_to_qform` affine to the coordinates to have metric
+    #    coordinates. This is the affine that settles which world row (z/y/x) each
     #    voxel column ends up mapping to, so it is applied in full (rotation
     #    included) -- CTI voxel-affine geometry can represent rotations exactly,
     #    unlike a plain z/y/x DataArray's independent 1D coordinates.
-    da.fusi.affine.apply(da.affines["physical_to_qform"], inplace=True)
+    da.fusi.affine.apply(da.affines["world_to_qform"], inplace=True)
 
-    # 3. `physical_to_qform` (checked empirically) lands elevation on world "x",
+    # 3. `world_to_qform` (checked empirically) lands elevation on world "x",
     #    depth on world "z", and lateral on world "y" -- a 3-cycle, not a pairwise
     #    swap. Permute rows so elevation->z, depth->y, lateral->x, matching
     #    ConfUSIus's convention.
@@ -180,7 +180,7 @@ def _load_and_prepare_fusi(pwd_path: Path) -> xr.DataArray:
     da.fusi.affine.apply(permute_zyx_cycle, inplace=True)
 
     # 4. Flip "x" (lateral). The cyclic permutation above leaves the direction matrix
-    #    improper (det -1, a reflection): `plot_volume`'s physical-grid resampling
+    #    improper (det -1, a reflection): `plot_volume`'s world-grid resampling
     #    (`slice_mode="z"`/`"y"`/`"x"`) silently produces empty/garbage slices for a
     #    reflection. Mirroring one axis restores a proper rotation (det +1).
     flip_x = np.eye(4)
@@ -240,7 +240,7 @@ average_fusi = xr.concat([fusi.mean("time") for fusi in fusi_list], dim="extra")
 # Allen atlas as an `xarray.Dataset`, holding the `reference`, `annotation` and
 # `hemispheres` volumes on a common grid plus an `.atlas` accessor for structure
 # queries. The template already carries the affine that maps it into atlas space
-# (`physical_to_sform`), so inverting it gives us what
+# (`world_to_sform`), so inverting it gives us what
 # [`resample_like`][confusius.registration.resample_like] needs to reslice the
 # template onto the atlas grid. Registering against that resampled template means the
 # transform we estimate maps the recording directly to the atlas space, with no further
@@ -278,9 +278,9 @@ _, template_to_fusi_transform, _ = cf.registration.register_volume(
 )
 
 # %% [markdown]
-# The estimated transform maps atlas coordinates back onto the recording's physical
-# space, so inverting it gives exactly the recording's physical-to-atlas mapping
-# (`physical_to_sform`). With that affine in hand,
+# The estimated transform maps atlas coordinates back onto the recording's world
+# space, so inverting it gives exactly the recording's world-to-atlas mapping
+# (`world_to_sform`). With that affine in hand,
 # [`resample_like`][confusius.registration.resample_like] reslices each volume onto the
 # atlas grid. We resample the averaged image (for display) and every individual run (the
 # GLM input).
@@ -288,7 +288,7 @@ _, template_to_fusi_transform, _ = cf.registration.register_volume(
 # %%
 atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
 atlas_to_fusi_transform = template_to_fusi_transform @ np.linalg.inv(
-    template_pepe_mariani.affines["physical_to_sform"]
+    template_pepe_mariani.affines["world_to_sform"]
 )
 
 resampled_average_in_atlas = cf.registration.resample_like(

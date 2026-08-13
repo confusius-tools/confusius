@@ -32,12 +32,12 @@ def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
     )
 
 
-def _with_physical_to_base_transform(
+def _with_world_to_base_transform(
     atlas_ds: xr.Dataset, transform: xr.DataArray
 ) -> xr.Dataset:
-    """Return a copy of `atlas_ds` carrying `transform` as its physical_to_base transform."""
+    """Return a copy of `atlas_ds` carrying `transform` as its world_to_base transform."""
     ds = atlas_ds.copy()
-    ds.attrs = {**atlas_ds.attrs, "physical_to_base": transform}
+    ds.attrs = {**atlas_ds.attrs, "world_to_base": transform}
     return ds
 
 
@@ -466,14 +466,14 @@ class TestIO:
         assert "cmap" in loaded["annotation"].attrs
         assert "norm" in loaded["annotation"].attrs
 
-    def test_physical_to_base_restored_as_array(
+    def test_world_to_base_restored_as_array(
         self, atlas_ds: xr.Dataset, tmp_path
     ) -> None:
-        """The affine physical_to_base reloads as a numpy array, not a JSON list."""
+        """The affine world_to_base reloads as a numpy array, not a JSON list."""
         path = tmp_path / "atlas.zarr"
         save_atlas(atlas_ds, path)
         loaded = load_atlas(path)
-        transform = loaded.attrs["physical_to_base"]
+        transform = loaded.attrs["world_to_base"]
         assert isinstance(transform, np.ndarray)
         np.testing.assert_allclose(transform, np.eye(4))
 
@@ -485,14 +485,14 @@ class TestIO:
             [[1.0, 0, 0, 0.5], [0, 1, 0, -0.2], [0, 0, 1, 0.3], [0, 0, 0, 1.0]]
         )
         reference = atlas_ds.atlas.reference.copy()
-        reference.attrs = {**reference.attrs, "affines": {"physical_to_sform": aff}}
+        reference.attrs = {**reference.attrs, "affines": {"world_to_sform": aff}}
         resampled = atlas_ds.atlas.resample_like(reference, np.eye(4))
         assert "affines" in resampled["reference"].attrs  # guards the scenario.
 
         path = tmp_path / "atlas.zarr"
         save_atlas(resampled, path)
         loaded = load_atlas(path)
-        got = loaded["reference"].attrs["affines"]["physical_to_sform"]
+        got = loaded["reference"].attrs["affines"]["world_to_sform"]
         assert isinstance(got, np.ndarray)
         np.testing.assert_allclose(got, aff)
 
@@ -583,7 +583,7 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.01  # component 2 == x
-        ds = _with_physical_to_base_transform(atlas_ds, _field_on_grid(reference, data))
+        ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
@@ -598,7 +598,7 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         data = np.zeros((3, *reference.shape))
         data[2] = 0.5  # inverts to a -0.5 shift, pushing every vertex off the grid
-        ds = _with_physical_to_base_transform(atlas_ds, _field_on_grid(reference, data))
+        ds = _with_world_to_base_transform(atlas_ds, _field_on_grid(reference, data))
 
         vertices, faces = ds.atlas.get_mesh(997)
         assert vertices.shape == (0, 3)
@@ -613,7 +613,7 @@ class TestNonlinearMesh:
         data[2] = 0.01
         field = _field_on_grid(reference, data)
         monkeypatch.setattr(
-            "confusius.atlas._physical_to_base_transform.sample_displacement_field_like",
+            "confusius.atlas._world_to_base_transform.sample_displacement_field_like",
             lambda transform, ref: field,
         )
         bspline = xr.DataArray(
@@ -621,7 +621,7 @@ class TestNonlinearMesh:
             dims=["cz", "cy", "cx", "comp"],
             attrs={"type": "bspline_transform"},
         )
-        ds = _with_physical_to_base_transform(atlas_ds, bspline)
+        ds = _with_world_to_base_transform(atlas_ds, bspline)
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)
@@ -633,8 +633,8 @@ class TestNonlinearMesh:
         self, atlas_ds: xr.Dataset
     ) -> None:
         resampled = atlas_ds.atlas.resample_like(atlas_ds.atlas.reference, np.eye(4))
-        assert isinstance(resampled.attrs["physical_to_base"], np.ndarray)
-        assert "physical_to_base" not in resampled.data_vars
+        assert isinstance(resampled.attrs["world_to_base"], np.ndarray)
+        assert "world_to_base" not in resampled.data_vars
 
     def test_resample_like_field_stores_transform_as_dataarray_attr(
         self, atlas_ds: xr.Dataset
@@ -642,8 +642,8 @@ class TestNonlinearMesh:
         reference = atlas_ds.atlas.reference
         field = _field_on_grid(reference, np.zeros((3, *reference.shape)))
         resampled = atlas_ds.atlas.resample_like(reference, field)
-        assert isinstance(resampled.attrs["physical_to_base"], xr.DataArray)
-        assert "physical_to_base" not in resampled.data_vars
+        assert isinstance(resampled.attrs["world_to_base"], xr.DataArray)
+        assert "world_to_base" not in resampled.data_vars
         validate_atlas(resampled)
 
     def test_resample_like_affine_shifts_mesh(self, atlas_ds: xr.Dataset) -> None:
@@ -673,8 +673,8 @@ class TestNonlinearMesh:
         save_atlas(resampled, path)
         loaded = load_atlas(path)
 
-        assert isinstance(loaded.attrs["physical_to_base"], xr.DataArray)
-        assert "physical_to_base" not in loaded.data_vars
+        assert isinstance(loaded.attrs["world_to_base"], xr.DataArray)
+        assert "world_to_base" not in loaded.data_vars
         np.testing.assert_allclose(
             loaded.atlas.get_mesh(997)[0], resampled.atlas.get_mesh(997)[0], atol=1e-6
         )
@@ -695,7 +695,7 @@ class TestNonlinearMesh:
 
 
 class TestTransformComposition:
-    """Composing physical_to_base pull transforms across successive resamples.
+    """Composing world_to_base pull transforms across successive resamples.
 
     resample_like composes the atlas's stored pull transform with the new one, so a chain
     of resamples must agree with a single resample by the composed transform. These cover
@@ -717,7 +717,7 @@ class TestTransformComposition:
         )
         one_step = atlas_ds.atlas.resample_like(reference, a @ b)
 
-        np.testing.assert_allclose(two_step.attrs["physical_to_base"], a @ b)
+        np.testing.assert_allclose(two_step.attrs["world_to_base"], a @ b)
         np.testing.assert_allclose(
             two_step.atlas.get_mesh(997)[0],
             one_step.atlas.get_mesh(997)[0],
@@ -734,7 +734,7 @@ class TestTransformComposition:
         once = atlas_ds.atlas.resample_like(reference, a)
         twice = once.atlas.resample_like(reference, np.eye(4))
 
-        np.testing.assert_allclose(twice.attrs["physical_to_base"], a)
+        np.testing.assert_allclose(twice.attrs["world_to_base"], a)
 
     def test_affine_then_zero_field_matches_the_affine_mesh(
         self, atlas_ds: xr.Dataset
@@ -752,7 +752,7 @@ class TestTransformComposition:
 
         # A zero field is the identity, so the affine·field composition is stored as a
         # dense displacement field but must warp the mesh exactly like the affine alone.
-        assert isinstance(composed.attrs["physical_to_base"], xr.DataArray)
+        assert isinstance(composed.attrs["world_to_base"], xr.DataArray)
         np.testing.assert_allclose(
             composed.atlas.get_mesh(997)[0],
             affine_only.atlas.get_mesh(997)[0],
@@ -770,7 +770,7 @@ class TestTransformComposition:
         init = np.eye(4)
         init[2, 3] = 0.01  # its inverse seeds the iteration near the true pre-image
         field.attrs["affines"] = {"bspline_initialization": init}
-        ds = _with_physical_to_base_transform(atlas_ds, field)
+        ds = _with_world_to_base_transform(atlas_ds, field)
 
         warped, _ = ds.atlas.get_mesh(997)
         base, _ = atlas_ds.atlas.get_mesh(997)

@@ -246,7 +246,7 @@ def get_coordinate_spacings_best_effort(
 
 
 def get_coordinate_origins(data: xr.DataArray) -> dict[str, float]:
-    """Return the physical origin (first coordinate value) for each dimension.
+    """Return the world origin (first coordinate value) for each dimension.
 
     For each dimension, returns the first coordinate value. If a coordinate is missing,
     falls back to `0.0` with a warning. If a coordinate is non-numeric (e.g.
@@ -350,10 +350,10 @@ def get_grid_info_from_dataarray(
         spacings = data.fusi.spacing
         origin = get_voxel_world_origin(data)
         coord_origins = get_coordinate_origins(data)
-        physical_names = get_voxel_affine_world_coord_names(data)
+        world_names = get_voxel_affine_world_coord_names(data)
         voxel_dims = get_voxel_affine_spatial_dims(data)
         origins = [
-            origin[physical_names[voxel_dims.index(dim)]]
+            origin[world_names[voxel_dims.index(dim)]]
             if dim in voxel_dims
             else coord_origins[dim]
             for dim in dims
@@ -441,18 +441,18 @@ def get_affine_in_axis_aligned_space(
     translation: npt.NDArray[np.floating],
     zoom: npt.NDArray[np.floating],
 ) -> npt.NDArray[np.float64]:
-    """Change an affine's input space to axis-aligned physical coordinates.
+    """Change an affine's input space to axis-aligned world coordinates.
 
     `affine` is assumed to map coordinates from a reference space, such as voxel
     indices, to an output space. `translation` and `zoom` define an axis-aligned affine
-    that maps coordinates in the same reference space as `affine` to physical
+    that maps coordinates in the same reference space as `affine` to world
     coordinates:
 
     ```python
-    physical = diag(zoom) @ voxel + translation
+    world = diag(zoom) @ voxel + translation
     ```
 
-    This function returns a transform that maps axis-aligned physical coordinates to the
+    This function returns a transform that maps axis-aligned world coordinates to the
     same output coordinate system:
 
     ```python
@@ -462,7 +462,7 @@ def get_affine_in_axis_aligned_space(
     Thus, for any voxel coordinate `v`:
 
     ```python
-    result @ physical(v) == affine @ v
+    result @ world(v) == affine @ v
     ```
 
     Parameters
@@ -477,7 +477,7 @@ def get_affine_in_axis_aligned_space(
     Returns
     -------
     (4, 4) or (..., 4, 4) numpy.ndarray
-        Transform from axis-aligned physical coordinates to the same output coordinate
+        Transform from axis-aligned world coordinates to the same output coordinate
         system as `affine`.
     """
     inv_reference = np.linalg.inv(get_axis_aligned_affine(translation, zoom))

@@ -1,10 +1,10 @@
 """Napari-based visualization utilities for fUSI data.
 
 ConfUSIus loads SCAN and NIfTI volumes with native voxel dimensions such as `k/j/i`
-and linked physical coordinates such as `z/y/x`, defined by a voxel-to-physical
- affine. Napari display uses physical `z/y/x` axes: axis-aligned data is promoted
-to a plain physical grid without interpolation, while oblique/sheared data is
-resampled to an axis-aligned physical display grid.
+and linked world coordinates such as `z/y/x`, defined by a voxel-to-world
+ affine. Napari display uses world `z/y/x` axes: axis-aligned data is promoted
+to a plain world grid without interpolation, while oblique/sheared data is
+resampled to an axis-aligned world display grid.
 """
 
 import warnings
@@ -23,7 +23,7 @@ from confusius._utils.napari import (
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
     coerce_complex_to_magnitude,
-    resample_voxel_affine_to_physical_grid,
+    resample_voxel_affine_to_world_grid,
     sort_coords_for_plot,
 )
 
@@ -45,12 +45,12 @@ def _get_napari_scale_translate_units(
         for dim, fallback in coordinate_spacing.items()
     }
     origin = data.fusi.origin
-    physical_dim = {"k": "z", "j": "y", "i": "x"}
+    world_dim = {"k": "z", "j": "y", "i": "x"}
     scale: list[float] = []
     translate: list[float] = []
     for dim in all_dims:
         dim_name = str(dim)
-        world_name = physical_dim.get(dim_name, dim_name)
+        world_name = world_dim.get(dim_name, dim_name)
         world_coord = data.coords.get(world_name)
         if world_coord is not None and world_coord.dims == (dim,):
             values = np.asarray(world_coord.values, dtype=float)
@@ -95,10 +95,10 @@ def plot_napari(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array to visualize. Standard physical-grid arrays typically use
+        Input data array to visualize. Standard world-grid arrays typically use
         dimensions such as `(time, z, y, x)`. ConfUSIus-loaded arrays may instead
         carry native voxel dimensions such as `(time, k, j, i)` together with linked
-        physical `z/y/x` coordinates and `attrs["voxel_to_world"]`. Use
+        world `z/y/x` coordinates and `attrs["voxel_to_world"]`. Use
         `dim_order` to specify a different displayed spatial ordering. Can be image
         data or label/mask data (e.g., ROIs, segmentations).
     show_colorbar : bool, default: True
@@ -135,19 +135,19 @@ def plot_napari(
     Complex-valued data is converted to magnitude (`abs(data)`) before display.
 
     ConfUSIus uses an in-memory geometry model with native voxel dimensions and
-    linked physical coordinates. Napari display always uses physical `z/y/x` axes.
-    Axis-aligned data is promoted to a plain physical grid without interpolation.
-    Oblique or sheared data is resampled to an axis-aligned physical grid because
+    linked world coordinates. Napari display always uses world `z/y/x` axes.
+    Axis-aligned data is promoted to a plain world grid without interpolation.
+    Oblique or sheared data is resampled to an axis-aligned world grid because
     napari's simple `scale`/`translate` model cannot represent cross-axis mixing.
 
     If all displayed dimensions have coordinates, their spacing is used as the scale
-    parameter for napari to ensure correct physical scaling. If any displayed dimension
+    parameter for napari to ensure correct world scaling. If any displayed dimension
     is missing coordinates, no scaling is applied for that dimension. The spacing is
     computed as the median difference between consecutive coordinate values.
 
     When spatial coordinates carry a `units` attribute (e.g. `"m"`), the unit list is
     forwarded to napari as the `units` layer parameter, which populates the status bar
-    with physical coordinates and sets the scale bar unit if units are consistent across
+    with world coordinates and sets the scale bar unit if units are consistent across
     displayed axes.
 
     For unitary dimensions (e.g., a single-slice elevation axis in 2D+t data), the
@@ -157,7 +157,7 @@ def plot_napari(
     attribute is found, unit spacing is assumed and a warning is emitted.
 
     The first coordinate value of each displayed dimension is used as the `translate`
-    parameter so that the image is positioned at its correct physical origin. For
+    parameter so that the image is positioned at its correct world origin. For
     dimensions without coordinates, a translate of `0.0` is used. This ensures that
     multiple datasets with different fields of view overlay correctly when added to
     the same viewer.
@@ -198,7 +198,7 @@ def plot_napari(
         )
 
     source_data = data
-    data = resample_voxel_affine_to_physical_grid(data)
+    data = resample_voxel_affine_to_world_grid(data)
 
     all_dims = list(data.dims)
     time_dim = "time" if "time" in all_dims else None
@@ -357,7 +357,7 @@ def draw_napari_labels(
     -----
     The Labels layer is initialised with the same `scale` and `translate`
     parameters as the image layer so that the napari canvas shows a consistent
-    physical coordinate frame regardless of voxel spacing or data origin.
+    world coordinate frame regardless of voxel spacing or data origin.
 
     Examples
     --------
@@ -380,13 +380,13 @@ def draw_napari_labels(
 
     spacing = data.fusi.spacing
     origin = data.fusi.origin
-    physical_dim = {"k": "z", "j": "y", "i": "x"}
+    world_dim = {"k": "z", "j": "y", "i": "x"}
     spatial_scale = [
         s if (s := spacing[dim]) is not None else 1.0 for dim in spatial_dims
     ]
     spatial_translate = [
-        origin[physical_dim.get(dim, dim)]
-        if physical_dim.get(dim, dim) in origin
+        origin[world_dim.get(dim, dim)]
+        if world_dim.get(dim, dim) in origin
         else (
             np.float64(data.coords[dim].values[0]).item() if dim in data.coords else 0.0
         )

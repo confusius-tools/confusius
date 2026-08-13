@@ -145,6 +145,6 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
             "species": "Mus musculus",
             "orientation": "asr",
             "structures": StructuresDict(structure_list),
-            "physical_to_base": np.eye(4),
+            "world_to_base": np.eye(4),
         },
     )

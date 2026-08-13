@@ -59,7 +59,7 @@ def _load_angio_for_registration(session: str) -> xr.DataArray:
         / f"sub-rat75_ses-{session}_acq-{acq}_rec-minframe2d_pwd.nii.gz"
     )
     angio = cf.load(path).fusi.scale.db().compute()
-    return angio.fusi.affine.apply(angio.affines["physical_to_qform"])
+    return angio.fusi.affine.apply(angio.affines["world_to_qform"])
 
 
 fixed = _load_angio_for_registration(sessions[0])
@@ -91,7 +91,7 @@ _ = cf.plotting.plot_composite(fixed, moving, bg_color=bg_color)
 # values:
 #
 # 1. the moving image (only aligned to the fixed grid if `resample=True` is used);
-# 2. the rigid transform matrix that maps fixed-physical coordinates to moving-physical
+# 2. the rigid transform matrix that maps fixed-world coordinates to moving-world
 #    coordinates;
 # 3. a [`RegistrationDiagnostics`][confusius.registration.RegistrationDiagnostics]
 #    dataclass holding the per-iteration metric values and the optimizer stop
@@ -162,7 +162,7 @@ ax.set_ylabel(f"Similarity metric ({diagnostics.metric})")
 _ = ax.set_title(diagnostics.stop_condition)
 
 # %% [markdown]
-# The resulting rigid transform is encoded in physical units and can be reused, composed
+# The resulting rigid transform is encoded in world units and can be reused, composed
 # with other transforms, or applied to additional volumes from the same session with
 # [`resample_volume`][confusius.registration.resample_volume].
 
@@ -273,7 +273,7 @@ local_inverse_field = cf.registration.invert_displacement_field(local_field)
 # labeled by the native voxel dim names, so we use the `i` and `j` displacement
 # components (lateral and axial), drop the degenerate `k` (elevation) of the single
 # slice, and subsample the dense grid so the arrows stay legible. Displacements are
-# still plotted against the physical `x`/`y` coordinates attached to the `i`/`j` dims.
+# still plotted against the world `x`/`y` coordinates attached to the `i`/`j` dims.
 
 # %%
 fig, axes = plt.subplots(1, 2, figsize=(8, 3))

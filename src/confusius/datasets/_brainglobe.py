@@ -31,7 +31,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common voxel-affine `(k, j, i)` grid, with physical `z`/`y`/`x` coordinates
+        on a common voxel-affine `(k, j, i)` grid, with world `z`/`y`/`x` coordinates
         in millimetres.
     """
     metadata = atlas.metadata
@@ -53,7 +53,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         for sid, info in atlas.structures.items()
     }
 
-    def _with_physical_coords(data: xr.DataArray) -> xr.DataArray:
+    def _with_world_coords(data: xr.DataArray) -> xr.DataArray:
         return add_world_coords_from_voxel_affine(
             data,
             voxel_to_world,
@@ -62,7 +62,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             world_coord_attrs=world_coord_attrs,
         )
 
-    reference = _with_physical_coords(
+    reference = _with_world_coords(
         xr.DataArray(
             atlas.reference.astype(np.float32),
             dims=VOXEL_DIMS,
@@ -71,7 +71,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         )
     )
 
-    annotation = _with_physical_coords(
+    annotation = _with_world_coords(
         xr.DataArray(
             atlas.annotation.astype(np.int32),
             dims=VOXEL_DIMS,
@@ -85,9 +85,9 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
         )
     )
 
-    physical_to_base = np.eye(4)
+    world_to_base = np.eye(4)
 
-    hemispheres = _with_physical_coords(
+    hemispheres = _with_world_coords(
         xr.DataArray(
             atlas.hemispheres.astype(np.int8),
             dims=VOXEL_DIMS,
@@ -111,7 +111,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
             "species": metadata["species"],
             "orientation": metadata["orientation"],
             "structures": atlas.structures,
-            "physical_to_base": physical_to_base,
+            "world_to_base": world_to_base,
         },
     )
 
@@ -146,7 +146,7 @@ def fetch_brainglobe_atlas(
     -------
     xarray.Dataset
         Atlas Dataset with data variables `reference`, `annotation`, and `hemispheres`
-        on a common voxel-affine `(k, j, i)` grid with physical `z`/`y`/`x` coordinates
+        on a common voxel-affine `(k, j, i)` grid with world `z`/`y`/`x` coordinates
         in millimetres, and the `.atlas` accessor for structure queries, masks, and
         meshes.
 

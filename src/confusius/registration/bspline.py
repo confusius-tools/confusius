@@ -4,7 +4,7 @@ A B-spline control-point grid is represented as a DataArray with:
 
 - **dims**: `("component", <spatial dims>)` — e.g. `("component", "z", "y", "x")`.
 - **coords**: `component` is labeled by the spatial dim names
-  (e.g. `("z", "y", "x")`), and each spatial axis stores the physical mm
+  (e.g. `("z", "y", "x")`), and each spatial axis stores the world mm
   positions of the control-point grid.
 - **attrs**:
 
@@ -37,8 +37,8 @@ leading `component` dimension:
 
 - **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
 - **coords**: `component` is labeled by the spatial dim names, each spatial axis
-  carries its native voxel index, and the derived physical `z`/`y`/`x` coordinates
-  give the physical mm position of every voxel.
+  carries its native voxel index, and the derived world `z`/`y`/`x` coordinates
+  give the world mm position of every voxel.
 - **attrs**: `{"type": "displacement_field_transform"}`. The voxel-to-world affine
   lives on the coordinate index (like any other CTI-backed DataArray), not in
   `attrs`; orientation is folded into it rather than stored separately, and can be
@@ -200,7 +200,7 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
     spatial_dims = list(da.dims[1:])  # e.g. ["z", "y", "x"]
 
     # Recover grid geometry from DataArray coordinates. The coordinates store the
-    # physical position of each control-point node; spacing is the step between
+    # world position of each control-point node; spacing is the step between
     # consecutive nodes, and origin is the first node. No axis reversal needed.
     spacing_sitk = [float(da.coords[dim].diff(dim).mean()) for dim in spatial_dims]
     origin_sitk = [float(da.coords[dim][0]) for dim in spatial_dims]
@@ -340,7 +340,7 @@ def sample_displacement_field(
     spacing : sequence of float
         Voxel spacing along each output axis, in DataArray dimension order.
     origin : sequence of float
-        Physical origin (first voxel centre) along each output axis, in DataArray
+        World origin (first voxel centre) along each output axis, in DataArray
         dimension order.
     dims : sequence of str
         Dimension names of the output displacement field.
@@ -460,7 +460,7 @@ def invert_displacement_field(
     """Invert a dense displacement field DataArray with SimpleITK.
 
     Uses `InvertDisplacementFieldImageFilter`, a fixed-point iterative solver, on the
-    same grid as `field`. The inverse maps physical points in the opposite direction of
+    same grid as `field`. The inverse maps world points in the opposite direction of
     `field`: if `field` is a fixed-to-moving pull transform, the returned field is
     (approximately) the corresponding moving-to-fixed pull transform.
 
@@ -554,7 +554,7 @@ def _sitk_displacement_field_to_dataarray(
     spacing : sequence of float
         Voxel spacing along each output axis, in DataArray dimension order.
     origin : sequence of float
-        Physical origin (first voxel centre) along each output axis, in DataArray
+        World origin (first voxel centre) along each output axis, in DataArray
         dimension order.
     dims : sequence of str
         Dimension names of the output DataArray.
@@ -596,7 +596,7 @@ def _sitk_displacement_field_to_dataarray(
 def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     """Return `.fusi.origin`, re-keyed by dimension name for voxel-affine data.
 
-    `.fusi.origin` keys voxel-affine spatial dims by their physical coordinate name
+    `.fusi.origin` keys voxel-affine spatial dims by their world coordinate name
     (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used elsewhere
     (e.g. `.fusi.spacing`, `data.dims`). This aligns the two conventions.
 
@@ -614,12 +614,12 @@ def _dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     if not has_voxel_world_geometry(data):
         return origin
     voxel_dims = get_voxel_affine_spatial_dims(data)
-    physical_names = get_voxel_affine_world_coord_names(data)
+    world_names = get_voxel_affine_world_coord_names(data)
     return {
         **origin,
         **{
-            voxel_dim: origin[physical_name]
-            for voxel_dim, physical_name in zip(voxel_dims, physical_names, strict=True)
+            voxel_dim: origin[world_name]
+            for voxel_dim, world_name in zip(voxel_dims, world_names, strict=True)
         },
     }
 
@@ -653,7 +653,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     origin = [_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
     direction = field_grid.fusi.direction
 
-    # .T maps the first DataArray axis to SimpleITK's physical x-axis, matching the
+    # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
     # convention used throughout confusius.registration (see dataarray_to_sitk_image).
     field = sitk.GetImageFromArray(da.values.T, isVector=True)
     field.SetSpacing(spacing)

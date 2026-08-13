@@ -188,7 +188,7 @@ def coerce_complex_to_magnitude(data: xr.DataArray, caller: str) -> xr.DataArray
 def _materialize_axis_aligned_world_grid_for_display(
     data: xr.DataArray,
 ) -> xr.DataArray:
-    """Expose axis-aligned voxel-affine data on plain physical `z/y/x` dims.
+    """Expose axis-aligned voxel-affine data on plain world `z/y/x` dims.
 
     Parameters
     ----------
@@ -198,20 +198,20 @@ def _materialize_axis_aligned_world_grid_for_display(
     Returns
     -------
     xarray.DataArray
-        DataArray whose spatial dimensions are renamed from voxel `k/j/i` to physical
-        `z/y/x`, with the linked physical coordinates promoted to dimension
+        DataArray whose spatial dimensions are renamed from voxel `k/j/i` to world
+        `z/y/x`, with the linked world coordinates promoted to dimension
         coordinates and `voxel_to_world` removed from attrs.
     """
     if not has_axis_aligned_voxel_world_geometry(data):
         if has_voxel_world_geometry(data):
             return data
         voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-        physical_dims = ("z", "y", "x")[-len(voxel_dims) :]
+        world_dims = ("z", "y", "x")[-len(voxel_dims) :]
         if len(voxel_dims) >= 2 and all(
             name in data.coords and data.coords[name].dims == (dim,)
-            for dim, name in zip(voxel_dims, physical_dims, strict=True)
+            for dim, name in zip(voxel_dims, world_dims, strict=True)
         ):
-            dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+            dim_map = dict(zip(voxel_dims, world_dims, strict=True))
         elif any(
             isinstance(index, VoxelToWorldIndex) for index in data.xindexes.values()
         ):
@@ -232,11 +232,11 @@ def _materialize_axis_aligned_world_grid_for_display(
             return data
     else:
         voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-        physical_dims = get_voxel_affine_world_coord_names(data)
-        dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+        world_dims = get_voxel_affine_world_coord_names(data)
+        dim_map = dict(zip(voxel_dims, world_dims, strict=True))
 
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
-    dim_map = dict(zip(voxel_dims, physical_dims, strict=True))
+    dim_map = dict(zip(voxel_dims, world_dims, strict=True))
     result_dims = tuple(dim_map.get(str(dim), str(dim)) for dim in data.dims)
 
     coords = {}
@@ -266,26 +266,26 @@ def _materialize_axis_aligned_world_grid_for_display(
     return result
 
 
-def resample_voxel_affine_to_physical_grid(
+def resample_voxel_affine_to_world_grid(
     data: xr.DataArray,
     *,
     reference: xr.DataArray | None = None,
 ) -> xr.DataArray:
-    """Resample voxel-affine data onto an axis-aligned physical grid for display.
+    """Resample voxel-affine data onto an axis-aligned world grid for display.
 
     Parameters
     ----------
     data : xarray.DataArray
         Three-dimensional or three-dimensional-plus-time voxel-affine DataArray.
     reference : xarray.DataArray, optional
-        Axis-aligned physical-grid DataArray to reuse as the resampling target.
-        If not provided, a new plotting grid is synthesized from `data`'s physical
-        bounds and per-axis physical spacing.
+        Axis-aligned world-grid DataArray to reuse as the resampling target.
+        If not provided, a new plotting grid is synthesized from `data`'s world
+        bounds and per-axis world spacing.
 
     Returns
     -------
     xarray.DataArray
-        Axis-aligned physical-grid DataArray when `data` has voxel-affine geometry;
+        Axis-aligned world-grid DataArray when `data` has voxel-affine geometry;
         otherwise the original input.
     """
     if not has_voxel_world_geometry(data) or has_axis_aligned_voxel_world_geometry(
@@ -295,7 +295,7 @@ def resample_voxel_affine_to_physical_grid(
 
     from confusius.registration import resample_like, resample_volume
 
-    physical_dims = get_voxel_affine_world_coord_names(data)
+    world_dims = get_voxel_affine_world_coord_names(data)
     if reference is not None:
         if not has_voxel_world_geometry(reference):
             from confusius.xarray import create_fusi_dataarray
@@ -328,13 +328,13 @@ def resample_voxel_affine_to_physical_grid(
         result = resample_like(
             data,
             reference,
-            np.eye(len(physical_dims) + 1, dtype=np.float64),
+            np.eye(len(world_dims) + 1, dtype=np.float64),
         )
     else:
         spacing: list[float] = []
         origin: list[float] = []
         shape: list[int] = []
-        for dim in physical_dims:
+        for dim in world_dims:
             values = np.asarray(data.coords[dim].values, dtype=np.float64)
             lower = np.float64(np.min(values)).item()
             upper = np.float64(np.max(values)).item()
@@ -355,7 +355,7 @@ def resample_voxel_affine_to_physical_grid(
 
         result = resample_volume(
             data,
-            np.eye(len(physical_dims) + 1, dtype=np.float64),
+            np.eye(len(world_dims) + 1, dtype=np.float64),
             output_shape=shape,
             output_spacing=spacing,
             output_origin=origin,
@@ -363,7 +363,7 @@ def resample_voxel_affine_to_physical_grid(
 
     result = _materialize_axis_aligned_world_grid_for_display(result)
     result.attrs.pop("voxel_to_world", None)
-    for dim in physical_dims:
+    for dim in world_dims:
         result.coords[dim].attrs = data.coords[dim].attrs.copy()
     return result
 

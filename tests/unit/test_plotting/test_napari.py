@@ -94,7 +94,7 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
-    def test_voxel_affine_resamples_to_physical_grid(self, make_napari_viewer):
+    def test_voxel_affine_resamples_to_world_grid(self, make_napari_viewer):
         """Oblique volumes are displayed on an axis-aligned world grid in napari."""
         data = _make_voxel_affine_volume()
         viewer = make_napari_viewer()
@@ -337,7 +337,7 @@ class TestPlotNapari:
             show_scale_bar=False,
         )
 
-        # `world=True` means positions are in physical coordinates (the same
+        # `world=True` means positions are in world coordinates (the same
         # space the user hovers in the canvas).
         # Voxel (y=0.5, x=0.5) holds label 7.
         roi_status = layer.get_status(
@@ -365,7 +365,7 @@ class TestDrawNapariLabels:
     def test_labels_scale_translate_match_image(
         self, sample_fusi_3d, make_napari_viewer
     ):
-        """Labels overlay shares the image layer's physical frame."""
+        """Labels overlay shares the image layer's world frame."""
         viewer = make_napari_viewer()
         _, labels_layer = draw_napari_labels(
             sample_fusi_3d,

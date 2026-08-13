@@ -55,7 +55,7 @@ _PROBE_TO_LAB_MULTI = np.stack(
 )
 
 # probeToLab for a single pose with a non-trivial (90° rotation around probe Y-axis)
-# rotation matrix.  Used to verify that PHYSICAL_TO_PROBE_PERMUTATION permutes columns
+# rotation matrix.  Used to verify that WORLD_TO_PROBE_PERMUTATION permutes columns
 # correctly even when the rotation block is not the identity.
 #
 #   R_y90 = [[ 0, 0, 1, 0],   # x_lab =  z_probe
@@ -243,7 +243,7 @@ def scan_2d_rotated_path(tmp_path: Path) -> Path:
     """Create a synthetic 2Dscan HDF5 file with a non-trivial probeToLab rotation.
 
     ``probeToLab`` is a 90° rotation around the probe Y-axis combined with a small
-    translation.  This fixture is used to verify that ``physical_to_lab`` correctly
+    translation.  This fixture is used to verify that ``world_to_lab`` correctly
     permutes and sign-flips the rotation columns, not just the translation.
     """
     path = tmp_path / "test_2dscan_rotated.scan"
@@ -423,14 +423,14 @@ class TestLoadScan2D:
         """scan_mode attr equals '2Dscan'."""
         assert scan_2d.attrs["scan_mode"] == "2Dscan"
 
-    def test_physical_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
-        """physical_to_lab affine has shape (4, 4) for 2Dscan."""
-        A = np.asarray(scan_2d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_shape(self, scan_2d: xr.DataArray) -> None:
+        """world_to_lab affine has shape (4, 4) for 2Dscan."""
+        A = np.asarray(scan_2d.attrs["affines"]["world_to_lab"])
         assert A.shape == (4, 4)
 
-    def test_physical_to_lab_translation_in_mm(self, scan_2d: xr.DataArray) -> None:
-        """physical_to_lab translation column is in mm and in ConfUSIus axis order."""
-        A = np.asarray(scan_2d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_translation_in_mm(self, scan_2d: xr.DataArray) -> None:
+        """world_to_lab translation column is in mm and in ConfUSIus axis order."""
+        A = np.asarray(scan_2d.attrs["affines"]["world_to_lab"])
         # probeToLab translation is (x_lab, y_lab, z_lab) = (lateral, elevation, axial)
         # in metres. After P^T @ probeToLab @ P the translation is reordered to
         # ConfUSIus order (z_conf, y_conf, x_conf) = (elevation, -axial, lateral) and
@@ -515,9 +515,9 @@ class TestLoadScan3D:
         """3Dscan has no time coordinate."""
         assert "time" not in scan_3d.coords
 
-    def test_physical_to_lab_shape(self, scan_3d: xr.DataArray) -> None:
-        """physical_to_lab affine has shape (npose, 4, 4) for 3Dscan."""
-        A = np.asarray(scan_3d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_shape(self, scan_3d: xr.DataArray) -> None:
+        """world_to_lab affine has shape (npose, 4, 4) for 3Dscan."""
+        A = np.asarray(scan_3d.attrs["affines"]["world_to_lab"])
         assert A.shape == (_NPOSE, 4, 4)
 
     def test_data_values_preserved(self, scan_3d_path: Path) -> None:
@@ -623,9 +623,9 @@ class TestLoadScan4D:
         assert sliced.coords["pose_time"].dims == ("time",)
         assert sliced.coords["pose_time"].shape == (_T,)
 
-    def test_physical_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
-        """physical_to_lab affine has shape (npose, 4, 4) for 4Dscan."""
-        A = np.asarray(scan_4d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_shape(self, scan_4d: xr.DataArray) -> None:
+        """world_to_lab affine has shape (npose, 4, 4) for 4Dscan."""
+        A = np.asarray(scan_4d.attrs["affines"]["world_to_lab"])
         assert A.shape == (_NPOSE, 4, 4)
 
     def test_data_values_preserved(self, scan_4d_path: Path) -> None:
@@ -680,18 +680,18 @@ class TestLoadScanErrors:
 
 
 # ---------------------------------------------------------------------------
-# Tests: physical_to_lab correctness
+# Tests: world_to_lab correctness
 # ---------------------------------------------------------------------------
 
 
-class TestPhysicalToLab:
-    """Tests for the physical_to_lab affine computation."""
+class TestWorldToLab:
+    """Tests for the world_to_lab affine computation."""
 
-    def test_physical_to_lab_maps_coords_to_lab(self, scan_2d: xr.DataArray) -> None:
-        """physical_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
-        A = np.asarray(scan_2d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_maps_coords_to_lab(self, scan_2d: xr.DataArray) -> None:
+        """world_to_lab maps (z_mm, y_mm, x_mm) to ConfUSIus-ordered lab space (mm)."""
+        A = np.asarray(scan_2d.attrs["affines"]["world_to_lab"])
 
-        # physical_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
+        # world_to_lab = P^T @ probeToLab @ P, with output in ConfUSIus axis order.
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -700,9 +700,9 @@ class TestPhysicalToLab:
 
         np.testing.assert_allclose(A, expected, rtol=1e-10)
 
-    def test_physical_to_lab_per_pose_values(self, scan_3d: xr.DataArray) -> None:
-        """Each per-pose physical_to_lab slice matches the corresponding probeToLab."""
-        A = np.asarray(scan_3d.attrs["affines"]["physical_to_lab"])
+    def test_world_to_lab_per_pose_values(self, scan_3d: xr.DataArray) -> None:
+        """Each per-pose world_to_lab slice matches the corresponding probeToLab."""
+        A = np.asarray(scan_3d.attrs["affines"]["world_to_lab"])
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float
         )
@@ -711,16 +711,16 @@ class TestPhysicalToLab:
             expected[:3, 3] *= 1e3
             np.testing.assert_allclose(A[i], expected, rtol=1e-10)
 
-    def test_physical_to_lab_non_identity_rotation(
+    def test_world_to_lab_non_identity_rotation(
         self, scan_2d_rotated: xr.DataArray
     ) -> None:
-        """physical_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
+        """world_to_lab correctly applies P^T @ R @ P for a non-trivial rotation.
 
-        With a 90° Y-rotation in probeToLab, the rotation block of physical_to_lab
+        With a 90° Y-rotation in probeToLab, the rotation block of world_to_lab
         must equal P^T @ R_y90 @ P, confirming that non-identity rotations are handled
         correctly and the output remains in ConfUSIus axis order.
         """
-        A = np.asarray(scan_2d_rotated.attrs["affines"]["physical_to_lab"])
+        A = np.asarray(scan_2d_rotated.attrs["affines"]["world_to_lab"])
 
         P = np.array(
             [[0, 0, 1, 0], [1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]], dtype=float

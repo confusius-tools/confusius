@@ -25,30 +25,30 @@ def affine_to(
     other: xr.DataArray,
     via: str,
 ) -> "npt.NDArray[np.float64]":
-    """Return the affine mapping `da`'s physical space into `other`'s.
+    """Return the affine mapping `da`'s world space into `other`'s.
 
     Computes `inv(other.attrs["affines"][via]) @ da.attrs["affines"][via]`,
     giving the transform that takes coordinates expressed in `da`'s
-    physical frame and expresses them in `other`'s physical frame.  Both
+    world frame and expresses them in `other`'s world frame.  Both
     arrays must carry an `"affines"` dict in their `attrs` with the key
     `via`.
 
     Parameters
     ----------
     da : xarray.DataArray
-        The source scan (origin physical space).
+        The source scan (origin world space).
     other : xarray.DataArray
-        The scan whose physical space is the target.
+        The scan whose world space is the target.
     via : str
         Key into `attrs["affines"]` that names the shared intermediate
-        coordinate space used to bridge the two physical frames (e.g.
-        `"physical_to_lab"`).
+        coordinate space used to bridge the two world frames (e.g.
+        `"world_to_lab"`).
 
     Returns
     -------
     numpy.ndarray, shape (4, 4)
-        Homogeneous affine matrix mapping `da`'s physical coordinates
-        to `other`'s physical coordinates.
+        Homogeneous affine matrix mapping `da`'s world coordinates
+        to `other`'s world coordinates.
 
     Raises
     ------
@@ -76,11 +76,11 @@ def apply_affine(
     affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
 ) -> xr.DataArray:
-    """Apply a physical-space affine to voxel-affine geometry.
+    """Apply a world-space affine to voxel-affine geometry.
 
-    The transform is composed into `attrs["voxel_to_world"]`, derived physical
+    The transform is composed into `attrs["voxel_to_world"]`, derived world
     coordinates are regenerated, and existing `attrs["affines"]` entries are
-    re-expressed against the new physical frame. Per-pose `(npose, N, N)` stacks
+    re-expressed against the new world frame. Per-pose `(npose, N, N)` stacks
     are handled by NumPy broadcasting.
 
     Parameters
@@ -88,7 +88,7 @@ def apply_affine(
     da : xarray.DataArray
         Input scan with voxel-affine geometry in `attrs["voxel_to_world"]`.
     affine : numpy.ndarray, shape (N, N), or str
-        Homogeneous physical-space affine matrix to apply. If a string, it is
+        Homogeneous world-space affine matrix to apply. If a string, it is
         looked up as a key in `da.attrs["affines"]`.
     inplace : bool, default: False
         Whether to modify the DataArray in-place.
@@ -99,7 +99,7 @@ def apply_affine(
         `da` with updated spatial coordinates and updated `attrs["affines"]`.
         When `affine` is a string, that key is dropped from the result: composing
         a stored affine with itself is deterministically identity, so the entry
-        would carry no information -- the physical frame now simply *is* that
+        would carry no information -- the world frame now simply *is* that
         named space.
 
     Raises
@@ -152,7 +152,7 @@ def apply_affine(
         if stored_key == applied_key:
             # Composing this stored affine with itself is deterministically
             # identity (arr @ inv(arr) == I), regardless of what it held --
-            # applying "by key" means "move the physical frame to align with
+            # applying "by key" means "move the world frame to align with
             # this named affine," which by construction leaves nothing to
             # report here.
             continue
@@ -188,11 +188,11 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     voxel *coordinate values*, which stay unchanged across cropping or striding by
     design (see [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
     Because of this, the affine generally does not describe where voxel *position*
-    `(0, ..., 0)` sits in physical space, or the physical distance between
+    `(0, ..., 0)` sits in world space, or the world distance between
     consecutive positions, once `da` has been cropped or strided from a larger
     array. This replaces each voxel dimension's coordinate with `0, 1, ..., dim - 1`
     and rebuilds `voxel_to_world` so the resulting affine directly maps those dense
-    positions to `da`'s existing physical coordinates, producing a DataArray whose
+    positions to `da`'s existing world coordinates, producing a DataArray whose
     affine is directly usable by software that assumes dense, zero-based voxel
     indices (e.g. ITK, nilearn).
 
@@ -205,12 +205,12 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     -------
     xarray.DataArray
         `da` with voxel coordinates rebased to `0, 1, ..., dim - 1` and an updated
-        `voxel_to_world` affine. Physical coordinates are unchanged.
+        `voxel_to_world` affine. World coordinates are unchanged.
 
     Raises
     ------
     ValueError
-        If `da` lacks voxel-affine geometry, or if physical spacing is undefined for
+        If `da` lacks voxel-affine geometry, or if world spacing is undefined for
         any voxel dimension.
     """
     if not has_voxel_world_geometry(da):
@@ -257,14 +257,14 @@ def reindex_voxels_like(
     """Rebase voxel coordinates onto `reference`'s voxel labels.
 
     `data` and `reference`'s `voxel_to_world` affines can differ even when they describe
-    the exact same physical grid: the affine is defined in terms of voxel *coordinate
-    values*, so two arrays occupying identical physical positions can still carry
+    the exact same world grid: the affine is defined in terms of voxel *coordinate
+    values*, so two arrays occupying identical world positions can still carry
     different affines if their voxel dimensions happen to be labeled differently (e.g.
     `reference` was cropped or strided from a larger array, while `data` was freshly
-    built with dense labels). This verifies the two occupy the same physical grid, then
+    built with dense labels). This verifies the two occupy the same world grid, then
     relabels `data`'s voxel coordinates and affine to match `reference`'s exactly, so
     the two become directly alignable (`.sel()`, arithmetic, `xarray.align`, ...) by
-    voxel label as well as by physical position.
+    voxel label as well as by world position.
 
     Parameters
     ----------
@@ -273,21 +273,21 @@ def reindex_voxels_like(
     reference : xarray.DataArray
         DataArray whose voxel labels and affine `data` should adopt.
     atol : float, default: 1e-6
-        Absolute tolerance, in `reference`'s physical units, for the world-coordinate
+        Absolute tolerance, in `reference`'s world units, for the world-coordinate
         alignment check between `data` and `reference`.
 
     Returns
     -------
     xarray.DataArray
         `data` with voxel coordinates and `voxel_to_world` replaced by `reference`'s.
-        Physical (world) coordinates are unchanged, since `data` and `reference` are
-        verified to already occupy the same physical grid.
+        World coordinates are unchanged, since `data` and `reference` are verified to
+        already occupy the same world grid.
 
     Raises
     ------
     ValueError
         If `data` or `reference` lacks voxel-affine geometry, if their voxel
-        dimensions or shapes differ, or if their physical coordinates do not match
+        dimensions or shapes differ, or if their world coordinates do not match
         within `atol`.
     """
     if not has_voxel_world_geometry(data):
@@ -321,9 +321,9 @@ def reindex_voxels_like(
         )
         if not np.allclose(data_values, reference_values, atol=atol):
             raise ValueError(
-                f"data and reference are not aligned in physical space: coordinate "
+                f"data and reference are not aligned in world space: coordinate "
                 f"{name!r} differs by more than {atol}. reindex_voxels_like requires "
-                "data to already occupy reference's exact physical grid."
+                "data to already occupy reference's exact world grid."
             )
 
     world_coord_attrs = {
@@ -398,24 +398,24 @@ class FUSIAffineAccessor:
         return result
 
     def to(self, other: xr.DataArray, via: str) -> "npt.NDArray[np.float64]":
-        """Return the affine mapping `self`'s physical space into `other`'s.
+        """Return the affine mapping `self`'s world space into `other`'s.
 
         Computes `inv(other.attrs["affines"][via]) @ self.attrs["affines"][via]`,
-        giving the transform from `self`'s physical frame to `other`'s.
+        giving the transform from `self`'s world frame to `other`'s.
 
         Parameters
         ----------
         other : xarray.DataArray
-            The scan whose physical space is the target.
+            The scan whose world space is the target.
         via : str
             Key into `attrs["affines"]` naming the shared intermediate
-            coordinate space (e.g. `"physical_to_lab"`).
+            coordinate space (e.g. `"world_to_lab"`).
 
         Returns
         -------
         numpy.ndarray, shape (4, 4)
-            Homogeneous affine matrix mapping `self`'s physical coordinates
-            to `other`'s physical coordinates.
+            Homogeneous affine matrix mapping `self`'s world coordinates
+            to `other`'s world coordinates.
 
         Raises
         ------
@@ -442,17 +442,17 @@ class FUSIAffineAccessor:
         affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
     ) -> xr.DataArray:
-        """Apply a physical-space affine to voxel-affine geometry.
+        """Apply a world-space affine to voxel-affine geometry.
 
-        The transform is composed into `attrs["voxel_to_world"]`, derived physical
+        The transform is composed into `attrs["voxel_to_world"]`, derived world
         coordinates are regenerated, and existing `attrs["affines"]` entries are
-        re-expressed against the new physical frame. Per-pose `(npose, N, N)` stacks
+        re-expressed against the new world frame. Per-pose `(npose, N, N)` stacks
         are handled by NumPy broadcasting.
 
         Parameters
         ----------
         affine : numpy.ndarray, shape (N, N), or str
-            Homogeneous physical-space affine matrix to apply. If a string, it is
+            Homogeneous world-space affine matrix to apply. If a string, it is
             looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
             Whether to modify the DataArray in-place.
@@ -463,7 +463,7 @@ class FUSIAffineAccessor:
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
             When `affine` is a string, that key is dropped from the result:
             composing a stored affine with itself is deterministically identity,
-            so the entry would carry no information -- the physical frame now
+            so the entry would carry no information -- the world frame now
             simply *is* that named space.
 
         Raises

@@ -199,7 +199,7 @@ _SAMPLE_SPECS = {
         initial_status="Checking sample cache...",
         files_resolver=_resolve_rat_registration_pair,
         gamma=0.4,
-        affine_key="physical_to_qform",
+        affine_key="world_to_qform",
     ),
 }
 """Registered napari sample definitions."""

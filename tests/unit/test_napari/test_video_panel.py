@@ -476,9 +476,9 @@ class TestFrameStep:
         arr = _video_array(fv, dtype=np.uint8, frame_shape=(4, 6), step=3)
         # 12 frames with step 3: indices 0, 3, 6, 9 -> 4 logical frames.
         assert arr.shape == (4, 4, 6)
-        # Logical frame 0 -> physical frame 0.
+        # Logical frame 0 -> world frame 0.
         np.testing.assert_array_equal(arr[0], fv[0])
-        # Logical frame 2 -> physical frame 6.
+        # Logical frame 2 -> world frame 6.
         np.testing.assert_array_equal(arr[2], fv[6])
 
     def test_rebuild_time_scale_reflects_frame_step(self, loaded_panel, viewer):
@@ -592,7 +592,7 @@ class TestTimeOverlayVideoSync:
         is correct because the layer's time scale encodes the frame step.
 
         With scale = frame_step / fps, napari's world coordinate at
-        ``dims.point[time_idx]`` is already in physical seconds.
+        ``dims.point[time_idx]`` is already in world seconds.
         """
         from confusius._napari._time_overlay import _TimeOverlay
 

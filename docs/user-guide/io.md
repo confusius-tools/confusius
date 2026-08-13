@@ -310,8 +310,8 @@ seconds.
     ```
 
     The `pose` dimension indexes each probe position in the multi-pose acquisition.
-    Each pose has its own `physical_to_lab` affine (shape `(npose, 4, 4)`) stored in
-    `da.attrs["affines"]["physical_to_lab"]`.
+    Each pose has its own `world_to_lab` affine (shape `(npose, 4, 4)`) stored in
+    `da.attrs["affines"]["world_to_lab"]`.
 
 === "4Dscan"
 
@@ -357,7 +357,7 @@ arguments needed).
 
 !!! warning "Experimental"
     SCAN v2 metadata were reverse-engineered from a few example files. The data, timing,
-    voxel spacing, depth origin, `physical_to_lab` affine, provenance (`iconeus_*`
+    voxel spacing, depth origin, `world_to_lab` affine, provenance (`iconeus_*`
     attrs), acquisition datetime, and BIDS-corresponding acquisition settings
     (`probe_model`, `probe_center_frequency`, `transmit_frequency`,
     `pulse_repetition_frequency`, `plane_wave_angles`, `svd_low_cutoff`, …) are
@@ -382,8 +382,8 @@ import confusius as cf
 bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
 ```
 
-Compute `physical_to_brain` (Iconeus brain space from ConfUSIus physical space) from
-the SCAN file `physical_to_lab` affine and store it in the DataArray attributes:
+Compute `world_to_brain` (Iconeus brain space from ConfUSIus world space) from
+the SCAN file `world_to_lab` affine and store it in the DataArray attributes:
 
 ```python
 import confusius as cf
@@ -392,15 +392,15 @@ import numpy as np
 da = cf.load("sub-01_task-awake_pwd.source.scan")
 bps = cf.io.load_bps("sub-01_task-awake_pwd.bps")
 
-physical_to_lab = da.attrs["affines"]["physical_to_lab"]
-physical_to_brain = np.linalg.inv(bps) @ physical_to_lab
-da.attrs["affines"]["physical_to_brain"] = physical_to_brain
+world_to_lab = da.attrs["affines"]["world_to_lab"]
+world_to_brain = np.linalg.inv(bps) @ world_to_lab
+da.attrs["affines"]["world_to_brain"] = world_to_brain
 ```
 
 In fact, if you pass the BPS file using the `bps_path` argument when loading a
-SCAN file with [`confusius.load`][confusius.load], the `physical_to_brain` affine
+SCAN file with [`confusius.load`][confusius.load], the `world_to_brain` affine
 will be computed automatically and stored in the resulting DataArray's attributes
-`affines` alongside the `physical_to_lab` affines:
+`affines` alongside the `world_to_lab` affines:
 
 ```python
 import confusius as cf
@@ -410,12 +410,12 @@ da = cf.load(
     bps_path="sub-01_task-awake_pwd.bps",
 )
 
-physical_to_brain = da.attrs["affines"]["physical_to_brain"]
+world_to_brain = da.attrs["affines"]["world_to_brain"]
 ```
 
 Compose it with brain-side affines (e.g. brain-to-CCFv3 from a brain atlas) to register
 fUSI data into atlas space directly. For multi-pose files (`3Dscan`, `4Dscan`) the
-affine has shape `(npose, 4, 4)` and is indexed by pose, the same way `physical_to_lab`
+affine has shape `(npose, 4, 4)` and is indexed by pose, the same way `world_to_lab`
 is.
 
 #### Converting SCAN Data to NIfTI
@@ -540,7 +540,7 @@ as `RepetitionTime`, `DelayAfterTrigger`, or `VolumeTiming`. When possible,
 `RepetitionTime` is inferred directly from the `time` coordinate so the sidecar stays
 consistent with the data being saved.
 
-If `data_array.attrs["affines"]` contains named physical-to-reference affines, you can
+If `data_array.attrs["affines"]` contains named world-to-reference affines, you can
 choose which ones are written into the NIfTI header:
 
 ```python
@@ -549,13 +549,13 @@ import confusius as cf
 cf.save_nifti(
     data_array,
     "output.nii.gz",
-    qform="physical_to_scanner",
-    sform="physical_to_template",
+    qform="world_to_scanner",
+    sform="world_to_template",
 )
 ```
 
 When `qform` and/or `sform` are omitted, [`save_nifti`][confusius.io.save_nifti]
-falls back to `"physical_to_qform"` and `"physical_to_sform"` if those keys exist in
+falls back to `"world_to_qform"` and `"world_to_sform"` if those keys exist in
 `attrs["affines"]`. Any affine actually written into the NIfTI `qform` or `sform`
 header is omitted from the `ConfUSIusAffines` JSON sidecar field so it is not stored
 twice.

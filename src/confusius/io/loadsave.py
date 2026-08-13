@@ -45,7 +45,7 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
 
     A Zarr-saved voxel-affine DataArray stores `attrs["voxel_to_world"]` instead of
     dense `z`/`y`/`x` coordinate arrays (see
-    [`save`][confusius.io.save]); this rebuilds the physical coordinates and
+    [`save`][confusius.io.save]); this rebuilds the world coordinates and
     `VoxelToWorldIndex` from that affine.
 
     Parameters

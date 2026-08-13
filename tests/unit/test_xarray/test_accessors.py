@@ -245,7 +245,7 @@ class TestOrigin:
         assert data.fusi.origin["z"] == pytest.approx(3.5)
 
     def test_voxel_affine_origin_uses_first_sampled_voxel(self):
-        """Voxel-affine origin is the physical location of array index zero."""
+        """Voxel-affine origin is the world location of array index zero."""
         data = _make_voxel_affine_volume().expand_dims(time=[0.0, 0.5])
 
         assert data.fusi.origin == {
@@ -361,7 +361,7 @@ class TestOrigin:
         )
         assert list(data.fusi.spacing.keys()) == ["z", "y", "x"]
 
-    def test_voxel_affine_spacing_uses_physical_step_lengths(self):
+    def test_voxel_affine_spacing_uses_world_step_lengths(self):
         """Voxel-affine spacing comes from voxel steps and affine column norms."""
         data = _make_voxel_affine_volume().expand_dims(time=[0.0, 0.5])
 
@@ -401,7 +401,7 @@ class TestReindexVoxels:
             )
 
     def test_preserves_world_coordinates(self):
-        """Physical (z/y/x) coordinates are unchanged by reindexing."""
+        """World (z/y/x) coordinates are unchanged by reindexing."""
         data = _make_voxel_affine_volume()
         result = data.fusi.reindex_voxels()
         for name in ("z", "y", "x"):
@@ -490,7 +490,7 @@ class TestReindexVoxelsLike:
         )
 
     def test_preserves_data_values_and_world_coordinates(self):
-        """Array content and physical coordinates are unchanged by reindexing."""
+        """Array content and world coordinates are unchanged by reindexing."""
         reference = self._cropped_strided_reference()
         data = reference.fusi.reindex_voxels()
 
@@ -520,7 +520,7 @@ class TestReindexVoxelsLike:
             data.fusi.reindex_voxels_like(reference)
 
     def test_raises_when_not_physically_aligned(self):
-        """Data occupying a different physical grid than reference raises."""
+        """Data occupying a different world grid than reference raises."""
         reference = self._cropped_strided_reference()
         misaligned = reference.fusi.reindex_voxels().fusi.affine.apply(
             np.array(
@@ -533,7 +533,7 @@ class TestReindexVoxelsLike:
             )
         )
 
-        with pytest.raises(ValueError, match="not aligned in physical space"):
+        with pytest.raises(ValueError, match="not aligned in world space"):
             misaligned.fusi.reindex_voxels_like(reference)
 
     def test_raises_without_voxel_affine_geometry(self):
@@ -557,7 +557,7 @@ class TestAffineToMethod:
         return np.random.default_rng(42)
 
     def _make_scan(
-        self, affine: np.ndarray, via: str = "physical_to_lab"
+        self, affine: np.ndarray, via: str = "world_to_lab"
     ) -> xr.DataArray:
         return xr.DataArray(
             np.zeros((4, 4, 4)),
@@ -569,7 +569,7 @@ class TestAffineToMethod:
         affine = np.eye(4)
         a = self._make_scan(affine)
         b = self._make_scan(affine)
-        result = a.fusi.affine.to(b, via="physical_to_lab")
+        result = a.fusi.affine.to(b, via="world_to_lab")
         np.testing.assert_allclose(result, np.eye(4), atol=1e-12)
 
     def test_known_relative_transform(self):
@@ -593,7 +593,7 @@ class TestAffineToMethod:
         a = self._make_scan(a_affine)
         b = self._make_scan(b_affine)
         expected = np.linalg.inv(b_affine) @ a_affine
-        result = a.fusi.affine.to(b, via="physical_to_lab")
+        result = a.fusi.affine.to(b, via="world_to_lab")
         np.testing.assert_allclose(result, expected, atol=1e-12)
 
     def test_inverse_is_consistent(self, rng):
@@ -614,16 +614,16 @@ class TestAffineToMethod:
         a = self._make_scan(a_affine)
         b = self._make_scan(b_affine)
 
-        a_to_b = a.fusi.affine.to(b, via="physical_to_lab")
-        b_to_a = b.fusi.affine.to(a, via="physical_to_lab")
+        a_to_b = a.fusi.affine.to(b, via="world_to_lab")
+        b_to_a = b.fusi.affine.to(a, via="world_to_lab")
         np.testing.assert_allclose(a_to_b, np.linalg.inv(b_to_a), atol=1e-12)
 
     def test_custom_via_key(self):
-        """Works with a via key other than physical_to_lab."""
+        """Works with a via key other than world_to_lab."""
         affine = np.eye(4)
-        a = self._make_scan(affine, via="physical_to_mri")
-        b = self._make_scan(affine, via="physical_to_mri")
-        result = a.fusi.affine.to(b, via="physical_to_mri")
+        a = self._make_scan(affine, via="world_to_mri")
+        b = self._make_scan(affine, via="world_to_mri")
+        result = a.fusi.affine.to(b, via="world_to_mri")
         np.testing.assert_allclose(result, np.eye(4), atol=1e-12)
 
     def test_missing_affines_on_self_raises(self):
@@ -631,19 +631,19 @@ class TestAffineToMethod:
         a = xr.DataArray(np.zeros((2, 2)))
         b = self._make_scan(np.eye(4))
         with pytest.raises(ValueError, match="self does not have"):
-            a.fusi.affine.to(b, via="physical_to_lab")
+            a.fusi.affine.to(b, via="world_to_lab")
 
     def test_missing_affines_on_other_raises(self):
         """Raises ValueError when other has no affines in attrs."""
         a = self._make_scan(np.eye(4))
         b = xr.DataArray(np.zeros((2, 2)))
         with pytest.raises(ValueError, match="other does not have"):
-            a.fusi.affine.to(b, via="physical_to_lab")
+            a.fusi.affine.to(b, via="world_to_lab")
 
     def test_missing_via_key_raises(self):
         """Raises KeyError when via key is absent from the affines dict."""
-        a = self._make_scan(np.eye(4), via="physical_to_lab")
-        b = self._make_scan(np.eye(4), via="physical_to_lab")
+        a = self._make_scan(np.eye(4), via="world_to_lab")
+        b = self._make_scan(np.eye(4), via="world_to_lab")
         with pytest.raises(KeyError):
             a.fusi.affine.to(b, via="nonexistent_key")
 
@@ -652,7 +652,7 @@ class TestAffineToMethod:
         affine = np.eye(4)
         a = self._make_scan(affine)
         b = self._make_scan(affine)
-        result = a.fusi.affine.to(b, via="physical_to_lab")
+        result = a.fusi.affine.to(b, via="world_to_lab")
         assert result.shape == (4, 4)
 
 
@@ -775,8 +775,8 @@ class TestAffineApplyMethod:
         """A string `affine` is resolved from `attrs["affines"]` before applying."""
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, -3.0]
-        da = self._make_scan(affines={"physical_to_lab": shift})
-        result = da.fusi.affine.apply("physical_to_lab")
+        da = self._make_scan(affines={"world_to_lab": shift})
+        result = da.fusi.affine.apply("world_to_lab")
         np.testing.assert_allclose(
             result.coords["z"].values, da.coords["z"].values + 10.0
         )
@@ -793,23 +793,23 @@ class TestAffineApplyMethod:
         shift = np.eye(4)
         shift[:3, 3] = [10.0, 5.0, -3.0]
         da = self._make_scan(
-            affines={"physical_to_lab": shift, "physical_to_atlas": np.eye(4)}
+            affines={"world_to_lab": shift, "world_to_atlas": np.eye(4)}
         )
-        result = da.fusi.affine.apply("physical_to_lab")
-        assert "physical_to_lab" not in result.attrs["affines"]
-        assert "physical_to_atlas" in result.attrs["affines"]
+        result = da.fusi.affine.apply("world_to_lab")
+        assert "world_to_lab" not in result.attrs["affines"]
+        assert "world_to_atlas" in result.attrs["affines"]
 
     def test_string_key_missing_affines_attr_raises_value_error(self):
         """A string `affine` raises ValueError when `da` has no `affines` attr."""
         da = self._make_scan()
         with pytest.raises(ValueError, match="does not have an 'affines' entry"):
-            da.fusi.affine.apply("physical_to_lab")
+            da.fusi.affine.apply("world_to_lab")
 
     def test_string_key_not_found_raises_key_error(self):
         """A string `affine` absent from `attrs["affines"]` raises KeyError."""
-        da = self._make_scan(affines={"physical_to_lab": np.eye(4)})
-        with pytest.raises(KeyError, match="physical_to_mri"):
-            da.fusi.affine.apply("physical_to_mri")
+        da = self._make_scan(affines={"world_to_lab": np.eye(4)})
+        with pytest.raises(KeyError, match="world_to_mri"):
+            da.fusi.affine.apply("world_to_mri")
 
     def test_stored_affines_updated_single(self):
         """Stored (4, 4) affines are updated by M_new = M_old @ inv(affine)."""
@@ -821,13 +821,13 @@ class TestAffineApplyMethod:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         )
-        da = self._make_scan(affines={"physical_to_lab": stored})
+        da = self._make_scan(affines={"world_to_lab": stored})
         shift = np.eye(4)
         shift[:3, 3] = [1.0, 2.0, 3.0]
         result = da.fusi.affine.apply(shift)
         expected = stored @ np.linalg.inv(shift)
         np.testing.assert_allclose(
-            result.attrs["affines"]["physical_to_lab"], expected, atol=1e-12
+            result.attrs["affines"]["world_to_lab"], expected, atol=1e-12
         )
 
     def test_stored_affines_updated_per_pose_stack(self):
@@ -841,13 +841,13 @@ class TestAffineApplyMethod:
             stored[i, :3, :3] = q
             stored[i, :3, 3] = rng.standard_normal(3)
             stored[i, 3, 3] = 1.0
-        da = self._make_scan(affines={"physical_to_lab": stored})
+        da = self._make_scan(affines={"world_to_lab": stored})
         scale = np.diag([2.0, 1.0, 1.0, 1.0])
         result = da.fusi.affine.apply(scale)
         inv_scale = np.linalg.inv(scale)
         expected = stored @ inv_scale
         np.testing.assert_allclose(
-            result.attrs["affines"]["physical_to_lab"], expected, atol=1e-12
+            result.attrs["affines"]["world_to_lab"], expected, atol=1e-12
         )
 
     def test_partial_dims_only_updates_present_dims(self):
@@ -865,12 +865,12 @@ class TestAffineApplyMethod:
         assert "z" not in result.coords
 
     def test_voxel_affine_accepts_matching_2d_affine_shape(self):
-        """Voxel-affine 2D scans accept 3x3 physical-space transforms."""
+        """Voxel-affine 2D scans accept 3x3 world-space transforms."""
         base = xr.DataArray(
             np.zeros((3, 4)),
             dims=["j", "i"],
             coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
-            attrs={"affines": {"physical_to_lab": np.eye(3)}},
+            attrs={"affines": {"world_to_lab": np.eye(3)}},
         )
         da = add_world_coords_from_voxel_affine(
             base,
@@ -898,7 +898,7 @@ class TestAffineApplyMethod:
             get_voxel_to_world_affine(result), shift @ get_voxel_to_world_affine(da)
         )
         np.testing.assert_allclose(
-            result.attrs["affines"]["physical_to_lab"], np.linalg.inv(shift)
+            result.attrs["affines"]["world_to_lab"], np.linalg.inv(shift)
         )
         np.testing.assert_allclose(
             result.coords["y"].values, da.coords["y"].values + 3.0
@@ -976,7 +976,7 @@ class TestAffineApplyMethod:
         stored = np.eye(4)
         stored[:3, 3] = [5.0, 6.0, 7.0]
         da = self._make_scan(
-            spacing=(1.0, 1.0, 1.0), affines={"physical_to_lab": stored}
+            spacing=(1.0, 1.0, 1.0), affines={"world_to_lab": stored}
         )
         affine = np.array(
             [
@@ -988,5 +988,5 @@ class TestAffineApplyMethod:
         )
         result = da.fusi.affine.apply(affine)
         np.testing.assert_allclose(
-            result.attrs["affines"]["physical_to_lab"], stored @ np.linalg.inv(affine)
+            result.attrs["affines"]["world_to_lab"], stored @ np.linalg.inv(affine)
         )
