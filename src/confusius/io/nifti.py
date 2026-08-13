@@ -1628,50 +1628,6 @@ def _extract_nifti_slice_timing_metadata(data_array: xr.DataArray) -> dict[str, 
     }
 
 
-def _build_nifti_affine(
-    transform: npt.NDArray[np.floating] | None,
-    T: npt.NDArray[np.floating],
-    Z: npt.NDArray[np.floating],
-) -> npt.NDArray[np.floating]:
-    """Reconstruct a NIfTI affine from a stored ConfUSIus world-to-world transform.
-
-    Reverses the ConfUSIus `(z, y, x)` permutation, then composes the world-to-world
-    transform with the voxel-to-world map built from the origin `T` and spacing `Z`
-    to rebuild the full NIfTI affine. Falls back to a diagonal affine when no transform
-    is given.
-
-    Parameters
-    ----------
-    transform : (4, 4) numpy.ndarray or None
-        World-to-world affine in ConfUSIus `(z, y, x)` convention, or `None` to use a
-        fallback diagonal affine.
-    T : (3,) numpy.ndarray
-        Origin of the world coordinates for each NIfTI axis `(x, y, z)`, in the
-        spatial units of the DataArray coordinates.
-    Z : (3,) numpy.ndarray
-        Voxel spacing for each NIfTI axis `(x, y, z)`, in the spatial units of the
-        DataArray coordinates.
-
-    Returns
-    -------
-    numpy.ndarray of shape (4, 4)
-        Full NIfTI affine mapping voxel indices to world-space coordinates.
-    """
-    if transform is not None:
-        # Compose the full world-to-world transform with the voxel-to-world
-        # map (origin T, spacing Z). Taking only the 3x3 block and substituting T
-        # for the translation would drop a secondary form's own origin, corrupting
-        # e.g. a qform whose origin differs from the primary (coordinate) origin.
-        A_nifti = np.asarray(transform)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
-        out = A_nifti @ get_axis_aligned_affine(T, Z)
-    else:
-        out = np.eye(4)
-        out[:3, :3] = np.diag(Z)
-        out[:3, 3] = T
-
-    return out
-
-
 def _build_extra_dim_sidecar_metadata(data_array: xr.DataArray) -> dict[str, Any]:
     """Build sidecar entries for non-time, non-spatial extra dimensions.
 

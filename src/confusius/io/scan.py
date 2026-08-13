@@ -193,73 +193,6 @@ def _read_scan_scalar(h5: h5py.File, path: str) -> float:
     return float(h5[path][()].flat[0])
 
 
-def _coords_from_voxels_to_probe(
-    voxels_to_probe: npt.NDArray[np.float64],
-    size_x: int,
-    size_y: int,
-    size_z: int,
-) -> dict[str, xr.DataArray]:
-    """Build spatial coordinate arrays in millimeters from `voxelsToProbe`.
-
-    The `voxelsToProbe` affine maps one-indexed (probably because MATLAB-based) voxel
-    integer indices `(ix, iy, iz)` to world probe coordinates in meters. Coordinates
-    are multiplied by `1e3` to convert to millimeters, consistent with all other
-    ConfUSIus loaders.
-
-    Dimension mapping (probe -> ConfUSIus):
-
-    - Probe `x_probe` (lateral, row 0) -> ConfUSIus `x`.
-    - Probe `y_probe` (elevation, row 1) -> ConfUSIus `z`.
-    - Probe `z_probe` (axial depth, row 2, negative diagonal) -> ConfUSIus `y`
-      with a sign flip so that `y` is always positive and increases with depth.
-
-    Parameters
-    ----------
-    voxels_to_probe : (4, 4) numpy.ndarray
-        `voxelsToProbe` affine from a SCAN files (units meters).
-    size_x : int
-        Number of lateral voxels.
-    size_y : int
-        Number of elevation voxels per position (`sizeY`).
-    size_z : int
-        Number of axial voxels (`sizeZ`).
-
-    Returns
-    -------
-    dict[str, xarray.DataArray]
-        Coordinate DataArrays keyed by `"x"`, `"y"`, and `"z"`.
-    """
-    # MATLAB-based voxelsToProbe uses one-indexed voxels; Python uses zero-indexed. Add
-    # 1 to voxel indices before applying the affine.
-    x_vals = 1e3 * (
-        voxels_to_probe[0, 0] * (np.arange(size_x) + 1) + voxels_to_probe[0, 3]
-    )
-    z_vals = 1e3 * (
-        voxels_to_probe[1, 1] * (np.arange(size_y) + 1) + voxels_to_probe[1, 3]
-    )
-    # v2p[2,2] is negative (-dz), so negating gives positive depth values.
-    y_vals = 1e3 * (
-        -(voxels_to_probe[2, 2] * (np.arange(size_z) + 1) + voxels_to_probe[2, 3])
-    )
-
-    x_voxdim = float(1e3 * abs(voxels_to_probe[0, 0]))
-    z_voxdim = float(1e3 * abs(voxels_to_probe[1, 1]))
-    y_voxdim = float(1e3 * abs(voxels_to_probe[2, 2]))
-
-    coords: dict[str, xr.DataArray] = {
-        "x": xr.DataArray(
-            x_vals, dims=["x"], attrs={"units": "mm", "voxdim": x_voxdim}
-        ),
-        "z": xr.DataArray(
-            z_vals, dims=["z"], attrs={"units": "mm", "voxdim": z_voxdim}
-        ),
-        "y": xr.DataArray(
-            y_vals, dims=["y"], attrs={"units": "mm", "voxdim": y_voxdim}
-        ),
-    }
-    return coords
-
-
 def _build_world_to_lab(
     probe_to_lab: npt.NDArray[np.float64],
 ) -> npt.NDArray[np.float64]:
@@ -688,15 +621,13 @@ def _load_scan_v1(
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
 
         if mode == "2Dscan":
-            data_array = _load_2dscan_voxel_to_world(
-                h5, raw_lazy, voxel_coords, attrs, voxel_to_world
-            )
+            data_array = _load_2dscan(h5, raw_lazy, voxel_coords, attrs, voxel_to_world)
         elif mode == "3Dscan":
-            data_array = _load_3dscan_voxel_to_world(
+            data_array = _load_3dscan(
                 raw_lazy, voxel_coords, attrs, npose, voxel_to_world
             )
         elif mode == "4Dscan":
-            data_array = _load_4dscan_voxel_to_world(
+            data_array = _load_4dscan(
                 h5,
                 raw_lazy,
                 voxel_coords,
@@ -722,219 +653,6 @@ def _load_scan_v1(
 
 
 def _load_2dscan(
-    h5: h5py.File,
-    raw_lazy: da.Array,
-    spatial_coords: dict[str, xr.DataArray],
-    attrs: dict[str, Any],
-) -> xr.DataArray:
-    """Build a DataArray for `2Dscan` mode.
-
-    Raw shape (h5py, C-order): `(nblockRepeat, sizeZ, sizeY, sizeX)`. Output dims:
-    `(time, z, y, x)`.
-
-    `nblockRepeat` is the number of time frames; the HDF5 file stores depth (`sizeZ`)
-    before elevation (`sizeY`), while ConfUSIus uses `(z=elevation, y=depth)`, so axes 1
-    and 2 are swapped.
-
-    The `h5` handle is kept open because `raw_lazy` wraps an h5py dataset; it must
-    remain open until the Dask graph is computed.
-
-    Parameters
-    ----------
-    h5 : h5py.File
-        Open HDF5 file handle.
-    raw_lazy : dask.array.Array
-        Lazy Dask array wrapping `/Data`.
-    spatial_coords : dict[str, xarray.DataArray]
-        Spatial coordinate arrays for `x`, `z`, `y`.
-    attrs : dict
-        Provenance and affine attributes.
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with dims `(time, z, y, x)`.
-    """
-    # Swap depth (axis 1) and elevation (axis 2): HDF5 order is (sizeZ, sizeY),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(raw_lazy, [0, 2, 1, 3])
-
-    # The orientation of the time array is inconsistent across file versions; squeeze
-    # handles both (1, T) and (T, 1).
-    time: npt.NDArray[np.float64] = np.array(
-        h5["/acqMetaData/time"][()], dtype=np.float64
-    ).squeeze()
-
-    # Iconeus SCAN files store end-referenced timestamps.
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        # Infer per-pose duration from the earliest time point recorded. Since
-        # timestamps are end-referenced, the minimum timestamp corresponds to the
-        # duration of the first acquired volume.
-        "volume_acquisition_duration": time.min(),
-    }
-
-    coords: dict[str, Any] = {
-        "time": xr.DataArray(time, dims=["time"], attrs=time_attrs),
-        **spatial_coords,
-    }
-
-    return xr.DataArray(
-        data_lazy, dims=["time", "z", "y", "x"], coords=coords, attrs=attrs
-    )
-
-
-def _load_3dscan(
-    raw_lazy: da.Array,
-    spatial_coords: dict[str, xr.DataArray],
-    attrs: dict[str, Any],
-    npose: int,
-) -> xr.DataArray:
-    """Build a DataArray for `3Dscan` mode.
-
-    Raw shape (h5py, C-order): `(npose, nblockRepeat, sizeZ, sizeY, sizeX)`. Output
-    dims: `(pose, z, y, x)`.
-
-    `nblockRepeat` is always 1 in practice for anatomical 3D scans, so it is squeezed
-    away. The HDF5 file stores depth (`sizeZ`) before elevation (`sizeY`), while
-    ConfUSIus uses `(z=elevation, y=depth)`, so axes 1 and 2 (after the squeeze) are
-    swapped.
-
-    The `3Dscan` `acqMetaData/time` array (shape `(npose, 1)`) holds one timestamp per
-    robot position. For anatomical scans these are often all zero and carry no
-    physiological meaning; they are intentionally not exposed as a coordinate. Use
-    `4Dscan` mode when per-block timing is required.
-
-    `raw_lazy` wraps an open h5py dataset; the caller must keep the file handle open
-    until the Dask graph is computed.
-
-    Parameters
-    ----------
-    raw_lazy : dask.array.Array
-        Lazy Dask array wrapping `/Data`.
-    spatial_coords : dict[str, xarray.DataArray]
-        Spatial coordinate arrays for `x`, `z`, `y`.
-    attrs : dict
-        Provenance and affine attributes.
-    npose : int
-        Number of robot positions.
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with dims `(pose, z, y, x)`.
-    """
-    # axis=1 is nblockRepeat=1; squeeze it away before transposing.
-    sq = da.squeeze(raw_lazy, axis=1)
-    # Swap depth (axis 1) and elevation (axis 2): HDF5 order is (sizeZ, sizeY),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(sq, [0, 2, 1, 3])
-
-    pose_vals = np.arange(npose)
-    coords: dict[str, Any] = {
-        "pose": xr.DataArray(pose_vals, dims=["pose"]),
-        **spatial_coords,
-    }
-
-    return xr.DataArray(
-        data_lazy, dims=["pose", "z", "y", "x"], coords=coords, attrs=attrs
-    )
-
-
-def _load_4dscan(
-    h5: h5py.File,
-    raw_lazy: da.Array,
-    spatial_coords: dict[str, xr.DataArray],
-    attrs: dict[str, Any],
-    npose: int,
-    nblock_repeat: int,
-) -> xr.DataArray:
-    """Build a DataArray for `4Dscan` mode.
-
-    Raw shape (h5py, C-order): `(nscanRepeat, npose, nblockRepeat, sizeZ, sizeY,
-    sizeX)`. Output dims: `(time, pose, z, y, x)`.
-
-    `nblockRepeat` is a per-pose repetition count. When `nblockRepeat > 1`, the
-    `nscanRepeat` and `nblockRepeat` axes are combined into a single `time` axis of
-    length `nscanRepeat * nblockRepeat` by transposing to
-    `(nscanRepeat, nblockRepeat, npose, sizeZ, sizeY, sizeX)` and reshaping. When
-    `nblockRepeat == 1` the axis is simply squeezed away.
-
-    The HDF5 file stores depth (`sizeZ`) before elevation (`sizeY`), while ConfUSIus
-    uses `(z=elevation, y=depth)`, so those two spatial axes are swapped.
-
-    The `h5` handle is kept open because `raw_lazy` wraps an h5py dataset; it must
-    remain open until the Dask graph is computed.
-
-    Parameters
-    ----------
-    h5 : h5py.File
-        Open HDF5 file handle.
-    raw_lazy : dask.array.Array
-        Lazy Dask array wrapping `/Data`.
-    spatial_coords : dict[str, xarray.DataArray]
-        Spatial coordinate arrays for `x`, `z`, `y`.
-    attrs : dict
-        Provenance and affine attributes.
-    npose : int
-        Number of robot positions.
-    nblock_repeat : int
-        Number of block repeats per scan repeat (`nblockRepeat` from the file).
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with dims `(time, pose, z, y, x)`.
-    """
-    nscan_repeat = raw_lazy.shape[0]
-    n_time = nscan_repeat * nblock_repeat
-
-    if nblock_repeat == 1:
-        # axis=2 is the nblockRepeat=1 singleton; squeeze it away.
-        sq = da.squeeze(raw_lazy, axis=2)
-    else:
-        # Transpose to (nscanRepeat, nblockRepeat, npose, sizeZ, sizeY, sizeX),
-        # then reshape to (n_time, npose, sizeZ, sizeY, sizeX).
-        transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
-        sq = transposed.reshape(n_time, npose, *raw_lazy.shape[3:])
-
-    # Swap depth (axis 2) and elevation (axis 3): HDF5 order is (sizeZ, sizeY),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
-
-    # Raw time shape is (npose * nscanRepeat * nblockRepeat, 1) or its transpose;
-    # squeeze normalizes both orientations before reshaping.
-    time_raw: npt.NDArray[np.float64] = (
-        np.array(h5["/acqMetaData/time"][()], dtype=np.float64)
-        .squeeze()
-        .reshape(n_time, npose)
-    )
-
-    # Iconeus SCAN files store end-referenced timestamps.
-    block_time = time_raw.max(axis=1)
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        # Infer per-pose duration from the earliest time point recorded. Since
-        # timestamps are end-referenced, the minimum timestamp corresponds to the
-        # duration of the first acquired volume.
-        "volume_acquisition_duration": time_raw.min(),
-    }
-
-    coords: dict[str, Any] = {
-        "time": xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
-        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
-        "pose_time": xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
-        **spatial_coords,
-    }
-
-    return xr.DataArray(
-        data_lazy, dims=["time", "pose", "z", "y", "x"], coords=coords, attrs=attrs
-    )
-
-
-def _load_2dscan_voxel_to_world(
     h5: h5py.File,
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],
@@ -964,7 +682,7 @@ def _load_2dscan_voxel_to_world(
     return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
-def _load_3dscan_voxel_to_world(
+def _load_3dscan(
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
@@ -987,7 +705,7 @@ def _load_3dscan_voxel_to_world(
     return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
-def _load_4dscan_voxel_to_world(
+def _load_4dscan(
     h5: h5py.File,
     raw_lazy: da.Array,
     voxel_coords: dict[str, xr.DataArray],

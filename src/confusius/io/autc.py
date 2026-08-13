@@ -23,8 +23,6 @@ class AUTCDATFileHeader(TypedDict):
     ----------
     acquisition_block_index : int
         Index of the acquisition block.
-    n_data_items : int
-        Number of data items in the block.
     n_z : int
         Number of depth samples.
     n_x : int
@@ -34,7 +32,6 @@ class AUTCDATFileHeader(TypedDict):
     """
 
     acquisition_block_index: int
-    n_data_items: int
     n_z: int
     n_x: int
     n_frames: int
@@ -171,9 +168,10 @@ class AUTCDAT:
         """
         header = np.fromfile(self.path, dtype=dtype, count=n_items)
         return {
-            # Frame index is 1-based in the AUTC DAT format.
+            # Frame index is 1-based in the AUTC DAT format. header[1] (n_data_items
+            # in the on-disk format) is skipped over: it is not part of the parsed
+            # header contract.
             "acquisition_block_index": header[0] - 1,
-            "n_data_items": header[1],
             "n_z": header[2],
             "n_x": header[3],
             "n_frames": header[4],
@@ -349,7 +347,7 @@ class AUTCDATsLoader:
             kwargs.setdefault("total", len(dat_paths))
             iterable = track(enumerate(dat_paths), **kwargs)
 
-        for dat_index, dat_path in iterable:
+        for _, dat_path in iterable:
             if dat_path not in self.dats:
                 n_total_bytes = dat_path.stat().st_size
                 if n_total_bytes == 0:
