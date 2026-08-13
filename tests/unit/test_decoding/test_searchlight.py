@@ -87,6 +87,59 @@ def test_matches_brute_force_reference(decoding_volume, full_mask, rng):
     np.testing.assert_allclose(actual, expected)
 
 
+def test_matches_brute_force_reference_with_voxel_affine_geometry(rng):
+    """SearchLight measures `radius` against world coordinates for voxel-affine masks.
+
+    `decoding_volume`/`full_mask` use plain z/y/x dims with 1D coordinates, which
+    only exercises `_get_masked_coordinates`'s non-voxel-affine fallback. A mask
+    built through `create_fusi_dataarray` instead carries native k/j/i voxel
+    dimensions with CTI-backed z/y/x world coordinates, exercising the
+    voxel-affine branch. The reference here is built from those world
+    coordinates, not the raw k/j/i voxel indices `mask.dims` carries: if
+    `_get_masked_coordinates` silently fell back to voxel indices, this would
+    disagree because z spacing (1.0 mm) differs from y/x spacing (0.2 mm).
+    """
+    from sklearn.base import clone
+
+    from confusius.xarray import create_fusi_dataarray
+
+    n_time = 30
+    radius = 0.25
+    data = create_fusi_dataarray(
+        rng.standard_normal((n_time, 2, 3, 3)),
+        dims=("time", "z", "y", "x"),
+        time=np.arange(n_time) * 0.5,
+        spacing=(1.0, 0.2, 0.2),
+        origin=(0.0, 0.0, 0.0),
+    )
+    mask = xr.ones_like(data.isel(time=0, drop=True), dtype=bool)
+    y = rng.standard_normal(n_time)
+
+    searchlight = SearchLight(
+        mask=mask, estimator=Ridge(alpha=1.0), radius=radius, cv=3, show_progress=False
+    )
+    searchlight.fit(data, y)
+
+    world_coords = np.stack(
+        [np.asarray(data.coords[name].values) for name in ("z", "y", "x")], axis=-1
+    ).reshape(-1, 3)
+    features = np.asarray(data.transpose("time", "k", "j", "i").values).reshape(
+        n_time, -1
+    )
+    cv = KFold(n_splits=3, shuffle=False)
+    expected = []
+    for center in world_coords:
+        distances = np.sqrt(((world_coords - center) ** 2).sum(axis=1))
+        neighbors = np.flatnonzero(distances <= radius)
+        fold_scores = cross_val_score(
+            clone(Ridge(alpha=1.0)), features[:, neighbors], y, cv=cv, n_jobs=1
+        )
+        expected.append(float(np.mean(fold_scores)))
+    expected_scores = np.asarray(expected).reshape(mask.shape)
+
+    np.testing.assert_allclose(searchlight.scores_.values, expected_scores)
+
+
 def test_matches_brute_force_reference_sparse_mask(decoding_volume, rng):
     """SearchLight matches the reference under a sparse mask.
 

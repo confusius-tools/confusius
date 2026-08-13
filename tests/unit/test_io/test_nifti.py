@@ -1257,6 +1257,134 @@ class TestLoadNifti:
 
         np.testing.assert_allclose(da.coords["time"].values, [0.0, 1.0, 2.0, 3.0, 4.0])
 
+    def test_load_nifti_coordinate_affine_sform_invalid_falls_back(
+        self, tmp_path: Path
+    ) -> None:
+        """`coordinate_affine="sform"` with an invalid sform falls back to pixdim.
+
+        Even though qform is valid, an explicit `coordinate_affine="sform"` request
+        is honored literally: `_select_affines` returns `(None, None)` without
+        considering qform, so loading falls back to the same pixdim-only path used
+        when neither form is valid.
+        """
+        qform = np.diag([2.0, 3.0, 4.0, 1.0])
+        data = np.zeros((4, 3, 2), dtype=np.float32)
+        img = nib.Nifti1Image(data, qform)
+        img.header.set_sform(np.eye(4), code=0)
+        img.header.set_qform(qform, code=1)
+        nifti_path = tmp_path / "sform_invalid.nii.gz"
+        img.to_filename(nifti_path)
+
+        with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
+            da = load_nifti(nifti_path, coordinate_affine="sform")
+
+        assert "affines" not in da.attrs
+        # Pixdim-only fallback: origin 0, step = voxel size, ignoring the valid
+        # qform entirely because it was not the requested form.
+        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 2.0, 4.0, 6.0])
+
+    def test_load_nifti_coordinate_affine_qform_invalid_falls_back(
+        self, tmp_path: Path
+    ) -> None:
+        """`coordinate_affine="qform"` with an invalid qform falls back to pixdim.
+
+        Mirrors `test_load_nifti_coordinate_affine_sform_invalid_falls_back`: a
+        valid sform is ignored because qform was explicitly (but invalidly)
+        requested.
+        """
+        sform = np.diag([2.0, 3.0, 4.0, 1.0])
+        data = np.zeros((4, 3, 2), dtype=np.float32)
+        img = nib.Nifti1Image(data, sform)
+        img.header.set_sform(sform, code=1)
+        img.header.set_qform(np.eye(4), code=0)
+        nifti_path = tmp_path / "qform_invalid.nii.gz"
+        img.to_filename(nifti_path)
+
+        with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
+            da = load_nifti(nifti_path, coordinate_affine="qform")
+
+        assert "affines" not in da.attrs
+        np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 1.0, 2.0, 3.0])
+
+    def test_load_nifti_extra_dims_named_j_i_promote_directly(
+        self, tmp_path: Path
+    ) -> None:
+        """Extra axes sidecar-named `j`/`i` alongside singleton x/y/z promote as-is.
+
+        When the sidecar renames the 5th/6th NIfTI axes to native voxel dim names
+        (`j`, `i`) and the canonical spatial axes are all singleton, the loaded
+        DataArray already carries native voxel dims, so
+        `_promote_nifti_to_voxel_affine` builds `voxel_to_world` directly from those
+        dims instead of renaming `z`/`y`/`x`.
+        """
+        data = np.arange(1 * 1 * 1 * 1 * 3 * 2, dtype=np.float32).reshape(
+            1, 1, 1, 1, 3, 2
+        )
+        nifti_path = tmp_path / "extra_j_i.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "extra_j_i.json", "w") as f:
+            json.dump(
+                {"ConfUSIusDim4Name": "j", "ConfUSIusDim5Name": "i"},
+                f,
+            )
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("j", "i")
+        assert "z" not in da.coords
+        assert "k" not in da.dims
+        np.testing.assert_allclose(get_voxel_to_world_affine(da), np.eye(3))
+        np.testing.assert_allclose(
+            da.coords["y"].values, [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]]
+        )
+        np.testing.assert_allclose(
+            da.coords["x"].values, [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
+        )
+
+    def test_load_nifti_1d_data_skips_voxel_affine_promotion(
+        self, tmp_path: Path
+    ) -> None:
+        """A genuinely 1D NIfTI (only `x`) is left unpromoted (fewer than 2 spatial dims).
+
+        `_promote_nifti_to_voxel_affine` only renames `z`/`y`/`x` into voxel dims
+        when 2 or 3 spatial dims are present; with a single spatial axis it drops
+        the now-unused `_primary_voxel_to_world` attr and returns the DataArray
+        unchanged.
+        """
+        data = np.arange(5, dtype=np.float32)
+        nifti_path = tmp_path / "one_d.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        da = load_nifti(nifti_path)
+
+        assert da.dims == ("x",)
+        assert "_primary_voxel_to_world" not in da.attrs
+        assert "k" not in da.dims
+        np.testing.assert_array_equal(da.values, data)
+
+    def test_load_nifti_extra_dim_named_k_conflicts_with_promoted_z(
+        self, tmp_path: Path
+    ) -> None:
+        """An extra axis sidecar-named `k` collides with the promoted `z` voxel dim.
+
+        `_promote_nifti_to_voxel_affine` tries to move the pre-existing extra `k`
+        dim out of the way using a `dim5_name`/`dim6_name`/`dim7_name` fallback, but
+        those attrs are already popped from `attrs` by the time load reaches this
+        step (they were consumed to build extra-dim coordinates), so the fallback
+        never finds a rename target and the subsequent `z` -> `k` rename collides
+        with the pre-existing `k` dim.
+        """
+        data = np.zeros((3, 1, 1, 1, 2), dtype=np.float32)
+        nifti_path = tmp_path / "extra_k.nii.gz"
+        nib.Nifti1Image(data, np.eye(4)).to_filename(nifti_path)
+
+        with open(tmp_path / "extra_k.json", "w") as f:
+            json.dump({"ConfUSIusDim4Name": "k"}, f)
+
+        with pytest.raises(ValueError, match="the new name 'k' conflicts"):
+            load_nifti(nifti_path)
+
 
 class TestSaveNifti:
     """Tests for `save_nifti` function."""
@@ -2790,6 +2918,74 @@ class TestSaveNifti:
         assert loaded.header.get_sform(coded=True)[1] == 2
         expected_sform = get_voxel_to_world_affine(da)[[2, 1, 0, 3]][:, [2, 1, 0, 3]]
         np.testing.assert_allclose(loaded.header.get_sform(), expected_sform, atol=1e-6)
+
+    def test_save_voxel_affine_data_missing_voxel_dim_inserts_singleton(
+        self, tmp_path: Path
+    ) -> None:
+        """Saving voxel-affine data missing a native voxel dim inserts it as size 1.
+
+        Unlike `test_save_2d_dataarray` (whose fixture already carries a singleton
+        `j`/`k` dim from `create_fusi_dataarray`), this DataArray genuinely has no
+        `j` dim at all, so `_prepare_data_for_nifti` must insert the missing NIfTI
+        spatial axis itself.
+        """
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.arange(4 * 6, dtype=np.float32).reshape(4, 6),
+                dims=("k", "i"),
+                coords={"k": np.arange(4, dtype=float), "i": np.arange(6, dtype=float)},
+            )
+        )
+        assert "j" not in da.dims
+
+        output_path = tmp_path / "missing_j.nii.gz"
+        save_nifti(da, output_path)
+
+        loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
+        # NIfTI order (x, y, z) = (i, j, k); the missing j slot becomes size 1.
+        assert loaded.shape == (6, 1, 4)
+        np.testing.assert_array_equal(np.asarray(loaded.dataobj)[:, 0, :], da.values.T)
+
+    def test_save_empty_voxel_coordinate_raises(self, tmp_path: Path) -> None:
+        """Saving a voxel-affine DataArray with an empty voxel coordinate raises."""
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((0, 4, 6), dtype=np.float32),
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.array([], dtype=float),
+                    "j": np.arange(4, dtype=float),
+                    "i": np.arange(6, dtype=float),
+                },
+            )
+        )
+
+        with pytest.raises(ValueError, match="Cannot save empty voxel coordinate 'k'"):
+            save_nifti(da, tmp_path / "empty_k.nii.gz")
+
+    def test_save_irregular_voxel_coordinate_raises(self, tmp_path: Path) -> None:
+        """Saving a voxel-affine DataArray with irregular voxel spacing raises.
+
+        NIfTI's `pixdim`-based grid geometry requires a single regular step per
+        axis; a native voxel coordinate that is not regularly sampled cannot be
+        represented and must be rejected rather than silently approximated.
+        """
+        da = _add_identity_voxel_affine(
+            xr.DataArray(
+                np.zeros((4, 3, 2), dtype=np.float32),
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.array([0.0, 1.0, 2.0, 10.0], dtype=float),
+                    "j": np.arange(3, dtype=float),
+                    "i": np.arange(2, dtype=float),
+                },
+            )
+        )
+
+        with pytest.raises(
+            ValueError, match="requires regularly sampled voxel coordinates.*'k'"
+        ):
+            save_nifti(da, tmp_path / "irregular_k.nii.gz")
 
 
 class TestRoundtrip:

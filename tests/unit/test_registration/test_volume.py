@@ -18,6 +18,7 @@ from confusius.registration._utils import (
     build_voxel_affine_plane_initial_transform,
     dataarray_to_sitk_image,
     get_defined_spatial_spacing,
+    validate_registration_dataarray,
 )
 from confusius.registration.bspline import (
     invert_displacement_field,
@@ -117,6 +118,66 @@ def _make_voxel_affine_3d_slab() -> xr.DataArray:
             "x": {"units": "mm"},
         },
     )
+
+
+def _make_voxel_affine_3d_slab_flipped_normal() -> xr.DataArray:
+    """Voxel-affine slab like `_make_voxel_affine_3d_slab` with the k-axis normal flipped."""
+    base = xr.DataArray(
+        np.zeros((1, 5, 6), dtype=np.float32),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [0.0],
+            "j": np.arange(5, dtype=np.float64),
+            "i": np.arange(6, dtype=np.float64),
+        },
+    )
+    return add_world_coords_from_voxel_affine(
+        base,
+        np.array(
+            [
+                [-0.4, 0.0, 0.0, 10.0],
+                [0.0, 2.0, 0.0, 20.0],
+                [0.0, 0.0, 3.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        ),
+        voxel_dims=("k", "j", "i"),
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
+class TestValidateRegistrationDataarray:
+    """Input validation for validate_registration_dataarray."""
+
+    def test_non_string_dims_raises(self):
+        """Non-string dimension names are rejected."""
+        da = xr.DataArray(np.zeros((2, 2)), dims=(0, 1))
+        with pytest.raises(ValueError, match="must be strings"):
+            validate_registration_dataarray(da)
+
+    def test_time_dimension_rejected_when_spatial_only_required(self):
+        """A `time` dimension is rejected when `require_spatial_only=True`."""
+        da = xr.DataArray(np.zeros((2, 3, 3)), dims=("time", "j", "i"))
+        with pytest.raises(ValueError, match="spatial-only"):
+            validate_registration_dataarray(da, require_spatial_only=True)
+
+    def test_too_few_spatial_dims_raises(self):
+        """Fewer than `minimum_spatial_dims` spatial axes are rejected."""
+        da = xr.DataArray(np.zeros(5), dims=("i",))
+        with pytest.raises(ValueError, match="at least 2 spatial dimensions"):
+            validate_registration_dataarray(da)
+
+    def test_too_many_spatial_dims_raises(self):
+        """More than 3 spatial axes are rejected."""
+        da = xr.DataArray(np.zeros((2, 2, 2, 2)), dims=("a", "b", "c", "d"))
+        with pytest.raises(ValueError, match="at most 3 spatial dimensions"):
+            validate_registration_dataarray(da)
 
 
 class TestRegisterVolumeValidation:
@@ -321,6 +382,49 @@ class TestSimpleITKGeometry:
             np.array(image.GetDirection()).reshape(2, 2),
             data.fusi.direction,
         )
+
+    def test_dataarray_to_sitk_image_regular_dataarray_uses_grid_info(self):
+        """Non-voxel-affine DataArrays derive spacing/origin from grid coordinates.
+
+        Uses `z`/`y`/`x` dims with plain regular coordinates and no `voxel_to_world`
+        index, which is outside `has_voxel_world_geometry`'s `k`/`j`/`i`-only voxel
+        dims, forcing `dataarray_to_sitk_image` down its `get_grid_info_from_dataarray`
+        fallback branch.
+        """
+        da = xr.DataArray(
+            np.zeros((3, 4, 5), dtype=np.float32),
+            dims=("z", "y", "x"),
+            coords={
+                "z": np.arange(3, dtype=np.float64) * 1.0,
+                "y": np.arange(4, dtype=np.float64) * 0.2,
+                "x": np.arange(5, dtype=np.float64) * 0.3,
+            },
+        )
+
+        image = dataarray_to_sitk_image(da)
+
+        assert_allclose(image.GetSpacing(), (1.0, 0.2, 0.3))
+        assert_allclose(image.GetOrigin(), (0.0, 0.0, 0.0))
+
+    def test_undefined_voxel_affine_spacing_raises_repair_hint(self):
+        """An irregular voxel-affine coordinate raises a `voxdim`-repair error."""
+        base = xr.DataArray(
+            np.zeros((4, 5)),
+            dims=("j", "i"),
+            coords={
+                "j": np.array([0.0, 1.0, 3.0, 6.0]),
+                "i": np.arange(5, dtype=np.float64),
+            },
+        )
+        da = add_world_coords_from_voxel_affine(
+            base,
+            np.eye(3),
+            voxel_dims=("j", "i"),
+            world_coord_names=("y", "x"),
+            world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
+        )
+        with pytest.raises(ValueError, match="voxdim"):
+            get_defined_spatial_spacing(da)
 
 
 class TestRegisterVolumeOutput:
@@ -806,6 +910,29 @@ class TestResampleVolume:
                 **_resample_volume_grid_kwargs(sample_2d_dataarray_spatial),
             )
 
+    def test_output_shape_wrong_length_raises(self, sample_2d_dataarray_spatial):
+        """output_shape with the wrong number of entries raises ValueError."""
+        with pytest.raises(ValueError, match="output_shape must have"):
+            resample_volume(
+                sample_2d_dataarray_spatial,
+                np.eye(4),
+                output_shape=[10, 10],
+                output_spacing=[1.0, 1.0, 1.0],
+                output_origin=[0.0, 0.0, 0.0],
+            )
+
+    def test_output_direction_wrong_shape_raises(self, sample_2d_dataarray_spatial):
+        """output_direction with the wrong shape raises ValueError."""
+        with pytest.raises(ValueError, match="output_direction must have shape"):
+            resample_volume(
+                sample_2d_dataarray_spatial,
+                np.eye(4),
+                output_shape=[10, 10, 10],
+                output_spacing=[1.0, 1.0, 1.0],
+                output_origin=[0.0, 0.0, 0.0],
+                output_direction=np.eye(2),
+            )
+
     def test_output_shape_matches_requested_shape(
         self, sample_2d_image, sample_2d_dataarray_spatial
     ):
@@ -900,6 +1027,68 @@ class TestInitialization:
         assert_allclose(seeded.coords["k"].values, fixed.coords["k"].values, atol=1e-10)
         assert_allclose(seeded.coords["j"].values, fixed.coords["j"].values, atol=1e-10)
         assert_allclose(seeded.coords["i"].values, fixed.coords["i"].values, atol=1e-10)
+
+    def test_plane_initializer_identity_rotation_for_parallel_normals(self):
+        """Parallel slice normals use the identity-rotation shortcut."""
+        fixed = _make_voxel_affine_3d_slab()
+        moving = _make_voxel_affine_3d_slab()
+
+        initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
+
+        assert_allclose(initial_transform[:3, :3], np.eye(3), atol=1e-10)
+        assert_allclose(initial_transform[:3, 3], 0.0, atol=1e-10)
+
+    def test_plane_initializer_flips_antiparallel_normals(self):
+        """Antiparallel slice normals fall back to the axis-flip rotation formula."""
+        fixed = _make_voxel_affine_3d_slab()
+        moving = _make_voxel_affine_3d_slab_flipped_normal()
+
+        initial_transform = build_voxel_affine_plane_initial_transform(fixed, moving)
+        rotation = initial_transform[:3, :3]
+
+        # The rotation must be a proper rotation (orthogonal, determinant 1) that maps
+        # fixed's plane back onto moving's flipped plane.
+        assert_allclose(rotation @ rotation.T, np.eye(3), atol=1e-10)
+        assert_allclose(np.linalg.det(rotation), 1.0, atol=1e-10)
+        seeded = moving.fusi.affine.apply(np.linalg.inv(initial_transform))
+        assert_allclose(
+            seeded.fusi.direction[:, 0], fixed.fusi.direction[:, 0], atol=1e-10
+        )
+
+    def test_plane_initializer_requires_single_singleton_dim(self):
+        """A voxel-affine slab without exactly one singleton spatial axis is rejected."""
+        base = xr.DataArray(
+            np.zeros((2, 5, 6), dtype=np.float32),
+            dims=("k", "j", "i"),
+            coords={
+                "k": np.arange(2, dtype=np.float64),
+                "j": np.arange(5, dtype=np.float64),
+                "i": np.arange(6, dtype=np.float64),
+            },
+        )
+        fixed = _add_identity_voxel_affine(base)
+        with pytest.raises(ValueError, match="exactly one singleton"):
+            build_voxel_affine_plane_initial_transform(fixed, fixed)
+
+    def test_plane_initializer_requires_voxel_affine_geometry(self):
+        """Non-voxel-affine inputs (plain z/y/x dims, no voxel_to_world index) are rejected."""
+        da = xr.DataArray(
+            np.zeros((1, 5, 6), dtype=np.float32),
+            dims=("z", "y", "x"),
+            coords={
+                "z": np.array([0.0]),
+                "y": np.arange(5, dtype=np.float64),
+                "x": np.arange(6, dtype=np.float64),
+            },
+        )
+        with pytest.raises(ValueError, match="voxel-affine geometry"):
+            build_voxel_affine_plane_initial_transform(da, da)
+
+    def test_plane_initializer_requires_3d_voxel_affine(self):
+        """Non-3D voxel-affine inputs are rejected."""
+        da = _make_voxel_affine_2d()
+        with pytest.raises(ValueError, match="matching 3D voxel-affine"):
+            build_voxel_affine_plane_initial_transform(da, da)
 
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
         """A supplied initial affine is used directly, without extra centering shift."""
@@ -1121,6 +1310,28 @@ class TestDisplacementField:
                 spacing=[1.0, 1.0],
                 origin=[0.0, 0.0],
                 dims=["j", "i"],
+            )
+
+    def test_sample_displacement_field_wrong_direction_shape_raises(self):
+        """A direction matrix whose shape doesn't match `dims` is rejected."""
+        transform = xr.DataArray(
+            np.zeros((2, 4, 4)),
+            dims=["component", "j", "i"],
+            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
+            attrs={
+                "type": "bspline_transform",
+                "order": 3,
+                "direction": np.eye(2).tolist(),
+            },
+        )
+        with pytest.raises(ValueError, match="direction must have shape"):
+            sample_displacement_field(
+                transform,
+                shape=[4, 4],
+                spacing=[1.0, 1.0],
+                origin=[0.0, 0.0],
+                dims=["j", "i"],
+                direction=np.eye(3),
             )
 
     def test_sample_displacement_field_like_time_reference_raises(

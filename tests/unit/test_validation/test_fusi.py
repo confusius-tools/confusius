@@ -7,7 +7,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import add_world_coords_from_voxel_affine
-from confusius.validation import validate_fusi_dataarray
+from confusius.validation import canonicalize_fusi, validate_fusi_dataarray
 
 
 def _make_voxel_affine_volume() -> xr.DataArray:
@@ -95,6 +95,52 @@ def test_validate_fusi_dataarray_rejects_voxel_affine_missing_world_coord() -> N
 
     with pytest.raises(ValueError, match="VoxelToWorldIndex-backed"):
         validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_rejects_mismatched_affine_shape_after_fixing_dim() -> (
+    None
+):
+    """A rectangular voxel-to-world affine from a fixed oblique dim is rejected.
+
+    Fixing one voxel dim of an oblique (non-axis-aligned) volume via a scalar
+    `isel` folds that dim's contribution into the translation rather than
+    dropping it, leaving `get_voxel_to_world_affine` genuinely rectangular
+    (3 world rows, 2 active voxel columns) while `get_voxel_affine_spatial_dims`
+    only reports the 2 remaining active dims. The expected square shape derived
+    from those active dims therefore no longer matches the affine's actual shape.
+    """
+    base = xr.DataArray(
+        np.zeros((2, 3, 4), dtype=np.float32),
+        dims=("k", "j", "i"),
+        coords={
+            "k": xr.DataArray([0.0, 1.0], dims=("k",), attrs={"voxdim": 1.0}),
+            "j": xr.DataArray([0.0, 1.0, 2.0], dims=("j",), attrs={"voxdim": 1.0}),
+            "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
+        },
+    )
+    oblique = np.array(
+        [
+            [0.0, 1.0, 0.0, 10.0],
+            [1.0, 0.0, 0.0, 20.0],
+            [0.0, 0.0, 1.0, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    data = add_world_coords_from_voxel_affine(
+        base,
+        oblique,
+        voxel_dims=("k", "j", "i"),
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
+            "z": {"units": "mm"},
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+    fixed = data.isel(k=0)
+
+    with pytest.raises(ValueError, match=r"voxel_to_world must have shape \(3, 3\)"):
+        validate_fusi_dataarray(fixed)
 
 
 def test_validate_fusi_dataarray_allows_extra_dims_by_default() -> None:
@@ -266,6 +312,24 @@ def test_validate_fusi_dataarray_rejects_non_string_dimension_names() -> None:
         validate_fusi_dataarray(bad)
 
 
+def test_validate_fusi_dataarray_rejects_non_monotonic_core_coordinate() -> None:
+    """Core dimension coordinates must be strictly monotonic-increasing."""
+    bad = _make_voxel_affine_time_series().assign_coords(
+        i=xr.DataArray([0.0, 2.0, 1.0, 3.0], dims=("i",))
+    )
+
+    with pytest.raises(ValueError, match="must be strictly monotonic-increasing"):
+        validate_fusi_dataarray(bad)
+
+
+def test_validate_fusi_dataarray_rejects_invalid_minimum_spatial_dims() -> None:
+    """`minimum_spatial_dims` outside [0, 3] is rejected before any data is checked."""
+    with pytest.raises(
+        ValueError, match="minimum_spatial_dims must be between 0 and 3 inclusive"
+    ):
+        validate_fusi_dataarray(_make_voxel_affine_volume(), minimum_spatial_dims=4)
+
+
 def test_validate_fusi_dataarray_rejects_non_dimension_coordinate() -> None:
     """Dimension coordinates must be 1D along their own dimension."""
     data = _make_voxel_affine_time_series()
@@ -273,3 +337,48 @@ def test_validate_fusi_dataarray_rejects_non_dimension_coordinate() -> None:
 
     with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
         validate_fusi_dataarray(bad)
+
+
+def test_canonicalize_fusi_restores_scalar_indexed_voxel_dim() -> None:
+    """A voxel dim collapsed to a scalar coordinate (e.g. by `.isel`) is restored.
+
+    Selecting a single index along `j` without dropping it leaves `j` as a scalar
+    coordinate rather than a dimension. `canonicalize_fusi` must reinstate it as a
+    size-1 dimension in its original position among the other voxel dims, carrying
+    over its original coordinate value and attributes.
+    """
+    reduced = _make_voxel_affine_volume().isel(j=1)
+    assert "j" not in reduced.dims
+    assert reduced.coords["j"].shape == ()
+
+    restored = canonicalize_fusi(reduced)
+
+    assert restored.dims == ("k", "j", "i")
+    assert restored.sizes["j"] == 1
+    np.testing.assert_array_equal(restored.coords["j"].values, [2.0])
+    assert restored.coords["j"].attrs == {"voxdim": 2.0}
+
+
+def test_canonicalize_fusi_rejects_non_scalar_coordinate_for_missing_dim() -> None:
+    """A missing voxel dim with a non-scalar same-named coordinate is rejected.
+
+    `canonicalize_fusi` only knows how to restore a voxel dimension from a scalar
+    coordinate value; a coordinate that merely shares the dimension's name but
+    varies along a different dimension cannot be interpreted as that dimension's
+    dropped value.
+    """
+    bad = xr.DataArray(
+        np.zeros((2, 4), dtype=np.float32),
+        dims=("k", "i"),
+        coords={
+            "k": xr.DataArray([0.0, 1.0], dims=("k",), attrs={"voxdim": 1.0}),
+            "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
+            "j": xr.DataArray([0.0, 1.0], dims=("k",)),
+        },
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="missing voxel dimension 'j', but coordinate 'j' is not scalar",
+    ):
+        canonicalize_fusi(bad)

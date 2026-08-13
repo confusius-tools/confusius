@@ -1,17 +1,23 @@
 """Tests for voxel-space geometry helpers."""
 
 import numpy as np
+import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
 
 from confusius._utils.geometry import (
+    VoxelToWorldIndex,
+    VoxelToWorldTransform,
     add_world_coords_from_voxel_affine,
     get_affine_axis_scalings,
     get_affine_axis_vectors,
     get_affine_orientation_matrix,
     get_affine_origin,
+    get_voxel_affine_world_coord_names,
+    get_voxel_to_world_affine,
     get_voxel_world_origin,
     get_world_spacings,
+    restore_world_coords_from_voxel_affine,
 )
 
 
@@ -235,3 +241,317 @@ def test_get_voxel_world_origin_uses_first_sampled_voxel() -> None:
     )
 
     assert get_voxel_world_origin(data) == {"z": 30.0, "y": 35.0, "x": 430.0}
+
+
+def _axis_aligned_result() -> xr.DataArray:
+    """Build a 3D axis-aligned voxel-affine DataArray shared by several tests."""
+    data = xr.DataArray(
+        np.arange(24).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [0.0, 2.0],
+            "j": [0.0, 1.0, 3.0],
+            "i": [0.0, 2.0, 3.0, 7.0],
+        },
+    )
+    return add_world_coords_from_voxel_affine(
+        data,
+        np.diag([10.0, 2.0, 3.0, 1.0]),
+        voxel_dims=("k", "j", "i"),
+        world_coord_names=("z", "y", "x"),
+    )
+
+
+def test_add_world_coords_defaults_to_yx_names_for_2d_voxel_dims() -> None:
+    """2D voxel geometry defaults to `y`/`x` world coordinate names."""
+    data = xr.DataArray(
+        np.zeros((3, 4)),
+        dims=("j", "i"),
+        coords={"j": np.arange(3.0), "i": np.arange(4.0)},
+    )
+
+    result = add_world_coords_from_voxel_affine(data, np.eye(3), voxel_dims=("j", "i"))
+
+    assert set(result.coords) == {"j", "i", "y", "x"}
+
+
+def test_voxel_to_world_index_from_affine_defaults_to_yx_names_for_2d() -> None:
+    """`VoxelToWorldIndex.from_affine` itself defaults to `y`/`x` for 2D geometry.
+
+    `add_world_coords_from_voxel_affine` always resolves `world_coord_names` before
+    delegating to `from_affine`, so `from_affine`'s own default only fires when it is
+    called directly.
+    """
+    index = VoxelToWorldIndex.from_affine(
+        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
+    )
+
+    assert index.world_coord_names == ("y", "x")
+
+
+def test_sel_resolves_descending_and_nonmonotonic_axis_aligned_axes() -> None:
+    """Point selection resolves correctly for descending or non-monotonic axes.
+
+    `VoxelToWorldIndex.sel` reverse-looks-up world labels into voxel positions via
+    `_reverse_lookup_positions`, which special-cases strictly-descending axes
+    (interpolation on the reversed axis) and falls back to exact-match lookup for
+    genuinely non-monotonic axes.
+    """
+    data = xr.DataArray(
+        np.arange(24).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [4.0, 0.0],  # Strictly descending.
+            "j": [0.0, 3.0, 1.0],  # Non-monotonic.
+            "i": [0.0, 1.0, 2.0, 3.0],
+        },
+    )
+    result = add_world_coords_from_voxel_affine(
+        data, np.eye(4), voxel_dims=("k", "j", "i"), world_coord_names=("z", "y", "x")
+    )
+
+    descending = result.sel(z=0.0)
+    assert descending.coords["k"].item() == 0.0
+    assert_array_equal(descending.values, data.isel(k=1).values)
+
+    nonmonotonic = result.sel(y=1.0)
+    assert nonmonotonic.coords["j"].item() == 1.0
+    assert_array_equal(nonmonotonic.values, data.isel(j=2).values)
+
+
+def test_sel_slice_out_of_range_selects_nothing_and_step_subsamples() -> None:
+    """Axis-aligned slice selection handles an out-of-range slice and a step."""
+    result = _axis_aligned_result()
+
+    empty = result.sel(z=slice(1000.0, 2000.0))
+    assert empty.sizes["k"] == 0
+
+    stepped = result.sel(x=slice(0.0, 21.0, 2))
+    assert_array_equal(stepped.coords["i"].values, [0.0, 3.0])
+
+
+def test_sel_plain_slice_without_step_selects_contiguous_range() -> None:
+    """A plain (no-step) slice with hits selects the contiguous covered range."""
+    result = _axis_aligned_result()
+
+    selected = result.sel(z=slice(0.0, 15.0))
+
+    assert_array_equal(selected.coords["k"].values, [0.0])
+
+
+def test_voxel_to_world_index_sel_with_unrelated_labels_selects_nothing() -> None:
+    """Calling `.sel` with no labels belonging to the index selects nothing."""
+    result = _axis_aligned_result()
+    index = result.xindexes["z"]
+
+    selection = index.sel({})
+
+    assert selection.dim_indexers == {}
+
+
+def test_reverse_skips_dimension_fixed_by_a_prior_scalar_isel() -> None:
+    """Oblique point selection after a scalar isel ignores the now-fixed dimension.
+
+    A scalar `isel` on one voxel dimension pins it via `fixed_voxel_coords` rather
+    than dropping the geometry; a subsequent oblique `.sel` on the remaining
+    dimensions must not try to resolve a position for the fixed one.
+    """
+    data = xr.DataArray(
+        np.arange(24).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        coords={
+            "k": [0.0, 2.0],
+            "j": [0.0, 1.0, 3.0],
+            "i": [0.0, 2.0, 3.0, 7.0],
+        },
+    )
+    voxel_to_world = np.array(
+        [
+            [1.0, 0.1, 0.0, 0.0],
+            [0.0, 2.0, 0.0, 0.0],
+            [0.0, 0.0, 3.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    result = add_world_coords_from_voxel_affine(
+        data,
+        voxel_to_world,
+        voxel_dims=("k", "j", "i"),
+        world_coord_names=("z", "y", "x"),
+    )
+    fixed = result.isel(k=0)
+
+    selected = fixed.sel(
+        z=xr.Variable("point", [0.1]),
+        y=xr.Variable("point", [2.0]),
+        x=xr.Variable("point", [6.0]),
+        method="nearest",
+    )
+
+    assert selected.item() == data.isel(k=0, j=1, i=1).item()
+
+
+def test_voxel_to_world_transform_rejects_invalid_construction() -> None:
+    """`VoxelToWorldTransform` validates its constructor arguments."""
+    valid_coords = {"j": np.arange(3.0), "i": np.arange(4.0)}
+
+    with pytest.raises(ValueError, match="must exactly cover active dims"):
+        VoxelToWorldTransform(valid_coords, np.eye(3), all_dims=("j", "i", "k"))
+
+    with pytest.raises(ValueError, match="at least one active dim"):
+        VoxelToWorldTransform({}, np.eye(3))
+
+    with pytest.raises(ValueError, match="only supports 2D or 3D"):
+        VoxelToWorldTransform(
+            {
+                "k": np.arange(2.0),
+                "j": np.arange(3.0),
+                "i": np.arange(4.0),
+                "t": np.arange(2.0),
+            },
+            np.eye(5),
+        )
+
+    with pytest.raises(ValueError, match="must be 1D"):
+        VoxelToWorldTransform({"j": np.arange(3.0), "i": np.zeros((2, 2))}, np.eye(3))
+
+    with pytest.raises(ValueError, match="one entry per voxel dimension"):
+        VoxelToWorldTransform(valid_coords, np.eye(3), world_coord_names=("y",))
+
+    with pytest.raises(ValueError, match=r"must have shape \(3, 3\)"):
+        VoxelToWorldTransform(valid_coords, np.eye(4))
+
+
+def test_voxel_to_world_transform_defaults_to_yx_names_for_2d() -> None:
+    """A `VoxelToWorldTransform` built without explicit names defaults to `y`/`x`."""
+    transform = VoxelToWorldTransform(
+        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
+    )
+
+    assert transform.coord_names == ("y", "x")
+
+
+def test_voxel_to_world_transform_equals_rejects_other_types() -> None:
+    """`VoxelToWorldTransform.equals` returns `False` for non-transform values."""
+    transform = VoxelToWorldTransform(
+        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
+    )
+
+    assert transform.equals(object()) is False  # ty: ignore[invalid-argument-type]
+
+
+def test_voxel_to_world_transform_repr_reports_dims_and_coord_names() -> None:
+    """`repr` reports the transform's active dims and world coordinate names."""
+    transform = VoxelToWorldTransform(
+        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
+    )
+
+    assert repr(transform) == (
+        "VoxelToWorldTransform(dims=('j', 'i'), coord_names=('y', 'x'))"
+    )
+
+
+def test_voxel_to_world_transform_isel_unsupported_indexers_return_none() -> None:
+    """`VoxelToWorldTransform.isel` returns `None` for unsupported indexers.
+
+    Covers: an indexer for a dimension the transform doesn't own (skipped), a
+    multi-dimensional `Variable`, a non-slice/array/scalar indexer (also exercising
+    `_is_scalar_indexer`'s final `False` fallback), and a fancy multi-dimensional
+    array index that would produce a non-1D result.
+    """
+    transform = VoxelToWorldTransform(
+        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
+    )
+
+    unrelated = transform.isel({"nonexistent": 0})
+    assert unrelated is not None
+    assert unrelated.dims == transform.dims
+
+    fixed = transform.isel({"j": xr.Variable((), 1)})
+    assert fixed is not None
+    assert fixed.fixed_voxel_coords == {"j": 1.0}
+
+    assert transform.isel({"j": xr.Variable(("a", "b"), np.zeros((2, 2)))}) is None
+    assert transform.isel({"j": "bogus"}) is None
+    assert transform.isel({"j": np.zeros((2, 2), dtype=int)}) is None
+
+
+def test_add_world_coords_validates_voxel_dims_and_coordinates() -> None:
+    """`add_world_coords_from_voxel_affine` validates dims and their coordinates."""
+    data = xr.DataArray(
+        np.zeros((3, 4)),
+        dims=("j", "i"),
+        coords={"j": np.arange(3.0), "i": np.arange(4.0)},
+    )
+
+    with pytest.raises(ValueError, match="not present in the DataArray"):
+        add_world_coords_from_voxel_affine(data, np.eye(3), voxel_dims=("j", "k"))
+
+    with pytest.raises(ValueError, match="must have a matching 1D coordinate"):
+        add_world_coords_from_voxel_affine(
+            data.drop_vars("i"), np.eye(3), voxel_dims=("j", "i")
+        )
+
+    non_dim_coord = xr.DataArray(
+        np.zeros((3, 4)),
+        dims=("j", "i"),
+        coords={"j": (("j", "i"), np.zeros((3, 4))), "i": np.arange(4.0)},
+    )
+    with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
+        add_world_coords_from_voxel_affine(
+            non_dim_coord, np.eye(3), voxel_dims=("j", "i")
+        )
+
+
+def test_get_voxel_to_world_affine_raises_without_voxel_world_geometry() -> None:
+    """`get_voxel_to_world_affine` raises for a DataArray without CTI geometry."""
+    data = xr.DataArray(np.zeros((3, 4)), dims=("y", "x"))
+
+    with pytest.raises(ValueError, match="must have voxel-world geometry"):
+        get_voxel_to_world_affine(data)
+
+
+def test_restore_world_coords_rebuilds_geometry_after_expand_dims() -> None:
+    """Restoring a dimension fixed by isel rebuilds identical world coordinates."""
+    result = _axis_aligned_result()
+    fixed = result.isel(k=1)
+
+    assert restore_world_coords_from_voxel_affine(fixed) is fixed
+
+    expanded = fixed.expand_dims(k=[2.0])
+    restored = restore_world_coords_from_voxel_affine(expanded)
+
+    assert restored.coords["z"].dims == ("k", "j", "i")
+    assert_allclose(restored.coords["z"].values, result.isel(k=[1]).coords["z"].values)
+
+
+def test_get_voxel_affine_world_coord_names_falls_back_to_plain_coords() -> None:
+    """World coordinate names are inferred from plain coords without an index.
+
+    This covers restoring a DataArray that carries dense world coordinates matching
+    the voxel dims (e.g. after an operation that drops the `VoxelToWorldIndex` but
+    keeps the coordinate arrays) rather than a live `VoxelToWorldIndex`.
+    """
+    plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i")).assign_coords(
+        z=(("k", "j", "i"), np.zeros((2, 3, 4))),
+        y=(("k", "j", "i"), np.zeros((2, 3, 4))),
+        x=(("k", "j", "i"), np.zeros((2, 3, 4))),
+    )
+
+    assert get_voxel_affine_world_coord_names(plain) == ("z", "y", "x")
+
+
+def test_get_voxel_affine_world_coord_names_defaults_when_coords_are_incomplete() -> (
+    None
+):
+    """Default `z`/`y`/`x` names are returned when plain world coords are incomplete.
+
+    Only a matching subset of the default-named world coordinates is present (`y`
+    and `x` are missing), so the fallback cannot confirm all of them and returns the
+    plain default names instead.
+    """
+    plain = xr.DataArray(np.zeros((2, 3, 4)), dims=("k", "j", "i")).assign_coords(
+        z=(("k", "j", "i"), np.zeros((2, 3, 4))),
+    )
+
+    assert get_voxel_affine_world_coord_names(plain) == ("z", "y", "x")

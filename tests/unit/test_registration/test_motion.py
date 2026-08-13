@@ -240,6 +240,34 @@ class TestComputeFramewiseDisplacement:
         with pytest.raises(ValueError, match="dimensionality must match"):
             compute_framewise_displacement([np.eye(3)], sample_3d_dataarray_spatial)
 
+    def test_handles_reference_with_non_canonical_dim_order(self):
+        """A reference whose spatial dims are not in canonical k/j/i order still works.
+
+        Transposing a *non-cubic* reference makes the voxel-affine world
+        coordinates' materialized `.values` shape disagree with `reference.shape`
+        (a quirk of the CTI-backed lazy coordinates), which is what routes
+        `compute_framewise_displacement` through its `numpy.meshgrid` fallback
+        instead of the fast-path direct `.ravel()` stacking. A cubic reference
+        would not exercise this: its transposed shape happens to equal its
+        original shape, so the fast path would still match.
+        """
+        from confusius.xarray import create_fusi_dataarray
+
+        reference = create_fusi_dataarray(
+            np.zeros((2, 3, 4), dtype=np.float32),
+            dims=("z", "y", "x"),
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+        ).transpose("i", "j", "k")
+
+        t1 = np.eye(4)
+        t2 = np.eye(4)
+        t2[:3, 3] = [1.0, 2.0, 2.0]
+        fd = compute_framewise_displacement([t1, t2], reference)
+
+        assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
+        assert_allclose(fd["max_fd"][0], 3.0, atol=1e-6)
+
 
 class TestCreateMotionDataframe:
     """Tests for create_motion_dataframe function."""
@@ -338,6 +366,45 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["rot_y"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
+
+    def test_2d_voxel_affine_reference_gives_3_column_motion_summary(self):
+        """A genuinely 2D voxel-affine reference exercises the 3-column motion path.
+
+        `_get_motion_parameter_columns` special-cases `params.shape[1] == 3`, which
+        only arises for (3, 3) affines paired with a reference exposing exactly 2
+        voxel-affine spatial dimensions (no singleton third axis).
+        """
+        import xarray as xr
+
+        from confusius._utils.geometry import add_world_coords_from_voxel_affine
+
+        base = xr.DataArray(
+            np.zeros((4, 5)),
+            dims=["j", "i"],
+            coords={"j": np.arange(4.0), "i": np.arange(5.0)},
+        )
+        reference = add_world_coords_from_voxel_affine(
+            base, np.eye(3), voxel_dims=("j", "i"), world_coord_names=("y", "x")
+        )
+
+        t1 = np.eye(3)
+        t2 = np.eye(3)
+        t2[0, 2] = 2.0  # y translation.
+        t2[1, 2] = 3.0  # x translation.
+
+        df = create_motion_dataframe([t1, t2], reference)
+
+        assert list(df.columns) == [
+            "rotation",
+            "trans_x",
+            "trans_y",
+            "mean_fd",
+            "max_fd",
+            "rms_fd",
+        ]
+        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
+        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
+        assert_allclose(df.iloc[0]["mean_fd"], np.sqrt(13.0), atol=1e-6)
 
     def test_rejects_unexpected_parameter_count(
         self, monkeypatch, sample_2d_dataarray_spatial

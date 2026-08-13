@@ -74,6 +74,22 @@ def test_get_grid_info_requires_singleton_spacing():
             get_grid_info_from_dataarray(data)
 
 
+def test_get_grid_info_requires_regular_spacing_for_voxel_affine_dataarray():
+    """Irregular voxel-space coordinates on voxel-affine data raise, like plain data."""
+    import confusius  # noqa: F401
+
+    data = xr.DataArray(
+        np.zeros((3, 4)),
+        dims=["j", "i"],
+        coords={"j": np.arange(3.0), "i": np.arange(4.0)},
+    )
+    data = data.fusi.affine.set_voxel_to_world(np.eye(3))
+    data = data.assign_coords(j=[0.0, 1.0, 3.5])
+
+    with pytest.raises(ValueError, match="spacing is undefined.*j"):
+        get_grid_info_from_dataarray(data)
+
+
 def test_reexpress_affine_broadcasts_over_pose_stack():
     """A (npose, 4, 4) stack is re-expressed per pose, preserving shape."""
     rng = np.random.default_rng(1)

@@ -547,6 +547,66 @@ class TestReindexVoxelsLike:
         with pytest.raises(ValueError, match="reference must have voxel-affine"):
             data.fusi.reindex_voxels_like(plain)
 
+    def test_raises_on_voxel_dim_mismatch(self):
+        """Different voxel dimensions (e.g. 2D vs. 3D) cannot be reindexed."""
+        reference = self._cropped_strided_reference()
+        base_2d = xr.DataArray(
+            np.zeros((4, 5)),
+            dims=["j", "i"],
+            coords={"j": np.arange(4.0), "i": np.arange(5.0)},
+        )
+        data_2d = add_world_coords_from_voxel_affine(
+            base_2d, np.eye(3), voxel_dims=("j", "i")
+        )
+
+        with pytest.raises(ValueError, match="same voxel dimensions"):
+            data_2d.fusi.reindex_voxels_like(reference)
+
+
+class TestAffineSetVoxelToWorldMethod:
+    """Tests for fusi.affine.set_voxel_to_world."""
+
+    def _make_data(self) -> xr.DataArray:
+        return xr.DataArray(
+            np.zeros((2, 3, 4)),
+            dims=["k", "j", "i"],
+            coords={
+                "k": [0.0, 1.0],
+                "j": [0.0, 1.0, 2.0],
+                "i": [0.0, 1.0, 2.0, 3.0],
+            },
+        )
+
+    def test_replaces_geometry_with_new_affine(self):
+        """The resulting voxel_to_world affine matches the one supplied."""
+        data = self._make_data()
+        affine = np.array(
+            [
+                [2.0, 0.0, 0.0, 10.0],
+                [0.0, 3.0, 0.0, 20.0],
+                [0.0, 0.0, 4.0, 30.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        )
+        result = data.fusi.affine.set_voxel_to_world(affine)
+        np.testing.assert_allclose(get_voxel_to_world_affine(result), affine)
+        # World coordinates are broadcast over all voxel dims; spot-check one
+        # voxel per axis against the affine applied by hand.
+        assert result.coords["z"].isel(k=1, j=0, i=0).item() == pytest.approx(12.0)
+        assert result.coords["y"].isel(k=0, j=1, i=0).item() == pytest.approx(23.0)
+        assert result.coords["x"].isel(k=0, j=0, i=1).item() == pytest.approx(34.0)
+
+    def test_inplace_updates_and_returns_same_object(self):
+        """inplace=True mutates and returns the original DataArray."""
+        data = self._make_data()
+        affine = np.diag([2.0, 3.0, 4.0, 1.0])
+
+        returned = data.fusi.affine.set_voxel_to_world(affine, inplace=True)
+
+        assert returned is data
+        np.testing.assert_allclose(get_voxel_to_world_affine(data), affine)
+        assert data.coords["z"].isel(k=1, j=0, i=0).item() == pytest.approx(2.0)
+
 
 class TestAffineToMethod:
     """Tests for fusi.affine.to."""
@@ -769,6 +829,12 @@ class TestAffineApplyMethod:
         """Affines with shape other than (4, 4) raise ValueError."""
         da = self._make_scan()
         with pytest.raises(ValueError, match="shape"):
+            da.fusi.affine.apply(np.eye(3))
+
+    def test_raises_without_voxel_affine_geometry(self):
+        """A plain DataArray without voxel-affine geometry raises ValueError."""
+        da = xr.DataArray(np.zeros((2, 3)), dims=["j", "i"])
+        with pytest.raises(ValueError, match="voxel-affine geometry"):
             da.fusi.affine.apply(np.eye(3))
 
     def test_string_key_looks_up_stored_affine(self):

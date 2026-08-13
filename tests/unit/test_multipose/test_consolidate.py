@@ -222,6 +222,19 @@ class TestConsolidatePoses:
         with pytest.raises(ValueError, match="sweep_dim must be one of"):
             consolidate_poses(scan_3d, sweep_dim="w")
 
+    def test_sweep_dim_outside_voxel_dims_raises(self, scan_3d: xr.DataArray) -> None:
+        """consolidate_poses rejects a sweep_dim that is a real dim but not a voxel dim.
+
+        `scan_3d` has voxel-affine (CTI) geometry over `k`/`j`/`i`. Adding an extra
+        dimension `w` makes it pass the initial "is sweep_dim one of da's non-time/
+        non-pose dims" check (since `w` is such a dim), but `w` is absent from the
+        voxel-affine geometry's own voxel dims, so the has_voxel_world_geometry branch
+        must reject it with a message naming only the true voxel dims.
+        """
+        da = scan_3d.expand_dims({"w": 2})
+        with pytest.raises(ValueError, match="got 'w'"):
+            consolidate_poses(da, sweep_dim="w")
+
     def test_custom_affines_key(self, scan_3d: xr.DataArray) -> None:
         """consolidate_poses uses the affines_key argument to select the affine."""
         # Copy the existing affine under a custom key and verify the result is
@@ -314,3 +327,34 @@ class TestConsolidatePoses:
                 idx_tuple = (p,) + tuple(idx_dict[d] for d in dim_order)
                 expected = data[idx_tuple]
                 np.testing.assert_array_equal(result.values[flat_idx], expected)
+
+    def test_singleton_output_dim_falls_back_to_voxdim_attr(self) -> None:
+        """A non-swept output dim with a single voxel keeps its original voxdim.
+
+        With only one voxel along an output spatial dimension, there is no pair of
+        consecutive positions from which to infer spacing via `numpy.diff`, so
+        the output CTI construction must fall back to the coordinate's own
+        `voxdim` attribute instead.
+        """
+        npose = 3
+        intra_step = 0.2
+        voxel_size = 0.15
+        data = np.random.default_rng(7).random((npose, 2, 1, 3))
+        affines = np.stack([np.eye(4) for _ in range(npose)])
+        for i in range(npose):
+            affines[i, :3, 3][0] = i * 2 * intra_step
+
+        da = create_fusi_dataarray(
+            data,
+            dims=["pose", "z", "y", "x"],
+            pose=np.arange(npose),
+            spacing=(intra_step, intra_step, intra_step),
+            origin=(0.0, 0.0, 0.0),
+            voxdim=(voxel_size, voxel_size, voxel_size),
+            attrs={"affines": {"world_to_lab": affines}},
+        )
+
+        result = consolidate_poses(da, sweep_dim="k")
+
+        assert result.sizes["j"] == 1
+        assert result.coords["y"].attrs["voxdim"] == pytest.approx(voxel_size)
