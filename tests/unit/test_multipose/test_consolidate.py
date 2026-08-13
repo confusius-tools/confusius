@@ -147,9 +147,7 @@ class TestConsolidatePoses:
         da = load_scan(scan_3d_path, bps_path=bps_path)
         affines = da.attrs["affines"]
         # Recover the constant `inv(brain_to_lab)` link from any pose.
-        link = affines["world_to_brain"][0] @ np.linalg.inv(
-            affines["world_to_lab"][0]
-        )
+        link = affines["world_to_brain"][0] @ np.linalg.inv(affines["world_to_lab"][0])
 
         result = consolidate_poses(da)
 
@@ -161,7 +159,7 @@ class TestConsolidatePoses:
 
     def test_unlinked_extra_per_pose_affine_raises(self, scan_3d: xr.DataArray) -> None:
         """An extra per-pose affine that is not a constant left-link of the main
-        affine must raise ``ValueError`` rather than silently producing a wrong
+        affine must raise `ValueError` rather than silently producing a wrong
         consolidated affine.
         """
         ptl = np.asarray(scan_3d.attrs["affines"]["world_to_lab"]).copy()
@@ -251,10 +249,10 @@ class TestConsolidatePoses:
         This test constructs a DataArray whose affine translates along the requested
         sweep column and verifies that:
 
-        - the output dims are ``(sweep_dim, <other1>, <other2>)`` with no ``pose``;
+        - the output dims are `(sweep_dim, <other1>, <other2>)` with no `pose`;
         - the consolidated coordinate is the expected regular grid with propagated units;
         - each consolidated slice contains exactly the data values from the correct
-          ``(pose, sweep_dim)`` combination.
+          `(pose, sweep_dim)` combination.
         """
         npose = 3
         sizes = {"k": 2, "j": 4, "i": 3}
@@ -294,9 +292,7 @@ class TestConsolidatePoses:
         # The world coordinate is (k, j, i)-shaped (backed by a single joint
         # VoxelToWorldIndex), but only genuinely varies along sweep_dim for
         # axis-aligned geometry; reduce the other voxel dims to compare.
-        sweep_coord = result.coords[world_sweep_dim].isel(
-            dict.fromkeys(other_dims, 0)
-        )
+        sweep_coord = result.coords[world_sweep_dim].isel(dict.fromkeys(other_dims, 0))
         np.testing.assert_allclose(
             sweep_coord.values,
             np.arange(npose * n_sweep) * intra_step,

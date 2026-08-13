@@ -346,8 +346,8 @@ class TestWorldToXaxis:
 class TestFlushCursor:
     """The blitted x-axis cursor must track the world coordinate.
 
-    Regression: _flush_cursor used a non-existent ``_cursor_frame`` attribute
-    instead of the value computed by ``_world_to_xaxis``, causing the axvline
+    Regression: _flush_cursor used a non-existent `_cursor_frame` attribute
+    instead of the value computed by `_world_to_xaxis`, causing the axvline
     to silently fail to update (the AttributeError was swallowed by the
     bare except clause).
     """
@@ -397,8 +397,8 @@ class TestFlushCursor:
         """Without xarray metadata the vline position equals the world value.
 
         This is the video-layer case: no xarray metadata, so
-        ``_world_to_xaxis`` returns the world value unchanged, which is
-        ``dims.point[time_idx]`` -- the same value the time overlay uses.
+        `_world_to_xaxis` returns the world value unchanged, which is
+        `dims.point[time_idx]` -- the same value the time overlay uses.
         """
         plotter._xaxis_coords = None
         plotter._current_layer = None
@@ -542,8 +542,8 @@ class TestPanelXaxisWithVideoLayer:
     """The SignalPanel x-axis combo must remain stable when the active layer
     changes to a video layer that lacks xarray metadata.
 
-    ``_get_available_xaxis_dims`` must fall back to scanning all layers for
-    xarray metadata instead of generating generic ``dim_0`` entries from
+    `_get_available_xaxis_dims` must fall back to scanning all layers for
+    xarray metadata instead of generating generic `dim_0` entries from
     the video layer.
     """
 
@@ -635,11 +635,11 @@ class TestPanelXaxisWithVideoLayer:
         not 300/fps.
 
         When a video layer is loaded its time scale (1/fps) becomes the
-        smallest scale on the time axis, shrinking ``dims.range.step``.
-        The old code set ``current_step`` directly from a data index, so
-        the world coordinate was ``data_index * range.step`` instead of the
+        smallest scale on the time axis, shrinking `dims.range.step`.
+        The old code set `current_step` directly from a data index, so
+        the world coordinate was `data_index * range.step` instead of the
         intended time.  The fix emits the x-axis plot value (already in
-        world coordinates) and uses ``dims.set_point`` which accepts
+        world coordinates) and uses `dims.set_point` which accepts
         world coordinates directly.
         """
         # Ensure the combo is populated from the fUSI layer before switching.

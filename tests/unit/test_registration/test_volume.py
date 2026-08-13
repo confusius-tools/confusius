@@ -465,7 +465,7 @@ class TestRegisterVolumeMask:
     ):
         """A single-label integer mask registers identically to its boolean form.
 
-        Guards against single-label integer masks (e.g. ``{0, 512}`` from
+        Guards against single-label integer masks (e.g. `{0, 512}` from
         `Atlas.get_masks`) reaching SimpleITK's metric mask uncoerced: 512 wraps to 0
         under the `numpy.uint8` cast, which silently empties the mask and turns
         registration into a no-op.

@@ -11,7 +11,7 @@ from tools.gallery.render import render_notebook
 
 
 def _notebook_with_outputs(outputs: list[dict[str, object]]) -> nbformat.NotebookNode:
-    """Return a one-code-cell notebook whose single cell carries ``outputs``."""
+    """Return a one-code-cell notebook whose single cell carries `outputs`."""
     cell = nbformat.v4.new_code_cell("print('x')")
     cell.outputs = outputs
     nb = nbformat.v4.new_notebook()

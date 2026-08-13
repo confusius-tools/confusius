@@ -77,8 +77,8 @@ def test_build_index_groups_cards_by_section(tmp_path: Path) -> None:
 def test_build_index_preserves_section_order_from_input(tmp_path: Path) -> None:
     """Sections appear in the order they are first seen in the rendered list.
 
-    Discovery sorts section folders by their prefixed name (e.g. ``01_io`` before
-    ``02_decomposition``), so the index must preserve that order rather than
+    Discovery sorts section folders by their prefixed name (e.g. `01_io` before
+    `02_decomposition`), so the index must preserve that order rather than
     re-sorting alphabetically by the stripped section name.
     """
     src_io = tmp_path / "io" / "load.py"
@@ -115,7 +115,7 @@ def test_build_index_flattens_links_in_card_overlays(tmp_path: Path) -> None:
 
     Overlays are copied verbatim onto the index page at the examples root, where an
     example's relative cross-links (written against its own built page) would not
-    resolve and would fail ``zensical build --strict``. A mkdocstrings cross-reference
+    resolve and would fail `zensical build --strict`. A mkdocstrings cross-reference
     resolves, but would render as a link inside an overlay that is inert by design.
     """
     src = tmp_path / "decomposition" / "nmf.py"
@@ -144,7 +144,7 @@ def test_build_index_escapes_html_in_card_overlays(tmp_path: Path) -> None:
     """Summary text is escaped so it cannot inject markup into the overlay span.
 
     Quotes are left alone: they need no escaping in text content, and an escaped one
-    survives a code span, which escapes the entity's ``&`` in turn and shows it
+    survives a code span, which escapes the entity's `&` in turn and shows it
     verbatim.
     """
     src = tmp_path / "io" / "ex.py"

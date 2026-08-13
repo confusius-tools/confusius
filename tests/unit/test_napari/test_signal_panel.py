@@ -2,8 +2,8 @@
 
 The x-axis combo must offer exactly the *non-displayed* (slider) axes with more
 than one element. Displayed axes (the two on screen) and singleton axes are
-never valid x-axis choices. These tests use the ``make_napari_viewer`` fixture
-so ``viewer.dims.displayed`` is populated by a real layer.
+never valid x-axis choices. These tests use the `make_napari_viewer` fixture
+so `viewer.dims.displayed` is populated by a real layer.
 """
 
 from __future__ import annotations
@@ -33,13 +33,9 @@ class TestAvailableXaxisDims:
         viewer.add_image(sample_fusi_3d.values, metadata={"xarray": sample_fusi_3d})
         assert panel._get_available_xaxis_dims() == ["k"]
 
-    def test_lists_all_slider_axes_for_4dt_volume(
-        self, viewer, panel, sample_fusi_3dt
-    ):
+    def test_lists_all_slider_axes_for_4dt_volume(self, viewer, panel, sample_fusi_3dt):
         # (time, z, y, x): napari displays (y, x); both time and z are sliders.
-        viewer.add_image(
-            sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt}
-        )
+        viewer.add_image(sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt})
         assert panel._get_available_xaxis_dims() == ["time", "k"]
 
     def test_excludes_singleton_slider_axis(self, viewer, panel):
@@ -48,12 +44,8 @@ class TestAvailableXaxisDims:
         viewer.add_image(da.values, metadata={"xarray": da})
         assert panel._get_available_xaxis_dims() == ["k"]
 
-    def test_combo_defaults_to_time_when_present(
-        self, viewer, panel, sample_fusi_3dt
-    ):
-        viewer.add_image(
-            sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt}
-        )
+    def test_combo_defaults_to_time_when_present(self, viewer, panel, sample_fusi_3dt):
+        viewer.add_image(sample_fusi_3dt.values, metadata={"xarray": sample_fusi_3dt})
         panel._refresh_xaxis_combo()
         items = [
             panel._xaxis_combo.itemText(i) for i in range(panel._xaxis_combo.count())

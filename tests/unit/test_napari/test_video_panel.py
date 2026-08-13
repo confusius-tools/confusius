@@ -47,8 +47,8 @@ class _FakeVideo:
 def _inject_fake_video(panel, fv, *, frame_step=1, name="Video: test"):
     """Inject a _FakeVideo into an already-constructed VideoPanel.
 
-    Creates a `_VideoEntry`, appends it to ``panel._videos``, and returns
-    it so tests can build/access the layer via ``panel._rebuild_entry``.
+    Creates a `_VideoEntry`, appends it to `panel._videos`, and returns
+    it so tests can build/access the layer via `panel._rebuild_entry`.
     """
     is_rgb = len(fv.frame_shape) == 3 and fv.frame_shape[2] in (3, 4)
     entry = _VideoEntry(
@@ -325,7 +325,7 @@ def loaded_panel(panel, viewer):
     """Panel with a fake RGB video injected and the video layer built.
 
     This is the closest to "user clicked Add" without actual file I/O.
-    The loaded entry is accessible via ``panel._videos[0]``.
+    The loaded entry is accessible via `panel._videos[0]`.
     """
     fv = _FakeVideo(n_frames=10, h=48, w=64, rgb=True)
     entry = _inject_fake_video(panel, fv)
@@ -592,7 +592,7 @@ class TestTimeOverlayVideoSync:
         is correct because the layer's time scale encodes the frame step.
 
         With scale = frame_step / fps, napari's world coordinate at
-        ``dims.point[time_idx]`` is already in world seconds.
+        `dims.point[time_idx]` is already in world seconds.
         """
         from confusius._napari._time_overlay import _TimeOverlay
 

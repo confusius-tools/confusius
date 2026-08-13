@@ -1505,7 +1505,8 @@ class TestSaveNifti:
         """An empty extra-dim coord is vacuously regular; the save writes an empty-axis NIfTI.
 
         The load path is not exercised here because nibabel flattens 0-length axes when
-        proxying the data array, so the roundtrip cannot be verified through ``load_nifti``.
+        proxying the data array, so the roundtrip cannot be verified through
+        `load_nifti`.
         """
         data = np.zeros((0, 4, 6, 8), dtype=np.float32)
         da = create_fusi_dataarray(

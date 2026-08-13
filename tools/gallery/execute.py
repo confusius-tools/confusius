@@ -17,8 +17,8 @@ from nbclient import NotebookClient
 OnCellExecuted = Callable[..., None]
 """Hook invoked after each cell finishes.
 
-nbclient calls it as ``hook(cell=..., cell_index=..., execute_reply=...)``; the
-callable must accept those keyword arguments (typically via ``**kwargs``).
+nbclient calls it as `hook(cell=..., cell_index=..., execute_reply=...)`; the
+callable must accept those keyword arguments (typically via `**kwargs`).
 """
 
 _THEME_COMMON_PRE: list[str] = [
@@ -86,7 +86,7 @@ def execute_example(
     theme: Literal["light", "dark"] | None = None,
     on_cell_executed: OnCellExecuted | None = None,
 ) -> tuple[nbformat.NotebookNode, float]:
-    """Execute one percent-format ``.py`` example end-to-end."""
+    """Execute one percent-format `.py` example end-to-end."""
     notebook = read_example(source)
     if theme is not None:
         notebook.cells.insert(0, _theme_setup_cell(theme))

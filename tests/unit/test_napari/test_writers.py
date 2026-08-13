@@ -46,9 +46,9 @@ def _meta_from_layer(
 ) -> dict:
     """Build napari-style metadata as if the layer was drawn by a user.
 
-    Mirrors what napari populates from a labels layer's ``_get_state()``:
-    ``scale``, ``translate``, ``axis_labels``, and optionally ``units``.
-    No ``"xarray"`` key is present, so the writer must reconstruct.
+    Mirrors what napari populates from a labels layer's `_get_state()`:
+    `scale`, `translate`, `axis_labels`, and optionally `units`.
+    No `"xarray"` key is present, so the writer must reconstruct.
     """
     import confusius  # noqa: F401 — registers .fusi accessor
 
@@ -88,14 +88,10 @@ class TestWriteNiftiWithDataArray:
         )
         assert result == [path]
 
-    def test_file_created(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
-    ) -> None:
+    def test_file_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
         """NIfTI file is created on disk."""
         path = tmp_path / "out.nii.gz"
-        write_nifti(
-            str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
-        )
+        write_nifti(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
         assert path.exists()
 
     def test_roundtrip_values(
@@ -105,9 +101,7 @@ class TestWriteNiftiWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(
-            str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
-        )
+        write_nifti(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-5)
 
@@ -118,9 +112,7 @@ class TestWriteNiftiWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.nii.gz"
-        write_nifti(
-            str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
-        )
+        write_nifti(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
         loaded = load(path)
         for dim in ("z", "y", "x"):
             npt.assert_allclose(
@@ -144,9 +136,7 @@ class TestWriteNiftiFromReconstruction:
         )
         assert result == [path]
 
-    def test_file_created(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
-    ) -> None:
+    def test_file_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
         """NIfTI file is created when reconstructing from layer state."""
         path = tmp_path / "out.nii.gz"
         write_nifti(
@@ -218,14 +208,10 @@ class TestWriteZarrWithDataArray:
         )
         assert result == [path]
 
-    def test_store_created(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
-    ) -> None:
+    def test_store_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
         """Zarr store directory is created on disk."""
         path = tmp_path / "out.zarr"
-        write_zarr(
-            str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
-        )
+        write_zarr(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
         assert path.is_dir()
 
     def test_roundtrip_values(
@@ -235,9 +221,7 @@ class TestWriteZarrWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(
-            str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
-        )
+        write_zarr(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-6)
 
@@ -248,9 +232,7 @@ class TestWriteZarrWithDataArray:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(
-            str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt)
-        )
+        write_zarr(str(path), sample_fusi_3dt.values, _meta_with_da(sample_fusi_3dt))
         loaded = load(path)
         for dim in ("time", "z", "y", "x"):
             npt.assert_allclose(
@@ -274,14 +256,10 @@ class TestWriteZarrFromReconstruction:
         )
         assert result == [path]
 
-    def test_store_created(
-        self, tmp_path: Path, sample_fusi_3dt: xr.DataArray
-    ) -> None:
+    def test_store_created(self, tmp_path: Path, sample_fusi_3dt: xr.DataArray) -> None:
         """Zarr store directory is created when reconstructing from layer state."""
         path = tmp_path / "out.zarr"
-        write_zarr(
-            str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        write_zarr(str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt))
         assert path.is_dir()
 
     def test_roundtrip_values(
@@ -291,9 +269,7 @@ class TestWriteZarrFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(
-            str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        write_zarr(str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt))
         loaded = load(path)
         npt.assert_allclose(loaded.values, sample_fusi_3dt.values, rtol=1e-6)
 
@@ -304,9 +280,7 @@ class TestWriteZarrFromReconstruction:
         from confusius.io import load
 
         path = tmp_path / "out.zarr"
-        write_zarr(
-            str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt)
-        )
+        write_zarr(str(path), sample_fusi_3dt.values, _meta_from_layer(sample_fusi_3dt))
         loaded = load(path)
         coord_pairs = (("time", "time"), ("z", "z"), ("y", "y"), ("x", "x"))
         for loaded_dim, sample_dim in coord_pairs:

@@ -34,7 +34,7 @@ BINDER_REPO = "confusius-tools/confusius"
 def _deps_fingerprint() -> str:
     """Return a string identifying gallery execution/render inputs.
 
-    Uses ``uv.lock`` plus the gallery-builder source files directly. Any change to the
+    Uses `uv.lock` plus the gallery-builder source files directly. Any change to the
     locked dependencies or gallery pipeline forces a cache miss.
 
     Binder branch/ref is intentionally excluded so expensive gallery execution can be

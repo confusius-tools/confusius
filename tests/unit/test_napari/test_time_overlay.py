@@ -105,7 +105,7 @@ class TestTimeOverlay:
     ) -> None:
         """Overlay must show the actual xarray coordinate, not the linear approximation.
 
-        When time spacing is non-uniform, napari's ``dims.point`` uses a linear
+        When time spacing is non-uniform, napari's `dims.point` uses a linear
         scale/translate approximation (median spacing) that diverges from the
         true coordinate values. The overlay should display the real coordinate
         so it stays consistent with the signal plotter's x-axis cursor.

@@ -242,8 +242,8 @@ def scan_4d_path(tmp_path: Path) -> Path:
 def scan_2d_rotated_path(tmp_path: Path) -> Path:
     """Create a synthetic 2Dscan HDF5 file with a non-trivial probeToLab rotation.
 
-    ``probeToLab`` is a 90° rotation around the probe Y-axis combined with a small
-    translation.  This fixture is used to verify that ``world_to_lab`` correctly
+    `probeToLab` is a 90° rotation around the probe Y-axis combined with a small
+    translation.  This fixture is used to verify that `world_to_lab` correctly
     permutes and sign-flips the rotation columns, not just the translation.
     """
     path = tmp_path / "test_2dscan_rotated.scan"

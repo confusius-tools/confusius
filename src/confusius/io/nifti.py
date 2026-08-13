@@ -1200,7 +1200,7 @@ def load_nifti(
     coordinate_affine : {"auto", "sform", "qform"}, default: "auto"
         Header affine to use as the primary coordinate-defining geometry.
 
-        - `"auto"`` prefers sform when both sform and qform are valid, and falls
+        - `"auto"` prefers sform when both sform and qform are valid, and falls
           back to qform when only qform is valid.
         - `"sform"` forces the sform to define the in-memory coordinate geometry.
         - `"qform"` forces the qform to define the in-memory coordinate geometry.
