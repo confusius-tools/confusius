@@ -12,10 +12,7 @@ from typing import TYPE_CHECKING, TypeGuard
 import numpy as np
 import xarray as xr
 
-from confusius._utils.coordinates import (
-    get_coordinate_spacing_info,
-    get_grid_info_from_dataarray,
-)
+from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
@@ -364,36 +361,38 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     ----------
     da : xarray.DataArray
         2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
-        Spacing and origin are derived from its coordinates. Spatial spacing must be
-        defined by regular coordinates or `voxdim` metadata on singleton coordinates.
+        Must carry a `VoxelToWorldIndex` (see
+        `confusius._utils.geometry.has_voxel_to_world_index`); spacing, origin, and
+        direction are derived from it.
 
     Returns
     -------
     SimpleITK.Image
-        SimpleITK image with spacing and origin set from the DataArray coordinates.
-        For `time`-stacked input, returns a vector image where time is the vector
-        dimension.
+        SimpleITK image with spacing, origin, and direction set from the DataArray's
+        voxel-to-world index. For `time`-stacked input, returns a vector image where
+        time is the vector dimension.
+
+    Raises
+    ------
+    ValueError
+        If `da` does not carry a `VoxelToWorldIndex`.
     """
     import SimpleITK as sitk
 
-    has_time = "time" in da.dims
-    spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-    if has_voxel_to_world_index(da):
-        _, spacing = get_defined_spatial_spacing(da)
-        origin_dict = da.fusi.origin
-        origin_names = get_voxel_to_world_coord_names(da)
-        origin = tuple(origin_dict[d] for d in origin_names)
-    else:
-        grid = get_grid_info_from_dataarray(
-            da,
-            spatial_dims,
-            error_prefix=(
-                "Cannot convert DataArray to a SimpleITK image because spatial spacing "
-                "is undefined"
-            ),
+    if not has_voxel_to_world_index(da):
+        raise ValueError(
+            "Cannot convert DataArray to a SimpleITK image because it does not carry "
+            "a VoxelToWorldIndex. Attach one with "
+            "confusius._utils.geometry.attach_voxel_to_world_index (or route the "
+            "array through confusius.validation.ensure_fusi) before calling "
+            "dataarray_to_sitk_image."
         )
-        spacing = grid["spacing"]
-        origin = grid["origin"]
+
+    has_time = "time" in da.dims
+    _, spacing = get_defined_spatial_spacing(da)
+    origin_dict = da.fusi.origin
+    origin_names = get_voxel_to_world_coord_names(da)
+    origin = tuple(origin_dict[d] for d in origin_names)
 
     if has_time:
         data = da.values
@@ -407,10 +406,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
 
     image.SetSpacing(tuple(spacing))
     image.SetOrigin(tuple(origin))
-    if has_voxel_to_world_index(da):
-        image.SetDirection(
-            np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist()
-        )
+    image.SetDirection(np.asarray(da.fusi.direction, dtype=np.float64).ravel().tolist())
     return image
 
 

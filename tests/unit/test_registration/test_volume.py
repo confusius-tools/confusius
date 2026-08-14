@@ -379,13 +379,13 @@ class TestSimpleITKGeometry:
             data.fusi.direction,
         )
 
-    def test_dataarray_to_sitk_image_regular_dataarray_uses_grid_info(self):
-        """Non-voxel-to-world DataArrays derive spacing/origin from grid coordinates.
+    def test_dataarray_to_sitk_image_without_voxel_to_world_index_raises(self):
+        """A DataArray without a `VoxelToWorldIndex` is not a supported input.
 
-        Uses `z`/`y`/`x` dims with plain regular coordinates and no `voxel_to_world`
-        index, which is outside `has_voxel_to_world_index`'s `k`/`j`/`i`-only voxel
-        dims, forcing `dataarray_to_sitk_image` down its `get_grid_info_from_dataarray`
-        fallback branch.
+        ConfUSIus has a single canonical spatial data shape: `k`/`j`/`i` voxel dims
+        backed by a `VoxelToWorldIndex`. Plain `z`/`y`/`x` coordinates with no index
+        attached are not a supported fallback shape, so `dataarray_to_sitk_image`
+        must raise instead of silently deriving a grid from the coordinates.
         """
         da = xr.DataArray(
             np.zeros((3, 4, 5), dtype=np.float32),
@@ -397,10 +397,8 @@ class TestSimpleITKGeometry:
             },
         )
 
-        image = dataarray_to_sitk_image(da)
-
-        assert_allclose(image.GetSpacing(), (1.0, 0.2, 0.3))
-        assert_allclose(image.GetOrigin(), (0.0, 0.0, 0.0))
+        with pytest.raises(ValueError, match="VoxelToWorldIndex"):
+            dataarray_to_sitk_image(da)
 
     def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
         """An irregular voxel-to-world coordinate raises a `voxdim`-repair error."""

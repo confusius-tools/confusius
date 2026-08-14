@@ -8,7 +8,6 @@ from confusius.registration.bspline import (
     sample_displacement_field_like,
 )
 from confusius.registration.diagnostics import RegistrationDiagnostics
-from confusius.registration.exceptions import RegistrationAbortedError
 from confusius.registration.motion import (
     compute_framewise_displacement,
     create_motion_dataframe,
@@ -28,7 +27,6 @@ from confusius.registration.volumewise_progress import VolumewiseProgressReporte
 
 __all__ = [
     "MatplotlibRegistrationProgressPlotter",
-    "RegistrationAbortedError",
     "RegistrationDiagnostics",
     "RegistrationProgress",
     "VolumewiseProgressReporter",
