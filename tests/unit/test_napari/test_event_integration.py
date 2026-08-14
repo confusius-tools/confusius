@@ -32,7 +32,7 @@ def _make_4d_da(rng, time_attrs=None):
     }
     return create_fusi_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=xr.DataArray(
             np.arange(5) * 1.0,
             dims=["time"],

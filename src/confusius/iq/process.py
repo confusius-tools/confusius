@@ -522,7 +522,7 @@ def compute_processed_volume_timings(
     >>> # 100 volumes at 10 Hz, volume_duration = 0.1 s
     >>> iq = create_fusi_dataarray(
     ...     np.ones((100, 1, 1, 1), dtype=np.complex128),
-    ...     dims=("time", "z", "y", "x"),
+    ...     dims=("time", "k", "j", "i"),
     ...     time=xr.DataArray(
     ...         np.arange(100) * 0.1,
     ...         dims=("time",),

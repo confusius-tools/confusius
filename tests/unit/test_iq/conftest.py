@@ -64,7 +64,7 @@ def sample_iq_dataarray(rng):
 
     return create_iq_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=xr.DataArray(
             np.arange(20) * 0.1,
             dims=("time",),
@@ -89,7 +89,7 @@ def mismatched_spatial_mask_xarray(sample_iq_dataarray, spatial_mask):
     """Boolean spatial mask with valid geometry but mismatched `k` coordinates."""
     return create_fusi_dataarray(
         spatial_mask,
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(0.1, 0.05, 0.05),
         origin=(0.0, 0.0, 0.0),
     ).assign_coords(k=sample_iq_dataarray.coords["k"].values + 1)

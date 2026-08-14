@@ -14,7 +14,6 @@ from brainglobe_atlasapi.structure_class import StructuresDict
 
 import confusius as cf
 from confusius._utils.coordinates import get_grid_info_from_dataarray
-from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius.io import load_atlas, save_atlas
 from confusius.io.atlas import structures_from_json, structures_to_json
 from confusius.validation import validate_atlas
@@ -23,8 +22,8 @@ from confusius.xarray import create_fusi_dataarray
 
 def _field_on_grid(reference: xr.DataArray, data: np.ndarray) -> xr.DataArray:
     """Build a canonical displacement-field transform DataArray on `reference`'s grid."""
-    dims = list(get_voxel_to_world_coord_names(reference))
     grid_info = get_grid_info_from_dataarray(reference)
+    dims = grid_info["dims"]
     voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
     voxel_to_world[:-1, -1] = grid_info["origin"]

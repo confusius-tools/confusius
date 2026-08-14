@@ -49,7 +49,7 @@ class TestComputeProcessedVolumeTimes:
         time_values = np.asarray(time_values, dtype=np.float64)
         return create_iq_dataarray(
             np.ones((time_values.size, 1, 1, 1), dtype=np.complex128),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             time=xr.DataArray(
                 time_values,
                 dims=("time",),

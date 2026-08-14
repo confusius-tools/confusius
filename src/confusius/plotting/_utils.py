@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import VOXEL_DIMS
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.geometry import (
     VoxelToWorldIndex,
     get_affine_axis_scalings,
@@ -295,7 +295,15 @@ def resample_to_axis_aligned_world_grid(
         if not has_voxel_to_world_index(reference):
             from confusius.xarray import create_fusi_dataarray
 
-            reference_dims = tuple(str(dim) for dim in reference.dims)
+            # `reference` is a plain, caller-supplied DataArray here (not one of
+            # ConfUSIus's own canonical arrays), so its spatial dims may be named
+            # z/y/x rather than the native voxel names create_fusi_dataarray now
+            # requires; remap them, leaving any other dim name (time, pose, extras)
+            # unchanged.
+            spatial_to_voxel = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+            reference_dims = tuple(
+                spatial_to_voxel.get(str(dim), str(dim)) for dim in reference.dims
+            )
             spacing = []
             origin = []
             for dim in ("z", "y", "x"):

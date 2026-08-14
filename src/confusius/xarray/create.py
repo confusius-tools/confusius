@@ -20,12 +20,6 @@ _SPATIAL_UNITS = "mm"
 _TIME_UNITS = "s"
 """Physical units attached to the `time` coordinate."""
 
-_SPATIAL_TO_VOXEL = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
-"""Mapping from public world spatial axis names to native voxel dimension names."""
-
-_VOXEL_TO_SPATIAL = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
-"""Mapping from native voxel dimension names to world spatial coordinate names."""
-
 
 def _require_positive_finite(
     value: str | SupportsFloat | SupportsIndex, name: str
@@ -437,8 +431,9 @@ def create_fusi_dataarray(
     data : numpy.typing.ArrayLike
         Raw array whose rank matches `dims`.
     dims : sequence[str]
-        Input dimension names. Spatial dimensions may be named `z/y/x` or `k/j/i`;
-        the returned DataArray uses native voxel dimensions in canonical core order.
+        Input dimension names. Spatial dimensions must be native voxel names
+        (`k`/`j`/`i`). The returned DataArray uses native voxel dimensions in canonical
+        core order.
     time : numpy.typing.ArrayLike or xarray.DataArray, optional
         Coordinate for the `time` dimension.
     pose : numpy.typing.ArrayLike or xarray.DataArray, optional
@@ -478,7 +473,8 @@ def create_fusi_dataarray(
     Raises
     ------
     ValueError
-        If dimensions, coordinates, geometry, timing, or fUSI validation fail.
+        If `dims` uses world `z`/`y`/`x` names instead of native voxel names, or if
+        dimensions, coordinates, geometry, timing, or fUSI validation otherwise fail.
     """
     dims = tuple(str(dim) for dim in dims)
     shape = np.shape(data)
@@ -490,6 +486,13 @@ def create_fusi_dataarray(
         raise ValueError(
             f"Length of dims {dims!r} ({len(dims)}) must match the number of array "
             f"dimensions ({len(shape)})."
+        )
+    invalid_spatial = sorted(set(dims) & set(SPATIAL_DIMS))
+    if invalid_spatial:
+        raise ValueError(
+            f"dims must use native voxel names {VOXEL_DIMS!r}, not world coordinate "
+            f"names {invalid_spatial!r}. World z/y/x coordinates are always derived "
+            "from the voxel-to-world index, never passed as dims."
         )
     if volume_acquisition_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
@@ -511,11 +514,7 @@ def create_fusi_dataarray(
         )
 
     data_array = np.asarray(data)
-    data_dims = tuple(_SPATIAL_TO_VOXEL.get(dim, dim) for dim in dims)
-    if len(set(data_dims)) != len(data_dims):
-        raise ValueError(
-            f"dims must not mix world and voxel names for the same axis; got {dims!r}."
-        )
+    data_dims = dims
     for dim in VOXEL_DIMS:
         if dim not in data_dims:
             data_array = np.expand_dims(data_array, axis=-1)
@@ -657,7 +656,8 @@ def create_iq_dataarray(
     data : numpy.typing.ArrayLike
         Raw complex IQ array whose rank matches `dims`.
     dims : sequence[str]
-        Input dimension names. Spatial dimensions may be named `z/y/x` or `k/j/i`.
+        Input dimension names. Spatial dimensions must be native voxel names
+        (`k`/`j`/`i`).
     time : numpy.typing.ArrayLike or xarray.DataArray, optional
         Coordinate for the `time` dimension.
     pose : numpy.typing.ArrayLike or xarray.DataArray, optional

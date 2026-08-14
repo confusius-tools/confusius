@@ -107,7 +107,7 @@ def test_matches_brute_force_reference_with_voxel_to_world_geometry(rng):
     radius = 0.25
     data = create_fusi_dataarray(
         rng.standard_normal((n_time, 2, 3, 3)),
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=np.arange(n_time) * 0.5,
         spacing=(1.0, 0.2, 0.2),
         origin=(0.0, 0.0, 0.0),

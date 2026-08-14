@@ -483,7 +483,7 @@ class TestRegisterVolumeOutput:
         """
         img = np.zeros((1, 20, 40), dtype=np.float32)
         img[:, 6:14, 10:30] = 100.0
-        da = create_fusi_dataarray(img, dims=("z", "y", "x"), spacing=(1.0, 0.5, 0.1))
+        da = create_fusi_dataarray(img, dims=("k", "j", "i"), spacing=(1.0, 0.5, 0.1))
         _, bspline_tx, _ = register_volume(
             da,
             da,

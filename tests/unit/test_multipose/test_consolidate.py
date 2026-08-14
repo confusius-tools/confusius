@@ -286,7 +286,7 @@ class TestConsolidatePoses:
 
         da = create_fusi_dataarray(
             data,
-            dims=["pose", "z", "y", "x"],
+            dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
             spacing=(intra_step, intra_step, intra_step),
             origin=(0.0, 0.0, 0.0),
@@ -346,7 +346,7 @@ class TestConsolidatePoses:
 
         da = create_fusi_dataarray(
             data,
-            dims=["pose", "z", "y", "x"],
+            dims=["pose", "k", "j", "i"],
             pose=np.arange(npose),
             spacing=(intra_step, intra_step, intra_step),
             origin=(0.0, 0.0, 0.0),

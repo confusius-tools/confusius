@@ -5,8 +5,9 @@ as `confusius.registration`: it maps a point in the atlas's world space back to 
 base (BrainGlobe OBJ) world space. Affine transforms are homogeneous `(4, 4)` matrices;
 nonlinear transforms are B-spline or dense displacement-field DataArrays -- the latter
 a canonical fUSI DataArray (voxel-to-world index, always axis-aligned) with an extra
-leading `component` dim, labeled by world dim name: component `z`/`y`/`x` displaces
-along that axis.
+leading `component` dim, labeled by native voxel dim name (matching the convention
+`confusius.registration.bspline` uses): component `k`/`j`/`i` displaces along that
+axis's world direction.
 """
 
 from typing import cast
@@ -172,14 +173,19 @@ def _compose_world_to_base_transforms(
 
     # A displacement field is a canonical fUSI DataArray (voxel-to-world index, always
     # axis-aligned here) with an extra leading `component` dim, matching the convention
-    # `sample_displacement_field`/`_sitk_displacement_field_to_dataarray` already use.
+    # `sample_displacement_field`/`_sitk_displacement_field_to_dataarray` already use:
+    # `dims`/the array's own dims must be native voxel names, and `component` is
+    # labeled by those same voxel names (in the same order the displacement was
+    # stacked in above, which is `dims`'/world order -- `voxel_dims` here is just its
+    # voxel-name spelling, not a reordering).
+    voxel_dims = get_voxel_to_world_spatial_dims(new_reference)
     voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
     voxel_to_world[:-1, -1] = grid_info["origin"]
     return create_fusi_dataarray(
         displacement,
-        dims=("component", *dims),
-        extra_coords={"component": np.array(dims, dtype=np.str_)},
+        dims=("component", *voxel_dims),
+        extra_coords={"component": np.array(voxel_dims, dtype=np.str_)},
         voxel_to_world=voxel_to_world,
         attrs={"type": "displacement_field_transform"},
     )

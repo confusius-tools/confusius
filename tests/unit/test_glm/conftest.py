@@ -65,7 +65,7 @@ def fusi_data(rng, frame_times):
     n_time = len(frame_times)
     return create_fusi_dataarray(
         rng.standard_normal((n_time, 2, 3, 4)),
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=frame_times,
         spacing=(0.5, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
@@ -78,7 +78,7 @@ def fusi_data_2d(rng, frame_times):
     n_time = len(frame_times)
     return create_fusi_dataarray(
         rng.standard_normal((n_time, 5, 6)),
-        dims=("time", "y", "x"),
+        dims=("time", "j", "i"),
         time=frame_times,
         spacing=(1.0, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
@@ -93,7 +93,7 @@ def spatial_maps(rng):
         maps.append(
             create_fusi_dataarray(
                 rng.standard_normal((2, 3, 4)),
-                dims=("z", "y", "x"),
+                dims=("k", "j", "i"),
                 spacing=(0.5, 0.1, 0.1),
                 origin=(0.0, 0.0, 0.0),
             )
@@ -124,7 +124,7 @@ def spatial_maps_2d(rng):
         maps.append(
             create_fusi_dataarray(
                 rng.standard_normal((5, 6)),
-                dims=("y", "x"),
+                dims=("j", "i"),
                 spacing=(1.0, 0.1, 0.1),
                 origin=(0.0, 0.0, 0.0),
             )

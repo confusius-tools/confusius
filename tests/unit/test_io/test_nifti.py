@@ -18,6 +18,8 @@ from confusius.io.nifti import load_nifti, save_nifti
 from confusius.xarray import create_fusi_dataarray as _create_fusi_dataarray
 from confusius.xarray.affine import apply_affine
 
+_WORLD_TO_VOXEL_DIM = {"z": "k", "y": "j", "x": "i"}
+
 
 def create_fusi_dataarray(
     data,
@@ -25,7 +27,12 @@ def create_fusi_dataarray(
     coords=None,
     **kwargs,
 ) -> xr.DataArray:
-    """Create test DataArrays with unit default spatial geometry."""
+    """Create test DataArrays with unit default spatial geometry.
+
+    Accepts `dims` in either world (`z`/`y`/`x`) or native voxel (`k`/`j`/`i`) names
+    for caller convenience -- this test-only wrapper remaps to voxel names before
+    calling the real `create_fusi_dataarray`, which requires them.
+    """
     coords = dict(coords or {})
     time = coords.get("time")
     pose = coords.get("pose")
@@ -55,10 +62,11 @@ def create_fusi_dataarray(
         if key not in {"time", "pose", "z", "y", "x", "k", "j", "i"}
     }
     kwargs.pop("canonical_order", None)
+    voxel_dims = tuple(_WORLD_TO_VOXEL_DIM.get(dim, dim) for dim in dims)
     if "voxel_to_world" in kwargs:
         return _create_fusi_dataarray(
             data,
-            dims=dims,
+            dims=voxel_dims,
             time=time,
             pose=pose,
             extra_coords=extra_coords,
@@ -66,7 +74,7 @@ def create_fusi_dataarray(
         )
     return _create_fusi_dataarray(
         data,
-        dims=dims,
+        dims=voxel_dims,
         time=time,
         pose=pose,
         extra_coords=extra_coords,

@@ -42,7 +42,7 @@ def _make_4d_da(
     data = rng.random(shape).astype(np.float32)
     return create_fusi_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=xr.DataArray(time_coords, dims=["time"], attrs={"units": time_units}),
         spacing=(0.2, 0.1, 0.05),
         origin=spatial_translate,

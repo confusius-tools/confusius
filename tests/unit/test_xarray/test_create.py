@@ -27,7 +27,7 @@ def test_create_fusi_dataarray_builds_canonical_volume():
 
     result = create_fusi_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         dt=0.5,
         t0=1.0,
         spacing=(0.4, 0.1, 0.2),
@@ -47,7 +47,7 @@ def test_create_fusi_dataarray_uses_default_probe_origins():
     """Default origins match the probe-centered z/x and surface-referenced y model."""
     result = create_fusi_dataarray(
         np.zeros((3, 8, 4)),
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(0.4, 0.1, 0.2),
     )
 
@@ -60,7 +60,7 @@ def test_create_fusi_dataarray_pads_missing_spatial_dim():
     """A 2D input gets singleton axes for missing spatial dims."""
     result = create_fusi_dataarray(
         np.zeros((5, 8, 12)),
-        dims=("time", "y", "x"),
+        dims=("time", "j", "i"),
         time=np.arange(5) * 0.5,
         spacing=(0.4, 0.1, 0.2),
         origin=(2.0, 0.0, 0.0),
@@ -76,7 +76,7 @@ def test_create_fusi_dataarray_accepts_direction_matrix():
     """Direction is folded into the voxel-to-world affine."""
     result = create_fusi_dataarray(
         np.zeros((2, 3, 4)),
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(1.0, 2.0, 3.0),
         origin=(4.0, 5.0, 6.0),
         direction=np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
@@ -106,7 +106,7 @@ def test_create_fusi_dataarray_accepts_voxel_to_world_affine():
 
     result = create_fusi_dataarray(
         np.zeros((1, 8, 12)),
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         voxel_to_world=affine,
     )
 
@@ -118,7 +118,7 @@ def test_create_fusi_dataarray_voxdim_overrides_metadata_only():
     """`voxdim` sets coordinate attrs without changing the affine."""
     result = create_fusi_dataarray(
         np.zeros((1, 2, 3)),
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(0.4, 0.1, 0.2),
         voxdim=(1.0, 1.0, 1.0),
     )
@@ -132,7 +132,7 @@ def test_create_fusi_dataarray_rejects_spatial_extra_coords():
     with pytest.raises(ValueError, match="extra_coords must not include core"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             extra_coords={"x": np.arange(3)},
             spacing=(1.0, 0.1, 0.2),
         )
@@ -143,7 +143,7 @@ def test_create_fusi_dataarray_rejects_mixed_geometry_inputs():
     with pytest.raises(ValueError, match="mutually exclusive"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.1, 0.2),
             voxel_to_world=np.eye(4),
         )
@@ -152,7 +152,7 @@ def test_create_fusi_dataarray_rejects_mixed_geometry_inputs():
 def test_create_fusi_dataarray_rejects_missing_geometry():
     """Spatial geometry is mandatory."""
     with pytest.raises(ValueError, match="spacing must be provided"):
-        create_fusi_dataarray(np.zeros((2, 3)), dims=("y", "x"))
+        create_fusi_dataarray(np.zeros((2, 3)), dims=("j", "i"))
 
 
 def test_create_fusi_dataarray_rejects_wrong_length_explicit_coord():
@@ -160,7 +160,7 @@ def test_create_fusi_dataarray_rejects_wrong_length_explicit_coord():
     with pytest.raises(ValueError, match=r"Coordinate 'time' must be 1D with length 5"):
         create_fusi_dataarray(
             np.zeros((5, 1, 2, 3)),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             time=np.arange(3) * 0.1,
             spacing=(0.4, 0.1, 0.2),
         )
@@ -173,7 +173,7 @@ def test_create_fusi_dataarray_rejects_none_t0_with_dt():
     ):
         create_fusi_dataarray(
             np.zeros((5, 1, 2, 3)),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             dt=0.5,
             t0=None,  # ty: ignore[invalid-argument-type]
             spacing=(0.4, 0.1, 0.2),
@@ -184,7 +184,7 @@ def test_create_fusi_dataarray_defaults_singleton_time_to_t0():
     """A singleton time dimension without `dt` or an explicit coordinate uses `t0`."""
     result = create_fusi_dataarray(
         np.zeros((1, 1, 2, 3)),
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         t0=3.0,
         spacing=(0.4, 0.1, 0.2),
     )
@@ -197,7 +197,7 @@ def test_create_fusi_dataarray_rejects_wrong_length_spacing():
     with pytest.raises(ValueError, match="spacing must have length 3 in z/y/x order"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2),
         )
 
@@ -207,7 +207,7 @@ def test_create_fusi_dataarray_rejects_wrong_shape_voxel_to_world():
     with pytest.raises(ValueError, match=r"voxel_to_world must have shape \(4, 4\)"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             voxel_to_world=np.eye(3),
         )
 
@@ -219,7 +219,7 @@ def test_create_fusi_dataarray_rejects_non_homogeneous_voxel_to_world():
     with pytest.raises(ValueError, match="voxel_to_world must be a homogeneous affine"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             voxel_to_world=affine,
         )
 
@@ -229,7 +229,7 @@ def test_create_fusi_dataarray_rejects_wrong_length_origin():
     with pytest.raises(ValueError, match="origin must have length 3 in z/y/x order"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.1, 0.2),
             origin=(0.0, 0.0),
         )
@@ -240,7 +240,7 @@ def test_create_fusi_dataarray_rejects_non_finite_origin():
     with pytest.raises(ValueError, match="origin must contain finite values"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.1, 0.2),
             origin=(np.nan, 0.0, 0.0),
         )
@@ -251,7 +251,7 @@ def test_create_fusi_dataarray_rejects_wrong_shape_direction():
     with pytest.raises(ValueError, match=r"direction must have shape \(3, 3\)"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.1, 0.2),
             direction=np.eye(2),
         )
@@ -264,7 +264,7 @@ def test_create_fusi_dataarray_rejects_non_finite_direction():
     with pytest.raises(ValueError, match="direction must contain finite values"):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.1, 0.2),
             direction=direction,
         )
@@ -275,7 +275,7 @@ def test_create_fusi_dataarray_rejects_invalid_volume_acquisition_reference():
     with pytest.raises(ValueError, match="volume_acquisition_reference must be one of"):
         create_fusi_dataarray(
             np.zeros((5, 1, 2, 3)),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             dt=0.5,
             spacing=(0.4, 0.1, 0.2),
             volume_acquisition_reference="middle",  # ty: ignore[invalid-argument-type]
@@ -290,18 +290,18 @@ def test_create_fusi_dataarray_rejects_duration_without_time_dim():
     ):
         create_fusi_dataarray(
             np.zeros((2, 3)),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.1, 0.2),
             volume_acquisition_duration=1.0,
         )
 
 
-def test_create_fusi_dataarray_rejects_mixed_world_and_voxel_dim_names():
-    """The same spatial axis cannot be named with both its world and voxel name."""
-    with pytest.raises(ValueError, match="dims must not mix world and voxel names"):
+def test_create_fusi_dataarray_rejects_world_dim_names():
+    """`dims` must use native voxel names; world z/y/x names are rejected."""
+    with pytest.raises(ValueError, match="dims must use native voxel names"):
         create_fusi_dataarray(
-            np.zeros((2, 3, 4, 5)),
-            dims=("k", "z", "y", "x"),
+            np.zeros((2, 3, 4)),
+            dims=("z", "y", "x"),
             spacing=(0.4, 0.1, 0.2),
         )
 
@@ -310,7 +310,7 @@ def test_create_iq_dataarray_validates_complex_input():
     """IQ constructor delegates geometry and enforces complex data."""
     result = create_iq_dataarray(
         np.ones((5, 1, 2, 3), dtype=np.complex64),
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=xr.DataArray(np.arange(5) * 0.1, dims=("time",), attrs={"units": "s"}),
         spacing=(0.4, 0.1, 0.2),
     )
@@ -321,7 +321,7 @@ def test_create_iq_dataarray_validates_complex_input():
     with pytest.raises(TypeError, match="complex"):
         create_iq_dataarray(
             np.ones((5, 1, 2, 3)),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             time=np.arange(5) * 0.1,
             spacing=(0.4, 0.1, 0.2),
         )

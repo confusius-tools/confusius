@@ -211,7 +211,7 @@ class TestComputeFramewiseDisplacement:
 
         reference = create_fusi_dataarray(
             np.zeros((2, 3, 4), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=(1.0, 1.0, 1.0),
             origin=(0.0, 0.0, 0.0),
         ).transpose("i", "j", "k")

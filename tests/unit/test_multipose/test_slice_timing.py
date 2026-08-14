@@ -58,7 +58,7 @@ def _make_consolidated_da(
 
     result = create_fusi_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=time_coord,
         spacing=(0.2, 0.3, 0.4),
         origin=(0.0, 0.0, 0.0),
@@ -180,7 +180,7 @@ class TestCorrectSliceTiming:
 
         da = create_fusi_dataarray(
             data,
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             time=xr.DataArray(
                 time_vals,
                 dims=["time"],
@@ -286,7 +286,7 @@ class TestCorrectSliceTiming:
 
         da_unconsolidated = create_fusi_dataarray(
             data[:, :, None],
-            dims=("time", "pose", "z", "y", "x"),
+            dims=("time", "pose", "k", "j", "i"),
             time=time_coord,
             pose=np.arange(npose),
             spacing=(0.1, 0.3, 0.4),
@@ -299,7 +299,7 @@ class TestCorrectSliceTiming:
 
         da_consolidated = create_fusi_dataarray(
             data,
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             time=time_coord,
             spacing=(0.5, 0.3, 0.4),
             origin=(0.0, 0.0, 0.0),

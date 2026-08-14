@@ -113,21 +113,21 @@ def atlas_ds(structure_list: list[dict]) -> xr.Dataset:
 
     reference_da = create_fusi_dataarray(
         np.ones(shape, dtype=np.float32),
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
         origin=(0.0, 0.0, 0.0),
         attrs={"cmap": "gray"},
     )
     annotation_da = create_fusi_dataarray(
         annotation_data,
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
         origin=(0.0, 0.0, 0.0),
         attrs={"rgb_lookup": rgb_lookup},
     )
     hemispheres_da = create_fusi_dataarray(
         hemispheres_data,
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         spacing=(resolution_mm, resolution_mm, resolution_mm),
         origin=(0.0, 0.0, 0.0),
         attrs={"left": 1, "right": 2},

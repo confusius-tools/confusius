@@ -312,11 +312,11 @@ class TestOperationMode:
         self, real_viewer, real_registration_panel
     ):
         moving_data = create_fusi_dataarray(
-            np.ones((4, 6), dtype=np.float32), dims=("y", "x"), spacing=(1.0, 0.2, 0.1)
+            np.ones((4, 6), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
         fixed = create_fusi_dataarray(
             2 * np.ones((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
@@ -356,12 +356,12 @@ class TestOperationMode:
     ):
         moving_data = create_fusi_dataarray(
             np.ones((5, 4, 6), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
         )
         fixed = create_fusi_dataarray(
             2 * np.ones((5, 4, 6), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
@@ -905,7 +905,7 @@ class TestTransforms:
 
     def test_bspline_payload_missing_voxel_to_world_index_is_rejected(self):
         reference = create_fusi_dataarray(
-            np.ones((3, 4), dtype=np.float32), dims=("y", "x"), spacing=(1.0, 0.2, 0.1)
+            np.ones((3, 4), dtype=np.float32), dims=("j", "i"), spacing=(1.0, 0.2, 0.1)
         )
         # A B-spline control-point grid must be a canonical, voxel-to-world-index-backed
         # DataArray; a plain DataArray with world-named dims and no index is rejected.
@@ -975,7 +975,7 @@ class TestTransforms:
     ):
         moving = create_fusi_dataarray(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
         )
         transform = _make_bspline_transform().astype(float)
@@ -1005,7 +1005,7 @@ class TestTransforms:
         output_grid = get_output_grid_from_payload(payload)
         expected = create_fusi_dataarray(
             np.full(output_grid["shape"], 7.0, dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=output_grid["spacing"],
             origin=output_grid["origin"],
         )
@@ -1033,7 +1033,7 @@ class TestTransforms:
     ):
         target = create_fusi_dataarray(
             np.zeros((1, 5, 7), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=(0.4, 0.3, 0.3),
         )
         moving = target.copy()
@@ -1078,7 +1078,7 @@ class TestTransforms:
     ):
         source = create_fusi_dataarray(
             np.zeros((2, 20, 20), dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=(0.3, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1141,12 +1141,12 @@ class TestTransforms:
     ):
         source = create_fusi_dataarray(
             np.arange(12, dtype=np.float32).reshape(3, 4),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
         )
         target = create_fusi_dataarray(
             np.arange(30, dtype=np.float32).reshape(5, 6),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.3, 0.15),
         )
         bspline = _make_bspline_transform().astype(float)
@@ -1196,7 +1196,7 @@ class TestTransforms:
         )
         expected = create_fusi_dataarray(
             np.full(input_grid["shape"], 9.0, dtype=np.float32),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=input_grid["spacing"],
             origin=input_grid["origin"],
         )
@@ -1265,7 +1265,7 @@ class TestVolumewiseProgress:
     ):
         moving = create_fusi_dataarray(
             np.linspace(-2.0, 3.0, 3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6),
-            dims=("time", "y", "x"),
+            dims=("time", "j", "i"),
             time=np.arange(3, dtype=float),
             spacing=(1.0, 0.2, 0.1),
         )
@@ -1293,7 +1293,7 @@ class TestVolumewiseProgress:
 
         frame = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
         )
         progress.frame_completed(1, frame, _FakeDiagnostics(n_iterations=2))
@@ -1311,7 +1311,7 @@ class TestFinishedCallbacks:
     ):
         fixed = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1355,7 +1355,7 @@ class TestFinishedCallbacks:
     ):
         fixed = create_fusi_dataarray(
             np.ones((3, 4), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1394,7 +1394,7 @@ class TestFinishedCallbacks:
     ):
         moving_data = create_fusi_dataarray(
             np.zeros((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1403,7 +1403,7 @@ class TestFinishedCallbacks:
         )
         fixed = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1460,7 +1460,7 @@ class TestFinishedCallbacks:
     ):
         moving_data = create_fusi_dataarray(
             np.arange(24, dtype=np.float32).reshape(1, 4, 6),
-            dims=("z", "y", "x"),
+            dims=("k", "j", "i"),
             spacing=(0.2, 0.2, 0.1),
         )
         moving = real_viewer.add_image(moving_data.values, name="moving")
@@ -1504,7 +1504,7 @@ class TestFinishedCallbacks:
     ):
         moving_data = create_fusi_dataarray(
             np.zeros((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1513,7 +1513,7 @@ class TestFinishedCallbacks:
         )
         fixed = create_fusi_dataarray(
             np.zeros((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )
@@ -1551,7 +1551,7 @@ class TestFinishedCallbacks:
     def test_volumewise_result_adds_registered_layer(self, viewer, registration_panel):
         moving = create_fusi_dataarray(
             np.zeros((3, 4, 6), dtype=np.float32),
-            dims=("time", "y", "x"),
+            dims=("time", "j", "i"),
             time=np.arange(3, dtype=float),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
@@ -1601,7 +1601,7 @@ class TestFinishedCallbacks:
     def test_unique_transform_and_result_names(self, viewer, registration_panel):
         fixed = create_fusi_dataarray(
             np.ones((4, 6), dtype=np.float32),
-            dims=("y", "x"),
+            dims=("j", "i"),
             spacing=(1.0, 0.2, 0.1),
             origin=(0.0, 0.0, 0.0),
         )

@@ -68,7 +68,7 @@ class TestCurrentTimeWorld:
         time_coords = np.array([0.0, 0.5, 1.0, 1.5, 2.0])
         da = create_fusi_dataarray(
             rng.random((5, 4, 6, 8)).astype(np.float32),
-            dims=("time", "z", "y", "x"),
+            dims=("time", "k", "j", "i"),
             time=xr.DataArray(time_coords, dims=["time"], attrs={"units": "s"}),
             spacing=(0.2, 0.1, 0.05),
         )

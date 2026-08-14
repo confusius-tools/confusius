@@ -28,7 +28,7 @@ def sample_2d_dataarray_spatial(sample_2d_image):
     """Singleton-k (k, j, i) DataArray wrapping sample_2d_image with 0.1 mm spacing."""
     return create_fusi_dataarray(
         sample_2d_image,
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(1.0, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
     )
@@ -39,7 +39,7 @@ def sample_3d_dataarray_spatial(sample_3d_array):
     """Spatial (k, j, i) DataArray wrapping sample_3d_array with unit spacing."""
     return create_fusi_dataarray(
         sample_3d_array,
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(1.0, 1.0, 1.0),
         origin=(0.0, 0.0, 0.0),
     )
@@ -71,7 +71,7 @@ def sample_3d_dataarray_texture_spatial(sample_3d_texture_array):
     """Spatial (k, j, i) DataArray wrapping sample_3d_texture_array with unit spacing."""
     return create_fusi_dataarray(
         sample_3d_texture_array,
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(1.0, 1.0, 1.0),
         origin=(0.0, 0.0, 0.0),
     )
@@ -84,7 +84,7 @@ def sample_2d_dataarray(sample_2d_image):
     data = np.stack([sample_2d_image] * n_frames, axis=0)
     return create_fusi_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=np.arange(n_frames) * 0.1,
         spacing=(1.0, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
@@ -98,7 +98,7 @@ def sample_3d_dataarray(sample_3d_array):
     data = np.stack([sample_3d_array] * n_frames, axis=0)
     return create_fusi_dataarray(
         data,
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=np.arange(n_frames) * 0.1,
         spacing=(1.0, 1.0, 1.0),
         origin=(0.0, 0.0, 0.0),

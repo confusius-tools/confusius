@@ -72,7 +72,7 @@ class TestAddCompositeResample:
         data1 = sample_fusi_3d
         data2 = create_fusi_dataarray(
             np.linspace(0, 1, 3 * 4 * 5).reshape(3, 4, 5),
-            dims=["z", "y", "x"],
+            dims=["k", "j", "i"],
             spacing=(0.3, 0.2, 0.1),
             origin=(1.05, 2.0, 3.0),
         )
@@ -162,7 +162,7 @@ class TestAddCompositeResampleKwargs:
                 (sample_fusi_3d.sizes["k"], sample_fusi_3d.sizes["j"], len(x_sub)),
                 fill_value=5.0,
             ),
-            dims=["z", "y", "x"],
+            dims=["k", "j", "i"],
             spacing=(0.2, 0.1, 0.05),
             origin=(1.0, 2.0, float(x_sub[0])),
         )
@@ -316,7 +316,7 @@ def _create_deterministic_composite_pair():
     per_slice_scale = np.array([0.1, 0.3, 1.0, 0.05])
     data1 = create_fusi_dataarray(
         base1 * per_slice_scale[:, None, None],
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         spacing=(0.1, 0.05, 0.05),
         origin=(0.0, 0.0, 0.0),
         name="fixed",
@@ -327,7 +327,7 @@ def _create_deterministic_composite_pair():
     base2 = rng.random(shape)
     data2 = create_fusi_dataarray(
         base2 * 4.0,
-        dims=["z", "y", "x"],
+        dims=["k", "j", "i"],
         spacing=(0.1, 0.05, 0.05),
         origin=(0.0, 0.0, 0.0),
         name="moving",

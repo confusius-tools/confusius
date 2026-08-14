@@ -570,7 +570,7 @@ def singleton_registration_volume():
     arr[0, 6:10, 6:10] = 1.0
     return create_fusi_dataarray(
         arr,
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         spacing=(0.1, 0.1, 0.1),
         origin=(0.0, 0.0, 0.0),
     )
@@ -578,7 +578,7 @@ def singleton_registration_volume():
 
 @pytest.fixture
 def sample_fusi_3d(rng):
-    """3D spatial volume (z, y, x) with consistent spatial coordinates.
+    """3D spatial volume (k, j, i) with consistent spatial coordinates.
 
     Shape: (4, 6, 8) - small enough for fast tests.
     Includes time as a scalar coordinate for consistency with 4D volumes.
@@ -589,7 +589,7 @@ def sample_fusi_3d(rng):
     return create_fusi_dataarray(
         data,
         name="power_doppler",
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         attrs={"long_name": "Intensity", "units": "a.u."},
         spacing=(0.2, 0.1, 0.05),
         origin=(1.0, 2.0, 3.0),
@@ -598,7 +598,7 @@ def sample_fusi_3d(rng):
 
 @pytest.fixture
 def sample_fusi_3dt(rng):
-    """3D+t volume (time, z, y, x) with consistent coordinates.
+    """3D+t volume (time, k, j, i) with consistent coordinates.
 
     Shape: (10, 4, 6, 8) - small enough for fast tests. Spatial coordinates match
     sample_fusi_3d exactly. Includes name and metadata attributes for testing labels
@@ -609,7 +609,7 @@ def sample_fusi_3dt(rng):
     return create_fusi_dataarray(
         data,
         name="power_doppler",
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=xr.DataArray(
             10.0 + np.arange(10) * 0.5,
             dims=("time",),
@@ -659,7 +659,7 @@ def sample_iq_3dt(rng):
     return create_iq_dataarray(
         data,
         name="iq",
-        dims=("time", "z", "y", "x"),
+        dims=("time", "k", "j", "i"),
         time=xr.DataArray(
             np.arange(10) * 0.1,
             dims=("time",),
@@ -724,7 +724,7 @@ def sample_roi_labels():
     return create_fusi_dataarray(
         values,
         name="roi_labels",
-        dims=("z", "y", "x"),
+        dims=("k", "j", "i"),
         attrs={
             "long_name": "ROI labels",
             "roi_labels": {3: "motor", 7: "somatosensory", 42: "visual"},
