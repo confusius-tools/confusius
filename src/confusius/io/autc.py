@@ -489,8 +489,10 @@ def convert_autc_dats_to_zarr(
     batch_size: int = 100,
     overwrite: bool = False,
     zarr_kwargs: dict[str, Any] | None = None,
-    lateral_coords: npt.ArrayLike | None = None,
-    axial_coords: npt.ArrayLike | None = None,
+    lateral_spacing: float | None = None,
+    lateral_origin: float = 0.0,
+    axial_spacing: float | None = None,
+    axial_origin: float = 0.0,
     transmit_frequency: float | None = None,
     probe_n_elements: int | None = None,
     probe_pitch: float | None = None,
@@ -537,15 +539,18 @@ def convert_autc_dats_to_zarr(
     zarr_kwargs : dict, optional
         Additional keyword arguments to pass to `zarr.create_array` for the main data
         array.
-    lateral_coords : array_like, optional
-        Lateral coordinates in millimeters in the probe-relative coordinate system, with
-        the origin at the center of the probe face. These define the x-axis positions.
-        If not provided, voxel indices are stored instead and a warning is emitted.
-    axial_coords : array_like, optional
-        Axial (depth) coordinates in millimeters in the probe-relative coordinate
-        system, with the origin at the center of the probe face. These define the y-axis
-        positions. If not provided, voxel indices are stored instead and a warning is
-        emitted.
+    lateral_spacing : float, optional
+        Lateral voxel spacing in millimeters. If not provided, the lateral axis is
+        stored in voxel-index units (spacing 1, origin 0) and a warning is emitted.
+    lateral_origin : float, default: 0.0
+        World position of lateral voxel index 0, in millimeters in the probe-relative
+        coordinate system (origin at the center of the probe face).
+    axial_spacing : float, optional
+        Axial (depth) voxel spacing in millimeters. If not provided, the axial axis is
+        stored in voxel-index units (spacing 1, origin 0) and a warning is emitted.
+    axial_origin : float, default: 0.0
+        World position of axial voxel index 0, in millimeters in the probe-relative
+        coordinate system (origin at the center of the probe face).
     transmit_frequency : float, optional
         Central frequency of the ultrasound probe in hertz.
     probe_n_elements : int, optional
@@ -627,7 +632,7 @@ def convert_autc_dats_to_zarr(
     coordinate system: world distances in millimeters along each voxel axis, with the
     origin at the center of the probe face. Unlike EchoFrame data (where coordinates are
     embedded in the metadata file), AUTC data carries no spatial calibration, so
-    `lateral_coords` and `axial_coords` must be supplied by the caller. Omitting
+    `lateral_spacing` and `axial_spacing` must be supplied by the caller. Omitting
     them produces physically meaningless voxel-index coordinates.
     """
     from rich.progress import track
@@ -734,17 +739,17 @@ def convert_autc_dats_to_zarr(
             dim, data=np.arange(size, dtype=np.float64), dimension_names=[dim]
         )
 
-    if axial_coords is None:
+    if axial_spacing is None:
         warnings.warn(
-            "axial_coords not provided: storing voxel indices as the depth axis. "
-            "Provide axial_coords in probe-relative mm for physically meaningful "
+            "axial_spacing not provided: storing voxel indices as the depth axis. "
+            "Provide axial_spacing in probe-relative mm for physically meaningful "
             "coordinates.",
             stacklevel=find_stack_level(),
         )
-    if lateral_coords is None:
+    if lateral_spacing is None:
         warnings.warn(
-            "lateral_coords not provided: storing voxel indices as the lateral axis. "
-            "Provide lateral_coords in probe-relative mm for physically meaningful "
+            "lateral_spacing not provided: storing voxel indices as the lateral axis. "
+            "Provide lateral_spacing in probe-relative mm for physically meaningful "
             "coordinates.",
             stacklevel=find_stack_level(),
         )
@@ -753,27 +758,13 @@ def convert_autc_dats_to_zarr(
     # but we're currently missing some information for that, such as the elevation
     # aperture and elevation focus.
     elevation_spacing = 0.4
-    depth_spacing = (
-        float(np.diff(np.asarray(axial_coords)).mean())
-        if axial_coords is not None
-        else 1.0
-    )
-    lateral_spacing = (
-        float(np.diff(np.asarray(lateral_coords)).mean())
-        if lateral_coords is not None
-        else 1.0
-    )
-    depth_origin = (
-        float(np.asarray(axial_coords)[0]) if axial_coords is not None else 0.0
-    )
-    lateral_origin = (
-        float(np.asarray(lateral_coords)[0]) if lateral_coords is not None else 0.0
-    )
+    resolved_axial_spacing = 1.0 if axial_spacing is None else axial_spacing
+    resolved_lateral_spacing = 1.0 if lateral_spacing is None else lateral_spacing
     voxel_to_world = np.eye(4)
     voxel_to_world[:3, :3] = np.diag(
-        [elevation_spacing, depth_spacing, lateral_spacing]
+        [elevation_spacing, resolved_axial_spacing, resolved_lateral_spacing]
     )
-    voxel_to_world[:3, 3] = [0.0, depth_origin, lateral_origin]
+    voxel_to_world[:3, 3] = [0.0, axial_origin, lateral_origin]
     zarr_iq.attrs.update(
         make_attrs_zarr_safe(
             {
@@ -782,7 +773,11 @@ def convert_autc_dats_to_zarr(
                     name: {"units": "mm", "voxdim": spacing}
                     for name, spacing in zip(
                         SPATIAL_DIMS,
-                        (elevation_spacing, depth_spacing, lateral_spacing),
+                        (
+                            elevation_spacing,
+                            resolved_axial_spacing,
+                            resolved_lateral_spacing,
+                        ),
                         strict=True,
                     )
                 },

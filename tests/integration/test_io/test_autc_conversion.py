@@ -42,8 +42,14 @@ class TestAUTCConversion:
         """
         output_path = tmp_path / "output.zarr"
 
-        custom_lateral_coords = np.linspace(-10, 10, 4)
-        custom_axial_coords = np.linspace(0, 20, 6)
+        custom_lateral_spacing = 20.0 / 3.0
+        custom_lateral_origin = -10.0
+        custom_axial_spacing = 4.0
+        custom_axial_origin = 0.0
+        custom_lateral_coords = (
+            custom_lateral_origin + custom_lateral_spacing * np.arange(4)
+        )
+        custom_axial_coords = custom_axial_origin + custom_axial_spacing * np.arange(6)
 
         # Block times that would be extracted by rig-specific utilities.
         block_times = np.array([1.0, 3.0, 5.0, 7.0])
@@ -51,8 +57,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=custom_lateral_coords,
-            axial_coords=custom_axial_coords,
+            lateral_spacing=custom_lateral_spacing,
+            lateral_origin=custom_lateral_origin,
+            axial_spacing=custom_axial_spacing,
+            axial_origin=custom_axial_origin,
             transmit_frequency=3000000.0,
             probe_n_elements=64,
             probe_pitch=0.00025,
@@ -137,7 +145,7 @@ class TestAUTCConversion:
         """Test overwriting existing Zarr output."""
         output_path = tmp_path / "output.zarr"
 
-        with pytest.warns(UserWarning, match="coords not provided"):
+        with pytest.warns(UserWarning, match="spacing not provided"):
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
@@ -148,7 +156,7 @@ class TestAUTCConversion:
             zarr.Array, zarr.open_group(output_path, mode="r")["iq"]
         ).shape
 
-        with pytest.warns(UserWarning, match="coords not provided"):
+        with pytest.warns(UserWarning, match="spacing not provided"):
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
@@ -225,8 +233,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            lateral_spacing=20.0 / 3.0,
+            lateral_origin=-10.0,
+            axial_spacing=4.0,
+            axial_origin=0.0,
             frames_per_chunk=3,
             frames_per_shard=6,
             show_progress=False,
@@ -284,8 +294,10 @@ class TestAUTCConversion:
                 convert_autc_dats_to_zarr(
                     synthetic_autc_session,
                     output_path,
-                    lateral_coords=np.linspace(-10, 10, 4),
-                    axial_coords=np.linspace(0, 20, 6),
+                    lateral_spacing=20.0 / 3.0,
+                    lateral_origin=-10.0,
+                    axial_spacing=4.0,
+                    axial_origin=0.0,
                     show_progress=False,
                 )
 
@@ -302,8 +314,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            lateral_spacing=20.0 / 3.0,
+            lateral_origin=-10.0,
+            axial_spacing=4.0,
+            axial_origin=0.0,
             compound_sampling_frequency=1000.0,
             show_progress=False,
         )
@@ -327,8 +341,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            lateral_spacing=20.0 / 3.0,
+            lateral_origin=-10.0,
+            axial_spacing=4.0,
+            axial_origin=0.0,
             compound_sampling_frequency=500.0,
             skip_first_blocks=1,
             show_progress=False,
@@ -360,8 +376,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            lateral_spacing=20.0 / 3.0,
+            lateral_origin=-10.0,
+            axial_spacing=4.0,
+            axial_origin=0.0,
             compound_sampling_frequency=500.0,
             skip_last_blocks=1,
             show_progress=False,
@@ -392,8 +410,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_coords=np.linspace(-10, 10, 4),
-            axial_coords=np.linspace(0, 20, 6),
+            lateral_spacing=20.0 / 3.0,
+            lateral_origin=-10.0,
+            axial_spacing=4.0,
+            axial_origin=0.0,
             compound_sampling_frequency=500.0,
             block_times=block_times,
             skip_first_blocks=1,
