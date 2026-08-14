@@ -509,6 +509,12 @@ def compute_processed_volume_timings(
     output_durations : numpy.ndarray
         Duration of each output window, in the same units as `iq.coords["time"]`.
 
+    Raises
+    ------
+    ValueError
+        If the input `volume_acquisition_reference` (read from `iq`) or
+        `processed_time_reference` is not one of `"start"`, `"center"`, or `"end"`.
+
     Examples
     --------
     >>> import numpy as np
@@ -697,6 +703,14 @@ def process_iq_block_with_clutter_filter(
     -------
     (windows, z, y, x) numpy.ndarray
         The computed volumes, with `windows` the number of sliding windows used.
+
+    Raises
+    ------
+    ValueError
+        If `filter_method` is `"butterworth"` and `fs` is not provided, if
+        `filter_method` is `"svd_indices"` and `low_cutoff`/`high_cutoff` are not both
+        integers or `None`, or if `filter_method` is not one of `"svd_indices"`,
+        `"svd_energy"`, `"svd_cumulative_energy"`, or `"butterworth"`.
     """
     if window_width is None:
         window_width = block.shape[0]
@@ -1084,6 +1098,11 @@ def process_iq_blocks(
     -------
     dask.array.Array
         Processed array.
+
+    Raises
+    ------
+    ValueError
+        If `window_stride` is greater than `window_width`.
     """
     import dask.array as da
 

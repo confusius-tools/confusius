@@ -15,8 +15,8 @@ def remove_zero_variance_voxels(
 
     Parameters
     ----------
-    signals : (time, voxels) xarray.DataArray
-        Signals with time and voxels dimensions.
+    signals : (time, space) xarray.DataArray
+        Signals with time and space dimensions.
     variance_tolerance : float, default: 1e-10
         Voxels with standard deviation <= this value are considered zero-variance.
 

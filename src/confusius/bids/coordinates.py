@@ -54,7 +54,7 @@ def create_slice_time_coordinate_from_bids(
     >>> import numpy as np
     >>> slice_timing = np.array([0.0, 0.1, 0.2, 0.3])  # 4 slices
     >>> volume_times = np.array([0.0, 1.0])
-    >>> coord = create_slice_time_coordinate(
+    >>> coord = create_slice_time_coordinate_from_bids(
     ...     volume_times, slice_timing, slice_encoding_direction="k"
     ... )
     >>> coord.dims
@@ -115,7 +115,15 @@ def create_bids_slice_timing_from_coordinate(
 
     Examples
     --------
-    >>> slice_timing, direction = extract_slice_timing_from_coordinate(coord, volume_times)
+    >>> import numpy as np
+    >>> volume_times = np.array([0.0, 1.0])
+    >>> slice_timing = np.array([0.0, 0.1, 0.2, 0.3])
+    >>> coord = create_slice_time_coordinate_from_bids(
+    ...     volume_times, slice_timing, slice_encoding_direction="k"
+    ... )
+    >>> slice_timing, direction = create_bids_slice_timing_from_coordinate(
+    ...     coord, volume_times
+    ... )
     >>> slice_timing
     array([0. , 0.1, 0.2, 0.3])
     >>> direction

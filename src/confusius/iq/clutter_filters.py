@@ -700,13 +700,13 @@ def compute_svd_cumulative_energy_threshold(
 
     Parameters
     ----------
-    iq : (time, z, y, x) xarray.DataArray
+    iq : (time, k, j, i) xarray.DataArray
         Complex beamformed IQ data, where `time` is the temporal dimension and
-        `(z, y, x)` are spatial dimensions.
+        `(k, j, i)` are native voxel spatial dimensions.
     singular_value_index : int
         Number of high-energy components to remove. Must satisfy
         `1 <= singular_value_index <= window_width - 1`.
-    clutter_mask : (z, y, x) xarray.DataArray, optional
+    clutter_mask : (k, j, i) xarray.DataArray, optional
         Boolean spatial mask. Eigendecomposition is computed only from masked voxels.
         If not provided, all voxels are used.
     window_width : int, optional
