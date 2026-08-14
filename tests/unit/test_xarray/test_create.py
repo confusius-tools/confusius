@@ -1,5 +1,6 @@
 """Tests for canonical xarray constructor helpers."""
 
+import dask.array as da
 import numpy as np
 import pytest
 import xarray as xr
@@ -41,6 +42,43 @@ def test_create_fusi_dataarray_builds_canonical_volume():
     assert_allclose(_world_coord_1d(result, "x"), 0.1 + np.arange(12) * 0.2)
     assert result.coords["z"].attrs == {"units": "mm", "voxdim": 0.4}
     validate_fusi(result, require_time=True)
+
+
+def test_create_fusi_dataarray_does_not_copy_numpy_input():
+    """A numpy array passed straight through must not be copied."""
+    data = np.zeros((4, 8, 12))
+
+    result = create_fusi_dataarray(
+        data, dims=("k", "j", "i"), spacing=(0.4, 0.1, 0.2), origin=(0.0, 0.0, 0.0)
+    )
+
+    assert np.shares_memory(result.values, data)
+
+
+def test_create_fusi_dataarray_keeps_dask_input_lazy():
+    """A dask array must stay a dask array, never get eagerly computed."""
+    data = da.zeros((4, 8, 12), chunks=(2, 4, 6))
+
+    result = create_fusi_dataarray(
+        data, dims=("k", "j", "i"), spacing=(0.4, 0.1, 0.2), origin=(0.0, 0.0, 0.0)
+    )
+
+    assert isinstance(result.data, da.Array)
+
+
+def test_create_iq_dataarray_keeps_dask_input_lazy():
+    """create_iq_dataarray must preserve dask laziness for large IQ volumes."""
+    data = da.zeros((5, 4, 8, 12), chunks=(5, 2, 4, 6), dtype=np.complex64)
+
+    result = create_iq_dataarray(
+        data,
+        dims=("time", "k", "j", "i"),
+        dt=0.5,
+        spacing=(0.4, 0.1, 0.2),
+        origin=(0.0, 0.0, 0.0),
+    )
+
+    assert isinstance(result.data, da.Array)
 
 
 def test_create_fusi_dataarray_uses_default_probe_origins():

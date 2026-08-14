@@ -86,12 +86,10 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
             )
             world_coord_attrs = data_array.attrs.pop("world_coord_attrs", None)
             voxel_dims = get_voxel_to_world_spatial_dims(data_array)
-            world_coord_names = ("z", "y", "x")[-len(voxel_dims) :]
             data_array = attach_voxel_to_world_index(
                 data_array,
                 voxel_to_world,
                 voxel_dims=voxel_dims,
-                world_coord_names=world_coord_names,
                 world_coord_attrs=world_coord_attrs,
             )
     else:

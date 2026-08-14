@@ -513,7 +513,7 @@ def create_fusi_dataarray(
             f"extra_coords must not include core coordinates: {overlap!r}."
         )
 
-    data_array = np.asarray(data)
+    data_array: Any = data if hasattr(data, "shape") else np.asarray(data)
     data_dims = dims
     for dim in VOXEL_DIMS:
         if dim not in data_dims:

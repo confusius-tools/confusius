@@ -361,13 +361,11 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
         voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
         world_coord_attrs = ds.attrs.pop("world_coord_attrs", None)
         voxel_dims = get_voxel_to_world_spatial_dims(ds["annotation"])
-        world_coord_names = ("z", "y", "x")[-len(voxel_dims) :]
         restored_vars = {
             name: attach_voxel_to_world_index(
                 ds[name],
                 voxel_to_world,
                 voxel_dims=voxel_dims,
-                world_coord_names=world_coord_names,
                 world_coord_attrs=world_coord_attrs,
             )
             for name in ds.data_vars
