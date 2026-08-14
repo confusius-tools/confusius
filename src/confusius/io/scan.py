@@ -23,8 +23,8 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.io.utils import check_path
+from confusius.xarray.create import create_fusi_dataarray
 
 SCAN_V2_MAGIC = b"scan"
 """Magic bytes at offset 0 identifying a binary SCAN v2 file."""
@@ -267,70 +267,74 @@ def _build_voxel_to_confusius_world(
     )
 
 
-def _make_scan_voxel_coords(
-    size_x: int,
-    size_y: int,
-    size_z: int,
-) -> dict[str, xr.DataArray]:
-    """Return 1D voxel-space coordinates for ConfUSIus scan dimensions.
+def _swap_depth_elevation_axes(arr):
+    """Swap the last two spatial axes to reach ConfUSIus `(..., k, j, i)` order.
+
+    Scan payloads store their last three axes as (depth, elevation, lateral);
+    ConfUSIus order is (elevation=`k`, depth=`j`, lateral=`i`). Only the depth/
+    elevation pair needs swapping, regardless of how many leading (`time`/`pose`)
+    axes precede them.
 
     Parameters
     ----------
-    size_x : int
-        Number of lateral voxels.
-    size_y : int
-        Number of elevation voxels.
-    size_z : int
-        Number of depth voxels.
+    arr : dask.array.Array
+        Array whose last 3 axes are `(depth, elevation, lateral)`.
 
     Returns
     -------
-    dict[str, xarray.DataArray]
-        One-dimensional voxel-space coordinates keyed by `k`, `j`, and `i`.
+    dask.array.Array
+        `arr` with its last two axes swapped.
+    """
+    axes = list(range(arr.ndim))
+    axes[-3], axes[-2] = axes[-2], axes[-3]
+    return da.transpose(arr, axes)
+
+
+def _fold_block_repeat_into_time(raw_lazy, npose: int, nblock_repeat: int):
+    """Fold a `nblock_repeat` axis into `time`, shared by SCAN v1 `4Dscan` and v2.
+
+    Both formats store repeated sub-blocks along axis 2 rather than as part of
+    `time` directly; folding them in gives a single, longer `time` axis.
+
+    Parameters
+    ----------
+    raw_lazy : dask.array.Array
+        Raw array with dims `(n_time, npose, nblock_repeat, z, y, x)`.
+    npose : int
+        Number of robot positions.
+    nblock_repeat : int
+        Number of repeated sub-blocks per time point.
+
+    Returns
+    -------
+    dask.array.Array
+        Array with dims `(n_time * nblock_repeat, npose, z, y, x)`.
+    """
+    if nblock_repeat == 1:
+        return da.squeeze(raw_lazy, axis=2)
+    n_time_total = raw_lazy.shape[0] * nblock_repeat
+    transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
+    return transposed.reshape(n_time_total, npose, *raw_lazy.shape[3:])
+
+
+def _scan_time_attrs(duration: float) -> dict[str, Any]:
+    """Return the standard `time` coordinate attrs for a scan volume.
+
+    Parameters
+    ----------
+    duration : float
+        Volume acquisition duration in seconds.
+
+    Returns
+    -------
+    dict[str, Any]
+        `units`/`volume_acquisition_reference`/`volume_acquisition_duration` attrs.
     """
     return {
-        "k": xr.DataArray(np.arange(size_y, dtype=np.float64), dims=["k"]),
-        "j": xr.DataArray(np.arange(size_z, dtype=np.float64), dims=["j"]),
-        "i": xr.DataArray(np.arange(size_x, dtype=np.float64), dims=["i"]),
+        "units": "s",
+        "volume_acquisition_reference": "end",
+        "volume_acquisition_duration": duration,
     }
-
-
-def _attach_scan_voxel_to_world_geometry(
-    data: xr.DataArray,
-    voxel_to_world: npt.NDArray[np.float64],
-) -> xr.DataArray:
-    """Attach lazy world `(z, y, x)` coordinates derived from scan voxel space.
-
-    Parameters
-    ----------
-    data : xarray.DataArray
-        Scan data carrying 1D voxel-space coordinates `k`, `j`, `i`.
-    voxel_to_world : (4, 4) numpy.ndarray
-        Affine mapping zero-based ConfUSIus voxel coordinates to world probe space.
-
-    Returns
-    -------
-    xarray.DataArray
-        DataArray with lazy world coordinates attached.
-    """
-    return attach_voxel_to_world_index(
-        data,
-        voxel_to_world,
-        world_coord_attrs={
-            "z": {
-                "units": "mm",
-                "voxdim": np.float64(abs(voxel_to_world[0, 0])).item(),
-            },
-            "y": {
-                "units": "mm",
-                "voxdim": np.float64(abs(voxel_to_world[1, 1])).item(),
-            },
-            "x": {
-                "units": "mm",
-                "voxdim": np.float64(abs(voxel_to_world[2, 2])).item(),
-            },
-        },
-    )
 
 
 def load_bps(bps_path: str | Path) -> npt.NDArray[np.float64]:
@@ -586,9 +590,6 @@ def _load_scan_v1(
     try:
         mode = _read_scan_str(h5, "/acqMetaData/acquisitionMode")
 
-        size_x = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/sizeX"))
-        size_y = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/sizeY"))
-        size_z = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/sizeZ"))
         npose = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/npose"))
         nblock_repeat = int(_read_scan_scalar(h5, "/acqMetaData/imgDim/nblockRepeat"))
 
@@ -599,7 +600,6 @@ def _load_scan_v1(
             h5["/acqMetaData/probeToLab"][()], dtype=np.float64
         )
 
-        voxel_coords = _make_scan_voxel_coords(size_x, size_y, size_z)
         voxel_to_world = _build_voxel_to_confusius_world(voxels_to_probe)
         world_to_lab = _build_world_to_lab(probe_to_lab)
 
@@ -618,16 +618,13 @@ def _load_scan_v1(
         raw_lazy = da.from_array(h5["/Data"], chunks=chunks, asarray=False)
 
         if mode == "2Dscan":
-            data_array = _load_2dscan(h5, raw_lazy, voxel_coords, attrs, voxel_to_world)
+            data_array = _load_2dscan(h5, raw_lazy, attrs, voxel_to_world)
         elif mode == "3Dscan":
-            data_array = _load_3dscan(
-                raw_lazy, voxel_coords, attrs, npose, voxel_to_world
-            )
+            data_array = _load_3dscan(raw_lazy, attrs, npose, voxel_to_world)
         elif mode == "4Dscan":
             data_array = _load_4dscan(
                 h5,
                 raw_lazy,
-                voxel_coords,
                 attrs,
                 npose,
                 nblock_repeat,
@@ -652,100 +649,72 @@ def _load_scan_v1(
 def _load_2dscan(
     h5: h5py.File,
     raw_lazy: da.Array,
-    voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Build a voxel-to-world DataArray for `2Dscan` mode."""
-    data_lazy = da.transpose(raw_lazy, [0, 2, 1, 3])
+    data_lazy = _swap_depth_elevation_axes(raw_lazy)
     time: npt.NDArray[np.float64] = np.array(
         h5["/acqMetaData/time"][()], dtype=np.float64
     ).squeeze()
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        "volume_acquisition_duration": time.min(),
-    }
-    coords: dict[str, Any] = {
-        "time": xr.DataArray(time, dims=["time"], attrs=time_attrs),
-        **voxel_coords,
-    }
-    result = xr.DataArray(
+    time_attrs = _scan_time_attrs(float(time.min()))
+    return create_fusi_dataarray(
         data_lazy,
-        dims=["time", "k", "j", "i"],
-        coords=coords,
+        dims=("time", "k", "j", "i"),
+        time=xr.DataArray(time, dims=["time"], attrs=time_attrs),
+        voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
-    return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
 def _load_3dscan(
     raw_lazy: da.Array,
-    voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     npose: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Build a voxel-to-world DataArray for `3Dscan` mode."""
     sq = da.squeeze(raw_lazy, axis=1)
-    data_lazy = da.transpose(sq, [0, 2, 1, 3])
-    coords: dict[str, Any] = {
-        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
-        **voxel_coords,
-    }
-    result = xr.DataArray(
+    data_lazy = _swap_depth_elevation_axes(sq)
+    return create_fusi_dataarray(
         data_lazy,
-        dims=["pose", "k", "j", "i"],
-        coords=coords,
+        dims=("pose", "k", "j", "i"),
+        pose=np.arange(npose),
+        voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
-    return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
 
 
 def _load_4dscan(
     h5: h5py.File,
     raw_lazy: da.Array,
-    voxel_coords: dict[str, xr.DataArray],
     attrs: dict[str, Any],
     npose: int,
     nblock_repeat: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
     """Build a voxel-to-world DataArray for `4Dscan` mode."""
-    nscan_repeat = raw_lazy.shape[0]
-    n_time = nscan_repeat * nblock_repeat
-
-    if nblock_repeat == 1:
-        sq = da.squeeze(raw_lazy, axis=2)
-    else:
-        transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
-        sq = transposed.reshape(n_time, npose, *raw_lazy.shape[3:])
-
-    data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
+    n_time = raw_lazy.shape[0] * nblock_repeat
+    sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
+    data_lazy = _swap_depth_elevation_axes(sq)
     time_raw: npt.NDArray[np.float64] = (
         np.array(h5["/acqMetaData/time"][()], dtype=np.float64)
         .squeeze()
         .reshape(n_time, npose)
     )
     block_time = time_raw.max(axis=1)
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        "volume_acquisition_duration": time_raw.min(),
-    }
-    coords: dict[str, Any] = {
-        "time": xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
-        "pose": xr.DataArray(np.arange(npose), dims=["pose"]),
-        "pose_time": xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs),
-        **voxel_coords,
-    }
-    result = xr.DataArray(
+    time_attrs = _scan_time_attrs(float(time_raw.min()))
+    result = create_fusi_dataarray(
         data_lazy,
-        dims=["time", "pose", "k", "j", "i"],
-        coords=coords,
+        dims=("time", "pose", "k", "j", "i"),
+        time=xr.DataArray(block_time, dims=["time"], attrs=time_attrs),
+        pose=np.arange(npose),
+        voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
-    return _attach_scan_voxel_to_world_geometry(result, voxel_to_world)
+    return result.assign_coords(
+        pose_time=xr.DataArray(time_raw, dims=["time", "pose"], attrs=time_attrs)
+    )
 
 
 def _read_scan_v2_header(header: bytes) -> dict[str, Any]:
@@ -1039,24 +1008,18 @@ def _load_scan_v2(
     raw_lazy = da.from_array(memmap, chunks=chunks)
 
     n_time_total = n_time * nblock_repeat
-    if nblock_repeat == 1:
-        sq = da.squeeze(raw_lazy, axis=2)
-    else:
-        # Fold nblock_repeat into time: (n_time, nblock, npose, z, y, x) -> (T, npose, ...).
-        transposed = da.transpose(raw_lazy, [0, 2, 1, 3, 4, 5])
-        sq = transposed.reshape(n_time_total, npose, size_z, size_y, size_x)
-
-    # Swap depth (size_z) and elevation (size_y): payload order is (depth, elevation),
-    # ConfUSIus order is (z=elevation, y=depth).
-    data_lazy = da.transpose(sq, [0, 1, 3, 2, 4])
+    sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
+    data_lazy = _swap_depth_elevation_axes(sq)
 
     if npose == 1:
         data_lazy = da.squeeze(data_lazy, axis=1)
-        dims = ["time", "k", "j", "i"]
+        dims: tuple[str, ...] = ("time", "k", "j", "i")
+        pose = None
     else:
-        dims = ["time", "pose", "k", "j", "i"]
+        dims = ("time", "pose", "k", "j", "i")
+        pose = np.arange(npose)
 
-    coords = _build_scan_v2_coords(meta, n_time_total, npose)
+    time_coord = _build_scan_v2_time_coord(meta, n_time_total)
     voxel_to_world = _build_scan_v2_voxel_to_world(meta)
     attrs = _build_scan_v2_attrs(header, npose, n_time_total)
     acquisition = _read_scan_v2_acquisition(header, n_time, meta["depth_start_mm"])
@@ -1065,9 +1028,15 @@ def _load_scan_v2(
     if world_to_lab is not None:
         attrs["affines"]["world_to_lab"] = world_to_lab
 
-    data_array = xr.DataArray(data_lazy, dims=dims, coords=coords, attrs=attrs)
-    data_array = _attach_scan_voxel_to_world_geometry(data_array, voxel_to_world)
-    data_array.name = attrs.get("iconeus_scan") or path.stem
+    data_array = create_fusi_dataarray(
+        data_lazy,
+        dims=dims,
+        time=time_coord,
+        pose=pose,
+        voxel_to_world=voxel_to_world,
+        attrs=attrs,
+        name=attrs.get("iconeus_scan") or path.stem,
+    )
     return data_array
 
 
@@ -1308,13 +1277,8 @@ def _build_scan_v2_voxel_to_world(meta: dict[str, Any]) -> npt.NDArray[np.float6
     return voxel_to_world
 
 
-def _build_scan_v2_coords(
-    meta: dict[str, Any], n_time_total: int, npose: int
-) -> dict[str, xr.DataArray]:
-    """Build coordinate DataArrays for a SCAN v2 volume.
-
-    Spatial coordinates are zero-based voxel indices. World coordinates are attached
-    separately from the v2 voxel-to-world affine.
+def _build_scan_v2_time_coord(meta: dict[str, Any], n_time_total: int) -> xr.DataArray:
+    """Build the `time` coordinate DataArray for a SCAN v2 volume.
 
     Parameters
     ----------
@@ -1322,14 +1286,11 @@ def _build_scan_v2_coords(
         Parsed header fields from `_read_scan_v2_header`.
     n_time_total : int
         Number of time points after folding `nblock_repeat` into time.
-    npose : int
-        Number of robot positions.
 
     Returns
     -------
-    dict[str, xarray.DataArray]
-        Coordinate DataArrays keyed by `"time"`, `"k"`, `"j"`, `"i"`, and `"pose"` when
-        `npose > 1`.
+    xarray.DataArray
+        `time` coordinate.
     """
     time_vals = meta["time_coords"]
     if time_vals.size != n_time_total:
@@ -1338,21 +1299,8 @@ def _build_scan_v2_coords(
         # ends at dt) to stay consistent with volume_acquisition_reference below.
         time_vals = meta["dt"] * (np.arange(n_time_total) + 1)
 
-    time_attrs: dict[str, Any] = {
-        "units": "s",
-        "volume_acquisition_reference": "end",
-        "volume_acquisition_duration": float(time_vals.min())
-        if time_vals.size
-        else 0.0,
-    }
-
-    coords = {
-        "time": xr.DataArray(time_vals, dims=["time"], attrs=time_attrs),
-        **_make_scan_voxel_coords(meta["size_x"], meta["size_y"], meta["size_z"]),
-    }
-    if npose > 1:
-        coords["pose"] = xr.DataArray(np.arange(npose), dims=["pose"])
-    return coords
+    time_attrs = _scan_time_attrs(float(time_vals.min()) if time_vals.size else 0.0)
+    return xr.DataArray(time_vals, dims=["time"], attrs=time_attrs)
 
 
 def _build_scan_v2_attrs(
