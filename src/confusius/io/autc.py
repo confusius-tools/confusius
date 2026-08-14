@@ -12,7 +12,9 @@ import zarr
 if TYPE_CHECKING:
     from rich.progress import Progress
 
+from confusius._dims import SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
 from confusius._utils.stack import find_stack_level
+from confusius.io._utils import make_attrs_zarr_safe
 from confusius.io.utils import check_path
 
 
@@ -507,9 +509,11 @@ def convert_autc_dats_to_zarr(
     """Convert AUTC DAT files to Zarr format compatible with Xarray.
 
     Beamformed IQ data is converted to a Zarr group with an `iq` array of shape
-    `(time, z, y, x)` chunked along the first dimension. Coordinates are stored as
-    separate Zarr arrays following Xarray conventions, allowing the data to be opened
-    directly with `xarray.open_zarr()`.
+    `(time, k, j, i)` chunked along the first dimension. Voxel-to-world geometry is
+    stored as `attrs["voxel_to_world"]` on the `iq` array rather than dense `z`/`y`/`x`
+    coordinate arrays, matching [`confusius.io.save`][confusius.io.save]'s Zarr
+    convention. Coordinates are stored as separate Zarr arrays following Xarray
+    conventions, allowing the data to be opened directly with `xarray.open_zarr()`.
 
     Parameters
     ----------
@@ -597,17 +601,27 @@ def convert_autc_dats_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not a canonical voxel-to-world
+    DataArray -- [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
+    `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
+    [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
+
+        import confusius as cf
+        iq = cf.io.load("output.zarr")
+
     Metadata attributes (e.g., `transmit_frequency`, `beamforming_sound_velocity`) are stored
     on the `iq` DataArray (accessible via `iq.attrs`), consistent with how
     reduction functions return DataArrays with attributes.
 
     The group contains:
 
-    - `iq`: The main data array with dimensions `(time, z, y, x)`.
+    - `iq`: The main data array with dimensions `(time, k, j, i)`. Voxel-to-world
+      geometry is stored as `attrs["voxel_to_world"]`/`attrs["world_coord_attrs"]`
+      rather than dense `z`/`y`/`x` coordinate arrays.
     - `time`: Time coordinate array.
-    - `z`: Elevation coordinate array (always `[0.0]` mm for 2D data).
-    - `y`: Axial (depth) coordinate array in probe-relative mm.
-    - `x`: Lateral coordinate array in probe-relative mm.
+    - `k`: Elevation voxel coordinate array (always `[0]` for 2D data).
+    - `j`: Axial (depth) voxel coordinate array.
+    - `i`: Lateral voxel coordinate array.
 
     Spatial coordinates (`z`, `y`, `x`) follow the ConfUSIus probe-relative
     coordinate system: world distances in millimeters along each voxel axis, with the
@@ -658,7 +672,7 @@ def convert_autc_dats_to_zarr(
     zarr_group = zarr.open_group(output_path, mode="w" if overwrite else "w-")
 
     # Dimension names required for Zarr v3 / Xarray compatibility.
-    dim_names = ["time", "z", "y", "x"]
+    dim_names = [TIME_DIM, *VOXEL_DIMS]
 
     create_array_kwargs = zarr_kwargs.copy() if zarr_kwargs else {}
     handled_keys = {"shape", "chunks", "shards", "dtype", "dimension_names"}
@@ -715,61 +729,66 @@ def convert_autc_dats_to_zarr(
             np.asarray(plane_wave_angles).size / pulse_repetition_frequency
         )
 
-    # z coordinate is the stacking dimension (size 1 for 2D data).
-    z_values = np.array([0.0])
-    zarr_group.create_array("z", data=z_values, dimension_names=["z"])
-    zarr_group["z"].attrs["units"] = "mm"
-    zarr_group["z"].attrs["long_name"] = "Elevation"
+    for dim, size in zip(VOXEL_DIMS, (1, n_z, n_x), strict=True):
+        zarr_group.create_array(
+            dim, data=np.arange(size, dtype=np.float64), dimension_names=[dim]
+        )
 
     if axial_coords is None:
         warnings.warn(
-            "axial_coords not provided: storing voxel indices as y coordinates. "
+            "axial_coords not provided: storing voxel indices as the depth axis. "
             "Provide axial_coords in probe-relative mm for physically meaningful "
             "coordinates.",
             stacklevel=find_stack_level(),
         )
     if lateral_coords is None:
         warnings.warn(
-            "lateral_coords not provided: storing voxel indices as x coordinates. "
+            "lateral_coords not provided: storing voxel indices as the lateral axis. "
             "Provide lateral_coords in probe-relative mm for physically meaningful "
             "coordinates.",
             stacklevel=find_stack_level(),
         )
 
-    y_values = (
-        np.asarray(axial_coords)
-        if axial_coords is not None
-        else np.arange(n_z, dtype=np.float64)
-    )
-    zarr_group.create_array("y", data=y_values, dimension_names=["y"])
-    zarr_group["y"].attrs["units"] = "mm"
-    zarr_group["y"].attrs["long_name"] = "Depth"
-
-    x_values = (
-        np.asarray(lateral_coords)
-        if lateral_coords is not None
-        else np.arange(n_x, dtype=np.float64)
-    )
-    zarr_group.create_array("x", data=x_values, dimension_names=["x"])
-    zarr_group["x"].attrs["units"] = "mm"
-    zarr_group["x"].attrs["long_name"] = "Lateral"
-
-    lateral_coords_dim = (
-        float(np.diff(np.asarray(lateral_coords)).mean())
-        if lateral_coords is not None
-        else 0.0
-    )
-    axial_coords_dim = (
-        float(np.diff(np.asarray(axial_coords)).mean())
-        if axial_coords is not None
-        else 0.0
-    )
     # TODO: we should compute the actual z-axis voxdim from the elevation beam width,
     # but we're currently missing some information for that, such as the elevation
     # aperture and elevation focus.
-    zarr_group["z"].attrs["voxdim"] = 0.4
-    zarr_group["y"].attrs["voxdim"] = axial_coords_dim
-    zarr_group["x"].attrs["voxdim"] = lateral_coords_dim
+    elevation_spacing = 0.4
+    depth_spacing = (
+        float(np.diff(np.asarray(axial_coords)).mean())
+        if axial_coords is not None
+        else 1.0
+    )
+    lateral_spacing = (
+        float(np.diff(np.asarray(lateral_coords)).mean())
+        if lateral_coords is not None
+        else 1.0
+    )
+    depth_origin = (
+        float(np.asarray(axial_coords)[0]) if axial_coords is not None else 0.0
+    )
+    lateral_origin = (
+        float(np.asarray(lateral_coords)[0]) if lateral_coords is not None else 0.0
+    )
+    voxel_to_world = np.eye(4)
+    voxel_to_world[:3, :3] = np.diag(
+        [elevation_spacing, depth_spacing, lateral_spacing]
+    )
+    voxel_to_world[:3, 3] = [0.0, depth_origin, lateral_origin]
+    zarr_iq.attrs.update(
+        make_attrs_zarr_safe(
+            {
+                "voxel_to_world": voxel_to_world,
+                "world_coord_attrs": {
+                    name: {"units": "mm", "voxdim": spacing}
+                    for name, spacing in zip(
+                        SPATIAL_DIMS,
+                        (elevation_spacing, depth_spacing, lateral_spacing),
+                        strict=True,
+                    )
+                },
+            }
+        )
+    )
 
     if transmit_frequency is not None:
         zarr_iq.attrs["transmit_frequency"] = transmit_frequency

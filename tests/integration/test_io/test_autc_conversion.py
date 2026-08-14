@@ -9,7 +9,21 @@ import pytest
 import xarray as xr
 import zarr
 
+import confusius as cf
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius.io.autc import convert_autc_dats_to_zarr
+
+_VOXEL_DIM_BY_WORLD_NAME = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+
+
+def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = data.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
 
 
 class TestAUTCConversion:
@@ -67,9 +81,15 @@ class TestAUTCConversion:
             np.testing.assert_allclose(iq[0, 0, 0, 0], block1_frame1_value)
             np.testing.assert_allclose(iq[3, 0, 0, 0], block2_frame1_value)
 
-            np.testing.assert_allclose(ds["x"].values, custom_lateral_coords)
-            np.testing.assert_allclose(ds["z"].values, np.array([0.0]))
-            np.testing.assert_allclose(ds["y"].values, custom_axial_coords)
+            assert "voxel_to_world" in ds["iq"].attrs
+            iq_loaded = cf.io.load(output_path)
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "x"), custom_lateral_coords
+            )
+            np.testing.assert_allclose(get_world_coord_1d(iq_loaded, "z"), [0.0])
+            np.testing.assert_allclose(
+                get_world_coord_1d(iq_loaded, "y"), custom_axial_coords
+            )
 
             expected_times = np.array(
                 [
@@ -96,19 +116,14 @@ class TestAUTCConversion:
                 3 / 1500.0
             )
 
-            assert ds["z"].attrs["units"] == "mm"
-            assert ds["z"].attrs["long_name"] == "Elevation"
-
-            assert ds["y"].attrs["units"] == "mm"
-            assert ds["y"].attrs["long_name"] == "Depth"
-
-            assert ds["x"].attrs["units"] == "mm"
-            assert ds["x"].attrs["long_name"] == "Lateral"
+            assert iq_loaded.coords["z"].attrs["units"] == "mm"
+            assert iq_loaded.coords["y"].attrs["units"] == "mm"
+            assert iq_loaded.coords["x"].attrs["units"] == "mm"
 
             # Verify voxdim is stored as per-coordinate attribute.
-            assert ds["z"].attrs["voxdim"] == pytest.approx(0.4)
-            assert ds["y"].attrs["voxdim"] == pytest.approx(4.0)
-            assert ds["x"].attrs["voxdim"] == pytest.approx(20.0 / 3.0)
+            assert iq_loaded.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
+            assert iq_loaded.coords["y"].attrs["voxdim"] == pytest.approx(4.0)
+            assert iq_loaded.coords["x"].attrs["voxdim"] == pytest.approx(20.0 / 3.0)
             assert ds["iq"].attrs["transmit_frequency"] == 3000000.0
             assert ds["iq"].attrs["probe_number_of_elements"] == 64
             assert ds["iq"].attrs["probe_pitch"] == 0.00025
