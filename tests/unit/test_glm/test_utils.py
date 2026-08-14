@@ -8,13 +8,13 @@ import xarray as xr
 from numpy.testing import assert_allclose
 
 from confusius.glm._utils import (
-    consensus_attrs,
     estimate_ar_coeffs,
     expression_to_contrast_vector,
+    intersect_attrs,
 )
 
 # -----------------------------------------------------------------------------
-# consensus_attrs
+# intersect_attrs
 # -----------------------------------------------------------------------------
 
 
@@ -28,18 +28,18 @@ class _RaisesOnEq:
         return id(self)
 
 
-def test_consensus_attrs_drops_key_whose_scalar_comparison_raises():
+def test_intersect_attrs_drops_key_whose_scalar_comparison_raises():
     """A key whose values raise on `==` is treated as unequal, not propagated."""
     a = xr.DataArray([0.0], attrs={"tag": _RaisesOnEq(), "kept": 1})
     b = xr.DataArray([0.0], attrs={"tag": _RaisesOnEq(), "kept": 1})
 
-    result = consensus_attrs([a, b])
+    result = intersect_attrs([a, b])
 
     assert "tag" not in result
     assert result["kept"] == 1
 
 
-def test_consensus_attrs_drops_key_whose_array_comparison_raises():
+def test_intersect_attrs_drops_key_whose_array_comparison_raises():
     """A key whose ndarray values raise on `np.array_equal` is treated as unequal."""
     a = xr.DataArray(
         [0.0], attrs={"tag": np.array([_RaisesOnEq()], dtype=object), "kept": 1}
@@ -48,7 +48,7 @@ def test_consensus_attrs_drops_key_whose_array_comparison_raises():
         [0.0], attrs={"tag": np.array([_RaisesOnEq()], dtype=object), "kept": 1}
     )
 
-    result = consensus_attrs([a, b])
+    result = intersect_attrs([a, b])
 
     assert "tag" not in result
     assert result["kept"] == 1

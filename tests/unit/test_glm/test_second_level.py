@@ -82,7 +82,7 @@ class TestSecondLevelModelFit:
         assert_allclose(z_map.coords["y"].values, spatial_maps[0].coords["y"].values)
         assert_allclose(z_map.coords["x"].values, spatial_maps[0].coords["x"].values)
 
-    def test_consensus_attrs_propagated_across_maps(self, spatial_maps):
+    def test_intersect_attrs_propagated_across_maps(self, spatial_maps):
         """Attributes equal across all maps propagate; conflicting ones are dropped."""
         for i, da in enumerate(spatial_maps):
             da.attrs.update(

@@ -25,8 +25,8 @@ from confusius.glm._design import (
 )
 from confusius.glm._models import ARModel, OLSModel, RegressionResults
 from confusius.glm._utils import (
-    consensus_attrs,
     estimate_ar_coeffs,
+    intersect_attrs,
     resolve_contrast_vector,
     select_contrast_map,
 )
@@ -301,7 +301,7 @@ class FirstLevelModel(BaseEstimator):
 
         self.design_matrices_: list[pd.DataFrame] = design_matrices_list
         self.results_: list[RegressionResults] = []
-        self._input_attrs: dict[str, object] = consensus_attrs(run_data)
+        self._input_attrs: dict[str, object] = intersect_attrs(run_data)
 
         # compute_contrast always reconstructs its output via unmask, which needs a
         # mask to source spatial dims/coords/geometry from. When the user didn't

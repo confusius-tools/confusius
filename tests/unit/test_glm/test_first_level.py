@@ -130,7 +130,7 @@ class TestFirstLevelModelFit:
         outside = e_map.where(~mask, other=np.nan)
         np.testing.assert_array_equal(np.nan_to_num(outside.values), 0.0)
 
-    def test_consensus_attrs_propagated_across_runs(self, fusi_data, events):
+    def test_intersect_attrs_propagated_across_runs(self, fusi_data, events):
         """Attributes equal across all runs propagate to the contrast map."""
         run_a = fusi_data.copy()
         run_a.attrs.update({"subject_id": "s01", "task": "stim", "session": 1})

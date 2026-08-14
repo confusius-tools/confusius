@@ -46,7 +46,7 @@ def _attrs_equal(a: Any, b: Any) -> bool:
     return bool(result)
 
 
-def consensus_attrs(arrays: Sequence[xr.DataArray]) -> dict[str, Any]:
+def intersect_attrs(arrays: Sequence[xr.DataArray]) -> dict[str, Any]:
     """Return DataArray attributes shared and equal across all `arrays`.
 
     Used to propagate consistent provenance/metadata through reductions that combine

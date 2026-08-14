@@ -25,7 +25,7 @@ from confusius._utils.geometry import (
 from confusius.glm._contrasts import Contrast
 from confusius.glm._models import OLSModel, RegressionResults
 from confusius.glm._utils import (
-    consensus_attrs,
+    intersect_attrs,
     resolve_contrast_vector,
     select_contrast_map,
     to_spatial_dataarray,
@@ -288,7 +288,7 @@ class SecondLevelModel(BaseEstimator):
             for name, coord in ref.coords.items()
             if set(coord.dims).issubset(spatial_dim_set)
         }
-        self._input_attrs: dict[str, object] = consensus_attrs(maps)
+        self._input_attrs: dict[str, object] = intersect_attrs(maps)
 
         if has_voxel_to_world_index(ref):
             self._voxel_to_world: npt.NDArray[np.float64] | None = (

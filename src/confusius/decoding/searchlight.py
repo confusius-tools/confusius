@@ -174,7 +174,7 @@ def _resolve_cv(
     return cv
 
 
-def _score_units(scoring: str | Callable | None, *, classifier: bool) -> str | None:
+def _get_score_units(scoring: str | Callable | None, *, classifier: bool) -> str | None:
     """Name of the metric a searchlight score is measured in, from the scorer.
 
     Parameters
@@ -667,7 +667,7 @@ class SearchLight(BaseEstimator):
         # stays in the same world space. Override the semantic attributes to describe
         # the score itself rather than the input signal.
         attrs = {**dict(X_ordered.attrs), "long_name": "Searchlight CV score"}
-        units = _score_units(self.scoring, classifier=classifier)
+        units = _get_score_units(self.scoring, classifier=classifier)
         if units is not None:
             attrs["units"] = units
         else:
