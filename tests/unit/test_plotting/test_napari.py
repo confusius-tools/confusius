@@ -431,6 +431,9 @@ class TestLabelsFromLayer:
 
         result = labels_from_layer(labels_layer, sample_roi_labels)
 
+        # World coordinates must still be index-derived, not materialized plain
+        # arrays (see AGENTS.md: world coordinates are never stored directly).
+        assert has_voxel_to_world_index(result)
         for dim in ("z", "y", "x"):
             npt.assert_array_equal(
                 result.coords[dim].values, sample_roi_labels.coords[dim].values

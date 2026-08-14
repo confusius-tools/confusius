@@ -16,7 +16,12 @@ import napari
 import numpy as np
 import xarray as xr
 
-from confusius._utils.geometry import has_voxel_to_world_index
+from confusius._dims import SPATIAL_DIMS
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    has_voxel_to_world_index,
+)
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
@@ -420,7 +425,7 @@ def labels_from_layer(
     >>> # … paint labels in the viewer …
     >>> label_map = labels_from_layer(labels_layer, pwd.mean("time"))
     >>> label_map.dims
-    ('mask', 'z', 'y', 'x')
+    ('mask', 'k', 'j', 'i')
     >>> # Slice a single label for display alongside a seed map.
     >>> label_map.sel(mask=2)
     >>> # Use the label map for region-based analysis.
@@ -431,10 +436,15 @@ def labels_from_layer(
     time_dim = "time" if "time" in all_dims else None
     spatial_dims = [d for d in all_dims if d != time_dim]
 
+    # Copy only the plain (non-world) coordinates. `z`/`y`/`x` are excluded here since
+    # they are derived by `data`'s VoxelToWorldIndex, not stored plain arrays; copying
+    # them via .items() would materialize dense coordinate arrays and lose the index
+    # (see AGENTS.md: world coordinates are never stored directly). The index is
+    # reattached below via attach_voxel_to_world_index instead.
     coords = {
         name: coord
         for name, coord in data.coords.items()
-        if set(coord.dims).issubset(spatial_dims)
+        if set(coord.dims).issubset(spatial_dims) and name not in SPATIAL_DIMS
     }
 
     # Build a color lookup from the napari layer so downstream consumers
@@ -465,18 +475,17 @@ def labels_from_layer(
         else np.empty((0, *label_array.shape), dtype=np.int32)
     )
 
-    return xr.DataArray(
+    label_map = xr.DataArray(
         stacked,
         dims=["mask", *spatial_dims],
         coords={"mask": unique_labels.astype(np.int32), **coords},
         attrs={
-            **{
-                key: value
-                for key, value in data.attrs.items()
-                if key == "voxel_to_world"
-            },
             "long_name": "Drawn label map",
             "labels_layer_name": labels_layer.name,
             "rgb_lookup": rgb_lookup,
         },
     )
+    # Reattach the voxel-to-world index from `data` rather than copying its derived
+    # z/y/x coordinate values (see comment above `coords`), so `label_map` stays a
+    # canonical voxel-to-world DataArray.
+    return attach_voxel_to_world_index(label_map, get_voxel_to_world_affine(data))
