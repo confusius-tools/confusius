@@ -2424,11 +2424,15 @@ def save_nifti(
     Examples
     --------
     >>> import confusius as cf
-    >>> import xarray as xr
     >>> import numpy as np
-    >>> da = xr.DataArray(np.random.rand(10, 32, 1, 64),
-    ...                   dims=["time", "z", "y", "x"])
+    >>> da = cf.xarray.create_fusi_dataarray(
+    ...     np.random.rand(10, 1, 32, 64),
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(0.4, 0.1, 0.1),
+    ... )
     >>> cf.io.save_nifti(da, "output.nii.gz")
+    >>> da.attrs["affines"] = {"world_to_template": np.eye(4)}
     >>> cf.io.save_nifti(da, "output.nii.gz", sform="world_to_template")
     """
     data_array = ensure_fusi(data_array)

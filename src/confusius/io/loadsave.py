@@ -14,7 +14,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
 )
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
@@ -132,22 +131,24 @@ def save(data_array: xr.DataArray, path: str | Path, **kwargs: Any) -> None:
         _nifti.save_nifti(data_array, path, **kwargs)
         return
     if name.endswith(".zarr"):
+        # ensure_fusi always returns a voxel-to-world-indexed DataArray (validate_fusi
+        # unconditionally requires the index), so this always stores geometry as
+        # attrs["voxel_to_world"] rather than dense z/y/x coordinate arrays.
         data_array = ensure_fusi(data_array)
         data_array = data_array.copy(deep=False)
-        if has_voxel_to_world_index(data_array):
-            voxel_to_world = get_voxel_to_world_affine(data_array)
-            world_coord_names = get_voxel_to_world_coord_names(data_array)
-            world_coord_attrs = {
-                coord_name: dict(data_array.coords[coord_name].attrs)
-                for coord_name in world_coord_names
-                if coord_name in data_array.coords
-            }
-            data_array = data_array.drop_vars(world_coord_names)
-            data_array.attrs = {
-                **data_array.attrs,
-                "voxel_to_world": voxel_to_world,
-                "world_coord_attrs": world_coord_attrs,
-            }
+        voxel_to_world = get_voxel_to_world_affine(data_array)
+        world_coord_names = get_voxel_to_world_coord_names(data_array)
+        world_coord_attrs = {
+            coord_name: dict(data_array.coords[coord_name].attrs)
+            for coord_name in world_coord_names
+            if coord_name in data_array.coords
+        }
+        data_array = data_array.drop_vars(world_coord_names)
+        data_array.attrs = {
+            **data_array.attrs,
+            "voxel_to_world": voxel_to_world,
+            "world_coord_attrs": world_coord_attrs,
+        }
         data_array.attrs = make_attrs_zarr_safe(data_array.attrs)
         with warnings.catch_warnings():
             warnings.filterwarnings(
