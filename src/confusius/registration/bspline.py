@@ -1,18 +1,27 @@
 """B-spline transform helpers for fUSI registration.
 
-A B-spline control-point grid is represented as a DataArray with:
+Both transform representations in this module are canonical ConfUSIus DataArrays
+(built with [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]) with an
+extra leading `component` dimension:
 
 - **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
-- **coords**: `component` is labeled by the spatial dim names
-  (e.g. `("k", "j", "i")`), and each spatial axis stores the world mm
-  positions of the control-point grid.
-- **attrs**:
+- **coords**: `component` is labeled by the spatial dim names, each spatial axis
+  carries its native voxel index, and the derived world `z`/`y`/`x` coordinates give
+  the world mm position of every grid node. The voxel-to-world affine lives on the
+  coordinate index (like any other voxel-to-world-index-backed DataArray), not in
+  `attrs`; orientation is folded into it rather than stored separately, and can be
+  recovered with `.fusi.direction`.
+
+They differ in what grid that index describes:
+
+- A **B-spline control-point grid** (`attrs["type"] == "bspline_transform"`) stores the
+  sparse B-spline coefficient lattice that defines a smooth deformation — its own grid,
+  coarser than and independent from any image's voxel grid. Additional attrs:
 
   ```python
   {
       "transform_type": "bspline_transform",
       "order":          3,                       # B-spline polynomial order
-      "direction":      [[...], [...], [...]],  # (ndim, ndim) direction cosine matrix
       "affines":        {
           "bspline_initialization": [[...]]     # optional (N+1, N+1) pre-affine;
                                                  # only present when register_volume
@@ -21,37 +30,21 @@ A B-spline control-point grid is represented as a DataArray with:
   }
   ```
 
-When a pre-affine is stored in `attrs["affines"]["bspline_initialization"]`, the full
-transform is a `CompositeTransform(pre_affine, bspline)` — i.e. the pre-affine is
-applied *first* (coarse global alignment) and the B-spline is applied *second* (local
-deformation refinement). This mirrors the `inPlace=True` composite that SimpleITK
-optimises during registration.
+  When a pre-affine is stored in `attrs["affines"]["bspline_initialization"]`, the full
+  transform is a `CompositeTransform(pre_affine, bspline)` — i.e. the pre-affine is
+  applied *first* (coarse global alignment) and the B-spline is applied *second* (local
+  deformation refinement). This mirrors the `inPlace=True` composite that SimpleITK
+  optimises during registration.
 
-This object is not a dense deformation field sampled on every voxel of the moving or
-fixed image. Instead, it stores the sparse B-spline coefficient lattice that defines
-the smooth deformation.
-
-A dense displacement field is a canonical ConfUSIus DataArray (built with
-[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]) with an extra
-leading `component` dimension:
-
-- **dims**: `("component", <spatial dims>)` — e.g. `("component", "k", "j", "i")`.
-- **coords**: `component` is labeled by the spatial dim names, each spatial axis
-  carries its native voxel index, and the derived world `z`/`y`/`x` coordinates
-  give the world mm position of every voxel.
-- **attrs**: `{"type": "displacement_field_transform"}`. The voxel-to-world affine
-  lives on the coordinate index (like any other voxel-to-world-index-backed
-  DataArray), not in `attrs`; orientation is folded into it rather than stored
-  separately, and can be recovered with `.fusi.direction`.
-
-Unlike the sparse B-spline coefficient lattice, a displacement field stores one
-displacement vector per voxel of an explicit grid. It is produced by sampling a B-spline
-(or composite) transform with
-[`sample_displacement_field`][confusius.registration.bspline.sample_displacement_field]
-or
-[`sample_displacement_field_like`][confusius.registration.bspline.sample_displacement_field_like],
-and can be inverted with
-[`invert_displacement_field`][confusius.registration.bspline.invert_displacement_field].
+- A **dense displacement field** (`attrs["type"] == "displacement_field_transform"`)
+  stores one displacement vector per voxel of an explicit output grid, unlike the
+  sparse B-spline coefficient lattice. It is produced by sampling a B-spline (or
+  composite) transform with
+  [`sample_displacement_field`][confusius.registration.bspline.sample_displacement_field]
+  or
+  [`sample_displacement_field_like`][confusius.registration.bspline.sample_displacement_field_like],
+  and can be inverted with
+  [`invert_displacement_field`][confusius.registration.bspline.invert_displacement_field].
 """
 
 from collections.abc import Sequence
@@ -62,7 +55,6 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import VOXEL_DIMS
-from confusius._utils.coordinates import get_coordinate_origins
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
@@ -140,27 +132,31 @@ def sitk_bspline_to_dataarray(
     origin = np.array(coeff_images[0].GetOrigin())
     direction = np.array(coeff_images[0].GetDirection()).reshape(ndim, ndim)
 
-    grid_shape = coefficients.shape[1:]  # (nz, ny, nx) or (ny, nx)
     spatial_dims = list(VOXEL_DIMS[-ndim:])
-    coords: dict[str, object] = {
-        "component": np.array(spatial_dims, dtype=np.str_),
-    }
-    for i, dim in enumerate(spatial_dims):
-        coords[dim] = origin[i] + np.arange(grid_shape[i]) * spacing[i]
 
     attrs: dict[str, object] = {
         "type": "bspline_transform",
         "transform_type": "bspline_transform",
         "order": order,
-        "direction": direction.tolist(),
     }
     if pre_affine is not None:
         attrs["affines"] = {"bspline_initialization": np.asarray(pre_affine).tolist()}
 
-    return xr.DataArray(
+    # Direction and spacing compose the same way create_fusi_dataarray's own
+    # `direction` parameter does: each column of the (orthonormal) direction matrix
+    # scaled by the corresponding axis spacing. Building the full affine directly (and
+    # passing it as voxel_to_world) rather than create_fusi_dataarray's separate
+    # spacing/origin/direction lets `spatial_dims` be in any order, not just canonical
+    # z/y/x (see _sitk_displacement_field_to_dataarray, same convention).
+    voxel_to_world = np.eye(ndim + 1, dtype=np.float64)
+    voxel_to_world[:-1, :-1] = direction * spacing
+    voxel_to_world[:-1, -1] = origin
+
+    return create_fusi_dataarray(
         coefficients,
-        dims=["component", *spatial_dims],
-        coords=coords,
+        dims=("component", *spatial_dims),
+        extra_coords={"component": np.array(spatial_dims, dtype=np.str_)},
+        voxel_to_world=voxel_to_world,
         attrs=attrs,
     )
 
@@ -194,18 +190,18 @@ def _dataarray_to_sitk_bspline(da: xr.DataArray) -> "sitk.Transform":
 
     ndim = da.ndim - 1  # subtract the component axis
     order = int(da.attrs["order"])
-    # No axis reversal: sitk axis i corresponds directly to DataArray dim i (see
-    # sitk_bspline_to_dataarray, which stores this matrix with the same convention).
-    direction_sitk = np.array(da.attrs["direction"])
 
-    spatial_dims = list(da.dims[1:])  # e.g. ["z", "y", "x"]
+    spatial_dims = [str(dim) for dim in da.dims[1:]]  # e.g. ["k", "j", "i"]
 
-    # Recover grid geometry from DataArray coordinates. The coordinates store the
-    # world position of each control-point node; spacing is the step between
-    # consecutive nodes, and origin is the first node. No axis reversal needed.
-    spacing_sitk = [float(da.coords[dim].diff(dim).mean()) for dim in spatial_dims]
-    origin_sitk = [float(da.coords[dim][0]) for dim in spatial_dims]
+    # Recover grid geometry from the voxel-to-world index. No axis reversal needed:
+    # sitk axis i corresponds directly to DataArray dim i (see sitk_bspline_to_dataarray,
+    # which builds the index with the same convention).
+    spacing_dict = da.fusi.spacing
+    origin_dict = _get_dim_keyed_origin(da)
+    spacing_sitk = [float(spacing_dict[dim]) for dim in spatial_dims]
+    origin_sitk = [float(origin_dict[dim]) for dim in spatial_dims]
     node_counts_sitk = [da.sizes[dim] for dim in spatial_dims]
+    direction_sitk = np.asarray(da.fusi.direction, dtype=np.float64)
 
     # FixedParameters layout (2D, length 10):
     #   [nodeCount_x, nodeCount_y, origin_x, origin_y, spacing_x, spacing_y,
@@ -291,8 +287,8 @@ def validate_bspline(da: xr.DataArray) -> None:
     Raises
     ------
     ValueError
-        If `da.attrs["transform_type"] != "bspline_transform"` or required attrs are
-        missing.
+        If `da.attrs["transform_type"] != "bspline_transform"`, required attrs are
+        missing, or `da` has no voxel-to-world index.
     """
     transform_type = da.attrs.get("transform_type", da.attrs.get("type"))
     if transform_type != "bspline_transform":
@@ -301,15 +297,18 @@ def validate_bspline(da: xr.DataArray) -> None:
             "'bspline_transform'; "
             f"got {transform_type!r}."
         )
-    for key in ("order", "direction"):
-        if key not in da.attrs:
-            raise ValueError(
-                f"B-spline transform DataArray is missing required attribute {key!r}."
-            )
+    if "order" not in da.attrs:
+        raise ValueError(
+            "B-spline transform DataArray is missing required attribute 'order'."
+        )
     if da.dims[0] != "component":
         raise ValueError(
             f"B-spline transform DataArray must have 'component' as its first "
             f"dimension; got {da.dims[0]!r}."
+        )
+    if not has_voxel_to_world_index(da):
+        raise ValueError(
+            "B-spline transform DataArray must have a voxel-to-world index."
         )
 
 
@@ -528,13 +527,7 @@ def invert_displacement_field(
     field_grid = field.isel(component=0, drop=True)
     _, spacing = get_defined_spatial_spacing(field_grid)
     origin = [_get_dim_keyed_origin(field_grid)[d] for d in dims]
-    # Displacement fields are plain world grids without a voxel-to-world index (see
-    # `_compose_world_to_base_transforms`), so they are always axis-aligned.
-    direction = np.asarray(
-        field_grid.fusi.direction
-        if has_voxel_to_world_index(field_grid)
-        else np.eye(len(dims))
-    )
+    direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
     return _sitk_displacement_field_to_dataarray(
         inverted_expanded, shape, spacing, origin, dims, direction.tolist()
     )
@@ -616,8 +609,6 @@ def _get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
     dict[str, float]
         Origin keyed by `data`'s own dimension names.
     """
-    if not has_voxel_to_world_index(data):
-        return get_coordinate_origins(data)
     origin = data.fusi.origin
     voxel_dims = get_voxel_to_world_spatial_dims(data)
     world_names = get_voxel_to_world_coord_names(data)
@@ -657,13 +648,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
     origin = [_get_dim_keyed_origin(field_grid)[dim] for dim in spatial_dims]
-    # Displacement fields are plain world grids without a voxel-to-world index (see
-    # `_compose_world_to_base_transforms`), so they are always axis-aligned.
-    direction = (
-        field_grid.fusi.direction
-        if has_voxel_to_world_index(field_grid)
-        else np.eye(len(spatial_dims))
-    )
+    direction = np.asarray(field_grid.fusi.direction, dtype=np.float64)
 
     # .T maps the first DataArray axis to SimpleITK's world x-axis, matching the
     # convention used throughout confusius.registration (see dataarray_to_sitk_image).
@@ -685,8 +670,8 @@ def _validate_displacement_field_dataarray(da: xr.DataArray) -> None:
     Raises
     ------
     ValueError
-        If `da.attrs["type"] != "displacement_field_transform"` or `da` does not have
-        `"component"` as its first dimension.
+        If `da.attrs["type"] != "displacement_field_transform"`, `da` does not have
+        `"component"` as its first dimension, or `da` has no voxel-to-world index.
     """
     if da.attrs.get("type") != "displacement_field_transform":
         raise ValueError(
@@ -697,4 +682,8 @@ def _validate_displacement_field_dataarray(da: xr.DataArray) -> None:
         raise ValueError(
             f"Displacement field DataArray must have 'component' as its first "
             f"dimension; got {da.dims[0]!r}."
+        )
+    if not has_voxel_to_world_index(da):
+        raise ValueError(
+            "Displacement field DataArray must have a voxel-to-world index."
         )

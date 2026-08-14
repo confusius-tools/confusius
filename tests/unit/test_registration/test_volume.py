@@ -1276,13 +1276,19 @@ class TestDisplacementField:
 
     def test_sample_displacement_field_missing_required_attr_raises(self):
         """Missing B-spline metadata is rejected."""
-        transform = xr.DataArray(
-            np.zeros((2, 4, 4)),
-            dims=["component", "j", "i"],
-            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
-            attrs={"type": "bspline_transform", "order": 3},
+        transform = _add_identity_voxel_to_world(
+            xr.DataArray(
+                np.zeros((2, 4, 4)),
+                dims=["component", "j", "i"],
+                coords={
+                    "component": ["j", "i"],
+                    "j": np.arange(4.0),
+                    "i": np.arange(4.0),
+                },
+                attrs={"type": "bspline_transform"},
+            )
         )
-        with pytest.raises(ValueError, match="direction"):
+        with pytest.raises(ValueError, match="order"):
             sample_displacement_field(
                 transform,
                 shape=[4, 4],
@@ -1314,15 +1320,17 @@ class TestDisplacementField:
 
     def test_sample_displacement_field_wrong_direction_shape_raises(self):
         """A direction matrix whose shape doesn't match `dims` is rejected."""
-        transform = xr.DataArray(
-            np.zeros((2, 4, 4)),
-            dims=["component", "j", "i"],
-            coords={"component": ["j", "i"], "j": np.arange(4.0), "i": np.arange(4.0)},
-            attrs={
-                "type": "bspline_transform",
-                "order": 3,
-                "direction": np.eye(2).tolist(),
-            },
+        transform = _add_identity_voxel_to_world(
+            xr.DataArray(
+                np.zeros((2, 4, 4)),
+                dims=["component", "j", "i"],
+                coords={
+                    "component": ["j", "i"],
+                    "j": np.arange(4.0),
+                    "i": np.arange(4.0),
+                },
+                attrs={"type": "bspline_transform", "order": 3},
+            )
         )
         with pytest.raises(ValueError, match="direction must have shape"):
             sample_displacement_field(
@@ -1479,8 +1487,8 @@ class TestDisplacementField:
         assert_allclose(field.values, 0.0, atol=1e-6)
         assert_allclose(inverted.values, 0.0, atol=1e-6)
 
-    def test_invert_displacement_field_singleton_dim_without_voxdim_raises(self):
-        """Thin displacement fields without `voxdim` are rejected on inversion."""
+    def test_invert_displacement_field_without_voxel_to_world_index_raises(self):
+        """A displacement field without a voxel-to-world index is rejected."""
         field = xr.DataArray(
             np.zeros((3, 1, 8, 8), dtype=np.float64),
             dims=["component", "k", "j", "i"],
@@ -1490,13 +1498,10 @@ class TestDisplacementField:
                 "j": np.arange(8, dtype=np.float64) * 0.1,
                 "i": np.arange(8, dtype=np.float64) * 0.1,
             },
-            attrs={
-                "type": "displacement_field_transform",
-                "direction": np.eye(3).tolist(),
-            },
+            attrs={"type": "displacement_field_transform"},
         )
 
-        with pytest.raises(ValueError, match="singleton spatial axes.*voxdim"):
+        with pytest.raises(ValueError, match="voxel-to-world index"):
             invert_displacement_field(field)
 
     def test_invert_displacement_field_undoes_translation(self):

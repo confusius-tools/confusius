@@ -86,19 +86,18 @@ def _FakeDiagnostics(
 
 
 def _make_bspline_transform() -> xr.DataArray:
-    return xr.DataArray(
-        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
-        dims=["component", "y", "x"],
-        coords={
-            "component": xr.DataArray(["y", "x"], dims=["component"]),
-            "y": xr.DataArray(np.arange(3) * 0.2, dims=["y"]),
-            "x": xr.DataArray(np.arange(4) * 0.1, dims=["x"]),
-        },
+    # fUSI DataArrays always carry all three spatial dims (k singleton for 2D data),
+    # matching what sitk_bspline_to_dataarray produces in practice.
+    return create_fusi_dataarray(
+        np.arange(3 * 1 * 3 * 4, dtype=float).reshape(3, 1, 3, 4),
+        dims=("component", "k", "j", "i"),
+        extra_coords={"component": np.array(["k", "j", "i"], dtype=np.str_)},
+        spacing=(1.0, 0.2, 0.1),
+        origin=(0.0, 0.0, 0.0),
         attrs={
             "transform_type": "bspline_transform",
             "order": 3,
-            "direction": [[1.0, 0.0], [0.0, 1.0]],
-            "affines": {"bspline_initialization": np.eye(3).tolist()},
+            "affines": {"bspline_initialization": np.eye(4).tolist()},
         },
     )
 
@@ -183,11 +182,13 @@ class TestTransformPayloads:
         roundtripped = _deserialize_bspline_dataarray(payload)
 
         np.testing.assert_array_equal(
-            roundtripped.coords["component"].values, ["y", "x"]
+            roundtripped.coords["component"].values, ["k", "j", "i"]
         )
-        np.testing.assert_allclose(roundtripped.coords["y"].values, [0.0, 0.2, 0.4])
         np.testing.assert_allclose(
-            roundtripped.coords["x"].values, [0.0, 0.1, 0.2, 0.3]
+            roundtripped.coords["y"].isel(k=0, i=0).values, [0.0, 0.2, 0.4]
+        )
+        np.testing.assert_allclose(
+            roundtripped.coords["x"].isel(k=0, j=0).values, [0.0, 0.1, 0.2, 0.3]
         )
         np.testing.assert_allclose(roundtripped.values, transform.values)
 
@@ -902,25 +903,31 @@ class TestTransforms:
             get_affine_transform_from_payload(loaded), np.eye(3)
         )
 
-    def test_bspline_payload_missing_spatial_axis_is_rejected(self, tmp_path):
+    def test_bspline_payload_missing_voxel_to_world_index_is_rejected(self):
         reference = create_fusi_dataarray(
             np.ones((3, 4), dtype=np.float32), dims=("y", "x"), spacing=(1.0, 0.2, 0.1)
         )
-        transform = _make_bspline_transform()
-        payload = make_bspline_transform_payload(
-            transform,
-            reference=reference,
-            source=reference,
-            source_layer_name="moving",
-            target_layer_name="fixed",
-            operation="register_volume",
-            transform_model="bspline",
-            metric="correlation",
-            diagnostics=_FakeDiagnostics(),
+        # A B-spline control-point grid must be a canonical, voxel-to-world-index-backed
+        # DataArray; a plain DataArray with world-named dims and no index is rejected.
+        transform = xr.DataArray(
+            np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+            dims=["component", "y", "x"],
+            coords={"component": xr.DataArray(["y", "x"], dims=["component"])},
+            attrs={"transform_type": "bspline_transform", "order": 3},
         )
 
-        with pytest.raises(ValueError, match="native voxel dimensions"):
-            save_transform_payload(tmp_path / "bspline.nii.gz", payload)
+        with pytest.raises(ValueError, match="voxel-to-world index"):
+            make_bspline_transform_payload(
+                transform,
+                reference=reference,
+                source=reference,
+                source_layer_name="moving",
+                target_layer_name="fixed",
+                operation="register_volume",
+                transform_model="bspline",
+                metric="correlation",
+                diagnostics=_FakeDiagnostics(),
+            )
 
     def test_bspline_transform_is_not_offered_for_initialization(
         self, viewer, registration_panel

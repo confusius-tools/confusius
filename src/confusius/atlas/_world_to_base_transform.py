@@ -3,9 +3,10 @@
 An atlas world-to-base transform is a *pull* transform, following the same convention
 as `confusius.registration`: it maps a point in the atlas's world space back to its
 base (BrainGlobe OBJ) world space. Affine transforms are homogeneous `(4, 4)` matrices;
-nonlinear transforms are B-spline or dense displacement-field DataArrays. All points,
-vertices, and displacement components are in DataArray dim order `(z, y, x)`: component `i`
-of a displacement field displaces along axis `dims[i]`.
+nonlinear transforms are B-spline or dense displacement-field DataArrays -- the latter
+a canonical fUSI DataArray (voxel-to-world index, always axis-aligned) with an extra
+leading `component` dim, labeled by world dim name: component `z`/`y`/`x` displaces
+along that axis.
 """
 
 from typing import cast
@@ -15,12 +16,14 @@ import numpy.typing as npt
 import xarray as xr
 from scipy.interpolate import interpn
 
-from confusius._utils.coordinates import (
-    get_coordinate_spacings,
-    get_grid_info_from_dataarray,
+from confusius._utils.coordinates import get_grid_info_from_dataarray
+from confusius._utils.geometry import (
+    get_voxel_to_world_coord_names,
+    get_voxel_to_world_spatial_dims,
+    has_voxel_to_world_index,
 )
-from confusius._utils.geometry import get_voxel_to_world_coord_names
 from confusius.registration.bspline import sample_displacement_field_like
+from confusius.xarray import create_fusi_dataarray
 
 WorldToBaseTransform = npt.NDArray[np.float64] | xr.DataArray
 """Pull transform mapping the atlas's world coordinates back to base atlas space.
@@ -167,19 +170,17 @@ def _compose_world_to_base_transforms(
         len(dims), *new_reference.shape
     )
 
-    coords: dict = {"component": np.array(dims, dtype=np.str_)}
-    coords.update(
-        {
-            dim: grid_info["origin"][axis]
-            + np.arange(grid_info["shape"][axis], dtype=np.float64)
-            * grid_info["spacing"][axis]
-            for axis, dim in enumerate(dims)
-        }
-    )
-    return xr.DataArray(
+    # A displacement field is a canonical fUSI DataArray (voxel-to-world index, always
+    # axis-aligned here) with an extra leading `component` dim, matching the convention
+    # `sample_displacement_field`/`_sitk_displacement_field_to_dataarray` already use.
+    voxel_to_world = np.eye(len(dims) + 1, dtype=np.float64)
+    voxel_to_world[:-1, :-1] = np.diag(grid_info["spacing"])
+    voxel_to_world[:-1, -1] = grid_info["origin"]
+    return create_fusi_dataarray(
         displacement,
-        dims=["component", *dims],
-        coords=coords,
+        dims=("component", *dims),
+        extra_coords={"component": np.array(dims, dtype=np.str_)},
+        voxel_to_world=voxel_to_world,
         attrs={"type": "displacement_field_transform"},
     )
 
@@ -192,36 +193,54 @@ def _interpolate_displacement_field(
     Parameters
     ----------
     field : xarray.DataArray
-        Dense displacement field with dimensions `("component", *spatial_dims)`.
+        Dense displacement field: a canonical fUSI DataArray (voxel dims `k`/`j`/`i` +
+        a voxel-to-world index, always axis-aligned -- see
+        [sample_displacement_field][confusius.registration.bspline.sample_displacement_field])
+        with an extra leading `component` dimension.
     points : (N, D) numpy.ndarray
-        World points in the same axis order as `field.dims[1:]`.
+        World points, in the same axis order as
+        `get_voxel_to_world_coord_names(field)`.
 
     Returns
     -------
     numpy.ndarray
         Interpolated displacement vectors with shape `(N, D)`. Points beyond the field
         domain and its one-voxel edge-padded margin are returned as NaN.
-    """
-    spatial_dims = [str(dim) for dim in field.dims[1:]]
-    # `field` is a plain displacement grid over world dims (component, z, y, x), not a
-    # canonical fUSI DataArray, so it never carries a voxel-to-world index.
-    spacing = get_coordinate_spacings(field)
 
-    # Pad the field by one voxel (edge replication) at each end of every spatial dim, so
-    # points within one voxel of a boundary, as barely-outside mesh vertices are, can
-    # still be interpolated. Points beyond the padded margin resolve to NaN; the mesh
-    # caller drops the vertices that could not be warped.
-    padded_field = field.pad({dim: (1, 1) for dim in spatial_dims}, mode="edge")
-    grid = []
-    for dim in spatial_dims:
-        padded_coord = np.asarray(padded_field.coords[dim], dtype=np.float64).copy()
-        padded_coord[0] = padded_coord[1] - spacing[dim]
-        padded_coord[-1] = padded_coord[-2] + spacing[dim]
-        grid.append(padded_coord)
+    Raises
+    ------
+    ValueError
+        If `field` does not carry a voxel-to-world index.
+    """
+    if not has_voxel_to_world_index(field):
+        raise ValueError("field must have a voxel-to-world index.")
+
+    voxel_dims = get_voxel_to_world_spatial_dims(field)
+    spacing = field.fusi.spacing
+    origin = field.fusi.origin
+    world_dims = get_voxel_to_world_coord_names(field)
+    shape = [field.sizes[dim] for dim in voxel_dims]
+
+    # Pad the field's data by one voxel (edge replication) at each end of every spatial
+    # dim, so points within one voxel of a boundary, as barely-outside mesh vertices
+    # are, can still be interpolated. Points beyond the padded margin resolve to NaN;
+    # the mesh caller drops the vertices that could not be warped. Padding is done on
+    # the plain values array (not via `field.pad()`, which would silently drop the
+    # voxel-to-world index) and the interpolation grid built directly from the affine,
+    # since these fields are always axis-aligned.
+    padded_values = np.pad(
+        np.asarray(field.transpose("component", *voxel_dims).values, dtype=np.float64),
+        [(0, 0), *[(1, 1)] * len(voxel_dims)],
+        mode="edge",
+    )
+    grid = [
+        origin[world_name] + (np.arange(-1, n + 1, dtype=np.float64)) * spacing[dim]
+        for dim, world_name, n in zip(voxel_dims, world_dims, shape, strict=True)
+    ]
 
     displacements = interpn(
         grid,
-        np.moveaxis(np.asarray(padded_field.values, dtype=np.float64), 0, -1),
+        np.moveaxis(padded_values, 0, -1),
         points,
         bounds_error=False,
         fill_value=np.nan,

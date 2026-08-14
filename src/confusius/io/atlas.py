@@ -348,25 +348,15 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
         restore_affines_in_attrs(ds[name].attrs)
     restore_affines_in_attrs(ds.attrs)
 
-    # Restore the world_to_base transform to its single attr: a displacement field was
-    # stored as a data variable (lift it back into attrs); a numpy affine was JSON-encoded
-    # as a nested list (convert it back to an array).
-    if "world_to_base" in ds.data_vars:
-        field = ds["world_to_base"]
-        ds = ds.drop_vars("world_to_base")
-        # `component` was that field's dimension coordinate; drop it once it is orphaned so
-        # the loaded atlas keeps only its spatial dims.
-        if "component" in ds.coords:
-            ds = ds.drop_vars("component")
-        ds.attrs["world_to_base"] = field
-    elif "world_to_base" in ds.attrs:
-        ds.attrs["world_to_base"] = np.asarray(
-            ds.attrs["world_to_base"], dtype=np.float64
-        )
-
     # Voxel-to-world geometry was stored as attrs["voxel_to_world"] rather than dense
     # z/y/x coordinate arrays (see save_atlas); rebuild the world coordinates and
-    # VoxelToWorldIndex on each data variable from that affine.
+    # VoxelToWorldIndex on each data variable from that affine. `world_to_base`, when
+    # a displacement field, is still a data variable at this point (rebuilt below like
+    # any other) and lives on the same grid/affine as the rest of the atlas, since it
+    # was composed on `reference`'s own grid (see `_compose_world_to_base_transforms`)
+    # -- zarr cannot serialize a custom `VoxelToWorldIndex`, so the field's index, like
+    # every other variable's, must be reconstructed after loading, not merely
+    # preserved.
     if "voxel_to_world" in ds.attrs:
         voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
         world_coord_attrs = ds.attrs.pop("world_coord_attrs", None)
@@ -383,6 +373,22 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
             for name in ds.data_vars
         }
         ds = xr.Dataset(restored_vars, attrs=ds.attrs)
+
+    # Restore the world_to_base transform to its single attr: a displacement field was
+    # stored as a data variable (lift it back into attrs, index already rebuilt above);
+    # a numpy affine was JSON-encoded as a nested list (convert it back to an array).
+    if "world_to_base" in ds.data_vars:
+        field = ds["world_to_base"]
+        ds = ds.drop_vars("world_to_base")
+        # `component` was that field's own extra dimension coordinate; drop it once it
+        # is orphaned so the loaded atlas keeps only its spatial dims.
+        if "component" in ds.coords:
+            ds = ds.drop_vars("component")
+        ds.attrs["world_to_base"] = field
+    elif "world_to_base" in ds.attrs:
+        ds.attrs["world_to_base"] = np.asarray(
+            ds.attrs["world_to_base"], dtype=np.float64
+        )
 
     restore_atlas_cmap_and_norm(ds["annotation"])
 
