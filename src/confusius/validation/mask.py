@@ -171,12 +171,12 @@ def validate_labels(
         Label map to validate. Must have integer dtype and coordinates must match data.
         Accepts two formats:
 
-        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
           non-overlapping region. The `regions` coordinate of the output holds the
           integer label values.
         - **Stacked mask format**: Has a leading `mask` dimension followed by
-          spatial dims, e.g. `(mask, z, y, x)`. Each layer has values in `{0,
+          spatial dims, e.g. `(mask, k, j, i)`. Each layer has values in `{0,
           region_id}` and regions may overlap. The `region` coordinate of the
           output holds the `mask` coordinate values (e.g., region label).
 

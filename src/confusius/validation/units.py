@@ -11,17 +11,17 @@ def validate_matching_spatial_units(arrays: Sequence[tuple[str, xr.DataArray]]) 
     Parameters
     ----------
     arrays : sequence of tuple[str, xarray.DataArray]
-        Named DataArrays to compare. Spatial dimensions present in more than one array
+        Named DataArrays to compare. Spatial coordinates present in more than one array
         must carry matching `coord.attrs["units"]` values when that metadata is
         defined.
 
     Raises
     ------
     ValueError
-        If any shared spatial dimension has conflicting `units` metadata.
+        If any shared spatial coordinate has conflicting `units` metadata.
     """
-    spatial_dims = ("z", "y", "x")
-    for dim in spatial_dims:
+    spatial_coord_names = ("z", "y", "x")
+    for dim in spatial_coord_names:
         seen: dict[str, str] = {}
         for name, array in arrays:
             if dim not in array.coords:
