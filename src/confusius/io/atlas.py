@@ -14,7 +14,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    has_voxel_to_world_index,
 )
 from confusius.io._utils import (
     ZARR_V3_CONSOLIDATED_METADATA_WARNING,
@@ -22,6 +21,7 @@ from confusius.io._utils import (
     restore_affines_in_attrs,
 )
 from confusius.io.utils import check_path
+from confusius.validation import validate_atlas
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
@@ -223,8 +223,15 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     Raises
     ------
     ValueError
-        If `path` does not end with the `.zarr` suffix.
+        If `path` does not end with the `.zarr` suffix, or if `ds` is not a well-formed
+        atlas Dataset (see
+        [`validate_atlas`][confusius.validation.validate_atlas]).
+    TypeError
+        If `ds` is not a well-formed atlas Dataset (see
+        [`validate_atlas`][confusius.validation.validate_atlas]).
     """
+    validate_atlas(ds)
+
     path = check_path(path)
     _check_zarr_suffix(path)
 
@@ -237,23 +244,23 @@ def save_atlas(ds: xr.Dataset, path: str | Path, **kwargs: Any) -> None:
     to_save = ds.copy()
     to_save["annotation"] = annotation
 
-    # Store voxel-to-world geometry as attrs["voxel_to_world"] rather than dense z/y/x
+    # validate_atlas above guarantees every variable carries a VoxelToWorldIndex, so
+    # geometry is always stored as attrs["voxel_to_world"] rather than dense z/y/x
     # coordinate arrays, since those are cheaply derived from the affine on load and,
     # for oblique geometry, would otherwise duplicate a full dense array per axis.
-    if has_voxel_to_world_index(to_save["annotation"]):
-        voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
-        world_coord_names = get_voxel_to_world_coord_names(to_save["annotation"])
-        world_coord_attrs = {
-            coord_name: dict(to_save.coords[coord_name].attrs)
-            for coord_name in world_coord_names
-            if coord_name in to_save.coords
-        }
-        to_save = to_save.drop_vars(world_coord_names)
-        to_save.attrs = {
-            **to_save.attrs,
-            "voxel_to_world": voxel_to_world,
-            "world_coord_attrs": world_coord_attrs,
-        }
+    voxel_to_world = get_voxel_to_world_affine(to_save["annotation"])
+    world_coord_names = get_voxel_to_world_coord_names(to_save["annotation"])
+    world_coord_attrs = {
+        coord_name: dict(to_save.coords[coord_name].attrs)
+        for coord_name in world_coord_names
+        if coord_name in to_save.coords
+    }
+    to_save = to_save.drop_vars(world_coord_names)
+    to_save.attrs = {
+        **to_save.attrs,
+        "voxel_to_world": voxel_to_world,
+        "world_coord_attrs": world_coord_attrs,
+    }
 
     # Serialize the in-memory StructuresDict to a flat JSON list and plan the mesh bundle.
     # Done before attr sanitization below, which would otherwise drop the (non-JSON)

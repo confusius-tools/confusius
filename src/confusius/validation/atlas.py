@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
-from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+from confusius._dims import VOXEL_DIMS
+from confusius._utils.geometry import has_voxel_to_world_index
 
 if TYPE_CHECKING:
     from brainglobe_atlasapi.structure_class import StructuresDict
@@ -104,8 +105,9 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
     1. **Type**: `ds` is an `xarray.Dataset`.
     2. **Data variables**: `reference`, `annotation`, and `hemispheres` are all present as
        data variables (a `hemispheres` stored as a coordinate is reported as missing).
-    3. **Grid**: the three variables share identical dimensions, and those dimensions are a
-       subset of `(z, y, x)` (2D or 3D, so a resampled single slice is accepted).
+    3. **Grid**: the three variables share identical dimensions, those dimensions are a
+       subset of `(k, j, i)` (a resampled single slice has a singleton `k`), and each
+       variable carries a `VoxelToWorldIndex` deriving its world `z`/`y`/`x` coordinates.
     4. **Data types**: `reference` is floating-point; `annotation` and `hemispheres` are
        integer-valued.
     5. **Attributes**: `attrs["structures"]` is present and is a brainglobe
@@ -133,9 +135,10 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
         `annotation`/`hemispheres` are not integer-valued.
     ValueError
         If any required data variable or attribute is missing, if the variables do not
-        share dimensions that are a subset of `(z, y, x)`, if `attrs["structures"]` is not a
-        brainglobe `StructuresDict`, or if `require_mesh_use` is set and `world_to_base`
-        or usable region meshes are absent.
+        share dimensions that are a subset of `(k, j, i)`, if a variable lacks a
+        `VoxelToWorldIndex`, if `attrs["structures"]` is not a brainglobe
+        `StructuresDict`, or if `require_mesh_use` is set and `world_to_base` or usable
+        region meshes are absent.
 
     Examples
     --------
@@ -161,14 +164,16 @@ def validate_atlas(ds: xr.Dataset, *, require_mesh_use: bool = False) -> None:
                 f"Atlas variables must share dimensions; '{name}' has dims "
                 f"{ds[name].dims} but 'reference' has {reference_dims}."
             )
-    if not (
-        set(reference_dims).issubset(SPATIAL_DIMS)
-        or set(reference_dims).issubset(VOXEL_DIMS)
-    ):
+    if not set(reference_dims).issubset(VOXEL_DIMS):
         raise ValueError(
-            f"Atlas dimensions must be a subset of {SPATIAL_DIMS} or {VOXEL_DIMS}, "
-            f"got {reference_dims}."
+            f"Atlas dimensions must be a subset of {VOXEL_DIMS}, got {reference_dims}."
         )
+    for name in _REQUIRED_ATLAS_DATA_VARS:
+        if not has_voxel_to_world_index(ds[name]):
+            raise ValueError(
+                f"Atlas variable '{name}' must carry a VoxelToWorldIndex; build it with "
+                "confusius.xarray.create_fusi_dataarray."
+            )
 
     if not np.issubdtype(ds["reference"].dtype, np.floating):
         raise TypeError(

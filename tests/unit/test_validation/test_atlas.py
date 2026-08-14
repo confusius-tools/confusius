@@ -8,17 +8,18 @@ import xarray as xr
 from brainglobe_atlasapi.structure_class import StructuresDict
 
 from confusius.validation import validate_atlas
+from confusius.xarray import create_fusi_dataarray
 
 
 def _make_atlas(
-    dims: tuple[str, ...] = ("z", "y", "x"), mesh_filename: str | None = None
+    shape: tuple[int, int, int] = (3, 3, 3), mesh_filename: str | None = None
 ) -> xr.Dataset:
-    """Build a minimal, schema-valid atlas Dataset for validation tests.
+    """Build a minimal, schema-valid, canonical (indexed) atlas Dataset for validation tests.
 
-    `mesh_filename` sets the root structure's mesh path (left `None`, i.e. no mesh, by
-    default) so mesh-availability checks can be exercised.
+    `shape` is `(k, j, i)`; pass a singleton `k` (e.g. `(1, 3, 3)`) for a resampled
+    single-slice atlas. `mesh_filename` sets the root structure's mesh path (left
+    `None`, i.e. no mesh, by default) so mesh-availability checks can be exercised.
     """
-    shape = (3,) * len(dims)
     structures = [
         {
             "id": 997,
@@ -29,7 +30,12 @@ def _make_atlas(
             "mesh_filename": mesh_filename,
         }
     ]
-    mk = lambda data: xr.DataArray(data, dims=dims)
+
+    def mk(data: np.ndarray) -> xr.DataArray:
+        return create_fusi_dataarray(
+            data, dims=["k", "j", "i"], spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0)
+        )
+
     return xr.Dataset(
         {
             "reference": mk(np.ones(shape, dtype=np.float32)),
@@ -51,9 +57,9 @@ def test_valid_atlas_passes() -> None:
     validate_atlas(_make_atlas())
 
 
-def test_valid_2d_atlas_passes() -> None:
-    """A resampled single-slice atlas (2D) is accepted."""
-    validate_atlas(_make_atlas(dims=("y", "x")))
+def test_valid_single_slice_atlas_passes() -> None:
+    """A resampled single-slice atlas (singleton k) is accepted."""
+    validate_atlas(_make_atlas(shape=(1, 3, 3)))
 
 
 def test_non_dataset_raises_type_error() -> None:
@@ -157,16 +163,63 @@ def test_mismatched_variable_affines_raise() -> None:
         validate_atlas(ds)
 
 
+_MOCK_STRUCTURES = [
+    {
+        "id": 997,
+        "acronym": "root",
+        "name": "whole brain",
+        "rgb_triplet": [200, 200, 200],
+        "structure_id_path": [997],
+        "mesh_filename": None,
+    }
+]
+
+
 def test_non_spatial_dims_raise() -> None:
+    """A dim outside (k, j, i) fails the grid check, before an index is required."""
+    ds = xr.Dataset(
+        {
+            "reference": xr.DataArray(
+                np.ones((3, 3, 3), dtype=np.float32), dims=("k", "j", "w")
+            ),
+            "annotation": xr.DataArray(
+                np.zeros((3, 3, 3), dtype=np.int32), dims=("k", "j", "w")
+            ),
+            "hemispheres": xr.DataArray(
+                np.ones((3, 3, 3), dtype=np.int8), dims=("k", "j", "w")
+            ),
+        },
+        attrs={"structures": StructuresDict(_MOCK_STRUCTURES)},
+    )
     with pytest.raises(ValueError, match="subset"):
-        validate_atlas(_make_atlas(dims=("z", "y", "w")))
+        validate_atlas(ds)
+
+
+def test_missing_index_raises() -> None:
+    """Variables on canonical voxel dims but without a VoxelToWorldIndex are invalid."""
+    ds = xr.Dataset(
+        {
+            "reference": xr.DataArray(
+                np.ones((3, 3, 3), dtype=np.float32), dims=("k", "j", "i")
+            ),
+            "annotation": xr.DataArray(
+                np.zeros((3, 3, 3), dtype=np.int32), dims=("k", "j", "i")
+            ),
+            "hemispheres": xr.DataArray(
+                np.ones((3, 3, 3), dtype=np.int8), dims=("k", "j", "i")
+            ),
+        },
+        attrs={"structures": StructuresDict(_MOCK_STRUCTURES)},
+    )
+    with pytest.raises(ValueError, match="VoxelToWorldIndex"):
+        validate_atlas(ds)
 
 
 def test_mismatched_dims_raise() -> None:
     ds = _make_atlas()
-    # Give annotation a different (but still spatial) dim set than reference.
+    # Give annotation a different (but still valid voxel) dim set than reference.
     ds = ds.assign(
-        annotation=xr.DataArray(np.zeros((3, 3), dtype=np.int32), dims=("y", "x"))
+        annotation=xr.DataArray(np.zeros((3, 3), dtype=np.int32), dims=("j", "i"))
     )
     with pytest.raises(ValueError, match="share dimensions"):
         validate_atlas(ds)
