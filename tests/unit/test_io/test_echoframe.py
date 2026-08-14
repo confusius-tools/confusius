@@ -8,7 +8,20 @@ import numpy as np
 import pytest
 import xarray as xr
 
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius.io.echoframe import load_echoframe_dat, load_echoframe_metadata
+
+_VOXEL_DIM_BY_WORLD_NAME = dict(zip(SPATIAL_DIMS, VOXEL_DIMS, strict=True))
+
+
+def get_world_coord_1d(data: xr.DataArray, name: str) -> np.ndarray:
+    """Return a world coordinate's 1D values, reducing other axis-aligned dims."""
+    coord = data.coords[name]
+    dim = _VOXEL_DIM_BY_WORLD_NAME[name]
+    if coord.dims == (dim,):
+        return coord.values
+    others = {d: 0 for d in coord.dims if d != dim}
+    return coord.isel(others).values
 
 
 def _create_echoframe_metadata(
@@ -194,13 +207,13 @@ class TestLoadEchoFrameDat:
         data = load_echoframe_dat(dat_path, meta_path)
 
         assert isinstance(data, xr.DataArray)
-        assert data.dims == ("time", "z", "y", "x")
-        assert data.shape == (6, 1, 6, 4)  # (n_blocks * n_volumes, 1, n_z, n_x)
+        assert data.dims == ("time", "k", "j", "i")
+        assert data.shape == (6, 1, 6, 4)  # (n_blocks * n_volumes, 1, n_j, n_i)
         assert data.dtype == np.complex64
 
         # Verify values match the known pattern (block_idx+1, 1).
-        block_0 = data.isel(time=0, z=0, y=0, x=0).compute().item()
-        block_1 = data.isel(time=3, z=0, y=0, x=0).compute().item()
+        block_0 = data.isel(time=0, k=0, j=0, i=0).compute().item()
+        block_1 = data.isel(time=3, k=0, j=0, i=0).compute().item()
         assert block_0 == complex(1.0, 1.0), "Block 0 corrupted"
         assert block_1 == complex(2.0, 1.0), "Block 1 corrupted"
 
@@ -219,8 +232,8 @@ class TestLoadEchoFrameDat:
         expected_block_0 = complex(1.0, 1.0)
         expected_block_1 = complex(2.0, 1.0)
 
-        block_0 = data.isel(time=0, z=0, y=0, x=0).compute().item()
-        block_1 = data.isel(time=3, z=0, y=0, x=0).compute().item()
+        block_0 = data.isel(time=0, k=0, j=0, i=0).compute().item()
+        block_1 = data.isel(time=3, k=0, j=0, i=0).compute().item()
         assert block_0 == expected_block_0, "Block 0 is corrupted"
         assert block_1 == expected_block_1, (
             f"Block 1 is corrupted! Got {block_1}, expected {expected_block_1}. "
@@ -281,10 +294,10 @@ class TestLoadEchoFrameDat:
         assert first_block.shape == (3, 1, 6, 4)
         assert last_block.shape == (3, 1, 6, 4)
         # Known pattern: block 0 → complex(1, 1), block 1 → complex(2, 1).
-        assert first_block.isel(time=0, z=0, y=0, x=0).compute().item() == complex(
+        assert first_block.isel(time=0, k=0, j=0, i=0).compute().item() == complex(
             1.0, 1.0
         )
-        assert last_block.isel(time=0, z=0, y=0, x=0).compute().item() == complex(
+        assert last_block.isel(time=0, k=0, j=0, i=0).compute().item() == complex(
             2.0, 1.0
         )
 
@@ -304,9 +317,11 @@ class TestLoadEchoFrameDat:
         data = load_echoframe_dat(dat_path, meta_path)
         meta = load_echoframe_metadata(meta_path)
 
-        np.testing.assert_allclose(data.coords["x"].values, meta["lateral_coords"])
-        np.testing.assert_allclose(data.coords["y"].values, meta["axial_coords"])
-        np.testing.assert_allclose(data.coords["z"].values, [0.0])
+        np.testing.assert_allclose(
+            get_world_coord_1d(data, "x"), meta["lateral_coords"]
+        )
+        np.testing.assert_allclose(get_world_coord_1d(data, "y"), meta["axial_coords"])
+        np.testing.assert_allclose(get_world_coord_1d(data, "z"), [0.0])
         np.testing.assert_allclose(
             data.coords["time"].values,
             np.arange(6) / meta["compound_sampling_frequency"],
