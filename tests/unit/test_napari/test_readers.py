@@ -15,7 +15,11 @@ import pytest
 import xarray as xr
 
 from confusius._napari._io._readers import read_nifti, read_scan, read_zarr
-from confusius._utils.geometry import attach_voxel_to_world_index
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    has_axis_aligned_voxel_to_world_index,
+    has_voxel_to_world_index,
+)
 from confusius.io.loadsave import save
 
 # ---------------------------------------------------------------------------
@@ -131,37 +135,6 @@ class TestReadZarrGating:
 # ---------------------------------------------------------------------------
 
 
-def _make_voxel_to_world_volume() -> xr.DataArray:
-    """Create a small oblique volume for reader tests."""
-    data = xr.DataArray(
-        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
-        dims=["k", "j", "i"],
-        coords={
-            "k": [0.0, 1.0],
-            "j": [0.0, 1.0, 2.0],
-            "i": [0.0, 1.0, 2.0, 3.0],
-        },
-    )
-    return attach_voxel_to_world_index(
-        data,
-        np.array(
-            [
-                [0.4, 0.0, 0.1, 10.0],
-                [0.1, 0.3, 0.0, 20.0],
-                [0.0, 0.05, 0.25, 30.0],
-                [0.0, 0.0, 0.0, 1.0],
-            ]
-        ),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
-    )
-
-
 class TestReaderLayerData:
     """The ReaderFunction returns physically correct napari LayerData."""
 
@@ -231,10 +204,18 @@ class TestReaderLayerData:
 
         assert kwargs["units"] == ["mm", "mm", "mm"]
 
-    def test_voxel_to_world_is_resampled_to_world_grid(self, tmp_path: Path) -> None:
-        """Oblique reader output uses an axis-aligned world grid for napari."""
+    def test_voxel_to_world_is_resampled_to_world_grid(
+        self, tmp_path: Path, sample_fusi_3d_oblique
+    ) -> None:
+        """Oblique reader output uses an axis-aligned world grid for napari.
+
+        The resampled grid stays on native voxel dims with its voxel-to-world index
+        intact (like the axis-aligned case); layers are always positioned in world
+        space, so `axis_labels` shows world names regardless -- matching
+        plot_napari's display convention.
+        """
         path = tmp_path / "cti.zarr"
-        save(_make_voxel_to_world_volume(), path)
+        save(sample_fusi_3d_oblique, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -242,14 +223,19 @@ class TestReaderLayerData:
 
         assert layer_type == "image"
         assert kwargs["axis_labels"] == ["z", "y", "x"]
-        assert kwargs["metadata"]["xarray"].dims == ("z", "y", "x")
+        assert kwargs["metadata"]["xarray"].dims == ("k", "j", "i")
+        assert has_voxel_to_world_index(kwargs["metadata"]["xarray"])
+        # The displayed layer is actually resampled onto an axis-aligned grid, unlike
+        # the sheared source data.
+        assert not has_axis_aligned_voxel_to_world_index(sample_fusi_3d_oblique)
+        assert has_axis_aligned_voxel_to_world_index(kwargs["metadata"]["xarray"])
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
         npt.assert_allclose(kwargs["translate"], [10.0, 20.0, 30.0], rtol=1e-5)
 
     def test_axis_aligned_voxel_to_world_uses_world_display_by_default(
         self, tmp_path: Path
     ) -> None:
-        """Axis-aligned reader output uses world z/y/x display by default."""
+        """Axis-aligned reader output keeps native voxel dims but shows world labels."""
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
@@ -277,7 +263,8 @@ class TestReaderLayerData:
         assert kwargs["axis_labels"] == ["z", "y", "x"]
         npt.assert_allclose(kwargs["scale"], [0.4, 0.3, 0.25], rtol=1e-5)
         npt.assert_allclose(kwargs["translate"], [0.0, 0.0, 0.0], rtol=1e-5)
-        assert kwargs["metadata"]["xarray"].dims == ("z", "y", "x")
+        assert kwargs["metadata"]["xarray"].dims == ("k", "j", "i")
+        assert has_voxel_to_world_index(kwargs["metadata"]["xarray"])
         assert kwargs["metadata"]["source_xarray"].dims == ("k", "j", "i")
 
     def test_default_colormap_is_gray(self, zarr_3d_path: Path) -> None:

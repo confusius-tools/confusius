@@ -74,6 +74,97 @@ def build_direct_label_colormap(data: xr.DataArray) -> DirectLabelColormap | Non
     return DirectLabelColormap(color_dict=color_dict, background_value=0)
 
 
+def get_napari_scale_translate_units(
+    data: xr.DataArray,
+) -> tuple[
+    list[float], list[float], list[str], list[str | None], list[str], dict[str, float]
+]:
+    """Return napari layer geometry metadata for `data`.
+
+    `data` may or may not carry a voxel-to-world index here: this is meant to run
+    after `resample_to_axis_aligned_world_grid`, which resamples oblique
+    voxel-to-world data onto an axis-aligned world grid, keeping the index (napari's
+    `scale`/`translate` model can't represent oblique geometry, but an axis-aligned
+    grid needs no renaming to be representable); already axis-aligned input is
+    returned unchanged, index and all. Both indexed and plain-coordinate input are
+    legitimate here, so spacing/origin are read via the plain-coordinate helpers with
+    a voxel-to-world-aware override, not via `.fusi.spacing`/`.fusi.origin` (which now
+    require an index unconditionally).
+
+    Parameters
+    ----------
+    data : xarray.DataArray
+        DataArray to compute napari layer geometry for.
+
+    Returns
+    -------
+    scale : list[float]
+        Per-dimension scale, in `data.dims` order.
+    translate : list[float]
+        Per-dimension translation, in `data.dims` order.
+    axis_labels : list[str]
+        Per-dimension display label, in `data.dims` order: the linked world
+        coordinate name (`z`/`y`/`x`) for a native voxel dim that has one, otherwise
+        the dimension's own name.
+    units : list[str | None]
+        Per-dimension units, in `data.dims` order.
+    non_uniform : list[str]
+        Dimension names whose coordinates were non-uniform (median spacing used).
+    spacing : dict[str, float]
+        Spacing per dimension name, as used to compute `scale`.
+    """
+    all_dims = [str(dim) for dim in data.dims]
+
+    coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
+    has_index = has_voxel_to_world_index(data)
+    fusi_spacing = data.fusi.spacing if has_index else {}
+    spacing = {
+        dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
+        for dim, fallback in coordinate_spacing.items()
+    }
+    origin = data.fusi.origin if has_index else get_coordinate_origins(data)
+    world_dim = {"k": "z", "j": "y", "i": "x"}
+    scale: list[float] = []
+    translate: list[float] = []
+    axis_labels: list[str] = []
+    for dim in all_dims:
+        world_name = world_dim.get(dim, dim)
+        world_coord = data.coords.get(world_name)
+        if world_coord is not None and world_coord.dims == (dim,):
+            values = np.asarray(world_coord.values, dtype=float)
+            scale.append(
+                spacing.get(
+                    dim, np.float64(world_coord.attrs.get("voxdim", 1.0)).item()
+                )
+            )
+            translate.append(np.float64(values[0]).item())
+            axis_labels.append(world_name)
+        else:
+            scale.append(spacing[dim])
+            translate.append(
+                origin[world_name]
+                if world_name in origin
+                else (
+                    np.float64(
+                        np.asarray(data.coords[dim].values, dtype=float)[0]
+                    ).item()
+                    if dim in data.coords
+                    else 0.0
+                )
+            )
+            axis_labels.append(world_name if world_name in data.coords else dim)
+    units: list[str | None] = []
+    for dim in all_dims:
+        world_name = world_dim.get(dim, dim)
+        if world_name in data.coords:
+            units.append(data.coords[world_name].attrs.get("units"))
+        elif dim in data.coords:
+            units.append(data.coords[dim].attrs.get("units"))
+        else:
+            units.append(None)
+    return scale, translate, axis_labels, units, non_uniform, spacing
+
+
 def convert_dataarray_to_layer_data(
     da: xr.DataArray, name: str
 ) -> tuple[Any, dict[str, Any], Literal["image", "labels"]]:
@@ -95,49 +186,33 @@ def convert_dataarray_to_layer_data(
     layer_type : {"image", "labels"}
         Napari layer type inferred from `da.dtype`.
     """
-    from confusius.plotting._utils import (
-        _materialize_axis_aligned_world_grid_for_display,
-        resample_to_axis_aligned_world_grid,
-    )
+    from confusius.plotting._utils import resample_to_axis_aligned_world_grid
 
-    # `da` may or may not carry a voxel-to-world index past this point:
-    # materialization strips it for display (napari's scale/translate model can't
-    # represent oblique geometry), for both axis-aligned and oblique input alike.
+    # Resampling an oblique input onto an axis-aligned world grid keeps the
+    # voxel-to-world index (see resample_to_axis_aligned_world_grid); already
+    # axis-aligned input is returned unchanged. Either way `da` stays on its native
+    # dims here. Layers are always positioned in world space (scale/translate are
+    # real physical spacing/origin), so axis_labels shows world names (z/y/x) to
+    # honestly reflect what the dims slider actually scrubs through -- matching
+    # plot_napari's display convention, so a file dragged into napari and the same
+    # data passed to plot_napari look identical.
     source_da = da
-    da = _materialize_axis_aligned_world_grid_for_display(da)
     da = resample_to_axis_aligned_world_grid(da)
-    all_dims = list(da.dims)
 
-    spacing, non_uniform = get_coordinate_spacings_best_effort(da)
+    scale, translate, axis_labels, all_units, non_uniform, spacing = (
+        get_napari_scale_translate_units(da)
+    )
     for dim in non_uniform:
         show_warning(
             f"'{dim}' has non-uniform spacing; using median {spacing[dim]:.4g} "
             "(positions along this axis may be approximate)."
         )
-    origin = (
-        da.fusi.origin if has_voxel_to_world_index(da) else get_coordinate_origins(da)
-    )
-
-    scale: list[float] = [spacing[str(d)] for d in all_dims]
-    translate: list[float] = [
-        origin[str(d)]
-        if str(d) in origin
-        else (
-            float(np.asarray(da.coords[d].values, dtype=float)[0])
-            if d in da.coords
-            else 0.0
-        )
-        for d in all_dims
-    ]
-    all_units: list[str | None] = [
-        da.coords[d].attrs.get("units") if d in da.coords else None for d in all_dims
-    ]
 
     kwargs: dict[str, Any] = {
         "name": name,
         "scale": scale,
         "translate": translate,
-        "axis_labels": all_dims,
+        "axis_labels": axis_labels,
         "metadata": {"xarray": da, "source_xarray": source_da},
     }
     if any(u is not None for u in all_units):

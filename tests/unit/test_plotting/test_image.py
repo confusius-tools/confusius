@@ -31,38 +31,6 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
     return coord.isel(others).values
 
 
-def _make_voxel_to_world_volume() -> xr.DataArray:
-    """Create a small voxel-to-world test volume with an oblique slice geometry."""
-    data = xr.DataArray(
-        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
-        dims=["k", "j", "i"],
-        coords={
-            "k": [0.0, 1.0],
-            "j": [0.0, 1.0, 2.0],
-            "i": [0.0, 1.0, 2.0, 3.0],
-        },
-    )
-    voxel_to_world = np.array(
-        [
-            [0.4, 0.0, 0.1, 10.0],
-            [0.1, 0.3, 0.0, 20.0],
-            [0.0, 0.05, 0.25, 30.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-    )
-    return attach_voxel_to_world_index(
-        data,
-        voxel_to_world,
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
-    )
-
-
 def _axes(plotter):
     assert plotter.axes is not None
     return plotter.axes
@@ -524,11 +492,13 @@ class TestPlotVolume:
             (y_sorted[-1] + dy / 2, y_sorted[0] - dy / 2)
         )
 
-    def test_voxel_to_world_slice_geometry_returns_2d_meshes(self):
+    def test_voxel_to_world_slice_geometry_returns_2d_meshes(
+        self, sample_fusi_3d_oblique
+    ):
         """Voxel-to-world slice geometry is projected to 2D corner meshes."""
         from confusius.plotting.image import _slice_edges_and_centers
 
-        data = _make_voxel_to_world_volume().isel(k=0)
+        data = sample_fusi_3d_oblique.isel(k=0)
         x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
             data, "j", "i"
         )
@@ -538,7 +508,9 @@ class TestPlotVolume:
         assert x_centers.shape == (data.sizes["j"], data.sizes["i"])
         assert y_centers.shape == (data.sizes["j"], data.sizes["i"])
 
-    def test_voxel_to_world_slice_geometry_folds_in_extra_active_dimension(self):
+    def test_voxel_to_world_slice_geometry_folds_in_extra_active_dimension(
+        self, sample_fusi_3d_oblique
+    ):
         """Projection folds in a third active (non-row/col) voxel dimension.
 
         Selecting with a list index (`isel(k=[0])`) keeps `k` as a genuine size-1
@@ -547,7 +519,7 @@ class TestPlotVolume:
         """
         from confusius.plotting.image import _slice_edges_and_centers
 
-        data = _make_voxel_to_world_volume().isel(k=[0])
+        data = sample_fusi_3d_oblique.isel(k=[0])
         assert "k" in data.dims
 
         x_edges, y_edges, x_centers, y_centers = _slice_edges_and_centers(
@@ -601,10 +573,10 @@ class TestPlotVolume:
             _slice_edges_and_centers(data.isel(k=0), "j", "i")
 
     def test_voxel_to_world_volume_uses_projected_plane_coordinates(
-        self, matplotlib_pyplot
+        self, matplotlib_pyplot, sample_fusi_3d_oblique
     ):
         """Voxel-to-world volumes plot native planes in projected in-plane coords."""
-        data = _make_voxel_to_world_volume()
+        data = sample_fusi_3d_oblique
         plotter = plot_volume(
             data,
             slice_mode="k",
@@ -623,10 +595,10 @@ class TestPlotVolume:
         assert ax.get_ylabel() == "j in-plane (mm)"
 
     def test_voxel_to_world_volume_resamples_for_world_slice_mode(
-        self, matplotlib_pyplot
+        self, matplotlib_pyplot, sample_fusi_3d_oblique
     ):
         """Voxel-to-world volumes plot world z-slices after axis-aligned resampling."""
-        data = _make_voxel_to_world_volume()
+        data = sample_fusi_3d_oblique
         z_coord = float(np.asarray(_world_coord_1d(data, "z"), dtype=float).mean())
 
         plotter = plot_volume(
@@ -642,11 +614,13 @@ class TestPlotVolume:
         assert ax.get_xlabel() == "x (mm)"
         assert ax.get_ylabel() == "y (mm)"
 
-    def test_voxel_to_world_world_resampling_preserves_per_axis_spacing(self):
+    def test_voxel_to_world_world_resampling_preserves_per_axis_spacing(
+        self, sample_fusi_3d_oblique
+    ):
         """The first world display grid keeps each axis's own world spacing."""
         from confusius.plotting.image import _resample_to_axis_aligned_world_grid
 
-        data = _make_voxel_to_world_volume()
+        data = sample_fusi_3d_oblique
 
         result = _resample_to_axis_aligned_world_grid(data, "z")
 
@@ -744,13 +718,15 @@ class TestCentersToEdges:
 class TestPlottingUtilsVoxelToWorldHelpers:
     """Tests for shared voxel-to-world display helpers in `plotting._utils`."""
 
-    def test_resample_with_plain_reference_missing_a_world_dim_defaults_grid(self):
+    def test_resample_with_plain_reference_missing_a_world_dim_defaults_grid(
+        self, sample_fusi_3d_oblique
+    ):
         """A plain reference DataArray missing one world coordinate falls back to
         an origin of 0.0 and spacing of 1.0 for that axis, instead of raising.
         """
         from confusius.plotting._utils import resample_to_axis_aligned_world_grid
 
-        data = _make_voxel_to_world_volume()
+        data = sample_fusi_3d_oblique
         # `z` is a real dimension but carries no coordinate values at all.
         reference = xr.DataArray(
             np.zeros((2, 3, 4)),
@@ -760,8 +736,13 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         result = resample_to_axis_aligned_world_grid(data, reference=reference)
 
-        assert result.sizes["z"] == 2
-        npt.assert_array_equal(result.coords["z"].values, [0.0, 1.0])
+        # `result` stays on its native voxel dims (k/j/i), still indexed; "z" is a
+        # derived (dense, index-materialized) world coordinate here, not a plain 1D
+        # dimension coordinate, so read the fallback origin/spacing off the index via
+        # `.fusi` instead of diffing `.coords["z"].values` directly.
+        assert result.sizes["k"] == 2
+        assert result.fusi.origin["z"] == pytest.approx(0.0)
+        assert result.fusi.spacing["k"] == pytest.approx(1.0)
 
     def test_resample_derives_spacing_from_affine_not_materialized_array_axis(self):
         """Resampled spacing matches the voxel-to-world affine, not a naive diff
@@ -799,10 +780,15 @@ class TestPlottingUtilsVoxelToWorldHelpers:
 
         result = resample_to_axis_aligned_world_grid(data)
 
+        # `result` stays on its native voxel dims (k/j/i), still indexed, so its own
+        # spacing can be read directly via `.fusi.spacing` instead of diffing a
+        # (possibly multi-dimensional, pre-resample) world coordinate array.
         expected_spacing = data.fusi.spacing
-        for dim, voxel_dim in zip(("z", "y", "x"), ("k", "j", "i"), strict=True):
-            spacing = float(np.diff(result.coords[dim].values)[0])
-            assert spacing == pytest.approx(expected_spacing[voxel_dim])
+        result_spacing = result.fusi.spacing
+        for voxel_dim in ("k", "j", "i"):
+            assert result_spacing[voxel_dim] == pytest.approx(
+                expected_spacing[voxel_dim]
+            )
 
 
 class TestVolumePlotterAddVolume:

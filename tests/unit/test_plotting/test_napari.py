@@ -8,6 +8,8 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    has_axis_aligned_voxel_to_world_index,
+    has_voxel_to_world_index,
 )
 from confusius.plotting import draw_napari_labels, labels_from_layer, plot_napari
 
@@ -22,38 +24,6 @@ def _world_coord_1d(da: xr.DataArray, name: str) -> np.ndarray:
         return coord.values
     others = {d: 0 for d in coord.dims if d != dim}
     return coord.isel(others).values
-
-
-def _make_voxel_to_world_volume() -> xr.DataArray:
-    """Create a small oblique volume for napari display tests."""
-    data = xr.DataArray(
-        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
-        dims=["k", "j", "i"],
-        coords={
-            "k": [0.0, 1.0],
-            "j": [0.0, 1.0, 2.0],
-            "i": [0.0, 1.0, 2.0, 3.0],
-        },
-    )
-    voxel_to_world = np.array(
-        [
-            [0.4, 0.0, 0.1, 10.0],
-            [0.1, 0.3, 0.0, 20.0],
-            [0.0, 0.05, 0.25, 30.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ]
-    )
-    return attach_voxel_to_world_index(
-        data,
-        voxel_to_world,
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
-    )
 
 
 class TestPlotNapari:
@@ -97,24 +67,36 @@ class TestPlotNapari:
         npt.assert_allclose(layer.translate, [10.0, 1.0, 2.0, 3.0], rtol=1e-5)
         viewer.close()
 
-    def test_voxel_to_world_resamples_to_world_grid(self, make_napari_viewer):
-        """Oblique volumes are displayed on an axis-aligned world grid in napari."""
-        data = _make_voxel_to_world_volume()
+    def test_voxel_to_world_resamples_to_world_grid(
+        self, make_napari_viewer, sample_fusi_3d_oblique
+    ):
+        """Oblique volumes are displayed on an axis-aligned world grid in napari.
+
+        The resampled grid stays on native voxel dims with its voxel-to-world index
+        intact (like the axis-aligned case); layers are always positioned in world
+        space, so axis_labels shows world names regardless.
+        """
+        data = sample_fusi_3d_oblique
         viewer = make_napari_viewer()
         _, layer = plot_napari(
             data, viewer=viewer, show_colorbar=False, show_scale_bar=False
         )
 
-        assert layer.metadata["xarray"].dims == ("z", "y", "x")
+        assert layer.metadata["xarray"].dims == ("k", "j", "i")
+        assert has_voxel_to_world_index(layer.metadata["xarray"])
         assert layer.metadata["source_xarray"] is data
         assert tuple(layer.axis_labels) == ("z", "y", "x")
         npt.assert_allclose(layer.translate, [10.0, 20.0, 30.0], rtol=1e-5)
+        # The displayed layer is actually resampled onto an axis-aligned grid,
+        # unlike the sheared source data.
+        assert not has_axis_aligned_voxel_to_world_index(data)
+        assert has_axis_aligned_voxel_to_world_index(layer.metadata["xarray"])
         viewer.close()
 
-    def test_axis_aligned_voxel_to_world_uses_native_display_by_default(
+    def test_axis_aligned_voxel_to_world_uses_world_display_by_default(
         self, make_napari_viewer
     ):
-        """Axis-aligned data keeps native k/j/i display by default in napari."""
+        """Axis-aligned data keeps native voxel dims but shows world display labels."""
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
@@ -138,7 +120,7 @@ class TestPlotNapari:
 
         assert layer.metadata["xarray"] is data
         assert layer.metadata["source_xarray"] is data
-        assert tuple(layer.axis_labels) == ("k", "j", "i")
+        assert tuple(layer.axis_labels) == ("z", "y", "x")
         npt.assert_allclose(layer.scale, [0.4, 0.3, 0.25], rtol=1e-5)
         npt.assert_allclose(layer.translate, [0.0, 0.0, 0.0], rtol=1e-5)
         viewer.close()

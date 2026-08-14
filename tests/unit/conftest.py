@@ -622,6 +622,32 @@ def sample_fusi_3dt(rng):
 
 
 @pytest.fixture
+def sample_fusi_3d_oblique():
+    """Small oblique (sheared) voxel-to-world (k, j, i) volume.
+
+    The oblique sibling of `sample_fusi_3d`: same canonical data model, but with a
+    sheared voxel-to-world affine instead of an axis-aligned one, for tests that
+    specifically need to exercise oblique-geometry code paths (resampling onto an
+    axis-aligned world grid, world-name axis labels, projected-plane slicing, etc.).
+
+    Shape: (2, 3, 4) -- deliberately small, independent of sample_fusi_3d's own shape.
+    """
+    voxel_to_world = np.array(
+        [
+            [0.4, 0.0, 0.1, 10.0],
+            [0.1, 0.3, 0.0, 20.0],
+            [0.0, 0.05, 0.25, 30.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    return create_fusi_dataarray(
+        np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
+        dims=("k", "j", "i"),
+        voxel_to_world=voxel_to_world,
+    )
+
+
+@pytest.fixture
 def sample_iq_3dt(rng):
     """Complex-valued 3D+t volume (time, k, j, i) for IQ processing tests.
 

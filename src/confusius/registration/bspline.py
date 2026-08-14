@@ -597,7 +597,8 @@ def _get_dim_keyed_origin(data: xr.DataArray) -> dict[str, float]:
 
     `.fusi.origin` keys voxel-to-world spatial dims by their world coordinate name
     (e.g. `"z"`), not by the native voxel dimension name (e.g. `"k"`) used elsewhere
-    (e.g. `.fusi.spacing`, `data.dims`). This aligns the two conventions.
+    (e.g. `.fusi.spacing`, `data.dims`). This aligns the two conventions, keeping any
+    non-spatial dims (e.g. `time`) as `.fusi.origin` already keys them.
 
     Parameters
     ----------

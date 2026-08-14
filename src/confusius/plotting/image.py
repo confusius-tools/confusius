@@ -244,8 +244,12 @@ def _resample_to_axis_aligned_world_grid(
     if slice_mode not in world_dims:
         return data
 
-    data = _materialize_axis_aligned_world_grid_for_display(data)
-    return _shared_resample_to_axis_aligned_world_grid(data, reference=reference)
+    # The shared resampler now keeps its output canonical (native voxel dims, still
+    # indexed) even for oblique input; this caller's own dim-name-based slicing
+    # (dim_row/dim_col/slice_mode comparisons against "z"/"y"/"x") needs the
+    # world-renamed form, so materialize after resampling rather than before.
+    resampled = _shared_resample_to_axis_aligned_world_grid(data, reference=reference)
+    return _materialize_axis_aligned_world_grid_for_display(resampled)
 
 
 def _slice_edges_and_centers(

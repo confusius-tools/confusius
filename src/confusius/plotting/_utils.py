@@ -17,6 +17,7 @@ from confusius._utils.geometry import (
     get_voxel_to_world_spatial_dims,
     has_axis_aligned_voxel_to_world_index,
     has_voxel_to_world_index,
+    update_voxel_to_world_coord_attrs,
 )
 from confusius._utils.stack import find_stack_level
 
@@ -278,8 +279,9 @@ def resample_to_axis_aligned_world_grid(
     Returns
     -------
     xarray.DataArray
-        Axis-aligned world-grid DataArray when `data` has voxel-to-world geometry;
-        otherwise the original input.
+        Axis-aligned world-grid DataArray (still canonical: native voxel dims with a
+        voxel-to-world index) when `data` has voxel-to-world geometry; otherwise the
+        original input.
     """
     if not has_voxel_to_world_index(data) or has_axis_aligned_voxel_to_world_index(
         data
@@ -374,9 +376,14 @@ def resample_to_axis_aligned_world_grid(
             output_origin=origin,
         )
 
-    result = _materialize_axis_aligned_world_grid_for_display(result)
-    for dim in world_dims:
-        result.coords[dim].attrs = data.coords[dim].attrs.copy()
+    # `resample_volume`/`resample_like` always build canonical (voxel-dim, indexed)
+    # output; carry over the source world coordinates' attrs (units, etc.) via the
+    # index-aware helper rather than a direct `.attrs =` assignment, since the world
+    # coordinates here are index-derived and a plain mutation would be silently
+    # discarded by the next operation that touches the index.
+    result = update_voxel_to_world_coord_attrs(
+        result, {dim: dict(data.coords[dim].attrs) for dim in world_dims}
+    )
     return result
 
 

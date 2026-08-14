@@ -1,10 +1,12 @@
 """Napari-based visualization utilities for fUSI data.
 
 ConfUSIus loads SCAN and NIfTI volumes with native voxel dimensions such as `k/j/i`
-and linked world coordinates such as `z/y/x`, defined by a voxel-to-world
- affine. Napari display uses world `z/y/x` axes: axis-aligned data is promoted
-to a plain world grid without interpolation, while oblique/sheared data is
-resampled to an axis-aligned world display grid.
+and linked world coordinates such as `z/y/x`, defined by a voxel-to-world affine.
+Displayed data keeps its native voxel dims and voxel-to-world index throughout --
+napari's `axis_labels` layer parameter supplies the world-name (`z`/`y`/`x`) display
+labels, so there is no need to rename the array's own dims. Oblique/sheared data is
+resampled onto an axis-aligned world grid first, since napari's `scale`/`translate`
+model can't represent oblique geometry; axis-aligned data needs no resampling.
 """
 
 import warnings
@@ -14,14 +16,11 @@ import napari
 import numpy as np
 import xarray as xr
 
-from confusius._utils.coordinates import (
-    get_coordinate_origins,
-    get_coordinate_spacings_best_effort,
-)
 from confusius._utils.geometry import has_voxel_to_world_index
 from confusius._utils.napari import (
     build_direct_label_colormap,
     build_roi_labels_features,
+    get_napari_scale_translate_units,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.plotting._utils import (
@@ -34,72 +33,6 @@ from confusius.timing import ensure_time_acquisition_attrs
 if TYPE_CHECKING:
     from napari import Viewer
     from napari.layers import Image, Labels
-
-
-def _get_napari_scale_translate_units(
-    data: xr.DataArray,
-) -> tuple[list[float], list[float], list[str | None], list[str], dict[str, float]]:
-    """Return napari layer geometry metadata for `data`.
-
-    `data` may or may not carry a voxel-to-world index here: this runs after
-    `resample_to_axis_aligned_world_grid`, which materializes oblique
-    voxel-to-world data onto plain world dims for display (napari's `scale`/
-    `translate` model can't represent oblique geometry), shedding the index in
-    the process -- while axis-aligned voxel-to-world input keeps it. Both states
-    are legitimate here, so spacing/origin are read via the plain-coordinate
-    helpers with a voxel-to-world-aware override, not via `.fusi.spacing`/
-    `.fusi.origin` (which now require an index unconditionally).
-    """
-    all_dims = list(data.dims)
-
-    coordinate_spacing, non_uniform = get_coordinate_spacings_best_effort(data)
-    has_index = has_voxel_to_world_index(data)
-    fusi_spacing = data.fusi.spacing if has_index else {}
-    spacing = {
-        dim: fusi_spacing[dim] if fusi_spacing.get(dim) is not None else fallback
-        for dim, fallback in coordinate_spacing.items()
-    }
-    origin = data.fusi.origin if has_index else get_coordinate_origins(data)
-    world_dim = {"k": "z", "j": "y", "i": "x"}
-    scale: list[float] = []
-    translate: list[float] = []
-    for dim in all_dims:
-        dim_name = str(dim)
-        world_name = world_dim.get(dim_name, dim_name)
-        world_coord = data.coords.get(world_name)
-        if world_coord is not None and world_coord.dims == (dim,):
-            values = np.asarray(world_coord.values, dtype=float)
-            scale.append(
-                spacing.get(
-                    dim_name,
-                    np.float64(world_coord.attrs.get("voxdim", 1.0)).item(),
-                )
-            )
-            translate.append(np.float64(values[0]).item())
-        else:
-            scale.append(spacing[dim_name])
-            translate.append(
-                origin[world_name]
-                if world_name in origin
-                else (
-                    np.float64(
-                        np.asarray(data.coords[dim].values, dtype=float)[0]
-                    ).item()
-                    if dim in data.coords
-                    else 0.0
-                )
-            )
-    units: list[str | None] = []
-    for dim in all_dims:
-        dim_name = str(dim)
-        world_name = world_dim.get(dim_name, dim_name)
-        if world_name in data.coords:
-            units.append(data.coords[world_name].attrs.get("units"))
-        elif dim in data.coords:
-            units.append(data.coords[dim].attrs.get("units"))
-        else:
-            units.append(None)
-    return scale, translate, units, non_uniform, spacing
 
 
 def plot_napari(
@@ -153,10 +86,11 @@ def plot_napari(
     -----
     Complex-valued data is converted to magnitude (`abs(data)`) before display.
 
-    Napari display always uses world `z/y/x` axes. Axis-aligned data is promoted to
-    a plain world grid without interpolation. Oblique or sheared data is resampled
-    to an axis-aligned world grid because this display path does not yet pass
-    `data.fusi.affine`'s rotation/shear through as a napari layer `affine`.
+    Napari's axis labels always show world `z`/`y`/`x` names, even though the
+    displayed layer keeps `data`'s native voxel dims and index. Oblique or sheared
+    data is resampled to an axis-aligned world grid first, because this display path
+    does not yet pass `data.fusi.affine`'s rotation/shear through as a napari layer
+    `affine`.
 
     If all displayed dimensions have coordinates, their spacing is used as the scale
     parameter for napari to ensure correct world scaling. If any displayed dimension
@@ -228,8 +162,8 @@ def plot_napari(
             "Ensure 'dim_order' contains all spatial dimension names."
         )
 
-    scale, coord_translates, all_units, non_uniform, spacing = (
-        _get_napari_scale_translate_units(data)
+    scale, coord_translates, axis_labels, all_units, non_uniform, spacing = (
+        get_napari_scale_translate_units(data)
     )
     for dim in non_uniform:
         warnings.warn(
@@ -255,7 +189,12 @@ def plot_napari(
                     order.append(all_dims.index(dim))
             layer_kwargs["order"] = tuple(order)
 
-        layer_kwargs.setdefault("axis_labels", all_dims)
+        # Layers are always positioned in world space (scale/translate are real
+        # physical spacing/origin, and oblique input is resampled onto an
+        # axis-aligned world grid), so axis_labels shows world names (z/y/x) to
+        # honestly reflect what the dims slider actually scrubs through, even
+        # though `data` itself stays on its native voxel dims with its index intact.
+        layer_kwargs.setdefault("axis_labels", axis_labels)
 
         if "colormap" not in layer_kwargs:
             cmap_attr = data.attrs.get("cmap")
