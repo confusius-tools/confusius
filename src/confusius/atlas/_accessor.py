@@ -251,6 +251,8 @@ class AtlasAccessor:
 
         Raises
         ------
+        TypeError
+            If `ds` is not a well-formed atlas Dataset.
         KeyError
             If any requested region acronym or index is not found in the atlas.
         ValueError
@@ -313,6 +315,8 @@ class AtlasAccessor:
 
         Raises
         ------
+        TypeError
+            If `ds` is not a well-formed atlas Dataset.
         KeyError
             If the requested region is not found in the atlas.
         ValueError
@@ -452,7 +456,10 @@ class AtlasAccessor:
         origin : sequence of float
             World origin along each output axis, in `dims` order.
         dims : sequence of str
-            Dimension names of the output atlas grid.
+            Dimension names of the output atlas grid, in the same order as `shape`,
+            `spacing`, and `origin`. Must be a subset of the native voxel dims
+            `("k", "j", "i")`; entries outside that set are silently excluded when
+            building the voxel-to-world affine.
         reference_interpolation : {"linear", "nearest", "bspline"}, default: "linear"
             Interpolation used for the `reference` volume.
         sitk_threads : int, default: -1
@@ -462,6 +469,13 @@ class AtlasAccessor:
         -------
         xarray.Dataset
             Resampled atlas Dataset on the requested grid.
+
+        Raises
+        ------
+        ValueError
+            If `dims`, `shape`, `spacing`, and `origin` do not all have the same
+            length, or if `dims` contains none of the native voxel dims `"k"`, `"j"`,
+            `"i"`.
         """
         dims = [str(dim) for dim in dims]
         coords = {
@@ -627,6 +641,8 @@ def get_atlas_masks(
 
     Raises
     ------
+    TypeError
+        If `ds` is not a well-formed atlas Dataset.
     KeyError
         If any requested region acronym or index is not found in the atlas.
     ValueError
@@ -748,6 +764,8 @@ def get_atlas_mesh(
 
     Raises
     ------
+    TypeError
+        If `ds` is not a well-formed atlas Dataset.
     KeyError
         If the requested region is not found in the atlas.
     ValueError
