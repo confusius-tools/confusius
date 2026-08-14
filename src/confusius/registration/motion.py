@@ -50,13 +50,10 @@ def _validate_affines(
             raise ValueError(
                 f"affines[{i}] must be a square 2D array, got shape {affine.shape}."
             )
-        if affine.shape not in {(3, 3), (4, 4)}:
+        if affine.shape != (4, 4):
             raise ValueError(
-                f"affines[{i}] must have shape (3, 3) or (4, 4), got shape "
-                f"{affine.shape}."
+                f"affines[{i}] must have shape (4, 4), got shape {affine.shape}."
             )
-        if validated and affine.shape != validated[0].shape:
-            raise ValueError("All affine matrices must have the same dimensionality.")
         validated.append(affine)
 
     return validated
@@ -94,14 +91,6 @@ def extract_motion_parameters(
     params_list = []
 
     for affine in affines_validated:
-        if affine.shape == (3, 3):
-            linear = affine[:2, :2]
-            rotation = 0.0
-            if np.linalg.det(linear) > 0:
-                rotation = float(np.arctan2(linear[1, 0], linear[0, 0]))
-            params_list.append([rotation, float(affine[0, 2]), float(affine[1, 2])])
-            continue
-
         T, R, _Z, _S = decompose_affine(affine)
         rot_0, rot_1, rot_2 = _get_euler_xyz_from_rotation_matrix(R)
         params_list.append([rot_0, rot_1, rot_2, float(T[0]), float(T[1]), float(T[2])])
@@ -177,31 +166,14 @@ def _get_motion_parameter_columns(
     ValueError
         If `params` does not have 6 columns.
     """
-    from confusius._utils.geometry import (
-        get_voxel_to_world_coord_names,
-        has_voxel_to_world_index,
-    )
+    from confusius._utils.geometry import get_voxel_to_world_coord_names
 
-    spatial_dims = (
-        get_voxel_to_world_coord_names(reference)
-        if has_voxel_to_world_index(reference)
-        else tuple(str(dim) for dim in reference.dims)
-    )
+    spatial_dims = get_voxel_to_world_coord_names(reference)
     axis_index = {dim: i for i, dim in enumerate(spatial_dims)}
-
-    if params.shape[1] == 3:
-        return [
-            ("rotation", 0),
-            *[
-                (f"trans_{dim}", 1 + axis_index[dim])
-                for dim in ("x", "y")
-                if dim in axis_index
-            ],
-        ]
 
     if params.shape[1] != 6:
         raise ValueError(
-            f"Expected motion parameters with 3 or 6 columns, got {params.shape[1]}."
+            f"Expected motion parameters with 6 columns, got {params.shape[1]}."
         )
 
     columns: list[tuple[str, int]] = []
@@ -278,44 +250,21 @@ def compute_framewise_displacement(
 
     affines_validated = _validate_affines(affines)
     n_frames = len(affines_validated)
-    ndim = affines_validated[0].shape[0] - 1
 
-    from confusius._utils.geometry import (
-        get_voxel_to_world_coord_names,
-        has_voxel_to_world_index,
-    )
+    from confusius._utils.geometry import get_voxel_to_world_coord_names
 
-    spatial_names = (
-        get_voxel_to_world_coord_names(reference)
-        if has_voxel_to_world_index(reference)
-        else tuple(str(dim) for dim in reference.dims)
-    )
-    if len(spatial_names) != ndim:
-        raise ValueError(
-            "reference dimensionality must match affine dimensionality; got "
-            f"{len(spatial_names)}D reference and {ndim}D affines."
-        )
-
-    if has_voxel_to_world_index(reference):
-        coord_arrays = [
-            np.asarray(reference.coords[name].values, dtype=float)
-            for name in spatial_names
-        ]
-        if (
-            len({array.shape for array in coord_arrays}) == 1
-            and coord_arrays[0].shape == reference.shape
-        ):
-            points = np.stack([array.ravel() for array in coord_arrays], axis=1)
-        else:
-            grids = np.meshgrid(*coord_arrays, indexing="ij")
-            points = np.stack([grid.ravel() for grid in grids], axis=1)
+    spatial_names = get_voxel_to_world_coord_names(reference)
+    coord_arrays = [
+        np.asarray(reference.coords[name].values, dtype=float) for name in spatial_names
+    ]
+    if (
+        len({array.shape for array in coord_arrays}) == 1
+        and coord_arrays[0].shape == reference.shape
+    ):
+        points = np.stack([array.ravel() for array in coord_arrays], axis=1)
     else:
-        coords_1d = [
-            np.asarray(reference.coords[str(dim)].values, dtype=float)
-            for dim in reference.dims
-        ]
-        grids = np.meshgrid(*coords_1d, indexing="ij")
-        points = np.stack([g.ravel() for g in grids], axis=1)
+        grids = np.meshgrid(*coord_arrays, indexing="ij")
+        points = np.stack([grid.ravel() for grid in grids], axis=1)
 
     if mask is not None:
         points = points[mask.ravel()]
@@ -327,10 +276,10 @@ def compute_framewise_displacement(
     # Framewise displacement is strictly pairwise, so transform one frame at a time and
     # retain only the previous frame's points instead of every frame's transformed grid.
     first = affines_validated[0]
-    prev_pts = (first[:ndim, :ndim] @ points.T).T + first[:ndim, ndim]
+    prev_pts = (first[:3, :3] @ points.T).T + first[:3, 3]
     for t in range(n_frames - 1):
         nxt = affines_validated[t + 1]
-        next_pts = (nxt[:ndim, :ndim] @ points.T).T + nxt[:ndim, ndim]
+        next_pts = (nxt[:3, :3] @ points.T).T + nxt[:3, 3]
         displacements = np.linalg.norm(next_pts - prev_pts, axis=1)
         mean_fd[t] = np.mean(displacements)
         max_fd[t] = np.max(displacements)

@@ -21,14 +21,6 @@ def _with_spatial_dims(reference, dims):
     )
 
 
-def _translation_affine_2d(tx, ty):
-    """Return a (3, 3) 2D translation affine."""
-    A = np.eye(3)
-    A[0, 2] = tx
-    A[1, 2] = ty
-    return A
-
-
 def _translation_affine_3d(tx, ty, tz):
     """Return a (4, 4) 3D translation affine."""
     A = np.eye(4)
@@ -90,49 +82,22 @@ class TestValidateAffines:
             _validate_affines([np.zeros((3, 4))])
 
     def test_rejects_wrong_affine_shape(self):
-        """Only homogeneous 2D and 3D affine shapes are accepted."""
+        """Only homogeneous 3D affine shapes are accepted."""
         import pytest
 
-        with pytest.raises(ValueError, match=r"shape \(3, 3\) or \(4, 4\)"):
+        with pytest.raises(ValueError, match=r"shape \(4, 4\)"):
             _validate_affines([np.eye(5)])
 
-    def test_rejects_mixed_affine_dimensionality(self):
-        """All affine matrices must have the same dimensionality."""
+    def test_rejects_2d_affine_shape(self):
+        """A (3, 3) 2D affine is no longer an accepted shape."""
         import pytest
 
-        with pytest.raises(ValueError, match="same dimensionality"):
-            _validate_affines([np.eye(3), np.eye(4)])
+        with pytest.raises(ValueError, match=r"shape \(4, 4\)"):
+            _validate_affines([np.eye(3)])
 
 
 class TestExtractMotionParameters:
     """Tests for extract_motion_parameters function."""
-
-    def test_2d_translation_only(self):
-        """2D pure translation extracts [0, tx, ty]."""
-        affine = _translation_affine_2d(tx=2.0, ty=3.0)
-        params = extract_motion_parameters([affine])
-
-        assert params.shape == (1, 3)
-        assert_allclose(params[0, 0], 0.0, atol=1e-6)
-        assert_allclose(params[0, 1], 2.0, atol=1e-6)
-        assert_allclose(params[0, 2], 3.0, atol=1e-6)
-
-    def test_2d_identity_gives_zeros(self):
-        """2D identity affine extracts all-zero parameters."""
-        params = extract_motion_parameters([np.eye(3)])
-        assert params.shape == (1, 3)
-        assert_allclose(params[0], [0.0, 0.0, 0.0], atol=1e-6)
-
-    def test_2d_reflection_affine_keeps_valid_rotation_and_translation(self):
-        """2D reflection-like affines still return stable motion parameters."""
-        affine = np.eye(3)
-        affine[0, 0] = -1.0
-        affine[0, 2] = 1.0
-        affine[1, 2] = 2.0
-
-        params = extract_motion_parameters([affine])
-
-        assert_allclose(params[0], [0.0, 1.0, 2.0], atol=1e-6)
 
     def test_3d_translation_only(self):
         """3D pure translation extracts [0, 0, 0, tx, ty, tz]."""
@@ -152,12 +117,12 @@ class TestExtractMotionParameters:
 
     def test_multiple_transforms(self):
         """Multiple affines return stacked parameters."""
-        affines = [np.eye(3), _translation_affine_2d(2.0, 3.0)]
+        affines = [np.eye(4), _translation_affine_3d(2.0, 3.0, 4.0)]
         params = extract_motion_parameters(affines)
 
-        assert params.shape == (2, 3)
-        assert_allclose(params[0], [0.0, 0.0, 0.0], atol=1e-6)
-        assert_allclose(params[1, 1:], [2.0, 3.0], atol=1e-6)
+        assert params.shape == (2, 6)
+        assert_allclose(params[0], np.zeros(6), atol=1e-6)
+        assert_allclose(params[1, 3:], [2.0, 3.0, 4.0], atol=1e-6)
 
     def test_3d_rotation_matches_xyz_component_order(self):
         """3D rotations stay in raw XYZ component order."""
@@ -230,15 +195,6 @@ class TestComputeFramewiseDisplacement:
         )
 
         assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
-
-    def test_rejects_reference_affine_dimensionality_mismatch(
-        self, sample_3d_dataarray_spatial
-    ):
-        """Reference dimensionality must match affine dimensionality."""
-        import pytest
-
-        with pytest.raises(ValueError, match="dimensionality must match"):
-            compute_framewise_displacement([np.eye(3)], sample_3d_dataarray_spatial)
 
     def test_handles_reference_with_non_canonical_dim_order(self):
         """A reference whose spatial dims are not in canonical k/j/i order still works.
@@ -367,45 +323,6 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["rot_y"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
 
-    def test_2d_voxel_to_world_reference_gives_3_column_motion_summary(self):
-        """A genuinely 2D voxel-to-world reference exercises the 3-column motion path.
-
-        `_get_motion_parameter_columns` special-cases `params.shape[1] == 3`, which
-        only arises for (3, 3) affines paired with a reference exposing exactly 2
-        voxel-to-world spatial dimensions (no singleton third axis).
-        """
-        import xarray as xr
-
-        from confusius._utils.geometry import attach_voxel_to_world_index
-
-        base = xr.DataArray(
-            np.zeros((4, 5)),
-            dims=["j", "i"],
-            coords={"j": np.arange(4.0), "i": np.arange(5.0)},
-        )
-        reference = attach_voxel_to_world_index(
-            base, np.eye(3), voxel_dims=("j", "i"), world_coord_names=("y", "x")
-        )
-
-        t1 = np.eye(3)
-        t2 = np.eye(3)
-        t2[0, 2] = 2.0  # y translation.
-        t2[1, 2] = 3.0  # x translation.
-
-        df = create_motion_dataframe([t1, t2], reference)
-
-        assert list(df.columns) == [
-            "rotation",
-            "trans_x",
-            "trans_y",
-            "mean_fd",
-            "max_fd",
-            "rms_fd",
-        ]
-        assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
-        assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
-        assert_allclose(df.iloc[0]["mean_fd"], np.sqrt(13.0), atol=1e-6)
-
     def test_rejects_unexpected_parameter_count(
         self, monkeypatch, sample_2d_dataarray_spatial
     ):
@@ -425,8 +342,8 @@ class TestCreateMotionDataframe:
             },
         )
 
-        with pytest.raises(ValueError, match="3 or 6 columns"):
-            create_motion_dataframe([np.eye(3)], sample_2d_dataarray_spatial)
+        with pytest.raises(ValueError, match="6 columns"):
+            create_motion_dataframe([np.eye(4)], sample_2d_dataarray_spatial)
 
     def test_time_coords_as_index(self, sample_3d_dataarray_spatial):
         """Time coordinates are used as DataFrame index."""

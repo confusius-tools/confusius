@@ -2907,29 +2907,25 @@ class TestSaveNifti:
     def test_save_voxel_to_world_data_missing_voxel_dim_inserts_singleton(
         self, tmp_path: Path
     ) -> None:
-        """Saving voxel-to-world data missing a native voxel dim inserts it as size 1.
+        """Saving a DataArray built without an explicit middle voxel dim inserts it as size 1.
 
-        Unlike `test_save_2d_dataarray` (whose fixture already carries a singleton
-        `j`/`k` dim from `create_fusi_dataarray`), this DataArray genuinely has no
-        `j` dim at all, so `_prepare_data_for_nifti` must insert the missing NIfTI
-        spatial axis itself.
+        `create_fusi_dataarray` canonicalizes `dims=("k", "i")` (missing `j`, unlike
+        `test_save_2d_dataarray`'s missing-leading-dim case) by inserting `j` as a
+        singleton at construction time -- every canonical fUSI DataArray carries all
+        three voxel dims, so `save_nifti` never sees a genuinely dim-less input.
         """
-        da = _add_identity_voxel_to_world(
-            xr.DataArray(
-                np.arange(4 * 6, dtype=np.float32).reshape(4, 6),
-                dims=("k", "i"),
-                coords={"k": np.arange(4, dtype=float), "i": np.arange(6, dtype=float)},
-            )
+        da = create_fusi_dataarray(
+            np.arange(4 * 6, dtype=np.float32).reshape(4, 6), dims=("k", "i")
         )
-        assert "j" not in da.dims
+        assert da.sizes["j"] == 1
 
         output_path = tmp_path / "missing_j.nii.gz"
         save_nifti(da, output_path)
 
         loaded = nib.nifti1.Nifti1Image.from_filename(output_path)
-        # NIfTI order (x, y, z) = (i, j, k); the missing j slot becomes size 1.
+        # NIfTI order (x, y, z) = (i, j, k); the singleton j slot stays size 1.
         assert loaded.shape == (6, 1, 4)
-        np.testing.assert_array_equal(np.asarray(loaded.dataobj)[:, 0, :], da.values.T)
+        np.testing.assert_array_equal(np.asarray(loaded.dataobj), da.values.T)
 
     def test_save_empty_voxel_coordinate_raises(self, tmp_path: Path) -> None:
         """Saving a voxel-to-world DataArray with an empty voxel coordinate raises."""

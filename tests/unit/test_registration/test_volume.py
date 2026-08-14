@@ -28,6 +28,7 @@ from confusius.registration.bspline import (
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.resampling import resample_like, resample_volume
 from confusius.registration.volume import register_volume
+from confusius.xarray import create_fusi_dataarray
 
 
 def _make_voxel_to_world_2d() -> xr.DataArray:
@@ -54,6 +55,39 @@ def _make_voxel_to_world_2d() -> xr.DataArray:
         voxel_dims=("j", "i"),
         world_coord_names=("y", "x"),
         world_coord_attrs={
+            "y": {"units": "mm"},
+            "x": {"units": "mm"},
+        },
+    )
+
+
+def _make_voxel_to_world_3d() -> xr.DataArray:
+    """Create a small singleton-k voxel-to-world test image with an oblique j/i plane."""
+    yy, xx = np.mgrid[-1.0:1.0:32j, -1.0:1.0:40j]
+    values = np.exp(-((xx - 0.2) ** 2 + (yy + 0.1) ** 2) / 0.15).astype(np.float32)
+    base = xr.DataArray(
+        values[np.newaxis],
+        dims=("k", "j", "i"),
+        coords={
+            "k": np.arange(1, dtype=np.float64),
+            "j": np.arange(values.shape[0], dtype=np.float64),
+            "i": np.arange(values.shape[1], dtype=np.float64),
+        },
+    )
+    return attach_voxel_to_world_index(
+        base,
+        np.array(
+            [
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, 0.2, 0.05, 10.0],
+                [0.0, 0.08, 0.18, 20.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+        voxel_dims=("k", "j", "i"),
+        world_coord_names=("z", "y", "x"),
+        world_coord_attrs={
+            "z": {"units": "mm"},
             "y": {"units": "mm"},
             "x": {"units": "mm"},
         },
@@ -181,7 +215,8 @@ class TestRegisterVolumeValidation:
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
-            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+            ValueError,
+            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
         ):
             register_volume(da, da)
 
@@ -405,7 +440,8 @@ class TestRegisterVolumeOutput:
         """DataArray without coordinates is rejected."""
         da = xr.DataArray(sample_2d_image, dims=("k", "j", "i"))
         with pytest.raises(
-            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+            ValueError,
+            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
         ):
             register_volume(da, da, transform_type="translation")
 
@@ -445,28 +481,18 @@ class TestRegisterVolumeOutput:
         world domain and vice versa. Isotropic test fixtures never exposed this
         because swapping equal-sized, equal-spacing axes is a no-op.
         """
-        img = np.zeros((20, 40), dtype=np.float32)
-        img[6:14, 10:30] = 100.0
-        da = _add_identity_voxel_to_world(
-            xr.DataArray(
-                img,
-                dims=("j", "i"),
-                coords={"j": np.arange(20) * 0.5, "i": np.arange(40) * 0.1},
-            )
-        )
-        _, bspline_tx, _ = register_volume(  # ty: ignore[no-matching-overload]
+        img = np.zeros((1, 20, 40), dtype=np.float32)
+        img[:, 6:14, 10:30] = 100.0
+        da = create_fusi_dataarray(img, dims=("z", "y", "x"), spacing=(1.0, 0.5, 0.1))
+        _, bspline_tx, _ = register_volume(
             da,
             da,
             transform_type="bspline",
-            mesh_size=(4, 4),
+            mesh_size=(1, 4, 4),
         )
 
-        y_span = float(
-            bspline_tx.coords["j"].values[-1] - bspline_tx.coords["j"].values[0]
-        )
-        x_span = float(
-            bspline_tx.coords["i"].values[-1] - bspline_tx.coords["i"].values[0]
-        )
+        y_span = float(bspline_tx.fusi.spacing["j"] * (bspline_tx.sizes["j"] - 1))
+        x_span = float(bspline_tx.fusi.spacing["i"] * (bspline_tx.sizes["i"] - 1))
         # The control-point domain is padded beyond the image FOV for boundary
         # support, so spans are somewhat larger than the raw world extent (9.5 mm
         # for y, 3.9 mm for x). Padding scales with each axis's own extent (same mesh
@@ -515,8 +541,8 @@ class TestRegisterVolumeOutput:
 
     def test_resample_true_inherits_fixed_voxel_to_world_geometry(self):
         """resample=True output inherits voxel-to-world geometry from the fixed grid."""
-        moving = _make_voxel_to_world_2d()
-        fixed = _make_voxel_to_world_2d()
+        moving = _make_voxel_to_world_3d()
+        fixed = _make_voxel_to_world_3d()
 
         result, _, _ = register_volume(
             moving,
@@ -862,7 +888,8 @@ class TestResampleVolume:
         """1D input raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
-            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+            ValueError,
+            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
         ):
             resample_volume(
                 da,
@@ -1065,9 +1092,10 @@ class TestInitialization:
         """A supplied initial affine is used directly, without extra centering shift."""
         fixed = _add_identity_voxel_to_world(
             xr.DataArray(
-                np.arange(16, dtype=np.float32).reshape(4, 4),
-                dims=("j", "i"),
+                np.arange(16, dtype=np.float32).reshape(1, 4, 4),
+                dims=("k", "j", "i"),
                 coords={
+                    "k": np.arange(1, dtype=np.float64),
                     "j": np.arange(4, dtype=np.float64),
                     "i": np.arange(4, dtype=np.float64),
                 },
@@ -1078,20 +1106,21 @@ class TestInitialization:
                 fixed.values.copy(),
                 dims=fixed.dims,
                 coords={
+                    "k": fixed.coords["k"].values,
                     "j": fixed.coords["j"].values + 10.0,
                     "i": fixed.coords["i"].values + 20.0,
                 },
             )
         )
-        initial_transform = np.eye(3, dtype=np.float64)
-        initial_transform[:2, 2] = [20.0, 10.0]
+        initial_transform = np.eye(4, dtype=np.float64)
+        initial_transform[1:3, 3] = [20.0, 10.0]
 
         _, transform, _ = register_volume(
             moving,
             fixed,
             transform_type="affine",
             initialization=initial_transform,
-            optimizer_weights=[0.0] * 6,
+            optimizer_weights=[0.0] * 12,
             learning_rate=1.0,
             number_of_iterations=1,
             resample=False,
@@ -1674,7 +1703,8 @@ class TestResampleLike:
         moving = reference.copy()
 
         with pytest.raises(
-            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+            ValueError,
+            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
         ):
             resample_like(moving, reference, np.eye(4))
 
@@ -1719,7 +1749,8 @@ class TestResampleLike:
         """1D reference raises ValueError."""
         da = xr.DataArray(np.zeros(10), dims=("i",), coords={"i": np.arange(10)})
         with pytest.raises(
-            ValueError, match="at least 2 spatial dimensions|defined spatial spacing"
+            ValueError,
+            match="native voxel dimensions|at least 2 spatial dimensions|defined spatial spacing",
         ):
             resample_like(da, da, np.eye(2))
 
@@ -1980,17 +2011,25 @@ class TestRegisterVolumeFillValue:
         # is fixed-sized, so voxels outside moving's FOV must be filled.
         fixed = _add_identity_voxel_to_world(
             xr.DataArray(
-                np.ones((16, 16), dtype=np.float32),
-                dims=("j", "i"),
-                coords={"j": np.arange(16) * 0.1, "i": np.arange(16) * 0.1},
+                np.ones((1, 16, 16), dtype=np.float32),
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.arange(1),
+                    "j": np.arange(16) * 0.1,
+                    "i": np.arange(16) * 0.1,
+                },
             )
         )
         # moving covers only the central 8x8 region.
         moving = _add_identity_voxel_to_world(
             xr.DataArray(
-                np.ones((8, 8), dtype=np.float32) * 2.0,
-                dims=("j", "i"),
-                coords={"j": np.arange(4, 12) * 0.1, "i": np.arange(4, 12) * 0.1},
+                np.ones((1, 8, 8), dtype=np.float32) * 2.0,
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.arange(1),
+                    "j": np.arange(4, 12) * 0.1,
+                    "i": np.arange(4, 12) * 0.1,
+                },
             )
         )
         sentinel = -99.0
@@ -2001,22 +2040,30 @@ class TestRegisterVolumeFillValue:
             fill_value=sentinel,
         )
         # Out-of-FOV voxels (corners) should be exactly fill_value.
-        assert float(result.values[0, 0]) == pytest.approx(sentinel, abs=1e-5)
+        assert float(result.values[0, 0, 0]) == pytest.approx(sentinel, abs=1e-5)
 
     def test_default_fill_value_is_moving_min(self):
         """When fill_value is None, out-of-FOV voxels are filled with moving.min()."""
         fixed = _add_identity_voxel_to_world(
             xr.DataArray(
-                np.ones((16, 16), dtype=np.float32),
-                dims=("j", "i"),
-                coords={"j": np.arange(16) * 0.1, "i": np.arange(16) * 0.1},
+                np.ones((1, 16, 16), dtype=np.float32),
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.arange(1),
+                    "j": np.arange(16) * 0.1,
+                    "i": np.arange(16) * 0.1,
+                },
             )
         )
         moving = _add_identity_voxel_to_world(
             xr.DataArray(
-                np.ones((8, 8), dtype=np.float32) * 2.0,
-                dims=("j", "i"),
-                coords={"j": np.arange(4, 12) * 0.1, "i": np.arange(4, 12) * 0.1},
+                np.ones((1, 8, 8), dtype=np.float32) * 2.0,
+                dims=("k", "j", "i"),
+                coords={
+                    "k": np.arange(1),
+                    "j": np.arange(4, 12) * 0.1,
+                    "i": np.arange(4, 12) * 0.1,
+                },
             )
         )
         result, _, _ = register_volume(
@@ -2025,6 +2072,6 @@ class TestRegisterVolumeFillValue:
             transform_type="translation",
         )
         # Default fill should be moving.min() == 2.0, not 0.0.
-        assert float(result.values[0, 0]) == pytest.approx(
+        assert float(result.values[0, 0, 0]) == pytest.approx(
             float(moving.min()), abs=1e-5
         )
