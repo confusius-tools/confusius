@@ -10,6 +10,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
+from confusius._utils.coordinates import get_default_probe_origins
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
 from confusius.validation import validate_fusi, validate_iq
@@ -269,30 +270,6 @@ def _coordinate_dataarray(
     return xr.DataArray(coord_values, dims=(dim,), attrs=attrs)
 
 
-def _get_spatial_origin_defaults(
-    sizes: Mapping[str, int], spacing: tuple[float, float, float]
-) -> tuple[float, float, float]:
-    """Return default world origins for ConfUSIus probe geometry.
-
-    Parameters
-    ----------
-    sizes : mapping[str, int]
-        Spatial voxel sizes keyed by native `k/j/i` dimension name.
-    spacing : tuple[float, float, float]
-        World spacing in `z/y/x` order.
-
-    Returns
-    -------
-    tuple[float, float, float]
-        Default origin in `z/y/x` order.
-    """
-    return (
-        -spacing[0] * (sizes["k"] - 1) / 2,
-        spacing[1] / 2,
-        -spacing[2] * (sizes["i"] - 1) / 2,
-    )
-
-
 def _validate_spatial_tuple(
     values: Sequence[float] | None, *, name: str
 ) -> tuple[float, float, float]:
@@ -379,7 +356,7 @@ def _resolve_voxel_to_world(
 
     resolved_spacing = _validate_spatial_tuple(spacing, name="spacing")
     if origin is None:
-        resolved_origin = _get_spatial_origin_defaults(spatial_sizes, resolved_spacing)
+        resolved_origin = get_default_probe_origins(spatial_sizes, resolved_spacing)
     else:
         if len(origin) != len(SPATIAL_DIMS):
             raise ValueError("origin must have length 3 in z/y/x order.")

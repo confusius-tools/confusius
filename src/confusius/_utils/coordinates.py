@@ -1,7 +1,7 @@
 """Coordinate spacing and origin helpers shared across modules."""
 
 import warnings
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TypedDict, cast
 
 import numpy as np
@@ -409,3 +409,30 @@ def get_axis_aligned_affine(
     affine[:3, :3] = np.diag(np.asarray(zoom, dtype=np.float64))
     affine[:3, 3] = np.asarray(translation, dtype=np.float64)
     return affine
+
+
+def get_default_probe_origins(
+    sizes: Mapping[str, int], spacing: tuple[float, float, float]
+) -> tuple[float, float, float]:
+    """Return default world origins for ConfUSIus probe geometry.
+
+    Elevation (`k`) and lateral (`i`) are centered on the probe; depth (`j`) is
+    referenced to the probe surface, starting half a voxel below it.
+
+    Parameters
+    ----------
+    sizes : mapping[str, int]
+        Spatial voxel sizes keyed by native `k`/`j`/`i` dimension name.
+    spacing : tuple[float, float, float]
+        World spacing in `z`/`y`/`x` order.
+
+    Returns
+    -------
+    tuple[float, float, float]
+        Default origin in `z`/`y`/`x` order.
+    """
+    return (
+        -spacing[0] * (sizes["k"] - 1) / 2,
+        spacing[1] / 2,
+        -spacing[2] * (sizes["i"] - 1) / 2,
+    )

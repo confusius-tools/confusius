@@ -226,27 +226,6 @@ class TestEchoFrameConversion:
         ).shape
         assert first_shape == second_shape
 
-    def test_volumes_per_shard_not_multiple(
-        self, synthetic_echoframe_session, tmp_path
-    ):
-        """Raise ValueError when volumes_per_shard is not a multiple of volumes_per_chunk."""
-        dat_path = synthetic_echoframe_session / "fUSi_BF.dat"
-        meta_path = synthetic_echoframe_session / "ScanParameters.mat"
-        output_path = tmp_path / "output.zarr"
-
-        with pytest.raises(
-            ValueError,
-            match="volumes_per_shard.*must be a multiple of.*volumes_per_chunk",
-        ):
-            convert_echoframe_dat_to_zarr(
-                dat_path,
-                meta_path,
-                output_path,
-                volumes_per_chunk=3,
-                volumes_per_shard=5,
-                show_progress=False,
-            )
-
     def test_zarr_kwargs_override_warning(
         self, synthetic_echoframe_session, tmp_path, caplog
     ):
@@ -284,7 +263,7 @@ class TestEchoFrameConversion:
             meta_path,
             output_path,
             volumes_per_chunk=3,
-            volumes_per_shard=6,
+            chunks_per_shard=2,
             show_progress=False,
         )
 

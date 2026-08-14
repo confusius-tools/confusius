@@ -412,7 +412,7 @@ def convert_echoframe_dat_to_zarr(
     header_dtype: npt.DTypeLike = np.uint64,
     n_header_items: int = 5,
     volumes_per_chunk: int | None = None,
-    volumes_per_shard: int | None = None,
+    chunks_per_shard: int | None = None,
     batch_size: int = 100,
     overwrite: bool = False,
     zarr_kwargs: dict[str, Any] | None = None,
@@ -449,10 +449,10 @@ def convert_echoframe_dat_to_zarr(
     volumes_per_chunk : int, optional
         Number of volumes to include in each Zarr chunk. If not provided, defaults to
         the number of volumes per block from the raw file.
-    volumes_per_shard : int, optional
-        Number of volumes to include in each shard. If provided, enables Zarr v3
-        sharding to reduce the number of files on disk. Must be a multiple of
-        `volumes_per_chunk`. If not provided, sharding is disabled.
+    chunks_per_shard : int, optional
+        Number of chunks to bundle into each shard. If provided, enables Zarr v3
+        sharding to reduce the number of files on disk. If not provided, sharding is
+        disabled.
     batch_size : int, default: 100
         Number of blocks to process in each batch.
     overwrite : bool, default: False
@@ -558,13 +558,8 @@ def convert_echoframe_dat_to_zarr(
     output_shape = (n_total_volumes, 1, n_j, n_i)
     chunks = (volumes_per_chunk, 1, n_j, n_i)
 
-    if volumes_per_shard is not None:
-        if volumes_per_shard % volumes_per_chunk != 0:
-            raise ValueError(
-                f"volumes_per_shard ({volumes_per_shard}) must be a multiple of "
-                f"volumes_per_chunk ({volumes_per_chunk})."
-            )
-        shards = (volumes_per_shard, 1, n_j, n_i)
+    if chunks_per_shard is not None:
+        shards = (volumes_per_chunk * chunks_per_shard, 1, n_j, n_i)
     else:
         shards = None
 

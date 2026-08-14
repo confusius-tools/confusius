@@ -57,10 +57,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_spacing=custom_lateral_spacing,
-            lateral_origin=custom_lateral_origin,
-            axial_spacing=custom_axial_spacing,
-            axial_origin=custom_axial_origin,
+            spacing=(0.4, custom_axial_spacing, custom_lateral_spacing),
+            origin=(0.0, custom_axial_origin, custom_lateral_origin),
             transmit_frequency=3000000.0,
             probe_n_elements=64,
             probe_pitch=0.00025,
@@ -145,45 +143,29 @@ class TestAUTCConversion:
         """Test overwriting existing Zarr output."""
         output_path = tmp_path / "output.zarr"
 
-        with pytest.warns(UserWarning, match="spacing not provided"):
-            convert_autc_dats_to_zarr(
-                synthetic_autc_session,
-                output_path,
-                show_progress=False,
-            )
+        convert_autc_dats_to_zarr(
+            synthetic_autc_session,
+            output_path,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            show_progress=False,
+        )
 
         first_shape = cast(
             zarr.Array, zarr.open_group(output_path, mode="r")["iq"]
         ).shape
 
-        with pytest.warns(UserWarning, match="spacing not provided"):
-            convert_autc_dats_to_zarr(
-                synthetic_autc_session,
-                output_path,
-                overwrite=True,
-                show_progress=False,
-            )
+        convert_autc_dats_to_zarr(
+            synthetic_autc_session,
+            output_path,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            overwrite=True,
+            show_progress=False,
+        )
 
         second_shape = cast(
             zarr.Array, zarr.open_group(output_path, mode="r")["iq"]
         ).shape
         assert first_shape == second_shape
-
-    def test_frames_per_shard_not_multiple(self, synthetic_autc_session, tmp_path):
-        """Raise `ValueError` when `frames_per_shard` is not a multiple of `frames_per_chunk`."""
-        output_path = tmp_path / "output.zarr"
-
-        with pytest.raises(
-            ValueError,
-            match="frames_per_shard.*must be a multiple of.*frames_per_chunk",
-        ):
-            convert_autc_dats_to_zarr(
-                synthetic_autc_session,
-                output_path,
-                frames_per_chunk=3,
-                frames_per_shard=5,
-                show_progress=False,
-            )
 
     def test_block_times_without_frequency_error(
         self, synthetic_autc_session, tmp_path
@@ -198,6 +180,7 @@ class TestAUTCConversion:
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
                 block_times=[0.0, 1.0, 2.0],
                 show_progress=False,
             )
@@ -213,6 +196,7 @@ class TestAUTCConversion:
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
                 zarr_kwargs={"shape": (10, 6, 1, 4)},
                 show_progress=False,
             )
@@ -233,12 +217,10 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_spacing=20.0 / 3.0,
-            lateral_origin=-10.0,
-            axial_spacing=4.0,
-            axial_origin=0.0,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             frames_per_chunk=3,
-            frames_per_shard=6,
+            chunks_per_shard=2,
             show_progress=False,
         )
 
@@ -294,10 +276,8 @@ class TestAUTCConversion:
                 convert_autc_dats_to_zarr(
                     synthetic_autc_session,
                     output_path,
-                    lateral_spacing=20.0 / 3.0,
-                    lateral_origin=-10.0,
-                    axial_spacing=4.0,
-                    axial_origin=0.0,
+                    spacing=(0.4, 4.0, 20.0 / 3.0),
+                    origin=(0.0, 0.0, -10.0),
                     show_progress=False,
                 )
 
@@ -314,10 +294,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_spacing=20.0 / 3.0,
-            lateral_origin=-10.0,
-            axial_spacing=4.0,
-            axial_origin=0.0,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=1000.0,
             show_progress=False,
         )
@@ -341,10 +319,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_spacing=20.0 / 3.0,
-            lateral_origin=-10.0,
-            axial_spacing=4.0,
-            axial_origin=0.0,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=500.0,
             skip_first_blocks=1,
             show_progress=False,
@@ -376,10 +352,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_spacing=20.0 / 3.0,
-            lateral_origin=-10.0,
-            axial_spacing=4.0,
-            axial_origin=0.0,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=500.0,
             skip_last_blocks=1,
             show_progress=False,
@@ -410,10 +384,8 @@ class TestAUTCConversion:
         convert_autc_dats_to_zarr(
             synthetic_autc_session,
             output_path,
-            lateral_spacing=20.0 / 3.0,
-            lateral_origin=-10.0,
-            axial_spacing=4.0,
-            axial_origin=0.0,
+            spacing=(0.4, 4.0, 20.0 / 3.0),
+            origin=(0.0, 0.0, -10.0),
             compound_sampling_frequency=500.0,
             block_times=block_times,
             skip_first_blocks=1,
@@ -440,6 +412,7 @@ class TestAUTCConversion:
             convert_autc_dats_to_zarr(
                 synthetic_autc_session,
                 output_path,
+                spacing=(0.4, 4.0, 20.0 / 3.0),
                 skip_first_blocks=2,
                 skip_last_blocks=2,  # Would skip all 4 blocks.
                 show_progress=False,
