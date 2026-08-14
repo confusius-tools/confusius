@@ -15,7 +15,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
-    has_voxel_to_world_index,
 )
 from confusius._utils.stack import find_stack_level
 from confusius.timing import convert_time_reference
@@ -288,36 +287,26 @@ def consolidate_poses(
     if "pose" not in da.dims:
         raise ValueError("DataArray has no 'pose' dimension.")
 
-    if has_voxel_to_world_index(da):
-        voxel_dims = list(get_voxel_to_world_spatial_dims(da))
-        world_dims = list(get_voxel_to_world_coord_names(da))
-        voxel_to_world = dict(zip(voxel_dims, world_dims, strict=True))
-        if sweep_dim not in voxel_dims:
-            raise ValueError(
-                f"sweep_dim must be one of the spatial dimensions {voxel_dims!r}; "
-                f"got {sweep_dim!r}."
-            )
-        sweep_data_dim = sweep_dim
-        spatial_dims = voxel_dims
-        output_spatial_dims = spatial_dims
-        world_sweep_dim = voxel_to_world[sweep_dim]
-        sweep_mm = _reduce_world_coord_along_voxel_dim(
-            da.coords[world_sweep_dim],
-            sweep_dim,
-            [d for d in voxel_dims if d != sweep_dim],
+    # ensure_fusi above guarantees da carries a VoxelToWorldIndex, so the voxel dims
+    # (and their derived world coordinates) are always available here.
+    voxel_dims = list(get_voxel_to_world_spatial_dims(da))
+    world_dims = list(get_voxel_to_world_coord_names(da))
+    voxel_to_world = dict(zip(voxel_dims, world_dims, strict=True))
+    if sweep_dim not in voxel_dims:
+        raise ValueError(
+            f"sweep_dim must be one of the spatial dimensions {voxel_dims!r}; "
+            f"got {sweep_dim!r}."
         )
-        sweep_coord_attrs = dict(da.coords[world_sweep_dim].attrs)
-    else:
-        spatial_dims = [d for d in da.dims if d not in ("time", "pose")]
-        output_spatial_dims = spatial_dims
-        if sweep_dim not in spatial_dims:
-            raise ValueError(
-                f"sweep_dim must be one of the spatial dimensions {spatial_dims!r}; "
-                f"got {sweep_dim!r}."
-            )
-        sweep_data_dim = sweep_dim
-        sweep_mm = np.asarray(da.coords[sweep_dim].values, dtype=np.float64)
-        sweep_coord_attrs = dict(da.coords[sweep_dim].attrs)
+    sweep_data_dim = sweep_dim
+    spatial_dims = voxel_dims
+    output_spatial_dims = spatial_dims
+    world_sweep_dim = voxel_to_world[sweep_dim]
+    sweep_mm = _reduce_world_coord_along_voxel_dim(
+        da.coords[world_sweep_dim],
+        sweep_dim,
+        [d for d in voxel_dims if d != sweep_dim],
+    )
+    sweep_coord_attrs = dict(da.coords[world_sweep_dim].attrs)
 
     sweep_col = spatial_dims.index(sweep_dim)
 
@@ -433,11 +422,7 @@ def consolidate_poses(
     new_attrs = {**da.attrs, "affines": new_affines}
     base_coords: dict[str, Any] = {str(sweep_dim): new_sweep}
     for output_dim in other_output_dims:
-        coord_name = (
-            voxel_to_world.get(output_dim, output_dim)
-            if has_voxel_to_world_index(da)
-            else output_dim
-        )
+        coord_name = voxel_to_world.get(output_dim, output_dim)
         if coord_name in da.coords:
             coord = da.coords[coord_name]
             other_coord_dims = [str(d) for d in coord.dims if d != output_dim]
@@ -455,8 +440,7 @@ def consolidate_poses(
 
     output_spatial_dim_names = tuple(str(dim) for dim in output_spatial_dims)
     world_coord_names = tuple(
-        str(voxel_to_world.get(dim, dim)) if has_voxel_to_world_index(da) else str(dim)
-        for dim in output_spatial_dims
+        str(voxel_to_world.get(dim, dim)) for dim in output_spatial_dims
     )
 
     def _attach_output_cti(result: xr.DataArray) -> xr.DataArray:

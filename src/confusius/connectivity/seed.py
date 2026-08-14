@@ -161,42 +161,44 @@ class SeedBasedMaps(BaseEstimator):
     >>> import numpy as np
     >>> import xarray as xr
     >>> from confusius.connectivity import SeedBasedMaps
+    >>> from confusius.xarray import create_fusi_dataarray
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
+    >>> data = create_fusi_dataarray(
     ...     rng.standard_normal((200, 1, 10, 20)),
-    ...     dims=["time", "z", "y", "x"],
-    ...     coords={"time": np.arange(200) * 0.1, "z": [0.0]},
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
-    >>> labels = xr.DataArray(
+    >>> labels = create_fusi_dataarray(
     ...     np.zeros((1, 10, 20), dtype=int),
-    ...     dims=["z", "y", "x"],
-    ...     coords={"z": [0.0]},
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> labels[:, :3, :] = 1   # Region 1: first 3 y-slices.
-    >>> labels[:, 3:6, :] = 2  # Region 2: next 3 y-slices.
+    >>> labels[:, :3, :] = 1   # Region 1: first 3 j-slices.
+    >>> labels[:, 3:6, :] = 2  # Region 2: next 3 j-slices.
     >>>
     >>> mapper = SeedBasedMaps(seed_masks=labels)
     >>> mapper.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper.maps_.dims
-    ('region', 'y', 'x')
+    ('region', 'k', 'j', 'i')
     >>> mapper.maps_.coords["region"].values
     array([1, 2])
     >>>
     >>> # Single seed from a boolean mask converted to integer.
-    >>> mask = xr.DataArray(
+    >>> mask = create_fusi_dataarray(
     ...     np.zeros((1, 10, 20), dtype=bool),
-    ...     dims=["z", "y", "x"],
-    ...     coords={"z": [0.0]},
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>> mask[:, :3, :] = True
     >>> mapper_single = SeedBasedMaps(seed_masks=mask.astype(int))
     >>> mapper_single.fit(data)
     SeedBasedMaps(seed_masks=...)
     >>> mapper_single.maps_.dims  # region dim is squeezed for a single seed
-    ('z', 'y', 'x')
+    ('k', 'j', 'i')
 
     Signal-based usage: provide seed signals directly.
 
@@ -209,7 +211,7 @@ class SeedBasedMaps(BaseEstimator):
     >>> mapper_sig.fit(data)
     SeedBasedMaps(seed_signals=...)
     >>> mapper_sig.maps_.dims  # single signal, region dim squeezed
-    ('z', 'y', 'x')
+    ('k', 'j', 'i')
     """
 
     def __init__(

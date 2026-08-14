@@ -98,7 +98,11 @@ def extract_with_labels(
 
     For each unique non-zero label in `labels`, applies `reduction` across all voxels
     belonging to that region. The spatial dimensions are collapsed into a single
-    `regions` dimension.
+    `region` dimension.
+
+    This function is dim-name-agnostic: it collapses whatever spatial dimensions
+    `labels` carries, whatever their names. For canonical native-voxel data the
+    spatial dimensions are `k`/`j`/`i`.
 
     Parameters
     ----------
@@ -109,12 +113,12 @@ def extract_with_labels(
     labels : xarray.DataArray
         Integer label map in one of two formats:
 
-        - **Flat label map**: Spatial dims only, e.g. `(z, y, x)`. Background voxels
+        - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
           non-overlapping region. The `region` coordinate of the output holds the
           integer label values.
         - **Stacked mask format**: Has a leading `mask` dimension followed by spatial
-          dims, e.g. `(mask, z, y, x)`. Each layer has exactly one non-zero value
+          dims, e.g. `(mask, k, j, i)`. Each layer has exactly one non-zero value
           identifying its own voxels, and regions may overlap; the non-zero value
           itself is not used to identify the layer, so it may repeat across layers
           (e.g. the same region id for left/right hemisphere layers). The `region`
@@ -132,9 +136,9 @@ def extract_with_labels(
 
         For example (flat label map):
 
-        - `(time, z, y, x)` → `(time, region)`
-        - `(time, pose, z, y, x)` → `(time, pose, region)`
-        - `(z, y, x)` → `(region,)`
+        - `(time, k, j, i)` → `(time, region)`
+        - `(time, pose, k, j, i)` → `(time, pose, region)`
+        - `(k, j, i)` → `(region,)`
 
     Raises
     ------
@@ -157,17 +161,17 @@ def extract_with_labels(
     >>> import numpy as np
     >>> from confusius.extract import extract_with_labels
     >>>
-    >>> # 3D+t data: (time, z, y, x)
+    >>> # 3D+t data: (time, k, j, i)
     >>> data = xr.DataArray(
     ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=["time", "k", "j", "i"],
     ... )
     >>> labels = xr.DataArray(
     ...     np.zeros((10, 20, 30), dtype=int),
-    ...     dims=["z", "y", "x"],
+    ...     dims=["k", "j", "i"],
     ... )
-    >>> labels[0, :, :] = 1  # Region 1: first z-slice.
-    >>> labels[1, :, :] = 2  # Region 2: second z-slice.
+    >>> labels[0, :, :] = 1  # Region 1: first k-slice.
+    >>> labels[1, :, :] = 2  # Region 2: second k-slice.
     >>> signals = extract_with_labels(data, labels)
     >>> signals.dims
     ('time', 'region')

@@ -32,11 +32,13 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
         non-spatial dimensions are preserved. The `space` dimension has a MultiIndex
         storing spatial coordinates.
 
-        For example:
+        This function is dim-name-agnostic: it flattens whatever dimensions `mask`
+        carries, whatever their names. For canonical native-voxel data the spatial
+        dimensions are `k`/`j`/`i`, giving:
 
-        - `(time, z, y, x)` → `(time, space)`
-        - `(time, pose, z, y, x)` → `(time, pose, space)`
-        - `(z, y, x)` → `(space,)`
+        - `(time, k, j, i)` → `(time, space)`
+        - `(time, pose, k, j, i)` → `(time, pose, space)`
+        - `(k, j, i)` → `(space,)`
 
         For simple round-trip reconstruction, use `.unstack("space")` which
         re-creates the original DataArray using the smallest bounding box containing the
@@ -56,23 +58,23 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask
     >>>
-    >>> # 3D+t data: (time, z, y, x)
+    >>> # 3D+t data: (time, k, j, i)
     >>> data = xr.DataArray(
     ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=["time", "k", "j", "i"],
     ... )
     >>> mask = xr.DataArray(
     ...     np.random.rand(10, 20, 30) > 0.5,
-    ...     dims=["z", "y", "x"],
+    ...     dims=["k", "j", "i"],
     ... )
     >>> signals = extract_with_mask(data, mask)
     >>> signals.dims
     ("time", "space")
     >>>
-    >>> # 3D+t data with extra dim: (time, pose, z, y, x)
+    >>> # 3D+t data with extra dim: (time, pose, k, j, i)
     >>> pose_data = xr.DataArray(
     ...     np.random.randn(100, 5, 10, 20, 30),
-    ...     dims=["time", "pose", "z", "y", "x"],
+    ...     dims=["time", "pose", "k", "j", "i"],
     ... )
     >>> pose_signals = extract_with_mask(pose_data, mask)
     >>> pose_signals.dims

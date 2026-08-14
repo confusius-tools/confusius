@@ -228,8 +228,8 @@ class TestConsolidatePoses:
         `scan_3d` has a voxel-to-world index over `k`/`j`/`i`. Adding an extra
         dimension `w` makes it pass the initial "is sweep_dim one of da's non-time/
         non-pose dims" check (since `w` is such a dim), but `w` is absent from the
-        voxel-to-world geometry's own voxel dims, so the has_voxel_to_world_index branch
-        must reject it with a message naming only the true voxel dims.
+        voxel-to-world geometry's own voxel dims, so consolidate_poses must reject it
+        with a message naming only the true voxel dims.
         """
         da = scan_3d.expand_dims({"w": 2})
         with pytest.raises(ValueError, match="got 'w'"):

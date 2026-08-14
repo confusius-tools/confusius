@@ -68,32 +68,41 @@ def unmask(
 
     Examples
     --------
-    >>> import xarray as xr
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask, unmask
+    >>> from confusius.xarray import create_fusi_dataarray
     >>> from sklearn.decomposition import PCA
     >>>
-    >>> # Load data and mask
-    >>> data = xr.open_zarr("recording.zarr")["power_doppler"]
-    >>> mask = xr.open_zarr("brain_mask.zarr")["mask"]
+    >>> data = create_fusi_dataarray(
+    ...     np.random.rand(10, 4, 5, 6),
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 1.0, 1.0),
+    ... )
+    >>> mask = create_fusi_dataarray(
+    ...     np.random.rand(4, 5, 6) > 0.5, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
+    ... )
     >>>
     >>> # Extract signals
     >>> signals = extract_with_mask(data, mask)
+    >>> n_voxels = signals.sizes["space"]
     >>>
-    >>> # Apply PCA
+    >>> # Fit PCA and recover the spatial component maps
     >>> pca = PCA(n_components=5)
-    >>> components = pca.fit_transform(signals.values)  # (time, 5)
+    >>> pca.fit(signals.values)
+    PCA(n_components=5)
+    >>> components = pca.components_  # (5, n_voxels)
     >>>
-    >>> # Unmask - 2D case
+    >>> # Unmask - single extra dim
     >>> spatial_pca = unmask(
-    ...     components.T,  # (5, n_voxels)
+    ...     components,
     ...     mask,
     ...     new_dims=["component"],
     ... )
     >>> spatial_pca.dims
-    ("component", "z", "y", "x")
+    ('component', 'k', 'j', 'i')
     >>>
-    >>> # Unmask - 3D case with custom coords
+    >>> # Unmask - two extra dims, with custom coords
     >>> pose_data = np.random.randn(5, 3, n_voxels)  # (component, pose, space)
     >>> spatial_pose = unmask(
     ...     pose_data,
@@ -102,7 +111,7 @@ def unmask(
     ...     new_dims_coords={"component": [1, 2, 3, 4, 5], "pose": [0, 1, 2]},
     ... )
     >>> spatial_pose.dims
-    ("component", "pose", "z", "y", "x")
+    ('component', 'pose', 'k', 'j', 'i')
     """
     mask_values = mask.values
     if np.issubdtype(mask_values.dtype, np.bool_):
