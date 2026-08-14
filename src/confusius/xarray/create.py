@@ -10,7 +10,7 @@ import numpy.typing as npt
 import xarray as xr
 
 from confusius._dims import CORE_DIMS, SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
-from confusius._utils.coordinates import get_default_probe_origins
+from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.timing import TIMING_REFERENCE_FACTORS, VolumeAcquisitionReference
 from confusius.validation import validate_fusi, validate_iq
@@ -356,7 +356,7 @@ def _resolve_voxel_to_world(
 
     resolved_spacing = _validate_spatial_tuple(spacing, name="spacing")
     if origin is None:
-        resolved_origin = get_default_probe_origins(spatial_sizes, resolved_spacing)
+        resolved_origin = get_probe_surface_origin(spatial_sizes, resolved_spacing)
     else:
         if len(origin) != len(SPATIAL_DIMS):
             raise ValueError("origin must have length 3 in z/y/x order.")

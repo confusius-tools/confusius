@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from rich.progress import Progress
 
 from confusius._dims import SPATIAL_DIMS, TIME_DIM, VOXEL_DIMS
-from confusius._utils.coordinates import get_default_probe_origins
+from confusius._utils.coordinates import get_probe_surface_origin
 from confusius._utils.stack import find_stack_level
 from confusius.io._utils import make_attrs_zarr_safe
 from confusius.io.utils import check_path
@@ -750,7 +750,7 @@ def convert_autc_dats_to_zarr(
     resolved_spacing = (spacing_k, spacing_j, spacing_i)
 
     if origin is None:
-        resolved_origin = get_default_probe_origins(
+        resolved_origin = get_probe_surface_origin(
             {"k": 1, "j": n_z, "i": n_x}, resolved_spacing
         )
     elif len(origin) != 3:

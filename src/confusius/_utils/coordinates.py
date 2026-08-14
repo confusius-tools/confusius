@@ -411,10 +411,10 @@ def get_axis_aligned_affine(
     return affine
 
 
-def get_default_probe_origins(
+def get_probe_surface_origin(
     sizes: Mapping[str, int], spacing: tuple[float, float, float]
 ) -> tuple[float, float, float]:
-    """Return default world origins for ConfUSIus probe geometry.
+    """Return the default world origin for ConfUSIus probe geometry.
 
     Elevation (`k`) and lateral (`i`) are centered on the probe; depth (`j`) is
     referenced to the probe surface, starting half a voxel below it.
