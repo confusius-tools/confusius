@@ -94,6 +94,21 @@ def test_create_fusi_dataarray_uses_default_probe_origins():
     assert_allclose(_world_coord_1d(result, "x"), [-0.3, -0.1, 0.1, 0.3])
 
 
+def test_create_fusi_dataarray_world_coord_attrs_overrides_units_only():
+    """world_coord_attrs overrides given keys, keeps auto-computed voxdim."""
+    result = create_fusi_dataarray(
+        np.zeros((4, 8, 12)),
+        dims=("k", "j", "i"),
+        spacing=(0.4, 0.1, 0.2),
+        origin=(0.0, 0.0, 0.0),
+        world_coord_attrs={"z": {"units": "um"}},
+    )
+
+    assert result.coords["z"].attrs["units"] == "um"
+    assert result.coords["z"].attrs["voxdim"] == pytest.approx(0.4)
+    assert result.coords["y"].attrs["units"] == "mm"
+
+
 def test_create_fusi_dataarray_pads_missing_spatial_dim():
     """A 2D input gets singleton axes for missing spatial dims."""
     result = create_fusi_dataarray(

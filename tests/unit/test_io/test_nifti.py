@@ -163,15 +163,20 @@ class TestLoadNifti:
     """Tests for load_nifti function."""
 
     def test_load_2d_nifti(self, nifti_2d_path: tuple[Path, np.ndarray]) -> None:
-        """Loading 2D NIfTI creates DataArray with spatial dims only."""
+        """Loading 2D NIfTI pads the missing spatial dim to a canonical singleton `k`.
+
+        `create_fusi_dataarray` (the single construction path `load_nifti` now
+        uses whenever 2 or 3 spatial dims are present) always builds the full
+        canonical `k`/`j`/`i` array, so a genuinely 2D scan gains a size-1 `k`.
+        """
         nifti_path, expected_data = nifti_2d_path
         da = load_nifti(nifti_path)
 
         assert isinstance(da, xr.DataArray)
-        assert da.dims == ("j", "i")
-        assert da.shape == (6, 8)
+        assert da.dims == ("k", "j", "i")
+        assert da.shape == (1, 6, 8)
         assert da.dtype == np.float32
-        np.testing.assert_array_equal(da.values, expected_data.T)
+        np.testing.assert_array_equal(da.values, expected_data.T[np.newaxis])
 
     def test_load_3d_nifti(self, nifti_3d_path: tuple[Path, np.ndarray]) -> None:
         """Loading 3D NIfTI creates DataArray with spatial dims only."""
@@ -645,7 +650,13 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="cannot be inferred"):
             loaded = load_nifti(path)
 
+        # `create_fusi_dataarray` would otherwise backfill a missing duration from
+        # the time coordinate's own regular spacing (the repetition time) -- exactly
+        # the guess just declined above as unsafe (the actual acquisition duration is
+        # unknown, not equal to the repetition time). `load_nifti` strips that
+        # backfilled value back out, so it must stay absent.
         assert "volume_acquisition_duration" not in loaded.coords["time"].attrs
+        assert "_duration_uninferable" not in loaded.coords["time"].attrs
 
     def test_load_nifti_scalar_time_reverse_slice_direction_reverses_slice_order(
         self, tmp_path: Path
@@ -1131,8 +1142,12 @@ class TestLoadNifti:
         with pytest.warns(UserWarning, match="sform_code and qform_code are 0"):
             da = load_nifti(nifti_path)
 
-        assert da.dims == ("j", "i")
-        assert "z" not in da.coords
+        # `create_fusi_dataarray` pads the missing spatial dim to a canonical
+        # singleton `k`, so `z` is present (with default units/voxdim) even
+        # though only 2 spatial dims were declared in the NIfTI header.
+        assert da.dims == ("k", "j", "i")
+        assert da.sizes["k"] == 1
+        assert "z" in da.coords
         assert da.coords["x"].attrs["units"] == "mm"
         assert da.coords["y"].attrs["units"] == "mm"
         np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 2.0, 4.0, 6.0])
@@ -1319,16 +1334,16 @@ class TestLoadNifti:
         assert "affines" not in da.attrs
         np.testing.assert_allclose(_world_coord_1d(da, "x"), [0.0, 1.0, 2.0, 3.0])
 
-    def test_load_nifti_extra_dims_named_j_i_promote_directly(
+    def test_load_nifti_extra_dims_named_j_i_fall_back_with_warning(
         self, tmp_path: Path
     ) -> None:
-        """Extra axes sidecar-named `j`/`i` alongside singleton x/y/z promote as-is.
+        """Extra axes sidecar-named `j`/`i` are rejected, falling back to `dim4`/`dim5`.
 
-        When the sidecar renames the 5th/6th NIfTI axes to native voxel dim names
-        (`j`, `i`) and the canonical spatial axes are all singleton, the loaded
-        DataArray already carries native voxel dims, so
-        `_promote_nifti_to_voxel_to_world` builds `voxel_to_world` directly from those
-        dims instead of renaming `z`/`y`/`x`.
+        `k`/`j`/`i` (native voxel dims) and `z`/`y`/`x` (their derived world
+        coordinate names) are reserved for the canonical spatial axes. A
+        sidecar `ConfUSIusDim{N}Name` claiming one of these for an extra
+        (non-spatial) axis is rejected with a warning; the axis keeps its
+        default `dim{N}` name instead of being promoted to a real spatial dim.
         """
         data = np.arange(1 * 1 * 1 * 1 * 3 * 2, dtype=np.float32).reshape(
             1, 1, 1, 1, 3, 2
@@ -1342,28 +1357,26 @@ class TestLoadNifti:
                 f,
             )
 
-        da = load_nifti(nifti_path)
+        with pytest.warns(UserWarning, match="reserved canonical spatial dim name"):
+            da = load_nifti(nifti_path)
 
-        assert da.dims == ("j", "i")
-        assert "z" not in da.coords
-        assert "k" not in da.dims
-        np.testing.assert_allclose(get_voxel_to_world_affine(da), np.eye(3))
-        np.testing.assert_allclose(
-            da.coords["y"].values, [[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]]
-        )
-        np.testing.assert_allclose(
-            da.coords["x"].values, [[0.0, 1.0], [0.0, 1.0], [0.0, 1.0]]
-        )
+        assert da.dims == ("dim5", "dim4", "k", "j", "i")
+        assert da.sizes["dim4"] == 3
+        assert da.sizes["dim5"] == 2
+        assert da.sizes["k"] == 1
+        assert da.sizes["j"] == 1
+        assert da.sizes["i"] == 1
+        np.testing.assert_allclose(da.coords["dim4"].values, [0.0, 1.0, 2.0])
+        np.testing.assert_allclose(da.coords["dim5"].values, [0.0, 1.0])
 
-    def test_load_nifti_1d_data_skips_voxel_to_world_promotion(
+    def test_load_nifti_1d_data_is_padded_to_canonical_kji(
         self, tmp_path: Path
     ) -> None:
-        """A genuinely 1D NIfTI (only `x`) is left unpromoted (fewer than 2 spatial dims).
+        """A genuinely 1D NIfTI (only `i`) is still a canonical, indexed array.
 
-        `_promote_nifti_to_voxel_to_world` only renames `z`/`y`/`x` into voxel dims
-        when 2 or 3 spatial dims are present; with a single spatial axis it drops
-        the now-unused `_primary_voxel_to_world` attr and returns the DataArray
-        unchanged.
+        `load_nifti` always builds through `create_fusi_dataarray`, which pads
+        any missing `k`/`j`/`i` to a singleton -- every loaded array ends up
+        indexed, regardless of how many spatial dims the file actually has.
         """
         data = np.arange(5, dtype=np.float32)
         nifti_path = tmp_path / "one_d.nii.gz"
@@ -1371,22 +1384,20 @@ class TestLoadNifti:
 
         da = load_nifti(nifti_path)
 
-        assert da.dims == ("x",)
-        assert "_primary_voxel_to_world" not in da.attrs
-        assert "k" not in da.dims
-        np.testing.assert_array_equal(da.values, data)
+        assert da.dims == ("k", "j", "i")
+        assert da.sizes["k"] == 1
+        assert da.sizes["j"] == 1
+        np.testing.assert_array_equal(da.values.reshape(-1), data)
 
-    def test_load_nifti_extra_dim_named_k_conflicts_with_promoted_z(
+    def test_load_nifti_extra_dim_named_k_falls_back_with_warning(
         self, tmp_path: Path
     ) -> None:
-        """An extra axis sidecar-named `k` collides with the promoted `z` voxel dim.
+        """An extra axis sidecar-named `k` is rejected, falling back to `dim4`.
 
-        `_promote_nifti_to_voxel_to_world` tries to move the pre-existing extra `k`
-        dim out of the way using a `dim5_name`/`dim6_name`/`dim7_name` fallback, but
-        those attrs are already popped from `attrs` by the time load reaches this
-        step (they were consumed to build extra-dim coordinates), so the fallback
-        never finds a rename target and the subsequent `z` -> `k` rename collides
-        with the pre-existing `k` dim.
+        `k` is reserved for the canonical spatial voxel dim on the third NIfTI
+        axis, so a sidecar override claiming it for an extra (non-spatial)
+        axis is rejected with a warning rather than producing a name
+        collision when the array is later built.
         """
         data = np.zeros((3, 1, 1, 1, 2), dtype=np.float32)
         nifti_path = tmp_path / "extra_k.nii.gz"
@@ -1395,8 +1406,12 @@ class TestLoadNifti:
         with open(tmp_path / "extra_k.json", "w") as f:
             json.dump({"ConfUSIusDim4Name": "k"}, f)
 
-        with pytest.raises(ValueError, match="the new name 'k' conflicts"):
-            load_nifti(nifti_path)
+        with pytest.warns(UserWarning, match="reserved canonical spatial dim name"):
+            da = load_nifti(nifti_path)
+
+        assert da.dims == ("dim4", "k", "j", "i")
+        assert da.sizes["dim4"] == 2
+        assert da.sizes["i"] == 3
 
 
 class TestSaveNifti:

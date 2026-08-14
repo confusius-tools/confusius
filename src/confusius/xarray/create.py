@@ -423,6 +423,7 @@ def create_fusi_dataarray(
     name: str | None = None,
     attrs: dict[str, Any] | None = None,
     voxel_to_world: npt.ArrayLike | None = None,
+    world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
     """Build a canonical ConfUSIus fUSI DataArray from a raw array.
 
@@ -464,6 +465,11 @@ def create_fusi_dataarray(
         DataArray attributes.
     voxel_to_world : numpy.typing.ArrayLike, optional
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
+    world_coord_attrs : mapping[str, mapping[str, Any]], optional
+        Attributes to merge onto the derived world coordinates, keyed by world
+        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units`/`voxdim`
+        entries for any key present in the given mapping; other auto-computed entries
+        are kept.
 
     Returns
     -------
@@ -603,7 +609,10 @@ def create_fusi_dataarray(
     result = attach_voxel_to_world_index(
         result,
         index_affine,
-        world_coord_attrs={name: world_attrs[name] for name in present_world_names},
+        world_coord_attrs={
+            name: {**world_attrs[name], **(world_coord_attrs or {}).get(name, {})}
+            for name in present_world_names
+        },
     )
 
     extra_dims = [dim for dim in result.dims if dim not in CORE_DIMS]
@@ -646,6 +655,7 @@ def create_iq_dataarray(
     name: str | None = "iq",
     attrs: dict[str, Any] | None = None,
     voxel_to_world: npt.ArrayLike | None = None,
+    world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
     """Build a canonical ConfUSIus IQ DataArray from a raw complex array.
 
@@ -688,6 +698,11 @@ def create_iq_dataarray(
         DataArray attributes.
     voxel_to_world : numpy.typing.ArrayLike, optional
         4x4 homogeneous affine in world `z/y/x` row and voxel `k/j/i` column order.
+    world_coord_attrs : mapping[str, mapping[str, Any]], optional
+        Attributes to merge onto the derived world coordinates, keyed by world
+        coordinate name (`z`/`y`/`x`). Overrides the auto-computed `units`/`voxdim`
+        entries for any key present in the given mapping; other auto-computed entries
+        are kept.
 
     Returns
     -------
@@ -728,6 +743,7 @@ def create_iq_dataarray(
         name=name,
         attrs=attrs,
         voxel_to_world=voxel_to_world,
+        world_coord_attrs=world_coord_attrs,
     )
     validate_iq(result)
     return result
