@@ -49,8 +49,6 @@ def test_axis_aligned_voxel_to_world_computes_correct_world_coords() -> None:
     result = attach_voxel_to_world_index(
         data,
         voxel_to_world,
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
 
     assert result.coords["z"].dims == ("k", "j", "i")
@@ -88,8 +86,6 @@ def test_axis_aligned_voxel_to_world_uses_voxel_to_world_index() -> None:
     result = attach_voxel_to_world_index(
         data,
         voxel_to_world,
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
 
     assert list(result.xindexes) == ["k", "j", "i", "z", "y", "x"]
@@ -119,8 +115,6 @@ def test_oblique_coordinate_transform_index_selection_uses_world_coords() -> Non
     result = attach_voxel_to_world_index(
         data,
         voxel_to_world,
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
 
     selected = result.sel(
@@ -232,8 +226,6 @@ def test_get_voxel_to_world_origin_uses_first_sampled_voxel() -> None:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         ),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
 
     assert get_voxel_to_world_index_origin(data) == {"z": 30.0, "y": 35.0, "x": 430.0}
@@ -253,8 +245,6 @@ def _axis_aligned_result() -> xr.DataArray:
     return attach_voxel_to_world_index(
         data,
         np.diag([10.0, 2.0, 3.0, 1.0]),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
 
 
@@ -266,7 +256,7 @@ def test_add_world_coords_defaults_to_yx_names_for_2d_voxel_dims() -> None:
         coords={"j": np.arange(3.0), "i": np.arange(4.0)},
     )
 
-    result = attach_voxel_to_world_index(data, np.eye(3), voxel_dims=("j", "i"))
+    result = attach_voxel_to_world_index(data, np.eye(3))
 
     assert set(result.coords) == {"j", "i", "y", "x"}
 
@@ -302,9 +292,7 @@ def test_sel_resolves_descending_and_nonmonotonic_axis_aligned_axes() -> None:
             "i": [0.0, 1.0, 2.0, 3.0],
         },
     )
-    result = attach_voxel_to_world_index(
-        data, np.eye(4), voxel_dims=("k", "j", "i"), world_coord_names=("z", "y", "x")
-    )
+    result = attach_voxel_to_world_index(data, np.eye(4))
 
     descending = result.sel(z=0.0)
     assert descending.coords["k"].item() == 0.0
@@ -372,8 +360,6 @@ def test_reverse_skips_dimension_fixed_by_a_prior_scalar_isel() -> None:
     result = attach_voxel_to_world_index(
         data,
         voxel_to_world,
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
     fixed = result.isel(k=0)
 
@@ -480,13 +466,8 @@ def test_add_world_coords_validates_voxel_dims_and_coordinates() -> None:
         coords={"j": np.arange(3.0), "i": np.arange(4.0)},
     )
 
-    with pytest.raises(ValueError, match="not present in the DataArray"):
-        attach_voxel_to_world_index(data, np.eye(3), voxel_dims=("j", "k"))
-
     with pytest.raises(ValueError, match="must have a matching 1D coordinate"):
-        attach_voxel_to_world_index(
-            data.drop_vars("i"), np.eye(3), voxel_dims=("j", "i")
-        )
+        attach_voxel_to_world_index(data.drop_vars("i"), np.eye(3))
 
     non_dim_coord = xr.DataArray(
         np.zeros((3, 4)),
@@ -494,7 +475,11 @@ def test_add_world_coords_validates_voxel_dims_and_coordinates() -> None:
         coords={"j": (("j", "i"), np.zeros((3, 4))), "i": np.arange(4.0)},
     )
     with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
-        attach_voxel_to_world_index(non_dim_coord, np.eye(3), voxel_dims=("j", "i"))
+        attach_voxel_to_world_index(non_dim_coord, np.eye(3))
+
+    no_voxel_dims = xr.DataArray(np.zeros((3, 4)), dims=("a", "b"))
+    with pytest.raises(ValueError, match="must have at least one native voxel dim"):
+        attach_voxel_to_world_index(no_voxel_dims, np.eye(3))
 
 
 def test_get_voxel_to_world_affine_raises_without_voxel_to_world_geometry() -> None:

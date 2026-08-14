@@ -14,7 +14,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
 from confusius.io._utils import (
@@ -360,13 +359,9 @@ def load_atlas(path: str | Path, **kwargs: Any) -> xr.Dataset:
     if "voxel_to_world" in ds.attrs:
         voxel_to_world = np.asarray(ds.attrs.pop("voxel_to_world"), dtype=np.float64)
         world_coord_attrs = ds.attrs.pop("world_coord_attrs", None)
-        voxel_dims = get_voxel_to_world_spatial_dims(ds["annotation"])
         restored_vars = {
             name: attach_voxel_to_world_index(
-                ds[name],
-                voxel_to_world,
-                voxel_dims=voxel_dims,
-                world_coord_attrs=world_coord_attrs,
+                ds[name], voxel_to_world, world_coord_attrs=world_coord_attrs
             )
             for name in ds.data_vars
         }

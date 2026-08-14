@@ -105,8 +105,6 @@ class TestPlotNapari:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": {"units": "mm"},
                 "y": {"units": "mm"},
@@ -200,8 +198,6 @@ class TestPlotNapari:
         data = attach_voxel_to_world_index(
             sample_fusi_3d.assign_coords(j=[2.0, 2.1, 2.4, 2.6, 2.7, 2.9]),
             get_voxel_to_world_affine(sample_fusi_3d),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
         )
         viewer = make_napari_viewer()
         with pytest.warns(UserWarning, match="non-uniform spacing"):
@@ -237,8 +233,6 @@ class TestPlotNapari:
                 coords={"j": [0.0, 1.0], "i": [0.0, 1.0]},
             ),
             np.eye(3),
-            voxel_dims=("j", "i"),
-            world_coord_names=("y", "x"),
         )
         viewer = make_napari_viewer()
         monkeypatch.setattr("confusius.plotting.napari.napari.Viewer", lambda: viewer)
@@ -316,8 +310,6 @@ class TestPlotNapari:
                 attrs={"roi_labels": roi_labels},
             ),
             np.diag([0.5, 0.5, 1.0]),
-            voxel_dims=("j", "i"),
-            world_coord_names=("y", "x"),
         )
 
         viewer = make_napari_viewer()

@@ -603,8 +603,6 @@ def create_fusi_dataarray(
     result = attach_voxel_to_world_index(
         result,
         index_affine,
-        voxel_dims=present_voxel_dims,
-        world_coord_names=present_world_names,
         world_coord_attrs={name: world_attrs[name] for name in present_world_names},
     )
 

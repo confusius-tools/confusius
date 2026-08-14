@@ -14,7 +14,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
 from confusius.io._utils import (
@@ -85,12 +84,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
                 data_array.attrs.pop("voxel_to_world"), dtype=np.float64
             )
             world_coord_attrs = data_array.attrs.pop("world_coord_attrs", None)
-            voxel_dims = get_voxel_to_world_spatial_dims(data_array)
             data_array = attach_voxel_to_world_index(
-                data_array,
-                voxel_to_world,
-                voxel_dims=voxel_dims,
-                world_coord_attrs=world_coord_attrs,
+                data_array, voxel_to_world, world_coord_attrs=world_coord_attrs
             )
     else:
         raise ValueError(

@@ -266,8 +266,6 @@ class TestRegisterVolumewise:
         data = attach_voxel_to_world_index(
             data,
             np.diag([1.0, 1.0, 1.0, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 
@@ -355,8 +353,6 @@ class TestRegisterVolumewise:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.2, 0.1, 0.1, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 
@@ -393,8 +389,6 @@ class TestRegisterVolumewise:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.2, 0.1, 0.1, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 

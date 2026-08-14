@@ -485,11 +485,7 @@ def consolidate_poses(
         voxel_to_world_affine[:-1, :-1] = np.diag(spacings)
         voxel_to_world_affine[:-1, -1] = origins
         return attach_voxel_to_world_index(
-            result,
-            voxel_to_world_affine,
-            voxel_dims=output_spatial_dim_names,
-            world_coord_names=world_coord_names,
-            world_coord_attrs=world_attrs,
+            result, voxel_to_world_affine, world_coord_attrs=world_attrs
         )
 
     # Use xarray's vectorized isel to select (pose, sweep_dim) pairs simultaneously.

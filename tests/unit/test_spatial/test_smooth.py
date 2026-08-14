@@ -15,8 +15,6 @@ def _add_identity_affine(da):
     return attach_voxel_to_world_index(
         da,
         np.eye(len(da.dims) + 1),
-        voxel_dims=tuple(da.dims),
-        world_coord_names=world_names,
         world_coord_attrs={name: {"units": "mm"} for name in world_names},
     )
 

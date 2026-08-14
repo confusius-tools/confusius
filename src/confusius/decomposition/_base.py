@@ -14,7 +14,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
 from confusius.extract import extract_with_mask, unmask
@@ -371,8 +370,6 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             self._reconstruction_mask_ = attach_voxel_to_world_index(
                 self._reconstruction_mask_,
                 get_voxel_to_world_affine(template),
-                voxel_dims=get_voxel_to_world_spatial_dims(template),
-                world_coord_names=world_coord_names,
                 world_coord_attrs={
                     name: dict(template.coords[name].attrs)
                     for name in world_coord_names

@@ -104,8 +104,6 @@ def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
     return attach_voxel_to_world_index(
         data,
         np.eye(len(voxel_dims) + 1),
-        voxel_dims=voxel_dims,
-        world_coord_names=world_names,
         world_coord_attrs={name: {"units": "mm"} for name in world_names},
     )
 

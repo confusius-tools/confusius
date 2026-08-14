@@ -23,7 +23,6 @@ import numpy as np
 import numpy.typing as npt
 import xarray as xr
 
-from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.io.utils import check_path
 
@@ -317,8 +316,6 @@ def _attach_scan_voxel_to_world_geometry(
     return attach_voxel_to_world_index(
         data,
         voxel_to_world,
-        voxel_dims=VOXEL_DIMS,
-        world_coord_names=("z", "y", "x"),
         world_coord_attrs={
             "z": {
                 "units": "mm",

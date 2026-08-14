@@ -9,6 +9,7 @@ import numpy.typing as npt
 import pandas as pd
 import xarray as xr
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.atlas import build_atlas_cmap_and_norm
 from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.atlas._structures import (
@@ -472,22 +473,29 @@ class AtlasAccessor:
             dims=dims,
             coords=coords,
         )
-        affine = np.eye(len(dims) + 1, dtype=np.float64)
-        affine[:-1, :-1] = np.diag(spacing)
-        affine[:-1, -1] = origin
-        world_names = tuple({"k": "z", "j": "y", "i": "x"}[dim] for dim in dims)
+        # dims/spacing/origin may arrive in any caller-given order; the affine columns
+        # must line up with attach_voxel_to_world_index's canonical k/j/i order
+        # regardless of that order, so reorder before building the affine.
+        spacing = list(spacing)
+        origin = list(origin)
+        canonical_order = [dims.index(dim) for dim in VOXEL_DIMS if dim in dims]
+        canonical_dims = [dims[i] for i in canonical_order]
+        canonical_spacing = [spacing[i] for i in canonical_order]
+        canonical_origin = [origin[i] for i in canonical_order]
+        affine = np.eye(len(canonical_dims) + 1, dtype=np.float64)
+        affine[:-1, :-1] = np.diag(canonical_spacing)
+        affine[:-1, -1] = canonical_origin
+        world_names = tuple(
+            {"k": "z", "j": "y", "i": "x"}[dim] for dim in canonical_dims
+        )
         world_attrs = {}
-        for dim, name, step in zip(dims, world_names, spacing, strict=True):
+        for name, step in zip(world_names, canonical_spacing, strict=True):
             world_attrs[name] = dict(
                 self.reference.coords.get(name, xr.Variable((), 0.0)).attrs
             )
             world_attrs[name]["voxdim"] = float(step)
         reference = attach_voxel_to_world_index(
-            reference,
-            affine,
-            voxel_dims=tuple(dims),
-            world_coord_names=world_names,
-            world_coord_attrs=world_attrs,
+            reference, affine, world_coord_attrs=world_attrs
         )
         return self.resample_like(
             reference,

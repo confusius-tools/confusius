@@ -7,7 +7,6 @@ from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
     get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
 
@@ -226,10 +225,6 @@ def unmask(
             if name in mask.coords
         }
         result = attach_voxel_to_world_index(
-            result,
-            get_voxel_to_world_affine(mask),
-            voxel_dims=get_voxel_to_world_spatial_dims(mask),
-            world_coord_names=world_coord_names,
-            world_coord_attrs=world_coord_attrs,
+            result, get_voxel_to_world_affine(mask), world_coord_attrs=world_coord_attrs
         )
     return result

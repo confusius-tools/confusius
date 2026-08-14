@@ -28,7 +28,7 @@ from xarray import Index, Variable
 from xarray.core.indexing import IndexSelResult
 from xarray.indexes import CoordinateTransform, CoordinateTransformIndex
 
-from confusius._dims import VOXEL_DIMS
+from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.coordinates import get_representative_step
 
 
@@ -765,25 +765,23 @@ def attach_voxel_to_world_index(
     data: xr.DataArray,
     voxel_to_world: npt.ArrayLike,
     *,
-    voxel_dims: tuple[str, ...],
-    world_coord_names: tuple[Hashable, ...] | None = None,
     world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
     """Attach world coordinates to a DataArray.
 
+    Voxel dimensions are the native voxel names (`k`/`j`/`i`) present on `data`, in
+    canonical affine input-space column order; each gets the matching fixed world
+    coordinate name (`k`→`z`, `j`→`y`, `i`→`x`), so e.g. a `(k, i)` DataArray gets
+    `z`/`x` world coordinates, not `z`/`y`.
+
     Parameters
     ----------
     data : xarray.DataArray
-        Input array that already carries 1D voxel-space coordinates on `voxel_dims`.
+        Input array that already carries 1D voxel-space coordinates on its native
+        voxel dims (`k`/`j`/`i`).
     voxel_to_world : (N+1, N+1) numpy.ndarray
         Homogeneous affine mapping voxel-space coordinates to world-space
         coordinates.
-    voxel_dims : tuple[str, ...]
-        Dimension names whose coordinates define voxel space. The order determines the
-        affine input-space column order.
-    world_coord_names : tuple[Hashable, ...], optional
-        Names of the world coordinates to attach lazily. If not provided, defaults
-        to `("z", "y", "x")` for 3D and `("y", "x")` for 2D.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to attach to the derived world coordinates, keyed by world
         coordinate name.
@@ -798,15 +796,21 @@ def attach_voxel_to_world_index(
     Raises
     ------
     ValueError
-        If `voxel_dims` are missing from the DataArray or if their coordinates are not
-        1D dimension coordinates.
+        If `data` has no native voxel dims (`k`/`j`/`i`), or if their coordinates are
+        not 1D dimension coordinates.
     """
+    voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
+    if not voxel_dims:
+        raise ValueError(
+            f"data must have at least one native voxel dim {VOXEL_DIMS!r}, got dims "
+            f"{data.dims!r}."
+        )
+    voxel_to_world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+    world_coord_names: tuple[Hashable, ...] = tuple(
+        voxel_to_world_name[dim] for dim in voxel_dims
+    )
     voxel_coords: dict[str, npt.NDArray[np.float64]] = {}
     for dim in voxel_dims:
-        if dim not in data.dims:
-            raise ValueError(
-                f"Voxel dimension {dim!r} is not present in the DataArray."
-            )
         if dim not in data.coords:
             raise ValueError(
                 f"Voxel dimension {dim!r} must have a matching 1D coordinate."
@@ -818,9 +822,6 @@ def attach_voxel_to_world_index(
                 f"dims {coord.dims!r}."
             )
         voxel_coords[dim] = np.asarray(coord.values, dtype=np.float64)
-
-    if world_coord_names is None:
-        world_coord_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
 
     voxel_to_world_array = np.asarray(voxel_to_world, dtype=np.float64)
 
@@ -1048,11 +1049,7 @@ def restore_voxel_to_world_index(data: xr.DataArray) -> xr.DataArray:
             if name in data.coords
         }
         return attach_voxel_to_world_index(
-            data,
-            index.voxel_to_world,
-            voxel_dims=all_dims,
-            world_coord_names=world_coord_names,
-            world_coord_attrs=world_coord_attrs,
+            data, index.voxel_to_world, world_coord_attrs=world_coord_attrs
         )
     return data
 

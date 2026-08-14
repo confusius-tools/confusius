@@ -7,8 +7,6 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
 )
 from confusius.extract import extract_with_mask, unmask
 
@@ -44,8 +42,6 @@ def _make_mask(
     return attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(data),
-        voxel_dims=get_voxel_to_world_spatial_dims(data),
-        world_coord_names=get_voxel_to_world_coord_names(data),
     )
 
 

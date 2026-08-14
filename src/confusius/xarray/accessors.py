@@ -354,21 +354,16 @@ class FUSIAccessor:
         Examples
         --------
         >>> import numpy as np
-        >>> import xarray as xr
         >>> import confusius  # noqa: F401
-        >>> from confusius._utils.geometry import attach_voxel_to_world_index
-        >>> base = xr.DataArray(
-        ...     np.zeros((3, 4)),
-        ...     dims=["j", "i"],
-        ...     coords={"j": np.arange(3.0) + 2.0, "i": np.arange(4.0) + 1.0},
+        >>> from confusius.xarray import create_fusi_dataarray
+        >>> base = create_fusi_dataarray(
+        ...     np.zeros((5, 5)), dims=("j", "i"), voxel_to_world=np.eye(4)
         ... )
-        >>> data = attach_voxel_to_world_index(
-        ...     base, np.eye(3), voxel_dims=("j", "i")
-        ... )
+        >>> data = base.isel(j=slice(2, 5), i=slice(1, 5))
         >>> reindexed = data.fusi.reindex_voxels()
         >>> reindexed.coords["j"].values
         array([0., 1., 2.])
-        >>> float(reindexed.coords["y"].isel(j=0, i=0))
+        >>> float(reindexed.coords["y"].isel(j=0, i=0, k=0))
         2.0
         """
         from confusius.xarray.affine import reindex_voxels

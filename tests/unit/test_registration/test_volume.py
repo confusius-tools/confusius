@@ -52,8 +52,6 @@ def _make_voxel_to_world_2d() -> xr.DataArray:
                 [0.0, 0.0, 1.0],
             ]
         ),
-        voxel_dims=("j", "i"),
-        world_coord_names=("y", "x"),
         world_coord_attrs={
             "y": {"units": "mm"},
             "x": {"units": "mm"},
@@ -84,8 +82,6 @@ def _make_voxel_to_world_3d() -> xr.DataArray:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         ),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
         world_coord_attrs={
             "z": {"units": "mm"},
             "y": {"units": "mm"},
@@ -111,12 +107,10 @@ def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
 def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
     """Attach identity voxel-to-world geometry to a test array."""
     voxel_dims = tuple(str(dim) for dim in data.dims if str(dim) in {"k", "j", "i"})
-    world_names = {1: ("x",), 2: ("y", "x"), 3: ("z", "y", "x")}[len(voxel_dims)]
+    world_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
     return attach_voxel_to_world_index(
         data,
         np.eye(len(voxel_dims) + 1),
-        voxel_dims=voxel_dims,
-        world_coord_names=world_names,
         world_coord_attrs={name: {"units": "mm"} for name in world_names},
     )
 
@@ -143,8 +137,6 @@ def _make_voxel_to_world_3d_slab() -> xr.DataArray:
             ],
             dtype=np.float64,
         ),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
         world_coord_attrs={
             "z": {"units": "mm"},
             "y": {"units": "mm"},
@@ -175,8 +167,6 @@ def _make_voxel_to_world_3d_slab_flipped_normal() -> xr.DataArray:
             ],
             dtype=np.float64,
         ),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
         world_coord_attrs={
             "z": {"units": "mm"},
             "y": {"units": "mm"},
@@ -425,8 +415,6 @@ class TestSimpleITKGeometry:
         da = attach_voxel_to_world_index(
             base,
             np.eye(3),
-            voxel_dims=("j", "i"),
-            world_coord_names=("y", "x"),
             world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
         with pytest.raises(ValueError, match="voxdim"):

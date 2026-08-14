@@ -93,7 +93,6 @@ class TestPlotVolume:
         data = attach_voxel_to_world_index(
             data,
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
-            voxel_dims=("j", "i"),
             world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
         with pytest.raises(ValueError, match="requires 3D data"):
@@ -561,8 +560,6 @@ class TestPlotVolume:
         data = attach_voxel_to_world_index(
             data,
             voxel_to_world,
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": {"units": "mm"},
                 "y": {"units": "mm"},
@@ -642,8 +639,6 @@ class TestPlotVolume:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": {"units": "mm"},
                 "y": {"units": "mm"},
@@ -676,7 +671,6 @@ class TestPlotVolume:
         data = attach_voxel_to_world_index(
             data,
             np.array([[0.3, 0.0, 20.0], [0.0, 0.25, 30.0], [0.0, 0.0, 1.0]]),
-            voxel_dims=("j", "i"),
             world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
         )
 
@@ -773,8 +767,6 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         data = attach_voxel_to_world_index(
             data,
             voxel_to_world,
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
         )
 
@@ -842,8 +834,6 @@ class TestVolumePlotterAddVolume:
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             ),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": dict(sample_fusi_3d.coords["z"].attrs),
                 "y": dict(sample_fusi_3d.coords["y"].attrs),

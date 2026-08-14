@@ -55,11 +55,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
 
     def _with_world_coords(data: xr.DataArray) -> xr.DataArray:
         return attach_voxel_to_world_index(
-            data,
-            voxel_to_world,
-            voxel_dims=VOXEL_DIMS,
-            world_coord_names=SPATIAL_DIMS,
-            world_coord_attrs=world_coord_attrs,
+            data, voxel_to_world, world_coord_attrs=world_coord_attrs
         )
 
     reference = _with_world_coords(

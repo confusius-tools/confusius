@@ -593,8 +593,6 @@ class TestProcessIqToPowerDoppler:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 1.0]),
-            voxel_dims=("j", "i"),
-            world_coord_names=("y", "x"),
             world_coord_attrs={
                 "y": {"units": "mm", "voxdim": 0.1},
                 "x": {"units": "mm", "voxdim": 0.05},
@@ -629,8 +627,6 @@ class TestProcessIqToPowerDoppler:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": {"units": "mm", "voxdim": 0.1},
                 "y": {"units": "mm", "voxdim": 0.05},
@@ -1324,8 +1320,6 @@ class TestProcessIqToBmode:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 1.0]),
-            voxel_dims=("j", "i"),
-            world_coord_names=("y", "x"),
             world_coord_attrs={
                 "y": {"units": "mm", "voxdim": 0.1},
                 "x": {"units": "mm", "voxdim": 0.05},
@@ -1360,8 +1354,6 @@ class TestProcessIqToBmode:
         iq = attach_voxel_to_world_index(
             base,
             np.diag([0.1, 0.05, 0.05, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": {"units": "mm", "voxdim": 0.1},
                 "y": {"units": "mm", "voxdim": 0.05},

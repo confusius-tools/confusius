@@ -129,11 +129,7 @@ def _attach_iq_output_geometry(
         if coord_name in iq.coords
     }
     return attach_voxel_to_world_index(
-        result_da,
-        get_voxel_to_world_affine(iq),
-        voxel_dims=spatial_dims,
-        world_coord_names=world_coord_names,
-        world_coord_attrs=world_coord_attrs,
+        result_da, get_voxel_to_world_affine(iq), world_coord_attrs=world_coord_attrs
     )
 
 

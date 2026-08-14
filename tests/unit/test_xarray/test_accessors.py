@@ -34,8 +34,6 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         ),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
         world_coord_attrs={
             "z": {"units": "mm"},
             "y": {"units": "mm"},
@@ -238,8 +236,6 @@ class TestOrigin:
                     [0.0, 0.0, 0.0, 1.0],
                 ]
             ),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
         )
 
         assert data.fusi.origin == {
@@ -340,7 +336,7 @@ class TestReindexVoxels:
             dims=["j", "i"],
             coords={"j": [0.0, 1.0, 3.0], "i": np.arange(4.0)},
         )
-        data = attach_voxel_to_world_index(base, np.eye(3), voxel_dims=("j", "i"))
+        data = attach_voxel_to_world_index(base, np.eye(3))
         with pytest.raises(ValueError, match="spacing is undefined"):
             data.fusi.reindex_voxels()
 
@@ -362,7 +358,6 @@ class TestReindexVoxelsLike:
         base = attach_voxel_to_world_index(
             base,
             np.diag([1.0, 1.0, 1.0, 1.0]),
-            voxel_dims=("k", "j", "i"),
             world_coord_attrs={
                 "z": {"units": "mm"},
                 "y": {"units": "mm"},
@@ -454,7 +449,7 @@ class TestReindexVoxelsLike:
             dims=["j", "i"],
             coords={"j": np.arange(4.0), "i": np.arange(5.0)},
         )
-        data_2d = attach_voxel_to_world_index(base_2d, np.eye(3), voxel_dims=("j", "i"))
+        data_2d = attach_voxel_to_world_index(base_2d, np.eye(3))
 
         with pytest.raises(ValueError, match="same voxel dimensions"):
             data_2d.fusi.reindex_voxels_like(reference)
@@ -632,12 +627,7 @@ class TestAffineApplyMethod:
             coords=coords,
             attrs={"affines": affines} if affines is not None else {},
         )
-        return attach_voxel_to_world_index(
-            base,
-            affine,
-            voxel_dims=dims,
-            world_coord_names=("y", "x") if len(dims) == 2 else ("z", "y", "x"),
-        )
+        return attach_voxel_to_world_index(base, affine)
 
     def test_identity_leaves_coords_unchanged(self):
         """Applying the identity affine leaves coords unchanged."""
@@ -842,8 +832,6 @@ class TestAffineApplyMethod:
                     [0.0, 0.0, 1.0],
                 ]
             ),
-            voxel_dims=("j", "i"),
-            world_coord_names=("y", "x"),
         )
         shift = np.array(
             [

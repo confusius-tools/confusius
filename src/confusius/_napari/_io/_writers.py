@@ -119,7 +119,6 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     result_dims: list[str] = []
     coords: dict[str, xr.DataArray] = {}
     voxel_dims: list[str] = []
-    world_names: list[str] = []
     affine_scales: list[float] = []
     affine_translates: list[float] = []
     world_attrs: dict[str, dict[str, Any]] = {}
@@ -129,7 +128,6 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
             result_dims.append(result_dim)
             coords[result_dim] = xr.DataArray(np.arange(n), dims=[result_dim])
             voxel_dims.append(result_dim)
-            world_names.append(world_name)
             affine_scales.append(axis_scale)
             affine_translates.append(axis_translate)
             world_attrs[world_name] = attrs
@@ -145,18 +143,21 @@ def _compute_dataarray_from_layer(data: Any, meta: dict[str, Any]) -> xr.DataArr
     if not voxel_dims:
         return result
 
+    from confusius._dims import VOXEL_DIMS
     from confusius._utils.geometry import attach_voxel_to_world_index
+
+    # `voxel_dims`/`world_names`/the affine scale-translate lists are in the layer's
+    # own (possibly non-canonical) axis order at this point; attach_voxel_to_world_index
+    # always derives voxel dims in canonical k/j/i order, so the affine columns must be
+    # reordered to match before building it.
+    canonical_order = [voxel_dims.index(dim) for dim in VOXEL_DIMS if dim in voxel_dims]
+    affine_scales = [affine_scales[i] for i in canonical_order]
+    affine_translates = [affine_translates[i] for i in canonical_order]
 
     affine = np.eye(len(voxel_dims) + 1, dtype=float)
     affine[:-1, :-1] = np.diag(affine_scales)
     affine[:-1, -1] = affine_translates
-    return attach_voxel_to_world_index(
-        result,
-        affine,
-        voxel_dims=tuple(voxel_dims),
-        world_coord_names=tuple(world_names),
-        world_coord_attrs=world_attrs,
-    )
+    return attach_voxel_to_world_index(result, affine, world_coord_attrs=world_attrs)
 
 
 def _get_or_compute_dataarray_from_layer(

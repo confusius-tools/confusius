@@ -7,8 +7,6 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
-    get_voxel_to_world_coord_names,
-    get_voxel_to_world_spatial_dims,
 )
 from confusius.validation import validate_mask, validate_matching_coordinates
 
@@ -170,8 +168,6 @@ def test_validate_mask_accepts_scalar_attached_coordinate(sample_fusi_3dt):
     mask = attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(sample_fusi_3dt),
-        voxel_dims=get_voxel_to_world_spatial_dims(sample_fusi_3dt),
-        world_coord_names=get_voxel_to_world_coord_names(sample_fusi_3dt),
     )
     mask[0, 0, :, :] = 1
 

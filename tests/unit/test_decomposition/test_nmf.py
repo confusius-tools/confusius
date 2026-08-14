@@ -57,8 +57,6 @@ def nmf_3dt_volume():
     return attach_voxel_to_world_index(
         base,
         np.eye(4),
-        voxel_dims=("k", "j", "i"),
-        world_coord_names=("z", "y", "x"),
     )
 
 

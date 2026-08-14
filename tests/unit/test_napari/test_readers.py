@@ -244,8 +244,6 @@ class TestReaderLayerData:
         data = attach_voxel_to_world_index(
             data,
             np.diag([0.4, 0.3, 0.25, 1.0]),
-            voxel_dims=("k", "j", "i"),
-            world_coord_names=("z", "y", "x"),
             world_coord_attrs={
                 "z": {"units": "mm"},
                 "y": {"units": "mm"},

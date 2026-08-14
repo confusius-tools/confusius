@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import xarray as xr
 
+from confusius._dims import SPATIAL_DIMS
 from confusius._utils.stack import find_stack_level
 
 if TYPE_CHECKING:
@@ -363,8 +364,6 @@ def to_spatial_dataarray(
     attrs: Mapping[str, object],
     name: str,
     voxel_to_world: npt.NDArray[np.float64] | None = None,
-    voxel_dims: tuple[str, ...] | None = None,
-    world_coord_names: tuple[str, ...] | None = None,
     world_coord_attrs: Mapping[str, Mapping[str, object]] | None = None,
 ) -> xr.DataArray:
     """Reshape a flat voxel array into a spatial [`xarray.DataArray`][xarray.DataArray].
@@ -383,8 +382,8 @@ def to_spatial_dataarray(
         Sizes of the spatial dimensions, matching `spatial_dims`.
     coords : Mapping[str, xarray.Variable]
         Spatial coordinates for any subset of `spatial_dims`. Missing dims have no
-        coordinate on the output. Entries in `world_coord_names` are ignored here and
-        reconstructed instead (see `voxel_to_world`).
+        coordinate on the output. World coordinate names (`z`/`y`/`x`) are ignored here
+        and reconstructed instead (see `voxel_to_world`).
     attrs : Mapping[str, object]
         Base attributes; merged with `long_name=name` and `cmap="coolwarm"`.
     name : str
@@ -395,12 +394,6 @@ def to_spatial_dataarray(
         `coords`) because they are backed by a custom `VoxelToWorldIndex` that a bare
         coordinate assignment does not reconstruct. If not provided, no voxel-to-world
         geometry is attached.
-    voxel_dims : tuple of str, optional
-        Voxel dimension names in `voxel_to_world` column order. Required when
-        `voxel_to_world` is provided.
-    world_coord_names : tuple of str, optional
-        World coordinate names in `voxel_to_world` row order. Required when
-        `voxel_to_world` is provided.
     world_coord_attrs : Mapping[str, Mapping[str, object]], optional
         Attributes to attach to each reconstructed world coordinate, keyed by world
         coordinate name.
@@ -418,11 +411,7 @@ def to_spatial_dataarray(
         dims = spatial_dims
 
     spatial_dim_set = set(spatial_dims)
-    excluded_names = (
-        set(world_coord_names or ())
-        if voxel_to_world is not None and voxel_dims is not None
-        else set()
-    )
+    excluded_names = set(SPATIAL_DIMS) if voxel_to_world is not None else set()
     result = xr.DataArray(
         volume,
         dims=dims,
@@ -434,14 +423,12 @@ def to_spatial_dataarray(
         attrs={**attrs, "long_name": name, "cmap": "coolwarm"},
     )
 
-    if voxel_to_world is not None and voxel_dims is not None:
+    if voxel_to_world is not None:
         from confusius._utils.geometry import attach_voxel_to_world_index
 
         result = attach_voxel_to_world_index(
             result,
             voxel_to_world,
-            voxel_dims=voxel_dims,
-            world_coord_names=world_coord_names,
             world_coord_attrs=world_coord_attrs,
         )
 

@@ -168,7 +168,6 @@ def apply_affine(
     if "affines" in da.attrs:
         new_attrs["affines"] = new_affines
 
-    voxel_dims = get_voxel_to_world_spatial_dims(da)
     world_coord_names = get_voxel_to_world_coord_names(da)
     # `voxdim` is excluded: it must be recomputed from the new affine (see #244), not
     # carried over stale. `attach_voxel_to_world_index` already does that itself when
@@ -180,8 +179,6 @@ def apply_affine(
     result = attach_voxel_to_world_index(
         da.assign_attrs(new_attrs),
         affine_array @ voxel_to_world,
-        voxel_dims=voxel_dims,
-        world_coord_names=world_coord_names,
         world_coord_attrs=world_coord_attrs,
     )
     if inplace:
@@ -254,11 +251,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
         {dim: np.arange(da.sizes[dim], dtype=np.float64) for dim in voxel_dims}
     )
     return attach_voxel_to_world_index(
-        reindexed,
-        new_affine,
-        voxel_dims=voxel_dims,
-        world_coord_names=world_coord_names,
-        world_coord_attrs=world_coord_attrs,
+        reindexed, new_affine, world_coord_attrs=world_coord_attrs
     )
 
 
@@ -346,8 +339,6 @@ def reindex_voxels_like(
     return attach_voxel_to_world_index(
         relabeled,
         get_voxel_to_world_affine(reference),
-        voxel_dims=voxel_dims,
-        world_coord_names=reference_world_coord_names,
         world_coord_attrs=world_coord_attrs,
     )
 
@@ -395,12 +386,7 @@ class FUSIAffineAccessor:
         xarray.DataArray
             DataArray with rebuilt VoxelToWorldIndex-backed coordinates.
         """
-        voxel_dims = get_voxel_to_world_spatial_dims(self._obj)
-        result = attach_voxel_to_world_index(
-            self._obj,
-            voxel_to_world,
-            voxel_dims=voxel_dims,
-        )
+        result = attach_voxel_to_world_index(self._obj, voxel_to_world)
         if inplace:
             self._obj.coords.update(result.coords)
             self._obj.attrs.clear()

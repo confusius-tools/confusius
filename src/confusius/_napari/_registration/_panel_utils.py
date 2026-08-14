@@ -162,7 +162,6 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
     # (axis-aligned, unit scale) instead of building a partial-dim DataArray.
     data = np.expand_dims(data, axis=tuple(range(n_leading, n_leading + n_pad)))
     dims = (*axis_labels[:n_leading], *VOXEL_DIMS)
-    world_coord_names = (*SPATIAL_DIMS[:n_pad], *axis_labels[n_leading:])
     padded_scale = [1.0] * n_pad + scale[n_leading:]
     padded_translate = [0.0] * n_pad + translate[n_leading:]
     padded_units: list[str | None] = [None] * n_pad + units[n_leading:]
@@ -192,14 +191,12 @@ def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
     voxel_to_world[: len(VOXEL_DIMS), len(VOXEL_DIMS)] = padded_translate
     world_coord_attrs = {
         dim: {"units": unit}
-        for dim, unit in zip(world_coord_names, padded_units, strict=True)
+        for dim, unit in zip(SPATIAL_DIMS, padded_units, strict=True)
         if unit is not None
     }
     return attach_voxel_to_world_index(
         da,
         voxel_to_world,
-        voxel_dims=VOXEL_DIMS,
-        world_coord_names=world_coord_names,
         world_coord_attrs=world_coord_attrs,
     )
 

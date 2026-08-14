@@ -1060,8 +1060,6 @@ def _promote_nifti_to_voxel_to_world(data_array: xr.DataArray) -> xr.DataArray:
         result = attach_voxel_to_world_index(
             result,
             voxel_to_world,
-            voxel_dims=native_voxel_dims,
-            world_coord_names=world_names,
             world_coord_attrs={name: {"units": "mm"} for name in world_names},
         )
         dim_order = [dim for dim in ("time", "k", "j", "i") if dim in result.dims]
@@ -1126,11 +1124,7 @@ def _promote_nifti_to_voxel_to_world(data_array: xr.DataArray) -> xr.DataArray:
         result = result.assign_coords({dim: np.arange(result.sizes[dim], dtype=float)})
 
     return attach_voxel_to_world_index(
-        result,
-        voxel_to_world,
-        voxel_dims=voxel_dims,
-        world_coord_names=spatial_dims,
-        world_coord_attrs=world_coord_attrs,
+        result, voxel_to_world, world_coord_attrs=world_coord_attrs
     )
 
 
