@@ -21,17 +21,21 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
 
     Loops over every masked voxel in Python, computes Euclidean distances to every
     other masked voxel directly, and cross-validates on the resulting neighborhood.
+    Distances are computed from the mask's derived world `z`/`y`/`x` coordinates, not
+    its native voxel `k`/`j`/`i` dimensions' own (index-valued) coordinates -- SearchLight
+    measures `radius` in world units, and `k`/`j`/`i` and `z`/`y`/`x` spacing disagree
+    here (elevation is 1.0 mm apart, in-plane is 0.2 mm apart).
 
     Parameters
     ----------
     data : xarray.DataArray
-        `(time, z, y, x)` volume.
+        `(time, k, j, i)` volume with a `VoxelToWorldIndex`.
     mask : xarray.DataArray
-        Boolean spatial mask.
+        Boolean spatial mask with a `VoxelToWorldIndex` matching `data`.
     y : numpy.ndarray
         Targets aligned with `data`'s time axis.
     radius : float
-        Neighborhood radius in coordinate units.
+        Neighborhood radius in world coordinate units.
     estimator : sklearn.base.BaseEstimator
         Estimator cloned into each neighborhood.
     cv : sklearn.model_selection.BaseCrossValidator
@@ -44,9 +48,21 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
     """
     from sklearn.base import clone
 
+    from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
+
     dims = tuple(str(d) for d in mask.dims)
-    grids = np.meshgrid(*[mask.coords[d].values for d in dims], indexing="ij")
-    coords = np.stack([g.ravel() for g in grids], axis=-1)
+    world_name = dict(zip(VOXEL_DIMS, SPATIAL_DIMS, strict=True))
+    # A world coordinate need not be a clean 1D array along a single dim (a general
+    # affine can make z/y/x each depend on more than one voxel axis), so broadcast
+    # each to the mask's full shape rather than assuming np.meshgrid separability.
+    coord_arrays = [
+        np.broadcast_to(
+            np.asarray(mask.coords[world_name[d]].transpose(*dims).values),
+            mask.shape,
+        )
+        for d in dims
+    ]
+    coords = np.stack([arr.ravel() for arr in coord_arrays], axis=-1)
     flat_mask = np.asarray(mask.values).ravel()
     coords = coords[flat_mask]
 
@@ -66,7 +82,13 @@ def _reference_scores(data, mask, y, radius, estimator, cv):
 
 
 def test_matches_brute_force_reference(decoding_volume, full_mask, rng):
-    """SearchLight reproduces an explicit voxel-by-voxel reference implementation."""
+    """SearchLight reproduces an explicit voxel-by-voxel reference implementation.
+
+    `radius` is measured against `full_mask`'s derived world `z`/`y`/`x` coordinates,
+    not its native voxel `k`/`j`/`i` dimensions' own (index-valued) coordinates: if
+    `_get_masked_coordinates` silently used voxel indices instead, this would disagree,
+    since elevation spacing (1.0 mm) differs from in-plane spacing (0.2 mm).
+    """
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     searchlight = SearchLight(
@@ -87,59 +109,6 @@ def test_matches_brute_force_reference(decoding_volume, full_mask, rng):
     np.testing.assert_allclose(actual, expected)
 
 
-def test_matches_brute_force_reference_with_voxel_to_world_geometry(rng):
-    """SearchLight measures `radius` against world coordinates for voxel-to-world masks.
-
-    `decoding_volume`/`full_mask` use plain z/y/x dims with 1D coordinates, which
-    only exercises `_get_masked_coordinates`'s non-voxel-to-world fallback. A mask
-    built through `create_fusi_dataarray` instead carries native k/j/i voxel
-    dimensions with voxel-to-world-index-backed z/y/x world coordinates, exercising the
-    voxel-to-world branch. The reference here is built from those world
-    coordinates, not the raw k/j/i voxel indices `mask.dims` carries: if
-    `_get_masked_coordinates` silently fell back to voxel indices, this would
-    disagree because z spacing (1.0 mm) differs from y/x spacing (0.2 mm).
-    """
-    from sklearn.base import clone
-
-    from confusius.xarray import create_fusi_dataarray
-
-    n_time = 30
-    radius = 0.25
-    data = create_fusi_dataarray(
-        rng.standard_normal((n_time, 2, 3, 3)),
-        dims=("time", "k", "j", "i"),
-        time=np.arange(n_time) * 0.5,
-        spacing=(1.0, 0.2, 0.2),
-        origin=(0.0, 0.0, 0.0),
-    )
-    mask = xr.ones_like(data.isel(time=0, drop=True), dtype=bool)
-    y = rng.standard_normal(n_time)
-
-    searchlight = SearchLight(
-        mask=mask, estimator=Ridge(alpha=1.0), radius=radius, cv=3, show_progress=False
-    )
-    searchlight.fit(data, y)
-
-    world_coords = np.stack(
-        [np.asarray(data.coords[name].values) for name in ("z", "y", "x")], axis=-1
-    ).reshape(-1, 3)
-    features = np.asarray(data.transpose("time", "k", "j", "i").values).reshape(
-        n_time, -1
-    )
-    cv = KFold(n_splits=3, shuffle=False)
-    expected = []
-    for center in world_coords:
-        distances = np.sqrt(((world_coords - center) ** 2).sum(axis=1))
-        neighbors = np.flatnonzero(distances <= radius)
-        fold_scores = cross_val_score(
-            clone(Ridge(alpha=1.0)), features[:, neighbors], y, cv=cv, n_jobs=1
-        )
-        expected.append(float(np.mean(fold_scores)))
-    expected_scores = np.asarray(expected).reshape(mask.shape)
-
-    np.testing.assert_allclose(searchlight.scores_.values, expected_scores)
-
-
 def test_matches_brute_force_reference_sparse_mask(decoding_volume, rng):
     """SearchLight matches the reference under a sparse mask.
 
@@ -153,7 +122,7 @@ def test_matches_brute_force_reference_sparse_mask(decoding_volume, rng):
     Parameters
     ----------
     decoding_volume : xarray.DataArray
-        Random `(time, z, y, x)` volume from the shared fixtures.
+        Random canonical `(time, k, j, i)` volume from the shared fixtures.
     rng : numpy.random.Generator
         Seeded generator from the shared test fixtures.
     """
@@ -189,11 +158,11 @@ def test_recovers_planted_signal(decoding_volume, full_mask, rng):
     """The score map peaks where a decodable signal was planted."""
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
-    # Plant y into a 2x2 in-plane patch at z index 0, y indices 2:4, x indices 2:4.
+    # Plant y into a 2x2 in-plane patch at k index 0, j indices 2:4, i indices 2:4.
     # Voxels centered on that patch see a strongly predictive neighborhood; every
     # other voxel sees noise.
     #
-    # Index positionally, not by label. The y and x coordinates are built with
+    # Index positionally, not by label. The j and i world coordinates are built with
     # `np.arange(n) * 0.2`, so the third value is 0.6000000000000001 and a label
     # lookup of 0.6 raises KeyError.
     planted = decoding_volume.copy(deep=True)
@@ -204,12 +173,12 @@ def test_recovers_planted_signal(decoding_volume, full_mask, rng):
     )
     searchlight.fit(planted, y)
 
-    z_index, y_index, x_index = np.unravel_index(
+    k_index, j_index, i_index = np.unravel_index(
         int(np.argmax(searchlight.scores_.values)), searchlight.scores_.shape
     )
-    assert z_index == 0
-    assert y_index in (2, 3)
-    assert x_index in (2, 3)
+    assert k_index == 0
+    assert j_index in (2, 3)
+    assert i_index in (2, 3)
 
 
 def test_scores_geometry_and_metadata(decoding_volume, full_mask, rng):
@@ -220,7 +189,7 @@ def test_scores_geometry_and_metadata(decoding_volume, full_mask, rng):
     )
     searchlight.fit(decoding_volume, y)
 
-    assert searchlight.scores_.dims == ("z", "y", "x")
+    assert searchlight.scores_.dims == ("k", "j", "i")
     assert searchlight.scores_.shape == (2, 5, 6)
     np.testing.assert_array_equal(
         searchlight.scores_.y.values, decoding_volume.y.values
@@ -315,7 +284,7 @@ def test_single_slice_volume(decoding_volume, rng):
     coordinate, so `z` contributes nothing to any distance and the sphere degenerates
     to a disc in the remaining plane.
     """
-    volume = decoding_volume.isel(z=slice(0, 1))
+    volume = decoding_volume.isel(k=slice(0, 1))
     mask = xr.ones_like(volume.isel(time=0, drop=True), dtype=bool)
     y = rng.standard_normal(volume.sizes["time"])
 
@@ -332,26 +301,36 @@ def test_single_slice_volume(decoding_volume, rng):
         cv=KFold(n_splits=3, shuffle=False),
     )
 
-    assert searchlight.scores_.dims == ("z", "y", "x")
+    assert searchlight.scores_.dims == ("k", "j", "i")
     assert searchlight.scores_.shape == (1, 5, 6)
     np.testing.assert_allclose(searchlight.scores_.values.ravel(), expected)
 
 
-def test_raises_on_missing_coordinate(decoding_volume, rng):
-    """A spatial dimension without a coordinate is an error, not a silent fallback."""
-    volume = decoding_volume.drop_vars("y")
-    mask = xr.ones_like(volume.isel(time=0, drop=True), dtype=bool)
-    y = rng.standard_normal(volume.sizes["time"])
+def test_raises_without_voxel_to_world_index(decoding_volume, rng):
+    """A mask without a VoxelToWorldIndex is rejected, not silently used.
+
+    Its k/j/i coordinate values match decoding_volume's exactly, so `validate_mask`
+    alone would accept it; only the explicit index check catches this. A mask like
+    this would otherwise silently make `radius` mean voxel indices instead of world
+    coordinates, which is anisotropic.
+    """
+    plain_coords = {dim: decoding_volume.coords[dim] for dim in ("k", "j", "i")}
+    mask = xr.DataArray(
+        np.ones(decoding_volume.isel(time=0, drop=True).shape, dtype=bool),
+        dims=("k", "j", "i"),
+        coords=plain_coords,
+    )
+    y = rng.standard_normal(decoding_volume.sizes["time"])
 
     searchlight = SearchLight(mask=mask, estimator=Ridge(), radius=0.25, cv=3)
-    with pytest.raises(ValueError, match="lack a numeric coordinate"):
-        searchlight.fit(volume, y)
+    with pytest.raises(ValueError, match="VoxelToWorldIndex"):
+        searchlight.fit(decoding_volume, y)
 
 
 def test_raises_when_process_mask_not_subset(decoding_volume, full_mask, rng):
     """A process_mask reaching outside mask is rejected."""
     mask = full_mask.copy(deep=True)
-    mask.loc[dict(z=0.0)] = False
+    mask.loc[{"z": 0.0}] = False
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     searchlight = SearchLight(
@@ -485,23 +464,23 @@ def test_radius_is_in_coordinate_units(decoding_volume, full_mask, rng):
 
     in_plane_planted = fit_scores(planted, 0.25)
     np.testing.assert_array_equal(
-        in_plane_planted.isel(z=1).values, in_plane_baseline.isel(z=1).values
+        in_plane_planted.isel(k=1).values, in_plane_baseline.isel(k=1).values
     )
     assert (
-        in_plane_planted.isel(z=0).values > in_plane_baseline.isel(z=0).values
+        in_plane_planted.isel(k=0).values > in_plane_baseline.isel(k=0).values
     ).all()
 
     across_planes_baseline = fit_scores(decoding_volume, 1.05)
     across_planes_planted = fit_scores(planted, 1.05)
     assert not np.allclose(
-        across_planes_planted.isel(z=1).values, across_planes_baseline.isel(z=1).values
+        across_planes_planted.isel(k=1).values, across_planes_baseline.isel(k=1).values
     )
 
 
 def test_process_mask_restricts_centers(decoding_volume, full_mask, rng):
     """Only process_mask voxels get a score; the rest are NaN."""
     process_mask = xr.zeros_like(full_mask, dtype=bool)
-    process_mask.loc[dict(z=0.0)] = True
+    process_mask.loc[{"z": 0.0}] = True
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     searchlight = SearchLight(
@@ -568,7 +547,7 @@ def test_accepts_groups_with_leave_one_group_out(decoding_volume, full_mask, rng
         mask=full_mask, estimator=Ridge(), radius=0.25, cv=LeaveOneGroupOut()
     ).fit(decoding_volume, y, groups=groups)
 
-    assert searchlight.scores_.dims == ("z", "y", "x")
+    assert searchlight.scores_.dims == ("k", "j", "i")
     assert np.isfinite(searchlight.scores_.values).all()
 
 
@@ -603,7 +582,7 @@ def test_omitted_mask_matches_explicit_full_mask(decoding_volume, full_mask, rng
 def test_process_mask_restricts_centers_without_mask(decoding_volume, full_mask, rng):
     """`process_mask` still restricts the centers when `mask` is omitted."""
     process_mask = xr.zeros_like(full_mask, dtype=bool)
-    process_mask.loc[dict(z=0.0)] = True
+    process_mask.loc[{"z": 0.0}] = True
     y = rng.standard_normal(decoding_volume.sizes["time"])
 
     searchlight = SearchLight(
@@ -614,13 +593,16 @@ def test_process_mask_restricts_centers_without_mask(decoding_volume, full_mask,
     assert np.isnan(searchlight.scores_.sel(z=1.0).values).all()
 
 
-def test_raises_on_missing_coordinate_without_mask(decoding_volume, rng):
-    """The missing-coordinate error still fires for an internally built mask."""
-    volume = decoding_volume.drop_vars("y")
+def test_raises_without_voxel_to_world_index_on_x(rng):
+    """X itself is required to be a canonical, indexed fUSI DataArray."""
+    volume = xr.DataArray(
+        rng.standard_normal((10, 2, 5, 6)),
+        dims=("time", "k", "j", "i"),
+    )
     y = rng.standard_normal(volume.sizes["time"])
 
     searchlight = SearchLight(estimator=Ridge(), radius=0.25, cv=3)
-    with pytest.raises(ValueError, match="lack a numeric coordinate"):
+    with pytest.raises(ValueError, match="VoxelToWorldIndex"):
         searchlight.fit(volume, y)
 
 

@@ -1,17 +1,19 @@
 """Fixtures for `confusius.decoding` tests."""
 
-import numpy as np
 import pytest
 import xarray as xr
+
+from confusius.xarray import create_fusi_dataarray
 
 
 @pytest.fixture
 def decoding_volume(rng):
-    """`(time, z, y, x)` volume with enough samples for cross-validation.
+    """Canonical `(time, k, j, i)` fUSI volume with enough samples for cross-validation.
 
-    Shape is `(40, 2, 5, 6)`. Spatial coordinates are deliberately anisotropic: `z` is
-    spaced 1.0 apart while `y` and `x` are spaced 0.2 apart, so a radius between those
-    two values selects in-plane neighbors only.
+    Shape is `(40, 2, 5, 6)`. Spatial spacing is deliberately anisotropic: `k`
+    (elevation, world `z`) is spaced 1.0 mm apart while `j`/`i` (world `y`/`x`) are
+    spaced 0.2 mm apart, so a radius between those two values selects in-plane
+    neighbors only.
 
     Parameters
     ----------
@@ -21,27 +23,16 @@ def decoding_volume(rng):
     Returns
     -------
     xarray.DataArray
-        Random `(time, z, y, x)` volume with millimeter coordinates.
+        Random canonical `(time, k, j, i)` volume with a real `VoxelToWorldIndex`.
     """
     n_time = 40
-    return xr.DataArray(
+    return create_fusi_dataarray(
         rng.standard_normal((n_time, 2, 5, 6)),
         name="power_doppler",
-        dims=["time", "z", "y", "x"],
-        coords={
-            "time": xr.DataArray(
-                np.arange(n_time) * 0.5, dims=["time"], attrs={"units": "s"}
-            ),
-            "z": xr.DataArray(
-                np.array([0.0, 1.0]), dims=["z"], attrs={"units": "mm", "voxdim": 1.0}
-            ),
-            "y": xr.DataArray(
-                np.arange(5) * 0.2, dims=["y"], attrs={"units": "mm", "voxdim": 0.2}
-            ),
-            "x": xr.DataArray(
-                np.arange(6) * 0.2, dims=["x"], attrs={"units": "mm", "voxdim": 0.2}
-            ),
-        },
+        dims=("time", "k", "j", "i"),
+        dt=0.5,
+        spacing=(1.0, 0.2, 0.2),
+        origin=(0.0, 0.0, 0.0),
         attrs={"long_name": "Intensity", "units": "a.u."},
     )
 
@@ -53,11 +44,12 @@ def full_mask(decoding_volume):
     Parameters
     ----------
     decoding_volume : xarray.DataArray
-        Volume providing the spatial dimensions and coordinates.
+        Volume providing the spatial dimensions, coordinates, and voxel-to-world index.
 
     Returns
     -------
     xarray.DataArray
-        Boolean `(z, y, x)` mask, all `True`.
+        Boolean `(k, j, i)` mask, all `True`, carrying `decoding_volume`'s
+        `VoxelToWorldIndex`.
     """
     return xr.ones_like(decoding_volume.isel(time=0, drop=True), dtype=bool)

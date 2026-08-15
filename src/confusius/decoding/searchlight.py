@@ -1,4 +1,4 @@
-"""Searchlight decoding for `(time, ...)` fUSI DataArrays.
+"""Searchlight decoding for canonical `(time, k, j, i)` fUSI DataArrays.
 
 Portions of this module are inspired by `nilearn.decoding.searchlight`, which is
 licensed under the BSD-3-Clause License. See `NOTICE` for details.
@@ -32,6 +32,7 @@ from sklearn.model_selection import (
     cross_val_score,
 )
 
+from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     has_voxel_to_world_index,
@@ -39,7 +40,7 @@ from confusius._utils.geometry import (
 from confusius._utils.io import is_h5py_backed
 from confusius._utils.stack import find_stack_level
 from confusius.extract import extract_with_mask, unmask
-from confusius.validation import validate_mask, validate_time_series
+from confusius.validation import ensure_fusi, validate_mask
 
 
 def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
@@ -48,68 +49,51 @@ def _get_masked_coordinates(mask: xr.DataArray) -> npt.NDArray[np.float64]:
     Parameters
     ----------
     mask : xarray.DataArray
-        Boolean spatial mask. Every dimension must carry a numeric coordinate.
+        Boolean spatial mask carrying a `VoxelToWorldIndex` over its native voxel
+        (`k`/`j`/`i`) dimensions.
 
     Returns
     -------
     numpy.ndarray
-        `(n_masked, n_dims)` array of coordinates, in the order given by `mask.dims`.
+        `(n_masked, n_dims)` array of world coordinates, in the order given by
+        `get_voxel_to_world_coord_names(mask)`.
 
     Raises
     ------
     ValueError
-        If any dimension of the mask lacks a coordinate, or carries a non-numeric one.
-        SearchLight measures its radius in coordinate units, so a missing coordinate
-        would silently make the radius mean voxel indices, which is anisotropic.
-
-    Notes
-    -----
-    For voxel-to-world geometry, `mask.dims` are the native voxel dims (`k`/`j`/`i`),
-    whose own coordinates are dense integer indices, not world distances; the
-    world `z`/`y`/`x` coordinates (used instead here) are what `radius` is measured
-    against.
+        If `mask` lacks a `VoxelToWorldIndex`, or if a world coordinate is missing or
+        non-numeric. SearchLight measures its radius in world coordinate units, so a
+        missing index or coordinate would silently make the radius mean voxel indices
+        instead, which is anisotropic.
     """
-    dims = tuple(str(dim) for dim in mask.dims)
-
-    if has_voxel_to_world_index(mask):
-        coord_names = get_voxel_to_world_coord_names(mask)
-        invalid = [
-            name
-            for name in coord_names
-            if name not in mask.coords
-            or not np.issubdtype(mask.coords[name].dtype, np.number)
-        ]
-        if invalid:
-            raise ValueError(
-                f"Mask coordinates {invalid} lack a numeric coordinate. SearchLight "
-                "measures `radius` in coordinate units, so every spatial dimension "
-                "must carry one."
-            )
-        coord_arrays = [
-            np.broadcast_to(
-                np.asarray(mask.coords[name].transpose(*dims).values, dtype=np.float64),
-                mask.shape,
-            )
-            for name in coord_names
-        ]
-    else:
-        invalid = [
-            dim
-            for dim in dims
-            if dim not in mask.coords
-            or not np.issubdtype(mask.coords[dim].dtype, np.number)
-        ]
-        if invalid:
-            raise ValueError(
-                f"Mask dimensions {invalid} lack a numeric coordinate. SearchLight "
-                "measures `radius` in coordinate units, so every spatial dimension "
-                "must carry one."
-            )
-        grids = np.meshgrid(
-            *[np.asarray(mask.coords[dim].values, dtype=np.float64) for dim in dims],
-            indexing="ij",
+    if not has_voxel_to_world_index(mask):
+        raise ValueError(
+            "mask must carry a VoxelToWorldIndex. SearchLight measures `radius` in "
+            "world coordinate units; a mask without a real index would silently make "
+            "the radius mean voxel indices instead, which is anisotropic."
         )
-        coord_arrays = list(grids)
+
+    dims = tuple(str(dim) for dim in mask.dims)
+    coord_names = get_voxel_to_world_coord_names(mask)
+    invalid = [
+        name
+        for name in coord_names
+        if name not in mask.coords
+        or not np.issubdtype(mask.coords[name].dtype, np.number)
+    ]
+    if invalid:
+        raise ValueError(
+            f"Mask coordinates {invalid} lack a numeric coordinate. SearchLight "
+            "measures `radius` in coordinate units, so every spatial dimension "
+            "must carry one."
+        )
+    coord_arrays = [
+        np.broadcast_to(
+            np.asarray(mask.coords[name].transpose(*dims).values, dtype=np.float64),
+            mask.shape,
+        )
+        for name in coord_names
+    ]
 
     flat = np.stack([arr.ravel() for arr in coord_arrays], axis=-1)
     return flat[np.asarray(mask.values).ravel()]
@@ -404,7 +388,8 @@ class SearchLight(BaseEstimator):
 
     This estimator wraps scikit-learn while keeping xarray metadata:
 
-    - Input data are expected as `(time, ...)` where `...` are spatial dimensions.
+    - Input data must be a canonical `(time, k, j, i)` fUSI DataArray (a real
+      `VoxelToWorldIndex`, no `pose` or extra dimensions).
     - The `time` dimension is the sample axis. It need not be temporally ordered. For
       trial-averaged data, rename the trial dimension with `.rename(trial="time")`.
     - `scores_` is returned in the spatial geometry of `process_mask`.
@@ -415,18 +400,19 @@ class SearchLight(BaseEstimator):
         Estimator or [`Pipeline`][sklearn.pipeline.Pipeline].
     mask : xarray.DataArray, optional
         Boolean spatial mask selecting the voxels that may act as *features*. If not
-        provided, every voxel of the input data is used as a feature voxel. Every
-        spatial dimension must carry a numeric coordinate, because `radius` is measured
-        in coordinate units.
+        provided, every voxel of the input data is used as a feature voxel. Must carry
+        a `VoxelToWorldIndex` matching `X`'s grid, because `radius` is measured in
+        world coordinates.
     radius : float, default: 1.0
         Neighborhood radius, in the units of the data's spatial coordinates. Check
-        `X[dim].attrs.get("units")` if unsure. Radii are measured in world
+        `X.coords[dim].attrs.get("units")` if unsure. Radii are measured in world
         coordinates rather than voxel indices, so anisotropic voxels behave correctly.
     process_mask : xarray.DataArray, optional
         Boolean mask selecting the voxels that act as neighborhood *centers*. Must be
-        a subset of `mask`. If not provided, a score is computed at every `mask` voxel.
-        Use it to restrict the searchlight to a region of interest while still drawing
-        features from the surrounding tissue.
+        a subset of `mask`, and carry a `VoxelToWorldIndex` matching `X`'s grid. If not
+        provided, a score is computed at every `mask` voxel. Use it to restrict the
+        searchlight to a region of interest while still drawing features from the
+        surrounding tissue.
     cv : int or sklearn.model_selection.BaseCrossValidator, default: 5
         Cross-validation strategy. An integer builds a
         [`KFold`][sklearn.model_selection.KFold] for regressors, whose folds are
@@ -447,7 +433,7 @@ class SearchLight(BaseEstimator):
 
     Attributes
     ----------
-    scores_ : (...) xarray.DataArray
+    scores_ : (k, j, i) xarray.DataArray
         Mean cross-validation score at each `process_mask` center, in the spatial
         geometry of `process_mask`. Voxels outside `process_mask` are `numpy.nan`. The
         input's attributes are carried over, including any `affines`, so the map stays in
@@ -484,20 +470,16 @@ class SearchLight(BaseEstimator):
     Examples
     --------
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from sklearn.linear_model import Ridge
     >>> from confusius.decoding import SearchLight
+    >>> from confusius.xarray import create_fusi_dataarray
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
+    >>> data = create_fusi_dataarray(
     ...     rng.standard_normal((40, 1, 5, 5)),
-    ...     dims=["time", "z", "y", "x"],
-    ...     coords={
-    ...         "time": np.arange(40) * 0.5,
-    ...         "z": [0.0],
-    ...         "y": np.arange(5) * 0.2,
-    ...         "x": np.arange(5) * 0.2,
-    ...     },
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 0.2, 0.2),
     ... )
     >>> speed = rng.standard_normal(40)
     >>>
@@ -505,7 +487,7 @@ class SearchLight(BaseEstimator):
     ...     estimator=Ridge(), radius=0.25, cv=3, show_progress=False
     ... )
     >>> searchlight.fit(data, speed).scores_.dims
-    ('z', 'y', 'x')
+    ('k', 'j', 'i')
     """
 
     def __init__(
@@ -539,8 +521,8 @@ class SearchLight(BaseEstimator):
 
         Parameters
         ----------
-        X : (time, ...) xarray.DataArray
-            Functional ultrasound data. The `time` dimension is the sample axis.
+        X : (time, k, j, i) xarray.DataArray
+            Canonical fUSI data. The `time` dimension is the sample axis.
         y : (n_samples,) array-like or xarray.DataArray
             Targets aligned with `X`'s `time` axis.
         groups : (n_samples,) array-like, optional
@@ -555,10 +537,11 @@ class SearchLight(BaseEstimator):
         Raises
         ------
         ValueError
-            If `X` is h5py-backed, if `radius` is negative, if `process_mask` is not a
-            subset of `mask`, if `y` or `groups` do not align with `X`, if a spatial
-            dimension lacks a numeric coordinate, or if the masked data contains
-            non-finite values.
+            If `X` is h5py-backed, is not a canonical `(time, k, j, i)` fUSI DataArray,
+            or lacks a `VoxelToWorldIndex`; if `radius` is negative; if `mask` or
+            `process_mask` lacks a `VoxelToWorldIndex`; if `process_mask` is not a
+            subset of `mask`; if `y` or `groups` do not align with `X`; or if the masked
+            data contains non-finite values.
 
         Warns
         -----
@@ -577,18 +560,30 @@ class SearchLight(BaseEstimator):
                 "data first."
             )
 
-        validate_time_series(X, operation_name="SearchLight.fit")
+        X_ordered = ensure_fusi(
+            X,
+            require_time=True,
+            require_unchunked_time=True,
+            allow_pose=False,
+            allow_extra_dims=False,
+        )
 
         if self.radius < 0:
             raise ValueError(f"radius must be non-negative, got {self.radius}.")
 
-        spatial_dims = tuple(str(dim) for dim in X.dims if dim != "time")
-        X_ordered = X.transpose("time", *spatial_dims)
+        X_ordered = X_ordered.transpose("time", *VOXEL_DIMS)
 
         if self.mask is None:
             mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
         else:
             mask = validate_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
+            if not has_voxel_to_world_index(mask):
+                raise ValueError(
+                    "mask must carry a VoxelToWorldIndex, matching X's canonical "
+                    "(k, j, i) grid -- otherwise `radius` would silently be measured "
+                    "in voxel-index units instead of world coordinates. Build mask "
+                    "from X's own grid, e.g. `X.notnull().all('time')`."
+                )
 
         if self.process_mask is None:
             process_mask = mask
@@ -596,6 +591,13 @@ class SearchLight(BaseEstimator):
             process_mask = validate_mask(
                 self.process_mask, X_ordered, "process_mask", require_exact_dims=True
             )
+            if not has_voxel_to_world_index(process_mask):
+                raise ValueError(
+                    "process_mask must carry a VoxelToWorldIndex, matching X's "
+                    "canonical (k, j, i) grid -- otherwise `radius` would silently be "
+                    "measured in voxel-index units instead of world coordinates. "
+                    "Build process_mask from X's own grid."
+                )
             outside = int(
                 np.count_nonzero(
                     np.asarray(process_mask.values) & ~np.asarray(mask.values)
