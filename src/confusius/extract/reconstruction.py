@@ -71,7 +71,6 @@ def unmask(
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask, unmask
     >>> from confusius.xarray import create_fusi_dataarray
-    >>> from sklearn.decomposition import PCA
     >>>
     >>> data = create_fusi_dataarray(
     ...     np.random.rand(10, 4, 5, 6),
@@ -83,24 +82,15 @@ def unmask(
     ...     np.random.rand(4, 5, 6) > 0.5, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
     ... )
     >>>
-    >>> # Extract signals
+    >>> # Extract signals, then compute a per-voxel summary statistic
     >>> signals = extract_with_mask(data, mask)
     >>> n_voxels = signals.sizes["space"]
+    >>> mean_map = signals.mean("time").values  # (n_voxels,)
     >>>
-    >>> # Fit PCA and recover the spatial component maps
-    >>> pca = PCA(n_components=5)
-    >>> pca.fit(signals.values)
-    PCA(n_components=5)
-    >>> components = pca.components_  # (5, n_voxels)
-    >>>
-    >>> # Unmask - single extra dim
-    >>> spatial_pca = unmask(
-    ...     components,
-    ...     mask,
-    ...     new_dims=["component"],
-    ... )
-    >>> spatial_pca.dims
-    ('component', 'k', 'j', 'i')
+    >>> # Unmask - reconstruct as a spatial map, no extra dims
+    >>> spatial_mean = unmask(mean_map, mask)
+    >>> spatial_mean.dims
+    ('k', 'j', 'i')
     >>>
     >>> # Unmask - two extra dims, with custom coords
     >>> pose_data = np.random.randn(5, 3, n_voxels)  # (component, pose, space)
