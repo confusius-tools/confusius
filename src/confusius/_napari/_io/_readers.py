@@ -14,6 +14,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import xarray as xr
+
 from confusius._utils.napari import convert_dataarray_to_layer_data
 from confusius.io import load
 
@@ -84,10 +86,15 @@ def read_scan(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
 
 
 def read_zarr(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]] | None:
-    """Get reader for Zarr stores (`.zarr`).
+    """Get reader for Zarr stores (`.zarr`) written by [`confusius.io.save`][confusius.io.save].
 
     Validates that the path is a directory containing at least one of the standard Zarr
-    metadata files (`.zgroup`, `.zattrs`, `zarr.json`).
+    metadata files (`.zgroup`, `.zattrs`, `zarr.json`), and that its first variable
+    carries `attrs["voxel_to_world"]` -- i.e. that it's a ConfUSIus-canonical store, not
+    an arbitrary/foreign Zarr array. A foreign Zarr store declines here so another
+    installed plugin can offer to open it instead, rather than this reader claiming it
+    and then [`confusius.load`][confusius.load] raising a ConfUSIus-specific error for
+    a file that has nothing to do with ConfUSIus.
 
     Parameters
     ----------
@@ -97,8 +104,9 @@ def read_zarr(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
     Returns
     -------
     Callable or None
-        Reader function, or `None` if the path is a list, not a directory, or contains
-        no Zarr metadata files (napari will fall back to other plugins).
+        Reader function, or `None` if the path is a list, not a directory, contains no
+        Zarr metadata files, or isn't a ConfUSIus-canonical store (napari will fall
+        back to other plugins).
     """
     if isinstance(path, list) or not isinstance(path, (str, Path)):
         return None
@@ -107,5 +115,12 @@ def read_zarr(path: PathOrPaths) -> Callable[[PathOrPaths], list[FullLayerData]]
         return None
     zarr_indicators = (".zgroup", ".zattrs", "zarr.json", ".zarray")
     if not any((p / indicator).exists() for indicator in zarr_indicators):
+        return None
+    try:
+        ds = xr.open_zarr(p)
+        first_variable = ds[next(iter(ds.data_vars))]
+    except (OSError, ValueError, StopIteration):
+        return None
+    if "voxel_to_world" not in first_variable.attrs:
         return None
     return _make_reader(path)

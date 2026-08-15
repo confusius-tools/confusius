@@ -32,8 +32,11 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     - **NIfTI** (`.nii`, `.nii.gz`): loaded via [`load_nifti`][confusius.io.load_nifti].
     - **SCAN** (`.scan`): loaded via [`load_scan`][confusius.io.load_scan].
     - **Zarr** (`.zarr`): opened via [`xarray.open_zarr`][xarray.open_zarr] and a single
-      variable is extracted. For loading the full dataset, use
-      [`xarray.open_zarr`][xarray.open_zarr] directly.
+      variable is extracted. Must be a store previously written by
+      [`save`][confusius.io.save] (identified by `attrs["voxel_to_world"]`); for an
+      arbitrary/foreign Zarr store, use [`xarray.open_zarr`][xarray.open_zarr] directly
+      and build a canonical DataArray yourself (e.g. via
+      [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray]).
 
     If `attrs["rgb_lookup"]` is present but `attrs["cmap"]`/`attrs["norm"]` are missing
     (as happens after a save/load round-trip, since matplotlib colormap/norm objects are
@@ -64,7 +67,8 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
     Raises
     ------
     ValueError
-        If the file extension is not supported.
+        If the file extension is not supported, or the Zarr store at `path` wasn't
+        written by [`save`][confusius.io.save] (no `attrs["voxel_to_world"]`).
     """
     path = check_path(path)
     name = path.name
@@ -78,14 +82,19 @@ def load(path: str | Path, variable: str | None = None, **kwargs: Any) -> xr.Dat
         data_array = (
             ds[variable] if variable is not None else ds[next(iter(ds.data_vars))]
         )
-        if "voxel_to_world" in data_array.attrs:
-            voxel_to_world = np.asarray(
-                data_array.attrs.pop("voxel_to_world"), dtype=np.float64
+        if "voxel_to_world" not in data_array.attrs:
+            raise ValueError(
+                f"{path} was not written by confusius.io.save() (no "
+                "attrs['voxel_to_world']). Use xarray.open_zarr directly to load an "
+                "arbitrary Zarr store."
             )
-            world_coord_attrs = data_array.attrs.pop("world_coord_attrs", None)
-            data_array = attach_voxel_to_world_index(
-                data_array, voxel_to_world, world_coord_attrs=world_coord_attrs
-            )
+        voxel_to_world = np.asarray(
+            data_array.attrs.pop("voxel_to_world"), dtype=np.float64
+        )
+        world_coord_attrs = data_array.attrs.pop("world_coord_attrs", None)
+        data_array = attach_voxel_to_world_index(
+            data_array, voxel_to_world, world_coord_attrs=world_coord_attrs
+        )
     else:
         raise ValueError(
             f"Unsupported file extension in {name!r}. Supported"

@@ -67,7 +67,7 @@ def integer_zarr_path(tmp_path: Path, sample_roi_labels: xr.DataArray) -> Path:
     Carries `roi_labels` and `rgb_lookup` attrs, like a real atlas mask.
     """
     path = tmp_path / "labels.zarr"
-    xr.Dataset({"data": sample_roi_labels}).to_zarr(path)
+    save(sample_roi_labels, path)
     return path
 
 
@@ -129,6 +129,13 @@ class TestReadZarrGating:
         """Valid zarr store returns a reader function."""
         assert callable(read_zarr(str(zarr_3d_path)))
 
+    def test_returns_none_for_foreign_zarr_store(self, tmp_path: Path) -> None:
+        """A structurally valid but non-ConfUSIus Zarr store defers to other plugins."""
+        path = tmp_path / "foreign.zarr"
+        xr.Dataset({"data": xr.DataArray(np.zeros((4, 6)))}).to_zarr(path)
+
+        assert read_zarr(str(path)) is None
+
 
 # ---------------------------------------------------------------------------
 # LayerData structure
@@ -164,36 +171,58 @@ class TestReaderLayerData:
         assert kwargs["axis_labels"] == ["time", "z", "y", "x"]
 
     def test_time_last_dim_order(self, tmp_path: Path) -> None:
-        """scale/translate/units follow the actual dim order when time is last (e.g. NIfTI)."""
+        """scale/translate/units follow the actual dim order when time is last.
+
+        Canonical dim order is `(..., time, pose, k, j, i)`, but attach_voxel_to_world_index
+        doesn't itself enforce that order (only require_canonical_dim_order, opt-in,
+        does) -- this checks that a non-canonical-order array still reports geometry
+        in its own actual dim order, not a hardcoded canonical one.
+        """
         da = xr.DataArray(
             np.zeros((8, 6, 4, 10), dtype=np.float32),
-            dims=["x", "y", "z", "time"],
+            dims=["k", "j", "i", "time"],
             coords={
-                "x": xr.DataArray(
-                    1.0 + np.arange(8) * 0.05, dims=["x"], attrs={"units": "mm"}
-                ),
-                "y": xr.DataArray(
-                    2.0 + np.arange(6) * 0.10, dims=["y"], attrs={"units": "mm"}
-                ),
-                "z": xr.DataArray(
-                    3.0 + np.arange(4) * 0.20, dims=["z"], attrs={"units": "mm"}
-                ),
+                "k": np.arange(8),
+                "j": np.arange(6),
+                "i": np.arange(4),
                 "time": xr.DataArray(
-                    10.0 + np.arange(10) * 0.5, dims=["time"], attrs={"units": "s"}
+                    10.0 + np.arange(10) * 0.5,
+                    dims=["time"],
+                    attrs={
+                        "units": "s",
+                        "volume_acquisition_reference": "start",
+                        "volume_acquisition_duration": 0.5,
+                    },
                 ),
             },
         )
+        da = attach_voxel_to_world_index(
+            da,
+            np.array(
+                [
+                    [0.05, 0.0, 0.0, 1.0],
+                    [0.0, 0.10, 0.0, 2.0],
+                    [0.0, 0.0, 0.20, 3.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+            world_coord_attrs={
+                "z": {"units": "mm"},
+                "y": {"units": "mm"},
+                "x": {"units": "mm"},
+            },
+        )
         path = tmp_path / "time_last.zarr"
-        xr.Dataset({"data": da}).to_zarr(path)
+        save(da, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
         _, kwargs, _ = reader(str(path))[0]
 
-        # scale and translate must be in (x, y, z, time) order, not time-prepended.
+        # scale and translate must be in (k, j, i, time) order, not time-prepended.
         npt.assert_allclose(kwargs["scale"], [0.05, 0.10, 0.20, 0.5], rtol=1e-5)
         npt.assert_allclose(kwargs["translate"], [1.0, 2.0, 3.0, 10.0], rtol=1e-5)
-        assert kwargs["axis_labels"] == ["x", "y", "z", "time"]
+        assert kwargs["axis_labels"] == ["z", "y", "x", "time"]
         assert kwargs["units"] == ["mm", "mm", "mm", "s"]
 
     def test_units_from_coord_attrs(self, zarr_3d_path: Path) -> None:
@@ -276,16 +305,18 @@ class TestReaderLayerData:
     def test_colormap_from_attrs(self, tmp_path: Path) -> None:
         """Colormap is read from da.attrs['cmap'] when present."""
         da = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["z", "x"],
+            np.zeros((4, 1, 6), dtype=np.float32),
+            dims=["k", "j", "i"],
             coords={
-                "z": np.arange(4) * 0.1,
-                "x": np.arange(6) * 0.05,
+                "k": np.arange(4),
+                "j": np.arange(1),
+                "i": np.arange(6),
             },
             attrs={"cmap": "viridis"},
         )
+        da = attach_voxel_to_world_index(da, np.diag([0.1, 1.0, 0.05, 1.0]))
         path = tmp_path / "colored.zarr"
-        xr.Dataset({"data": da}).to_zarr(path)
+        save(da, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
@@ -304,16 +335,18 @@ class TestReaderLayerData:
         monkeypatch.setattr(napari_utils, "show_warning", warnings_seen.append)
 
         da = xr.DataArray(
-            np.zeros((4, 6), dtype=np.float32),
-            dims=["z", "x"],
+            np.zeros((4, 1, 6), dtype=np.float32),
+            dims=["k", "j", "i"],
             coords={
-                "z": np.arange(4) * 0.1,
-                "x": np.arange(6) * 0.05,
+                "k": np.arange(4),
+                "j": np.arange(1),
+                "i": np.arange(6),
             },
             attrs={"cmap": "<matplotlib.colors.ListedColormap object at 0x0>"},
         )
+        da = attach_voxel_to_world_index(da, np.diag([0.1, 1.0, 0.05, 1.0]))
         path = tmp_path / "invalid_cmap.zarr"
-        xr.Dataset({"data": da}).to_zarr(path)
+        save(da, path)
 
         reader = read_zarr(str(path))
         assert reader is not None
