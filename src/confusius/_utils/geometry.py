@@ -431,6 +431,62 @@ class VoxelToWorldIndex(Index):
                 dim_indexers[dim] = np.rint(position).astype(int)
         return IndexSelResult(dim_indexers)
 
+    def join(self, other: Index, how: str = "inner") -> Self:
+        """Reject implicit alignment of different world grids with a useful error.
+
+        Parameters
+        ----------
+        other : xarray.Index
+            The other index Xarray is trying to align with this one.
+        how : str, default: "inner"
+            Join method requested by Xarray.
+
+        Returns
+        -------
+        VoxelToWorldIndex
+            This index, when `other` already represents the same world grid.
+
+        Raises
+        ------
+        ValueError
+            If `other` represents a different world grid.
+        """
+        if self.equals(other):
+            return self
+        raise ValueError(
+            "Cannot automatically align VoxelToWorldIndex-backed arrays with "
+            f"different world coordinates using join={how!r}. Resample one array "
+            "onto the other's grid first, for example with "
+            "`confusius.registration.resample_like`."
+        )
+
+    def reindex_like(self, other: Index) -> dict[Hashable, Any]:
+        """Reject implicit reindexing of different world grids with a useful error.
+
+        Parameters
+        ----------
+        other : xarray.Index
+            The other index Xarray is trying to reindex against.
+
+        Returns
+        -------
+        dict[Hashable, Any]
+            Empty positional indexers when `other` already represents the same world
+            grid.
+
+        Raises
+        ------
+        ValueError
+            If `other` represents a different world grid.
+        """
+        if self.equals(other):
+            return {}
+        raise ValueError(
+            "Cannot automatically reindex VoxelToWorldIndex-backed arrays with "
+            "different world coordinates. Resample one array onto the other's grid "
+            "first, for example with `confusius.registration.resample_like`."
+        )
+
     def equals(
         self, other: Index, *, exclude: frozenset[Hashable] | None = None
     ) -> bool:

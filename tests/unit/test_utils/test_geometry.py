@@ -248,6 +248,52 @@ def _axis_aligned_result() -> xr.DataArray:
     )
 
 
+def test_alignment_between_different_world_grids_raises_clear_error() -> None:
+    """Arithmetic alignment tells users to resample mismatched world grids."""
+    left = _axis_aligned_result()
+    right = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.ones_like(left.values),
+            dims=left.dims,
+            coords={dim: left.coords[dim].values for dim in left.dims},
+        ),
+        np.array(
+            [
+                [10.0, 0.0, 0.0, 1.0],
+                [0.0, 2.0, 0.0, 0.0],
+                [0.0, 0.0, 3.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Cannot automatically align .*resample_like"):
+        left + right
+
+
+def test_reindex_between_different_world_grids_raises_clear_error() -> None:
+    """Reindexing alignment tells users to resample mismatched world grids."""
+    left = _axis_aligned_result()
+    right = attach_voxel_to_world_index(
+        xr.DataArray(
+            np.ones_like(left.values),
+            dims=left.dims,
+            coords={dim: left.coords[dim].values for dim in left.dims},
+        ),
+        np.array(
+            [
+                [10.0, 0.0, 0.0, 1.0],
+                [0.0, 2.0, 0.0, 0.0],
+                [0.0, 0.0, 3.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="Cannot automatically reindex .*resample_like"):
+        left.reindex_like(right)
+
+
 def test_add_world_coords_defaults_to_yx_names_for_2d_voxel_dims() -> None:
     """2D voxel geometry defaults to `y`/`x` world coordinate names."""
     data = xr.DataArray(
