@@ -916,7 +916,7 @@ class TestTransforms:
             attrs={"transform_type": "bspline_transform", "order": 3},
         )
 
-        with pytest.raises(ValueError, match="voxel-to-world index"):
+        with pytest.raises(ValueError, match="native voxel dimensions"):
             make_bspline_transform_payload(
                 transform,
                 reference=reference,
