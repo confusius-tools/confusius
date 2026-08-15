@@ -6,6 +6,65 @@ import pytest
 import xarray as xr
 
 from confusius import extract
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
+from confusius.xarray import create_fusi_dataarray
+
+
+def _canonical(data, dims):
+    """Build a canonical voxel-grid DataArray for `data` with `dims`.
+
+    Parameters
+    ----------
+    data : numpy.ndarray or dask.array.Array
+        Raw array whose rank matches `dims`.
+    dims : sequence[str]
+        Dimension names, e.g. `("time", "k", "j", "i")`.
+
+    Returns
+    -------
+    xarray.DataArray
+        Canonical DataArray with a `VoxelToWorldIndex` on its `k`/`j`/`i` dims.
+    """
+    dt = 1.0 if "time" in dims else None
+    return create_fusi_dataarray(data, dims=dims, spacing=(1.0, 1.0, 1.0), dt=dt)
+
+
+def _labels_like(data, dims, reference):
+    """Build a canonical label map sharing `reference`'s voxel grid.
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Raw label values, shaped to match `dims`.
+    dims : sequence[str]
+        Dimension names. Any non-`k`/`j`/`i` dim (e.g. `mask`) must be leading.
+    reference : xarray.DataArray
+        Canonical DataArray whose `k`/`j`/`i` coordinates and affine the label map
+        must share.
+
+    Returns
+    -------
+    xarray.DataArray
+        Canonical label map with `reference`'s `VoxelToWorldIndex`.
+    """
+    spatial_dims = ("k", "j", "i")
+    labels = xr.DataArray(
+        data,
+        dims=dims,
+        coords={dim: reference.coords[dim] for dim in spatial_dims},
+    )
+    world_coord_names = get_voxel_to_world_coord_names(reference)
+    return attach_voxel_to_world_index(
+        labels,
+        get_voxel_to_world_affine(reference),
+        world_coord_attrs={
+            name: dict(reference.coords[name].attrs) for name in world_coord_names
+        },
+    )
 
 
 class TestWithLabels:
@@ -21,26 +80,22 @@ class TestWithLabels:
 
     def test_labels_dtype_validation(self, sample_fusi_3dt):
         """Test that non-integer labels raises TypeError."""
-        labels = xr.DataArray(
-            np.random.rand(*sample_fusi_3dt.shape[1:]),
-            dims=["k", "j", "i"],
-        )
+        labels = _canonical(np.random.rand(*sample_fusi_3dt.shape[1:]), ("k", "j", "i"))
         with pytest.raises(TypeError, match="integer dtype"):
             extract.extract_with_labels(sample_fusi_3dt, labels)
 
     def test_boolean_labels_rejected(self, sample_fusi_3dt):
         """Test that boolean dtype labels raises TypeError."""
-        labels = xr.DataArray(
-            np.ones(sample_fusi_3dt.shape[1:], dtype=bool),
-            dims=["k", "j", "i"],
+        labels = _canonical(
+            np.ones(sample_fusi_3dt.shape[1:], dtype=bool), ("k", "j", "i")
         )
         with pytest.raises(TypeError, match="integer dtype"):
             extract.extract_with_labels(sample_fusi_3dt, labels)
 
     def test_missing_spatial_dim(self, sample_fusi_3dt):
-        """Test that labels with dimension not in data raises ValueError."""
+        """Test that labels missing native voxel dims raises ValueError."""
         labels = xr.DataArray(np.array([1, 0, 2], dtype=int), dims=["w"])
-        with pytest.raises(ValueError, match="missing spatial dimensions.*'w'"):
+        with pytest.raises(ValueError, match="native voxel dimensions"):
             extract.extract_with_labels(sample_fusi_3dt, labels)
 
     def test_output_dims_4d(self, sample_fusi_3dt):
@@ -48,15 +103,7 @@ class TestWithLabels:
         labels_data = np.zeros((4, 6, 8), dtype=int)
         labels_data[:2, :, :] = 1
         labels_data[2:, :, :] = 2
-        labels = xr.DataArray(
-            labels_data,
-            dims=["k", "j", "i"],
-            coords={
-                "k": sample_fusi_3dt.coords["k"],
-                "j": sample_fusi_3dt.coords["j"],
-                "i": sample_fusi_3dt.coords["i"],
-            },
-        )
+        labels = _labels_like(labels_data, ("k", "j", "i"), sample_fusi_3dt)
 
         result = extract.extract_with_labels(sample_fusi_3dt, labels)
 
@@ -65,12 +112,12 @@ class TestWithLabels:
 
     def test_output_dims_3d(self):
         """Test that spatial dims are fully replaced for pure spatial data."""
-        data = xr.DataArray(np.ones((3, 4, 5)), dims=["k", "j", "i"])
+        data = _canonical(np.ones((3, 4, 5)), ("k", "j", "i"))
         labels_data = np.zeros((3, 4, 5), dtype=int)
         labels_data[0, :, :] = 1
         labels_data[1, :, :] = 2
         labels_data[2, :, :] = 3
-        labels = xr.DataArray(labels_data, dims=["k", "j", "i"])
+        labels = _canonical(labels_data, ("k", "j", "i"))
 
         result = extract.extract_with_labels(data, labels)
 
@@ -79,10 +126,10 @@ class TestWithLabels:
 
     def test_background_excluded(self):
         """Test that label 0 (background) is not included in output."""
-        data = xr.DataArray(np.ones((5, 5)), dims=["j", "i"])
-        labels_data = np.zeros((5, 5), dtype=int)
-        labels_data[2:, :] = 1
-        labels = xr.DataArray(labels_data, dims=["j", "i"])
+        data = _canonical(np.ones((1, 5, 5)), ("k", "j", "i"))
+        labels_data = np.zeros((1, 5, 5), dtype=int)
+        labels_data[:, 2:, :] = 1
+        labels = _canonical(labels_data, ("k", "j", "i"))
 
         result = extract.extract_with_labels(data, labels)
 
@@ -105,12 +152,12 @@ class TestWithLabels:
         """Test that each reduction matches the corresponding numpy function."""
         rng = np.random.default_rng(0)
         data_vals = rng.random((3, 4, 5))
-        data = xr.DataArray(data_vals, dims=["k", "j", "i"])
+        data = _canonical(data_vals, ("k", "j", "i"))
 
         labels_data = np.zeros((3, 4, 5), dtype=int)
         labels_data[0, :, :] = 1
         labels_data[1, :, :] = 2
-        labels = xr.DataArray(labels_data, dims=["k", "j", "i"])
+        labels = _canonical(labels_data, ("k", "j", "i"))
 
         result = extract.extract_with_labels(data, labels, reduction=reduction)
 
@@ -123,8 +170,8 @@ class TestWithLabels:
 
     def test_invalid_reduction(self):
         """Test that an invalid reduction string raises ValueError."""
-        data = xr.DataArray(np.ones((3, 4)), dims=["j", "i"])
-        labels = xr.DataArray(np.ones((3, 4), dtype=int), dims=["j", "i"])
+        data = _canonical(np.ones((1, 3, 4)), ("k", "j", "i"))
+        labels = _canonical(np.ones((1, 3, 4), dtype=int), ("k", "j", "i"))
 
         with pytest.raises(ValueError, match="Invalid reduction"):
             extract.extract_with_labels(data, labels, reduction="invalid")  # ty: ignore[invalid-argument-type]
@@ -137,11 +184,10 @@ class TestWithLabels:
         labels_data[0, :, :] = 1
         labels_data[1, :, :] = 2
 
-        data_dask = xr.DataArray(
-            da.from_array(data_vals, chunks=(10, 3, 4, 5)),
-            dims=["time", "k", "j", "i"],
+        data_dask = _canonical(
+            da.from_array(data_vals, chunks=(10, 3, 4, 5)), ("time", "k", "j", "i")
         )
-        labels = xr.DataArray(labels_data, dims=["k", "j", "i"])
+        labels = _canonical(labels_data, ("k", "j", "i"))
 
         result = extract.extract_with_labels(data_dask, labels)
 
@@ -149,7 +195,7 @@ class TestWithLabels:
         assert isinstance(result.data, da.Array)
 
         # Values must match the eager reference.
-        data_eager = xr.DataArray(data_vals, dims=["time", "k", "j", "i"])
+        data_eager = _canonical(data_vals, ("time", "k", "j", "i"))
         expected = extract.extract_with_labels(data_eager, labels)
         np.testing.assert_allclose(result.values, expected.values)
 
@@ -161,16 +207,9 @@ class TestWithLabels:
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0, :, :] = 1  # Region "VISp": first k-slice.
         mask_data[1, 1, :, :] = 2  # Region "AUDp": second k-slice.
-        labels = xr.DataArray(
-            mask_data,
-            dims=["mask", "k", "j", "i"],
-            coords={
-                "mask": ["VISp", "AUDp"],
-                "k": sample_fusi_3dt.coords["k"],
-                "j": sample_fusi_3dt.coords["j"],
-                "i": sample_fusi_3dt.coords["i"],
-            },
-        )
+        labels = _labels_like(
+            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+        ).assign_coords(mask=["VISp", "AUDp"])
 
         result = extract.extract_with_labels(sample_fusi_3dt, labels)
 
@@ -193,16 +232,9 @@ class TestWithLabels:
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0:2, :, :] = 1  # Region "A": slices 0–1.
         mask_data[1, 1:3, :, :] = 2  # Region "B": slices 1–2.
-        labels = xr.DataArray(
-            mask_data,
-            dims=["mask", "k", "j", "i"],
-            coords={
-                "mask": ["A", "B"],
-                "k": sample_fusi_3dt.coords["k"],
-                "j": sample_fusi_3dt.coords["j"],
-                "i": sample_fusi_3dt.coords["i"],
-            },
-        )
+        labels = _labels_like(
+            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+        ).assign_coords(mask=["A", "B"])
 
         result = extract.extract_with_labels(sample_fusi_3dt, labels)
 
@@ -229,16 +261,9 @@ class TestWithLabels:
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0, :, :] = 7  # Region "VISp_L": first k-slice, id 7.
         mask_data[1, 1, :, :] = 7  # Region "VISp_R": second k-slice, same id 7.
-        labels = xr.DataArray(
-            mask_data,
-            dims=["mask", "k", "j", "i"],
-            coords={
-                "mask": ["VISp_L", "VISp_R"],
-                "k": sample_fusi_3dt.coords["k"],
-                "j": sample_fusi_3dt.coords["j"],
-                "i": sample_fusi_3dt.coords["i"],
-            },
-        )
+        labels = _labels_like(
+            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+        ).assign_coords(mask=["VISp_L", "VISp_R"])
 
         result = extract.extract_with_labels(sample_fusi_3dt, labels)
 
@@ -261,16 +286,9 @@ class TestWithLabels:
         mask_data = np.zeros((2, nz, ny, nx), dtype=int)
         mask_data[0, 0:2, :, :] = 3  # Region "A": slices 0-1, id 3.
         mask_data[1, 1:3, :, :] = 3  # Region "B": slices 1-2, same id 3.
-        labels = xr.DataArray(
-            mask_data,
-            dims=["mask", "k", "j", "i"],
-            coords={
-                "mask": ["A", "B"],
-                "k": sample_fusi_3dt.coords["k"],
-                "j": sample_fusi_3dt.coords["j"],
-                "i": sample_fusi_3dt.coords["i"],
-            },
-        )
+        labels = _labels_like(
+            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+        ).assign_coords(mask=["A", "B"])
 
         result = extract.extract_with_labels(sample_fusi_3dt, labels)
 
@@ -292,16 +310,9 @@ class TestWithLabels:
         mask_data[0, 0, :, :] = 1
         mask_data[1, 1, : ny // 2, :] = 2  # Layer 1 has two distinct values below.
         mask_data[1, 1, ny // 2 :, :] = 3
-        labels = xr.DataArray(
-            mask_data,
-            dims=["mask", "k", "j", "i"],
-            coords={
-                "mask": ["A", "B"],
-                "k": sample_fusi_3dt.coords["k"],
-                "j": sample_fusi_3dt.coords["j"],
-                "i": sample_fusi_3dt.coords["i"],
-            },
-        )
+        labels = _labels_like(
+            mask_data, ("mask", "k", "j", "i"), sample_fusi_3dt
+        ).assign_coords(mask=["A", "B"])
 
         with pytest.raises(ValueError, match="exactly one unique non-zero"):
             extract.extract_with_labels(sample_fusi_3dt, labels)
@@ -314,15 +325,14 @@ class TestWithLabels:
         labels_data[0, :, :] = 1
         labels_data[1, :, :] = 2
 
-        data_dask = xr.DataArray(
-            da.from_array(data_vals, chunks=(5, 1, 2, 3)),
-            dims=["time", "k", "j", "i"],
+        data_dask = _canonical(
+            da.from_array(data_vals, chunks=(5, 1, 2, 3)), ("time", "k", "j", "i")
         )
-        labels = xr.DataArray(labels_data, dims=["k", "j", "i"])
+        labels = _canonical(labels_data, ("k", "j", "i"))
 
         result = extract.extract_with_labels(data_dask, labels)
 
-        data_eager = xr.DataArray(data_vals, dims=["time", "k", "j", "i"])
+        data_eager = _canonical(data_vals, ("time", "k", "j", "i"))
         expected = extract.extract_with_labels(data_eager, labels)
         np.testing.assert_allclose(result.values, expected.values)
 
@@ -338,14 +348,13 @@ class TestWithLabels:
         labels_data[0, :, :] = 1
         labels_data[1, :, :] = 2
 
-        data = xr.DataArray(data_vals, dims=["time", "k", "j", "i"])
-        labels_dask = xr.DataArray(
-            da.from_array(labels_data, chunks=(1, 2, 3)),
-            dims=["k", "j", "i"],
+        data = _canonical(data_vals, ("time", "k", "j", "i"))
+        labels_dask = _canonical(
+            da.from_array(labels_data, chunks=(1, 2, 3)), ("k", "j", "i")
         )
 
         result = extract.extract_with_labels(data, labels_dask)
 
-        labels_eager = xr.DataArray(labels_data, dims=["k", "j", "i"])
+        labels_eager = _canonical(labels_data, ("k", "j", "i"))
         expected = extract.extract_with_labels(data, labels_eager)
         np.testing.assert_allclose(result.values, expected.values)

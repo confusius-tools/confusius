@@ -7,6 +7,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
 )
 from confusius.validation import validate_mask, validate_matching_coordinates
 
@@ -168,6 +169,10 @@ def test_validate_mask_accepts_scalar_attached_coordinate(sample_fusi_3dt):
     mask = attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(sample_fusi_3dt),
+        world_coord_attrs={
+            name: dict(sample_fusi_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+        },
     )
     mask[0, 0, :, :] = 1
 
@@ -181,12 +186,21 @@ def test_validate_mask_require_exact_dims_accepts_full_spatial_mask(sample_fusi_
     validate_mask(mask, sample_fusi_3dt, require_exact_dims=True)
 
 
-def test_validate_mask_require_exact_dims_rejects_subset_dims(sample_fusi_3dt):
-    """`require_exact_dims=True` rejects subset spatial masks."""
+def test_validate_mask_require_exact_dims_rejects_wrong_dim_order(sample_fusi_3dt):
+    """`require_exact_dims=True` rejects masks with a non-canonical dim order."""
+    dims = ("j", "k", "i")
     mask = xr.DataArray(
-        np.ones(sample_fusi_3dt.sizes["i"], dtype=bool),
-        dims=["i"],
-        coords={"i": sample_fusi_3dt.coords["i"]},
+        np.ones(tuple(sample_fusi_3dt.sizes[dim] for dim in dims), dtype=bool),
+        dims=dims,
+        coords={dim: sample_fusi_3dt.coords[dim] for dim in dims},
+    )
+    mask = attach_voxel_to_world_index(
+        mask,
+        get_voxel_to_world_affine(sample_fusi_3dt),
+        world_coord_attrs={
+            name: dict(sample_fusi_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+        },
     )
 
     with pytest.raises(ValueError, match="must match all non-time dimensions"):

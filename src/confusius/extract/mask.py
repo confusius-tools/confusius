@@ -8,33 +8,29 @@ from confusius.validation import validate_mask
 def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     """Extract signals from fUSI data using a binary mask.
 
-    This function flattens the spatial dimensions specified by the mask into a single
-    `space` dimension, while preserving all other dimensions (e.g., time, components).
+    This function flattens `mask`'s native voxel dimensions (`k`/`j`/`i`) into a
+    single `space` dimension, while preserving all other dimensions of `data` (e.g.,
+    `time`, `pose`).
 
     Parameters
     ----------
     data : xarray.DataArray
-        Input array with spatial dimensions matching the mask. Can have any number of
-        non-spatial dimensions (e.g., `time`, `components`). The spatial dimensions must
-        match those in the mask.
+        Input array. Must be a canonical voxel-grid DataArray with native voxel dims
+        `k`/`j`/`i` and a `VoxelToWorldIndex`, plus any number of non-spatial
+        dimensions (e.g., `time`, `pose`). See
+        [`ensure_fusi`][confusius.validation.ensure_fusi].
     mask : xarray.DataArray
-        Mask defining which voxels to extract. Its dimensions define the spatial
-        dimensions that will be flattened. Must have boolean dtype, or integer dtype
-        with exactly one non-zero value (0 = background, one region id =
-        foreground). The latter format is produced by
-        [`get_masks`][confusius.atlas.AtlasAccessor.get_masks]. Coordinates must match
-        data.
+        Mask defining which voxels to extract, sharing `data`'s voxel grid. Must have
+        boolean dtype, or integer dtype with exactly one non-zero value (0 =
+        background, one region id = foreground). The latter format is produced by
+        [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
 
     Returns
     -------
     xarray.DataArray
-        Array with spatial dimensions flattened into a `space` dimension. All
-        non-spatial dimensions are preserved. The `space` dimension has a MultiIndex
-        storing spatial coordinates.
-
-        This function is dim-name-agnostic: it flattens whatever dimensions `mask`
-        carries, whatever their names. For canonical native-voxel data the spatial
-        dimensions are `k`/`j`/`i`, giving:
+        Array with `k`/`j`/`i` flattened into a `space` dimension. All non-spatial
+        dimensions are preserved. The `space` dimension has a MultiIndex storing
+        spatial coordinates.
 
         - `(time, k, j, i)` → `(time, space)`
         - `(time, pose, k, j, i)` → `(time, pose, space)`
@@ -48,71 +44,53 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     Raises
     ------
     ValueError
-        If `mask` dimensions don't match `data`'s spatial dimensions.
+        If `mask` or `data` isn't a canonical voxel-grid DataArray, or if `mask`'s
+        voxel grid doesn't match `data`'s.
     TypeError
-        If `mask` is not boolean dtype.
+        If `mask` is not boolean dtype (or a single-label integer dtype).
 
     Examples
     --------
-    >>> import xarray as xr
     >>> import numpy as np
     >>> from confusius.extract import extract_with_mask
+    >>> from confusius.xarray import create_fusi_dataarray
     >>>
     >>> # 3D+t data: (time, k, j, i)
-    >>> data = xr.DataArray(
+    >>> data = create_fusi_dataarray(
     ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "k", "j", "i"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> mask = xr.DataArray(
+    >>> mask = create_fusi_dataarray(
     ...     np.random.rand(10, 20, 30) > 0.5,
-    ...     dims=["k", "j", "i"],
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>> signals = extract_with_mask(data, mask)
     >>> signals.dims
-    ("time", "space")
+    ('time', 'space')
     >>>
     >>> # 3D+t data with extra dim: (time, pose, k, j, i)
-    >>> pose_data = xr.DataArray(
+    >>> pose_data = create_fusi_dataarray(
     ...     np.random.randn(100, 5, 10, 20, 30),
-    ...     dims=["time", "pose", "k", "j", "i"],
+    ...     dims=("time", "pose", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>> pose_signals = extract_with_mask(pose_data, mask)
     >>> pose_signals.dims
-    ("time", "pose", "space")
+    ('time', 'pose', 'space')
     """
     mask = validate_mask(mask, data, "mask")
 
+    # validate_mask() already checked mask and data share the same voxel grid (same
+    # k/j/i coordinates and voxel_to_world affine), so mask.values.ravel() is already
+    # positionally aligned with data.stack(space=spatial_dims) below -- both iterate
+    # spatial_dims (mask's own dim order) the same way.
     spatial_dims = list(mask.dims)
-    non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
-
-    if non_spatial_dims:
-        sel_dict = {d: 0 for d in non_spatial_dims}
-        template = data.isel(sel_dict)
-    else:
-        template = data
-
-    coord_updates = {
-        dim: template.coords[dim]
-        for dim in spatial_dims
-        if dim in mask.coords and dim in template.coords
-    }
-    # validate_mask() already checked that shared spatial coords match within
-    # tolerance; snap them onto the template coords here so reindex_like()
-    # performs exact label alignment instead of introducing NaNs.
-    mask_aligned = mask.assign_coords(coord_updates).reindex_like(template)
-
-    if bool(mask_aligned.isnull().any()):
-        raise ValueError(
-            "mask could not be aligned to data coordinates. If coordinates are nearly "
-            "equal, ensure they describe the same voxel grid before extraction."
-        )
-
-    if "space" in data.dims and set(spatial_dims) == {"space"}:
-        mask_flat = mask_aligned.values
-        return data.isel(space=mask_flat)
-
     data_flat = data.stack(space=spatial_dims)
-    mask_flat = mask_aligned.values.ravel()
+    mask_flat = mask.values.ravel()
     # Rebuild the space index from the selected voxel coordinates so unstack() uses the
     # reduced grid implied by the extracted mask.
     return data_flat.isel(space=mask_flat).set_xindex(spatial_dims)

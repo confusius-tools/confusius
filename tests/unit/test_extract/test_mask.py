@@ -7,6 +7,7 @@ import xarray as xr
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
 )
 from confusius.extract import extract_with_mask, unmask
 
@@ -39,9 +40,13 @@ def _make_mask(
             if "time" not in coord.dims
         },
     )
+    world_coord_names = get_voxel_to_world_coord_names(data)
     return attach_voxel_to_world_index(
         mask,
         get_voxel_to_world_affine(data),
+        world_coord_attrs={
+            name: dict(data.coords[name].attrs) for name in world_coord_names
+        },
     )
 
 
@@ -60,17 +65,6 @@ def test_extract_with_mask_selects_expected_voxels(
         signals.values,
         sample_fusi_3dt.values[:, [0, 1], [1, 2], [2, 3]],
     )
-
-
-def test_extract_with_mask_supports_generic_feature_dimensions() -> None:
-    """Extraction remains available for non-fUSI feature grids."""
-    data = xr.DataArray(np.arange(12).reshape(3, 4), dims=("time", "feature"))
-    mask = xr.DataArray([True, False, True, False], dims="feature")
-
-    signals = extract_with_mask(data, mask)
-
-    assert signals.dims == ("time", "space")
-    np.testing.assert_array_equal(signals.values, [[0, 2], [4, 6], [8, 10]])
 
 
 def test_extract_with_mask_accepts_single_label_integer_mask(
@@ -111,12 +105,26 @@ def test_extract_with_mask_rejects_invalid_mask_values(
 def test_extract_with_mask_rejects_misaligned_coordinates(
     sample_fusi_3dt: xr.DataArray,
 ) -> None:
-    """Extraction rejects masks from a different fUSI grid."""
+    """Extraction rejects a mask whose affine differs from data's.
+
+    The mask's voxel-space (k/j/i) coordinates match data's exactly; only the
+    voxel_to_world affine (origin shifted) differs, so this specifically exercises
+    that affine mismatches are caught, not just voxel-coordinate mismatches.
+    """
     mask = _make_mask(sample_fusi_3dt)
     mask.data[0, 1, 2] = True
-    mask = mask.drop_vars(("z", "y", "x")).assign_coords(k=mask.k + 1.0)
+    shifted_affine = get_voxel_to_world_affine(sample_fusi_3dt).copy()
+    shifted_affine[:3, 3] += 1.0
+    mask = attach_voxel_to_world_index(
+        mask.drop_vars(("z", "y", "x")),
+        shifted_affine,
+        world_coord_attrs={
+            name: dict(sample_fusi_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+        },
+    )
 
-    with pytest.raises(ValueError, match="does not match between mask and data"):
+    with pytest.raises(ValueError, match="does not share data's voxel grid"):
         extract_with_mask(sample_fusi_3dt, mask)
 
 

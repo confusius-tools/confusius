@@ -9,6 +9,7 @@ from numpy.testing import assert_allclose
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
 )
 from confusius.extract import extract_with_labels
 from confusius.signal import censor_samples, interpolate_samples
@@ -246,6 +247,10 @@ def test_interpolate_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_
     labels = attach_voxel_to_world_index(
         labels,
         get_voxel_to_world_affine(sample_fusi_3dt),
+        world_coord_attrs={
+            name: dict(sample_fusi_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+        },
     )
     signals = extract_with_labels(sample_fusi_3dt, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)
@@ -363,6 +368,10 @@ def test_censor_accepts_time_match_with_unrelated_scalar_coord(sample_fusi_3dt):
     labels = attach_voxel_to_world_index(
         labels,
         get_voxel_to_world_affine(sample_fusi_3dt),
+        world_coord_attrs={
+            name: dict(sample_fusi_3dt.coords[name].attrs)
+            for name in get_voxel_to_world_coord_names(sample_fusi_3dt)
+        },
     )
     signals = extract_with_labels(sample_fusi_3dt, labels.isel(mask=0))
     mask_values = np.ones(signals.sizes["time"], dtype=bool)

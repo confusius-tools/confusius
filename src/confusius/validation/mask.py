@@ -3,21 +3,21 @@
 import numpy as np
 import xarray as xr
 
-from confusius.validation.coordinates import validate_matching_coordinates
+from confusius.validation.fusi import ensure_fusi
 
 
-def _validate_spatial_coords(
-    spatial_da: xr.DataArray,
-    data: xr.DataArray,
-    name: str,
-    rtol: float,
-    atol: float,
-) -> None:
-    """Validate spatial dimensions and coordinates of `spatial_da` against `data`.
+def _validate_spatial_alignment(
+    spatial_da: xr.DataArray, data: xr.DataArray, name: str
+) -> xr.DataArray:
+    """Canonicalize `spatial_da` and `data` and check they share the same grid.
 
-    Asserts that `spatial_da.dims` is a subset of `data.dims`, then delegates
-    coordinate comparison to
-    [`validate_matching_coordinates`][confusius.validation.coordinates.validate_matching_coordinates].
+    Both arrays are canonicalized via [`ensure_fusi`][confusius.validation.ensure_fusi],
+    which guarantees each carries a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
+    `xarray.align` with `join="exact"` then dispatches to that index's `equals`, which
+    compares both the voxel-space `k`/`j`/`i` coordinates (what `reindex_like`/`stack`
+    actually key alignment on) and the underlying `voxel_to_world` affine — so two
+    arrays sharing the same voxel-space coordinate labels but different affines are
+    correctly rejected, not silently treated as aligned.
 
     Parameters
     ----------
@@ -27,44 +27,59 @@ def _validate_spatial_coords(
         Reference data array.
     name : str
         Label used for `spatial_da` in error messages.
-    rtol : float
-        Relative tolerance for coordinate comparison.
-    atol : float
-        Absolute tolerance for coordinate comparison.
+
+    Returns
+    -------
+    xarray.DataArray
+        The canonicalized `spatial_da`.
 
     Raises
     ------
     ValueError
-        If dimensions don't match or coordinates differ.
+        If `spatial_da` or `data` isn't a canonical voxel-grid DataArray, or if their
+        voxel-space coordinates or `voxel_to_world` affines don't match.
     """
-    spatial_dims = list(spatial_da.dims)
+    data = ensure_fusi(data, allow_extra_dims=True)
+    spatial_da = ensure_fusi(spatial_da, allow_extra_dims=True)
 
-    if not set(spatial_dims).issubset(set(data.dims)):
-        missing_dims = set(spatial_dims) - set(data.dims)
-        raise ValueError(
-            f"Data is missing spatial dimensions from {name}: {missing_dims}. "
-            f"Data dims: {data.dims}, {name} dims: {spatial_dims}."
-        )
+    try:
+        xr.align(spatial_da, data, join="exact")
+    except xr.AlignmentError as error:
+        raise ValueError(f"{name} does not share data's voxel grid: {error}") from error
 
-    non_spatial_dims = [d for d in data.dims if d not in spatial_dims]
-    template = data.isel({d: 0 for d in non_spatial_dims}) if non_spatial_dims else data
+    return spatial_da
 
-    # Skip dims that have no coord on either side (bare-dim arrays). When exactly
-    # one side has a coord, validate_matching_coordinates raises informatively.
-    checkable = [
-        d for d in spatial_dims if d in spatial_da.coords or d in template.coords
-    ]
-    if not checkable:
+
+def check_mask_dtype(mask: xr.DataArray, mask_name: str) -> None:
+    """Check that `mask` has boolean or single-label integer dtype.
+
+    Parameters
+    ----------
+    mask : xarray.DataArray
+        Mask to check.
+    mask_name : str
+        Label used for `mask` in error messages.
+
+    Raises
+    ------
+    TypeError
+        If `mask` is not a boolean or single-label integer DataArray.
+    """
+    if mask.dtype == bool:
         return
-
-    validate_matching_coordinates(
-        spatial_da,
-        template,
-        checkable,
-        left_name=name,
-        right_name="data",
-        rtol=rtol,
-        atol=atol,
+    if np.issubdtype(mask.dtype, np.integer):
+        non_zero = np.unique(mask.values[mask.values != 0])
+        if len(non_zero) > 1:
+            raise TypeError(
+                f"{mask_name} has integer dtype with {len(non_zero)} distinct non-zero "
+                f"values. A mask must be boolean or have exactly one non-zero label "
+                f"(0 = background, one region id = foreground). "
+                f"For multi-region extraction use extract_with_labels instead."
+            )
+        return
+    raise TypeError(
+        f"{mask_name} must be boolean dtype or a single-label integer dtype, "
+        f"got {mask.dtype}."
     )
 
 
@@ -72,28 +87,26 @@ def validate_mask(
     mask: xr.DataArray,
     data: xr.DataArray,
     mask_name: str = "mask",
-    rtol: float = 1e-5,
-    atol: float = 1e-8,
     require_exact_dims: bool = False,
     coerce_bool: bool = True,
 ) -> xr.DataArray:
-    """Validate that a mask matches data spatial dimensions and coordinates.
+    """Validate that a mask shares data's canonical voxel grid.
+
+    Both `mask` and `data` are canonicalized via
+    [`ensure_fusi`][confusius.validation.ensure_fusi], so each must be (or become,
+    after restoring any scalar-reduced voxel dims) a canonical voxel-grid DataArray
+    carrying a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
 
     Parameters
     ----------
     mask : xarray.DataArray
         Mask to validate. Must have boolean dtype, or integer dtype with exactly one
         non-zero value (0 = background, one region id = foreground). The latter format
-        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks]. Coordinates
-        must match data.
+        is produced by [`get_masks`][confusius.atlas.AtlasAccessor.get_masks].
     data : xarray.DataArray
         Data array to validate mask against.
     mask_name : str, default: "mask"
         Name of the mask parameter (used in error messages).
-    rtol : float, default: 1e-5
-        Relative tolerance for coordinate comparison.
-    atol : float, default: 1e-8
-        Absolute tolerance for coordinate comparison.
     require_exact_dims : bool, default: False
         Whether `mask.dims` must match all non-`time` dimensions of `data` in the same
         order.
@@ -106,39 +119,26 @@ def validate_mask(
     Returns
     -------
     xarray.DataArray
-        The validated `mask`, coerced to boolean dtype when `coerce_bool` is `True` (the
-        default), otherwise returned with its original dtype.
+        The canonicalized `mask`, coerced to boolean dtype when `coerce_bool` is `True`
+        (the default), otherwise returned with its original dtype.
 
     Raises
     ------
     TypeError
         If `mask` is not a boolean or single-label integer DataArray.
     ValueError
-        If `mask` dimensions don't match `data` or if coordinates don't match.
+        If `mask` or `data` isn't a canonical voxel-grid DataArray, if `mask`'s voxel
+        grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
+        dimensions don't match `data`'s.
     """
     if not isinstance(mask, xr.DataArray):
         raise TypeError(
             f"{mask_name} must be an xarray.DataArray, got {type(mask).__name__}."
         )
 
-    if mask.dtype == bool:
-        pass
-    elif np.issubdtype(mask.dtype, np.integer):
-        non_zero = np.unique(mask.values[mask.values != 0])
-        if len(non_zero) > 1:
-            raise TypeError(
-                f"{mask_name} has integer dtype with {len(non_zero)} distinct non-zero "
-                f"values. A mask must be boolean or have exactly one non-zero label "
-                f"(0 = background, one region id = foreground). "
-                f"For multi-region extraction use extract_with_labels instead."
-            )
-    else:
-        raise TypeError(
-            f"{mask_name} must be boolean dtype or a single-label integer dtype, "
-            f"got {mask.dtype}."
-        )
+    check_mask_dtype(mask, mask_name)
 
-    _validate_spatial_coords(mask, data, mask_name, rtol, atol)
+    mask = _validate_spatial_alignment(mask, data, mask_name)
 
     if require_exact_dims:
         expected_dims = tuple(str(d) for d in data.dims if d != "time")
@@ -160,16 +160,18 @@ def validate_labels(
     labels: xr.DataArray,
     data: xr.DataArray,
     labels_name: str = "labels",
-    rtol: float = 1e-5,
-    atol: float = 1e-8,
-) -> None:
-    """Validate that a label map matches data spatial dimensions and coordinates.
+) -> xr.DataArray:
+    """Validate that a label map shares data's canonical voxel grid.
+
+    Both `labels` and `data` are canonicalized via
+    [`ensure_fusi`][confusius.validation.ensure_fusi], so each must be (or become,
+    after restoring any scalar-reduced voxel dims) a canonical voxel-grid DataArray
+    carrying a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
 
     Parameters
     ----------
     labels : xarray.DataArray
-        Label map to validate. Must have integer dtype and coordinates must match data.
-        Accepts two formats:
+        Label map to validate. Must have integer dtype. Accepts two formats:
 
         - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
@@ -184,17 +186,19 @@ def validate_labels(
         Data array to validate labels against.
     labels_name : str, default: "labels"
         Name of the labels parameter (used in error messages).
-    rtol : float, default: 1e-5
-        Relative tolerance for coordinate comparison.
-    atol : float, default: 1e-8
-        Absolute tolerance for coordinate comparison.
+
+    Returns
+    -------
+    xarray.DataArray
+        The canonicalized `labels`.
 
     Raises
     ------
     TypeError
         If `labels` is not an integer dtype DataArray.
     ValueError
-        If `labels` dimensions don't match `data` or if coordinates don't match.
+        If `labels` or `data` isn't a canonical voxel-grid DataArray, or if `labels`'s
+        voxel grid doesn't match `data`'s.
     """
     if not isinstance(labels, xr.DataArray):
         raise TypeError(
@@ -204,6 +208,4 @@ def validate_labels(
     if not np.issubdtype(labels.dtype, np.integer):
         raise TypeError(f"{labels_name} must be integer dtype, got {labels.dtype}.")
 
-    # For stacked format, validate spatial dims only (drop the mask axis).
-    spatial_labels = labels.isel(mask=0, drop=True) if "mask" in labels.dims else labels
-    _validate_spatial_coords(spatial_labels, data, labels_name, rtol, atol)
+    return _validate_spatial_alignment(labels, data, labels_name)

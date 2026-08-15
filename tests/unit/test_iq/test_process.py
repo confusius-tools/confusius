@@ -1222,7 +1222,7 @@ class TestDataArrayClutterMask:
 
         with pytest.raises(
             ValueError,
-            match=r"does not match between clutter_mask and data",
+            match=r"does not share data's voxel grid",
         ):
             process_iq_to_power_doppler(
                 iq,
@@ -1260,7 +1260,7 @@ class TestDataArrayClutterMask:
 
         with pytest.raises(
             ValueError,
-            match=r"does not match between clutter_mask and data",
+            match=r"does not share data's voxel grid",
         ):
             process_iq_to_power_doppler(
                 iq,

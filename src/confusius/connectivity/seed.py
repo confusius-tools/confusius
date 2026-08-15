@@ -279,7 +279,7 @@ class SeedBasedMaps(BaseEstimator):
 
         if self.seed_masks is not None:
             self.seed_masks = ensure_fusi(self.seed_masks, allow_pose=False)
-            validate_labels(self.seed_masks, X, "seed_masks")
+            self.seed_masks = validate_labels(self.seed_masks, X, "seed_masks")
         else:
             # self.seed_signals is not None, guaranteed by the mutual-exclusivity check
             # above.

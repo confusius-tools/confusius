@@ -577,13 +577,6 @@ class SearchLight(BaseEstimator):
             mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
         else:
             mask = validate_mask(self.mask, X_ordered, "mask", require_exact_dims=True)
-            if not has_voxel_to_world_index(mask):
-                raise ValueError(
-                    "mask must carry a VoxelToWorldIndex, matching X's canonical "
-                    "(k, j, i) grid -- otherwise `radius` would silently be measured "
-                    "in voxel-index units instead of world coordinates. Build mask "
-                    "from X's own grid, e.g. `X.notnull().all('time')`."
-                )
 
         if self.process_mask is None:
             process_mask = mask
@@ -591,13 +584,6 @@ class SearchLight(BaseEstimator):
             process_mask = validate_mask(
                 self.process_mask, X_ordered, "process_mask", require_exact_dims=True
             )
-            if not has_voxel_to_world_index(process_mask):
-                raise ValueError(
-                    "process_mask must carry a VoxelToWorldIndex, matching X's "
-                    "canonical (k, j, i) grid -- otherwise `radius` would silently be "
-                    "measured in voxel-index units instead of world coordinates. "
-                    "Build process_mask from X's own grid."
-                )
             outside = int(
                 np.count_nonzero(
                     np.asarray(process_mask.values) & ~np.asarray(mask.values)

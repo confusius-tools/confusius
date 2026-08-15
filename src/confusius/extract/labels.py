@@ -97,21 +97,18 @@ def extract_with_labels(
     """Extract region-aggregated signals from fUSI data using an integer label map.
 
     For each unique non-zero label in `labels`, applies `reduction` across all voxels
-    belonging to that region. The spatial dimensions are collapsed into a single
-    `region` dimension.
-
-    This function is dim-name-agnostic: it collapses whatever spatial dimensions
-    `labels` carries, whatever their names. For canonical native-voxel data the
-    spatial dimensions are `k`/`j`/`i`.
+    belonging to that region. The native voxel dimensions (`k`/`j`/`i`) are collapsed
+    into a single `region` dimension.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Input array with spatial dimensions matching `labels`. Can have any number of
-        non-spatial dimensions (e.g., `time`, `pose`). The spatial dimensions must match
-        those in `labels`.
+        Input array. Must be a canonical voxel-grid DataArray with native voxel dims
+        `k`/`j`/`i` and a `VoxelToWorldIndex`, plus any number of non-spatial
+        dimensions (e.g., `time`, `pose`). See
+        [`ensure_fusi`][confusius.validation.ensure_fusi].
     labels : xarray.DataArray
-        Integer label map in one of two formats:
+        Integer label map sharing `data`'s voxel grid, in one of two formats:
 
         - **Flat label map**: Spatial dims only, e.g. `(k, j, i)`. Background voxels
           labeled `0`; each unique non-zero integer identifies a distinct,
@@ -143,8 +140,8 @@ def extract_with_labels(
     Raises
     ------
     ValueError
-        If `labels` dimensions don't match `data`'s spatial dimensions, if
-        coordinates don't match, if `reduction` is not a valid option, or if
+        If `labels` or `data` isn't a canonical voxel-grid DataArray, if `labels`'s
+        voxel grid doesn't match `data`'s, if `reduction` is not a valid option, or if
         `labels` contains no non-zero values.
     TypeError
         If `labels` is not integer dtype.
@@ -157,18 +154,21 @@ def extract_with_labels(
 
     Examples
     --------
-    >>> import xarray as xr
     >>> import numpy as np
     >>> from confusius.extract import extract_with_labels
+    >>> from confusius.xarray import create_fusi_dataarray
     >>>
     >>> # 3D+t data: (time, k, j, i)
-    >>> data = xr.DataArray(
+    >>> data = create_fusi_dataarray(
     ...     np.random.randn(100, 10, 20, 30),
-    ...     dims=["time", "k", "j", "i"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.5,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
-    >>> labels = xr.DataArray(
+    >>> labels = create_fusi_dataarray(
     ...     np.zeros((10, 20, 30), dtype=int),
-    ...     dims=["k", "j", "i"],
+    ...     dims=("k", "j", "i"),
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>> labels[0, :, :] = 1  # Region 1: first k-slice.
     >>> labels[1, :, :] = 2  # Region 2: second k-slice.
@@ -185,7 +185,7 @@ def extract_with_labels(
     >>> signals.coords["region"].values
     array(['VISp_L', 'VISp_R'], dtype=object)
     """
-    validate_labels(labels, data, "labels")
+    labels = validate_labels(labels, data, "labels")
 
     if reduction not in _VALID_REDUCTIONS:
         raise ValueError(
