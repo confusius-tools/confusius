@@ -253,16 +253,14 @@ def test_compute_compcor_mask_shape_mismatch(sample_timeseries):
         np.ones(30, dtype=bool), dims=["space"], coords={"space": np.arange(30)}
     )
 
-    with pytest.raises(ValueError, match="does not match"):
+    with pytest.raises(ValueError, match="has size 30, expected 50"):
         compute_compcor_confounds(signals, noise_mask=noise_mask, n_components=5)
 
 
-def test_compute_compcor_mask_size_mismatch_after_flatten(sample_fusi_3dt):
-    """Test error when a subset-dimension mask flattens to the wrong size."""
+def test_compute_compcor_mask_rejects_subset_dims(sample_fusi_3dt):
+    """A mask missing one of data's native voxel dims is rejected upfront."""
     noise_mask = xr.DataArray(
-        np.ones(
-            (sample_fusi_3dt.sizes["k"], sample_fusi_3dt.sizes["j"]), dtype=bool
-        ),
+        np.ones((sample_fusi_3dt.sizes["k"], sample_fusi_3dt.sizes["j"]), dtype=bool),
         dims=["k", "j"],
         coords={
             "k": sample_fusi_3dt.coords["k"],
@@ -270,7 +268,7 @@ def test_compute_compcor_mask_size_mismatch_after_flatten(sample_fusi_3dt):
         },
     )
 
-    with pytest.raises(ValueError, match="Noise mask size"):
+    with pytest.raises(ValueError, match="native voxel dimensions"):
         compute_compcor_confounds(
             sample_fusi_3dt,
             noise_mask=noise_mask,

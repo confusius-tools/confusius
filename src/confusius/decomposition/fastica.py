@@ -99,8 +99,11 @@ class FastICA(_BaseFUSIDecomposer):
         Used to initialize `w_init` when not provided, with a normal distribution. Pass
         an int for reproducible results across multiple function calls.
     mask : xarray.DataArray, optional
-        Boolean spatial mask selecting voxels to include during fitting and projection.
-        Must match the spatial dimensions and coordinates of the input data.
+        Boolean mask selecting which elements to include during fitting and
+        projection: voxels, for a canonical voxel-grid input, or features, for an
+        already-extracted signals input (e.g.
+        [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
+        match the non-`time` dimensions of the input data in the same order.
 
     Attributes
     ----------
@@ -138,16 +141,18 @@ class FastICA(_BaseFUSIDecomposer):
 
     Examples
     --------
-    Spatial ICA (default, matches FSL MELODIC):
+    Spatial ICA (default, matches FSL MELODIC), on canonical voxel-grid data:
 
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from confusius.decomposition import FastICA
+    >>> from confusius.xarray import create_fusi_dataarray
     >>>
     >>> rng = np.random.default_rng(0)
-    >>> data = xr.DataArray(
+    >>> data = create_fusi_dataarray(
     ...     rng.standard_normal((200, 5, 10, 20)),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
     >>> ica = FastICA(n_components=5, random_state=0)
@@ -156,7 +161,21 @@ class FastICA(_BaseFUSIDecomposer):
     ('time', 'component')
     >>> reconstructed = ica.inverse_transform(signals)
     >>> reconstructed.dims
-    ('time', 'z', 'y', 'x')
+    ('time', 'k', 'j', 'i')
+
+    Fitting on already-extracted ROI signals, e.g. from
+    [`extract_with_labels`][confusius.extract.extract_with_labels]:
+
+    >>> import xarray as xr
+    >>> roi_signals = xr.DataArray(
+    ...     rng.standard_normal((200, 8)),
+    ...     dims=["time", "region"],
+    ...     coords={"region": [f"ROI_{i}" for i in range(8)]},
+    ... )
+    >>> ica_roi = FastICA(n_components=3, random_state=0)
+    >>> roi_signals_ic = ica_roi.fit_transform(roi_signals)
+    >>> roi_signals_ic.dims
+    ('time', 'component')
     """
 
     _signals_long_name = "FastICA signals"
@@ -196,7 +215,8 @@ class FastICA(_BaseFUSIDecomposer):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input fUSI data.
+            Input data: a canonical voxel-grid DataArray, or an already-extracted
+            signals array (see class docstring).
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 

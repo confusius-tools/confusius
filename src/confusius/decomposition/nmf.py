@@ -119,8 +119,11 @@ class NMF(_BaseFUSIDecomposer):
           component)` signals.
 
     mask : xarray.DataArray, optional
-        Boolean spatial mask selecting voxels to include during fitting and projection.
-        Must match the spatial dimensions and coordinates of the input data.
+        Boolean mask selecting which elements to include during fitting and
+        projection: voxels, for a canonical voxel-grid input, or features, for an
+        already-extracted signals input (e.g.
+        [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
+        match the non-`time` dimensions of the input data in the same order.
 
     Attributes
     ----------
@@ -170,18 +173,22 @@ class NMF(_BaseFUSIDecomposer):
 
     Examples
     --------
+    On canonical voxel-grid data:
+
     >>> import numpy as np
-    >>> import xarray as xr
     >>> from confusius.decomposition import NMF
+    >>> from confusius.xarray import create_fusi_dataarray
     >>>
     >>> rng = np.random.default_rng(0)
     >>> k = 5
     >>> n_t, n_z, n_y, n_x = 200, 4, 6, 8
     >>> temporal = rng.random((n_t, k))
     >>> spatial = rng.random((k, n_z * n_y * n_x))
-    >>> data = xr.DataArray(
+    >>> data = create_fusi_dataarray(
     ...     (10.0 * (temporal @ spatial) + 1.0).reshape(n_t, n_z, n_y, n_x),
-    ...     dims=["time", "z", "y", "x"],
+    ...     dims=("time", "k", "j", "i"),
+    ...     dt=0.1,
+    ...     spacing=(1.0, 1.0, 1.0),
     ... )
     >>>
     >>> nmf = NMF(n_components=k, init="nndsvda", random_state=0)
@@ -190,7 +197,21 @@ class NMF(_BaseFUSIDecomposer):
     ('time', 'component')
     >>> reconstructed = nmf.inverse_transform(signals)
     >>> reconstructed.dims
-    ('time', 'z', 'y', 'x')
+    ('time', 'k', 'j', 'i')
+
+    Fitting on already-extracted, non-negative ROI signals, e.g. from
+    [`extract_with_labels`][confusius.extract.extract_with_labels]:
+
+    >>> import xarray as xr
+    >>> roi_signals = xr.DataArray(
+    ...     rng.random((200, 8)),
+    ...     dims=["time", "region"],
+    ...     coords={"region": [f"ROI_{i}" for i in range(8)]},
+    ... )
+    >>> nmf_roi = NMF(n_components=3, init="nndsvda", random_state=0)
+    >>> roi_signals_nmf = nmf_roi.fit_transform(roi_signals)
+    >>> roi_signals_nmf.dims
+    ('time', 'component')
     """
 
     _signals_long_name = "NMF signals"
@@ -236,7 +257,8 @@ class NMF(_BaseFUSIDecomposer):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input fUSI data. Must be non-negative.
+            Input data: a canonical voxel-grid DataArray, or an already-extracted
+            signals array (see class docstring). Must be non-negative.
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.
 

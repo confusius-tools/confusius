@@ -16,8 +16,12 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     has_voxel_to_world_index,
 )
-from confusius.extract import extract_with_mask, unmask
-from confusius.validation import validate_mask, validate_time_series
+from confusius._utils.mask import (
+    select_masked_features,
+    validate_spatial_or_feature_mask,
+)
+from confusius.extract import unmask
+from confusius.validation import validate_time_series
 
 
 class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
@@ -31,6 +35,18 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
 
     All shared xarray bookkeeping (data preparation, spatial reshaping, `fit_transform`,
     `transform`, and `inverse_transform`) is handled here.
+
+    `X` accepts two kinds of input, told apart via
+    [`has_voxel_to_world_index`][confusius._utils.geometry.has_voxel_to_world_index]:
+
+    - A canonical voxel-grid DataArray (native voxel dims `k`/`j`/`i` and a
+      `VoxelToWorldIndex`). `mask` then selects voxels, and reconstruction
+      (`inverse_transform`, `maps_`) restores the full `(k, j, i)` grid.
+    - An already-extracted signals array, e.g. the `(time, region)` output of
+      [`extract_with_labels`][confusius.extract.extract_with_labels]. This isn't
+      spatial data — it has already been reduced away from the voxel grid — so no
+      `VoxelToWorldIndex` is required; `mask` then selects features along the
+      non-`time` dimension instead of voxels.
     """
 
     _signals_long_name: str
@@ -217,10 +233,17 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], npt.NDArray[np.bool_]]:
         """Validate and stack time series data into a 2D feature matrix.
 
+        `X` may be a canonical voxel-grid DataArray (native voxel dims `k`/`j`/`i` and
+        a `VoxelToWorldIndex`) or an already-extracted signals array, e.g. the output
+        of [`extract_with_labels`][confusius.extract.extract_with_labels] (`(time,
+        region)`). [`select_masked_features`][confusius._utils.mask.select_masked_features]
+        tells the two apart and validates/flattens `mask` accordingly.
+
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input fUSI data.
+            Input data: a canonical voxel-grid DataArray, or an already-extracted
+            signals array.
         check_layout : bool
             Whether to check that the spatial dimensions and sizes match the fitted
             estimator state.
@@ -269,14 +292,15 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
             spatial_dims = input_spatial_dims
 
         X_ordered = X.transpose("time", *spatial_dims)
-
         mask = getattr(self, "mask", None)
         if mask is None:
-            mask = xr.ones_like(X_ordered[0], dtype=bool)
+            mask = xr.ones_like(X_ordered.isel(time=0, drop=True), dtype=bool)
         else:
-            mask = validate_mask(mask, X_ordered, "mask", require_exact_dims=True)
+            mask = validate_spatial_or_feature_mask(
+                X_ordered, mask, "mask", require_exact_dims=True
+            )
 
-        X_proc = extract_with_mask(X_ordered, mask).values
+        X_proc = select_masked_features(X_ordered, mask, "mask").values
         return X_proc, spatial_dims, mask.values.ravel()
 
     def _reshape_component_matrix(

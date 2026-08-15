@@ -8,8 +8,45 @@ import xarray as xr
 from sklearn.decomposition import NMF as SklearnNMF
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import attach_voxel_to_world_index
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius.decomposition import NMF
+from confusius.xarray import create_fusi_dataarray
+
+
+def _make_mask(
+    reference: xr.DataArray, dims: tuple[str, ...] = ("k", "j", "i")
+) -> xr.DataArray:
+    """Create an empty boolean mask sharing `reference`'s voxel grid.
+
+    Parameters
+    ----------
+    reference : xarray.DataArray
+        Canonical DataArray supplying the voxel grid.
+    dims : tuple[str, ...], default: ("k", "j", "i")
+        Dimension order for the mask.
+
+    Returns
+    -------
+    xarray.DataArray
+        Zero-valued mask carrying `reference`'s `VoxelToWorldIndex`.
+    """
+    mask = xr.DataArray(
+        np.zeros(tuple(reference.sizes[dim] for dim in dims), dtype=bool),
+        dims=dims,
+        coords={dim: reference.coords[dim] for dim in dims},
+    )
+    world_coord_names = get_voxel_to_world_coord_names(reference)
+    return attach_voxel_to_world_index(
+        mask,
+        get_voxel_to_world_affine(reference),
+        world_coord_attrs={
+            name: dict(reference.coords[name].attrs) for name in world_coord_names
+        },
+    )
 
 
 @pytest.fixture
@@ -26,37 +63,15 @@ def nmf_3dt_volume():
     W = local_rng.random((n_t, k))
     H = local_rng.random((k, n_z * n_y * n_x))
     data = (10.0 * (W @ H) + 1.0).reshape(n_t, n_z, n_y, n_x)
-    base = xr.DataArray(
+    return create_fusi_dataarray(
         data,
         name="power_doppler",
-        dims=["time", "k", "j", "i"],
-        coords={
-            "time": xr.DataArray(
-                10.0 + np.arange(n_t) * 0.5,
-                dims=["time"],
-                attrs={"units": "s"},
-            ),
-            "k": xr.DataArray(
-                1.0 + np.arange(n_z) * 0.2,
-                dims=["k"],
-                attrs={"units": "mm", "voxdim": 0.2},
-            ),
-            "j": xr.DataArray(
-                2.0 + np.arange(n_y) * 0.1,
-                dims=["j"],
-                attrs={"units": "mm", "voxdim": 0.1},
-            ),
-            "i": xr.DataArray(
-                3.0 + np.arange(n_x) * 0.05,
-                dims=["i"],
-                attrs={"units": "mm", "voxdim": 0.05},
-            ),
-        },
+        dims=("time", "k", "j", "i"),
+        dt=0.5,
+        t0=10.0,
+        spacing=(0.2, 0.1, 0.05),
+        origin=(1.0, 2.0, 3.0),
         attrs={"long_name": "Intensity", "units": "a.u."},
-    )
-    return attach_voxel_to_world_index(
-        base,
-        np.eye(4),
     )
 
 
@@ -252,22 +267,8 @@ def test_fit_requires_spatial_dimension():
 
 def test_mask_must_match_full_spatial_dims_in_order(nmf_3dt_volume):
     """Mask must span all spatial dims in the stacked feature order."""
-    mask = xr.DataArray(
-        np.ones(
-            (
-                nmf_3dt_volume.sizes["j"],
-                nmf_3dt_volume.sizes["k"],
-                nmf_3dt_volume.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["j", "k", "i"],
-        coords={
-            "j": nmf_3dt_volume.coords["j"],
-            "k": nmf_3dt_volume.coords["k"],
-            "i": nmf_3dt_volume.coords["i"],
-        },
-    )
+    mask = _make_mask(nmf_3dt_volume, dims=("j", "k", "i"))
+    mask.values[:] = True
 
     with pytest.raises(ValueError, match="must match all non-time dimensions"):
         NMF(mask=mask).fit(nmf_3dt_volume)
@@ -456,22 +457,7 @@ def test_fit_rejects_invalid_mode(nmf_3dt_volume):
 
 def test_mask_restricts_features(nmf_3dt_volume):
     """mask restricts fitted feature count to selected voxels."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                nmf_3dt_volume.sizes["k"],
-                nmf_3dt_volume.sizes["j"],
-                nmf_3dt_volume.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["k", "j", "i"],
-        coords={
-            "k": nmf_3dt_volume.coords["k"],
-            "j": nmf_3dt_volume.coords["j"],
-            "i": nmf_3dt_volume.coords["i"],
-        },
-    )
+    mask = _make_mask(nmf_3dt_volume)
     mask.values[:2, :, :] = True
 
     model = NMF(n_components=3, random_state=0, mask=mask).fit(nmf_3dt_volume)
@@ -481,22 +467,7 @@ def test_mask_restricts_features(nmf_3dt_volume):
 
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(nmf_3dt_volume):
     """Masked NMF keeps full geometry and fills outside-mask voxels with zero."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                nmf_3dt_volume.sizes["k"],
-                nmf_3dt_volume.sizes["j"],
-                nmf_3dt_volume.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["k", "j", "i"],
-        coords={
-            "k": nmf_3dt_volume.coords["k"],
-            "j": nmf_3dt_volume.coords["j"],
-            "i": nmf_3dt_volume.coords["i"],
-        },
-    )
+    mask = _make_mask(nmf_3dt_volume)
     mask.values[:2, :, :] = True
 
     model = NMF(n_components=3, random_state=0, mask=mask).fit(nmf_3dt_volume)
@@ -517,5 +488,5 @@ def test_mask_mismatch_raises(nmf_3dt_volume):
     """fit raises when mask does not match spatial dimensions."""
     bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
-    with pytest.raises(ValueError, match="missing from mask"):
+    with pytest.raises(ValueError, match="native voxel dimensions"):
         NMF(mask=bad_mask).fit(nmf_3dt_volume)

@@ -5,13 +5,14 @@
 This is a **beta package** under rapid iteration. Backward compatibility is not a
 concern, feel free to make breaking API changes when they improve the design.
 
-## Data Model
+## Data Model: VoxelData
 
-ConfUSIus has one canonical shape for **any** `xarray.DataArray` that lives on a voxel
-grid with corresponding world coordinates — not just fUSI signal data. This includes
-fUSI recordings, brain atlas volumes, PCA/decomposition component maps, dense
-displacement fields, B-spline control-point grids, and anything else gridded in space.
-Such an array is **always**:
+**VoxelData** is ConfUSIus's canonical `xarray.DataArray` model for spatially
+referenced voxel data — a modality-independent data model for spatial imaging data,
+not just fUSI signal data. This includes fUSI recordings, brain atlas volumes,
+PCA/decomposition component maps, dense displacement fields, B-spline control-point
+grids, and anything else gridded in space. A VoxelData-compatible DataArray is
+**always**:
 
 - Dims `(...extra, time, pose, k, j, i)`, where `time` and `pose` are optional and
   extra non-spatial dims are allowed before them, but `k`/`j`/`i` (native voxel
@@ -19,33 +20,70 @@ Such an array is **always**:
   multi-component data (PCA/ICA components, displacement/B-spline `component`, atlas
   region masks, etc.) stays canonical: the components ride along as an ordinary extra
   dim, and the trailing `k`/`j`/`i` + index are unchanged.
-- A `VoxelToWorldIndex` attached to those `k`/`j`/`i` dims, which lazily derives the
-  world coordinates `z`/`y`/`x` from a single voxel-to-world affine
+- Backed by a `VoxelToWorldIndex` attached to those `k`/`j`/`i` dims, which lazily
+  derives the world coordinates `z`/`y`/`x` from a single voxel-to-world affine
   (`confusius._utils.geometry.VoxelToWorldIndex`/`VoxelToWorldTransform`). World
   coordinates are never stored directly; they are always this index's output.
 
-fUSI-specific validation (`validate_fusi`/`ensure_fusi` in `confusius.validation`) adds
-signal-specific requirements on top of this (e.g. `time` acquisition metadata) and is
-the right tool for actual fUSI recordings, but the underlying voxel-grid shape and
-index requirement apply to any spatially-gridded array in the codebase, fUSI or not.
-Use `confusius.xarray.create_fusi_dataarray` and
+This **is** the VoxelData shape — there is no separate "voxel-grid array" concept
+distinct from it, and it isn't specific to fUSI recordings. Every 3D spatial array in
+the codebase (fUSI recordings, atlas volumes, PCA/ICA maps, displacement fields,
+B-spline grids, GLM maps, masks, atlas labels, ...) must be VoxelData, whether or not
+its content is an actual fUSI recording. Use "VoxelData-compatible", "the VoxelData
+model/convention", and "convert to VoxelData" when describing this shape in code,
+docstrings, and docs — not "canonical fUSI DataArray" (misleadingly implies actual
+fUSI recordings) or ad hoc phrasing like "canonical voxel-grid DataArray" /
+"canonical voxel-to-world DataArray" (still acceptable as a one-off gloss, but
+VoxelData is the term to standardize on).
+
+`validate_fusi`/`ensure_fusi` (`confusius.validation`) is the general-purpose
+VoxelData checker, and by default (`require_time=False`, etc.) enforces only the
+universal `k`/`j`/`i` + `VoxelToWorldIndex` structure above — it is the right tool for
+any VoxelData array, not only fUSI recordings. Its optional flags (`require_time`,
+`require_unchunked_time`, `require_uniform_time`, ...) layer on genuine
+recording-specific requirements (e.g. `time` acquisition metadata) and should only be
+enabled for actual fUSI recordings. A direct `has_voxel_to_world_index` check (or a
+dedicated shape checker, e.g. `validate_bspline`-style) is only needed where
+`validate_fusi`'s shape assumptions don't fit — e.g. an array not carrying literal
+`k`/`j`/`i` dims (already flattened to a `space` dim, or exposing only a subset of the
+spatial dims). Use `confusius.xarray.create_fusi_dataarray` and
 `confusius._utils.geometry.attach_voxel_to_world_index`/`has_voxel_to_world_index` to
-build and check this shape regardless of what the array's content represents.
+build and check VoxelData regardless of what the array's content represents.
 
 **There is no second supported data shape.** Do not add "either plain z/y/x dims or
 k/j/i with a voxel-to-world index" branches, dual-support fallbacks for arrays without
 a `VoxelToWorldIndex`, or code that silently degrades to plain-coordinate handling
 when `has_voxel_to_world_index(data)` is `False`. If a function receives a DataArray
-that isn't in this canonical form, it should raise (`ensure_fusi`/`validate_fusi`, a
-direct `has_voxel_to_world_index` check that raises, or the equivalent
-`validate_bspline`-style check for a non-fUSI voxel-grid array), not fall back to an
-alternate code path.
+that isn't VoxelData, it should raise (`ensure_fusi`/`validate_fusi`, a direct
+`has_voxel_to_world_index` check that raises, or the equivalent `validate_bspline`-style
+check for non-fUSI VoxelData), not fall back to an alternate code path.
 
 The only legitimate exception is genuine I/O boundary code (e.g. `io/nifti.py`,
 `io/scan.py`) whose actual job is constructing the voxel-to-world index from an
-external, not-yet-canonical file format — that code inherently runs before the index
-exists. Once construction is done, the result must be canonical; nothing downstream of
+external, not-yet-VoxelData file format — that code inherently runs before the index
+exists. Once construction is done, the result must be VoxelData; nothing downstream of
 that boundary should special-case "no index" as a supported state.
+
+The second legitimate exception is a consumer whose documented input is explicitly
+*either* VoxelData *or* an already-reduced signals table (e.g. `_BaseFUSIDecomposer` in
+`decomposition/_base.py`, which fits ICA/PCA/NMF on either raw `(time, k, j, i)`
+VoxelData or on `(time, region)` output from
+[`extract_with_labels`][confusius.extract.extract_with_labels]; likewise
+`compute_compcor_confounds`, `apply_statistical_threshold`, and `plot_carpet`). A
+signals table isn't VoxelData at all — it has already been reduced away from the voxel
+grid — so it isn't a degraded form of VoxelData, and requiring
+`has_voxel_to_world_index` on it would be wrong. Such a consumer must branch explicitly
+on `has_voxel_to_world_index` to pick between full spatial-grid handling and a
+lightweight, grid-free path for the signals case; it must not accept non-VoxelData
+*spatial* data silently. **Don't reimplement this branch per call site** — use
+`confusius._utils.mask.validate_spatial_or_feature_mask` (validates a mask against
+either kind of `data`) and `confusius._utils.mask.select_masked_features` (validates
+and flattens to `(..., space)` in one call). Both are internal (not exported from
+`confusius.validation`/`confusius.extract`) — they exist to serve this small set of
+dual-input consumers, not as user-facing API. This does not loosen the VoxelData
+requirement for functions whose input is meant to be spatial —
+`extract_with_mask`, `validate_mask`, `validate_labels`, and friends must keep
+requiring it unconditionally, with no generic/dim-agnostic fallback.
 
 ## Release Process
 

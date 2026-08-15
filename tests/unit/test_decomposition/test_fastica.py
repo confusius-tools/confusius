@@ -8,8 +8,13 @@ import xarray as xr
 from sklearn.decomposition import FastICA as SklearnFastICA
 from sklearn.utils.validation import check_is_fitted
 
-from confusius._utils.geometry import attach_voxel_to_world_index
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius.decomposition import FastICA
+from confusius.xarray import create_fusi_dataarray
 
 
 class _FasticaTestKwargs(TypedDict):
@@ -33,29 +38,46 @@ FASTICA_TEST_KWARGS: _FasticaTestKwargs = {
 def sample_fusi_3dt():
     """Stable 3D+t fUSI input for FastICA convergence tests."""
     rng = np.random.default_rng(42)
-    da = xr.DataArray(
+    return create_fusi_dataarray(
         rng.random((10, 4, 6, 8)),
         name="power_doppler",
-        dims=["time", "k", "j", "i"],
-        coords={
-            "time": xr.DataArray(
-                10.0 + np.arange(10) * 0.5,
-                dims=["time"],
-                attrs={"units": "s"},
-            ),
-            "k": np.arange(4),
-            "j": np.arange(6),
-            "i": np.arange(8),
-        },
+        dims=("time", "k", "j", "i"),
+        dt=0.5,
+        t0=10.0,
+        spacing=(0.2, 0.1, 0.05),
+        origin=(0.0, 0.0, 0.0),
         attrs={"long_name": "Intensity", "units": "a.u."},
     )
+
+
+def _make_mask(
+    reference: xr.DataArray, dims: tuple[str, ...] = ("k", "j", "i")
+) -> xr.DataArray:
+    """Create an empty boolean mask sharing `reference`'s voxel grid.
+
+    Parameters
+    ----------
+    reference : xarray.DataArray
+        Canonical DataArray supplying the voxel grid.
+    dims : tuple[str, ...], default: ("k", "j", "i")
+        Dimension order for the mask.
+
+    Returns
+    -------
+    xarray.DataArray
+        Zero-valued mask carrying `reference`'s `VoxelToWorldIndex`.
+    """
+    mask = xr.DataArray(
+        np.zeros(tuple(reference.sizes[dim] for dim in dims), dtype=bool),
+        dims=dims,
+        coords={dim: reference.coords[dim] for dim in dims},
+    )
+    world_coord_names = get_voxel_to_world_coord_names(reference)
     return attach_voxel_to_world_index(
-        da,
-        np.diag([0.2, 0.1, 0.05, 1.0]),
+        mask,
+        get_voxel_to_world_affine(reference),
         world_coord_attrs={
-            "z": {"units": "mm", "voxdim": 0.2},
-            "y": {"units": "mm", "voxdim": 0.1},
-            "x": {"units": "mm", "voxdim": 0.05},
+            name: dict(reference.coords[name].attrs) for name in world_coord_names
         },
     )
 
@@ -422,22 +444,7 @@ def test_reproducible_with_random_state():
 
 def test_mask_restricts_features(sample_fusi_3dt):
     """mask restricts fitted feature count to selected voxels."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                sample_fusi_3dt.sizes["k"],
-                sample_fusi_3dt.sizes["j"],
-                sample_fusi_3dt.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["k", "j", "i"],
-        coords={
-            "k": sample_fusi_3dt.coords["k"],
-            "j": sample_fusi_3dt.coords["j"],
-            "i": sample_fusi_3dt.coords["i"],
-        },
-    )
+    mask = _make_mask(sample_fusi_3dt)
     mask.values[:, :2, :] = True
 
     model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_fusi_3dt)
@@ -447,22 +454,7 @@ def test_mask_restricts_features(sample_fusi_3dt):
 
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_fusi_3dt):
     """Masked FastICA keeps full geometry and fills outside-mask voxels with zero."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                sample_fusi_3dt.sizes["k"],
-                sample_fusi_3dt.sizes["j"],
-                sample_fusi_3dt.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["k", "j", "i"],
-        coords={
-            "k": sample_fusi_3dt.coords["k"],
-            "j": sample_fusi_3dt.coords["j"],
-            "i": sample_fusi_3dt.coords["i"],
-        },
-    )
+    mask = _make_mask(sample_fusi_3dt)
     mask.values[:, :2, :] = True
 
     model = FastICA(**FASTICA_TEST_KWARGS, mask=mask).fit(sample_fusi_3dt)
@@ -487,5 +479,5 @@ def test_mask_mismatch_raises(sample_fusi_3dt):
     """fit raises when mask does not match spatial dimensions."""
     bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
-    with pytest.raises(ValueError, match="missing from mask"):
+    with pytest.raises(ValueError, match="native voxel dimensions"):
         FastICA(mask=bad_mask).fit(sample_fusi_3dt)

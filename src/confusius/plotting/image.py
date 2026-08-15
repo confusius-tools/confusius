@@ -17,9 +17,9 @@ from confusius._utils.geometry import (
     get_voxel_to_world_spatial_dims,
     has_voxel_to_world_index,
 )
+from confusius._utils.mask import select_masked_features
 from confusius._utils.plotting import blend_red_cyan, scale_min_max
 from confusius._utils.stack import find_stack_level
-from confusius.extract import extract_with_mask
 from confusius.plotting._hover import (
     _HoverManager,
     _normalize_roi_labels,
@@ -2840,9 +2840,10 @@ def _prepare_carpet_data(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a `"time"` dimension and coordinate.
+        Input data array with a `"time"` dimension and coordinate: a canonical
+        voxel-grid DataArray, or an already-extracted signals array.
     mask : xarray.DataArray, optional
-        Boolean mask to select voxels. Defaults to all non-zero voxels.
+        Boolean mask to select elements. Defaults to all non-zero elements.
     detrend_order : int, optional
         Polynomial order for detrending. See `plot_carpet`.
     standardize : bool, default: True
@@ -2873,7 +2874,7 @@ def _prepare_carpet_data(
     else:
         mask = mask & non_zero
 
-    signals = extract_with_mask(data, mask)
+    signals = select_masked_features(data, mask)
 
     # Carpet plots don't need spatial coordinates, and multi-index coordinates will make
     # plotting fail.
@@ -3034,11 +3035,13 @@ def plot_carpet(
     Parameters
     ----------
     data : xarray.DataArray
-        Input data array with a 'time' dimension.
+        Input data array with a `time` dimension: a canonical voxel-grid DataArray, or
+        an already-extracted signals array (e.g.
+        [`extract_with_labels`][confusius.extract.extract_with_labels] output).
     mask : xarray.DataArray, optional
-        Boolean mask with same spatial dimensions and coordinates as `data`. True
-        values indicate voxels to include. If not provided, all non-zero voxels
-        from the data are included.
+        Boolean mask with the same non-`time` dimensions and coordinates as `data`.
+        True values indicate elements to include. If not provided, all non-zero
+        elements from the data are included.
     detrend_order : int, optional
         Polynomial order for detrending:
 

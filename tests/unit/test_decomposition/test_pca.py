@@ -6,7 +6,44 @@ import xarray as xr
 from sklearn.decomposition import PCA as SklearnPCA
 from sklearn.utils.validation import check_is_fitted
 
+from confusius._utils.geometry import (
+    attach_voxel_to_world_index,
+    get_voxel_to_world_affine,
+    get_voxel_to_world_coord_names,
+)
 from confusius.decomposition import PCA
+
+
+def _make_mask(
+    reference: xr.DataArray, dims: tuple[str, ...] = ("k", "j", "i")
+) -> xr.DataArray:
+    """Create an empty boolean mask sharing `reference`'s voxel grid.
+
+    Parameters
+    ----------
+    reference : xarray.DataArray
+        Canonical DataArray supplying the voxel grid.
+    dims : tuple[str, ...], default: ("k", "j", "i")
+        Dimension order for the mask.
+
+    Returns
+    -------
+    xarray.DataArray
+        Zero-valued mask carrying `reference`'s `VoxelToWorldIndex`.
+    """
+    mask = xr.DataArray(
+        np.zeros(tuple(reference.sizes[dim] for dim in dims), dtype=bool),
+        dims=dims,
+        coords={dim: reference.coords[dim] for dim in dims},
+    )
+    world_coord_names = get_voxel_to_world_coord_names(reference)
+    return attach_voxel_to_world_index(
+        mask,
+        get_voxel_to_world_affine(reference),
+        world_coord_attrs={
+            name: dict(reference.coords[name].attrs) for name in world_coord_names
+        },
+    )
 
 
 def test_feature_names_in_for_string_feature_labels():
@@ -83,9 +120,7 @@ def test_inverse_transform_reconstructs_with_all_components(sample_fusi_3dt):
     np.testing.assert_allclose(
         reconstructed.coords["time"], sample_fusi_3dt.coords["time"]
     )
-    np.testing.assert_allclose(
-        reconstructed.values, sample_fusi_3dt.values, atol=1e-10
-    )
+    np.testing.assert_allclose(reconstructed.values, sample_fusi_3dt.values, atol=1e-10)
     assert reconstructed.name == sample_fusi_3dt.name
     assert reconstructed.attrs == sample_fusi_3dt.attrs
 
@@ -168,22 +203,8 @@ def test_fit_requires_spatial_dimension():
 
 def test_mask_must_match_full_spatial_dims_in_order(sample_fusi_3dt):
     """Mask must span all spatial dims in the stacked feature order."""
-    mask = xr.DataArray(
-        np.ones(
-            (
-                sample_fusi_3dt.sizes["j"],
-                sample_fusi_3dt.sizes["k"],
-                sample_fusi_3dt.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["j", "k", "i"],
-        coords={
-            "j": sample_fusi_3dt.coords["j"],
-            "k": sample_fusi_3dt.coords["k"],
-            "i": sample_fusi_3dt.coords["i"],
-        },
-    )
+    mask = _make_mask(sample_fusi_3dt, dims=("j", "k", "i"))
+    mask.values[:] = True
 
     with pytest.raises(ValueError, match="must match all non-time dimensions"):
         PCA(mask=mask).fit(sample_fusi_3dt)
@@ -375,22 +396,7 @@ def test_fit_raises_for_invalid_mode(sample_fusi_3dt):
 
 def test_mask_restricts_features(sample_fusi_3dt):
     """mask restricts fitted feature count to selected voxels."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                sample_fusi_3dt.sizes["k"],
-                sample_fusi_3dt.sizes["j"],
-                sample_fusi_3dt.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["k", "j", "i"],
-        coords={
-            "k": sample_fusi_3dt.coords["k"],
-            "j": sample_fusi_3dt.coords["j"],
-            "i": sample_fusi_3dt.coords["i"],
-        },
-    )
+    mask = _make_mask(sample_fusi_3dt)
     mask.values[:2, :, :] = True
 
     model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_fusi_3dt)
@@ -400,22 +406,7 @@ def test_mask_restricts_features(sample_fusi_3dt):
 
 def test_masked_fit_reconstructs_full_geometry_with_zero_fill(sample_fusi_3dt):
     """Masked PCA keeps full geometry and fills outside-mask voxels with zero."""
-    mask = xr.DataArray(
-        np.zeros(
-            (
-                sample_fusi_3dt.sizes["k"],
-                sample_fusi_3dt.sizes["j"],
-                sample_fusi_3dt.sizes["i"],
-            ),
-            dtype=bool,
-        ),
-        dims=["k", "j", "i"],
-        coords={
-            "k": sample_fusi_3dt.coords["k"],
-            "j": sample_fusi_3dt.coords["j"],
-            "i": sample_fusi_3dt.coords["i"],
-        },
-    )
+    mask = _make_mask(sample_fusi_3dt)
     mask.values[:2, :, :] = True
 
     model = PCA(n_components=3, random_state=0, mask=mask).fit(sample_fusi_3dt)
@@ -440,5 +431,5 @@ def test_mask_mismatch_raises(sample_fusi_3dt):
     """fit raises when mask does not match spatial dimensions."""
     bad_mask = xr.DataArray(np.ones((3, 3), dtype=bool), dims=["j", "i"])
 
-    with pytest.raises(ValueError, match="missing from mask"):
+    with pytest.raises(ValueError, match="native voxel dimensions"):
         PCA(mask=bad_mask).fit(sample_fusi_3dt)
