@@ -83,11 +83,10 @@ def unmask(
     ...     np.random.rand(4, 5, 6) > 0.5, dims=("k", "j", "i"), spacing=(1.0, 1.0, 1.0)
     ... )
     >>>
-    >>> # Extract signals into a (time, space) matrix, then cluster voxel time-courses
-    >>> # -- clustering needs the flat voxel axis as samples, so this can't be done
+    >>> # Extract signals into a (time, space) matrix, then cluster voxel time-courses.
+    >>> # Clustering needs the flat voxel axis as samples, so this can't be done
     >>> # directly on the gridded (k, j, i) array.
     >>> signals = extract_with_mask(data, mask)
-    >>> n_voxels = signals.sizes["space"]
     >>> labels = KMeans(n_clusters=3, n_init="auto").fit_predict(signals.values.T)
     >>>
     >>> # Unmask - reconstruct the cluster labels as a spatial map, no extra dims
@@ -96,7 +95,7 @@ def unmask(
     ('k', 'j', 'i')
     >>>
     >>> # Unmask - two extra dims, with custom coords
-    >>> pose_data = np.random.randn(5, 3, n_voxels)  # (component, pose, space)
+    >>> pose_data = np.random.randn(5, 3, signals.sizes["space"])  # (component, pose, space)
     >>> spatial_pose = unmask(
     ...     pose_data,
     ...     mask,
