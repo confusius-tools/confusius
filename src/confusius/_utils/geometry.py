@@ -828,7 +828,10 @@ def attach_voxel_to_world_index(
     Voxel dimensions are the native voxel names (`k`/`j`/`i`) present on `data`, in
     canonical affine input-space column order; each gets the matching fixed world
     coordinate name (`k`→`z`, `j`→`y`, `i`→`x`), so e.g. a `(k, i)` DataArray gets
-    `z`/`x` world coordinates, not `z`/`y`.
+    `z`/`x` world coordinates, not `z`/`y`. Each derived world coordinate always ends
+    up with `voxdim` (spacing along that axis) and `units` (`"mm"`, the project-wide
+    world-coordinate unit) attrs; `world_coord_attrs` can override either, and any
+    value left unset there is filled in with these defaults.
 
     Parameters
     ----------
@@ -840,7 +843,9 @@ def attach_voxel_to_world_index(
         coordinates.
     world_coord_attrs : mapping[str, mapping[str, Any]], optional
         Attributes to attach to the derived world coordinates, keyed by world
-        coordinate name.
+        coordinate name. `voxdim` and `units` are filled in with their defaults
+        (computed spacing and `"mm"`) for any coordinate that doesn't specify them
+        here.
 
     Returns
     -------
@@ -904,10 +909,15 @@ def attach_voxel_to_world_index(
         spacing = world_spacings[dim]
         if spacing is None:
             spacing = np.linalg.norm(voxel_to_world_array[:-1, i])
-        if name in result.coords and "voxdim" not in result.coords[name].attrs:
+        if name not in result.coords:
+            continue
+        if "voxdim" not in result.coords[name].attrs:
             voxdim = np.float64(spacing).item()
             result.coords[name].attrs["voxdim"] = voxdim
             index.world_coord_attrs.setdefault(name, {})["voxdim"] = voxdim
+        if "units" not in result.coords[name].attrs:
+            result.coords[name].attrs["units"] = "mm"
+            index.world_coord_attrs.setdefault(name, {})["units"] = "mm"
 
     return result
 

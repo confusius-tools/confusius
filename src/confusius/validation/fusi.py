@@ -329,10 +329,12 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
     """Fill in default `units` metadata on the world spatial coordinates.
 
     Every ConfUSIus fUSI DataArray carries `units` on its world (`z`/`y`/`x`)
-    coordinates (`voxdim` is already guaranteed there by
+    coordinates. Both `voxdim` and `units` are already guaranteed there by
     [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
-    itself). Data built without going through it may still be missing `units`; this
-    fills in `"mm"` (the project-wide world-coordinate unit).
+    itself for freshly-attached data, so this function is mainly a safety net for
+    data whose index predates that default (e.g. hand-built `VoxelToWorldIndex`
+    objects, or data deserialized from a format that stored one). It fills in `"mm"`
+    (the project-wide world-coordinate unit) for anything still missing it.
 
     Parameters
     ----------
