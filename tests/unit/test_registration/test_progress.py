@@ -67,7 +67,10 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
     """Smoke tests for plotter construction."""
 
     def test_importerror_from_ipython_detection_falls_back_to_script_mode(
-        self, fixed_img_3d, moving_img_3d, monkeypatch
+        self,
+        fixed_img_3d,
+        moving_img_3d,
+        monkeypatch
     ):
         """Missing IPython support falls back cleanly to non-notebook mode."""
         reg = _make_registration_method()
@@ -91,7 +94,11 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
         assert plotter._notebook is False
         plotter.figure.clf()
 
-    def test_metric_only(self, fixed_img_3d, moving_img_3d):
+    def test_metric_only(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """Plotter with only metric panel is created without error."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -103,7 +110,11 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
         )
         plotter.figure.clf()
 
-    def test_composite_only(self, fixed_img_3d, moving_img_3d):
+    def test_composite_only(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """Plotter with only composite panel is created without error."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -115,7 +126,11 @@ class TestMatplotlibRegistrationProgressPlotterInstantiation:
         )
         plotter.figure.clf()
 
-    def test_both_panels(self, fixed_img_3d, moving_img_3d):
+    def test_both_panels(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """Plotter with both panels is created without error."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -132,7 +147,10 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
     """Tests for metric_values population and composite rendering."""
 
     def test_notebook_mode_uses_display_and_closes_figure(
-        self, fixed_img_3d, moving_img_3d, monkeypatch
+        self,
+        fixed_img_3d,
+        moving_img_3d,
+        monkeypatch
     ):
         """Notebook mode renders via IPython display and closes on finish."""
         import matplotlib.pyplot as plt
@@ -172,7 +190,9 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         assert closed_figures == [plotter.figure]
 
     def test_metric_values_populated_after_registration(
-        self, fixed_img_3d, moving_img_3d
+        self,
+        fixed_img_3d,
+        moving_img_3d
     ):
         """metric_values contains one entry per iteration after registration."""
         reg = _make_registration_method()
@@ -192,7 +212,11 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         assert len(plotter.metric_values) > 0
         plotter.figure.clf()
 
-    def test_metric_values_are_floats(self, fixed_img_3d, moving_img_3d):
+    def test_metric_values_are_floats(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """All recorded metric values are finite floats."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -212,7 +236,9 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         plotter.figure.clf()
 
     def test_composite_panel_rendered_after_registration(
-        self, fixed_img_3d, moving_img_3d
+        self,
+        fixed_img_3d,
+        moving_img_3d
     ):
         """Composite panel renders without error after at least one iteration."""
         reg = _make_registration_method()
@@ -231,7 +257,11 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
         )
         plotter.figure.clf()
 
-    def test_3d_composite_panel_rendered(self, fixed_img_3d, moving_img_3d):
+    def test_3d_composite_panel_rendered(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """Composite mosaic renders for 3D images without error."""
         reg = sitk.ImageRegistrationMethod()
         reg.SetMetricAsCorrelation()
@@ -266,7 +296,11 @@ class TestMatplotlibRegistrationProgressPlotterUpdate:
 class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
     """Tests for intermediate-resample settings."""
 
-    def test_none_interpolation_falls_back_to_linear(self, fixed_img_3d, moving_img_3d):
+    def test_none_interpolation_falls_back_to_linear(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """A `None` interpolation override falls back to linear at render time."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -283,7 +317,11 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
         assert plotter._composite_im is not None
         plotter.figure.clf()
 
-    def test_invalid_interpolation_raises_on_update(self, fixed_img_3d, moving_img_3d):
+    def test_invalid_interpolation_raises_on_update(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """Unknown interpolation names raise a clear ValueError during rendering."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -300,7 +338,11 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
 
         plotter.figure.clf()
 
-    def test_default_fill_value_is_moving_min(self, fixed_img_3d, moving_img_3d):
+    def test_default_fill_value_is_moving_min(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """When resample_kwargs omits fill_value, it defaults to moving_img.min()."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -310,7 +352,11 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
         assert plotter._fill_value == pytest.approx(expected)
         plotter.figure.clf()
 
-    def test_explicit_fill_value_is_respected(self, fixed_img_3d, moving_img_3d):
+    def test_explicit_fill_value_is_respected(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """Explicit fill_value in resample_kwargs overrides the auto-default."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(
@@ -324,7 +370,11 @@ class TestMatplotlibRegistrationProgressPlotterResampleKwargs:
         assert plotter._fill_value == pytest.approx(-60.0)
         plotter.figure.clf()
 
-    def test_explicit_interpolation_is_stored(self, fixed_img_3d, moving_img_3d):
+    def test_explicit_interpolation_is_stored(
+        self,
+        fixed_img_3d,
+        moving_img_3d
+    ):
         """interpolation key in resample_kwargs is stored and later used."""
         reg = _make_registration_method()
         plotter = MatplotlibRegistrationProgressPlotter(

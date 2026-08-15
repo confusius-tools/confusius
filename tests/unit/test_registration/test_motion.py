@@ -164,34 +164,34 @@ class TestExtractMotionParameters:
 class TestComputeFramewiseDisplacement:
     """Tests for compute_framewise_displacement function."""
 
-    def test_identical_transforms_zero_fd(self, sample_3d_dataarray_spatial):
+    def test_identical_transforms_zero_fd(self, sample_fusi_3d_registration):
         """Identical affines produce zero framewise displacement."""
         affines = [np.eye(4), np.eye(4)]
-        fd = compute_framewise_displacement(affines, sample_3d_dataarray_spatial)
+        fd = compute_framewise_displacement(affines, sample_fusi_3d_registration)
 
         assert_allclose(fd["mean_fd"], [0.0, 0.0])
         assert_allclose(fd["max_fd"], [0.0, 0.0])
         assert_allclose(fd["rms_fd"], [0.0, 0.0])
 
-    def test_known_translation_displacement_3d(self, sample_3d_dataarray_spatial):
+    def test_known_translation_displacement_3d(self, sample_fusi_3d_registration):
         """Known 3D translation produces correct FD."""
         t1 = np.eye(4)
         t2 = np.eye(4)
         t2[:3, 3] = [1.0, 2.0, 2.0]
-        fd = compute_framewise_displacement([t1, t2], sample_3d_dataarray_spatial)
+        fd = compute_framewise_displacement([t1, t2], sample_fusi_3d_registration)
 
         assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
         assert_allclose(fd["max_fd"][0], 3.0, atol=1e-6)
 
-    def test_with_mask(self, sample_3d_dataarray_spatial):
+    def test_with_mask(self, sample_fusi_3d_registration):
         """Mask restricts FD computation to masked voxels."""
         t1 = np.eye(4)
         t2 = np.eye(4)
         t2[:3, 3] = [1.0, 2.0, 2.0]
-        mask = np.zeros(sample_3d_dataarray_spatial.shape, dtype=bool)
+        mask = np.zeros(sample_fusi_3d_registration.shape, dtype=bool)
         mask[:, 2:8, 2:8] = True
         fd = compute_framewise_displacement(
-            [t1, t2], sample_3d_dataarray_spatial, mask=mask
+            [t1, t2], sample_fusi_3d_registration, mask=mask
         )
 
         assert_allclose(fd["mean_fd"][0], 3.0, atol=1e-6)
@@ -229,10 +229,10 @@ class TestCreateMotionDataframe:
     """Tests for create_motion_dataframe function."""
 
     def test_singleton_z_dataframe_keeps_all_3d_motion_columns(
-        self, sample_3d_dataarray_spatial
+        self, sample_fusi_3d_registration
     ):
         """A singleton z axis still reports the full 3D motion summary."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "k")
+        ref = _with_singleton_dim(sample_fusi_3d_registration, "k")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
@@ -253,10 +253,10 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
     def test_singleton_x_dataframe_keeps_all_3d_motion_columns(
-        self, sample_3d_dataarray_spatial
+        self, sample_fusi_3d_registration
     ):
         """Any singleton spatial axis still reports the full 3D motion summary."""
-        ref = _with_singleton_dim(sample_3d_dataarray_spatial, "i")
+        ref = _with_singleton_dim(sample_fusi_3d_registration, "i")
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)], ref
         )
@@ -276,12 +276,12 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_y"], 2.0, atol=1e-6)
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
-    def test_3d_dataframe_columns(self, sample_3d_dataarray_spatial):
+    def test_3d_dataframe_columns(self, sample_fusi_3d_registration):
         """3D affines produce DataFrame with correct columns."""
         t1 = np.eye(4)
         t2 = np.eye(4)
         t2[:3, 3] = [1.0, 2.0, 3.0]
-        df = create_motion_dataframe([t1, t2], sample_3d_dataarray_spatial)
+        df = create_motion_dataframe([t1, t2], sample_fusi_3d_registration)
 
         expected_cols = [
             "rot_x",
@@ -297,12 +297,12 @@ class TestCreateMotionDataframe:
         assert list(df.columns) == expected_cols
 
     def test_3d_dataframe_reorders_translations_to_named_axes(
-        self, sample_3d_dataarray_spatial
+        self, sample_fusi_3d_registration
     ):
         """3D translations follow world x/y/z names, not raw voxel axis names."""
         df = create_motion_dataframe(
             [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)],
-            sample_3d_dataarray_spatial,
+            sample_fusi_3d_registration,
         )
 
         assert_allclose(df.iloc[1]["trans_x"], 3.0, atol=1e-6)
@@ -310,13 +310,13 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["trans_z"], 1.0, atol=1e-6)
 
     def test_3d_dataframe_reorders_rotations_to_named_axes(
-        self, sample_3d_dataarray_spatial
+        self, sample_fusi_3d_registration
     ):
         """3D rotations follow world x/y/z names, not raw voxel axis names."""
         angle = 0.1
         df = create_motion_dataframe(
             [np.eye(4), _rotation_affine_3d_first_axis(angle)],
-            sample_3d_dataarray_spatial,
+            sample_fusi_3d_registration,
         )
 
         assert_allclose(df.iloc[1]["rot_x"], 0.0, atol=1e-6)
@@ -324,7 +324,7 @@ class TestCreateMotionDataframe:
         assert_allclose(df.iloc[1]["rot_z"], angle, atol=1e-6)
 
     def test_rejects_unexpected_parameter_count(
-        self, monkeypatch, sample_2d_dataarray_spatial
+        self, monkeypatch, sample_fusi_2d_registration
     ):
         """Unexpected motion-parameter widths are rejected."""
         import pytest
@@ -343,28 +343,28 @@ class TestCreateMotionDataframe:
         )
 
         with pytest.raises(ValueError, match="6 columns"):
-            create_motion_dataframe([np.eye(4)], sample_2d_dataarray_spatial)
+            create_motion_dataframe([np.eye(4)], sample_fusi_2d_registration)
 
-    def test_time_coords_as_index(self, sample_3d_dataarray_spatial):
+    def test_time_coords_as_index(self, sample_fusi_3d_registration):
         """Time coordinates are used as DataFrame index."""
         affines = [np.eye(4), np.eye(4)]
         time_coords = np.array([0.0, 0.5])
         df = create_motion_dataframe(
-            affines, sample_3d_dataarray_spatial, time_coords=time_coords
+            affines, sample_fusi_3d_registration, time_coords=time_coords
         )
 
         assert df.index.name == "time"
         assert_array_equal(df.index, time_coords)
 
-    def test_no_time_coords_uses_frame_index(self, sample_3d_dataarray_spatial):
+    def test_no_time_coords_uses_frame_index(self, sample_fusi_3d_registration):
         """Without time coords, index is named 'frame'."""
-        df = create_motion_dataframe([np.eye(4)], sample_3d_dataarray_spatial)
+        df = create_motion_dataframe([np.eye(4)], sample_fusi_3d_registration)
         assert df.index.name == "frame"
 
-    def test_motion_values_correct(self, sample_3d_dataarray_spatial):
+    def test_motion_values_correct(self, sample_fusi_3d_registration):
         """Motion parameter values are correctly populated."""
         affines = [np.eye(4), _translation_affine_3d(1.0, 2.0, 3.0)]
-        df = create_motion_dataframe(affines, sample_3d_dataarray_spatial)
+        df = create_motion_dataframe(affines, sample_fusi_3d_registration)
 
         assert_allclose(df.iloc[0]["rot_x"], 0.0, atol=1e-6)
         assert_allclose(df.iloc[0]["trans_x"], 0.0, atol=1e-6)
