@@ -1736,52 +1736,22 @@ def _prepare_data_for_nifti(
 def _get_spatial_spacings(data_array: xr.DataArray) -> list[float]:
     """Return signed spatial spacings for NIfTI header serialization.
 
+    `data_array` is always canonical VoxelData here: `save_nifti` (the only caller)
+    calls `ensure_fusi` before reaching this point, so spacing always comes from the
+    `VoxelToWorldIndex` -- there is no plain-coordinate fallback to consider.
+
     Parameters
     ----------
     data_array : xarray.DataArray
-        Array being serialized.
+        Array being serialized. Must be VoxelData.
 
     Returns
     -------
     list[float]
         Signed spatial spacings for the NIfTI `x`, `y`, and `z` axes.
-
-    Warns
-    -----
-    UserWarning
-        If spatial spacing is non-uniform or undefined and a best-effort fallback is
-        needed for the NIfTI header.
     """
-    spatial_spacings: list[float] = []
-    if has_voxel_to_world_index(data_array):
-        voxel_spacings = get_voxel_to_world_index_spacing(data_array)
-        return [float(voxel_spacings.get(dim) or 1.0) for dim in reversed(VOXEL_DIMS)]
-
-    for dim in ("x", "y", "z"):
-        spacing = get_coordinate_spacing_info(
-            dim, data_array, uniformity_tolerance=1e-2
-        )
-        if spacing.value is not None:
-            spatial_spacings.append(float(spacing.value))
-        elif spacing.median is not None:
-            spatial_spacings.append(float(spacing.median))
-            warnings.warn(
-                f"Coordinate '{dim}' has non-uniform spacing. NIfTI stores one "
-                f"constant spacing per axis, so using the median step "
-                f"{spacing.median:.4g} for the header and affine; positions "
-                "along this axis may be approximate.",
-                stacklevel=find_stack_level(),
-            )
-        else:
-            spatial_spacings.append(1.0)
-            if spacing.warn_msg is not None:
-                warnings.warn(
-                    f"{spacing.warn_msg} Falling back to unit spacing for NIfTI "
-                    f"axis '{dim}'.",
-                    stacklevel=find_stack_level(),
-                )
-
-    return spatial_spacings
+    voxel_spacings = get_voxel_to_world_index_spacing(data_array)
+    return [float(voxel_spacings.get(dim) or 1.0) for dim in reversed(VOXEL_DIMS)]
 
 
 def _build_nifti_timing_metadata(

@@ -86,10 +86,17 @@ def get_napari_scale_translate_units(
     voxel-to-world data onto an axis-aligned world grid, keeping the index (napari's
     `scale`/`translate` model can't represent oblique geometry, but an axis-aligned
     grid needs no renaming to be representable); already axis-aligned input is
-    returned unchanged, index and all. Both indexed and plain-coordinate input are
-    legitimate here, so spacing/origin are read via the plain-coordinate helpers with
-    a voxel-to-world-aware override, not via `.fusi.spacing`/`.fusi.origin` (which now
-    require an index unconditionally).
+    returned unchanged, index and all -- including *no* index, since
+    `resample_to_axis_aligned_world_grid` also passes through unindexed input
+    untouched. That case is genuinely reachable: `convert_dataarray_to_layer_data`
+    (one of this function's two real callers) is invoked from file readers, which can
+    hand back non-canonical data for foreign files (e.g. a Zarr store written outside
+    ConfUSIus, with plain `x`/`y`/`z` dims and no index). `plot_napari`, the other
+    caller, does separately require an index before reaching this point, but this
+    function must still support both, since it serves both callers. Both indexed and
+    plain-coordinate input are legitimate here, so spacing/origin are read via the
+    plain-coordinate helpers with a voxel-to-world-aware override, not via
+    `.fusi.spacing`/`.fusi.origin` (which require an index unconditionally).
 
     Parameters
     ----------

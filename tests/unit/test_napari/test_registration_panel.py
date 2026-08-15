@@ -483,6 +483,42 @@ class TestRunRegistration:
         # Fixed fixture coords carry no units attr: napari defaults to pixel.
         assert tuple(str(u) for u in fixed_mask.units) == ("pixel",) * 3
 
+    def test_mask_buttons_use_affine_spacing_and_origin_for_oblique_reference(
+        self, viewer, registration_panel
+    ):
+        """Mask scale/translate come from the affine, not raw coordinate diffs.
+
+        Regression test: with an oblique (non-axis-aligned) voxel-to-world index,
+        per-dimension coordinate differences give the wrong spacing/origin -- only
+        the affine itself (via `.fusi.spacing`/`.fusi.origin`) is correct.
+        """
+        # Swap k/j in the direction matrix: still a valid affine, but off-diagonal,
+        # so `_is_axis_aligned_affine` treats it as oblique.
+        direction = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+        moving = create_fusi_dataarray(
+            np.zeros((4, 6, 8), dtype=np.float32),
+            dims=("k", "j", "i"),
+            spacing=(0.3, 0.2, 0.1),
+            origin=(1.0, 2.0, 3.0),
+            direction=direction,
+        )
+        viewer.add_image(moving.values, name="moving", metadata={"xarray": moving})
+        registration_panel._moving_combo.setCurrentText("moving")
+
+        registration_panel._new_moving_mask_btn.click()
+
+        moving_mask = viewer.layers["Moving mask"]
+        expected_spacing = moving.fusi.spacing
+        expected_origin = moving.fusi.origin
+        world_dim = {"k": "z", "j": "y", "i": "x"}
+        np.testing.assert_allclose(
+            moving_mask.scale, [expected_spacing[d] for d in ("k", "j", "i")]
+        )
+        np.testing.assert_allclose(
+            moving_mask.translate,
+            [expected_origin[world_dim[d]] for d in ("k", "j", "i")],
+        )
+
     def test_mask_buttons_require_selected_reference_layer(
         self, viewer, registration_panel
     ):
