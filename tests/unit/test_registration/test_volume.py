@@ -10,7 +10,6 @@ from numpy.testing import assert_allclose, assert_array_equal
 from confusius._dims import SPATIAL_DIMS, VOXEL_DIMS
 from confusius._utils.coordinates import get_grid_info_from_dataarray
 from confusius._utils.geometry import (
-    attach_voxel_to_world_index,
     get_affine_orientation_matrix,
     get_voxel_to_world_affine,
 )
@@ -32,49 +31,13 @@ from confusius.xarray import create_fusi_dataarray
 
 
 def _make_voxel_to_world_2d() -> xr.DataArray:
-    """Create a small 2D voxel-to-world test image."""
+    """Create a small singleton-k voxel-to-world test image."""
     yy, xx = np.mgrid[-1.0:1.0:32j, -1.0:1.0:40j]
     values = np.exp(-((xx - 0.2) ** 2 + (yy + 0.1) ** 2) / 0.15).astype(np.float32)
-    base = xr.DataArray(
-        values,
-        dims=("j", "i"),
-        coords={
-            "j": np.arange(values.shape[0], dtype=np.float64),
-            "i": np.arange(values.shape[1], dtype=np.float64),
-        },
-    )
-    return attach_voxel_to_world_index(
-        base,
-        np.array(
-            [
-                [0.2, 0.05, 10.0],
-                [0.08, 0.18, 20.0],
-                [0.0, 0.0, 1.0],
-            ]
-        ),
-        world_coord_attrs={
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
-    )
-
-
-def _make_voxel_to_world_3d() -> xr.DataArray:
-    """Create a small singleton-k voxel-to-world test image with an oblique j/i plane."""
-    yy, xx = np.mgrid[-1.0:1.0:32j, -1.0:1.0:40j]
-    values = np.exp(-((xx - 0.2) ** 2 + (yy + 0.1) ** 2) / 0.15).astype(np.float32)
-    base = xr.DataArray(
+    return create_fusi_dataarray(
         values[np.newaxis],
         dims=("k", "j", "i"),
-        coords={
-            "k": np.arange(1, dtype=np.float64),
-            "j": np.arange(values.shape[0], dtype=np.float64),
-            "i": np.arange(values.shape[1], dtype=np.float64),
-        },
-    )
-    return attach_voxel_to_world_index(
-        base,
-        np.array(
+        voxel_to_world=np.array(
             [
                 [1.0, 0.0, 0.0, 0.0],
                 [0.0, 0.2, 0.05, 10.0],
@@ -82,12 +45,12 @@ def _make_voxel_to_world_3d() -> xr.DataArray:
                 [0.0, 0.0, 0.0, 1.0],
             ]
         ),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
     )
+
+
+def _make_voxel_to_world_3d() -> xr.DataArray:
+    """Create a small singleton-k voxel-to-world test image with an oblique j/i plane."""
+    return _make_voxel_to_world_2d()
 
 
 def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
@@ -105,30 +68,41 @@ def _resample_volume_grid_kwargs(data: xr.DataArray) -> dict:
 
 
 def _add_identity_voxel_to_world(data: xr.DataArray) -> xr.DataArray:
-    """Attach identity voxel-to-world geometry to a test array."""
-    voxel_dims = tuple(str(dim) for dim in data.dims if str(dim) in {"k", "j", "i"})
-    world_names = ("y", "x") if len(voxel_dims) == 2 else ("z", "y", "x")
-    return attach_voxel_to_world_index(
-        data,
-        np.eye(len(voxel_dims) + 1),
-        world_coord_attrs={name: {"units": "mm"} for name in world_names},
+    """Attach axis-aligned voxel-to-world geometry to a test array."""
+    extra_coords = {
+        str(dim): data.coords[dim]
+        for dim in data.dims
+        if dim not in {*VOXEL_DIMS, "time", "pose"} and dim in data.coords
+    }
+    spacing = []
+    origin = []
+    for dim in VOXEL_DIMS:
+        if dim not in data.coords:
+            spacing.append(1.0)
+            origin.append(0.0)
+            continue
+        values = np.asarray(data.coords[dim].values, dtype=np.float64)
+        origin.append(float(values[0]))
+        spacing.append(float(values[1] - values[0]) if values.size > 1 else 1.0)
+    return create_fusi_dataarray(
+        data.values,
+        dims=tuple(str(dim) for dim in data.dims),
+        time=data.coords.get("time"),
+        pose=data.coords.get("pose"),
+        extra_coords=extra_coords,
+        spacing=spacing,
+        origin=origin,
+        attrs=data.attrs.copy(),
+        name=str(data.name) if data.name is not None else None,
     )
 
 
 def _make_voxel_to_world_3d_slab() -> xr.DataArray:
     """Create a small 3D voxel-to-world slab with a singleton slice dimension."""
-    base = xr.DataArray(
+    return create_fusi_dataarray(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
-        coords={
-            "k": [0.0],
-            "j": np.arange(5, dtype=np.float64),
-            "i": np.arange(6, dtype=np.float64),
-        },
-    )
-    return attach_voxel_to_world_index(
-        base,
-        np.array(
+        voxel_to_world=np.array(
             [
                 [0.4, 0.0, 0.0, 10.0],
                 [0.0, 2.0, 0.0, 20.0],
@@ -137,28 +111,15 @@ def _make_voxel_to_world_3d_slab() -> xr.DataArray:
             ],
             dtype=np.float64,
         ),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
     )
 
 
 def _make_voxel_to_world_3d_slab_flipped_normal() -> xr.DataArray:
     """Voxel-to-world slab like `_make_voxel_to_world_3d_slab` with the k-axis normal flipped."""
-    base = xr.DataArray(
+    return create_fusi_dataarray(
         np.zeros((1, 5, 6), dtype=np.float32),
         dims=("k", "j", "i"),
-        coords={
-            "k": [0.0],
-            "j": np.arange(5, dtype=np.float64),
-            "i": np.arange(6, dtype=np.float64),
-        },
-    )
-    return attach_voxel_to_world_index(
-        base,
-        np.array(
+        voxel_to_world=np.array(
             [
                 [-0.4, 0.0, 0.0, 10.0],
                 [0.0, 2.0, 0.0, 20.0],
@@ -167,11 +128,6 @@ def _make_voxel_to_world_3d_slab_flipped_normal() -> xr.DataArray:
             ],
             dtype=np.float64,
         ),
-        world_coord_attrs={
-            "z": {"units": "mm"},
-            "y": {"units": "mm"},
-            "x": {"units": "mm"},
-        },
     )
 
 
@@ -372,10 +328,13 @@ class TestSimpleITKGeometry:
 
         image = dataarray_to_sitk_image(data)
 
-        assert_allclose(image.GetOrigin(), (10.0, 20.0))
-        assert_allclose(image.GetSpacing(), (np.hypot(0.2, 0.08), np.hypot(0.05, 0.18)))
+        assert_allclose(image.GetOrigin(), (0.0, 10.0, 20.0))
         assert_allclose(
-            np.array(image.GetDirection()).reshape(2, 2),
+            image.GetSpacing(),
+            (1.0, np.hypot(0.2, 0.08), np.hypot(0.05, 0.18)),
+        )
+        assert_allclose(
+            np.array(image.GetDirection()).reshape(3, 3),
             data.fusi.direction,
         )
 
@@ -397,24 +356,16 @@ class TestSimpleITKGeometry:
             },
         )
 
-        with pytest.raises(ValueError, match="VoxelToWorldIndex"):
+        with pytest.raises(ValueError, match=r"fusi\.affine\.set_voxel_to_world"):
             dataarray_to_sitk_image(da)
 
     def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
         """An irregular voxel-to-world coordinate raises a `voxdim`-repair error."""
-        base = xr.DataArray(
-            np.zeros((4, 5)),
-            dims=("j", "i"),
-            coords={
-                "j": np.array([0.0, 1.0, 3.0, 6.0]),
-                "i": np.arange(5, dtype=np.float64),
-            },
-        )
-        da = attach_voxel_to_world_index(
-            base,
-            np.eye(3),
-            world_coord_attrs={"y": {"units": "mm"}, "x": {"units": "mm"}},
-        )
+        da = create_fusi_dataarray(
+            np.zeros((1, 4, 5)),
+            dims=("k", "j", "i"),
+            voxel_to_world=np.eye(4),
+        ).assign_coords(j=np.array([0.0, 1.0, 3.0, 6.0]))
         with pytest.raises(ValueError, match="voxdim"):
             get_defined_spatial_spacing(da)
 
@@ -1065,13 +1016,18 @@ class TestInitialization:
                 "x": np.arange(6, dtype=np.float64),
             },
         )
-        with pytest.raises(ValueError, match="requires a voxel-to-world index"):
+        with pytest.raises(ValueError, match="Unexpected dimensions"):
             build_voxel_to_world_plane_initial_transform(da, da)
 
-    def test_plane_initializer_requires_3d_voxel_to_world(self):
-        """Non-3D voxel-to-world inputs are rejected."""
-        da = _make_voxel_to_world_2d()
-        with pytest.raises(ValueError, match="matching 3D voxel-to-world"):
+    def test_plane_initializer_rejects_extra_dims(self):
+        """Plane initialization only accepts spatial-only canonical DataArrays."""
+        da = create_fusi_dataarray(
+            np.zeros((2, 1, 5, 6), dtype=np.float32),
+            dims=("component", "k", "j", "i"),
+            extra_coords={"component": ["a", "b"]},
+            voxel_to_world=np.eye(4),
+        )
+        with pytest.raises(ValueError, match="Unexpected dimensions"):
             build_voxel_to_world_plane_initial_transform(da, da)
 
     def test_linear_initial_transform_is_not_shifted_by_geometry_centering(self):
@@ -1516,7 +1472,7 @@ class TestDisplacementField:
             attrs={"type": "displacement_field_transform"},
         )
 
-        with pytest.raises(ValueError, match="voxel-to-world index"):
+        with pytest.raises(ValueError, match="native voxel dimensions"):
             invert_displacement_field(field)
 
     def test_invert_displacement_field_undoes_translation(self):

@@ -7,9 +7,9 @@ import pytest
 import xarray as xr
 from numpy.testing import assert_allclose
 
-from confusius._utils.geometry import attach_voxel_to_world_index
 from confusius.registration.diagnostics import RegistrationDiagnostics
 from confusius.registration.volumewise import register_volumewise
+from confusius.xarray import create_fusi_dataarray
 
 
 class _FakeVolumewiseProgressReporter:
@@ -245,28 +245,13 @@ class TestRegisterVolumewise:
         # Shift frame 1 by rolling (simulates translation).
         frames[1] = np.roll(np.roll(frames[1], shift_y, axis=1), shift_x, axis=2)
 
-        data = xr.DataArray(
+        data = create_fusi_dataarray(
             np.stack(frames, axis=0),
             dims=("time", "k", "j", "i"),
-            coords={
-                "time": xr.DataArray(
-                    np.arange(n_frames) * 0.1,
-                    dims=["time"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "start",
-                        "volume_acquisition_duration": 0.1,
-                    },
-                ),
-                "k": [0],
-                "j": np.arange(32),
-                "i": np.arange(32),
-            },
-        )
-        data = attach_voxel_to_world_index(
-            data,
-            np.diag([1.0, 1.0, 1.0, 1.0]),
-            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
+            time=np.arange(n_frames) * 0.1,
+            spacing=(1.0, 1.0, 1.0),
+            origin=(0.0, 0.0, 0.0),
+            volume_acquisition_duration=0.1,
         )
 
         result = register_volumewise(
@@ -332,28 +317,13 @@ class TestRegisterVolumewise:
     def test_singleton_dimension_handling(self, sample_2d_image):
         """Singleton spatial dimensions are handled correctly."""
         # Create data with a singleton k dimension (2D slice in 3D array).
-        data = xr.DataArray(
+        data = create_fusi_dataarray(
             sample_2d_image[np.newaxis, :, :, :].repeat(3, axis=0),
             dims=("time", "k", "j", "i"),
-            coords={
-                "time": xr.DataArray(
-                    np.arange(3) * 0.1,
-                    dims=["time"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "start",
-                        "volume_acquisition_duration": 0.1,
-                    },
-                ),
-                "k": [0],
-                "j": np.arange(32),
-                "i": np.arange(32),
-            },
-        )
-        data = attach_voxel_to_world_index(
-            data,
-            np.diag([0.2, 0.1, 0.1, 1.0]),
-            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
+            time=np.arange(3) * 0.1,
+            spacing=(0.2, 0.1, 0.1),
+            origin=(0.0, 0.0, 0.0),
+            volume_acquisition_duration=0.1,
         )
 
         result = register_volumewise(data, n_jobs=1)
@@ -368,29 +338,14 @@ class TestRegisterVolumewise:
     def test_output_dimension_order_matches_input(self, sample_2d_image):
         """Output dimension order matches input regardless of internal transposition."""
         # Create data with non-standard dimension order.
-        data = xr.DataArray(
-            np.stack([sample_2d_image] * 3, axis=3),
-            dims=("k", "j", "i", "time"),
-            coords={
-                "k": [0],
-                "j": np.arange(32),
-                "i": np.arange(32),
-                "time": xr.DataArray(
-                    np.arange(3) * 0.1,
-                    dims=["time"],
-                    attrs={
-                        "units": "s",
-                        "volume_acquisition_reference": "start",
-                        "volume_acquisition_duration": 0.1,
-                    },
-                ),
-            },
-        )
-        data = attach_voxel_to_world_index(
-            data,
-            np.diag([0.2, 0.1, 0.1, 1.0]),
-            world_coord_attrs={name: {"units": "mm"} for name in ("z", "y", "x")},
-        )
+        data = create_fusi_dataarray(
+            np.stack([sample_2d_image] * 3, axis=0),
+            dims=("time", "k", "j", "i"),
+            time=np.arange(3) * 0.1,
+            spacing=(0.2, 0.1, 0.1),
+            origin=(0.0, 0.0, 0.0),
+            volume_acquisition_duration=0.1,
+        ).transpose("k", "j", "i", "time")
 
         result = register_volumewise(data, n_jobs=1)
 

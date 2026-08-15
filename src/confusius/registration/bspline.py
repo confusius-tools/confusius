@@ -58,7 +58,6 @@ from confusius._dims import VOXEL_DIMS
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
-    has_voxel_to_world_index,
 )
 from confusius.registration._utils import (
     expand_thin_dims,
@@ -68,6 +67,8 @@ from confusius.registration._utils import (
 from confusius.registration.affines import affine_to_sitk_linear_transform
 from confusius.validation import (
     ensure_fusi,
+    validate_bspline,
+    validate_displacement_field,
     validate_matching_spatial_units,
 )
 from confusius.xarray.create import create_fusi_dataarray
@@ -276,42 +277,6 @@ def _extract_bspline(transform: "sitk.Transform") -> "sitk.BSplineTransform":
     )
 
 
-def validate_bspline(da: xr.DataArray) -> None:
-    """Raise ValueError if `da` does not look like a valid B-spline transform DataArray.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        DataArray to validate.
-
-    Raises
-    ------
-    ValueError
-        If `da.attrs["transform_type"] != "bspline_transform"`, required attrs are
-        missing, or `da` has no voxel-to-world index.
-    """
-    transform_type = da.attrs.get("transform_type", da.attrs.get("type"))
-    if transform_type != "bspline_transform":
-        raise ValueError(
-            "Expected a DataArray with attrs['transform_type'] == "
-            "'bspline_transform'; "
-            f"got {transform_type!r}."
-        )
-    if "order" not in da.attrs:
-        raise ValueError(
-            "B-spline transform DataArray is missing required attribute 'order'."
-        )
-    if da.dims[0] != "component":
-        raise ValueError(
-            f"B-spline transform DataArray must have 'component' as its first "
-            f"dimension; got {da.dims[0]!r}."
-        )
-    if not has_voxel_to_world_index(da):
-        raise ValueError(
-            "B-spline transform DataArray must have a voxel-to-world index."
-        )
-
-
 def sample_displacement_field(
     transform: xr.DataArray,
     *,
@@ -361,6 +326,12 @@ def sample_displacement_field(
     """
     import SimpleITK as sitk
 
+    if direction is not None:
+        direction_array = np.asarray(direction, dtype=np.float64)
+        if direction_array.shape != (len(dims), len(dims)):
+            raise ValueError(
+                f"direction must have shape {(len(dims), len(dims))}, got {direction_array.shape}."
+            )
     tx = _dataarray_to_sitk_bspline(transform)
 
     ref = sitk.Image(list(shape), sitk.sitkFloat32)
@@ -369,11 +340,6 @@ def sample_displacement_field(
     if direction is None:
         ref.SetDirection(np.eye(len(dims), dtype=np.float64).flatten().tolist())
     else:
-        direction_array = np.asarray(direction, dtype=np.float64)
-        if direction_array.shape != (len(dims), len(dims)):
-            raise ValueError(
-                f"direction must have shape {(len(dims), len(dims))}, got {direction_array.shape}."
-            )
         ref.SetDirection(direction_array.flatten().tolist())
 
     field_filter = sitk.TransformToDisplacementFieldFilter()
@@ -644,7 +610,7 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     """
     import SimpleITK as sitk
 
-    _validate_displacement_field_dataarray(da)
+    validate_displacement_field(da)
 
     field_grid = da.isel(component=0, drop=True)
     spatial_dims, spacing = get_defined_spatial_spacing(field_grid)
@@ -658,33 +624,3 @@ def _dataarray_to_sitk_displacement_field(da: xr.DataArray) -> "sitk.Image":
     field.SetOrigin(origin)
     field.SetDirection(direction.flatten().tolist())
     return field
-
-
-def _validate_displacement_field_dataarray(da: xr.DataArray) -> None:
-    """Raise ValueError if `da` does not look like a valid displacement field DataArray.
-
-    Parameters
-    ----------
-    da : xarray.DataArray
-        DataArray to validate.
-
-    Raises
-    ------
-    ValueError
-        If `da.attrs["type"] != "displacement_field_transform"`, `da` does not have
-        `"component"` as its first dimension, or `da` has no voxel-to-world index.
-    """
-    if da.attrs.get("type") != "displacement_field_transform":
-        raise ValueError(
-            "Expected a DataArray with attrs['type'] == 'displacement_field_transform'; "
-            f"got {da.attrs.get('type')!r}."
-        )
-    if da.dims[0] != "component":
-        raise ValueError(
-            f"Displacement field DataArray must have 'component' as its first "
-            f"dimension; got {da.dims[0]!r}."
-        )
-    if not has_voxel_to_world_index(da):
-        raise ValueError(
-            "Displacement field DataArray must have a voxel-to-world index."
-        )

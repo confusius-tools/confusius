@@ -12,12 +12,11 @@ from typing import TYPE_CHECKING, TypeGuard
 import numpy as np
 import xarray as xr
 
-from confusius._utils.coordinates import get_coordinate_spacing_info
 from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_spatial_dims,
-    has_voxel_to_world_index,
 )
+from confusius.validation import ensure_fusi
 
 if TYPE_CHECKING:
     from threading import Event
@@ -66,27 +65,18 @@ def get_defined_spatial_spacing(da: xr.DataArray) -> tuple[list[str], list[float
     ValueError
         If any spatial spacing is undefined.
     """
+    da = ensure_fusi(
+        da,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
     spatial_dims = [str(dim) for dim in da.dims if str(dim) != "time"]
-
-    if has_voxel_to_world_index(da):
-        spacing_dict = da.fusi.spacing
-        undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
-        if undefined_dims:
-            _raise_undefined_spatial_spacing_error(undefined_dims)
-        return spatial_dims, [float(spacing_dict[dim]) for dim in spatial_dims]
-
-    spacing: list[float] = []
-    undefined_dims: list[str] = []
-    for dim in spatial_dims:
-        spacing_info = get_coordinate_spacing_info(dim, da, uniformity_tolerance=1e-2)
-        if spacing_info.value is None:
-            undefined_dims.append(dim)
-        else:
-            spacing.append(float(spacing_info.value))
+    spacing_dict = da.fusi.spacing
+    undefined_dims = [dim for dim in spatial_dims if spacing_dict.get(dim) is None]
     if undefined_dims:
         _raise_undefined_spatial_spacing_error(undefined_dims)
-
-    return spatial_dims, spacing
+    return spatial_dims, [float(spacing_dict[dim]) for dim in spatial_dims]
 
 
 def _rotation_matrix_aligning_vectors(
@@ -197,11 +187,18 @@ def build_voxel_to_world_plane_initial_transform(
         If either input is not a 3D voxel-to-world slab with exactly one singleton
         spatial dimension.
     """
-    if not has_voxel_to_world_index(fixed) or not has_voxel_to_world_index(moving):
-        raise ValueError(
-            "Voxel-to-world plane initialization requires a voxel-to-world index on "
-            "both fixed and moving data."
-        )
+    fixed = ensure_fusi(
+        fixed,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
+    moving = ensure_fusi(
+        moving,
+        require_time=False,
+        allow_pose=False,
+        allow_extra_dims=False,
+    )
 
     fixed_dims = get_voxel_to_world_spatial_dims(fixed)
     moving_dims = get_voxel_to_world_spatial_dims(moving)
@@ -360,10 +357,9 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Parameters
     ----------
     da : xarray.DataArray
-        2D or 3D spatial DataArray, or 2D+t or 3D+t DataArray with a time dimension.
-        Must carry a `VoxelToWorldIndex` (see
-        `confusius._utils.geometry.has_voxel_to_world_index`); spacing, origin, and
-        direction are derived from it.
+        Spatial DataArray, or a spatial DataArray with a time dimension. It is
+        canonicalized with [ensure_fusi][confusius.validation.ensure_fusi]; spacing,
+        origin, and direction are derived from its voxel-to-world index.
 
     Returns
     -------
@@ -375,18 +371,24 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Raises
     ------
     ValueError
-        If `da` does not carry a `VoxelToWorldIndex`.
+        If `da` is not a canonical ConfUSIus fUSI DataArray.
     """
     import SimpleITK as sitk
 
-    if not has_voxel_to_world_index(da):
-        raise ValueError(
-            "Cannot convert DataArray to a SimpleITK image because it does not carry "
-            "a VoxelToWorldIndex. Attach one with "
-            "confusius._utils.geometry.attach_voxel_to_world_index (or route the "
-            "array through confusius.validation.ensure_fusi) before calling "
-            "dataarray_to_sitk_image."
+    try:
+        da = ensure_fusi(
+            da,
+            require_time=False,
+            allow_pose=False,
+            allow_extra_dims=False,
         )
+    except ValueError as exc:
+        raise ValueError(
+            "Cannot convert DataArray to a SimpleITK image because it is not a "
+            "canonical ConfUSIus fUSI DataArray. Attach voxel-to-world geometry with "
+            "da.fusi.affine.set_voxel_to_world(...) before calling "
+            "dataarray_to_sitk_image."
+        ) from exc
 
     has_time = "time" in da.dims
     _, spacing = get_defined_spatial_spacing(da)

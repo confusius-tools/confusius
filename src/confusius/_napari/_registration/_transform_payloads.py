@@ -28,7 +28,7 @@ from confusius._utils.geometry import (
 )
 from confusius.io import load as load_dataarray
 from confusius.io import save as save_dataarray
-from confusius.registration.bspline import validate_bspline
+from confusius.validation import validate_bspline
 from confusius.xarray import create_fusi_dataarray
 
 if TYPE_CHECKING:
