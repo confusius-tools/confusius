@@ -6,13 +6,14 @@ icon: lucide/brackets
 
 ## Why Xarray?
 
-A typical fUSI recording is a 4D array indexed by time and native voxel dimensions (`k`,
-`j`, `i`). The corresponding world coordinates are (`z`, `y`, `x`). Storing this as a
-plain NumPy array means losing all of that structure: axes become anonymous integers,
-world coordinates must be tracked separately, and keeping them in sync with the data
-after slicing or averaging is error-prone. A custom wrapper class would address the
-labeling and coordinate tracking, but at the cost of needing a complex reimplementation
-of many array operations and losing access to the broader scientific Python ecosystem.
+A typical fUSI recording is a 4D array indexed by time and native voxel dimensions (`i`,
+`j`, `k`). World coordinates corresponding to the voxel dimensions are (`x`, `y`, `z`).
+Storing this as a plain NumPy array means losing all of that structure: axes become
+anonymous integers, world coordinates must be tracked separately, and keeping them in
+sync with the data after slicing or averaging is error-prone. A custom wrapper class
+would address the labeling and coordinate tracking, but at the cost of needing a complex
+reimplementation of many array operations and losing access to the broader scientific
+Python ecosystem.
 
 [Xarray](https://xarray.dev/) solves this by wrapping arrays with named dimensions and
 world coordinates, while [maintaining compatibility](https://xarray.dev/#ecosystem)
@@ -30,99 +31,132 @@ Coordinates also carry metadata through transformations, so voxel sizes, timesta
 acquisition parameters travel with the data rather than being stored separately.
 
 ```python
-# Select a depth range by world coordinate (mm), not by index.
-shallow = pwd.sel(y=slice(0, 2.5))
+# Select a depth range by world coordinate.
+shallow = pwd.sel(z=slice(1, 2.5))
 
 # Coordinates are updated automatically, no manual bookkeeping needed.
-shallow.coords["y"]  # [0.0, 0.1, ..., 2.5] mm
+shallow.y
 ```
 
-ConfUSIus builds on this by storing all fUSI recordings as DataArray objects, and by
-extending the Xarray API with fUSI-specific operations through a custom accessor.
+ConfUSIus leverages Xarray to provide a robust data model for fUSI recordings while
+staying interoperable with other scientific Python libraries. Thus, ConfUSIus can add
+fUSI-specific conventions and functionality without trapping the data in a
+ConfUSIus-specific object.
 
-## Datasets and DataArrays
+## DataArrays and Datasets
 
-Xarray has two core data structures: Dataset and DataArray.
+Xarray has two core data structures: **DataArrays** and **Datasets**.
 
-A **[Dataset][xarray.Dataset]** is a dictionary-like container of multiple named arrays that share
-the same coordinate system. When you open a Zarr archive, you get a Dataset:
+A **[DataArray][xarray.DataArray]** is a single array with its own dimensions,
+coordinates, and attributes. You get a DataArray whenever you load a single fUSI
+recording, for example a power Doppler NIfTI file from the [Nunez-Elizalde 2022
+dataset][confusius.datasets.fetch_nunez_elizalde_2022] via
+[`confusius.load`][confusius.load]:
 
 ```pycon
->>> import xarray as xr
->>> import confusius
+>>> import confusius as cf
 >>>
->>> ds = xr.open_zarr("power_doppler.zarr")
->>> ds
-<xarray.Dataset> Size: 76MB
-Dimensions:        (time: 860, k: 1, j: 128, i: 86)
-Coordinates:
-  * time           (time) float64 7kB 0.299 0.899 1.499 ... 514.5 515.1 515.7
-  * k              (k) float64 8B 0.0
-  * j              (j) float64 1kB 0.0 1.0 2.0 3.0 ... 124.0 125.0 126.0 127.0
-  * i              (i) float64 688B 0.0 1.0 2.0 3.0 ... 82.0 83.0 84.0 85.0
-  * z              (k, j, i) float64 ... 0.0 0.0 0.0 ...
-  * y              (k, j, i) float64 ... 5.664 5.713 5.762 ...
-  * x              (k, j, i) float64 ... -3.583 -3.492 -3.402 ...
-Data variables:
-    power_doppler  (time, k, j, i) float64 76MB dask.array<chunksize=(215, 1, 32, 22), meta=np.ndarray>
-```
-
-A **[DataArray][xarray.DataArray]** is a single variable from that collection—one array with its own
-dimensions, coordinates, and attributes. You would get a DataArray if you opened a
-NIfTI file through [`confusius.load`][confusius.load], or if you extract a variable from
-a Dataset:
-
-```pycon
->>> pwd = ds["power_doppler"]
+>>> pwd = cf.load("sub-CR022_ses-20201011_task-spontaneous_acq-slice03_pwd.nii.gz")
 >>> pwd
-<xarray.DataArray 'power_doppler' (time: 860, k: 1, j: 128, i: 86)> Size: 76MB
-dask.array<open_dataset-power_doppler, shape=(860, 1, 128, 86), dtype=float64, chunksize=(215, 1, 32, 22), chunktype=numpy.ndarray>
+<xarray.DataArray 'sub-CR022_ses-20201011_task-spontaneous_acq-slice03_pwd'
+    (time: 751, k: 1, j: 114, i: 80)> Size: 27MB
+dask.array<transpose, shape=(751, 1, 114, 80), dtype=float32, chunksize=(751, 1, 114, 80)>
 Coordinates:
-  * time     (time) float64 7kB 0.299 0.899 1.499 2.099 ... 514.5 515.1 515.7
+  * time     (time) float64 6kB 10.61 10.91 11.21 ... 235.1 235.4 235.7
   * k        (k) float64 8B 0.0
-  * j        (j) float64 1kB 0.0 1.0 2.0 3.0 ... 124.0 125.0 126.0 127.0
-  * i        (i) float64 688B 0.0 1.0 2.0 3.0 ... 82.0 83.0 84.0 85.0
-  * z        (k, j, i) float64 ... 0.0 0.0 0.0 ...
-  * y        (k, j, i) float64 ... 5.664 5.713 5.762 ...
-  * x        (k, j, i) float64 ... -3.583 -3.492 -3.402 ...
+  * j        (j) float64 912B 0.0 1.0 2.0 ... 112.0 113.0
+  * i        (i) float64 640B 0.0 1.0 2.0 ... 78.0 79.0
+  * z        (k, j, i) float64 73kB 1.0 1.0 1.0 ... 1.0 1.0
+  * y        (k, j, i) float64 73kB 2.73 2.73 2.73 ... 8.19 8.19
+  * x        (k, j, i) float64 73kB -3.95 -3.85 -3.75 ... 3.85 3.95
 Indexes:
   ┌ z        VoxelToWorldIndex
   │ y
   └ x
-Attributes: (11/16)
-    transmit_frequency:             15625000.0
-    probe_number_of_elements:       128
-    probe_pitch:                    8.999999999999999e-05
-    beamforming_sound_velocity:     1520.0
-    plane_wave_angles:              [-10.0, -9.310344696044922, -8.620689392089...
-    ...                             ...
-    clutter_filter_method:          svd_indices
-    clutter_window_width:           300
-    clutter_window_stride:          300
-    doppler_window_width:           300
-    doppler_window_stride:          300
-    clutter_low_cutoff:             40
+Attributes: (12/24)
+    qform_code:                1
+    manufacturer:              Verasonics
+    manufacturers_model_name:  Vantage 128
+    software_version:          Alan Urban Technology & Consulting (AUTC)
+    probe_manufacturer:        Vermon
+    probe_type:                linear
+    ...                        ...
+    task_description:          Spontaneous activity without explicit visual stimulation.
+    depth:                     [0.0, 5.46016]
+    transmit_frequency:        15625000.0
+    compound_sampling_frequency: 500.0
+    plane_wave_angles:         [-10.0, -7.9, -5.8, -3.7, -1.6, 0.5, 2.6, 4.7, 6.8, 8.9]
+    probe_voltage:             25.0
 ```
 
 Reading the output from top to bottom, a DataArray has four components:
 
 - **Dimensions** `(time, k, j, i)`: native voxel axes in the order they appear in the
-  underlying array. `time` is the temporal axis; `k`, `j`, and `i` index elevation,
-  depth (axial), and lateral voxels respectively.
-- **Data**: the underlying array. For Zarr-backed data this is a Dask array, meaning
-  values are not loaded into memory until you explicitly request them (e.g., by
-  calling `.compute()` or accessing `.values`).
+  underlying array. `time` is the temporal axis; `i`, `j`, and `k` index the voxel grid.
+
+    !!! question "Why `(time, k, j, i)` instead of `(i, j, k, time)`?"
+        Neuroimaging formats such as NIfTI conventionally order axes `(x, y, z, time,
+        ...)`, with the first axis varying fastest in storage. NumPy uses the opposite
+        convention: its default memory layout has the last axis varying fastest.
+        ConfUSIus therefore uses `(..., time, k, j, i)`, which maps NIfTI data naturally
+        onto the memory layout used throughout the Python scientific ecosystem, often
+        without copying or rearranging the data. In practice, this ordering is usually
+        transparent because Xarray operations refer to dimensions by name rather than by
+        position. See [Spatial Conventions](spatial-conventions.md) for the full
+        explanation.
+
+- **Data**: the underlying array. ConfUSIus loaders return
+  [Dask](https://www.dask.org/)-backed data, meaning values are not loaded into memory
+  until you explicitly request them (e.g., by calling `.compute()` or accessing
+  `.values`).
 - **Coordinates**: timestamps and world positions, typically in seconds and millimeters.
-  The world coordinates `z`, `y`, and `x` are derived from the voxel-to-world geometry
-  and enable `.sel(y=slice(0, 2.5))` to work in physical units rather than array indices.
+  The world coordinates `x`, `y`, and `z` are derived from the voxel-to-world geometry
+  (via the `VoxelToWorldIndex` shown under `Indexes`) and enable slicing to work in
+  physical units rather than array indices.
 - **Attributes**: acquisition metadata as a flat key-value dictionary. Attributes are
   preserved through most ConfUSIus operations, and some are required for certain
-  functions (e.g., `transmit_frequency` is needed for velocity calculations).
+  functions (for example, `transmit_frequency` is needed for velocity calculations).
 
-ConfUSIus operates on DataArray objects. The Dataset is only used as an entry point
-when loading data, or to store multiple related variables together (e.g.,
-`power_doppler` for the power Doppler signals and `brain_mask` for a corresponding brain
-mask).
+A **[Dataset][xarray.Dataset]** is a dictionary-like container of multiple DataArrrays
+that share some dimensions and coordinates. It shows up when a source naturally groups
+several co-registered variables together, rather than one array per file. An atlas is a
+good example: loading one with
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas] gives you a
+Dataset with `reference`, `annotation`, and `hemispheres` variables sharing the same
+voxel grid and world coordinates:
+
+```pycon
+>>> atlas = cf.datasets.fetch_brainglobe_atlas("allen_mouse_100um")
+>>> atlas
+<xarray.Dataset> Size: 40MB
+Dimensions:      (k: 132, j: 80, i: 114)
+Coordinates:
+  * k            (k) float64 1kB 0.0 1.0 2.0 ... 130.0 131.0
+  * j            (j) float64 640B 0.0 1.0 2.0 ... 78.0 79.0
+  * i            (i) float64 912B 0.0 1.0 2.0 ... 112.0 113.0
+  * z            (k, j, i) float64 10MB 0.0 0.0 0.0 ... 13.1 13.1
+  * y            (k, j, i) float64 10MB 0.0 0.0 0.0 ... 7.9 7.9
+  * x            (k, j, i) float64 10MB 0.0 0.1 0.2 ... 11.2 11.3
+Data variables:
+    reference    (k, j, i) float32 5MB 0.0 0.0 0.0 ... 1.0 1.0
+    annotation   (k, j, i) int32 5MB 0 0 0 0 0 ... 0 0 0 0 0
+    hemispheres  (k, j, i) int8 1MB 2 2 2 2 2 ... 1 1 1 1 1
+Indexes:
+  ┌ z        VoxelToWorldIndex
+  │ y
+  └ x
+Attributes:
+    name:        allen_mouse
+    citation:    Wang et al 2020, https://doi.org/10.1016/j.cell.2020.04.007
+    species:     Mus musculus
+    orientation: asr
+```
+
+ConfUSIus mostly operates on DataArray objects. Datasets are a convenient way to group
+several DataArrays together when they naturally belong together, as with the atlas
+above—pull out a single variable (e.g. `atlas["reference"]`) to get a DataArray back.
+
+## Basic Operations
 
 !!! question "New to Xarray?"
     If you are not yet familiar with Xarray, the [Xarray quick
@@ -130,62 +164,33 @@ mask).
     is the best place to start. Understanding indexing, selection, and broadcasting will
     make working with ConfUSIus much easier.
 
-### Creating fUSI DataArrays from Raw Arrays
-
-Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
-have a NumPy, Dask, or array-like object and want to attach ConfUSIus-compatible
-dimensions, coordinates, and metadata. Dimensions can be supplied in any order; the
-result is canonicalized to native `(time, k, j, i)` order:
+A DataArray behaves like a NumPy array in most respects. Arithmetic and broadcasting
+work as usual, and thanks to NumPy's [array
+protocol](https://numpy.org/doc/stable/reference/arrays.classes.html), NumPy functions
+can be called directly on a DataArray and return a DataArray back:
 
 ```python
-import confusius as cf
-
-recording = cf.create_fusi_dataarray(
-    raw_power,  # shape: (time, k, j, i)
-    dims=("time", "k", "j", "i"),
-    dt=0.6,  # seconds
-    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
-    attrs={"description": "Power Doppler from my system"},
-)
+pwd_sqrt = np.sqrt(pwd)  # np.sqrt dispatches to Xarray, returns a DataArray.
 ```
 
-Single-slice recordings can omit the singleton spatial axis in the raw array; provide
-its spacing and ConfUSIus adds it for you:
+The main difference is that reductions and indexing use dimension names instead of
+axis positions:
 
 ```python
-single_slice = cf.create_fusi_dataarray(
-    raw_power,  # shape: (time, j, i)
-    dims=("time", "j", "i"),
-    dt=0.6,
-    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
-)
+mean_volume = pwd.mean("time")  # reduction by name, not axis=0.
 ```
 
-Acquisition metadata that describes the whole recording belongs in `attrs`. Coordinate
-metadata such as `units` and `voxdim` is added automatically.
-
-For beamformed IQ data, use
-[`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] instead:
+Indexing comes in two flavors: [`.isel`][xarray.DataArray.isel] indexes by integer
+position, like plain NumPy indexing, while [`.sel`][xarray.DataArray.sel] indexes by
+coordinate value:
 
 ```python
-iq = cf.create_iq_dataarray(
-    raw_iq,  # shape: (time, j, i)
-    dims=("time", "j", "i"),
-    dt=1 / 500,
-    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
-    transmit_frequency=15.625e6,
-    beamforming_sound_velocity=1540.0,
-)
+first_50_volumes = pwd.isel(time=slice(0, 50))  # first 50 volumes, by position.
+shallow = pwd.sel(y=slice(0, 2.5))              # depth 0-2.5 mm, by coordinate.
 ```
 
-### Canonical fUSI Dimensions and Scalar Indexing
-
-ConfUSIus stores fUSI recordings with the native voxel dimensions `k`, `j`, and `i`.
-Single-slice acquisitions still keep a singleton `k` axis, so the canonical shape is
-`(time, k, j, i)` with `k=1`, not `(time, j, i)`.
-
-Xarray scalar indexing drops the indexed dimension but usually keeps its coordinate as a
-scalar coordinate:
+Scalar indexing (e.g. `.isel(k=0)`) drops the indexed dimension but keeps its
+coordinate as a scalar:
 
 ```python
 slice_movie = pwd.isel(k=0)
@@ -202,31 +207,98 @@ spatial coordinates as singleton dimensions before validating the data. For exam
 resampling APIs. Dimension-generic operations such as smoothing preserve the indexed
 shape.
 
-This recovery only works when the missing voxel dimension is still represented by scalar
-world-coordinate geometry. A manually constructed bare `(time, j, i)` array with no
-voxel-to-world geometry is rejected because ConfUSIus cannot infer its world position,
-units, or voxel size.
+## Creating fUSI DataArrays from Raw Arrays
+
+Use [`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] when you already
+have a NumPy, Dask, or array-like object and want to create a ConfUSIus-compatible
+DataArray. This is useful when you have raw data from a custom acquisition system or a
+non-standard file format. The function will attach ConfUSIus-compatible dimensions,
+coordinates, and metadata. Dimensions can be supplied in any order; the result is
+canonicalized to native `(time, k, j, i)` order:
+
+```python
+import confusius as cf
+
+recording = cf.create_fusi_dataarray(
+    raw_power,  # shape: (time, k, j, i)
+    dims=("time", "k", "j", "i"),
+    dt=0.6,  # seconds
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
+    attrs={"description": "Power Doppler from my system"},
+)
+```
+
+Single-slice recordings can be provided by omitting the relevant voxel dimension in the
+`dims` argument. ConfUSIus will automatically add the missing singleton dimension and
+its corresponding world coordinate. Note that you must still provide the world spacing
+for the missing dimension in `spacing`, since a fUSI slice still has a physical
+thickness in the missing dimension.
+
+```python
+single_slice = cf.create_fusi_dataarray(
+    raw_power,  # shape: (time, j, i)
+    dims=("time", "j", "i"),
+    dt=0.6,
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
+)
+```
+
+Acquisition metadata that describes the whole recording belongs in the DataArray
+`attrs`. Coordinate metadata such as `units` and `voxdim` is added automatically.
+
+For beamformed IQ data, use
+[`create_iq_dataarray`][confusius.xarray.create_iq_dataarray] instead. It use
+[`create_fusi_dataarray`][confusius.xarray.create_fusi_dataarray] under the hood, but
+also adds IQ-specific metadata such as `transmit_frequency` and
+`beamforming_sound_velocity`:
+
+```python
+iq = cf.create_iq_dataarray(
+    raw_iq,  # shape: (time, j, i)
+    dims=("time", "j", "i"),
+    dt=1 / 500,
+    spacing=(0.4, 0.05, 0.1),  # world spacing in z/y/x order, in mm.
+    transmit_frequency=15.625e6,
+    beamforming_sound_velocity=1540.0,
+)
+```
 
 ## The `.fusi` Accessor
 
-Importing ConfUSIus registers the `.fusi` accessor on every DataArray:
+Most of the functions you have seen so far (`cf.load`, `create_fusi_dataarray`, etc.)
+are module-level, imported explicitly from `confusius`. An **accessor** is Xarray's
+mechanism for attaching a custom namespace directly to a DataArray or Dataset instead,
+so related functionality is reachable straight off the data—for example,
+`pwd.fusi.scale.db()`. This also keeps the boundary between Xarray's own API and
+library-specific functionality explicit; see [Xarray's guide to extending
+Xarray](https://docs.xarray.dev/en/stable/internals/extending-xarray.html) for the
+general mechanism.
+
+ConfUSIus registers two such accessors: `.fusi` on DataArrays, and `.atlas` on Datasets.
+`.atlas` is useful on atlas Datasets such as the one returned by
+[`fetch_brainglobe_atlas`][confusius.datasets.fetch_brainglobe_atlas], and is covered
+separately in the [Atlases guide](atlas.md). The rest of this section covers `.fusi`.
+
+Importing ConfUSIus registers the accessors automatically:
 
 ```python
 import xarray as xr
-import confusius as cf  # Registers the .fusi accessor automatically.
+import confusius as cf  # Registers the .fusi and .atlas accessors.
 ```
 
-The accessor is organized into six focused sub-accessors, plus a set of global helper
-properties:
+The `.fusi` accessor is organized into focused sub-accessors, plus a set of global
+helper properties:
 
 | Accessor | Description |
 |---|---|
+| [`.fusi.save`][confusius.xarray.FUSIAccessor.save] | Save data to file (NIfTI or Zarr), dispatching by extension. |
 | [`.fusi.iq`][confusius.xarray.FUSIIQAccessor] | Process beamformed IQ into power Doppler or axial velocity volumes. |
 | [`.fusi.scale`][confusius.xarray.FUSIScaleAccessor] | Scaling transformations: decibel, log, and power scaling. |
+| [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] | Inspect and apply voxel-to-world and world-to-reference affine transforms. |
 | [`.fusi.register`][confusius.xarray.FUSIRegistrationAccessor] | Motion correction via volumewise image registration. |
 | [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] | Extract and reconstruct signals using spatial masks. |
 | [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] | Visualization with napari and carpet plots. |
-| [`.fusi.save`][confusius.xarray.FUSIAccessor.save] | Save data to file (NIfTI or Zarr), dispatching by extension. |
+| [`.fusi.connectivity`][confusius.xarray.FUSIConnectivityAccessor] | Seed-based functional connectivity maps. |
 
 The sub-accessors offer the same functions as the module-level API, but with an
 intuitive syntax that allows quick operations directly on DataArray objects. They are
@@ -236,7 +308,7 @@ function calls for readability.
 
 ### Global Helpers
 
-Currently, two global helpers are available:
+Currently, three global helpers are available:
 
 - [`.fusi.spacing`][confusius.xarray.FUSIAccessor.spacing], which returns the step size
   along each dimension as a dictionary:
@@ -246,11 +318,14 @@ Currently, two global helpers are available:
   {'time': 0.6, 'k': 0.4, 'j': 0.049, 'i': 0.091}
   ```
 
-  This is particularly useful for sanity-checking voxel sizes or sampling periods
-  before passing data to functions that require regular spacing (e.g., temporal
-  filters, affine registration). `None` is returned with a warning for any dimension
-  where spacing cannot be determined: non-uniform coordinates, a single coordinate
-  point without a `voxdim` attribute, or no coordinate at all.
+  This is particularly useful for sanity-checking voxel sizes or sampling periods before
+  passing data to functions that require regular spacing (e.g., temporal filters, affine
+  registration). Spatial dimensions (`k`/`j`/`i`) always have their spacing derived
+  from the voxel-to-world affine, even for a singleton dimension. A singleton `time`
+  dimension
+  falls back to the `volume_acquisition_duration` attribute when present. Otherwise,
+  `None` is returned with a warning when spacing cannot be determined: non-uniform
+  coordinates, a single coordinate point, or no coordinate at all.
 
 - [`.fusi.origin`][confusius.xarray.FUSIAccessor.origin], which returns the coordinate
   values at the origin along each dimension as a dictionary:
@@ -262,6 +337,19 @@ Currently, two global helpers are available:
 
   This is typically used for computing the affine transformation corresponding to the
   world coordinates of the DataArray, for example when saving to NIfTI.
+
+- [`.fusi.direction`][confusius.xarray.FUSIAccessor.direction], which returns the
+  world-space direction matrix for the spatial dimensions:
+
+  ```pycon
+  >>> pwd.fusi.direction
+  array([[1., 0., 0.],
+         [0., 1., 0.],
+         [0., 0., 1.]])
+  ```
+
+  This is the identity for axis-aligned data (the common case). For oblique data, the
+  columns are the unit world-space directions of the voxel axes.
 
 ### IQ Processing ([`.fusi.iq`][confusius.xarray.FUSIIQAccessor])
 
@@ -332,6 +420,45 @@ By default, rigid registration allows translation and rotation. Pass
 `transform="translation"` for translation-only correction. For rigid registration,
 set the first three `optimizer_weights` values to `0` to freeze rotation.
 
+### Affine Transforms ([`.fusi.affine`][confusius.xarray.FUSIAffineAccessor])
+
+The [`.fusi.affine`][confusius.xarray.FUSIAffineAccessor] accessor inspects and applies
+the voxel-to-world and world-to-reference affines described in [Spatial
+Conventions](spatial-conventions.md). Read the DataArray's
+[`voxel_to_world`][confusius.xarray.FUSIAffineAccessor.voxel_to_world] affine, or
+apply a world-space affine to its coordinates with
+[`apply`][confusius.xarray.FUSIAffineAccessor.apply]—either a `(4, 4)` array directly,
+or a string key naming a reference frame already stored in `attrs["affines"]`:
+
+```python
+voxel_to_world = pwd.fusi.affine.voxel_to_world  # (4, 4) array.
+
+# By key: re-express world coordinates in the "world_to_qform" reference frame; the
+# full affine (including any rotation) is absorbed into the DataArray's
+# VoxelToWorldIndex.
+registered_to_qform = pwd.fusi.affine.apply("world_to_qform")
+
+# By array: apply an arbitrary (4, 4) world-space affine directly.
+shifted = pwd.fusi.affine.apply(my_affine)
+```
+
+To replace a DataArray's voxel-to-world geometry outright (e.g. after computing a new
+affine by hand), use
+[`set_voxel_to_world`][confusius.xarray.FUSIAffineAccessor.set_voxel_to_world]:
+
+```python
+pwd = pwd.fusi.affine.set_voxel_to_world(new_voxel_to_world)
+```
+
+To compute the affine relating two DataArrays' world spaces through a named affine
+they both carry in `attrs["affines"]` (e.g. a shared `"world_to_lab"` key from two
+poses of the same acquisition), use
+[`to`][confusius.xarray.FUSIAffineAccessor.to]:
+
+```python
+moving_to_fixed = moving.fusi.affine.to(fixed, via="world_to_lab")
+```
+
 ### Signal Extraction ([`.fusi.extract`][confusius.xarray.FUSIExtractAccessor])
 
 The [`.fusi.extract`][confusius.xarray.FUSIExtractAccessor] accessor provides access to
@@ -342,17 +469,17 @@ scikit-learn, pandas, or other tools that expect a 2D matrix of shape
 #### Mask-based extraction
 
 [`extract_with_mask`][confusius.extract.extract_with_mask] flattens all voxels selected
-by a boolean (or single-label integer) mask into a `voxels` dimension:
+by a boolean (or single-label integer) mask into a `space` dimension:
 
 ```python
 mask = cf.load("brain_mask.zarr")
 
-# signals has dims (time, voxels).
+# signals has dims (time, space).
 signals = registered.fusi.extract.with_mask(mask)
 ```
 
 For a quick round-trip,
-[`.unstack("voxels")`](https://docs.xarray.dev/en/stable/generated/xarray.DataArray.unstack.html)
+[`.unstack("space")`](https://docs.xarray.dev/en/stable/generated/xarray.DataArray.unstack.html)
 reconstructs the spatial dimensions within the bounding box of the mask. To reconstruct
 the full spatial volume, use
 [`.fusi.extract.unmask()`][confusius.xarray.FUSIExtractAccessor.unmask] with the
@@ -391,11 +518,28 @@ brain region using an integer label map. It accepts two label formats:
 # Using a flat label map (e.g., atlas annotations).
 label_map = cf.load("atlas_labels.zarr")
 
-# region_signals has dims (time, regions).
+# region_signals has dims (time, region).
 region_signals = registered.fusi.extract.with_labels(label_map)
 
 # Use a different aggregation (default is "mean").
 region_signals = registered.fusi.extract.with_labels(label_map, reduction="sum")
+```
+
+### Functional Connectivity ([`.fusi.connectivity`][confusius.xarray.FUSIConnectivityAccessor])
+
+The [`.fusi.connectivity`][confusius.xarray.FUSIConnectivityAccessor] accessor fits
+seed-based correlation maps, wrapping
+[`SeedBasedMaps`][confusius.connectivity.SeedBasedMaps]. Provide either a seed mask
+(voxels averaged into a seed signal) or a pre-computed seed signal directly:
+
+```python
+seed_masks = cf.load("seed_masks.zarr")
+
+mapper = registered.fusi.connectivity.seed_map(seed_masks=seed_masks)
+
+# spatial correlation maps, one per seed, and the seed signals used.
+correlation_maps = mapper.maps_
+seed_signals = mapper.seed_signals_
 ```
 
 ### Visualization ([`.fusi.plot`][confusius.xarray.FUSIPlotAccessor])
@@ -403,13 +547,13 @@ region_signals = registered.fusi.extract.with_labels(label_map, reduction="sum")
 The [`.fusi.plot`][confusius.xarray.FUSIPlotAccessor] accessor provides easy access to
 visualization functions for quick data inspection and quality control.
 
-Display data in [napari](https://napari.org/) (decibel-scaled by default):
+For example, to display data in [napari](https://napari.org/):
 
 ```python
-viewer, layer = registered.fusi.plot.napari(contrast_limits=(-20, 0))
+viewer, layer = registered.fusi.plot.napari(gamma=0.5)
 ```
 
-Carpet plots show voxel time-series as a raster image, useful for quality control:
+Or to show standardized time series in a carpet plot, useful for quality control:
 
 ```python
 fig, ax = registered.fusi.plot.carpet(mask=mask)
@@ -431,7 +575,6 @@ registered.fusi.save("sub-01_task-awake_pwd.nii.gz")
 The following example shows a typical fUSI analysis from raw IQ to saved results:
 
 ```python
-import xarray as xr
 import confusius as cf
 from confusius.decomposition import PCA
 
@@ -447,11 +590,11 @@ pwd = iq.fusi.iq.process_to_power_doppler(
     low_cutoff=40,
 )
 
-# 3. Inspect in napari (decibel-scaled by default).
-viewer, layer = pwd.fusi.plot.napari(contrast_limits=(-20, 0))
+# 3. Inspect in napari.
+viewer, layer = pwd.fusi.plot.napari(gamma=0.5)
 
 # 4. Motion correction.
-registered = pwd.fusi.register.volumewise(reference_time=0)
+registered = pwd.fusi.register.volumewise()
 
 # 5. Quick quality check with a carpet plot.
 fig, ax = registered.fusi.plot.carpet(mask=brain_mask)
@@ -459,8 +602,8 @@ fig, ax = registered.fusi.plot.carpet(mask=brain_mask)
 # 6. Save registered power Doppler to NIfTI with a fUSI-BIDS JSON sidecar.
 registered.fusi.save("sub-01_task-awake_pwd.nii.gz")
 
-# 7. Extract global signal using the brain mask.
-global_signal = registered.fusi.extract.with_labels(brain_mask)
+# 7. Extract global signal using the (boolean) brain mask.
+global_signal = registered.fusi.extract.with_mask(brain_mask).mean("space")
 
 # 8. Denoise and standardize power Doppler signals.
 pwd_denoised = cf.signal.clean(
