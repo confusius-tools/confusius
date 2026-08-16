@@ -60,8 +60,8 @@ class CoordinateSpacingInfo:
     Parameters
     ----------
     value : float or None
-        Exact spacing when the coordinate is uniform or a single-point coord with a
-        `voxdim` attribute. `None` otherwise.
+        Exact spacing when the coordinate is uniform. `None` otherwise, including for
+        single-point coordinates.
     median : float or None
         Median consecutive difference for numeric coordinates with two or more points.
         Available for both uniform and non-uniform coordinates; `None` for missing,
@@ -128,16 +128,12 @@ def get_coordinate_spacing_info(
         return CoordinateSpacingInfo(value=None, median=None, warn_msg=None)
 
     if len(coord) < 2:
-        if "voxdim" in coord.attrs:
-            return CoordinateSpacingInfo(
-                value=float(coord.attrs["voxdim"]), median=None, warn_msg=None
-            )
         return CoordinateSpacingInfo(
             value=None,
             median=None,
             warn_msg=(
-                f"Dimension '{dim}' has a single coordinate point and no "
-                "'voxdim' attribute; spacing is undefined."
+                f"Dimension '{dim}' has a single coordinate point; spacing is "
+                "undefined."
             ),
         )
 
@@ -165,10 +161,8 @@ def get_coordinate_spacings(
 
     - If the coordinate has two or more points and is uniformly sampled, returns the
       median step size.
-    - If the coordinate has a single point, returns the `voxdim` coordinate attribute
-      if present, otherwise `None` with a warning.
-    - If the coordinate is missing or has non-uniform spacing, returns `None` with a
-      warning.
+    - If the coordinate has a single point, is missing, or has non-uniform spacing,
+      returns `None` with a warning.
     - If the coordinate doesn't have int or float dtype, returns `None` without a
       warning.
 
@@ -225,8 +219,7 @@ def get_coordinate_spacings_best_effort(
     -------
     spacing : dict[str, float]
         Spacing per dimension. Always a `float`; never `None`. Falls back to
-        `1.0` only for dimensions with truly missing, non-numeric, or
-        single-point-without-voxdim coordinates.
+        `1.0` for dimensions with missing, non-numeric, or single-point coordinates.
     non_uniform : list[str]
         Names of dimensions whose coordinates were non-uniform. The median diff
         was used as the spacing for these dims.
@@ -312,8 +305,8 @@ def get_grid_info_from_dataarray(
     and origin from
     [`get_coordinate_origins`][confusius._utils.coordinates.get_coordinate_origins],
     both computed over all of `data`'s dimensions so that their warning behaviour is
-    preserved. Each requested dimension must have defined spacing; singleton
-    dimensions require `voxdim` coordinate metadata.
+    preserved. Each requested dimension must have defined spacing; a singleton
+    non-spatial dimension has no defined spacing.
 
     Parameters
     ----------
@@ -362,7 +355,7 @@ def get_grid_info_from_dataarray(
         if missing_spacing:
             raise ValueError(
                 f"{error_prefix} for dimensions {missing_spacing!r}. Provide regular "
-                "coordinates or `voxdim` metadata for singleton coordinates."
+                "(2+ point, uniformly sampled) coordinates for these dimensions."
             )
         return {
             "shape": [int(data.sizes[dim]) for dim in dims],
