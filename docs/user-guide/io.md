@@ -16,13 +16,19 @@ ConfUSIus uses [Xarray](https://docs.xarray.dev/) as its core data structure for
 representing multi-dimensional fUSI data. Xarray provides several advantages over raw
 NumPy arrays:
 
-- **Named dimensions**: Access data using meaningful names (e.g., `time`, `k`, `j`, `i`)
+- **Named dimensions**: Access data using meaningful names (e.g., `i`, `j`, `k`, `time`)
   instead of remembering axis indices.
 - **Coordinates**: Associate time and world coordinates with the native dimensions
-  (e.g., `z`, `y`, and `x` in millimeters).
+  (e.g., `x`, `y`, and `z` in millimeters).
 - **Metadata storage**: Keep acquisition parameters, units, and other metadata alongside
   your data.
 - **Unified API**: Use the same operations regardless of the underlying storage format.
+
+Every loader in this guide returns **VoxelData** arrays: a DataArray with trailing
+`k`/`j`/`i` voxel dimensions backed by a `VoxelToWorldIndex`, which derives world
+coordinates `z`/`y`/`x` (in millimeters) from a single voxel-to-world affine. World
+coordinates are never stored directly—they're always this index's output. See [Spatial
+Conventions](spatial-conventions.md) for details on the coordinate model.
 
 ### Xarray-Compatible Formats
 
@@ -83,9 +89,9 @@ fUSI workflows involve two main categories of data:
 === "Beamformed IQ Data"
 
     Complex-valued signals resulting from ultrasound beamforming of RF signals. These
-    signals are typically further processed to extract derived signals such as power Doppler
-    or velocity. Beamformed IQ datasets are typically very large (10s to 100s of GB per
-    acquisition session), and stored in system-specific layouts depending on the
+    signals are typically further processed to extract derived signals such as power
+    Doppler or velocity. Beamformed IQ datasets are typically very large (10s to 100s of
+    GB per acquisition session), and stored in system-specific layouts depending on the
     acquisition system (e.g., Iconeus, AUTC, EchoFrame).
 
 === "Derived Acquisitions"
