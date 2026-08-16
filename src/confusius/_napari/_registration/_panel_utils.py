@@ -112,7 +112,7 @@ def _normalize_layer_sequence(values: Any, ndim: int, fill: Any) -> list[Any]:
 
 
 def _reconstruct_layer_dataarray(layer: Layer) -> xr.DataArray:
-    """Reconstruct a canonical fUSI DataArray from the current napari layer state.
+    """Reconstruct VoxelData from the current napari layer state.
 
     Parameters
     ----------

@@ -1,4 +1,4 @@
-"""FastICA decomposition for `(time, ...)` fUSI DataArrays."""
+"""FastICA decomposition for `(time, ...)` VoxelData."""
 
 from collections.abc import Callable
 from typing import Any, Literal
@@ -12,7 +12,7 @@ from confusius.decomposition._base import _BaseFUSIDecomposer
 
 
 class FastICA(_BaseFUSIDecomposer):
-    """Fast independent component analysis (ICA) for fUSI data.
+    """Fast independent component analysis (ICA) for VoxelData.
 
     The FastICA algorithm is based on Hyvarinen *et al.* (2000).
 
@@ -100,7 +100,7 @@ class FastICA(_BaseFUSIDecomposer):
         an int for reproducible results across multiple function calls.
     mask : xarray.DataArray, optional
         Boolean mask selecting which elements to include during fitting and
-        projection: voxels, for a canonical voxel-grid input, or features, for an
+        projection: voxels, for VoxelData input, or features, for an
         already-extracted signals input (e.g.
         [`extract_with_labels`][confusius.extract.extract_with_labels] output). Must
         match the non-`time` dimensions of the input data in the same order.
@@ -141,7 +141,7 @@ class FastICA(_BaseFUSIDecomposer):
 
     Examples
     --------
-    Spatial ICA (default, matches FSL MELODIC), on canonical voxel-grid data:
+    Spatial ICA (default, matches FSL MELODIC), on VoxelData:
 
     >>> import numpy as np
     >>> from confusius.decomposition import FastICA
@@ -210,12 +210,12 @@ class FastICA(_BaseFUSIDecomposer):
         self.mask = mask
 
     def fit(self, X: xr.DataArray, y: None = None) -> "FastICA":
-        """Fit FastICA on `(time, ...)` fUSI data.
+        """Fit FastICA on `(time, ...)` VoxelData.
 
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a canonical voxel-grid DataArray, or an already-extracted
+            Input data: VoxelData, or an already-extracted
             signals array (see class docstring).
         y : None, optional
             Ignored. Present for scikit-learn API compatibility.

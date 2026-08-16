@@ -303,7 +303,7 @@ def load_echoframe_dat(
 ) -> xr.DataArray:
     """Load an EchoFrame DAT file as a lazy, ConfUSIus-ordered DataArray.
 
-    Beamformed IQ data is loaded as a canonical DataArray with voxel dimensions
+    Beamformed IQ data is loaded as VoxelData with voxel dimensions
     `(time, k, j, i)` and a voxel-to-world index deriving world coordinates `z`, `y`,
     `x`. Coordinates and acquisition metadata (e.g. `transmit_frequency`,
     `beamforming_sound_velocity`) are attached from the EchoFrame sequence parameter
@@ -499,8 +499,8 @@ def convert_echoframe_dat_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
-    `iq` above carries plain `k`/`j`/`i` voxel dims, not a canonical voxel-to-world
-    DataArray -- [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not VoxelData --
+    [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
     `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
     [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
 

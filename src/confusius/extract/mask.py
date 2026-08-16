@@ -6,7 +6,7 @@ from confusius.validation import validate_mask
 
 
 def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
-    """Extract signals from fUSI data using a binary mask.
+    """Extract signals from VoxelData using a binary mask.
 
     This function flattens `mask`'s native voxel dimensions (`k`/`j`/`i`) into a
     single `space` dimension, while preserving all other dimensions of `data` (e.g.,
@@ -15,8 +15,8 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     Parameters
     ----------
     data : xarray.DataArray
-        Input array. Must be a canonical voxel-grid DataArray with native voxel dims
-        `k`/`j`/`i` and a `VoxelToWorldIndex`, plus any number of non-spatial
+        Input array. Must be VoxelData (native voxel dims `k`/`j`/`i` and a
+        `VoxelToWorldIndex`), plus any number of non-spatial
         dimensions (e.g., `time`, `pose`). See
         [`ensure_fusi`][confusius.validation.ensure_fusi].
     mask : xarray.DataArray
@@ -44,7 +44,7 @@ def extract_with_mask(data: xr.DataArray, mask: xr.DataArray) -> xr.DataArray:
     Raises
     ------
     ValueError
-        If `mask` or `data` isn't a canonical voxel-grid DataArray, or if `mask`'s
+        If `mask` or `data` isn't VoxelData-compatible, or if `mask`'s
         voxel grid doesn't match `data`'s.
     TypeError
         If `mask` is not boolean dtype (or a single-label integer dtype).

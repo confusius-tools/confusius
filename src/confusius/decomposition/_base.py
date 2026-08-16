@@ -39,7 +39,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     `X` accepts two kinds of input, told apart via
     [`has_voxel_to_world_index`][confusius._utils.geometry.has_voxel_to_world_index]:
 
-    - A canonical voxel-grid DataArray (native voxel dims `k`/`j`/`i` and a
+    - VoxelData (native voxel dims `k`/`j`/`i` and a
       `VoxelToWorldIndex`). `mask` then selects voxels, and reconstruction
       (`inverse_transform`, `maps_`) restores the full `(k, j, i)` grid.
     - An already-extracted signals array, e.g. the `(time, region)` output of
@@ -233,7 +233,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
     ) -> tuple[npt.NDArray[np.floating], tuple[str, ...], npt.NDArray[np.bool_]]:
         """Validate and stack time series data into a 2D feature matrix.
 
-        `X` may be a canonical voxel-grid DataArray (native voxel dims `k`/`j`/`i` and
+        `X` may be VoxelData (native voxel dims `k`/`j`/`i` and
         a `VoxelToWorldIndex`) or an already-extracted signals array, e.g. the output
         of [`extract_with_labels`][confusius.extract.extract_with_labels] (`(time,
         region)`). [`select_masked_features`][confusius._utils.mask.select_masked_features]
@@ -242,7 +242,7 @@ class _BaseFUSIDecomposer(BaseEstimator, TransformerMixin):
         Parameters
         ----------
         X : (time, ...) xarray.DataArray
-            Input data: a canonical voxel-grid DataArray, or an already-extracted
+            Input data: VoxelData, or an already-extracted
             signals array.
         check_layout : bool
             Whether to check that the spatial dimensions and sizes match the fitted

@@ -66,8 +66,8 @@ def validate_iq(iq: xr.DataArray, require_velocity_attrs: bool = False) -> None:
     """
     # `ensure_fusi` (not `validate_fusi`) so metadata gaps (units, voxdim, timing
     # attrs) that a canonically-constructed DataArray would never have are filled in
-    # rather than rejected, matching how any other caller of a fUSI DataArray is
-    # expected to canonicalize first. The canonicalized copy is only used for these
+    # rather than rejected, matching how any other caller of VoxelData is expected to
+    # canonicalize first. The canonicalized copy is only used for these
     # checks; `iq` itself, and this function's own "pure check" contract, are
     # unaffected.
     iq = ensure_fusi(

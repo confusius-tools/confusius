@@ -1,4 +1,4 @@
-"""Constructor helpers for canonical ConfUSIus fUSI DataArrays."""
+"""Constructor helpers for building ConfUSIus VoxelData."""
 
 from __future__ import annotations
 
@@ -402,7 +402,7 @@ def create_fusi_dataarray(
     voxel_to_world: npt.ArrayLike | None = None,
     world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Build a canonical ConfUSIus fUSI DataArray from a raw array.
+    """Build a VoxelData-compatible ConfUSIus fUSI DataArray from a raw array.
 
     Parameters
     ----------
@@ -451,7 +451,8 @@ def create_fusi_dataarray(
     Returns
     -------
     xarray.DataArray
-        Canonical fUSI DataArray with native voxel dimensions and world coordinates.
+        VoxelData-compatible fUSI DataArray with native voxel dimensions and world
+        coordinates.
 
     Raises
     ------
@@ -634,7 +635,7 @@ def create_iq_dataarray(
     voxel_to_world: npt.ArrayLike | None = None,
     world_coord_attrs: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Build a canonical ConfUSIus IQ DataArray from a raw complex array.
+    """Build a VoxelData-compatible ConfUSIus IQ DataArray from a raw complex array.
 
     Parameters
     ----------
@@ -684,7 +685,8 @@ def create_iq_dataarray(
     Returns
     -------
     xarray.DataArray
-        IQ DataArray with native voxel dimensions and world coordinates.
+        VoxelData-compatible IQ DataArray with native voxel dimensions and world
+        coordinates.
 
     Raises
     ------

@@ -134,8 +134,7 @@ def make_output_grid_payload(reference: xr.DataArray) -> OutputGridPayload:
     """
     voxel_dims = [str(dim) for dim in reference.dims]
     # `reference` may be a plain napari layer's DataArray, reconstructed without a
-    # voxel-to-world index (see `_reconstruct_layer_dataarray`), not just a canonical
-    # ConfUSIus DataArray.
+    # voxel-to-world index (see `_reconstruct_layer_dataarray`), not just VoxelData.
     has_index = has_voxel_to_world_index(reference)
     # Reported as world dim names (matching the `component` labeling convention used
     # everywhere a displacement field is built, e.g. `_compose_world_to_base_transforms`
@@ -259,7 +258,7 @@ def make_affine_transform_payload(
 def _serialize_bspline_dataarray(transform: xr.DataArray) -> BSplineDataArrayPayload:
     """Return a JSON-serializable B-spline DataArray payload.
 
-    `transform` is a canonical voxel-to-world-index-backed DataArray; its geometry is
+    `transform` is VoxelData; its geometry is
     stored as `attrs["voxel_to_world"]` (mirroring the zarr save convention in
     [`save`][confusius.io.save]) rather than dense per-axis coordinate arrays, since
     the index derives those on load.
@@ -714,7 +713,8 @@ def _load_bspline_transform_payload(path: str | Path) -> BSplineTransformPayload
         # Legacy NIfTI files (no confusius_transform_metadata_json sidecar) don't
         # carry the control-point grid's own geometry reliably; recover it from the
         # recorded output/input grid instead, rebuilding the voxel-to-world index
-        # (rather than assigning raw coordinate arrays) to keep `transform` canonical.
+        # (rather than assigning raw coordinate arrays) to keep `transform`
+        # VoxelData-compatible.
         spatial_dims = [str(dim) for dim in transform.dims[1:]]
         order = [grid["dims"].index(dim) for dim in spatial_dims]
         direction = np.asarray(transform.fusi.direction, dtype=np.float64)

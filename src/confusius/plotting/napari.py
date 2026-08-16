@@ -206,7 +206,7 @@ def plot_napari(
             if cmap_attr is not None:
                 layer_kwargs["colormap"] = cmap_attr
 
-        # fUSI arrays are scalar fields; prevent napari from auto-interpreting a
+        # VoxelData arrays are scalar fields; prevent napari from auto-interpreting a
         # trailing axis of length 3/4 as RGB channels.
         layer_kwargs.setdefault("rgb", False)
 
@@ -486,6 +486,6 @@ def labels_from_layer(
         },
     )
     # Reattach the voxel-to-world index from `data` rather than copying its derived
-    # z/y/x coordinate values (see comment above `coords`), so `label_map` stays a
-    # canonical voxel-to-world DataArray.
+    # z/y/x coordinate values (see comment above `coords`), so `label_map` stays
+    # VoxelData-compatible.
     return attach_voxel_to_world_index(label_map, get_voxel_to_world_affine(data))

@@ -36,7 +36,7 @@ def _validate_spatial_alignment(
     Raises
     ------
     ValueError
-        If `spatial_da` or `data` isn't a canonical voxel-grid DataArray, or if their
+        If `spatial_da` or `data` isn't VoxelData-compatible, or if their
         voxel-space coordinates or `voxel_to_world` affines don't match.
     """
     data = ensure_fusi(data, allow_extra_dims=True)
@@ -90,12 +90,12 @@ def validate_mask(
     require_exact_dims: bool = False,
     coerce_bool: bool = True,
 ) -> xr.DataArray:
-    """Validate that a mask shares data's canonical voxel grid.
+    """Validate that a mask shares data's VoxelData grid.
 
     Both `mask` and `data` are canonicalized via
     [`ensure_fusi`][confusius.validation.ensure_fusi], so each must be (or become,
-    after restoring any scalar-reduced voxel dims) a canonical voxel-grid DataArray
-    carrying a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
+    after restoring any scalar-reduced voxel dims) VoxelData-compatible, carrying a
+    `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
 
     Parameters
     ----------
@@ -127,7 +127,7 @@ def validate_mask(
     TypeError
         If `mask` is not a boolean or single-label integer DataArray.
     ValueError
-        If `mask` or `data` isn't a canonical voxel-grid DataArray, if `mask`'s voxel
+        If `mask` or `data` isn't VoxelData-compatible, if `mask`'s voxel
         grid doesn't match `data`'s, or if `require_exact_dims` is set and `mask`'s
         dimensions don't match `data`'s.
     """
@@ -161,12 +161,12 @@ def validate_labels(
     data: xr.DataArray,
     labels_name: str = "labels",
 ) -> xr.DataArray:
-    """Validate that a label map shares data's canonical voxel grid.
+    """Validate that a label map shares data's VoxelData grid.
 
     Both `labels` and `data` are canonicalized via
     [`ensure_fusi`][confusius.validation.ensure_fusi], so each must be (or become,
-    after restoring any scalar-reduced voxel dims) a canonical voxel-grid DataArray
-    carrying a `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
+    after restoring any scalar-reduced voxel dims) VoxelData-compatible, carrying a
+    `VoxelToWorldIndex` on native voxel dims `k`/`j`/`i`.
 
     Parameters
     ----------
@@ -197,7 +197,7 @@ def validate_labels(
     TypeError
         If `labels` is not an integer dtype DataArray.
     ValueError
-        If `labels` or `data` isn't a canonical voxel-grid DataArray, or if `labels`'s
+        If `labels` or `data` isn't VoxelData-compatible, or if `labels`'s
         voxel grid doesn't match `data`'s.
     """
     if not isinstance(labels, xr.DataArray):

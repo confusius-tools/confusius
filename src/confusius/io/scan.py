@@ -652,7 +652,7 @@ def _load_2dscan(
     attrs: dict[str, Any],
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a voxel-to-world DataArray for `2Dscan` mode."""
+    """Build VoxelData for `2Dscan` mode."""
     data_lazy = _swap_depth_elevation_axes(raw_lazy)
     time: npt.NDArray[np.float64] = np.array(
         h5["/acqMetaData/time"][()], dtype=np.float64
@@ -673,7 +673,7 @@ def _load_3dscan(
     npose: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a voxel-to-world DataArray for `3Dscan` mode."""
+    """Build VoxelData for `3Dscan` mode."""
     sq = da.squeeze(raw_lazy, axis=1)
     data_lazy = _swap_depth_elevation_axes(sq)
     return create_fusi_dataarray(
@@ -693,7 +693,7 @@ def _load_4dscan(
     nblock_repeat: int,
     voxel_to_world: npt.NDArray[np.float64],
 ) -> xr.DataArray:
-    """Build a voxel-to-world DataArray for `4Dscan` mode."""
+    """Build VoxelData for `4Dscan` mode."""
     n_time = raw_lazy.shape[0] * nblock_repeat
     sq = _fold_block_repeat_into_time(raw_lazy, npose, nblock_repeat)
     data_lazy = _swap_depth_elevation_axes(sq)

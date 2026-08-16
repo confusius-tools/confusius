@@ -611,8 +611,8 @@ def convert_autc_dats_to_zarr(
         ds = xr.open_zarr("output.zarr")
         iq = ds["iq"]
 
-    `iq` above carries plain `k`/`j`/`i` voxel dims, not a canonical voxel-to-world
-    DataArray -- [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
+    `iq` above carries plain `k`/`j`/`i` voxel dims, not VoxelData --
+    [`xarray.open_zarr`][xarray.open_zarr] doesn't know how to rebuild a
     `VoxelToWorldIndex` from `attrs["voxel_to_world"]`. Load with
     [`confusius.io.load`][confusius.io.load] instead to get the world coordinates back:
 

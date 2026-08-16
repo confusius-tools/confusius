@@ -105,9 +105,9 @@ def resample_volume(
     Returns
     -------
     xarray.DataArray
-        Canonical fUSI DataArray resampled onto the requested grid, with `moving`'s
-        attributes. If the input had a time dimension, the output will also have a
-        time dimension.
+        VoxelData-compatible fUSI DataArray resampled onto the requested grid, with
+        `moving`'s attributes. If the input had a time dimension, the output will
+        also have a time dimension.
 
     Raises
     ------

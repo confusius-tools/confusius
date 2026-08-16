@@ -371,7 +371,7 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
     Raises
     ------
     ValueError
-        If `da` is not a canonical ConfUSIus fUSI DataArray.
+        If `da` is not VoxelData-compatible.
     """
     import SimpleITK as sitk
 
@@ -384,8 +384,8 @@ def dataarray_to_sitk_image(da: xr.DataArray) -> "sitk.Image":
         )
     except ValueError as exc:
         raise ValueError(
-            "Cannot convert DataArray to a SimpleITK image because it is not a "
-            "canonical ConfUSIus fUSI DataArray. Attach voxel-to-world geometry with "
+            "Cannot convert DataArray to a SimpleITK image because it is not "
+            "VoxelData-compatible. Attach voxel-to-world geometry with "
             "da.fusi.affine.set_voxel_to_world(...) before calling "
             "dataarray_to_sitk_image."
         ) from exc

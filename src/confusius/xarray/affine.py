@@ -192,9 +192,10 @@ def apply_affine(
 def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     """Rebase voxel coordinates to dense positions without moving world coordinates.
 
-    A voxel-to-world DataArray's stored `voxel_to_world` affine is defined in terms of
-    voxel *coordinate values*, which stay unchanged across cropping or striding by
-    design (see [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
+    A VoxelData-compatible DataArray's stored `voxel_to_world` affine is defined in
+    terms of voxel *coordinate values*, which stay unchanged across cropping or
+    striding by design (see
+    [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex]).
     Because of this, the affine generally does not describe where voxel *position*
     `(0, ..., 0)` sits in world space, or the world distance between
     consecutive positions, once `da` has been cropped or strided from a larger
@@ -344,7 +345,7 @@ def reindex_voxels_like(
 
 
 class FUSIAffineAccessor:
-    """Accessor for affine transform operations on fUSI DataArrays.
+    """Accessor for affine transform operations on VoxelData-compatible DataArrays.
 
     Provides methods to compute relative transforms between scans and to
     apply axis-aligned affines to a scan's spatial coordinates.

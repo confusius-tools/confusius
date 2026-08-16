@@ -1,9 +1,9 @@
 """Geometry helpers for voxel-space to world-space transforms.
 
-This module prototypes a geometry model where a DataArray keeps 1D voxel-space
-coordinates (for example `i`, `j`, `k`) and stores a single affine that maps
-those voxel-space coordinates into world-space coordinates (for example
-`x`, `y`, `z`).
+This module implements the indexing machinery underlying ConfUSIus's VoxelData
+model: a DataArray keeps 1D voxel-space coordinates (for example `i`, `j`, `k`) and
+stores a single affine that maps those voxel-space coordinates into world-space
+coordinates (for example `x`, `y`, `z`).
 
 The derived world coordinates are always exposed lazily via a single joint
 [VoxelToWorldIndex][confusius._utils.geometry.VoxelToWorldIndex] backed by Xarray's
@@ -134,7 +134,7 @@ class VoxelToWorldIndex(Index):
     against the joint transform's diagonal — rather than delegating to
     `xarray.indexes.CoordinateTransformIndex.sel`, which only supports `nearest`,
     point-wise, all-axes-at-once queries. That's what a plain, non-index-backed
-    coordinate would offer, and it's what most axis-aligned fUSI data (the common
+    coordinate would offer, and it's what most axis-aligned VoxelData (the common
     case) expects.
 
     Parameters
@@ -823,7 +823,7 @@ def attach_voxel_to_world_index(
     *,
     world_coord_attrs: Mapping[Any, Mapping[str, Any]] | None = None,
 ) -> xr.DataArray:
-    """Attach world coordinates to a DataArray.
+    """Attach world coordinates to a DataArray, making it VoxelData-compatible.
 
     Voxel dimensions are the native voxel names (`k`/`j`/`i`) present on `data`, in
     canonical affine input-space column order; each gets the matching fixed world
@@ -1041,7 +1041,7 @@ def get_voxel_to_world_affine(data: xr.DataArray) -> npt.NDArray[np.float64]:
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-to-world DataArray.
+        VoxelData-compatible DataArray.
 
     Returns
     -------
@@ -1140,7 +1140,7 @@ def has_axis_aligned_voxel_to_world_index(data: xr.DataArray) -> bool:
 
 
 def has_voxel_to_world_index(data: xr.DataArray) -> bool:
-    """Return whether a DataArray carries canonical voxel-to-world metadata.
+    """Return whether a DataArray is VoxelData-compatible.
 
     Parameters
     ----------
@@ -1163,7 +1163,7 @@ def has_voxel_to_world_index(data: xr.DataArray) -> bool:
 
 
 def get_voxel_to_world_spatial_dims(data: xr.DataArray) -> tuple[str, ...]:
-    """Return voxel-space dimensions present on a voxel-to-world DataArray.
+    """Return voxel-space dimensions present on a VoxelData-compatible DataArray.
 
     Parameters
     ----------
@@ -1221,7 +1221,7 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-to-world DataArray.
+        VoxelData-compatible DataArray.
 
     Returns
     -------
@@ -1251,12 +1251,12 @@ def get_voxel_to_world_index_origin(data: xr.DataArray) -> dict[str, float]:
 
 
 def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | None]:
-    """Return world spacing per voxel-space axis for a voxel-to-world DataArray.
+    """Return world spacing per voxel-space axis for a VoxelData-compatible DataArray.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-to-world DataArray.
+        VoxelData-compatible DataArray.
 
     Returns
     -------
@@ -1273,12 +1273,12 @@ def get_voxel_to_world_index_spacing(data: xr.DataArray) -> dict[str, float | No
 def get_voxel_to_world_orientation_matrix(
     data: xr.DataArray,
 ) -> npt.NDArray[np.float64]:
-    """Return the world-space direction matrix of a voxel-to-world DataArray.
+    """Return the world-space direction matrix of a VoxelData-compatible DataArray.
 
     Parameters
     ----------
     data : xarray.DataArray
-        Voxel-to-world DataArray.
+        VoxelData-compatible DataArray.
 
     Returns
     -------

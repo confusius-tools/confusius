@@ -198,7 +198,7 @@ def _materialize_axis_aligned_world_grid_for_display(
     Parameters
     ----------
     data : xarray.DataArray
-        Axis-aligned voxel-to-world DataArray.
+        Axis-aligned VoxelData.
 
     Returns
     -------
@@ -270,7 +270,7 @@ def resample_to_axis_aligned_world_grid(
     Parameters
     ----------
     data : xarray.DataArray
-        Three-dimensional or three-dimensional-plus-time voxel-to-world DataArray.
+        Three-dimensional or three-dimensional-plus-time VoxelData.
     reference : xarray.DataArray, optional
         Axis-aligned world-grid DataArray to reuse as the resampling target.
         If not provided, a new plotting grid is synthesized from `data`'s world
@@ -279,9 +279,9 @@ def resample_to_axis_aligned_world_grid(
     Returns
     -------
     xarray.DataArray
-        Axis-aligned world-grid DataArray (still canonical: native voxel dims with a
-        voxel-to-world index) when `data` has voxel-to-world geometry; otherwise the
-        original input.
+        Axis-aligned world-grid DataArray (still VoxelData-compatible: native voxel
+        dims with a voxel-to-world index) when `data` has voxel-to-world geometry;
+        otherwise the original input.
     """
     if not has_voxel_to_world_index(data) or has_axis_aligned_voxel_to_world_index(
         data
@@ -296,7 +296,7 @@ def resample_to_axis_aligned_world_grid(
             from confusius.xarray import create_fusi_dataarray
 
             # `reference` is a plain, caller-supplied DataArray here (not one of
-            # ConfUSIus's own canonical arrays), so its spatial dims may be named
+            # ConfUSIus's own VoxelData arrays), so its spatial dims may be named
             # z/y/x rather than the native voxel names create_fusi_dataarray now
             # requires; remap them, leaving any other dim name (time, pose, extras)
             # unchanged.
@@ -384,11 +384,11 @@ def resample_to_axis_aligned_world_grid(
             output_origin=origin,
         )
 
-    # `resample_volume`/`resample_like` always build canonical (voxel-dim, indexed)
-    # output; carry over the source world coordinates' attrs (units, etc.) via the
-    # index-aware helper rather than a direct `.attrs =` assignment, since the world
-    # coordinates here are index-derived and a plain mutation would be silently
-    # discarded by the next operation that touches the index.
+    # `resample_volume`/`resample_like` always build VoxelData-compatible (voxel-dim,
+    # indexed) output; carry over the source world coordinates' attrs (units, etc.)
+    # via the index-aware helper rather than a direct `.attrs =` assignment, since
+    # the world coordinates here are index-derived and a plain mutation would be
+    # silently discarded by the next operation that touches the index.
     result = update_voxel_to_world_coord_attrs(
         result, {dim: dict(data.coords[dim].attrs) for dim in world_dims}
     )

@@ -1,4 +1,4 @@
-"""Validation helpers for ConfUSIus-style fUSI DataArrays."""
+"""Validation helpers for the ConfUSIus VoxelData model and fUSI recordings."""
 
 from __future__ import annotations
 
@@ -328,7 +328,7 @@ def canonicalize_fusi(data: xr.DataArray) -> xr.DataArray:
 def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
     """Fill in default `units` metadata on the world spatial coordinates.
 
-    Every ConfUSIus fUSI DataArray carries `units` on its world (`z`/`y`/`x`)
+    Every VoxelData-compatible DataArray carries `units` on its world (`z`/`y`/`x`)
     coordinates. Both `voxdim` and `units` are already guaranteed there by
     [attach_voxel_to_world_index][confusius._utils.geometry.attach_voxel_to_world_index]
     itself for freshly-attached data, so this function is mainly a safety net for
@@ -371,7 +371,7 @@ def _ensure_spatial_metadata_attrs(data: xr.DataArray) -> xr.DataArray:
 
 
 def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
-    """Canonicalize and validate a ConfUSIus fUSI DataArray.
+    """Canonicalize and validate a DataArray against the ConfUSIus VoxelData model.
 
     Parameters
     ----------
@@ -384,7 +384,7 @@ def ensure_fusi(data: xr.DataArray, **validate_kwargs: Any) -> xr.DataArray:
     Returns
     -------
     xarray.DataArray
-        Canonicalized DataArray that passed fUSI validation.
+        Canonicalized DataArray that passed VoxelData validation.
 
     Raises
     ------
@@ -412,7 +412,14 @@ def validate_fusi(
     regular_spacing_dims: RegularSpacingDims = "space",
     require_canonical_dim_order: bool = False,
 ) -> None:
-    """Validate that a DataArray follows the ConfUSIus fUSI data model.
+    """Validate that a DataArray follows the ConfUSIus VoxelData model.
+
+    This is the general-purpose VoxelData checker: by default it enforces only the
+    universal `k`/`j`/`i` + `VoxelToWorldIndex` structure required of any
+    VoxelData-compatible DataArray, so it is the right tool for any VoxelData array,
+    not only fUSI recordings. The optional flags below layer on genuine
+    fUSI-recording-specific requirements (e.g. acquisition timing) and should only be
+    enabled for actual fUSI recordings.
 
     Parameters
     ----------
@@ -420,7 +427,8 @@ def validate_fusi(
         DataArray to validate. It must use native voxel dimensions `k`, `j`, `i` and
         world coordinates `z`, `y`, `x`.
     require_time : bool, default: False
-        Whether to require a `time` dimension with more than one timepoint.
+        Whether to require a `time` dimension with more than one timepoint, as in an
+        actual fUSI recording.
     require_unchunked_time : bool, default: False
         Whether to require the time dimension to occupy one Dask chunk.
     require_uniform_time : bool, default: False
