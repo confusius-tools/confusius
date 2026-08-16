@@ -39,8 +39,7 @@ def _build_dataset_from_brainglobe(atlas: BrainGlobeAtlas) -> xr.Dataset:
     shape = metadata["shape"]
 
     voxel_coords = {
-        dim: xr.Variable(dim, np.arange(shape[i], dtype=np.float64))
-        for i, dim in enumerate(VOXEL_DIMS)
+        dim: xr.Variable(dim, np.arange(shape[i])) for i, dim in enumerate(VOXEL_DIMS)
     }
     voxel_to_world = np.eye(4, dtype=np.float64)
     voxel_to_world[:-1, :-1] = np.diag(resolution_mm)

@@ -16,9 +16,9 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("k", "j", "i"),
         coords={
-            "k": xr.DataArray([0.0, 1.0], dims=("k",), attrs={"voxdim": 1.0}),
-            "j": xr.DataArray([0.0, 2.0, 4.0], dims=("j",), attrs={"voxdim": 2.0}),
-            "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
+            "k": xr.DataArray([0, 1], dims=("k",), attrs={"voxdim": 1.0}),
+            "j": xr.DataArray([0, 2, 4], dims=("j",), attrs={"voxdim": 2.0}),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",), attrs={"voxdim": 1.0}),
         },
     )
     return attach_voxel_to_world_index(
@@ -105,9 +105,9 @@ def test_validate_fusi_rejects_scalar_indexed_voxel_dim() -> None:
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("k", "j", "i"),
         coords={
-            "k": xr.DataArray([0.0, 1.0], dims=("k",), attrs={"voxdim": 1.0}),
-            "j": xr.DataArray([0.0, 1.0, 2.0], dims=("j",), attrs={"voxdim": 1.0}),
-            "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
+            "k": xr.DataArray([0, 1], dims=("k",), attrs={"voxdim": 1.0}),
+            "j": xr.DataArray([0, 1, 2], dims=("j",), attrs={"voxdim": 1.0}),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",), attrs={"voxdim": 1.0}),
         },
     )
     oblique = np.array(
@@ -152,7 +152,7 @@ def test_validate_fusi_rejects_2d_voxel_to_world_data() -> None:
     base = xr.DataArray(
         np.zeros((3, 4), dtype=np.float32),
         dims=("j", "i"),
-        coords={"j": [0.0, 2.0, 4.0], "i": [0.0, 1.0, 2.0, 3.0]},
+        coords={"j": [0, 2, 4], "i": [0, 1, 2, 3]},
     )
     bad = attach_voxel_to_world_index(
         base,
@@ -175,7 +175,7 @@ def test_validate_fusi_rejects_voxel_to_world_index_missing_voxel_dim() -> None:
     base = xr.DataArray(
         np.zeros((2, 3, 4), dtype=np.float32),
         dims=("k", "j", "i"),
-        coords={"k": [0.0, 1.0], "j": [0.0, 2.0, 4.0], "i": [0.0, 1.0, 2.0, 3.0]},
+        coords={"k": [0, 1], "j": [0, 2, 4], "i": [0, 1, 2, 3]},
     )
     index = VoxelToWorldIndex.from_affine(
         {"j": base.coords["j"].values, "i": base.coords["i"].values},
@@ -389,9 +389,9 @@ def test_canonicalize_fusi_rejects_non_scalar_coordinate_for_missing_dim() -> No
         np.zeros((2, 4), dtype=np.float32),
         dims=("k", "i"),
         coords={
-            "k": xr.DataArray([0.0, 1.0], dims=("k",), attrs={"voxdim": 1.0}),
-            "i": xr.DataArray([0.0, 1.0, 2.0, 3.0], dims=("i",), attrs={"voxdim": 1.0}),
-            "j": xr.DataArray([0.0, 1.0], dims=("k",)),
+            "k": xr.DataArray([0, 1], dims=("k",), attrs={"voxdim": 1.0}),
+            "i": xr.DataArray([0, 1, 2, 3], dims=("i",), attrs={"voxdim": 1.0}),
+            "j": xr.DataArray([0, 1], dims=("k",)),
         },
     )
 

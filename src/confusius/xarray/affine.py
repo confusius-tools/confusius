@@ -248,9 +248,7 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
         for name in world_coord_names
         if name in da.coords
     }
-    reindexed = da.assign_coords(
-        {dim: np.arange(da.sizes[dim], dtype=np.float64) for dim in voxel_dims}
-    )
+    reindexed = da.assign_coords({dim: np.arange(da.sizes[dim]) for dim in voxel_dims})
     return attach_voxel_to_world_index(
         reindexed, new_affine, world_coord_attrs=world_coord_attrs
     )

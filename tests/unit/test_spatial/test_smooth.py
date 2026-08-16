@@ -163,7 +163,7 @@ class TestSmoothVolume:
                 dims=["k", "j", "i"],
                 coords={
                     "k": np.arange(5),
-                    "j": [0.0],
+                    "j": [0],
                     "i": np.arange(7),
                 },
             )
@@ -203,9 +203,7 @@ class TestSmoothVolume:
             xr.DataArray(
                 data,
                 dims=["k", "j", "i"],
-                coords={
-                    d: np.arange(s) * spacing for d, s in zip(["k", "j", "i"], shape)
-                },
+                coords={d: np.arange(s) for d, s in zip(["k", "j", "i"], shape)},
             )
         )
 

@@ -44,7 +44,7 @@ def test_get_grid_info_requires_regular_spacing_for_voxel_to_world_dataarray():
     data = xr.DataArray(
         np.zeros((3, 4)),
         dims=["j", "i"],
-        coords={"j": np.arange(3.0), "i": np.arange(4.0)},
+        coords={"j": np.arange(3), "i": np.arange(4)},
     )
     data = data.fusi.affine.set_voxel_to_world(np.eye(3))
     data = data.assign_coords(j=[0.0, 1.0, 3.5])

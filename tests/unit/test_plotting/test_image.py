@@ -88,7 +88,7 @@ class TestPlotVolume:
         data = xr.DataArray(
             np.arange(3 * 4, dtype=float).reshape(3, 4),
             dims=["j", "i"],
-            coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         data = attach_voxel_to_world_index(
             data,
@@ -545,7 +545,7 @@ class TestPlotVolume:
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
-            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         # The i column is exactly twice the j column, so j and i map to parallel
         # world-space directions.
@@ -634,7 +634,7 @@ class TestPlotVolume:
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
-            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         data = attach_voxel_to_world_index(
             data,
@@ -666,7 +666,7 @@ class TestPlotVolume:
         data = xr.DataArray(
             np.arange(3 * 4, dtype=float).reshape(3, 4),
             dims=["j", "i"],
-            coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         data = attach_voxel_to_world_index(
             data,
@@ -754,7 +754,7 @@ class TestPlottingUtilsVoxelToWorldHelpers:
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
-            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         voxel_to_world = np.array(
             [
@@ -822,9 +822,9 @@ class TestVolumePlotterAddVolume:
         """World-coordinate overlays resample onto the first plotted world grid."""
         overlay = attach_voxel_to_world_index(
             sample_fusi_3d.copy().assign_coords(
-                k=_world_coord_1d(sample_fusi_3d, "z"),
-                j=_world_coord_1d(sample_fusi_3d, "y"),
-                i=_world_coord_1d(sample_fusi_3d, "x"),
+                k=np.arange(sample_fusi_3d.sizes["k"]),
+                j=np.arange(sample_fusi_3d.sizes["j"]),
+                i=np.arange(sample_fusi_3d.sizes["i"]),
             ),
             np.array(
                 [

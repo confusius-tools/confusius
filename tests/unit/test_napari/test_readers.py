@@ -268,7 +268,7 @@ class TestReaderLayerData:
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
-            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         data = attach_voxel_to_world_index(
             data,

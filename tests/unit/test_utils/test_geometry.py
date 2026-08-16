@@ -32,9 +32,9 @@ def test_axis_aligned_voxel_to_world_computes_correct_world_coords() -> None:
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         coords={
-            "k": [0.0, 2.0],
-            "j": [0.0, 1.0, 3.0],
-            "i": [0.0, 2.0, 3.0, 7.0],
+            "k": [0, 2],
+            "j": [0, 1, 3],
+            "i": [0, 2, 3, 7],
         },
     )
     voxel_to_world = np.array(
@@ -70,9 +70,9 @@ def test_axis_aligned_voxel_to_world_uses_voxel_to_world_index() -> None:
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         coords={
-            "k": [0.0, 2.0],
-            "j": [0.0, 1.0, 3.0],
-            "i": [0.0, 2.0, 3.0, 7.0],
+            "k": [0, 2],
+            "j": [0, 1, 3],
+            "i": [0, 2, 3, 7],
         },
     )
     voxel_to_world = np.array(
@@ -99,9 +99,9 @@ def test_oblique_coordinate_transform_index_selection_uses_world_coords() -> Non
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         coords={
-            "k": [0.0, 2.0],
-            "j": [0.0, 1.0, 3.0],
-            "i": [0.0, 2.0, 3.0, 7.0],
+            "k": [0, 2],
+            "j": [0, 1, 3],
+            "i": [0, 2, 3, 7],
         },
     )
     voxel_to_world = np.array(
@@ -166,9 +166,9 @@ def test_affine_geometry_helpers_extract_vectors_scalings_and_orientation() -> N
 def test_get_world_spacings_singleton_axis_uses_affine_column_norm() -> None:
     """Singleton voxel axes still have a world per-voxel spacing from the affine."""
     voxel_coords = {
-        "k": [0.0],
-        "j": [0.0, 2.0, 4.0],
-        "i": [0.0, 1.0, 2.0, 3.0],
+        "k": [0],
+        "j": [0, 2, 4],
+        "i": [0, 1, 2, 3],
     }
     voxel_to_world = np.array(
         [
@@ -187,9 +187,9 @@ def test_get_world_spacings_singleton_axis_uses_affine_column_norm() -> None:
 def test_get_world_spacings_returns_none_for_irregular_voxel_axes() -> None:
     """World spacing is undefined when voxel-space sampling is irregular."""
     voxel_coords = {
-        "k": [0.0, 1.0, 2.0],
-        "j": [0.0, 2.0, 4.0],
-        "i": [0.0, 1.0, 3.0, 4.0],
+        "k": [0, 1, 2],
+        "j": [0, 2, 4],
+        "i": [0, 1, 3, 4],
     }
     voxel_to_world = np.array(
         [
@@ -211,9 +211,9 @@ def test_get_voxel_to_world_origin_uses_first_sampled_voxel() -> None:
         np.zeros((2, 3, 4)),
         dims=("k", "j", "i"),
         coords={
-            "k": [10.0, 11.0],
-            "j": [5.0, 7.0, 9.0],
-            "i": [100.0, 101.0, 102.0, 103.0],
+            "k": [10, 11],
+            "j": [5, 7, 9],
+            "i": [100, 101, 102, 103],
         },
     )
     data = attach_voxel_to_world_index(
@@ -237,9 +237,9 @@ def _axis_aligned_result() -> xr.DataArray:
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         coords={
-            "k": [0.0, 2.0],
-            "j": [0.0, 1.0, 3.0],
-            "i": [0.0, 2.0, 3.0, 7.0],
+            "k": [0, 2],
+            "j": [0, 1, 3],
+            "i": [0, 2, 3, 7],
         },
     )
     return attach_voxel_to_world_index(
@@ -290,7 +290,9 @@ def test_reindex_between_different_world_grids_raises_clear_error() -> None:
         ),
     )
 
-    with pytest.raises(ValueError, match="Cannot automatically reindex .*resample_like"):
+    with pytest.raises(
+        ValueError, match="Cannot automatically reindex .*resample_like"
+    ):
         left.reindex_like(right)
 
 
@@ -299,7 +301,7 @@ def test_add_world_coords_defaults_to_yx_names_for_2d_voxel_dims() -> None:
     data = xr.DataArray(
         np.zeros((3, 4)),
         dims=("j", "i"),
-        coords={"j": np.arange(3.0), "i": np.arange(4.0)},
+        coords={"j": np.arange(3), "i": np.arange(4)},
     )
 
     result = attach_voxel_to_world_index(data, np.eye(3))
@@ -315,7 +317,7 @@ def test_voxel_to_world_index_from_affine_defaults_to_yx_names_for_2d() -> None:
     called directly.
     """
     index = VoxelToWorldIndex.from_affine(
-        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
+        {"j": np.arange(3), "i": np.arange(4)}, np.eye(3)
     )
 
     assert index.world_coord_names == ("y", "x")
@@ -333,9 +335,9 @@ def test_sel_resolves_descending_and_nonmonotonic_axis_aligned_axes() -> None:
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         coords={
-            "k": [4.0, 0.0],  # Strictly descending.
-            "j": [0.0, 3.0, 1.0],  # Non-monotonic.
-            "i": [0.0, 1.0, 2.0, 3.0],
+            "k": [4, 0],  # Strictly descending.
+            "j": [0, 3, 1],  # Non-monotonic.
+            "i": [0, 1, 2, 3],
         },
     )
     result = attach_voxel_to_world_index(data, np.eye(4))
@@ -390,9 +392,9 @@ def test_reverse_skips_dimension_fixed_by_a_prior_scalar_isel() -> None:
         np.arange(24).reshape(2, 3, 4),
         dims=("k", "j", "i"),
         coords={
-            "k": [0.0, 2.0],
-            "j": [0.0, 1.0, 3.0],
-            "i": [0.0, 2.0, 3.0, 7.0],
+            "k": [0, 2],
+            "j": [0, 1, 3],
+            "i": [0, 2, 3, 7],
         },
     )
     voxel_to_world = np.array(
@@ -421,7 +423,7 @@ def test_reverse_skips_dimension_fixed_by_a_prior_scalar_isel() -> None:
 
 def test_voxel_to_world_transform_rejects_invalid_construction() -> None:
     """`VoxelToWorldTransform` validates its constructor arguments."""
-    valid_coords = {"j": np.arange(3.0), "i": np.arange(4.0)}
+    valid_coords = {"j": np.arange(3), "i": np.arange(4)}
 
     with pytest.raises(ValueError, match="must exactly cover active dims"):
         VoxelToWorldTransform(valid_coords, np.eye(3), all_dims=("j", "i", "k"))
@@ -432,16 +434,16 @@ def test_voxel_to_world_transform_rejects_invalid_construction() -> None:
     with pytest.raises(ValueError, match="only supports 2D or 3D"):
         VoxelToWorldTransform(
             {
-                "k": np.arange(2.0),
-                "j": np.arange(3.0),
-                "i": np.arange(4.0),
+                "k": np.arange(2),
+                "j": np.arange(3),
+                "i": np.arange(4),
                 "t": np.arange(2.0),
             },
             np.eye(5),
         )
 
     with pytest.raises(ValueError, match="must be 1D"):
-        VoxelToWorldTransform({"j": np.arange(3.0), "i": np.zeros((2, 2))}, np.eye(3))
+        VoxelToWorldTransform({"j": np.arange(3), "i": np.zeros((2, 2))}, np.eye(3))
 
     with pytest.raises(ValueError, match="one entry per voxel dimension"):
         VoxelToWorldTransform(valid_coords, np.eye(3), world_coord_names=("y",))
@@ -452,27 +454,21 @@ def test_voxel_to_world_transform_rejects_invalid_construction() -> None:
 
 def test_voxel_to_world_transform_defaults_to_yx_names_for_2d() -> None:
     """A `VoxelToWorldTransform` built without explicit names defaults to `y`/`x`."""
-    transform = VoxelToWorldTransform(
-        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
-    )
+    transform = VoxelToWorldTransform({"j": np.arange(3), "i": np.arange(4)}, np.eye(3))
 
     assert transform.coord_names == ("y", "x")
 
 
 def test_voxel_to_world_transform_equals_rejects_other_types() -> None:
     """`VoxelToWorldTransform.equals` returns `False` for non-transform values."""
-    transform = VoxelToWorldTransform(
-        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
-    )
+    transform = VoxelToWorldTransform({"j": np.arange(3), "i": np.arange(4)}, np.eye(3))
 
     assert transform.equals(object()) is False  # ty: ignore[invalid-argument-type]
 
 
 def test_voxel_to_world_transform_repr_reports_dims_and_coord_names() -> None:
     """`repr` reports the transform's active dims and world coordinate names."""
-    transform = VoxelToWorldTransform(
-        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
-    )
+    transform = VoxelToWorldTransform({"j": np.arange(3), "i": np.arange(4)}, np.eye(3))
 
     assert repr(transform) == (
         "VoxelToWorldTransform(dims=('j', 'i'), coord_names=('y', 'x'))"
@@ -487,9 +483,7 @@ def test_voxel_to_world_transform_isel_unsupported_indexers_return_none() -> Non
     `_is_scalar_indexer`'s final `False` fallback), and a fancy multi-dimensional
     array index that would produce a non-1D result.
     """
-    transform = VoxelToWorldTransform(
-        {"j": np.arange(3.0), "i": np.arange(4.0)}, np.eye(3)
-    )
+    transform = VoxelToWorldTransform({"j": np.arange(3), "i": np.arange(4)}, np.eye(3))
 
     unrelated = transform.isel({"nonexistent": 0})
     assert unrelated is not None
@@ -509,7 +503,7 @@ def test_add_world_coords_validates_voxel_dims_and_coordinates() -> None:
     data = xr.DataArray(
         np.zeros((3, 4)),
         dims=("j", "i"),
-        coords={"j": np.arange(3.0), "i": np.arange(4.0)},
+        coords={"j": np.arange(3), "i": np.arange(4)},
     )
 
     with pytest.raises(ValueError, match="must have a matching 1D coordinate"):
@@ -518,7 +512,7 @@ def test_add_world_coords_validates_voxel_dims_and_coordinates() -> None:
     non_dim_coord = xr.DataArray(
         np.zeros((3, 4)),
         dims=("j", "i"),
-        coords={"j": (("j", "i"), np.zeros((3, 4))), "i": np.arange(4.0)},
+        coords={"j": (("j", "i"), np.zeros((3, 4))), "i": np.arange(4)},
     )
     with pytest.raises(ValueError, match="must be a 1D dimension coordinate"):
         attach_voxel_to_world_index(non_dim_coord, np.eye(3))
@@ -543,7 +537,7 @@ def test_restore_world_coords_rebuilds_geometry_after_expand_dims() -> None:
 
     assert restore_voxel_to_world_index(fixed) is fixed
 
-    expanded = fixed.expand_dims(k=[2.0])
+    expanded = fixed.expand_dims(k=[2])
     restored = restore_voxel_to_world_index(expanded)
 
     assert restored.coords["z"].dims == ("k", "j", "i")

@@ -741,7 +741,7 @@ def convert_autc_dats_to_zarr(
 
     for dim, size in zip(VOXEL_DIMS, (1, n_z, n_x), strict=True):
         zarr_group.create_array(
-            dim, data=np.arange(size, dtype=np.float64), dimension_names=[dim]
+            dim, data=np.arange(size, dtype=np.int64), dimension_names=[dim]
         )
 
     if len(spacing) != 3:

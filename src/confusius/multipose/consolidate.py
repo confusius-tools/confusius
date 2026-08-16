@@ -463,7 +463,7 @@ def consolidate_poses(
                 "voxdim": np.float64(spacing).item(),
             }
             result = result.assign_coords(
-                {voxel_dim: np.arange(result.sizes[voxel_dim], dtype=np.float64)}
+                {voxel_dim: np.arange(result.sizes[voxel_dim])}
             )
         voxel_to_world_affine = np.eye(len(output_spatial_dim_names) + 1)
         voxel_to_world_affine[:-1, :-1] = np.diag(spacings)

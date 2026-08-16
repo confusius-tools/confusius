@@ -100,7 +100,7 @@ class TestPlotNapari:
         data = xr.DataArray(
             np.arange(2 * 3 * 4, dtype=float).reshape(2, 3, 4),
             dims=["k", "j", "i"],
-            coords={"k": [0.0, 1.0], "j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"k": [0, 1], "j": [0, 1, 2], "i": [0, 1, 2, 3]},
         )
         data = attach_voxel_to_world_index(
             data,
@@ -196,7 +196,7 @@ class TestPlotNapari:
 
     def test_non_uniform_spatial_coords_warn(self, sample_fusi_3d, make_napari_viewer):
         data = attach_voxel_to_world_index(
-            sample_fusi_3d.assign_coords(j=[2.0, 2.1, 2.4, 2.6, 2.7, 2.9]),
+            sample_fusi_3d.assign_coords(j=[2, 3, 5, 6, 7, 9]),
             get_voxel_to_world_affine(sample_fusi_3d),
         )
         viewer = make_napari_viewer()
@@ -230,7 +230,7 @@ class TestPlotNapari:
             xr.DataArray(
                 np.array([[0.0, 1.0], [2.0, 0.0]], dtype=np.float32),
                 dims=["j", "i"],
-                coords={"j": [0.0, 1.0], "i": [0.0, 1.0]},
+                coords={"j": [0, 1], "i": [0, 1]},
             ),
             np.eye(3),
         )
@@ -306,7 +306,7 @@ class TestPlotNapari:
             xr.DataArray(
                 np.array([[0, 0, 0, 0], [0, 7, 7, 0], [0, 7, 42, 0], [0, 0, 42, 0]]),
                 dims=["j", "i"],
-                coords={"j": [0.0, 1.0, 2.0, 3.0], "i": [0.0, 1.0, 2.0, 3.0]},
+                coords={"j": [0, 1, 2, 3], "i": [0, 1, 2, 3]},
                 attrs={"roi_labels": roi_labels},
             ),
             np.diag([0.5, 0.5, 1.0]),

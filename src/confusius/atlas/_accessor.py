@@ -478,10 +478,7 @@ class AtlasAccessor:
             `"i"`.
         """
         dims = [str(dim) for dim in dims]
-        coords = {
-            dim: np.arange(size, dtype=float)
-            for dim, size in zip(dims, shape, strict=True)
-        }
+        coords = {dim: np.arange(size) for dim, size in zip(dims, shape, strict=True)}
         reference = xr.DataArray(
             np.zeros(tuple(shape), dtype=np.float32),
             dims=dims,

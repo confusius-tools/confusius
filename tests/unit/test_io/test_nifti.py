@@ -2387,9 +2387,9 @@ class TestSaveNifti:
                             "volume_acquisition_duration": 1.0,
                         },
                     ),
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         [0.0, 0.1, 0.2, 0.3], dims=["k"], attrs={"units": "s"}
                     ),
@@ -2413,9 +2413,9 @@ class TestSaveNifti:
                 np.zeros((4, 3, 2), dtype=np.float32),
                 dims=["k", "j", "i"],
                 coords={
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         [0.0, 0.1, 0.2, 0.3], dims=["k"], attrs={"units": "s"}
                     ),
@@ -2440,9 +2440,9 @@ class TestSaveNifti:
                 dims=["k", "j", "i"],
                 coords={
                     "time": xr.DataArray(10.0, attrs={"units": "s"}),
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         [10.0, 10.1, 10.2, 10.3], dims=["k"], attrs={"units": "s"}
                     ),
@@ -2483,9 +2483,9 @@ class TestSaveNifti:
                             "volume_acquisition_reference": "start",
                         },
                     ),
-                    "k": np.arange(2, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(2),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         [10.2, 10.3],
                         dims=["k"],
@@ -2523,9 +2523,9 @@ class TestSaveNifti:
                         },
                     ),
                     "channel": [0, 1],
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         [10.0, 10.1], dims=["channel"], attrs={"units": "s"}
                     ),
@@ -2587,9 +2587,9 @@ class TestSaveNifti:
                             "volume_acquisition_duration": 1.0,
                         },
                     ),
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         np.zeros((2, 2)), dims=("time", "channel"), attrs={"units": "s"}
                     ),
@@ -2612,9 +2612,9 @@ class TestSaveNifti:
                 np.zeros((2, 4, 3, 2), dtype=np.float32),
                 dims=["time", "k", "j", "i"],
                 coords={
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         np.zeros((2, 4)), dims=("time", "k"), attrs={"units": "s"}
                     ),
@@ -2640,9 +2640,9 @@ class TestSaveNifti:
                         dims=["time"],
                         attrs={"units": "s", "volume_acquisition_reference": "start"},
                     ),
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         np.zeros((1, 4)) + np.array([10.0, 10.1, 10.2, 10.3]),
                         dims=("time", "k"),
@@ -2678,9 +2678,9 @@ class TestSaveNifti:
                             "volume_acquisition_reference": "middle",
                         },
                     ),
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                 },
             )
         )
@@ -2955,9 +2955,9 @@ class TestSaveNifti:
                 np.zeros((0, 4, 6), dtype=np.float32),
                 dims=("k", "j", "i"),
                 coords={
-                    "k": np.array([], dtype=float),
-                    "j": np.arange(4, dtype=float),
-                    "i": np.arange(6, dtype=float),
+                    "k": np.array([], dtype=np.int64),
+                    "j": np.arange(4),
+                    "i": np.arange(6),
                 },
             )
         )
@@ -2977,9 +2977,9 @@ class TestSaveNifti:
                 np.zeros((4, 3, 2), dtype=np.float32),
                 dims=("k", "j", "i"),
                 coords={
-                    "k": np.array([0.0, 1.0, 2.0, 10.0], dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.array([0, 1, 2, 10], dtype=np.int64),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                 },
             )
         )
@@ -3148,9 +3148,9 @@ class TestRoundtrip:
                             "volume_acquisition_duration": 0.4,
                         },
                     ),
-                    "k": np.arange(4, dtype=float),
-                    "j": np.arange(3, dtype=float),
-                    "i": np.arange(2, dtype=float),
+                    "k": np.arange(4),
+                    "j": np.arange(3),
+                    "i": np.arange(2),
                     "slice_time": xr.DataArray(
                         time_values[:, np.newaxis] + np.array([0.0, 1.8, 0.6, 1.2]),
                         dims=("time", "k"),

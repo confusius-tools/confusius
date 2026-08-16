@@ -551,7 +551,7 @@ def create_fusi_dataarray(
         resolved_voxdim = _validate_spatial_tuple(voxdim, name="voxdim")
 
     voxel_coords = {
-        dim: xr.DataArray(np.arange(spatial_sizes[dim], dtype=float), dims=(dim,))
+        dim: xr.DataArray(np.arange(spatial_sizes[dim]), dims=(dim,))
         for dim in VOXEL_DIMS
         if dim in data_dims
     }

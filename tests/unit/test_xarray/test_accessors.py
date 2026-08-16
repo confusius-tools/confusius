@@ -19,9 +19,9 @@ def _make_voxel_to_world_volume() -> xr.DataArray:
         np.zeros((2, 3, 4)),
         dims=["k", "j", "i"],
         coords={
-            "k": [0.0, 1.0],
-            "j": [0.0, 2.0, 4.0],
-            "i": [0.0, 1.0, 2.0, 3.0],
+            "k": [0, 1],
+            "j": [0, 2, 4],
+            "i": [0, 1, 2, 3],
         },
     )
     return attach_voxel_to_world_index(
@@ -221,9 +221,9 @@ class TestOrigin:
             np.zeros((2, 3, 4)),
             dims=["k", "j", "i"],
             coords={
-                "k": [10.0, 11.0],
-                "j": [5.0, 7.0, 9.0],
-                "i": [100.0, 101.0, 102.0, 103.0],
+                "k": [10, 11],
+                "j": [5, 7, 9],
+                "i": [100, 101, 102, 103],
             },
         )
         data = attach_voxel_to_world_index(
@@ -334,7 +334,7 @@ class TestReindexVoxels:
         base = xr.DataArray(
             np.zeros((3, 4)),
             dims=["j", "i"],
-            coords={"j": [0.0, 1.0, 3.0], "i": np.arange(4.0)},
+            coords={"j": [0, 1, 3], "i": np.arange(4)},
         )
         data = attach_voxel_to_world_index(base, np.eye(3))
         with pytest.raises(ValueError, match="spacing is undefined"):
@@ -350,9 +350,9 @@ class TestReindexVoxelsLike:
             np.arange(4 * 20 * 20, dtype=np.float64).reshape(4, 20, 20),
             dims=("k", "j", "i"),
             coords={
-                "k": np.arange(4.0),
-                "j": np.arange(20.0),
-                "i": np.arange(20.0),
+                "k": np.arange(4),
+                "j": np.arange(20),
+                "i": np.arange(20),
             },
         )
         base = attach_voxel_to_world_index(
@@ -447,7 +447,7 @@ class TestReindexVoxelsLike:
         base_2d = xr.DataArray(
             np.zeros((4, 5)),
             dims=["j", "i"],
-            coords={"j": np.arange(4.0), "i": np.arange(5.0)},
+            coords={"j": np.arange(4), "i": np.arange(5)},
         )
         data_2d = attach_voxel_to_world_index(base_2d, np.eye(3))
 
@@ -463,9 +463,9 @@ class TestAffineSetVoxelToWorldMethod:
             np.zeros((2, 3, 4)),
             dims=["k", "j", "i"],
             coords={
-                "k": [0.0, 1.0],
-                "j": [0.0, 1.0, 2.0],
-                "i": [0.0, 1.0, 2.0, 3.0],
+                "k": [0, 1],
+                "j": [0, 1, 2],
+                "i": [0, 1, 2, 3],
             },
         )
 
@@ -617,7 +617,7 @@ class TestAffineApplyMethod:
         origin: tuple[float, ...] = (0.0, 0.0, 0.0),
         affines: dict | None = None,
     ) -> xr.DataArray:
-        coords = {dim: np.arange(n, dtype=float) for dim, n in zip(dims, shape)}
+        coords = {dim: np.arange(n) for dim, n in zip(dims, shape)}
         affine = np.eye(len(dims) + 1)
         affine[:-1, :-1] = np.diag(spacing[: len(dims)])
         affine[:-1, -1] = origin[: len(dims)]
@@ -820,7 +820,7 @@ class TestAffineApplyMethod:
         base = xr.DataArray(
             np.zeros((3, 4)),
             dims=["j", "i"],
-            coords={"j": [0.0, 1.0, 2.0], "i": [0.0, 1.0, 2.0, 3.0]},
+            coords={"j": [0, 1, 2], "i": [0, 1, 2, 3]},
             attrs={"affines": {"world_to_lab": np.eye(3)}},
         )
         da = attach_voxel_to_world_index(

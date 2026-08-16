@@ -836,8 +836,8 @@ def attach_voxel_to_world_index(
     Parameters
     ----------
     data : xarray.DataArray
-        Input array that already carries 1D voxel-space coordinates on its native
-        voxel dims (`k`/`j`/`i`).
+        Input array that already carries 1D integer voxel-space coordinates on its
+        native voxel dims (`k`/`j`/`i`).
     voxel_to_world : (N+1, N+1) numpy.ndarray
         Homogeneous affine mapping voxel-space coordinates to world-space
         coordinates.
@@ -859,6 +859,8 @@ def attach_voxel_to_world_index(
     ValueError
         If `data` has no native voxel dims (`k`/`j`/`i`), or if their coordinates are
         not 1D dimension coordinates.
+    TypeError
+        If a voxel dimension's coordinate does not have integer dtype.
     """
     voxel_dims = tuple(dim for dim in VOXEL_DIMS if dim in data.dims)
     if not voxel_dims:
@@ -870,7 +872,7 @@ def attach_voxel_to_world_index(
     world_coord_names: tuple[Hashable, ...] = tuple(
         voxel_to_world_name[dim] for dim in voxel_dims
     )
-    voxel_coords: dict[str, npt.NDArray[np.float64]] = {}
+    voxel_coords: dict[str, npt.NDArray[np.int64]] = {}
     for dim in voxel_dims:
         if dim not in data.coords:
             raise ValueError(
@@ -882,7 +884,12 @@ def attach_voxel_to_world_index(
                 f"Voxel coordinate {dim!r} must be a 1D dimension coordinate; got "
                 f"dims {coord.dims!r}."
             )
-        voxel_coords[dim] = np.asarray(coord.values, dtype=np.float64)
+        if not np.issubdtype(coord.dtype, np.integer):
+            raise TypeError(
+                f"Voxel coordinate {dim!r} must have integer dtype (native voxel "
+                f"indices), got {coord.dtype}."
+            )
+        voxel_coords[dim] = np.asarray(coord.values, dtype=np.int64)
 
     voxel_to_world_array = np.asarray(voxel_to_world, dtype=np.float64)
 
