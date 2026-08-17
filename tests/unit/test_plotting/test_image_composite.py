@@ -278,10 +278,10 @@ class TestAddCompositeNormalize:
         assert cyan_max == pytest.approx(1.0, abs=1e-6)
 
     def test_shared_raises_when_no_finite_values(
-        self, sample_3d_volume, matplotlib_pyplot
+        self, sample_fusi_3d, matplotlib_pyplot
     ):
-        data1 = sample_3d_volume.copy(data=np.full(sample_3d_volume.shape, -np.inf))
-        data2 = sample_3d_volume.copy(data=np.full(sample_3d_volume.shape, np.nan))
+        data1 = sample_fusi_3d.copy(data=np.full(sample_fusi_3d.shape, -np.inf))
+        data2 = sample_fusi_3d.copy(data=np.full(sample_fusi_3d.shape, np.nan))
         with pytest.raises(ValueError, match="no finite"):
             VolumePlotter(slice_mode="z").add_composite(
                 data1, data2, resample=False, normalize_strategy="shared"
@@ -291,14 +291,14 @@ class TestAddCompositeNormalize:
         "normalize_strategy", ["per_volume", "per_slice", "shared"]
     )
     def test_neg_inf_background_does_not_propagate_nan(
-        self, sample_3d_volume, matplotlib_pyplot, normalize_strategy
+        self, sample_fusi_3d, matplotlib_pyplot, normalize_strategy
     ):
         # db_scale maps zero/negative voxels to -inf (background in power-Doppler
         # data). All three normalisation strategies must exclude -inf from the
         # min/max bounds instead of letting it turn every pixel into nan.
-        base1 = sample_3d_volume.copy()
+        base1 = sample_fusi_3d.copy()
         base1.values[0, 0, 0] = 0.0
-        base2 = _shifted_volume(sample_3d_volume)
+        base2 = _shifted_volume(sample_fusi_3d)
         base2.values[0, 0, 0] = 0.0
         data1 = base1.fusi.scale.db()
         data2 = base2.fusi.scale.db()
