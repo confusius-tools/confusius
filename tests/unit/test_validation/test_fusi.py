@@ -306,6 +306,17 @@ def test_validate_fusi_rejects_missing_time_units() -> None:
         validate_fusi(bad)
 
 
+def test_validate_fusi_rejects_invalid_volume_acquisition_reference() -> None:
+    """`volume_acquisition_reference` must name a known timing anchor."""
+    bad = _make_voxel_to_world_time_series().copy(deep=True)
+    bad.coords["time"].attrs["volume_acquisition_reference"] = "middle"
+
+    with pytest.raises(
+        ValueError, match="volume_acquisition_reference.*start.*center.*end"
+    ):
+        validate_fusi(bad)
+
+
 def test_validate_fusi_rejects_missing_spatial_units() -> None:
     """World spatial `units` metadata is always required."""
     bad = _make_voxel_to_world_time_series().copy(deep=True)

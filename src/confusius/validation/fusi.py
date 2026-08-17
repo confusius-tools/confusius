@@ -20,7 +20,7 @@ from confusius._utils.geometry import (
 )
 from confusius._utils.stack import find_stack_level
 from confusius._utils.validation import require_dataarray
-from confusius.timing import ensure_time_acquisition_attrs
+from confusius.timing import TIMING_REFERENCE_FACTORS, ensure_time_acquisition_attrs
 from confusius.validation.time_series import (
     validate_required_time_dimension,
     validate_timepoint_count,
@@ -495,6 +495,12 @@ def validate_fusi(
         if "volume_acquisition_reference" not in time_attrs:
             raise ValueError(
                 "'time' coordinate is missing 'volume_acquisition_reference'."
+            )
+        if time_attrs["volume_acquisition_reference"] not in TIMING_REFERENCE_FACTORS:
+            raise ValueError(
+                "'time' coordinate 'volume_acquisition_reference' must be one of "
+                f"{tuple(TIMING_REFERENCE_FACTORS)!r}, got "
+                f"{time_attrs['volume_acquisition_reference']!r}."
             )
         if "volume_acquisition_duration" not in time_attrs:
             raise ValueError(

@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 
 from confusius._utils.geometry import attach_voxel_to_world_index
-from confusius.validation import validate_iq_dataarray
+from confusius.validation import validate_iq, validate_iq_dataarray
 
 
 class TestValidateIqDataArray:
@@ -78,6 +78,18 @@ class TestValidateIqDataArray:
 
         with pytest.raises(TypeError, match="Expected complex-valued data"):
             validate_iq_dataarray(iq)
+
+    def test_invalid_volume_acquisition_reference_raises(
+        self, valid_iq_dataarray: xr.DataArray
+    ) -> None:
+        """IQ validation inherits fUSI timing-reference validation."""
+        iq = valid_iq_dataarray.copy(deep=True)
+        iq.coords["time"].attrs["volume_acquisition_reference"] = "middle"
+
+        with pytest.raises(
+            ValueError, match="volume_acquisition_reference.*start.*center.*end"
+        ):
+            validate_iq(iq)
 
     @pytest.mark.parametrize(
         "missing_attr",

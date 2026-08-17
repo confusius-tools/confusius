@@ -164,42 +164,19 @@ class TestComputeProcessedVolumeTimes:
         )
         assert_allclose(result, expected)
 
-    @pytest.mark.parametrize(
-        "bad_ref_kwarg", ["iq_time_reference", "processed_time_reference"]
-    )
-    def test_invalid_reference_raises(self, bad_ref_kwarg):
-        """Invalid timing reference raises ValueError."""
+    def test_invalid_processed_reference_raises(self):
+        """Invalid processed timing reference raises ValueError."""
         iq = self._make_iq(np.arange(10) * 0.1, volume_acquisition_duration=0.1)
-        if bad_ref_kwarg == "iq_time_reference":
-            iq = iq.assign_coords(
-                time=xr.DataArray(
-                    iq.coords["time"].values,
-                    dims=("time",),
-                    attrs={
-                        **iq.coords["time"].attrs,
-                        "volume_acquisition_reference": "invalid",
-                    },
-                )
+
+        with pytest.raises(ValueError, match="processed_time_reference"):
+            compute_processed_volume_timings(
+                iq,
+                clutter_window_width=10,
+                clutter_window_stride=10,
+                inner_window_width=10,
+                inner_window_stride=10,
+                processed_time_reference="invalid",  # ty: ignore[invalid-argument-type]
             )
-            with pytest.raises(ValueError, match=bad_ref_kwarg):
-                compute_processed_volume_timings(
-                    iq,
-                    clutter_window_width=10,
-                    clutter_window_stride=10,
-                    inner_window_width=10,
-                    inner_window_stride=10,
-                    processed_time_reference="start",
-                )
-        else:
-            with pytest.raises(ValueError, match=bad_ref_kwarg):
-                compute_processed_volume_timings(
-                    iq,
-                    clutter_window_width=10,
-                    clutter_window_stride=10,
-                    inner_window_width=10,
-                    inner_window_stride=10,
-                    processed_time_reference="invalid",  # ty: ignore[invalid-argument-type]
-                )
 
     def test_matches_docstring_example(self):
         """Result matches the examples from the docstring."""

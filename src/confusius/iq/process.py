@@ -183,28 +183,6 @@ def _normalize_spatial_kernel(
     )
 
 
-def _get_volume_acquisition_duration(iq: xr.DataArray) -> float:
-    """Return the input IQ volume acquisition duration in coordinate units.
-
-    `ensure_iq` (called by every public entry point before this helper runs) validates
-    `iq` against the VoxelData model, which requires `volume_acquisition_duration` on
-    the `time` coordinate whenever `time` is a dimension — as it always is for IQ data
-    (see [validate_fusi][confusius.validation.validate_fusi]) — so this only needs to
-    read it back.
-
-    Parameters
-    ----------
-    iq : xarray.DataArray
-        Input IQ data array.
-
-    Returns
-    -------
-    float
-        Volume acquisition duration in the same units as the `time` coordinate.
-    """
-    return float(iq.coords["time"].attrs["volume_acquisition_duration"])
-
-
 def _get_filter_sampling_frequency(
     iq: xr.DataArray,
     *,
@@ -306,16 +284,8 @@ def _compute_clutter_filter_window_metadata(
         Representative clutter-filter window stride in the input time-coordinate
         units.
     """
-    iq_time_reference = iq.coords["time"].attrs.get(
-        "volume_acquisition_reference", "start"
-    )
-    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
-        raise ValueError(
-            f"Unknown volume_acquisition_reference: {iq_time_reference!r}. Must be "
-            "'start', 'center', or 'end'."
-        )
-
-    iq_volume_duration = _get_volume_acquisition_duration(iq)
+    iq_time_reference = iq.time.volume_acquisition_reference
+    iq_volume_duration = iq.time.volume_acquisition_duration
     iq_volume_timings = np.asarray(iq.coords["time"].values)
     window_starts = convert_time_reference(
         iq_volume_timings,
@@ -395,20 +365,11 @@ def _compute_inner_window_metadata(
         description=duration_description,
     )
 
-    output_reference = iq.coords["time"].attrs.get(
-        "volume_acquisition_reference", "start"
-    )
-    if output_reference not in TIMING_REFERENCE_FACTORS:
-        raise ValueError(
-            f"Unknown volume_acquisition_reference: {output_reference!r}. Must be "
-            "'start', 'center', or 'end'."
-        )
-
     if output_timings.size > 1:
         output_starts = convert_time_reference(
             output_timings,
             output_durations,
-            from_reference=output_reference,
+            from_reference=iq.time.volume_acquisition_reference,
             to_reference="start",
         )
         if inner_windows_per_outer_window > 1:
@@ -433,7 +394,7 @@ def _compute_inner_window_metadata(
     time_step, _ = get_representative_time_step(iq)
     if time_step is None:
         output_window_stride_duration = (
-            output_window_stride * _get_volume_acquisition_duration(iq)
+            output_window_stride * iq.time.volume_acquisition_duration
         )
     else:
         output_window_stride_duration = output_window_stride * time_step
@@ -497,8 +458,7 @@ def compute_processed_volume_timings(
     Raises
     ------
     ValueError
-        If the input `volume_acquisition_reference` (read from `iq`) or
-        `processed_time_reference` is not one of `"start"`, `"center"`, or `"end"`.
+        If `processed_time_reference` is not one of `"start"`, `"center"`, or `"end"`.
 
     Examples
     --------
@@ -537,18 +497,12 @@ def compute_processed_volume_timings(
     """
     iq = ensure_iq(iq)
 
-    iq_time_reference = iq.coords["time"].attrs.get(
-        "volume_acquisition_reference", "start"
-    )
+    iq_time_reference = iq.time.volume_acquisition_reference
     if processed_time_reference is None:
         processed_time_reference = iq_time_reference
-    iq_volume_duration = _get_volume_acquisition_duration(iq)
+    iq_volume_duration = iq.time.volume_acquisition_duration
     iq_volume_timings = np.asarray(iq.coords["time"].values)
 
-    if iq_time_reference not in TIMING_REFERENCE_FACTORS:
-        raise ValueError(
-            f"Unknown iq_time_reference: {iq_time_reference!r}. Must be 'start', 'center', or 'end'."
-        )
     if processed_time_reference not in TIMING_REFERENCE_FACTORS:
         raise ValueError(
             "Unknown processed_time_reference: "
@@ -1412,11 +1366,7 @@ def process_iq_to_power_doppler(
         dims="time",
         attrs={
             **iq.coords["time"].attrs,
-            # By default, we assume that the acquisition time reference is the start of
-            # the first volume in the window.
-            "volume_acquisition_reference": iq.coords["time"].attrs.get(
-                "volume_acquisition_reference", "start"
-            ),
+            "volume_acquisition_reference": iq.time.volume_acquisition_reference,
             "volume_acquisition_duration": doppler_window_duration,
         },
     )
@@ -1517,11 +1467,7 @@ def process_iq_to_bmode(
         dims="time",
         attrs={
             **iq.coords["time"].attrs,
-            # By default, we assume that the acquisition time reference is the start of
-            # the first volume in the window.
-            "volume_acquisition_reference": iq.coords["time"].attrs.get(
-                "volume_acquisition_reference", "start"
-            ),
+            "volume_acquisition_reference": iq.time.volume_acquisition_reference,
             "volume_acquisition_duration": bmode_window_duration,
         },
     )
@@ -1754,11 +1700,7 @@ def process_iq_to_axial_velocity(
         dims="time",
         attrs={
             **iq.coords["time"].attrs,
-            # By default, we assume that the acquisition time reference is the start of
-            # the first volume in the window.
-            "volume_acquisition_reference": iq.coords["time"].attrs.get(
-                "volume_acquisition_reference", "start"
-            ),
+            "volume_acquisition_reference": iq.time.volume_acquisition_reference,
             "volume_acquisition_duration": velocity_window_duration,
         },
     )
