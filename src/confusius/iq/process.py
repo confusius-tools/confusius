@@ -1204,9 +1204,7 @@ def process_iq_to_power_doppler(
     iq : xarray.DataArray
         Xarray DataArray containing complex beamformed IQ data with dimensions
         `(time, k, j, i)`, where `time` is the temporal dimension and `(k, j, i)` are
-        native voxel spatial dimensions. The DataArray may carry a
-        `compound_sampling_frequency` attribute as scanner provenance, but processing
-        uses the `time` coordinate as the source of truth for temporal spacing.
+        native voxel spatial dimensions.
     clutter_window_width : int, optional
         Width of the sliding temporal window for clutter filtering, in volumes. If not
         provided, uses the chunk size of the IQ data along the temporal dimension.
