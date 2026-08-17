@@ -76,38 +76,34 @@ def apply_affine(
     affine: "npt.NDArray[np.float64] | str",
     inplace: bool = False,
 ) -> xr.DataArray:
-    """Apply a world-space affine to voxel-to-world geometry.
+    """Apply a world-space affine to a DataArray's world coordinates.
 
     The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
     world coordinates are regenerated, and existing `attrs["affines"]` entries are
-    re-expressed against the new world frame. Per-pose `(npose, N, N)` stacks
-    are handled by NumPy broadcasting.
+    re-expressed against the new world frame.
 
     Parameters
     ----------
     da : xarray.DataArray
         Input scan with voxel-to-world geometry (a `VoxelToWorldIndex`).
-    affine : numpy.ndarray, shape (N, N), or str
-        Homogeneous world-space affine matrix to apply. If a string, it is
-        looked up as a key in `da.attrs["affines"]`.
+    affine : (4, 4) numpy.ndarray or str
+        Homogeneous world-space affine matrix to apply. If a string, it is looked up as
+        a key in `da.attrs["affines"]`.
     inplace : bool, default: False
         Whether to modify the DataArray in-place.
 
     Returns
     -------
     xarray.DataArray
-        `da` with updated spatial coordinates and updated `attrs["affines"]`.
-        When `affine` is a string, that key is dropped from the result: composing
-        a stored affine with itself is deterministically identity, so the entry
-        would carry no information -- the world frame now simply *is* that
-        named space.
+        `da` with updated spatial coordinates and updated `attrs["affines"]`. When
+        `affine` is a string, that key is dropped from the result.
 
     Raises
     ------
     ValueError
-        If `da` lacks voxel-to-world geometry, if `affine` shape does not match
-        the DataArray's voxel-to-world affine, or if `affine` is a string and
-        `da` has no `"affines"` entry in `attrs`.
+        If `da` lacks voxel-to-world geometry, if `affine` shape does not match the
+        DataArray's voxel-to-world affine, or if `affine` is a string and `da` has no
+        `"affines"` entry in `attrs`.
     KeyError
         If `affine` is a string not present in `da.attrs["affines"]`.
 
@@ -441,16 +437,15 @@ class FUSIAffineAccessor:
         affine: "npt.NDArray[np.float64] | str",
         inplace: bool = False,
     ) -> xr.DataArray:
-        """Apply a world-space affine to voxel-to-world geometry.
+        """Apply a world-space affine to a DataArray's world coordinates.
 
         The transform is composed into the DataArray's `VoxelToWorldIndex`, derived
         world coordinates are regenerated, and existing `attrs["affines"]` entries
-        are re-expressed against the new world frame. Per-pose `(npose, N, N)`
-        stacks are handled by NumPy broadcasting.
+        are re-expressed against the new world frame.
 
         Parameters
         ----------
-        affine : numpy.ndarray, shape (N, N), or str
+        affine : (4, 4) numpy.ndarray or str
             Homogeneous world-space affine matrix to apply. If a string, it is
             looked up as a key in `self.attrs["affines"]`.
         inplace : bool, default: False
@@ -460,10 +455,7 @@ class FUSIAffineAccessor:
         -------
         xarray.DataArray
             The DataArray with updated spatial coordinates and `attrs["affines"]`.
-            When `affine` is a string, that key is dropped from the result:
-            composing a stored affine with itself is deterministically identity,
-            so the entry would carry no information -- the world frame now
-            simply *is* that named space.
+            When `affine` is a string, that key is dropped from the result.
 
         Raises
         ------
@@ -523,7 +515,7 @@ class FUSIAffineAccessor:
         >>> data = base.isel(j=slice(2, 5), i=slice(1, 5))
         >>> reindexed = data.fusi.affine.reindex_voxels()
         >>> reindexed.coords["j"].values
-        array([0., 1., 2.])
+        array([0, 1, 2])
         >>> float(reindexed.coords["y"].isel(j=0, i=0, k=0))
         2.0
         """
