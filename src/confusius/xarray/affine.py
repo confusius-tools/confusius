@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import xarray as xr
 
+from confusius._dims import POSE_DIM
 from confusius._utils.geometry import (
     attach_voxel_to_world_index,
     get_voxel_to_world_affine,
@@ -225,7 +226,10 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
     -------
     xarray.DataArray
         `da` with voxel coordinates rebased to `0, 1, ..., dim - 1` and an updated
-        `voxel_to_world` affine. World coordinates are unchanged.
+        `voxel_to_world` affine. World coordinates are unchanged. For pose-dependent
+        geometry, `voxel_to_world` stays a per-pose stack: each pose keeps its own
+        origin and direction (spacing is shared, per the equal-scale invariant), so
+        rebasing is unambiguous per pose and every pose is reindexed at once.
 
     Raises
     ------
@@ -246,16 +250,30 @@ def reindex_voxels(da: xr.DataArray) -> xr.DataArray:
             f"Cannot reindex voxels because spacing is undefined for dimensions "
             f"{missing_spacing!r}."
         )
-    origin = get_voxel_to_world_index_origin(da)
-    # Already expressed in dense-position terms (accounts for a descending voxel
-    # coordinate, e.g. after `.isel(dim=slice(None, None, -1))`), matching how
-    # `spacing` (a magnitude) and dense array position combine below.
-    direction = get_voxel_to_world_direction_matrix(da)
-
+    spacing_diag = np.diag([spacing[dim] for dim in voxel_dims])
     ndim = len(voxel_dims)
-    new_affine = np.eye(ndim + 1, dtype=np.float64)
-    new_affine[:ndim, :ndim] = direction @ np.diag([spacing[dim] for dim in voxel_dims])
-    new_affine[:ndim, ndim] = [origin[name] for name in world_coord_names]
+
+    def _new_pose_affine(pose_da: xr.DataArray) -> "npt.NDArray[np.float64]":
+        origin = get_voxel_to_world_index_origin(pose_da)
+        # Already expressed in dense-position terms (accounts for a descending
+        # voxel coordinate, e.g. after `.isel(dim=slice(None, None, -1))`),
+        # matching how `spacing` (a magnitude) and dense array position combine
+        # below.
+        direction = get_voxel_to_world_direction_matrix(pose_da)
+        affine = np.eye(ndim + 1, dtype=np.float64)
+        affine[:ndim, :ndim] = direction @ spacing_diag
+        affine[:ndim, ndim] = [origin[name] for name in world_coord_names]
+        return affine
+
+    if POSE_DIM in da.dims and get_voxel_to_world_affine(da).ndim == 3:
+        new_affine = np.stack(
+            [
+                _new_pose_affine(da.isel({POSE_DIM: pose}))
+                for pose in range(da.sizes[POSE_DIM])
+            ]
+        )
+    else:
+        new_affine = _new_pose_affine(da)
 
     world_coord_attrs = {
         name: dict(da.coords[name].attrs)

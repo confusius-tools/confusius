@@ -371,7 +371,45 @@ class TestReindexVoxels:
             result.coords["x"].isel(k=0, j=0).values,
             data.coords["x"].isel(k=0, j=0).values,
         )
-        np.testing.assert_array_equal(result.values, data.values)
+
+    def test_pose_dependent_reindexes_every_pose_at_once(self):
+        """Pose-dependent geometry reindexes every pose's affine independently."""
+        affine = np.stack(
+            [
+                np.eye(4),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+        base = xr.DataArray(
+            np.zeros((2, 2, 3, 4)),
+            dims=("pose", "k", "j", "i"),
+            coords={
+                "pose": [0, 1],
+                "k": np.arange(2),
+                "j": np.arange(3),
+                "i": np.arange(4),
+            },
+        )
+        data = attach_voxel_to_world_index(base, affine)
+        cropped = data.isel(k=slice(1, 2), j=slice(1, 3))
+
+        result = cropped.fusi.affine.reindex_voxels()
+
+        assert result.coords["pose"].dims == ("pose",)
+        np.testing.assert_array_equal(result.coords["pose"].values, [0, 1])
+        np.testing.assert_array_equal(result.coords["k"].values, [0.0])
+        np.testing.assert_allclose(result.coords["z"].values, cropped.coords["z"].values)
+        np.testing.assert_allclose(result.coords["y"].values, cropped.coords["y"].values)
+        np.testing.assert_allclose(result.coords["x"].values, cropped.coords["x"].values)
+        assert get_voxel_to_world_affine(result).shape == (2, 4, 4)
+        np.testing.assert_array_equal(result.values, cropped.values)
 
     def test_raises_without_voxel_to_world_geometry(self):
         """A plain DataArray without voxel-to-world geometry raises ValueError."""
