@@ -35,13 +35,13 @@ def _raise_undefined_spatial_spacing_error(undefined_dims: list[str]) -> None:
     Raises
     ------
     ValueError
-        Always raised with a message explaining how to repair singleton axes.
+        Always raised with a message explaining that the coordinates are irregular.
     """
     raise ValueError(
         "Registration requires defined spatial spacing for all spatial "
-        f"dimensions, but {undefined_dims!r} are undefined. For singleton spatial "
-        "axes, set a `voxdim` coordinate attribute (e.g. `da.coords['z'].attrs['voxdim'] = 0.5`) "
-        "before registering."
+        f"dimensions, but {undefined_dims!r} are irregularly spaced (spacing is not "
+        "uniform along the coordinate). Resample onto a regularly spaced grid before "
+        "registering."
     )
 
 

@@ -360,13 +360,13 @@ class TestSimpleITKGeometry:
             dataarray_to_sitk_image(da)
 
     def test_undefined_voxel_to_world_spacing_raises_repair_hint(self):
-        """An irregular voxel-to-world coordinate raises a `voxdim`-repair error."""
+        """An irregularly spaced voxel-to-world coordinate raises a repair error."""
         da = create_fusi_dataarray(
             np.zeros((1, 4, 5)),
             dims=("k", "j", "i"),
             voxel_to_world=np.eye(4),
         ).assign_coords(j=np.array([0.0, 1.0, 3.0, 6.0]))
-        with pytest.raises(ValueError, match="voxdim"):
+        with pytest.raises(ValueError, match="irregularly spaced"):
             get_defined_spatial_spacing(da)
 
 
