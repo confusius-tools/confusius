@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from numpy.testing import assert_allclose, assert_array_equal
+from xarray.indexes import CoordinateTransformIndex
 
 from confusius._utils.geometry import (
     VoxelToWorldIndex,
@@ -16,8 +17,216 @@ from confusius._utils.geometry import (
     get_voxel_to_world_coord_names,
     get_voxel_to_world_index_origin,
     get_voxel_to_world_spacings_from_coords,
+    has_axis_aligned_voxel_to_world_index,
     restore_voxel_to_world_index,
 )
+
+
+def _pose_dependent_result(
+    pose_affines: np.ndarray | None = None, pose_coord: np.ndarray | None = None
+) -> xr.DataArray:
+    """Build a pose-dependent voxel-to-world DataArray shared by pose tests."""
+    if pose_affines is None:
+        pose_affines = np.stack(
+            [
+                np.diag([1.0, 1.0, 1.0, 1.0]),
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0, 100.0],
+                        [0.0, 1.0, 0.0, 0.0],
+                        [0.0, 0.0, 1.0, 0.0],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                ),
+            ]
+        )
+    if pose_coord is None:
+        pose_coord = np.array([0, 1])
+    data = xr.DataArray(
+        np.arange(2 * 2 * 3 * 4).reshape(2, 2, 3, 4),
+        dims=("pose", "k", "j", "i"),
+        coords={
+            "k": np.arange(2),
+            "j": np.arange(3),
+            "i": np.arange(4),
+        },
+    )
+    transform = VoxelToWorldTransform(
+        {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)},
+        pose_affines,
+        pose_coord=pose_coord,
+    )
+    index = VoxelToWorldIndex(
+        CoordinateTransformIndex(transform), pose_affines, world_coord_attrs=None
+    )
+    return data.assign_coords(xr.Coordinates.from_xindex(index))
+
+
+def test_pose_dependent_forward_gives_translated_world_coords_per_pose() -> None:
+    """Forward coordinates differ per pose when poses have distinct translations."""
+    result = _pose_dependent_result()
+
+    assert result.coords["pose"].dims == ("pose",)
+    assert_array_equal(result.coords["pose"].values, [0, 1])
+    assert result.coords["z"].dims == ("pose", "k", "j", "i")
+    assert_allclose(
+        result.coords["z"].isel(pose=0, j=0, i=0).values, [0.0, 1.0]
+    )
+    assert_allclose(
+        result.coords["z"].isel(pose=1, j=0, i=0).values, [100.0, 101.0]
+    )
+
+
+def test_pose_dependent_forward_supports_rotated_poses() -> None:
+    """Forward coordinates reflect differing rotations across poses."""
+    rotation = np.array(
+        [
+            [0.0, -1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    result = _pose_dependent_result(
+        pose_affines=np.stack([np.eye(4), rotation]), pose_coord=np.array([0, 1])
+    )
+
+    unrotated = result.isel(pose=0, k=0, j=1, i=0)
+    rotated = result.isel(pose=1, k=0, j=1, i=0)
+    assert unrotated.coords["z"].item() == 0.0
+    assert unrotated.coords["y"].item() == 1.0
+    assert unrotated.coords["x"].item() == 0.0
+    assert rotated.coords["z"].item() == -1.0
+    assert rotated.coords["y"].item() == 0.0
+    assert rotated.coords["x"].item() == 0.0
+
+
+def test_pose_dependent_sel_requires_scalar_pose_for_world_selection() -> None:
+    """World-coordinate selection without a scalar pose raises a guiding error."""
+    result = _pose_dependent_result()
+
+    with pytest.raises(ValueError, match="requires a scalar `pose` label"):
+        result.sel(z=0.0, y=0.0, x=0.0)
+    with pytest.raises(ValueError, match="requires a scalar `pose` label"):
+        result.sel(pose=[0, 1], z=0.0, y=0.0, x=0.0)
+    with pytest.raises(ValueError, match="requires a scalar `pose` label"):
+        result.sel(pose=slice(0, 2), z=0.0, y=0.0, x=0.0)
+
+
+def test_pose_dependent_sel_resolves_pose_then_world_coords() -> None:
+    """A scalar pose label resolves the matching affine before spatial lookup."""
+    result = _pose_dependent_result()
+
+    selected = result.sel(pose=1, z=100.0, y=1.0, x=2.0, method="nearest")
+
+    assert selected.item() == result.isel(pose=1, k=0, j=1, i=2).item()
+
+
+def test_pose_dependent_scalar_isel_drops_pose_dependency() -> None:
+    """Scalar `isel` on `pose` selects one affine and removes the pose dim."""
+    result = _pose_dependent_result()
+
+    fixed = result.isel(pose=1)
+
+    assert "pose" not in fixed.dims
+    assert fixed.coords["z"].dims == ("k", "j", "i")
+    assert_allclose(fixed.coords["z"].isel(j=0, i=0).values, [100.0, 101.0])
+    # Existing single-affine `.sel` behavior applies once pose is scalar.
+    assert fixed.sel(z=100.0, y=0.0, x=0.0).item() == fixed.isel(k=0, j=0, i=0).item()
+
+
+def test_pose_dependent_slice_and_fancy_isel_subset_pose_and_affines() -> None:
+    """Non-scalar `pose` indexers subset/reorder both labels and affines."""
+    result = _pose_dependent_result()
+
+    sliced = result.isel(pose=slice(1, 2))
+    assert_array_equal(sliced.coords["pose"].values, [1])
+    assert sliced.coords["z"].dims == ("pose", "k", "j", "i")
+
+    reordered = result.isel(pose=[1, 0])
+    assert_array_equal(reordered.coords["pose"].values, [1, 0])
+    assert_allclose(
+        reordered.coords["z"].isel(pose=0, j=0, i=0).values, [100.0, 101.0]
+    )
+    assert_allclose(
+        reordered.coords["z"].isel(pose=1, j=0, i=0).values, [0.0, 1.0]
+    )
+
+
+def test_pose_dependent_spatial_isel_subsets_while_pose_stack_remains() -> None:
+    """Spatial `isel` subsets voxel coords while the pose stack stays intact."""
+    result = _pose_dependent_result()
+
+    subset = result.isel(k=0)
+
+    assert subset.coords["pose"].dims == ("pose",)
+    assert_array_equal(subset.coords["pose"].values, [0, 1])
+    assert subset.coords["z"].dims == ("pose", "j", "i")
+
+
+def test_pose_affine_stack_validates_shape_length_finiteness_and_scale() -> None:
+    """Constructing a pose-dependent transform validates the affine stack."""
+    valid_coords = {"k": np.arange(2.0), "j": np.arange(3.0), "i": np.arange(4.0)}
+    good = np.stack([np.eye(4), np.eye(4)])
+
+    with pytest.raises(ValueError, match="pose_coord must be 1D"):
+        VoxelToWorldTransform(
+            valid_coords, good, pose_coord=np.array([[0, 1]])
+        )
+
+    with pytest.raises(ValueError, match="must have shape"):
+        VoxelToWorldTransform(
+            valid_coords, good, pose_coord=np.array([0, 1, 2])
+        )
+
+    non_finite = good.copy()
+    non_finite[0, 0, 0] = np.nan
+    with pytest.raises(ValueError, match="must be finite"):
+        VoxelToWorldTransform(valid_coords, non_finite, pose_coord=np.array([0, 1]))
+
+    bad_row = good.copy()
+    bad_row[0, -1, -1] = 2.0
+    with pytest.raises(ValueError, match="homogeneous final row"):
+        VoxelToWorldTransform(valid_coords, bad_row, pose_coord=np.array([0, 1]))
+
+    mismatched_scale = np.stack([np.diag([1.0, 1.0, 1.0, 1.0]), np.diag([2.0, 1.0, 1.0, 1.0])])
+    with pytest.raises(ValueError, match="equal spatial scale magnitudes"):
+        VoxelToWorldTransform(
+            valid_coords, mismatched_scale, pose_coord=np.array([0, 1])
+        )
+
+
+def test_has_axis_aligned_voxel_to_world_index_checks_every_pose() -> None:
+    """`has_axis_aligned_voxel_to_world_index` requires every pose to be aligned."""
+    aligned = _pose_dependent_result()
+    assert has_axis_aligned_voxel_to_world_index(aligned) is True
+
+    angle = np.pi / 4
+    oblique_second_pose = np.stack(
+        [
+            np.eye(4),
+            np.array(
+                [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, np.cos(angle), -np.sin(angle), 0.0],
+                    [0.0, np.sin(angle), np.cos(angle), 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            ),
+        ]
+    )
+    oblique = _pose_dependent_result(pose_affines=oblique_second_pose)
+    assert has_axis_aligned_voxel_to_world_index(oblique) is False
+
+
+def test_pose_dependent_index_equality_compares_pose_labels_and_affines() -> None:
+    """Index equality accounts for pose labels and the affine stack."""
+    left = _pose_dependent_result()
+    same = _pose_dependent_result()
+    different_pose_labels = _pose_dependent_result(pose_coord=np.array([0, 2]))
+
+    assert left.xindexes["z"].equals(same.xindexes["z"])
+    assert not left.xindexes["z"].equals(different_pose_labels.xindexes["z"])
 
 
 def test_axis_aligned_voxel_to_world_computes_correct_world_coords() -> None:
