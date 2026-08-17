@@ -10,7 +10,7 @@ generation**:
 | Tool | Backend | Best for |
 |---|---|---|
 | [`plot_napari`][confusius.plotting.plot_napari] / [`.fusi.plot.napari()`][confusius.xarray.FUSIPlotAccessor.napari] | napari | Interactive exploration of 3D+t datasets |
-| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] | napari | Interactive manual ROI drawing |
+| [`draw_napari_labels`][confusius.plotting.draw_napari_labels] / [`.fusi.plot.draw_napari_labels()`][confusius.xarray.FUSIPlotAccessor.draw_napari_labels] + [`labels_from_layer`][confusius.plotting.labels_from_layer] / [`.fusi.plot.labels_from_layer()`][confusius.xarray.FUSIPlotAccessor.labels_from_layer] | napari | Interactive manual ROI drawing |
 | [`plot_volume`][confusius.plotting.plot_volume] / [`.fusi.plot.volume()`][confusius.xarray.FUSIPlotAccessor.volume] | Matplotlib | Static slice grids |
 | [`plot_contours`][confusius.plotting.plot_contours] / [`.fusi.plot.contours()`][confusius.xarray.FUSIPlotAccessor.contours] | Matplotlib | Contour-only grids (masks or atlas outlines) |
 | [`plot_composite`][confusius.plotting.plot_composite] / [`.fusi.plot.composite()`][confusius.xarray.FUSIPlotAccessor.composite] | Matplotlib | Composite plots of two volumes |
@@ -258,7 +258,7 @@ into a stacked integer DataArray compatible with
 from confusius.plotting import labels_from_layer
 
 # Convert the painted layer to a stacked DataArray.
-# label_map has dims ("masks", "z", "y", "x"), one layer per painted label.
+# label_map has dims ("mask", "k", "j", "i"), one layer per painted label.
 label_map = labels_from_layer(labels_layer, mean_vol)
 
 # Each label's color as painted in napari is stored in attrs["rgb_lookup"]
@@ -266,7 +266,7 @@ label_map = labels_from_layer(labels_layer, mean_vol)
 
 # Extract region-averaged signals.
 region_signals = pwd.fusi.extract.with_labels(label_map)
-# region_signals has dims (time, regions).
+# region_signals has dims (time, region).
 
 # Overlay contours on a volume plot.
 plotter = mean_vol.fusi.scale.db().fusi.plot.volume(slice_mode="z", cmap="gray")
